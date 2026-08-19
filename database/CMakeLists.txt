@@ -2,6 +2,7 @@ set(LIBRARY eucliddb)
 set(SOURCES src/Database.cpp src/entity/module/Module.cpp
         src/entity/sqs/Variant.cpp src/entity/sqs/QueueAttribute.cpp
         src/entity/sqs/RedrivePolicy.cpp src/entity/sqs/Queue.cpp src/entity/sqs/Message.cpp
+        src/entity/sqs/PriorityWeights.cpp
         src/repository/module/MongoModuleRepository.cpp src/repository/sqs/MongoSQSRepository.cpp
         src/entity/access/User.cpp src/repository/access/MongoAccessRepository.cpp
         src/entity/monitoring/MonitoringData.cpp src/repository/monitoring/MongoMonitoringRepository.cpp)

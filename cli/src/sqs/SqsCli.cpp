@@ -100,12 +100,13 @@ namespace Euclid::CLI {
                 ("visibility,v", po::value<long>()->default_value(30), "visibility in seconds")
                 ("max-retries,m", po::value<long>()->default_value(3), "maximal number of retries")
                 ("max-length,l", po::value<long>()->default_value(1024 * 1024), "maximal message length")
-                ("dlq-name,d", po::value<std::string>(), "name of the dead letter queue");
+                ("dlq-name,d", po::value<std::string>(), "name of the dead letter queue")
+                ("delay,e", po::value<long>()->default_value(0), "message delay");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("sqs", "create-queue", "--name <name> [--visibility <seconds>] [--max-retries <value>] [--max-length <value>] [dlq-name <name>]",
+            return PrintActionHelp("sqs", "create-queue", "--name <name> [--visibility <seconds>] [--max-retries <value>] [--max-length <value>] [dlq-name <name>] [--delay <seconds>]",
                                    "Creates a new SQS queue with the given name, max retries, max message length, dead letter queue ARN, and visibility timeout. The dead letter queue name is optional; "
-                                   "visibility defaults to 30 seconds, max retries defaults to 3, and max message length defaults to 1MB.",
+                                   "visibility defaults to 30 seconds, max retries defaults to 3, delay to 0, and max message length defaults to 1MB.",
                                    desc);
         }
 
@@ -125,6 +126,9 @@ namespace Euclid::CLI {
         request.maxMessageLength = vm["max-length"].as<long>();
         if (vm.contains("dlq-name")) {
             request.dlqName = vm["dlq-name"].as<std::string>();
+        }
+        if (vm.contains("delay")) {
+            request.delay = vm["delay"].as<long>();
         }
 
         try {
@@ -423,14 +427,16 @@ namespace Euclid::CLI {
         desc.add_options()
                 ("ern,e", po::value<std::string>()->required(), "queue resource name")
                 ("body,b", po::value<std::string>()->required(), "message body")
-                ("attributes,a", po::value<std::string>(), "message attributes");
+                ("attributes,a", po::value<std::string>(), "message attributes")
+                ("priority,p", po::value<std::string>()->default_value("MIDDLE"), "message priority (LOW|MIDDLE|HIGH)");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("sqs", "send-message", "--ern <ern> --body <body|file://path> [--attributes <json|file://path>]",
+            return PrintActionHelp("sqs", "send-message", "--ern <ern> --body <body|file://path> [--attributes <json|file://path>] [--priority <LOW|MIDDLE|HIGH>]",
                                    "Sends a message to an SQS queue. If --body starts with 'file://', the message "
                                    "body is read from the referenced file instead of being taken literally. The optional --attributes value sets the message "
                                    "attributes as a JSON object mapping attribute name to {\"type\": <int|long|double|float|bool|string|binary>, \"value\": <value>}, "
-                                   "given either literally or via 'file://path' to a file containing the JSON.",
+                                   "given either literally or via 'file://path' to a file containing the JSON. --priority defaults to MIDDLE and influences how "
+                                   "the message is prioritized by receive-messages.",
                                    desc);
         }
 
@@ -445,6 +451,7 @@ namespace Euclid::CLI {
 
         Dto::SQS::SendMessageRequest request;
         request.queueErn = vm["ern"].as<std::string>();
+        request.priority = vm["priority"].as<std::string>();
 
         try {
             request.body = ResolveFileOrLiteral(vm["body"].as<std::string>());
@@ -478,7 +485,10 @@ namespace Euclid::CLI {
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("sqs", "receive-messages", "--ern <ern> [--maxCount <value>] [--waitTime <seconds>]",
-                                   "Receive messages from an SQS queue. If messages are available return up to maxCount messages.",
+                                   "Receive messages from an SQS queue. If messages are available return up to maxCount messages. "
+                                   "The returned messages favor higher priority ones: maxCount slots are split across LOW/MIDDLE/HIGH priority "
+                                   "proportionally to the server's configurable priority weights (4:2:1 by default), so most of a batch is "
+                                   "HIGH priority, fewer MIDDLE, and fewer still LOW.",
                                    desc);
         }
 
@@ -634,7 +644,7 @@ namespace Euclid::CLI {
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("sqs", "get-message-metadata", "--message-id <messageId>",
-                                   "Shows a message's metadata: messageId, queueErn, receiptHandle, status, size (bytes), receivedCount, visibilityTimeout, contentType, md5Body, md5Attributes, created, modified.",
+                                   "Shows a message's metadata: messageId, queueErn, receiptHandle, status, priority, size (bytes), receivedCount, visibilityTimeout, contentType, md5Body, md5Attributes, created, modified.",
                                    desc);
         }
 

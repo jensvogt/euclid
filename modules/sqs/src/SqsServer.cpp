@@ -67,10 +67,11 @@ namespace Euclid::SQS {
             dlQueue.name = request.dlqName;
             dlQueue.ern = Core::createSqsQueueErn(auth.user->accountId, request.dlqName);
             dlQueue.visibility = request.visibility;
-            dlQueue.maxMessageLength = 1024 * 1024;
+            dlQueue.maxMessageLength = request.maxMessageLength;
             dlQueue.maxReceiveCount = request.maxRetries;
             dlQueue.region = auth.user->region;
             dlQueue.owner = auth.user->userId;
+            dlQueue.delay = request.delay;
 
             dlqSaved = Database::RepositoryFactory::instance().sqsRepository()->upsertQueue(dlQueue);
         }
@@ -79,11 +80,12 @@ namespace Euclid::SQS {
         queue.name = request.name;
         queue.ern = Core::createSqsQueueErn(auth.user->accountId, request.name);
         queue.visibility = request.visibility;
-        queue.maxMessageLength = 1024 * 1024;
+        queue.maxMessageLength = request.maxMessageLength;
         queue.maxReceiveCount = request.maxRetries;
         queue.region = auth.user->region;
         queue.owner = auth.user->userId;
         queue.deadLetterQueueErn = dlqSaved.ern;
+        queue.delay = request.delay;
 
         const auto saved = Database::RepositoryFactory::instance().sqsRepository()->upsertQueue(queue);
 
@@ -201,7 +203,7 @@ namespace Euclid::SQS {
             attributes[key] = Dto::SQS::SqsMapper::toEntity(variant);
         }
         const auto repo = Database::RepositoryFactory::instance().sqsRepository();
-        const Database::Entity::SQS::Message message = repo->sendMessage(messageId, ern, request.queueErn, request.body, attributes);
+        const Database::Entity::SQS::Message message = repo->sendMessage(messageId, ern, request.queueErn, request.body, attributes, Database::Entity::SQS::MessagePriorityFromString(request.priority));
 
         Dto::SQS::SendMessageResponse response;
         response.messageId = message.messageId;
@@ -312,6 +314,7 @@ namespace Euclid::SQS {
         response.available = queue->available;
         response.delayed = queue->delayed;
         response.invisible = queue->invisible;
+        response.total = queue->available + queue->delayed + queue->invisible;
         return SqsServer::JsonResponse(req, status::ok, response.toJson());
     }
 
@@ -403,6 +406,7 @@ namespace Euclid::SQS {
         response.queueErn = message->queueErn;
         response.receiptHandle = message->receiptHandle;
         response.status = Database::Entity::SQS::MessageStatusToString(message->status);
+        response.priority = Database::Entity::SQS::MessagePriorityToString(message->priority);
         response.size = message->size;
         response.receivedCount = message->receivedCount;
         response.visibilityTimeout = message->visibilityTimeout;

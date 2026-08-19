@@ -33,6 +33,11 @@ namespace Euclid::Dto::SQS {
         long invisible{};
 
         /**
+         * @brief Total number of messages, i.e. available + delayed + invisible
+         */
+        long total{};
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -48,6 +53,7 @@ namespace Euclid::Dto::SQS {
             r.available = Core::GetLongValue(v, "available");
             r.delayed = Core::GetLongValue(v, "delayed");
             r.invisible = Core::GetLongValue(v, "invisible");
+            r.total = Core::GetLongValue(v, "total");
             return r;
         }
 
@@ -57,6 +63,7 @@ namespace Euclid::Dto::SQS {
                     {"available", obj.available},
                     {"delayed", obj.delayed},
                     {"invisible", obj.invisible},
+                    {"total", obj.total},
             };
         }
     };

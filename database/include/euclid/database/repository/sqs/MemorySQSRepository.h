@@ -5,6 +5,7 @@
 
 // C++ includes
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <map>
 #include <mutex>
@@ -18,6 +19,7 @@
 #include <euclid/core/LogStream.h>
 #include <euclid/core/UuidUtils.h>
 #include <euclid/database/entity/sqs/Message.h>
+#include <euclid/database/entity/sqs/PriorityWeights.h>
 #include <euclid/database/entity/sqs/Queue.h>
 #include <euclid/database/repository/sqs/ISQSRepository.h>
 
@@ -132,7 +134,7 @@ namespace Euclid::Database {
             //_messageStore[message.name] = message;
         }
 
-        Entity::SQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::SQS::Variant> &attributes) override {
+        Entity::SQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::SQS::Variant> &attributes, const Entity::SQS::MessagePriority priority) override {
             std::lock_guard lock(_mutex);
 
             Entity::SQS::Message message;
@@ -144,11 +146,18 @@ namespace Euclid::Database {
             message.contentType = Core::ContentTypeUtils::fromContent(message.body);
             message.attributes = attributes;
             message.md5Attributes = Entity::SQS::Message::ComputeAttributesMd5(attributes);
+            message.priority = priority;
 
             for (auto &queue: _queueStore | std::views::values) {
                 if (queue.ern == queueErn) {
                     message.visibilityTimeout = queue.visibility;
-                    queue.available += 1;
+                    if (queue.delay > 0) {
+                        message.status = Entity::SQS::MessageStatus::DELAYED;
+                        message.delayUntil = std::chrono::system_clock::now() + std::chrono::seconds(queue.delay);
+                        queue.delayed += 1;
+                    } else {
+                        queue.available += 1;
+                    }
                     queue.size += message.size;
                     queue.modified = std::chrono::system_clock::now();
                     break;
@@ -161,6 +170,8 @@ namespace Euclid::Database {
 
         std::vector<Entity::SQS::Message> receiveMessages(const std::string &queueErn, const long maxCount, const long waitTime) override {
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(waitTime);
+            const auto weights = Entity::SQS::LoadPriorityWeights();
+            static constexpr std::array priorityOrder{Entity::SQS::MessagePriority::HIGH, Entity::SQS::MessagePriority::MIDDLE, Entity::SQS::MessagePriority::LOW};
 
             while (true) {
                 {
@@ -176,31 +187,46 @@ namespace Euclid::Database {
                         }
                     }
 
+                    std::map<Entity::SQS::MessagePriority, long> availableCounts;
+                    for (const auto &message: _messageStore | std::views::values) {
+                        if (message.queueErn == queueErn && message.status == Entity::SQS::MessageStatus::AVAILABLE) {
+                            availableCounts[message.priority] += 1;
+                        }
+                    }
+                    const auto takeCounts = Entity::SQS::ComputeReceiveCounts(maxCount, availableCounts, weights);
+
                     std::vector<Entity::SQS::Message> result;
                     long movedCount = 0;
                     long movedSize = 0;
-                    for (auto &message: _messageStore | std::views::values) {
-                        if (static_cast<long>(result.size()) >= maxCount) break;
-                        if (message.queueErn != queueErn || message.status != Entity::SQS::MessageStatus::AVAILABLE) continue;
+                    for (const auto priority: priorityOrder) {
+                        const long target = takeCounts.at(priority);
+                        long taken = 0;
+                        if (target <= 0) continue;
 
-                        message.receivedCount += 1;
-                        message.modified = std::chrono::system_clock::now();
-                        message.lastReceived = message.modified;
+                        for (auto &message: _messageStore | std::views::values) {
+                            if (taken >= target || static_cast<long>(result.size()) >= maxCount) break;
+                            if (message.queueErn != queueErn || message.status != Entity::SQS::MessageStatus::AVAILABLE || message.priority != priority) continue;
 
-                        if (!deadLetterQueueErn.empty() && message.receivedCount > maxReceiveCount) {
-                            movedCount += 1;
-                            movedSize += message.size;
-                            message.queueErn = deadLetterQueueErn;
-                            message.status = Entity::SQS::MessageStatus::AVAILABLE;
-                            message.receivedCount = 0;
-                            message.receiptHandle.clear();
-                            log_info << "Message moved to dead letter queue, ern: " << queueErn << ", dlqErn: " << deadLetterQueueErn << ", messageId: " << message.messageId;
-                            continue;
+                            message.receivedCount += 1;
+                            message.modified = std::chrono::system_clock::now();
+                            message.lastReceived = message.modified;
+
+                            if (!deadLetterQueueErn.empty() && message.receivedCount > maxReceiveCount) {
+                                movedCount += 1;
+                                movedSize += message.size;
+                                message.queueErn = deadLetterQueueErn;
+                                message.status = Entity::SQS::MessageStatus::AVAILABLE;
+                                message.receivedCount = 0;
+                                message.receiptHandle.clear();
+                                log_info << "Message moved to dead letter queue, ern: " << queueErn << ", dlqErn: " << deadLetterQueueErn << ", messageId: " << message.messageId;
+                                continue;
+                            }
+
+                            message.status = Entity::SQS::MessageStatus::INVISIBLE;
+                            message.receiptHandle = Core::UuidUtils::CreateRandomUuid();
+                            result.push_back(message);
+                            taken += 1;
                         }
-
-                        message.status = Entity::SQS::MessageStatus::INVISIBLE;
-                        message.receiptHandle = Core::UuidUtils::CreateRandomUuid();
-                        result.push_back(message);
                     }
 
                     if (movedCount > 0) {
@@ -251,7 +277,7 @@ namespace Euclid::Database {
                 if (queue.ern == message.queueErn) {
                     queue.size -= message.size;
                     if (message.status == Entity::SQS::MessageStatus::AVAILABLE) {
-                        queue.delayed -= 1;
+                        queue.available -= 1;
                     } else if (message.status == Entity::SQS::MessageStatus::DELAYED) {
                         queue.delayed -= 1;
                     } else if (message.status == Entity::SQS::MessageStatus::INVISIBLE) {
@@ -380,16 +406,24 @@ namespace Euclid::Database {
 
             const auto now = std::chrono::system_clock::now();
             std::map<std::string, long> resetCountByQueue;
+            std::map<std::string, long> delayedResetCountByQueue;
 
             for (auto &message: _messageStore | std::views::values) {
-                if (message.status != Entity::SQS::MessageStatus::INVISIBLE) continue;
-                if (now < message.lastReceived + std::chrono::seconds(message.visibilityTimeout)) continue;
+                if (message.status == Entity::SQS::MessageStatus::INVISIBLE) {
+                    if (now < message.lastReceived + std::chrono::seconds(message.visibilityTimeout)) continue;
 
-                message.status = Entity::SQS::MessageStatus::AVAILABLE;
-                message.lastReceived = std::chrono::system_clock::time_point{};
-                message.receiptHandle.clear();
-                resetCountByQueue[message.queueErn]++;
-                log_debug << "Message visibility timeout expired, messageId: " << message.messageId << ", queueErn: " << message.queueErn;
+                    message.status = Entity::SQS::MessageStatus::AVAILABLE;
+                    message.lastReceived = std::chrono::system_clock::time_point{};
+                    message.receiptHandle.clear();
+                    resetCountByQueue[message.queueErn]++;
+                    log_debug << "Message visibility timeout expired, messageId: " << message.messageId << ", queueErn: " << message.queueErn;
+                } else if (message.status == Entity::SQS::MessageStatus::DELAYED) {
+                    if (now < message.delayUntil) continue;
+
+                    message.status = Entity::SQS::MessageStatus::AVAILABLE;
+                    delayedResetCountByQueue[message.queueErn]++;
+                    log_debug << "Message delay expired, messageId: " << message.messageId << ", queueErn: " << message.queueErn;
+                }
             }
 
             long resetCount = 0;
@@ -398,6 +432,19 @@ namespace Euclid::Database {
                 for (auto &queue: _queueStore | std::views::values) {
                     if (queue.ern == queueErn) {
                         queue.invisible -= count;
+                        queue.available += count;
+                        queue.modified = now;
+                        break;
+                    }
+                }
+            }
+
+            for (const auto &[queueErn, count]: delayedResetCountByQueue) {
+                resetCount += count;
+                for (auto &queue: _queueStore | std::views::values) {
+                    if (queue.ern == queueErn) {
+                        queue.delayed -= count;
+                        queue.available += count;
                         queue.modified = now;
                         break;
                     }

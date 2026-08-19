@@ -37,6 +37,11 @@ namespace Euclid::Dto::SQS {
         std::string dlqName;
 
         /**
+         * @brief Delay in seconds for any message send to this queue.
+         */
+        long delay = 0;
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -59,6 +64,7 @@ namespace Euclid::Dto::SQS {
             r.maxRetries = Core::GetLongValue(v, "maxRetries");
             r.maxMessageLength = Core::GetLongValue(v, "maxMessageLength");
             r.dlqName = Core::GetStringValue(v, "dlqName");
+            r.delay = Core::GetLongValue(v, "delay");
             return r;
         }
 
@@ -69,6 +75,7 @@ namespace Euclid::Dto::SQS {
                     {"maxRetries", obj.maxRetries},
                     {"maxMessageLength", obj.maxMessageLength},
                     {"dlqName", obj.dlqName},
+                    {"delay", obj.delay},
             };
         }
     };
