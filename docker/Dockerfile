@@ -66,25 +66,25 @@ RUN mkdir -p /usr/local/euclid/data/tmp && \
 COPY --from=buildfrontend /usr/src/euclid-ui/dist/euclid-ui/browser/ /usr/local/euclid/frontend/
 
 # Install euclid
-COPY --from=build /usr/src/euclid/build/bin/euclid-mgr /usr/local/euclid/bin/
+COPY --from=build /usr/src/euclid/build/bin/euclid-manager /usr/local/euclid/bin/
 COPY --from=build /usr/src/euclid/build/bin/euclid-cli /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-acc /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-sqs /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-mon /usr/local/euclid/bin/
+COPY --from=build /usr/src/euclid/build/bin/euclid-access /usr/local/euclid/bin/
+COPY --from=build /usr/src/euclid/build/bin/euclid-queues /usr/local/euclid/bin/
+COPY --from=build /usr/src/euclid/build/bin/euclid-monitoring /usr/local/euclid/bin/
 COPY --from=build /usr/src/euclid/dist/linux/etc/magic.mgc /usr/local/euclid/etc/magic.mgc
 COPY --from=build /usr/src/euclid/dist/linux/etc/ssh_host_key /usr/local/euclid/etc/ssh_host_key
 COPY --from=build /usr/src/euclid/dist/linux/etc/euclid_cert.crt /usr/local/euclid/etc/euclid_cert.crt
 COPY --from=build /usr/src/euclid/dist/linux/etc/euclid_cert.key /usr/local/euclid/etc/euclid_cert.key
 COPY --from=build /usr/src/euclid/dist/etc/euclid_docker.json /usr/local/euclid/etc/euclid.json
 
-# euclid-mgr resolves euclid-acc/euclid-sqs/euclid-mon via PATH
+# euclid-manager resolves euclid-access/euclid-queues/euclid-monitoring via PATH
 ENV PATH="/usr/local/euclid/bin:${PATH}"
 RUN ln -s /usr/local/euclid/bin/euclid-cli /usr/bin/euclid-cli || true
-RUN ln -s /usr/local/euclid/bin/euclid-mgr /usr/bin/euclid-mgr || true
+RUN ln -s /usr/local/euclid/bin/euclid-manager /usr/bin/euclid-manager || true
 
 # Gateway HTTP / frontend / websocket ports
 EXPOSE 5566
 EXPOSE 4567
 EXPOSE 4569
 
-CMD ["/usr/local/euclid/bin/euclid-mgr", "--config", "/usr/local/euclid/etc/euclid.json"]
+CMD ["/usr/local/euclid/bin/euclid-manager", "--config", "/usr/local/euclid/etc/euclid.json"]

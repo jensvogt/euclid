@@ -1,4 +1,4 @@
-set(BINARY euclid-acc)
+set(BINARY euclid-access)
 
 add_executable(${BINARY} src/main.cpp src/AccessServer.cpp)
 

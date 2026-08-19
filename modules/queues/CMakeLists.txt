@@ -1,4 +1,4 @@
-set(BINARY euclid-sqs)
+set(BINARY euclid-queues)
 
 add_executable(${BINARY} src/main.cpp src/SqsServer.cpp)
 

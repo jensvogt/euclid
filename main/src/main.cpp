@@ -14,7 +14,7 @@
 #include <euclid/manager/GatewayServer.h>
 
 // ── Constants ───────────────────────────────────────────────
-#define DEFAULT_CONFIGURATION_FILE "/etc/euclid/euclid.json"
+#define DEFAULT_CONFIGURATION_FILE "/usr/local/euclid/etc/euclid.json"
 #define DEFAULT_LOG_LEVEL          "info"
 #define DEFAULT_HTTP_PORT          5566
 
@@ -244,7 +244,7 @@ int main(const int argc, char *argv[]) {
 
     log_info << "Euclid starting, config: " << cliOpts->configFile;
     log_info << "Gateway port: " << cfg.getOr<int>("euclid.gateway.http.port", DEFAULT_HTTP_PORT);
-    log_info << "Starting euclid-mgr " << APP_VERSION << ", pid: " << Euclid::Core::SystemUtils::GetPid()
+    log_info << "Starting euclid-manager " << APP_VERSION << ", pid: " << Euclid::Core::SystemUtils::GetPid()
             << ", loglevel: " << Euclid::Core::Configuration::instance().get<std::string>("euclid.logging.level") << ", boost: " << BOOST_LIB_VERSION;
 
     Euclid::main::ServiceController ctrl;
