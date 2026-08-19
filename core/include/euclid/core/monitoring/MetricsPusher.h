@@ -28,7 +28,7 @@ namespace Euclid::Core::Monitoring {
          * @brief Starts pushing this process' metrics under the given module name.
          *
          * @param moduleName name reported alongside every pushed sample, and the name this
-         * process is registered under in the module repository (e.g. "sqs", "access").
+         * process is registered under in the module repository (e.g. "queues", "access").
          */
         explicit MetricsPusher(std::string moduleName);
 

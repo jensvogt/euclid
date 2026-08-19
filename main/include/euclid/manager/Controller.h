@@ -132,7 +132,7 @@ namespace Euclid::main {
          * chosen instance's activeRequests counter (feeds the autoscaler's load signal). Callers
          * must pair this with releaseInstance() once the request completes.
          *
-         * @param name Service name (e.g. "access", "sqs").
+         * @param name Service name (e.g. "access", "queues").
          * @return Handle to the chosen instance's socket path and pid, or nullopt if the service
          *         is not registered or has no running instances.
          */

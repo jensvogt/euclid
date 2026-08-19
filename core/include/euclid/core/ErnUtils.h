@@ -32,7 +32,7 @@ namespace Euclid::Core {
      * @return resource ERN
      */
     inline std::string createSqsQueueErn(const std::string &accountId, const std::string &name) {
-        return createErn("sqs", accountId, "queue:" + name);
+        return createErn("queues", accountId, "queue:" + name);
     }
 
     /**
@@ -43,7 +43,7 @@ namespace Euclid::Core {
      * @return resource ERN
      */
     inline std::string createSqsMessageErn(const std::string &accountId, const std::string &messageId) {
-        return createErn("sqs", accountId, "message:" + messageId);
+        return createErn("queues", accountId, "message:" + messageId);
     }
 
     /**

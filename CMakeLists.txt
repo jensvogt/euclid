@@ -25,16 +25,16 @@ set(CMAKE_FIND_PACKAGE_NO_PACKAGE_REGISTRY ON)
 set(CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH OFF)
 
 # -------------------------------------------------------------------------
-# Collect every executable (euclid-mgr, euclid-cli, euclid-acc, euclid-sqs,
+# Collect every executable (euclid-mgr, euclid-cli, euclid-acc, euclid-queues,
 # euclid-mon, ...) into a single flat <build>/bin/ directory, regardless of which
 # subdirectory add_executable() was called from and regardless of single- vs
 # multi-config generator - so packaging/installer scripts have one predictable path.
 # -------------------------------------------------------------------------
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-foreach(OUTPUTCONFIG ${CMAKE_CONFIGURATION_TYPES})
+foreach (OUTPUTCONFIG ${CMAKE_CONFIGURATION_TYPES})
     string(TOUPPER ${OUTPUTCONFIG} OUTPUTCONFIG)
     set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${OUTPUTCONFIG} ${CMAKE_BINARY_DIR}/bin)
-endforeach()
+endforeach ()
 
 find_package(LibArchive REQUIRED)
 find_package(bsoncxx CONFIG REQUIRED)
@@ -45,12 +45,12 @@ find_package(OpenSSL REQUIRED COMPONENTS SSL Crypto)
 find_package(libssh CONFIG REQUIRED)
 
 find_library(TCMALLOC_LIBRARY NAMES tcmalloc tcmalloc_minimal)
-if(TCMALLOC_LIBRARY)
+if (TCMALLOC_LIBRARY)
     message(STATUS "tcmalloc found, linking all targets against ${TCMALLOC_LIBRARY}")
     link_libraries(${TCMALLOC_LIBRARY})
-else()
+else ()
     message(STATUS "tcmalloc not found, using default allocator")
-endif()
+endif ()
 
 enable_testing()
 
@@ -58,7 +58,7 @@ add_subdirectory(core)
 add_subdirectory(database)
 add_subdirectory(dto)
 add_subdirectory(main)
-add_subdirectory(modules/sqs)
+add_subdirectory(modules/queues)
 add_subdirectory(modules/access)
 add_subdirectory(modules/monitoring)
 add_subdirectory(cli)
