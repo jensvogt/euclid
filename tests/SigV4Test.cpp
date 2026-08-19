@@ -41,11 +41,11 @@ namespace {
 }
 
 // get-vanilla: GET /, no query, only host/x-amz-date signed, empty body.
-BOOST_AUTO_TEST_CASE(GetVanilla) {
+BOOST_AUTO_TEST_CASE (GetVanilla) {
 
     const std::map<std::string, std::string> headers = {
-            {"host", "example.amazonaws.com"},
-            {"x-amz-date", kAmzDate},
+        {"host", "example.amazonaws.com"},
+        {"x-amz-date", kAmzDate},
     };
     const std::vector<std::string> signedHeaders = {"host", "x-amz-date"};
     const auto payloadHash = CryptoUtils::sha256Hex("");
@@ -66,11 +66,11 @@ BOOST_AUTO_TEST_CASE(GetVanilla) {
 
 // get-vanilla-query-order-key-case: query parameters must be sorted alphabetically by key,
 // regardless of the order they appear in the request.
-BOOST_AUTO_TEST_CASE(GetVanillaQueryOrderKeyCase) {
+BOOST_AUTO_TEST_CASE (GetVanillaQueryOrderKeyCase) {
 
     const std::map<std::string, std::string> headers = {
-            {"host", "example.amazonaws.com"},
-            {"x-amz-date", kAmzDate},
+        {"host", "example.amazonaws.com"},
+        {"x-amz-date", kAmzDate},
     };
     const std::vector<std::string> signedHeaders = {"host", "x-amz-date"};
     const auto payloadHash = CryptoUtils::sha256Hex("");
@@ -90,16 +90,16 @@ BOOST_AUTO_TEST_CASE(GetVanillaQueryOrderKeyCase) {
 // post-x-www-form-urlencoded: non-empty body and multiple signed headers, including one
 // (content-length) that isn't part of euclid's own fixed signed-header set - BuildCanonicalRequest
 // takes the header list as a parameter precisely so it isn't tied to that fixed set.
-BOOST_AUTO_TEST_CASE(PostXWwwFormUrlencoded) {
+BOOST_AUTO_TEST_CASE (PostXWwwFormUrlencoded) {
 
     const std::string body = "Param1=value1";
     BOOST_TEST(CryptoUtils::sha256Hex(body) == "9095672bbd1f56dfc5b65f3e153adc8731a4a654192329106275f4c7b24d0b6e");
 
     const std::map<std::string, std::string> headers = {
-            {"content-length", "13"},
-            {"content-type", "application/x-www-form-urlencoded"},
-            {"host", "example.amazonaws.com"},
-            {"x-amz-date", kAmzDate},
+        {"content-length", "13"},
+        {"content-type", "application/x-www-form-urlencoded"},
+        {"host", "example.amazonaws.com"},
+        {"x-amz-date", kAmzDate},
     };
     const std::vector<std::string> signedHeaders = {"content-length", "content-type", "host", "x-amz-date"};
 
@@ -117,13 +117,13 @@ BOOST_AUTO_TEST_CASE(PostXWwwFormUrlencoded) {
 // Sign() followed by Verify() over the same request must round-trip, and a request tampered with
 // after signing (either the body or a signed header) must be rejected - this is the actual
 // property the rest of the system relies on for MITM tamper detection.
-BOOST_AUTO_TEST_CASE(SignThenVerifyRoundTrips) {
+BOOST_AUTO_TEST_CASE (SignThenVerifyRoundTrips) {
     namespace http = boost::beast::http;
 
     const auto buildRequest = [] {
         http::request<http::string_body> req(http::verb::post, "/", 11);
         req.set(http::field::host, "example.amazonaws.com");
-        req.set("x-euclid-target", "sqs");
+        req.set("x-euclid-target", "queues");
         req.set("x-euclid-action", "send-message");
         req.set("x-euclid-region", "eu-central-1");
         req.set("x-euclid-account-id", "863459426936");
@@ -141,7 +141,7 @@ BOOST_AUTO_TEST_CASE(SignThenVerifyRoundTrips) {
     };
 
     auto signed_ = buildRequest();
-    SigV4::Sign(signed_, accessKeyId, secretAccessKey, kRegion, "sqs");
+    SigV4::Sign(signed_, accessKeyId, secretAccessKey, kRegion, "queues");
 
     const auto verified = SigV4::Verify(signed_, lookup);
     BOOST_TEST_REQUIRE(verified.has_value());
@@ -160,6 +160,6 @@ BOOST_AUTO_TEST_CASE(SignThenVerifyRoundTrips) {
 
     // An unknown access key ID must be rejected.
     auto unknownKey = signed_;
-    SigV4::Sign(unknownKey, "AKIDNOTFOUND", secretAccessKey, kRegion, "sqs");
+    SigV4::Sign(unknownKey, "AKIDNOTFOUND", secretAccessKey, kRegion, "queues");
     BOOST_TEST(!SigV4::Verify(unknownKey, lookup).has_value());
 }

@@ -42,27 +42,27 @@
     "modules": {
       "access": {
         "active": true,
-        "socketPath": "/var/run/euclid/euclid-acc.sock",
-        "executable": "euclid-acc",
+        "socketPath": "/var/run/euclid/euclid-access.sock",
+        "executable": "/usr/local/euclid/bin/euclid-access",
         "name": "access",
         "minInstances": 1,
         "maxInstances": 2,
         "jwt-secret": "changeme-set-a-real-secret-in-production"
       },
-      "s3": {
+      "storage": {
         "active": true,
-        "path": "/usr/bin/euclid-s3",
+        "path": "/usr/local/euclid/bin/euclid-storage",
         "backup": {
           "active": true,
           "cron": "0 0 0 * * ?",
           "count": 5
         },
-        "data-dir": "/usr/local/euclid/data/s3",
+        "data-dir": "/usr/local/euclid/data/storage",
         "counter-period": 60,
         "sync-period": 3600,
         "archive-timeout": 300
       },
-      "sqs": {
+      "queues": {
         "active": true,
         "backup": {
           "active": true,
@@ -78,13 +78,13 @@
           "middle": 2,
           "low": 1
         },
-        "socketPath": "/var/run/euclid/sqs",
-        "executable": "euclid-sqs",
-        "name": "sqs",
+        "socketPath": "/var/run/euclid/euclid-queues.sock",
+        "executable": "/usr/local/euclid/bin/euclid-queues",
+        "name": "queues",
         "minInstances": 1,
         "maxInstances": 4
       },
-      "sns": {
+      "topics": {
         "active": true,
         "backup": {
           "active": true,
@@ -99,7 +99,7 @@
       "monitoring": {
         "active": true,
         "socketPath": "/var/run/euclid/euclid-mon.sock",
-        "executable": "euclid-mon",
+        "executable": "/usr/local/euclid/bin/euclid-monitoring",
         "name": "monitoring",
         "minInstances": 1,
         "maxInstances": 1

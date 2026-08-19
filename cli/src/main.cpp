@@ -29,7 +29,7 @@ int main(const int argc, char *argv[]) {
 
     po::options_description hidden("Hidden options");
     hidden.add_options()
-            ("module", po::value<std::string>(), "module name, e.g. sqs, sns, s3")
+            ("module", po::value<std::string>(), "module name, e.g. queues, sns, s3")
             ("action", po::value<std::string>(), "action to perform, e.g. list-queues")
             ("args", po::value<std::vector<std::string> >(), "additional arguments for the action");
 
@@ -40,7 +40,7 @@ int main(const int argc, char *argv[]) {
     pos.add("module", 1).add("action", 1).add("args", -1);
 
     const std::string usage = "Usage: euclid-cli [options] <module> <action> [args...]\n"
-            "Example: euclid-cli --endpoint http://localhost:5566 sqs list-queues\n";
+            "Example: euclid-cli --endpoint http://localhost:5566 queues list-queues\n";
 
     po::variables_map vm;
     std::vector<std::string> args;
@@ -88,7 +88,7 @@ int main(const int argc, char *argv[]) {
         const Euclid::CLI::AccessCli access(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), true, caCert);
         return access.process(action, args);
     }
-    if (module == "sqs") {
+    if (module == "queues") {
         const auto authToken = Euclid::CLI::Credentials::Load();
         const Euclid::CLI::SqsCli sqs(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), true, caCert);
         return sqs.process(action, args);

@@ -30,7 +30,7 @@ namespace Euclid::CLI {
 
     int SqsCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
-            return PrintModuleHelp("sqs", {
+            return PrintModuleHelp("queues", {
                                            {"create-queue", "Create a new queue"},
                                            {"list-queues", "List queues"},
                                            {"list-messages", "List a queue's messages without receiving them"},
@@ -104,7 +104,7 @@ namespace Euclid::CLI {
                 ("delay,e", po::value<long>()->default_value(0), "message delay");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("sqs", "create-queue", "--name <name> [--visibility <seconds>] [--max-retries <value>] [--max-length <value>] [dlq-name <name>] [--delay <seconds>]",
+            return PrintActionHelp("queues", "create-queue", "--name <name> [--visibility <seconds>] [--max-retries <value>] [--max-length <value>] [dlq-name <name>] [--delay <seconds>]",
                                    "Creates a new SQS queue with the given name, max retries, max message length, dead letter queue ARN, and visibility timeout. The dead letter queue name is optional; "
                                    "visibility defaults to 30 seconds, max retries defaults to 3, delay to 0, and max message length defaults to 1MB.",
                                    desc);
@@ -133,7 +133,7 @@ namespace Euclid::CLI {
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("sqs", "create-queue", boost::json::value_from(request));
+            const HttpResponse response = client.Post("queues", "create-queue", boost::json::value_from(request));
             if (!response.IsSuccess()) {
                 std::cerr << "error: create-queue failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
@@ -155,7 +155,7 @@ namespace Euclid::CLI {
                 ("sort-column,c", po::value<std::string>()->default_value("created"), "sort column");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("sqs", "list-messages", "--queue-ern <ern> [--page-size <n>] [--page-index <n>] [--sort-column <column>]",
+            return PrintActionHelp("queues", "list-messages", "--queue-ern <ern> [--page-size <n>] [--page-index <n>] [--sort-column <column>]",
                                    "Lists a queue's messages without receiving them, i.e. without changing their status or visibility. Paginated: pageSize defaults to 10, pageIndex to 0, sortColumn to \"created\".",
                                    desc);
         }
@@ -177,7 +177,7 @@ namespace Euclid::CLI {
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("sqs", "list-messages", boost::json::value_from(request));
+            const HttpResponse response = client.Post("queues", "list-messages", boost::json::value_from(request));
             if (!response.IsSuccess()) {
                 std::cerr << "error: list-messages failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
@@ -196,7 +196,7 @@ namespace Euclid::CLI {
                 ("name,n", po::value<std::string>()->required(), "name");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("sqs", "get-queue-ern", "--name <name>",
+            return PrintActionHelp("queues", "get-queue-ern", "--name <name>",
                                    "Resolves the Euclid resource name (ERN) of a queue by its name.",
                                    desc);
         }
@@ -215,7 +215,7 @@ namespace Euclid::CLI {
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("sqs", "get-queue-ern", boost::json::value_from(request));
+            const HttpResponse response = client.Post("queues", "get-queue-ern", boost::json::value_from(request));
             if (!response.IsSuccess()) {
                 std::cerr << "error: get-queue-ern failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
@@ -237,7 +237,7 @@ namespace Euclid::CLI {
                 ("sortColumn,c", po::value<std::string>()->default_value("name"), "sort column");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("sqs", "list-queues", "[--prefix <prefix>] [--pageSize <n>] [--pageIndex <n>] [--sortColumn <column>]",
+            return PrintActionHelp("queues", "list-queues", "[--prefix <prefix>] [--pageSize <n>] [--pageIndex <n>] [--sortColumn <column>]",
                                    "Lists SQS queues, optionally filtered by name prefix and paginated.",
                                    desc);
         }
@@ -261,7 +261,7 @@ namespace Euclid::CLI {
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("sqs", "list-queues", boost::json::value_from(request));
+            const HttpResponse response = client.Post("queues", "list-queues", boost::json::value_from(request));
             if (!response.IsSuccess()) {
                 std::cerr << "error: list-queues failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
@@ -280,7 +280,7 @@ namespace Euclid::CLI {
                 ("ern,e", po::value<std::string>()->required(), "euclid resource name");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("sqs", "purge-queue", "--ern <ern>",
+            return PrintActionHelp("queues", "purge-queue", "--ern <ern>",
                                    "Deletes all messages from a SQS queue identified by its Euclid resource name (ERN).",
                                    desc);
         }
@@ -299,7 +299,7 @@ namespace Euclid::CLI {
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            if (const HttpResponse response = client.Post("sqs", "purge-queue", boost::json::value_from(request)); !response.IsSuccess()) {
+            if (const HttpResponse response = client.Post("queues", "purge-queue", boost::json::value_from(request)); !response.IsSuccess()) {
                 std::cerr << "error: purge-queue failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
@@ -317,7 +317,7 @@ namespace Euclid::CLI {
                 ("accountId,a", po::value<std::string>()->required(), "account ID");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("sqs", "purge-all-queues", "--region <region> --accountId <accountId>",
+            return PrintActionHelp("queues", "purge-all-queues", "--region <region> --accountId <accountId>",
                                    "Deletes all messages from every SQS queue in the given region and account.",
                                    desc);
         }
@@ -337,7 +337,7 @@ namespace Euclid::CLI {
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            if (const HttpResponse response = client.Post("sqs", "purge-all-queues", boost::json::value_from(request)); !response.IsSuccess()) {
+            if (const HttpResponse response = client.Post("queues", "purge-all-queues", boost::json::value_from(request)); !response.IsSuccess()) {
                 std::cerr << "error: purge-all-queues failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
@@ -354,7 +354,7 @@ namespace Euclid::CLI {
                 ("ern,e", po::value<std::string>()->required(), "queue ERN");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("sqs", "get-queue-metadata", "--ern <ern>",
+            return PrintActionHelp("queues", "get-queue-metadata", "--ern <ern>",
                                    "Shows the metadata of a queue, i.e. region, accountId, namespace, size, number of messages.",
                                    desc);
         }
@@ -373,7 +373,7 @@ namespace Euclid::CLI {
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("sqs", "get-queue-metadata", boost::json::value_from(request));
+            const HttpResponse response = client.Post("queues", "get-queue-metadata", boost::json::value_from(request));
             if (!response.IsSuccess()) {
                 std::cerr << "error: get-queue-metadata failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
@@ -392,7 +392,7 @@ namespace Euclid::CLI {
                 ("ern,e", po::value<std::string>()->required(), "euclid resource name");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("sqs", "delete-queue", "--ern <ern>",
+            return PrintActionHelp("queues", "delete-queue", "--ern <ern>",
                                    "Deletes an SQS queue identified by its Euclid resource name (ERN).",
                                    desc);
         }
@@ -411,7 +411,7 @@ namespace Euclid::CLI {
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            if (const HttpResponse response = client.Post("sqs", "delete-queue", boost::json::value_from(request)); !response.IsSuccess()) {
+            if (const HttpResponse response = client.Post("queues", "delete-queue", boost::json::value_from(request)); !response.IsSuccess()) {
                 std::cerr << "error: delete-queue failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
@@ -431,7 +431,7 @@ namespace Euclid::CLI {
                 ("priority,p", po::value<std::string>()->default_value("MIDDLE"), "message priority (LOW|MIDDLE|HIGH)");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("sqs", "send-message", "--ern <ern> --body <body|file://path> [--attributes <json|file://path>] [--priority <LOW|MIDDLE|HIGH>]",
+            return PrintActionHelp("queues", "send-message", "--ern <ern> --body <body|file://path> [--attributes <json|file://path>] [--priority <LOW|MIDDLE|HIGH>]",
                                    "Sends a message to an SQS queue. If --body starts with 'file://', the message "
                                    "body is read from the referenced file instead of being taken literally. The optional --attributes value sets the message "
                                    "attributes as a JSON object mapping attribute name to {\"type\": <int|long|double|float|bool|string|binary>, \"value\": <value>}, "
@@ -463,7 +463,7 @@ namespace Euclid::CLI {
                 }
             }
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("sqs", "send-message", boost::json::value_from(request));
+            const HttpResponse response = client.Post("queues", "send-message", boost::json::value_from(request));
             if (!response.IsSuccess()) {
                 std::cerr << "error: send-message failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
@@ -484,7 +484,7 @@ namespace Euclid::CLI {
                 ("waitTime,w", po::value<long>()->default_value(0), "maximal waiting time in seconds");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("sqs", "receive-messages", "--ern <ern> [--maxCount <value>] [--waitTime <seconds>]",
+            return PrintActionHelp("queues", "receive-messages", "--ern <ern> [--maxCount <value>] [--waitTime <seconds>]",
                                    "Receive messages from an SQS queue. If messages are available return up to maxCount messages. "
                                    "The returned messages favor higher priority ones: maxCount slots are split across LOW/MIDDLE/HIGH priority "
                                    "proportionally to the server's configurable priority weights (4:2:1 by default), so most of a batch is "
@@ -508,7 +508,7 @@ namespace Euclid::CLI {
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("sqs", "receive-messages", boost::json::value_from(request));
+            const HttpResponse response = client.Post("queues", "receive-messages", boost::json::value_from(request));
             if (!response.IsSuccess()) {
                 std::cerr << "error: receive-messages failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
@@ -528,7 +528,7 @@ namespace Euclid::CLI {
                 ("visibility,v", po::value<long>()->default_value(10), "visibility in seconds");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("sqs", "set-visibility", "--message-id <messageId> --visibility <seconds>",
+            return PrintActionHelp("queues", "set-visibility", "--message-id <messageId> --visibility <seconds>",
                                    "Sets the visibility timeout for an individual message.",
                                    desc);
         }
@@ -548,7 +548,7 @@ namespace Euclid::CLI {
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            if (const HttpResponse response = client.Post("sqs", "set-visibility", boost::json::value_from(request)); !response.IsSuccess()) {
+            if (const HttpResponse response = client.Post("queues", "set-visibility", boost::json::value_from(request)); !response.IsSuccess()) {
                 std::cerr << "error: set-visibility failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
@@ -565,7 +565,7 @@ namespace Euclid::CLI {
                 ("ern,e", po::value<std::string>()->required(), "queue ERN");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("sqs", "get-message-count", "--ern <ERN>",
+            return PrintActionHelp("queues", "get-message-count", "--ern <ERN>",
                                    "Returns the message counter, like total, invisible, delayed.",
                                    desc);
         }
@@ -584,7 +584,7 @@ namespace Euclid::CLI {
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("sqs", "get-message-count", boost::json::value_from(request));
+            const HttpResponse response = client.Post("queues", "get-message-count", boost::json::value_from(request));
             if (!response.IsSuccess()) {
                 std::cerr << "error: get-message-count failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
@@ -604,7 +604,7 @@ namespace Euclid::CLI {
                 ("name,n", po::value<std::string>()->required(), "attribute name");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("sqs", "get-message-attribute", "--message-id <messageId> --name <name>",
+            return PrintActionHelp("queues", "get-message-attribute", "--message-id <messageId> --name <name>",
                                    "Returns a single message attribute by name.",
                                    desc);
         }
@@ -624,7 +624,7 @@ namespace Euclid::CLI {
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("sqs", "get-message-attribute", boost::json::value_from(request));
+            const HttpResponse response = client.Post("queues", "get-message-attribute", boost::json::value_from(request));
             if (!response.IsSuccess()) {
                 std::cerr << "error: get-message-attribute failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
@@ -643,7 +643,7 @@ namespace Euclid::CLI {
                 ("message-id,m", po::value<std::string>()->required(), "message ID");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("sqs", "get-message-metadata", "--message-id <messageId>",
+            return PrintActionHelp("queues", "get-message-metadata", "--message-id <messageId>",
                                    "Shows a message's metadata: messageId, queueErn, receiptHandle, status, priority, size (bytes), receivedCount, visibilityTimeout, contentType, md5Body, md5Attributes, created, modified.",
                                    desc);
         }
@@ -662,7 +662,7 @@ namespace Euclid::CLI {
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("sqs", "get-message-metadata", boost::json::value_from(request));
+            const HttpResponse response = client.Post("queues", "get-message-metadata", boost::json::value_from(request));
             if (!response.IsSuccess()) {
                 std::cerr << "error: get-message-metadata failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;

@@ -19,9 +19,9 @@ namespace Euclid::SQS {
         };
 
         // Timer/counter names shared by every handler below - one series per action, labeled
-        // "method"=<action>, e.g. name="sqs-service-time" labelName="method" labelValue="send-message".
-        constexpr auto kServiceTimer = "sqs-service-time";
-        constexpr auto kServiceCounter = "sqs-service-count";
+        // "method"=<action>, e.g. name="queues-service-time" labelName="method" labelValue="send-message".
+        constexpr auto kServiceTimer = "queues-service-time";
+        constexpr auto kServiceCounter = "queues-service-count";
     }// namespace
 
     static AuthResult authenticate(const request<string_body> &req) {
@@ -572,7 +572,7 @@ namespace Euclid::SQS {
     SqsServer::SqsServer(std::string socketPath, const int threads) : HttpActionServer("SQS", std::move(socketPath), threads) {
         auto &scheduler = Core::Scheduler::instance();
         scheduler.Start();
-        _resetMessagesTaskId = scheduler.SchedulePeriodic("sqs-reset-expired-messages", [] {
+        _resetMessagesTaskId = scheduler.SchedulePeriodic("queues-reset-expired-messages", [] {
                                                               Database::RepositoryFactory::instance().sqsRepository()->resetExpiredMessages();
                                                           },
                                                           std::chrono::seconds(30));

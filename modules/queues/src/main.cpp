@@ -13,9 +13,9 @@
 #include <euclid/database/RepositoryFactory.h>
 #include <SqsServer.h>
 
-#define DEFAULT_CONFIGURATION_FILE "/etc/euclid/euclid.json"
+#define DEFAULT_CONFIGURATION_FILE "/usr/local/euclid/etc/euclid.json"
 #define DEFAULT_LOG_LEVEL          "info"
-#define DEFAULT_SOCKET_PATH        "/var/run/euclid-sqs.sock"
+#define DEFAULT_SOCKET_PATH        "/var/run/euclid-queues.sock"
 
 namespace po = boost::program_options;
 
@@ -44,7 +44,7 @@ static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
             ("console-log", po::value<bool>(&opts.consoleLog)->default_value(true)->implicit_value(true), "Enable console logging")
             ("file-log", po::value<bool>(&opts.fileLog)->default_value(false)->implicit_value(true), "Enable file logging");
 
-    po::options_description all("euclid-sqs options");
+    po::options_description all("euclid-queues options");
     all.add(general).add(logging);
 
     try {
@@ -52,12 +52,12 @@ static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
         po::store(po::command_line_parser(argc, argv).options(all).run(), vm);
 
         if (vm.contains("help")) {
-            std::cout << "euclid-sqs v" << APP_VERSION << " - SQS service process\n\n" << all << "\n";
+            std::cout << "euclid-queues v" << APP_VERSION << " - SQS service process\n\n" << all << "\n";
             return std::nullopt;
         }
 
         if (vm.contains("version")) {
-            std::cout << "euclid-sqs version " << APP_VERSION << "\n";
+            std::cout << "euclid-queues version " << APP_VERSION << "\n";
             return std::nullopt;
         }
 
@@ -120,7 +120,7 @@ int main(const int argc, char *argv[]) {
     Euclid::Database::WireAccessKeyLookup();
     Euclid::Database::WireModuleSocketLookup();
 
-    Euclid::Core::Monitoring::MetricsPusher metricsPusher("sqs");
+    Euclid::Core::Monitoring::MetricsPusher metricsPusher("queues");
     Euclid::SQS::SqsServer server(cliOpts->socketPath);
     return server.RunUntilSignal();
 }
