@@ -1,17 +1,17 @@
 Package: euclid
-Version: 1.0.1
+Version: 1.0.2
 License: GPL-3.0-or-later
 Vendor: none
 Architecture: amd64
-Maintainer: <runner@runnervmzvulz>
-Installed-Size: 72055
+Maintainer: <runner@runnervm76f27>
+Installed-Size: 72056
 Homepage: http://example.com/no-uri-given
 Priority: optional
 Section: default
-Filename: pool/main/e/euclid/euclid_1.0.1_amd64.deb
-Size: 25539008
-SHA256: e349f67fb3cc3ff9c8d4e09a5dd2c70669364ba5af6b878ef930dd32758d5fdf
-SHA1: c00cc8c92e0274072a454ec9a91b417af3f4529a
-MD5sum: bd419de69524fb1d2060ea578c0dea63
+Filename: pool/main/e/euclid/euclid_1.0.2_amd64.deb
+Size: 25537322
+SHA256: 4531216f17f8064244418f55c0123bbec7abc8cb43e693b441dc1e65432b806c
+SHA1: 9e6469b998b44206b3e8adffcd3becbb2d1adbef
+MD5sum: 3b6d3f6f74c53b7e4586766081b71c6f
 Description: no description given
 
