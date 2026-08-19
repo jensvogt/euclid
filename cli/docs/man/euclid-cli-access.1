@@ -1,0 +1,132 @@
+.TH EUCLID-CLI-ACCESS 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-access \- manage Euclid user accounts (login, registration, listing, deletion)
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+[\fB\-\-loglevel\fR \fILEVEL\fR]
+.B access
+.I action
+[\fIaction-options\fR...]
+.SH DESCRIPTION
+The
+.B access
+module talks to the Euclid gateway's access service to authenticate and
+manage user accounts. Every
+.B access
+command sends a single JSON request to the gateway
+(\fB\-\-endpoint\fR, default \fIhttp://localhost:5566\fR) and prints the
+JSON response on success.
+.PP
+Most actions other than
+.B login
+require the caller to be authenticated as an administrator; see
+.B AUTHENTICATION
+below for how the session token is obtained and stored.
+.SH ACTIONS
+.TP
+.B login
+Authenticates with a user ID and password and stores the returned bearer
+token for use by later commands. See
+.BR euclid-cli-access-login (1).
+.TP
+.B register
+Creates a new user account. Requires administrator privileges, with one
+exception: bootstrapping the very first account. See
+.BR euclid-cli-access-register (1).
+.TP
+.B list-users
+Lists user accounts, optionally filtered by user ID prefix, paged and
+sorted. Requires administrator privileges. See
+.BR euclid-cli-access-list-users (1).
+.TP
+.B delete-user
+Deletes a user account by user ID. Requires administrator privileges. See
+.BR euclid-cli-access-delete-user (1).
+.SH GLOBAL OPTIONS
+These options are given to
+.B euclid-cli
+itself, before the
+.I access
+module name.
+.TP
+.BR \-e ", " \-\-endpoint " " \fIURL\fR
+Euclid gateway endpoint to talk to, e.g. \fIhttp://localhost:5566\fR. If
+omitted, an empty endpoint is used, which will fail to connect.
+.TP
+.BR \-l ", " \-\-loglevel " " \fILEVEL\fR
+Log level: one of \fItrace\fR, \fIdebug\fR, \fIinfo\fR, \fIwarning\fR,
+\fIerror\fR, \fIfatal\fR. Defaults to \fIinfo\fR.
+.TP
+.BR \-h ", " \-\-help
+Print top-level usage and exit.
+.TP
+.BR \-v ", " \-\-version
+Print the euclid-cli version and exit.
+.SH AUTHENTICATION
+.B euclid-cli-access-login (1)
+exchanges a user ID and password for a signed bearer token (a JWT, valid
+for one hour by default) and saves it as JSON at
+.IR $HOME/.euclid/credentials .
+The containing directory is created if needed and both the directory
+(\fI0700\fR) and the file (\fI0600\fR) are restricted to the current user,
+since the file grants whoever can read it your session.
+.PP
+Every subsequent
+.B access
+command automatically loads this token at startup and sends it as an
+.I "Authorization: Bearer"
+header. If the server rejects a request with
+.I "HTTP 401"
+(the token is missing, invalid, or has expired), the stored credentials
+file is deleted so that the failure is unambiguous, and you need to run
+.B euclid-cli access login
+again before retrying.
+.SH EXIT STATUS
+.TP
+.B 0
+The action completed successfully.
+.TP
+.B 1
+Argument parsing failed, the request could not be sent, or the server
+rejected it (invalid credentials, missing/expired session, insufficient
+privileges, invalid input, etc.). Details are printed to standard error.
+.SH FILES
+.TP
+.I $HOME/.euclid/credentials
+JSON file holding the current session's bearer token, created by
+.B login
+and consumed by every other
+.B access
+action.
+.SH EXAMPLES
+Bootstrap the first administrator account (allowed unauthenticated only
+while the user store is empty), then log in:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 access register \e
+    --user admin --email admin@example.com --password 'change-me'
+
+euclid-cli --endpoint http://localhost:5566 access login \e
+    --user admin --password 'change-me'
+.fi
+.RE
+.PP
+List every user, then delete one:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 access list-users
+
+euclid-cli --endpoint http://localhost:5566 access delete-user --userId jdoe
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli (1),
+.BR euclid-cli-access-login (1),
+.BR euclid-cli-access-register (1),
+.BR euclid-cli-access-list-users (1),
+.BR euclid-cli-access-delete-user (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

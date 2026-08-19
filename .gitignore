@@ -1,0 +1,56 @@
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Cmake
+**/CMakeCache.txt
+**/CMakeFiles
+**/cmake-build-debug
+**/cmake-build-release
+**/cmake-build-*
+**/Makefile
+**/*.cbp
+**/install_manifest.txt
+**/_deps
+
+# Ninja
+**/.ninja*
+**/*.ninja
+
+# Vcpkg
+vcpkg_installed
+
+# Testing
+Testing/
+
+# Idea
+.idea
+**/*.iml
+
+# Claude
+.claude/settings.local.json

@@ -1,0 +1,76 @@
+.TH EUCLID-CLI-ACCESS-REGISTER 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-access-register \- create a new Euclid user account
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B access register
+.BR \-\-user | \-u
+.I USERID
+.BR \-\-email | \-e
+.I EMAIL
+.BR \-\-password | \-p
+.I PASSWORD
+.SH DESCRIPTION
+Creates a new user account via the access service's
+.I register
+action.
+.PP
+The caller must be authenticated as an administrator (see
+.BR euclid-cli-access-login (1)),
+.B except
+when the server's user store is completely empty: the very first account
+ever registered is allowed through unauthenticated and is automatically
+promoted to administrator, so there is always a way to bootstrap the first
+account on a fresh server.
+.PP
+The created user's JSON representation is printed to standard output.
+.SH OPTIONS
+.TP
+.BR \-u ", " \-\-user " " \fIUSERID\fR
+User ID for the new account. Required.
+.TP
+.BR \-e ", " \-\-email " " \fIEMAIL\fR
+Email address for the new account. Required.
+.TP
+.BR \-p ", " \-\-password " " \fIPASSWORD\fR
+Password for the new account. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The account was created.
+.TP
+.B 1
+Missing/invalid arguments, the request could not be sent, the caller is
+not an authenticated administrator, the user ID is already taken, or the
+server otherwise rejected the request. If the failure was an expired or
+invalid session (\fIHTTP 401\fR), the stored credentials file is removed;
+run
+.B euclid-cli access login
+again before retrying.
+.SH EXAMPLES
+Bootstrap the first account on an empty server (no login required):
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 access register \e
+    --user admin --email admin@example.com --password 'change-me'
+.fi
+.RE
+.PP
+Register a second account once logged in as an administrator:
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 access login \e
+    --user admin --password 'change-me'
+
+euclid-cli --endpoint http://localhost:5566 access register \e
+    --user jdoe --email jdoe@example.com --password 'hunter2'
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-access (1),
+.BR euclid-cli-access-login (1),
+.BR euclid-cli-access-list-users (1),
+.BR euclid-cli-access-delete-user (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

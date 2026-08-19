@@ -1,0 +1,708 @@
+//
+// Created by vogje01 on 29/05/2023.
+//
+
+// C++ includes
+#include <chrono>
+#include <map>
+#include <thread>
+
+// Euclid includes
+#include <euclid/core/ContentTypeUtils.h>
+#include <euclid/core/CryptoUtils.h>
+#include <euclid/core/UuidUtils.h>
+#include <euclid/database/repository/sqs/MongoSQSRepository.h>
+
+namespace Euclid::Database {
+
+    MongoSQSRepository::MongoSQSRepository() : _databaseName("euclid") {
+        ensureIndexes();
+    }
+
+    void MongoSQSRepository::ensureIndexes() const {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            messageCollection.create_index(make_document(kvp("queueErn", 1), kvp("status", 1)));
+
+            mongocxx::options::index receiptHandleOpts;
+            receiptHandleOpts.sparse(true);
+            messageCollection.create_index(make_document(kvp("receiptHandle", 1)), receiptHandleOpts);
+
+            mongocxx::options::index messageIdOpts;
+            messageIdOpts.unique(true);
+            messageCollection.create_index(make_document(kvp("messageId", 1)), messageIdOpts);
+
+        } catch (const std::exception &e) {
+            log_error << "Ensure SQS indexes failed, error: " << e.what();
+        }
+    }
+
+    bool MongoSQSRepository::queueExists(const std::string &name) const {
+
+        try {
+
+            document query{};
+            if (!name.empty()) {
+                query.append(kvp("name", name));
+            }
+
+            const auto entry = Database::instance().client();
+            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+
+            const auto result = queueCollection.find_one(query.extract());
+            log_trace << "Sqs exists, name: " << name << ", exists: " << std::boolalpha << result.has_value();
+            return result.has_value();
+
+        } catch (const std::exception &e) {
+            log_error << "Sqs exists failed, name: " << ", error: " << e.what();
+        }
+        return false;
+    }
+
+    std::optional<Entity::SQS::Queue> MongoSQSRepository::findQueueById(const std::string &oid) const {
+
+        try {
+
+            document document;
+            document.append(kvp("_id", oid));
+
+            const auto entry = Database::instance().client();
+            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+
+            if (auto mResult = queueCollection.find_one(document.view())) {
+                return Entity::SQS::Queue::fromDocument(mResult->view());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Get sqs by ID failed, error: " << e.what();
+        }
+        return {};
+    }
+
+    std::optional<Entity::SQS::Queue> MongoSQSRepository::findQueueByName(const std::string &name) const {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+
+            if (auto mResult = queueCollection.find_one(make_document(kvp("name", name)))) {
+                return Entity::SQS::Queue::fromDocument(mResult.value());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Get sqs by name failed, name: " << name << " error: " << e.what();
+        }
+        return {};
+    }
+
+    std::optional<Entity::SQS::Queue> MongoSQSRepository::findQueueByErn(const std::string &ern) const {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+
+            if (auto mResult = queueCollection.find_one(make_document(kvp("ern", ern)))) {
+                return Entity::SQS::Queue::fromDocument(mResult.value());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Get sqs by ERN failed, ern: " << ern << " error: " << e.what();
+        }
+        return {};
+    }
+
+    std::vector<Entity::SQS::Queue> MongoSQSRepository::listQueues(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const {
+
+        try {
+
+            std::vector<Entity::SQS::Queue> queues;
+            const auto entry = Database::instance().client();
+            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+
+            for (auto queueCursor = queueCollection.find({}); auto queue: queueCursor) {
+                queues.push_back(Entity::SQS::Queue::fromDocument(queue));
+            }
+            return queues;
+
+        } catch (const std::exception &e) {
+
+            log_error << "Get SQS queues failed, error: " << e.what();
+            return {};
+        }
+    }
+
+    Entity::SQS::Queue MongoSQSRepository::upsertQueue(Entity::SQS::Queue &queue) {
+
+        try {
+
+            const auto filter = make_document(kvp("name", queue.name));
+            const auto update = make_document(
+                    kvp("$set", queue.toDocument()),
+                    kvp("$setOnInsert", make_document(
+                                kvp("created", bsoncxx::types::b_date{
+                                            std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                    queue.created.time_since_epoch())})
+                                )),
+                    kvp("$currentDate", make_document(
+                                kvp("modified", true)
+                                )));
+
+            mongocxx::options::find_one_and_update opts;
+            opts.upsert(true);
+            opts.return_document(mongocxx::options::return_document::k_after);
+
+            const auto entry = Database::instance().client();
+            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+
+            if (auto result = queueCollection.find_one_and_update(filter.view(), update.view(), opts)) {
+                return Entity::SQS::Queue::fromDocument(result->view());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Upsert SQS queue failed, error: " << e.what();
+        }
+        return queue;
+    }
+
+    long MongoSQSRepository::countQueues() const {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+
+            const int64_t count = queueCollection.count_documents({});
+            log_trace << "Service state: " << std::boolalpha << count;
+            return static_cast<int>(count);
+
+        } catch (const std::exception &e) {
+
+            log_error << "Service exists failed, error: " << e.what();
+        }
+        return -1;
+    }
+
+    void MongoSQSRepository::removeQueueByName(const std::string &name) {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            std::vector<std::string> erns;
+            for (auto cursor = queueCollection.find(make_document(kvp("name", name))); auto doc: cursor) {
+                if (const auto ernField = doc["ern"]; ernField && ernField.type() == bsoncxx::type::k_string) {
+                    erns.emplace_back(ernField.get_string().value);
+                }
+            }
+
+            const auto result = queueCollection.delete_many(make_document(kvp("name", name)));
+            log_debug << "Sqs deleted, count: " << result->deleted_count();
+
+            if (!erns.empty()) {
+                array ernArray;
+                for (const auto &ern: erns) ernArray.append(ern);
+                const auto messageResult = messageCollection.delete_many(make_document(kvp("queueErn", make_document(kvp("$in", ernArray.view())))));
+                log_debug << "Sqs messages deleted, count: " << messageResult->deleted_count();
+            }
+
+        } catch (const std::exception &e) {
+
+            log_error << "Delete sqs failed, error: " << e.what();
+        }
+
+    }
+
+    void MongoSQSRepository::deleteQueueByErn(const std::string &ern) {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            const auto result = queueCollection.delete_many(make_document(kvp("ern", ern)));
+            log_debug << "Sqs deleted, count: " << result->deleted_count();
+
+            const auto messageResult = messageCollection.delete_many(make_document(kvp("queueErn", ern)));
+            log_debug << "Sqs messages deleted, count: " << messageResult->deleted_count();
+
+        } catch (const std::exception &e) {
+
+            log_error << "Delete sqs failed, error: " << e.what();
+        }
+
+    }
+
+    void MongoSQSRepository::clearQueues() {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+
+            const auto result = queueCollection.delete_many({});
+            log_debug << "All queues deleted, count: " << result->deleted_count();
+
+        } catch (const std::exception &e) {
+            log_error << "Delete all sqs queues failed, error: " << e.what();
+        }
+    }
+
+    bool MongoSQSRepository::messageExists(const std::string &messageId) const {
+
+        try {
+            const auto query = make_document(
+                    kvp("messageId", messageId));
+            const auto entry = Database::instance().client();
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            const auto result = messageCollection.find_one(query.view());
+            return result.has_value();
+        } catch (const std::exception &e) {
+            log_error << "Message exists failed, messageId: " << messageId << ", error: " << e.what();
+        }
+        return false;
+    }
+
+    std::optional<Entity::SQS::Message> MongoSQSRepository::findMessageById(const std::string &oid) const {
+
+        try {
+            const auto query = make_document(
+                    kvp("_id", oid));
+            const auto entry = Database::instance().client();
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            if (auto mResult = messageCollection.find_one(query.view())) {
+                Entity::SQS::Message message;
+                message.FromDocument(mResult->view());
+                return message;
+            }
+        } catch (const std::exception &e) {
+            log_error << "Get message by ID failed, error: " << e.what();
+        }
+        return {};
+    }
+
+    std::optional<Entity::SQS::Message> MongoSQSRepository::findMessageByName(const std::string &messageId) const {
+
+        try {
+            const auto query = make_document(
+                    kvp("messageId", messageId));
+            const auto entry = Database::instance().client();
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            if (auto mResult = messageCollection.find_one(query.view())) {
+                Entity::SQS::Message message;
+                message.FromDocument(mResult->view());
+                return message;
+            }
+        } catch (const std::exception &e) {
+            log_error << "Get message by messageId failed, error: " << e.what();
+        }
+        return {};
+    }
+
+    std::vector<Entity::SQS::Message> MongoSQSRepository::findAllMessages() const {
+
+        try {
+            std::vector<Entity::SQS::Message> messages;
+            const auto entry = Database::instance().client();
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            for (auto cursor = messageCollection.find({}); auto doc: cursor) {
+                Entity::SQS::Message message;
+                message.FromDocument(doc);
+                messages.push_back(std::move(message));
+            }
+            return messages;
+        } catch (const std::exception &e) {
+            log_error << "Get all messages failed, error: " << e.what();
+        }
+        return {};
+    }
+
+    void MongoSQSRepository::upsertMessage(const Entity::SQS::Message &message) {
+
+        try {
+            const auto filter = make_document(
+                    kvp("messageId", message.messageId));
+            const auto update = make_document(
+                    kvp("$set", message.ToDocument()),
+                    kvp("$setOnInsert", make_document(
+                                kvp("created", bsoncxx::types::b_date{
+                                            std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                    message.created.time_since_epoch())}))),
+                    kvp("$currentDate", make_document(
+                                kvp("modified", true))));
+
+            mongocxx::options::update opts;
+            opts.upsert(true);
+
+            const auto entry = Database::instance().client();
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            messageCollection.update_one(filter.view(), update.view(), opts);
+
+        } catch (const std::exception &e) {
+            log_error << "Upsert message failed, error: " << e.what();
+        }
+    }
+
+    Entity::SQS::Message MongoSQSRepository::sendMessage(const std::string &messageId, const std::string &ern, const std::string &body, const std::map<std::string, Entity::SQS::Variant> &attributes) {
+
+        Entity::SQS::Message message;
+        message.queueErn = ern;
+        message.body = body;
+        message.size = static_cast<long>(body.size());
+        message.messageId = messageId;
+        message.md5Body = Core::CryptoUtils::md5Sum(message.body);
+        message.contentType = Core::ContentTypeUtils::fromContent(message.body);
+        message.attributes = attributes;
+        message.md5Attributes = Entity::SQS::Message::ComputeAttributesMd5(attributes);
+        message.status = Entity::SQS::MessageStatus::AVAILABLE;
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            const auto queueFilter = make_document(kvp("ern", ern));
+            if (auto queueResult = queueCollection.find_one(queueFilter.view())) {
+                const auto queue = Entity::SQS::Queue::fromDocument(queueResult->view());
+                message.visibilityTimeout = queue.visibility;
+
+                const auto update = make_document(
+                        kvp("$inc", make_document(
+                                    kvp("size", static_cast<int64_t>(message.size)),
+                                    kvp("available", static_cast<int64_t>(1)))),
+                        kvp("$currentDate", make_document(
+                                    kvp("modified", true))));
+                queueCollection.update_one(queueFilter.view(), update.view());
+            }
+
+            messageCollection.insert_one(message.ToDocument());
+            log_info << "Message sent, ern: " << ern << ", messageId: " << message.messageId;
+
+        } catch (const std::exception &e) {
+            log_error << "Send message failed, ern: " << ern << ", error: " << e.what();
+        }
+        return message;
+    }
+
+    std::vector<Entity::SQS::Message> MongoSQSRepository::receiveMessages(const std::string &queueErn, const long maxCount, const long waitTime) {
+
+        std::vector<Entity::SQS::Message> result;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(waitTime);
+
+        try {
+            long maxReceiveCount = 0;
+            std::string deadLetterQueueErn;
+            {
+                const auto entry = Database::instance().client();
+                auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+                if (const auto queueResult = queueCollection.find_one(make_document(kvp("ern", queueErn)))) {
+                    const auto queue = Entity::SQS::Queue::fromDocument(queueResult->view());
+                    maxReceiveCount = queue.maxReceiveCount;
+                    deadLetterQueueErn = queue.deadLetterQueueErn;
+                }
+            }
+
+            while (true) {
+                // Acquire a pool entry for this polling attempt only, so the connection is
+                // not held checked-out for the whole long-poll wait/sleep below.
+                const auto entry = Database::instance().client();
+                auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+                auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+                while (static_cast<long>(result.size()) < maxCount) {
+                    const auto receiptHandle = Core::UuidUtils::CreateRandomUuid();
+                    const auto filter = make_document(
+                            kvp("queueErn", queueErn),
+                            kvp("status", MessageStatusToString(Entity::SQS::MessageStatus::AVAILABLE)));
+                    const auto update = make_document(
+                            kvp("$set", make_document(
+                                        kvp("status", MessageStatusToString(Entity::SQS::MessageStatus::INVISIBLE)),
+                                        kvp("receiptHandle", receiptHandle))),
+                            kvp("$inc", make_document(
+                                        kvp("receivedCount", 1))),
+                            kvp("$currentDate", make_document(
+                                        kvp("modified", true),
+                                        kvp("lastReceived", true)
+                                        )));
+
+                    mongocxx::options::find_one_and_update opts;
+                    opts.return_document(mongocxx::options::return_document::k_after);
+
+                    const auto claimed = messageCollection.find_one_and_update(filter.view(), update.view(), opts);
+                    if (!claimed) break;
+
+                    Entity::SQS::Message message;
+                    message.FromDocument(claimed->view());
+
+                    // Move to dead letter queue if existing
+                    if (!deadLetterQueueErn.empty() && message.receivedCount > maxReceiveCount) {
+                        const auto moveUpdate = make_document(
+                                kvp("$set", make_document(
+                                            kvp("queueErn", deadLetterQueueErn),
+                                            kvp("status", MessageStatusToString(Entity::SQS::MessageStatus::AVAILABLE)),
+                                            kvp("receivedCount", 0),
+                                            kvp("receiptHandle", ""))),
+                                kvp("$currentDate", make_document(
+                                            kvp("modified", true))));
+                        messageCollection.update_one(make_document(kvp("messageId", message.messageId)).view(), moveUpdate.view());
+
+                        const auto sourceUpdate = make_document(
+                                kvp("$inc", make_document(
+                                            kvp("size", -message.size),
+                                            kvp("available", static_cast<int64_t>(-1)))),
+                                kvp("$currentDate", make_document(
+                                            kvp("modified", true))));
+                        queueCollection.update_one(make_document(kvp("ern", queueErn)).view(), sourceUpdate.view());
+
+                        const auto targetUpdate = make_document(
+                                kvp("$inc", make_document(
+                                            kvp("size", static_cast<int64_t>(message.size)),
+                                            kvp("available", static_cast<int64_t>(1)))),
+                                kvp("$currentDate", make_document(
+                                            kvp("modified", true))));
+                        queueCollection.update_one(make_document(kvp("ern", deadLetterQueueErn)).view(), targetUpdate.view());
+
+                        log_info << "Message moved to dead letter queue, ern: " << queueErn << ", dlqErn: " << deadLetterQueueErn << ", messageId: " << message.messageId;
+                        continue;
+                    }
+
+                    result.push_back(message);
+                }
+
+                // Update queue counters
+                if (!result.empty()) {
+                    const auto queueFilter = make_document(kvp("ern", queueErn));
+                    const auto queueUpdate = make_document(
+                            kvp("$inc", make_document(
+                                        kvp("invisible", static_cast<int64_t>(result.size())),
+                                        kvp("available", -static_cast<int64_t>(result.size())))),
+                            kvp("$currentDate", make_document(
+                                        kvp("modified", true))));
+                    queueCollection.update_one(queueFilter.view(), queueUpdate.view());
+                    log_debug << "Messages received, ern: " << queueErn << ", count: " << result.size();
+                    return result;
+                }
+
+                if (waitTime <= 0 || std::chrono::steady_clock::now() >= deadline) {
+                    return result;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+        } catch (const std::exception &e) {
+            log_error << "Receive messages failed, ern: " << queueErn << ", error: " << e.what();
+        }
+        return result;
+    }
+
+    void MongoSQSRepository::deleteMessage(const std::string &receiptHandle) {
+
+        try {
+            const auto filter = make_document(
+                    kvp("receiptHandle", receiptHandle));
+
+            const auto entry = Database::instance().client();
+            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            Entity::SQS::Message message;
+            if (auto mResult = messageCollection.find_one(filter.view())) {
+                message.FromDocument(mResult->view());
+            }
+
+            const auto result = messageCollection.delete_many(filter.view());
+            log_debug << "Message deleted, count: " << result->deleted_count();
+
+            if (result && result->deleted_count() > 0 && !message.queueErn.empty()) {
+                const auto queueFilter = make_document(kvp("ern", message.queueErn));
+                const auto update = make_document(
+                        kvp("$inc", make_document(
+                                    kvp("size", -message.size),
+                                    kvp("available", static_cast<int64_t>(message.status == Entity::SQS::MessageStatus::AVAILABLE ? -1 : 0)),
+                                    kvp("delayed", static_cast<int64_t>(message.status == Entity::SQS::MessageStatus::DELAYED ? -1 : 0)),
+                                    kvp("invisible", static_cast<int64_t>(message.status == Entity::SQS::MessageStatus::INVISIBLE ? -1 : 0)))),
+                        kvp("$currentDate", make_document(
+                                    kvp("modified", true))));
+                queueCollection.update_one(queueFilter.view(), update.view());
+            }
+        } catch (const std::exception &e) {
+            log_error << "Delete message failed, error: " << e.what();
+        }
+    }
+
+    void MongoSQSRepository::purgeQueue(const std::string &queueErn) {
+
+        try {
+            const auto filter = make_document(
+                    kvp("queueErn", queueErn));
+
+            const auto entry = Database::instance().client();
+            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            const auto result = messageCollection.delete_many(filter.view());
+            log_debug << "Queue purged, ern: " << queueErn << ", count: " << result->deleted_count();
+
+            const auto queueFilter = make_document(kvp("ern", queueErn));
+            const auto update = make_document(
+                    kvp("$set", make_document(
+                                kvp("size", static_cast<int64_t>(0)),
+                                kvp("available", static_cast<int64_t>(0)),
+                                kvp("delayed", static_cast<int64_t>(0)),
+                                kvp("invisible", static_cast<int64_t>(0)))),
+                    kvp("$currentDate", make_document(
+                                kvp("modified", true))));
+            queueCollection.update_one(queueFilter.view(), update.view());
+        } catch (const std::exception &e) {
+            log_error << "Purge queue failed, ern: " << queueErn << ", error: " << e.what();
+        }
+    }
+
+    void MongoSQSRepository::purgeAllQueues(const std::string &region, const std::string &accountId) {
+
+        try {
+            const std::string marker = ":" + region + ":" + accountId + ":";
+
+            const auto entry = Database::instance().client();
+            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            array ernArray;
+            long queueCount = 0;
+            for (auto queueCursor = queueCollection.find({}); auto queue: queueCursor) {
+                if (const auto entity = Entity::SQS::Queue::fromDocument(queue); entity.ern.find(marker) != std::string::npos) {
+                    ernArray.append(entity.ern);
+                    ++queueCount;
+                }
+            }
+
+            if (queueCount == 0) {
+                log_debug << "No queues found, region: " << region << ", accountId: " << accountId;
+                return;
+            }
+
+            const auto queueFilter = make_document(kvp("ern", make_document(kvp("$in", ernArray.view()))));
+
+            const auto messageResult = messageCollection.delete_many(make_document(kvp("queueErn", make_document(kvp("$in", ernArray.view())))));
+            log_debug << "Queues purged, region: " << region << ", accountId: " << accountId << ", queueCount: " << queueCount << ", messageCount: " << messageResult->deleted_count();
+
+            const auto update = make_document(
+                    kvp("$set", make_document(
+                                kvp("size", static_cast<int64_t>(0)),
+                                kvp("available", static_cast<int64_t>(0)),
+                                kvp("delayed", static_cast<int64_t>(0)),
+                                kvp("invisible", static_cast<int64_t>(0)))),
+                    kvp("$currentDate", make_document(
+                                kvp("modified", true))));
+            queueCollection.update_many(queueFilter.view(), update.view());
+        } catch (const std::exception &e) {
+            log_error << "Purge all queues failed, region: " << region << ", accountId: " << accountId << ", error: " << e.what();
+        }
+    }
+
+    long MongoSQSRepository::countMessages() const {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            return messageCollection.count_documents({});
+        } catch (const std::exception &e) {
+            log_error << "Count messages failed, error: " << e.what();
+        }
+        return -1;
+    }
+
+    long MongoSQSRepository::countMessages(const std::string &queueErn) const {
+
+        try {
+            const auto filter = make_document(kvp("queueErn", queueErn));
+            const auto entry = Database::instance().client();
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            return messageCollection.count_documents(filter.view());
+        } catch (const std::exception &e) {
+            log_error << "Count messages failed, ern: " << queueErn << ", error: " << e.what();
+        }
+        return -1;
+    }
+
+    void MongoSQSRepository::clearMessages() {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            const auto result = messageCollection.delete_many({});
+            log_debug << "All messages deleted, count: " << result->deleted_count();
+        } catch (const std::exception &e) {
+            log_error << "Delete all messages failed, error: " << e.what();
+        }
+    }
+
+    long MongoSQSRepository::resetExpiredMessages() {
+
+        long resetCount = 0;
+        try {
+            const auto now = std::chrono::system_clock::now();
+            std::map<std::string, long> resetCountByQueue;
+
+            const auto entry = Database::instance().client();
+            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            const auto filter = make_document(kvp("status", MessageStatusToString(Entity::SQS::MessageStatus::INVISIBLE)));
+            for (auto cursor = messageCollection.find(filter.view()); auto doc: cursor) {
+                Entity::SQS::Message message;
+                message.FromDocument(doc);
+                if (now < message.lastReceived + std::chrono::seconds(message.visibilityTimeout)) continue;
+
+                const auto resetFilter = make_document(
+                        kvp("_id", bsoncxx::oid{message.oid}),
+                        kvp("status", MessageStatusToString(Entity::SQS::MessageStatus::INVISIBLE)));
+                const auto update = make_document(
+                        kvp("$set", make_document(
+                                    kvp("status", MessageStatusToString(Entity::SQS::MessageStatus::AVAILABLE)),
+                                    kvp("receiptHandle", ""))),
+                        kvp("$currentDate", make_document(
+                                    kvp("modified", true),
+                                    kvp("lastReceived", true))));
+                const auto updateResult = messageCollection.update_one(resetFilter.view(), update.view());
+
+                // Message was concurrently deleted or already reset since the cursor read it; skip counting.
+                if (!updateResult || updateResult->modified_count() == 0) continue;
+
+                resetCountByQueue[message.queueErn]++;
+                resetCount++;
+                log_debug << "Message visibility timeout expired, messageId: " << message.messageId << ", queueErn: " << message.queueErn;
+            }
+
+            for (const auto &[queueErn, count]: resetCountByQueue) {
+                const auto queueUpdate = make_document(
+                        kvp("$inc", make_document(
+                                    kvp("invisible", -static_cast<int64_t>(count)),
+                                    kvp("available", static_cast<int64_t>(count)))),
+                        kvp("$currentDate", make_document(
+                                    kvp("modified", true))));
+                queueCollection.update_one(make_document(kvp("ern", queueErn)).view(), queueUpdate.view());
+            }
+
+            if (resetCount > 0)
+                log_info << "Reset expired messages, count: " << resetCount;
+
+        } catch (const std::exception &e) {
+            log_error << "Reset expired messages failed, error: " << e.what();
+        }
+        return resetCount;
+    }
+
+}// namespace Euclid::Database

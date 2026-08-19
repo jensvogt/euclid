@@ -1,0 +1,214 @@
+//
+// Created by vogje01 on 11/17/24.
+//
+
+#pragma once
+
+// C++ includes
+#include <chrono>
+#include <map>
+#include <sstream>
+#include <stdexcept>
+
+// Boost JSON includes
+#include <boost/json.hpp>
+
+// Euclid includes
+#include <euclid/core/DateTimeUtils.h>
+#include <euclid/core/LogStream.h>
+
+namespace Euclid::Core {
+
+    /**
+     * @brief Thrown when JSON parsing or extraction fails.
+     */
+    class JsonException final : public std::runtime_error {
+    public:
+        explicit JsonException(const std::string &message) : std::runtime_error(message) {}
+    };
+
+    using std::chrono::system_clock;
+
+    inline boost::json::value ParseJsonString(const std::string &jsonString) {
+        boost::system::error_code ec;
+        boost::json::value result = boost::json::parse(jsonString, ec);
+        if (ec) {
+            throw JsonException("JSON exception, error: " + ec.message());
+        }
+        return result;
+    }
+
+    inline bool AttributeExists(const boost::json::value &value, const std::string &name) {
+        return value.as_object().if_contains(name) && !value.at(name).is_null();
+    }
+
+    namespace detail {
+        // Shared "exists ? extract : default" pattern used by the scalar Get*Value accessors below.
+        template<class T, class F>
+        T ValueOr(const boost::json::value &value, const std::string &name, T defaultValue, F &&extract) {
+            return AttributeExists(value, name) ? extract(value.at(name)) : defaultValue;
+        }
+    }// namespace detail
+
+    inline std::string GetStringValue(const boost::json::value &value, const std::string &name) {
+        return detail::ValueOr<std::string>(value, name, {}, [](const boost::json::value &v) { return std::string(v.as_string()); });
+    }
+
+    inline long GetLongValue(const boost::json::value &value, const std::string &name, const long defaultValue = 0) {
+        return detail::ValueOr(value, name, defaultValue, [](const boost::json::value &v) { return v.as_int64(); });
+    }
+
+    inline long long GetLongLongValue(const boost::json::value &value, const std::string &name, const long defaultValue = 0) {
+        return GetLongValue(value, name, defaultValue);
+    }
+
+    inline int GetIntValue(const boost::json::value &value, const std::string &name, const int defaultValue = 0) {
+        return static_cast<int>(GetLongValue(value, name, defaultValue));
+    }
+
+    inline bool GetBoolValue(const boost::json::value &value, const std::string &name) {
+        return detail::ValueOr(value, name, false, [](const boost::json::value &v) { return v.as_bool(); });
+    }
+
+    inline float GetFloatValue(const boost::json::value &value, const std::string &name) {
+        return detail::ValueOr(value, name, 0.0f, [](const boost::json::value &v) { return static_cast<float>(v.as_double()); });
+    }
+
+    inline double GetDoubleValue(const boost::json::value &value, const std::string &name) {
+        return detail::ValueOr(value, name, 0.0, [](const boost::json::value &v) { return v.as_double(); });
+    }
+
+    inline std::vector<std::string> GetStringArrayValue(const boost::json::value &value, const std::string &name, const std::vector<std::string> &defaultValue = {}) {
+        if (AttributeExists(value, name)) {
+            return boost::json::value_to<std::vector<std::string>>(value.at(name));
+        }
+        return defaultValue;
+    }
+
+    inline system_clock::time_point GetDatetimeValue(const boost::json::value &value, const std::string &name) {
+        if (AttributeExists(value, name)) {
+            return DateTimeUtils::FromISO8601(value.at(name).as_string().data());
+        }
+        return {};
+    }
+
+    inline system_clock::time_point GetDatetimeValueUTC(const boost::json::value &value, const std::string &name) {
+        if (AttributeExists(value, name)) {
+#ifdef __APPLE__
+            std::string dateStr = value.at(name).as_string().c_str();
+            struct tm tm = {};
+
+            // strptime is the standard on macOS/Linux
+            char *res = strptime(dateStr.c_str(), "%Y-%m-%dT%H:%M:%SZ", &tm);
+
+            if (res != nullptr) {
+                // timegm is the thread-safe UTC version of mktime on macOS/Linux
+                time_t t = timegm(&tm);
+                return std::chrono::system_clock::from_time_t(t);
+            }
+#else
+            std::stringstream ss{value.at(name).as_string().data()};
+            system_clock::time_point tp;
+            // The %FT%T%Z format covers:
+            // %F (Date: YYYY-MM-DD)
+            // T  (Literal separator)
+            // %T (Time: HH:MM:SS and subseconds)
+            // %Z (The UTC 'Z' suffix)
+            ss >> std::chrono::parse("%FT%T%Z", tp);
+            return tp;
+#endif
+        }
+        return {};
+    }
+
+    inline system_clock::time_point GetUnixTimestampValue(const boost::json::value &value, const std::string &name, const system_clock::time_point &defaultValue = {}) {
+        if (AttributeExists(value, name)) {
+            return DateTimeUtils::FromUnixTimestamp(value.at(name).get_int64());
+        }
+        return {defaultValue};
+    }
+
+    template<class T, class S>
+    std::map<T, S> GetMapFromObject(const boost::json::value &v, const std::string &name) {
+        std::map<T, S> valueMap;
+        if (AttributeExists(v, name)) {
+            for (const auto &element: v.at(name).as_object()) {
+                T key = element.key().data();
+                valueMap.emplace(key, boost::json::value_to<S>(element.value()));
+            }
+        }
+        return valueMap;
+    }
+
+    inline bool findObject(boost::json::value &value, const std::string &name) {
+        return AttributeExists(value, name);
+    }
+
+    namespace {
+        inline void PrettyPrintValue(const boost::json::value &v, std::ostream &out, const std::string &pad) {
+            switch (v.kind()) {
+                case boost::json::kind::object: {
+                    const auto &obj = v.get_object();
+                    if (obj.empty()) { out << "{}"; return; }
+                    const std::string childPad = pad + "  ";
+                    out << "{\n";
+                    std::size_t i = 0;
+                    for (const auto &[key, val]: obj) {
+                        out << childPad << boost::json::serialize(boost::json::value(key)) << ": ";
+                        PrettyPrintValue(val, out, childPad);
+                        if (++i < obj.size()) out << ",";
+                        out << "\n";
+                    }
+                    out << pad << "}";
+                    break;
+                }
+                case boost::json::kind::array: {
+                    const auto &arr = v.get_array();
+                    if (arr.empty()) { out << "[]"; return; }
+                    const std::string childPad = pad + "  ";
+                    out << "[\n";
+                    for (std::size_t i = 0; i < arr.size(); ++i) {
+                        out << childPad;
+                        PrettyPrintValue(arr[i], out, childPad);
+                        if (i + 1 < arr.size()) out << ",";
+                        out << "\n";
+                    }
+                    out << pad << "]";
+                    break;
+                }
+                default:
+                    out << boost::json::serialize(v);
+                    break;
+            }
+        }
+    }
+
+    inline std::string PrettyPrint(const boost::json::value &root) {
+        std::ostringstream out;
+        PrettyPrintValue(root, out, "");
+        out << "\n";
+        return out.str();
+    }
+
+    inline std::string PrettyPrint(const std::string &json) {
+        boost::system::error_code ec;
+        const boost::json::value jv = boost::json::parse(json, ec);
+        if (ec) return json;
+        return PrettyPrint(jv);
+    }
+
+    /**
+     * @brief Writes a JSON value to an output stream, honoring a pretty-print flag.
+     *
+     * @param out output stream to write to
+     * @param value JSON value to write
+     * @param pretty whether to pretty-print the value
+     */
+    inline void WriteJson(std::ostream &out, const boost::json::value &value, const bool pretty) {
+        if (pretty) {
+            out << PrettyPrint(value);
+        } else {
+            out << boost::json::serialize(value) << std::endl;
+        }
+    }
+}// namespace Euclid::Core
