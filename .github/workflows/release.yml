@@ -1,0 +1,686 @@
+name: Release + Build + Installer (Windows / macOS / Linux)
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  APP_NAME: "euclid"
+  INSTALLER_ID: "de.jensvogt.euclid"
+  VCPKG_BUILD_TYPE: release
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+  pages: write
+  actions: write
+
+jobs:
+  release-please:
+    name: Create Release PR / Tag
+    runs-on: ubuntu-latest
+
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.strip_tag.outputs.clean_tag }}
+      prs_created: ${{ steps.release.outputs.prs_created }}
+
+    steps:
+      - name: Release Please
+        id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          release-type: simple
+          token: ${{ secrets.GH_AUTH_TOKEN }}
+
+      - name: Strip leading 'v' from tag
+        id: strip_tag
+        run: |
+          TAG="${{ steps.release.outputs.tag_name }}"
+          CLEAN="${TAG#v}"   # remove leading 'v'
+          echo "clean_tag=$CLEAN" >> $GITHUB_OUTPUT
+
+  build-windows-msi:
+    name: Build & Package (Windows MSI)
+    runs-on: windows-latest
+    needs: [ release-please ]
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    env:
+      VCPKG_ROOT: "${{ github.workspace }}/vcpkg"
+      VCPKG_DEFAULT_BINARY_CACHE: "${{ github.workspace }}/vcpkg-bincache"
+      VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkg-bincache,readwrite"
+      BUILD_DIR: "${{ github.workspace }}/cmake-build-release"
+      SEMVER: ${{ needs.release-please.outputs.tag_name }}
+      VCPKG_DEFAULT_TRIPLET: x64-windows-static
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Setup MSVC environment
+        uses: step-security/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Create vcpkg binary cache dir
+        shell: bash
+        run: mkdir -p ${{ github.workspace }}/vcpkg-bincache
+
+      - name: Cache vcpkg binary packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg-bincache
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('**/vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgDirectory: "${{ github.workspace }}/vcpkg"
+          vcpkgJsonGlob: 'vcpkg.json'
+          runVcpkgInstall: false
+
+      - name: Build (Backend)
+        shell: cmd
+        run: |
+          mkdir "${{ env.BUILD_DIR }}"
+          cmake -B "${{ env.BUILD_DIR }}" -S . -DCMAKE_BUILD_TYPE=Release -DVCPKG_ROOT=${{ env.VCPKG_ROOT}} -DCMAKE_TOOLCHAIN_FILE="${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_DEFAULT_TRIPLET }} -DVCPKG_DISABLE_AUTO_PACKAGE_REGISTRATION=ON
+          cmake --build "${{ env.BUILD_DIR }}" --config Release --parallel 2
+
+      - name: Build (Frontend)
+        shell: pwsh
+        run: |
+          # euclid-ui doesn't exist as a separate repo yet - package without a bundled
+          # frontend until it does, rather than failing the whole release.
+          git ls-remote https://github.com/jensvogt/euclid-ui.git *>$null
+          if ($LASTEXITCODE -eq 0) {
+            git clone https://github.com/jensvogt/euclid-ui
+            cd euclid-ui
+            npm install
+            npm run build
+          } else {
+            Write-Warning "jensvogt/euclid-ui not found - packaging without a bundled frontend"
+            New-Item -ItemType Directory -Force -Path euclid-ui\dist\euclid-ui\browser | Out-Null
+          }
+
+      - name: Install NSIS
+        run: |
+          choco install nsis --no-progress -y
+          echo "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
+
+      - name: Install NSIS plugins
+        run: |
+          $pluginDir = "C:\Program Files (x86)\NSIS\Plugins\x86-unicode"
+          Copy-Item "${{ github.workspace }}\dist\msi\nsis\INetC.dll" "$pluginDir\"
+          Copy-Item "${{ github.workspace }}\dist\msi\nsis\nsJSON.dll" "$pluginDir\"
+          Copy-Item "${{ github.workspace }}\dist\msi\nsis\SimpleSC.dll" "$pluginDir\"
+
+      - name: Build NSIS installer
+        env:
+          SRCDIR: ${{ github.workspace }}
+        run: makensis /DSRCDIR=${{ github.workspace }} /DBUILDDIR="${{ env.BUILD_DIR }}" /DVERSION=${{ env.SEMVER }} dist\msi\product.nsi
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: installer-windows
+          path: ${{ env.APP_NAME }}-${{ env.SEMVER }}-amd64.exe
+          overwrite: true
+
+  build-macos:
+    name: Build & Package (macOS)
+    runs-on: macos-15
+    timeout-minutes: 90
+    needs: [ release-please ]
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    env:
+      VCPKG_ROOT: "${{ github.workspace }}/vcpkg"
+      VCPKG_DEFAULT_BINARY_CACHE: "${{ github.workspace }}/vcpkg-bincache"
+      VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkg-bincache,readwrite"
+      BUILD_DIR: "${{ github.workspace }}/build-macos"
+      PACKAGE_DIR: "${{ github.workspace }}/package-macos"
+      SEMVER: ${{ needs.release-please.outputs.tag_name }}
+      SERVICE_NAME: de.jensvogt.euclid
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_INSTALL_CLEANUP: 1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        shell: bash
+        run: |
+          brew install doxygen pandoc file autoconf autoconf-archive automake libtool
+
+      - name: Create vcpkg binary cache dir
+        run: mkdir -p ${{ github.workspace }}/vcpkg-bincache
+
+      - name: Cache vcpkg binary packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg-bincache
+          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgDirectory: ${{ env.VCPKG_ROOT }}
+          vcpkgJsonGlob: 'vcpkg.json'
+
+      - name: Build (Backend)
+        run: |
+          cmake -B ${{ env.BUILD_DIR }} -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake -DVCPKG_DISABLE_AUTO_PACKAGE_REGISTRATION=ON
+          cmake --build ${{ env.BUILD_DIR }} --config Release --parallel 2
+
+      - name: Dump vcpkg failure logs
+        if: failure()
+        shell: bash
+        run: |
+          for f in $(find "${{ env.VCPKG_ROOT }}/buildtrees" -iname "*-out.log" -o -iname "*-err.log" -o -iname "*CMakeConfigureLog.yaml.log" 2>/dev/null); do
+            echo "===== $f ====="
+            tail -n 200 "$f"
+            echo
+          done
+
+      - name: Build (Frontend)
+        shell: bash
+        run: |
+          # euclid-ui doesn't exist as a separate repo yet - package without a bundled
+          # frontend until it does, rather than failing the whole release.
+          mkdir -p ${{ github.workspace }}/frontend
+          cd ${{ github.workspace }}/frontend
+          if git ls-remote https://github.com/jensvogt/euclid-ui.git >/dev/null 2>&1; then
+            git clone https://github.com/jensvogt/euclid-ui
+            cd euclid-ui
+            npm install
+            npm run build
+          else
+            echo "::warning::jensvogt/euclid-ui not found - packaging without a bundled frontend"
+            mkdir -p euclid-ui/dist/euclid-ui/browser
+          fi
+
+      - name: Prepare package structure
+        run: |
+          mkdir -p ${{ env.PACKAGE_DIR }}/euclid/bin
+          mkdir -p ${{ env.PACKAGE_DIR }}/euclid/etc
+          mkdir -p ${{ env.PACKAGE_DIR }}/euclid/log
+          mkdir -p ${{ env.PACKAGE_DIR }}/euclid/frontend
+          mkdir -p ${{ env.PACKAGE_DIR }}/euclid/init
+          mkdir -p ${{ env.PACKAGE_DIR }}/euclid/data/tmp
+          mkdir -p ${{ env.PACKAGE_DIR }}/euclid/data/backup
+          mkdir -p ${{ env.PACKAGE_DIR }}/euclid/share/man/man1
+
+          cp ${{ env.BUILD_DIR }}/bin/euclid-mgr ${{ env.PACKAGE_DIR }}/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-cli ${{ env.PACKAGE_DIR }}/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-acc ${{ env.PACKAGE_DIR }}/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-sqs ${{ env.PACKAGE_DIR }}/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-mon ${{ env.PACKAGE_DIR }}/euclid/bin/
+          cp dist/etc/euclid_macos.json ${{ env.PACKAGE_DIR }}/euclid/etc/euclid.json
+          cp dist/linux/etc/magic.mgc ${{ env.PACKAGE_DIR }}/euclid/etc/magic.mgc
+          cp dist/linux/etc/ssh_host_key ${{ env.PACKAGE_DIR }}/euclid/etc/ssh_host_key
+          cp dist/linux/etc/euclid_cert.crt ${{ env.PACKAGE_DIR }}/euclid/etc/euclid_cert.crt
+          cp dist/linux/etc/euclid_cert.key ${{ env.PACKAGE_DIR }}/euclid/etc/euclid_cert.key
+          cp dist/macos/de.jensvogt.euclid.plist ${{ env.PACKAGE_DIR }}/euclid/etc/
+          cp cli/docs/man/*.1 ${{ env.PACKAGE_DIR }}/euclid/share/man/man1/ 2>/dev/null || true
+          cp -R ${{ github.workspace }}/frontend/euclid-ui/dist/euclid-ui/browser/* ${{ env.PACKAGE_DIR }}/euclid/frontend/ 2>/dev/null || true
+
+      - name: Package Service Files
+        run: |
+          tar -czf ${{ env.APP_NAME }}-${{ env.SEMVER }}-macos.tgz -C ${{ env.PACKAGE_DIR }} .
+
+      - name: Upload macOS ZIP
+        uses: actions/upload-artifact@v7
+        with:
+          name: installer-macos
+          path: ${{ env.APP_NAME }}-${{ env.SEMVER }}-macos.tgz
+
+  build-linux:
+    name: Build & Package (Linux DEB + RPM)
+    runs-on: ubuntu-latest
+    needs: [ release-please ]
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    env:
+      CXX: g++-14
+      CC: gcc-14
+      VCPKG_ROOT: "${{ github.workspace }}/vcpkg"
+      VCPKG_DEFAULT_BINARY_CACHE: "${{ github.workspace }}/vcpkg-bincache"
+      VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkg-bincache,readwrite"
+      BUILD_DIR: "${{ github.workspace }}/build-linux"
+      PACKAGE_DIR_DEB: "${{ github.workspace }}/package-deb"
+      PACKAGE_DIR_RPM: "${{ github.workspace }}/package-rpm"
+      SEMVER: "${{ needs.release-please.outputs.tag_name }}"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y ninja-build doxygen pandoc linux-libc-dev autoconf autoconf-archive automake libtool g++-14 rpm libgoogle-perftools-dev libmagic-dev
+          sudo gem install --no-document fpm
+
+      - name: Create vcpkg binary cache dir
+        run: mkdir -p ${{ github.workspace }}/vcpkg-bincache
+
+      - name: Cache vcpkg binary packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg-bincache
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('**/vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgDirectory: ${{ env.VCPKG_ROOT }}
+          vcpkgJsonGlob: 'vcpkg.json'
+
+      - name: Set g++-14 as default
+        run: |
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 14
+          sudo update-alternatives --set g++ /usr/bin/g++-14
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 14
+          sudo update-alternatives --set gcc /usr/bin/gcc-14
+
+      - name: Build (Backend)
+        run: |
+          mkdir ${{ env.BUILD_DIR }}
+          cmake -B ${{ env.BUILD_DIR }} -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake
+          cmake --build ${{ env.BUILD_DIR }} --config Release --parallel 2
+
+      - name: Build (Frontend)
+        shell: bash
+        run: |
+          # euclid-ui doesn't exist as a separate repo yet - package without a bundled
+          # frontend until it does, rather than failing the whole release.
+          mkdir -p ${{ github.workspace }}/frontend
+          cd ${{ github.workspace }}/frontend
+          if git ls-remote https://github.com/jensvogt/euclid-ui.git >/dev/null 2>&1; then
+            git clone https://github.com/jensvogt/euclid-ui
+            cd euclid-ui
+            npm install
+            npm run build
+          else
+            echo "::warning::jensvogt/euclid-ui not found - packaging without a bundled frontend"
+            mkdir -p euclid-ui/dist/euclid-ui/browser
+          fi
+
+      # ── DEB ────────────────────────────────────────────────────────────────
+
+      - name: Prepare DEB package structure
+        run: |
+          mkdir -p ${{ env.PACKAGE_DIR_DEB }}/DEBIAN
+          mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/bin
+          mkdir -p ${{ env.PACKAGE_DIR_DEB }}/etc/euclid
+          mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/log
+          mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/frontend
+          mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/init
+          mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/data/tmp
+          mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/data/backup
+          mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man1
+          mkdir -p ${{ env.PACKAGE_DIR_DEB }}/etc/systemd/system
+
+          cp ${{ env.BUILD_DIR }}/bin/euclid-mgr ${{ env.PACKAGE_DIR_DEB }}/usr/local/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-cli ${{ env.PACKAGE_DIR_DEB }}/usr/local/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-acc ${{ env.PACKAGE_DIR_DEB }}/usr/local/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-sqs ${{ env.PACKAGE_DIR_DEB }}/usr/local/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-mon ${{ env.PACKAGE_DIR_DEB }}/usr/local/bin/
+          cp dist/linux/etc/euclid.json ${{ env.PACKAGE_DIR_DEB }}/etc/euclid/euclid.json
+          cp dist/linux/etc/euclid_cert.crt ${{ env.PACKAGE_DIR_DEB }}/etc/euclid/euclid_cert.crt
+          cp dist/linux/etc/euclid_cert.key ${{ env.PACKAGE_DIR_DEB }}/etc/euclid/euclid_cert.key
+          cp dist/linux/etc/ssh_host_key ${{ env.PACKAGE_DIR_DEB }}/etc/euclid/ssh_host_key
+          cp dist/linux/etc/systemd/system/euclid.service ${{ env.PACKAGE_DIR_DEB }}/etc/systemd/system
+          cp cli/docs/man/*.1 ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man1/ 2>/dev/null || true
+          cp -R ${{ github.workspace }}/frontend/euclid-ui/dist/euclid-ui/browser/* ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/frontend/ 2>/dev/null || true
+
+          cat << EOF > ${{ env.PACKAGE_DIR_DEB }}/DEBIAN/control
+          Package: euclid
+          Version: ${SEMVER}
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Maintainer: Jens Vogt <jens.vogt@opitz-consulting.com>
+          Description: Euclid local AWS emulator service
+          Depends: systemd, libmagic1
+          EOF
+
+          cat << EOF > ${{ env.PACKAGE_DIR_DEB }}/DEBIAN/postinst
+          #!/bin/bash
+          set -e
+          systemctl daemon-reload
+          systemctl enable euclid.service
+          systemctl restart euclid.service || true
+          EOF
+
+          cat << EOF > ${{ env.PACKAGE_DIR_DEB }}/DEBIAN/postrm
+          #!/bin/bash
+          set -e
+          systemctl stop euclid.service || true
+          systemctl disable euclid.service || true
+          rm -f /etc/systemd/system/euclid.service
+          EOF
+
+          chmod 755 ${{ env.PACKAGE_DIR_DEB }}/DEBIAN/postinst ${{ env.PACKAGE_DIR_DEB }}/DEBIAN/postrm
+
+      - name: Build DEB with fpm
+        run: |
+          fpm -s dir -t deb --name "${{ env.APP_NAME }}" \
+          --version "${{ env.SEMVER }}" \
+          --architecture amd64 \
+          --license "GPL-3.0-or-later" \
+          --package "${{ env.APP_NAME }}-${{ env.SEMVER }}-amd64.deb" \
+          ${{ env.PACKAGE_DIR_DEB }}/=/
+
+      - name: Upload .deb
+        uses: actions/upload-artifact@v7
+        with:
+          name: deb-package-linux
+          path: ${{ env.APP_NAME }}-${{ env.SEMVER }}-amd64.deb
+          overwrite: true
+
+      # ── RPM ────────────────────────────────────────────────────────────────
+
+      - name: Prepare RPM package structure
+        run: |
+          mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/bin
+          mkdir -p ${{ env.PACKAGE_DIR_RPM }}/etc/euclid
+          mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/log
+          mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/frontend
+          mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/init
+          mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/data/tmp
+          mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/data/backup
+          mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man1
+          mkdir -p ${{ env.PACKAGE_DIR_RPM }}/etc/systemd/system
+          mkdir -p ${{ env.PACKAGE_DIR_RPM }}/scripts
+
+          cp ${{ env.BUILD_DIR }}/bin/euclid-mgr ${{ env.PACKAGE_DIR_RPM }}/usr/local/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-cli ${{ env.PACKAGE_DIR_RPM }}/usr/local/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-acc ${{ env.PACKAGE_DIR_RPM }}/usr/local/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-sqs ${{ env.PACKAGE_DIR_RPM }}/usr/local/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-mon ${{ env.PACKAGE_DIR_RPM }}/usr/local/bin/
+          cp dist/linux/etc/euclid.json ${{ env.PACKAGE_DIR_RPM }}/etc/euclid/euclid.json
+          cp dist/linux/etc/euclid_cert.crt ${{ env.PACKAGE_DIR_RPM }}/etc/euclid/euclid_cert.crt
+          cp dist/linux/etc/euclid_cert.key ${{ env.PACKAGE_DIR_RPM }}/etc/euclid/euclid_cert.key
+          cp dist/linux/etc/ssh_host_key ${{ env.PACKAGE_DIR_RPM }}/etc/euclid/ssh_host_key
+          cp dist/linux/etc/systemd/system/euclid.service ${{ env.PACKAGE_DIR_RPM }}/etc/systemd/system
+          cp cli/docs/man/*.1 ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man1/ 2>/dev/null || true
+          cp -R ${{ github.workspace }}/frontend/euclid-ui/dist/euclid-ui/browser/* ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/frontend/ 2>/dev/null || true
+
+          cat << EOF > ${{ env.PACKAGE_DIR_RPM }}/scripts/postinstall.sh
+          #!/bin/bash
+          set -e
+          systemctl daemon-reload
+          systemctl enable euclid.service
+          systemctl restart euclid.service || true
+          EOF
+
+          cat << EOF > ${{ env.PACKAGE_DIR_RPM }}/scripts/postremove.sh
+          #!/bin/bash
+          systemctl stop euclid.service || true
+          systemctl disable euclid.service || true
+          rm -f /etc/systemd/system/euclid.service
+          systemctl daemon-reload
+          EOF
+
+          chmod +x ${{ env.PACKAGE_DIR_RPM }}/scripts/postinstall.sh ${{ env.PACKAGE_DIR_RPM }}/scripts/postremove.sh
+
+      - name: Build RPM with fpm
+        run: |
+          fpm -s dir -t rpm \
+          -n euclid \
+          -v ${SEMVER} \
+          --description "Euclid - Local AWS API mocking environment" \
+          --url "https://github.com/jensvogt/euclid" \
+          --vendor "Euclid Project" \
+          --license "GPL-3.0-or-later" \
+          --depends systemd \
+          --depends file-libs \
+          --prefix / \
+          --after-install ${{ env.PACKAGE_DIR_RPM }}/scripts/postinstall.sh \
+          --after-remove ${{ env.PACKAGE_DIR_RPM }}/scripts/postremove.sh \
+          ${{ env.PACKAGE_DIR_RPM }}/=/
+
+      - name: Upload .rpm
+        uses: actions/upload-artifact@v7
+        with:
+          name: rpm-package-linux
+          path: ${{ env.APP_NAME }}-${{ env.SEMVER }}-1.x86_64.rpm
+          overwrite: true
+
+  build-apt-repo:
+    name: "Build & Sign APT Repository"
+    runs-on: ubuntu-latest
+    needs: [ release-please, build-linux ]
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    env:
+      SEMVER: "${{ needs.release-please.outputs.tag_name }}"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+
+      - name: Download .deb package
+        uses: actions/download-artifact@v7
+        with:
+          name: deb-package-linux
+          path: artifacts
+
+      - name: Import GPG signing key
+        id: import_gpg
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.APT_GPG_PASSPHRASE }}
+
+      - name: Install reprepro
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y reprepro
+
+      - name: Restore persistent APT repo state
+        run: |
+          if git ls-remote --exit-code --heads origin apt-repo >/dev/null 2>&1; then
+            git fetch origin apt-repo:apt-repo
+            git worktree add apt-repo-work apt-repo
+          else
+            git worktree add --orphan -b apt-repo apt-repo-work
+          fi
+
+      - name: Configure reprepro distribution
+        run: |
+          mkdir -p apt-repo-work/conf
+          sed "s/__GPG_KEY_ID__/${{ steps.import_gpg.outputs.fingerprint }}/" dist/apt/conf/distributions > apt-repo-work/conf/distributions
+
+      - name: Add package to APT repo
+        run: reprepro -b apt-repo-work includedeb stable artifacts/*.deb
+
+      - name: Export public signing key
+        run: gpg --armor --export ${{ steps.import_gpg.outputs.fingerprint }} > apt-repo-work/euclid-archive-keyring.asc
+
+      - name: Commit updated APT repo state
+        working-directory: apt-repo-work
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add conf dists pool db euclid-archive-keyring.asc
+          git commit -m "chore(apt): add ${{ env.SEMVER }}" || echo "No changes to commit"
+          git push origin HEAD:apt-repo
+
+      - name: Upload APT repo artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: apt-repo-site
+          path: |
+            apt-repo-work/dists
+            apt-repo-work/pool
+            apt-repo-work/euclid-archive-keyring.asc
+          overwrite: true
+
+  build-docker:
+    name: "Build & Package (Docker)"
+    runs-on: ubuntu-latest
+    needs: [ release-please ]
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SEMVER: "${{ needs.release-please.outputs.tag_name }}"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push Docker
+        uses: docker/build-push-action@v6
+        with:
+          context: docker
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USER }}/euclid:${{ env.SEMVER }}
+            ${{ secrets.DOCKER_USER }}/euclid:latest
+          build-args: |
+            GH_TOKEN=${{ env.GH_TOKEN }}
+            BUILD_VERSION=${{ env.SEMVER }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+        env:
+          DOCKER_BUILD_SUMMARY: false
+
+  publish:
+    name: Publish Release & Attach Installers
+    runs-on: ubuntu-latest
+    needs: [ release-please, build-linux, build-macos, build-windows-msi ]
+    env:
+      SEMVER: "${{ needs.release-please.outputs.tag_name }}"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Download Windows installer
+        uses: actions/download-artifact@v7
+        with:
+          name: installer-windows
+          path: artifacts/windows
+
+      - name: Download macOS installer
+        uses: actions/download-artifact@v7
+        with:
+          name: installer-macos
+          path: artifacts/macos
+
+      - name: Download Linux Debian package
+        uses: actions/download-artifact@v7
+        with:
+          name: deb-package-linux
+          path: artifacts/linux
+
+      - name: Download Linux RPM package
+        uses: actions/download-artifact@v7
+        with:
+          name: rpm-package-linux
+          path: artifacts/linux
+
+      - name: Create GitHub Release (attach installers)
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/windows/*.exe
+            artifacts/macos/*.tgz
+            artifacts/linux/*.deb
+            artifacts/linux/*.rpm
+          name: Release ${{ env.SEMVER }}
+          tag_name: ${{ env.SEMVER }}
+          body: "Automated release for ${{ env.SEMVER }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_AUTH_TOKEN }}
+
+  deploy:
+    needs:
+      - publish
+      - build-apt-repo
+    runs-on: ubuntu-latest
+    env:
+      SEMVER: "${{ needs.release-please.outputs.tag_name }}"
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: artifacts
+
+      - name: Create site folder
+        run: |
+          mkdir public
+          cp ./artifacts/installer-windows/*.exe public/ || true
+          cp ./artifacts/installer-macos/*.tgz public/ || true
+          cp ./artifacts/deb-package-linux/*.deb public/ || true
+          cp ./artifacts/rpm-package-linux/*.rpm public/ || true
+          cp .github/pages/index.html public/index.html || true
+          mkdir -p public/apt
+          cp -R ./artifacts/apt-repo-site/dists public/apt/
+          cp -R ./artifacts/apt-repo-site/pool public/apt/
+          cp ./artifacts/apt-repo-site/euclid-archive-keyring.asc public/apt/
+          find . -ls
+
+      - name: Generate files.json
+        run: |
+          cd public
+          echo '{ "downloads": [' > files.json
+          first=true
+          for f in *.{exe,deb,rpm,tgz}; do
+            [ -f "$f" ] || continue
+            if [ "$first" = true ]; then
+              first=false
+            else
+              echo "," >> files.json
+            fi
+            size=$(stat -c%s "$f")
+            sha=$(sha256sum "$f" | cut -d" " -f1)
+            echo "  {\"file\": \"$f\", \"size\": $size, \"sha256\": \"$sha\"}" >> files.json
+          done
+          echo "]}" >> files.json
+
+      - name: Delete existing github-pages artifact (cleanup for re-runs)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          artifact_id=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+            --jq '[.artifacts[] | select(.name == "github-pages")] | .[0].id // empty')
+          if [ -n "$artifact_id" ]; then
+            gh api --method DELETE "repos/${{ github.repository }}/actions/artifacts/$artifact_id"
+          fi
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
