@@ -24,9 +24,7 @@ namespace Euclid::main {
     //   2. Authorization   — SigV4 credential scope: "<key>/<date>/<region>/<svc>/aws4_request"
     static std::string detectAwsService(const http::request<http::string_body> &req) {
         static const std::unordered_set<std::string> kModules{
-            "access", "s3", "queues", "sns", "dynamodb", "kinesis", "lambda",
-            "iam", "sts", "ec2", "secretsmanager", "ssm", "kms",
-            "firehose", "events", "logs", "cognito-idp", "cognito-identity"
+                "access", "storage", "queues", "topics"
         };
 
         if (const auto module = std::string(req["x-euclid-target"]); !module.empty()) {
@@ -149,21 +147,22 @@ namespace Euclid::main {
 
     class GatewaySession : public std::enable_shared_from_this<GatewaySession> {
     public:
-        GatewaySession(tcp::socket socket, ServiceController &ctrl) : _stream(std::move(socket)), _ctrl(ctrl) {
-        }
+
+        GatewaySession(tcp::socket socket, ServiceController &ctrl) : _stream(std::move(socket)), _ctrl(ctrl) {}
 
         void run() { doRead(); }
 
     private:
+
         void doRead() {
             _req = {};
             _stream.expires_after(std::chrono::seconds(30));
             http::async_read(
-                _stream, _buf, _req,
-                [self = shared_from_this()](const beast::error_code &ec, std::size_t) {
-                    if (!ec) self->handleRequest();
-                    // on error (EOF, timeout, etc.) the session destructs naturally
-                });
+                    _stream, _buf, _req,
+                    [self = shared_from_this()](const beast::error_code &ec, std::size_t) {
+                        if (!ec) self->handleRequest();
+                        // on error (EOF, timeout, etc.) the session destructs naturally
+                    });
         }
 
         void handleRequest() {
@@ -171,14 +170,14 @@ namespace Euclid::main {
             auto sp = std::make_shared<http::response<http::string_body> >(std::move(res));
             const bool keepAlive = sp->keep_alive();
             http::async_write(
-                _stream, *sp,
-                [self = shared_from_this(), sp, keepAlive](const beast::error_code &ec, std::size_t) {
-                    if (!ec && keepAlive) self->doRead();
-                    else {
-                        beast::error_code ignored;
-                        std::ignore = self->_stream.socket().shutdown(tcp::socket::shutdown_send, ignored);
-                    }
-                });
+                    _stream, *sp,
+                    [self = shared_from_this(), sp, keepAlive](const beast::error_code &ec, std::size_t) {
+                        if (!ec && keepAlive) self->doRead();
+                        else {
+                            beast::error_code ignored;
+                            std::ignore = self->_stream.socket().shutdown(tcp::socket::shutdown_send, ignored);
+                        }
+                    });
         }
 
         beast::tcp_stream _stream;
@@ -194,30 +193,31 @@ namespace Euclid::main {
 
     class GatewayTlsSession : public std::enable_shared_from_this<GatewayTlsSession> {
     public:
+
         GatewayTlsSession(tcp::socket socket, asio::ssl::context &sslCtx, ServiceController &ctrl)
-            : _stream(std::move(socket), sslCtx), _ctrl(ctrl) {
-        }
+            : _stream(std::move(socket), sslCtx), _ctrl(ctrl) {}
 
         void run() {
             beast::get_lowest_layer(_stream).expires_after(std::chrono::seconds(30));
             _stream.async_handshake(
-                asio::ssl::stream_base::server,
-                [self = shared_from_this()](const beast::error_code &ec) {
-                    if (!ec) self->doRead();
-                    // handshake failure: session destructs naturally
-                });
+                    asio::ssl::stream_base::server,
+                    [self = shared_from_this()](const beast::error_code &ec) {
+                        if (!ec) self->doRead();
+                        // handshake failure: session destructs naturally
+                    });
         }
 
     private:
+
         void doRead() {
             _req = {};
             beast::get_lowest_layer(_stream).expires_after(std::chrono::seconds(30));
             http::async_read(
-                _stream, _buf, _req,
-                [self = shared_from_this()](const beast::error_code &ec, std::size_t) {
-                    if (!ec) self->handleRequest();
-                    // on error (EOF, timeout, etc.) the session destructs naturally
-                });
+                    _stream, _buf, _req,
+                    [self = shared_from_this()](const beast::error_code &ec, std::size_t) {
+                        if (!ec) self->handleRequest();
+                        // on error (EOF, timeout, etc.) the session destructs naturally
+                    });
         }
 
         void handleRequest() {
@@ -225,14 +225,14 @@ namespace Euclid::main {
             auto sp = std::make_shared<http::response<http::string_body> >(std::move(res));
             const bool keepAlive = sp->keep_alive();
             http::async_write(
-                _stream, *sp,
-                [self = shared_from_this(), sp, keepAlive](const beast::error_code &ec, std::size_t) {
-                    if (!ec && keepAlive) self->doRead();
-                    else {
-                        beast::error_code ignored;
-                        std::ignore = self->_stream.shutdown(ignored);
-                    }
-                });
+                    _stream, *sp,
+                    [self = shared_from_this(), sp, keepAlive](const beast::error_code &ec, std::size_t) {
+                        if (!ec && keepAlive) self->doRead();
+                        else {
+                            beast::error_code ignored;
+                            std::ignore = self->_stream.shutdown(ignored);
+                        }
+                    });
         }
 
         beast::ssl_stream<beast::tcp_stream> _stream;
@@ -290,4 +290,4 @@ namespace Euclid::main {
         });
     }
 
-} // namespace Euclid::main
+}// namespace Euclid::main
