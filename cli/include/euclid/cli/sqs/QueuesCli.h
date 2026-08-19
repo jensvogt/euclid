@@ -40,7 +40,7 @@ namespace Euclid::CLI {
      *
      * @author jens.vogt\@opitz-consulting.com
      */
-    class SqsCli {
+    class QueuesCli {
 
     public:
 
@@ -54,7 +54,7 @@ namespace Euclid::CLI {
          * @param caCertPath if non-empty, path to a PEM CA certificate trusted in addition to the
          * system trust store, e.g. for self-signed development certificates
          */
-        explicit SqsCli(std::string endpoint, Credentials::Entry authentication = {}, bool pretty = true, std::string caCertPath = {});
+        explicit QueuesCli(std::string endpoint, Credentials::Entry authentication = {}, bool pretty = true, std::string caCertPath = {});
 
         /**
          * @brief Dispatches to the handler for the given action. Returns the process exit code.

@@ -1,4 +1,4 @@
-#include <euclid/cli/sqs/SqsCli.h>
+#include <euclid/cli/sqs/QueuesCli.h>
 
 namespace Euclid::CLI {
 
@@ -26,9 +26,9 @@ namespace Euclid::CLI {
 
     }
 
-    SqsCli::SqsCli(std::string endpoint, Credentials::Entry authentication, const bool pretty, std::string caCertPath) : _endpoint(std::move(endpoint)), _authentication(std::move(authentication)), _pretty(pretty), _caCertPath(std::move(caCertPath)) {}
+    QueuesCli::QueuesCli(std::string endpoint, Credentials::Entry authentication, const bool pretty, std::string caCertPath) : _endpoint(std::move(endpoint)), _authentication(std::move(authentication)), _pretty(pretty), _caCertPath(std::move(caCertPath)) {}
 
-    int SqsCli::process(const std::string &action, const std::vector<std::string> &args) const {
+    int QueuesCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
             return PrintModuleHelp("queues", {
                                            {"create-queue", "Create a new queue"},
@@ -93,7 +93,7 @@ namespace Euclid::CLI {
         return 1;
     }
 
-    int SqsCli::createQueue(const std::vector<std::string> &args) const {
+    int QueuesCli::createQueue(const std::vector<std::string> &args) const {
         po::options_description desc("create queue options");
         desc.add_options()
                 ("name,n", po::value<std::string>()->required(), "name")
@@ -146,7 +146,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int SqsCli::listMessages(const std::vector<std::string> &args) const {
+    int QueuesCli::listMessages(const std::vector<std::string> &args) const {
         po::options_description desc("lists a queue's messages without receiving them");
         desc.add_options()
                 ("queue-ern,e", po::value<std::string>()->required(), "queue ERN")
@@ -190,7 +190,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int SqsCli::getQueueErn(const std::vector<std::string> &args) const {
+    int QueuesCli::getQueueErn(const std::vector<std::string> &args) const {
         po::options_description desc("get queue ern options");
         desc.add_options()
                 ("name,n", po::value<std::string>()->required(), "name");
@@ -228,7 +228,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int SqsCli::listQueues(const std::vector<std::string> &args) const {
+    int QueuesCli::listQueues(const std::vector<std::string> &args) const {
         po::options_description desc("list queues options");
         desc.add_options()
                 ("prefix,p", po::value<std::string>(), "queue name prefix")
@@ -274,7 +274,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int SqsCli::purgeQueue(const std::vector<std::string> &args) const {
+    int QueuesCli::purgeQueue(const std::vector<std::string> &args) const {
         po::options_description desc("purge queue options");
         desc.add_options()
                 ("ern,e", po::value<std::string>()->required(), "euclid resource name");
@@ -310,7 +310,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int SqsCli::purgeAllQueues(const std::vector<std::string> &args) const {
+    int QueuesCli::purgeAllQueues(const std::vector<std::string> &args) const {
         po::options_description desc("purge all queues options");
         desc.add_options()
                 ("region,r", po::value<std::string>()->required(), "region")
@@ -348,7 +348,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int SqsCli::getQueueMetadata(const std::vector<std::string> &args) const {
+    int QueuesCli::getQueueMetadata(const std::vector<std::string> &args) const {
         po::options_description desc("returns the metadata of a queue");
         desc.add_options()
                 ("ern,e", po::value<std::string>()->required(), "queue ERN");
@@ -386,7 +386,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int SqsCli::deleteQueue(const std::vector<std::string> &args) const {
+    int QueuesCli::deleteQueue(const std::vector<std::string> &args) const {
         po::options_description desc("delete queue options");
         desc.add_options()
                 ("ern,e", po::value<std::string>()->required(), "euclid resource name");
@@ -422,7 +422,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int SqsCli::sendMessage(const std::vector<std::string> &args) const {
+    int QueuesCli::sendMessage(const std::vector<std::string> &args) const {
         po::options_description desc("send message options");
         desc.add_options()
                 ("ern,e", po::value<std::string>()->required(), "queue resource name")
@@ -476,7 +476,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int SqsCli::receiveMessages(const std::vector<std::string> &args) const {
+    int QueuesCli::receiveMessages(const std::vector<std::string> &args) const {
         po::options_description desc("receive messages options");
         desc.add_options()
                 ("ern,e", po::value<std::string>()->required(), "queue resource name")
@@ -521,7 +521,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int SqsCli::setVisibility(const std::vector<std::string> &args) const {
+    int QueuesCli::setVisibility(const std::vector<std::string> &args) const {
         po::options_description desc("sets the message visibility");
         desc.add_options()
                 ("message-id,m", po::value<std::string>()->required(), "message ID")
@@ -559,7 +559,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int SqsCli::getMessageCount(const std::vector<std::string> &args) const {
+    int QueuesCli::getMessageCount(const std::vector<std::string> &args) const {
         po::options_description desc("returns the message counter");
         desc.add_options()
                 ("ern,e", po::value<std::string>()->required(), "queue ERN");
@@ -597,7 +597,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int SqsCli::getMessageAttribute(const std::vector<std::string> &args) const {
+    int QueuesCli::getMessageAttribute(const std::vector<std::string> &args) const {
         po::options_description desc("returns a message attribute by name");
         desc.add_options()
                 ("message-id,m", po::value<std::string>()->required(), "message ID")
@@ -637,7 +637,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int SqsCli::getMessageMetadata(const std::vector<std::string> &args) const {
+    int QueuesCli::getMessageMetadata(const std::vector<std::string> &args) const {
         po::options_description desc("returns the metadata of a message");
         desc.add_options()
                 ("message-id,m", po::value<std::string>()->required(), "message ID");

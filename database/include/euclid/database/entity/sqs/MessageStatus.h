@@ -5,6 +5,7 @@
 #pragma once
 
 // C++ includes
+#include <algorithm>
 #include <map>
 #include <string>
 

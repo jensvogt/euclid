@@ -47,6 +47,28 @@ namespace Euclid::Core {
     }
 
     /**
+     * @brief Creates a storage bucket ERN
+     *
+     * @param accountId account ID
+     * @param name resource name
+     * @return resource ERN
+     */
+    inline std::string createStorageBucketErn(const std::string &accountId, const std::string &name) {
+        return createErn("storage", accountId, "bucket:" + name);
+    }
+
+    /**
+     * @brief Creates a storage object ERN
+     *
+     * @param accountId account ID
+     * @param name resource name
+     * @return resource ERN
+     */
+    inline std::string createStorageObjectErn(const std::string &accountId, const std::string &name) {
+        return createErn("storage", accountId, "object:" + name);
+    }
+
+    /**
      * @brief Creates an access user ERN
      *
      * @param accountId account ID
