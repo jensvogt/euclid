@@ -1,0 +1,65 @@
+name: Run Tests
+
+on:
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CXX: g++-14
+  CC: gcc-14
+  VCPKG_ROOT: "${{ github.workspace }}/vcpkg"
+  VCPKG_DEFAULT_BINARY_CACHE: "${{ github.workspace }}/vcpkg-bincache"
+  VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkg-bincache,readwrite"
+  BUILD_DIR: "${{ github.workspace }}/build-test"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y ninja-build linux-libc-dev autoconf autoconf-archive automake libtool g++-14 libmagic-dev libgoogle-perftools-dev
+
+      - name: Create vcpkg binary cache dir
+        run: mkdir -p ${{ github.workspace }}/vcpkg-bincache
+
+      - name: Cache vcpkg binary packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg-bincache
+          key: vcpkg-v1-${{ runner.os }}-${{ hashFiles('**/vcpkg.json') }}
+          restore-keys: |
+            vcpkg-v1-${{ runner.os }}-
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgDirectory: "${{ github.workspace }}/vcpkg"
+          vcpkgJsonGlob: 'vcpkg.json'
+          runVcpkgInstall: false
+
+      - name: Set g++-14 as default
+        run: |
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 14
+          sudo update-alternatives --set g++ /usr/bin/g++-14
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 14
+          sudo update-alternatives --set gcc /usr/bin/gcc-14
+
+      - name: Configure
+        run: |
+          mkdir ${{ env.BUILD_DIR }}
+          cmake -B ${{ env.BUILD_DIR }} -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake
+
+      - name: Build tests
+        run: cmake --build ${{ env.BUILD_DIR }} --target euclid-tests --parallel 2
+
+      - name: Run tests
+        run: ctest --test-dir ${{ env.BUILD_DIR }} -R euclid-tests --output-on-failure --timeout 120
