@@ -53,7 +53,7 @@ namespace Euclid::Monitoring {
             static std::map<std::string, Accumulator> accumulators;
             return accumulators;
         }
-    }// namespace
+    } // namespace
 
     static AuthResult authenticate(const request<string_body> &req) {
         const auto auth = MonitoringServer::Authenticate(req);
@@ -69,7 +69,7 @@ namespace Euclid::Monitoring {
 
     // ── "push-metrics" action handler ──────────────────────────────────────────
     // Receiving end of Core::Monitoring::MetricsPusher, which every metrics-producing module
-    // (sqs, access) runs to push its own Core::Monitoring::MonitoringCollector samples here on
+    // (queues, access) runs to push its own Core::Monitoring::MonitoringCollector samples here on
     // its own schedule, instead of this module polling them - see MonitoringServer.h for why.
     // Unauthenticated: same trust boundary as "get-metrics" itself, a module-to-module call over
     // a Unix socket that only other local processes can reach.
@@ -141,11 +141,11 @@ namespace Euclid::Monitoring {
         boost::json::array items;
         for (const auto &row: rows) {
             items.push_back(boost::json::object{
-                    {"name", row.name},
-                    {"labelName", row.labelName},
-                    {"labelValue", row.labelValue},
-                    {"value", row.value},
-                    {"timestamp", Core::DateTimeUtils::ToISO8601(row.timestamp)}
+                {"name", row.name},
+                {"labelName", row.labelName},
+                {"labelValue", row.labelValue},
+                {"value", row.value},
+                {"timestamp", Core::DateTimeUtils::ToISO8601(row.timestamp)}
             });
         }
 
@@ -177,10 +177,10 @@ namespace Euclid::Monitoring {
 
         const auto averagePeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.monitoring.average-period", 300));
         _flushTaskId = scheduler.SchedulePeriodic("monitoring-flush", [] { flush(); },
-                                                   std::chrono::duration_cast<std::chrono::milliseconds>(averagePeriod));
+                                                  std::chrono::duration_cast<std::chrono::milliseconds>(averagePeriod));
 
         _pruneTaskId = scheduler.SchedulePeriodic("monitoring-prune", [] { prune(); },
-                                                   std::chrono::duration_cast<std::chrono::milliseconds>(kPrunePeriod));
+                                                  std::chrono::duration_cast<std::chrono::milliseconds>(kPrunePeriod));
     }
 
     MonitoringServer::~MonitoringServer() {
@@ -220,7 +220,7 @@ namespace Euclid::Monitoring {
             repo->insert(row);
 
             log_debug << "Monitoring flushed, name: " << row.name << ", labelName: " << row.labelName
-                       << ", labelValue: " << row.labelValue << ", value: " << row.value;
+                    << ", labelValue: " << row.labelValue << ", value: " << row.value;
         }
     }
 
@@ -234,4 +234,4 @@ namespace Euclid::Monitoring {
         return dispatch(req);
     }
 
-}// namespace Euclid::Monitoring
+} // namespace Euclid::Monitoring

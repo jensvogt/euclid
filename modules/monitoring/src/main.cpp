@@ -12,19 +12,21 @@
 #include <euclid/database/RepositoryFactory.h>
 #include <MonitoringServer.h>
 
-#define DEFAULT_CONFIGURATION_FILE "/etc/euclid/euclid.json"
+#define DEFAULT_CONFIGURATION_FILE "/usr/local/euclid/etc/euclid.json"
 #define DEFAULT_LOG_LEVEL          "info"
-#define DEFAULT_SOCKET_PATH        "/var/run/euclid-mon.sock"
+#define DEFAULT_SOCKET_PATH        "/var/run/euclid-monitoring.sock"
 
 namespace po = boost::program_options;
 
-struct CliOptions {
-    std::string socketPath;
-    std::string configFile;
-    std::string logLevel;
-    bool consoleLog{true};
-    bool fileLog{false};
-};
+namespace {
+    struct CliOptions {
+        std::string socketPath;
+        std::string configFile;
+        std::string logLevel;
+        bool consoleLog{true};
+        bool fileLog{false};
+    };
+}
 
 static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
 
@@ -43,7 +45,7 @@ static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
             ("console-log", po::value<bool>(&opts.consoleLog)->default_value(true)->implicit_value(true), "Enable console logging")
             ("file-log", po::value<bool>(&opts.fileLog)->default_value(false)->implicit_value(true), "Enable file logging");
 
-    po::options_description all("euclid-mon options");
+    po::options_description all("euclid-monitoring options");
     all.add(general).add(logging);
 
     try {
@@ -51,12 +53,12 @@ static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
         po::store(po::command_line_parser(argc, argv).options(all).run(), vm);
 
         if (vm.contains("help")) {
-            std::cout << "euclid-mon v" << APP_VERSION << " - Monitoring service process\n\n" << all << "\n";
+            std::cout << "euclid-monitoring v" << APP_VERSION << " - Monitoring service process\n\n" << all << "\n";
             return std::nullopt;
         }
 
         if (vm.contains("version")) {
-            std::cout << "euclid-mon version " << APP_VERSION << "\n";
+            std::cout << "euclid-monitoring version " << APP_VERSION << "\n";
             return std::nullopt;
         }
 

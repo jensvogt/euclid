@@ -220,11 +220,11 @@ jobs:
           mkdir -p ${{ env.PACKAGE_DIR }}/euclid/data/backup
           mkdir -p ${{ env.PACKAGE_DIR }}/euclid/share/man/man1
 
-          cp ${{ env.BUILD_DIR }}/bin/euclid-mgr ${{ env.PACKAGE_DIR }}/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-manager ${{ env.PACKAGE_DIR }}/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-cli ${{ env.PACKAGE_DIR }}/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-acc ${{ env.PACKAGE_DIR }}/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-sqs ${{ env.PACKAGE_DIR }}/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-mon ${{ env.PACKAGE_DIR }}/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-access ${{ env.PACKAGE_DIR }}/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-queues ${{ env.PACKAGE_DIR }}/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-monitoring ${{ env.PACKAGE_DIR }}/euclid/bin/
           cp dist/etc/euclid_macos.json ${{ env.PACKAGE_DIR }}/euclid/etc/euclid.json
           cp dist/linux/etc/magic.mgc ${{ env.PACKAGE_DIR }}/euclid/etc/magic.mgc
           cp dist/linux/etc/ssh_host_key ${{ env.PACKAGE_DIR }}/euclid/etc/ssh_host_key
@@ -323,7 +323,7 @@ jobs:
       - name: Prepare DEB package structure
         run: |
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/DEBIAN
-          mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/bin
+          mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/etc/euclid
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/log
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/frontend
@@ -333,11 +333,11 @@ jobs:
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man1
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/etc/systemd/system
 
-          cp ${{ env.BUILD_DIR }}/bin/euclid-mgr ${{ env.PACKAGE_DIR_DEB }}/usr/local/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-cli ${{ env.PACKAGE_DIR_DEB }}/usr/local/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-acc ${{ env.PACKAGE_DIR_DEB }}/usr/local/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-sqs ${{ env.PACKAGE_DIR_DEB }}/usr/local/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-mon ${{ env.PACKAGE_DIR_DEB }}/usr/local/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-manager ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-cli ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-access ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-queues ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-monitoring ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
           cp dist/linux/etc/euclid.json ${{ env.PACKAGE_DIR_DEB }}/etc/euclid/euclid.json
           cp dist/linux/etc/euclid_cert.crt ${{ env.PACKAGE_DIR_DEB }}/etc/euclid/euclid_cert.crt
           cp dist/linux/etc/euclid_cert.key ${{ env.PACKAGE_DIR_DEB }}/etc/euclid/euclid_cert.key
@@ -360,6 +360,8 @@ jobs:
           cat << EOF > ${{ env.PACKAGE_DIR_DEB }}/DEBIAN/postinst
           #!/bin/bash
           set -e
+          ln -sf /usr/local/euclid/bin/euclid-cli /usr/local/bin/euclid-cli
+          ln -sf /usr/local/euclid/bin/euclid-manager /usr/local/bin/euclid-manager
           systemctl daemon-reload
           systemctl enable euclid.service
           systemctl restart euclid.service || true
@@ -371,6 +373,7 @@ jobs:
           systemctl stop euclid.service || true
           systemctl disable euclid.service || true
           rm -f /etc/systemd/system/euclid.service
+          rm -f /usr/local/bin/euclid-cli /usr/local/bin/euclid-manager
           EOF
 
           chmod 755 ${{ env.PACKAGE_DIR_DEB }}/DEBIAN/postinst ${{ env.PACKAGE_DIR_DEB }}/DEBIAN/postrm
@@ -395,7 +398,7 @@ jobs:
 
       - name: Prepare RPM package structure
         run: |
-          mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/bin
+          mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/etc/euclid
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/log
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/frontend
@@ -406,11 +409,11 @@ jobs:
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/etc/systemd/system
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/scripts
 
-          cp ${{ env.BUILD_DIR }}/bin/euclid-mgr ${{ env.PACKAGE_DIR_RPM }}/usr/local/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-cli ${{ env.PACKAGE_DIR_RPM }}/usr/local/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-acc ${{ env.PACKAGE_DIR_RPM }}/usr/local/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-sqs ${{ env.PACKAGE_DIR_RPM }}/usr/local/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-mon ${{ env.PACKAGE_DIR_RPM }}/usr/local/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-manager ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-cli ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-access ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-queues ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-monitoring ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
           cp dist/linux/etc/euclid.json ${{ env.PACKAGE_DIR_RPM }}/etc/euclid/euclid.json
           cp dist/linux/etc/euclid_cert.crt ${{ env.PACKAGE_DIR_RPM }}/etc/euclid/euclid_cert.crt
           cp dist/linux/etc/euclid_cert.key ${{ env.PACKAGE_DIR_RPM }}/etc/euclid/euclid_cert.key
@@ -422,6 +425,8 @@ jobs:
           cat << EOF > ${{ env.PACKAGE_DIR_RPM }}/scripts/postinstall.sh
           #!/bin/bash
           set -e
+          ln -sf /usr/local/euclid/bin/euclid-cli /usr/local/bin/euclid-cli
+          ln -sf /usr/local/euclid/bin/euclid-manager /usr/local/bin/euclid-manager
           systemctl daemon-reload
           systemctl enable euclid.service
           systemctl restart euclid.service || true
@@ -432,6 +437,7 @@ jobs:
           systemctl stop euclid.service || true
           systemctl disable euclid.service || true
           rm -f /etc/systemd/system/euclid.service
+          rm -f /usr/local/bin/euclid-cli /usr/local/bin/euclid-manager
           systemctl daemon-reload
           EOF
 

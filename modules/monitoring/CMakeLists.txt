@@ -1,4 +1,4 @@
-set(BINARY euclid-mon)
+set(BINARY euclid-monitoring)
 
 add_executable(${BINARY} src/main.cpp src/MonitoringServer.cpp)
 

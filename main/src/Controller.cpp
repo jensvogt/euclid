@@ -263,7 +263,7 @@ namespace Euclid::main {
             if (auto &svc = group->instances[idx]; svc->state == Database::Entity::ModuleState::RUNNING) {
                 group->rrCursor = (idx + 1) % n;
                 svc->activeRequests++;
-                return InstanceHandle{svc->instanceSocketPath, svc->pid};
+                return InstanceHandle{.socketPath = svc->instanceSocketPath, .pid = svc->pid};
             }
         }
         return std::nullopt;
