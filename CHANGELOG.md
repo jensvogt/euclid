@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.3](https://github.com/jensvogt/euclid/compare/v1.0.2...v1.0.3) (2026-08-19)
+
+
+### Bug Fixes
+
+* add first storage module methods ([8863303](https://github.com/jensvogt/euclid/commit/886330385d4ac632b0684930a9e896e1bd07ba9e))
+
 ## [1.0.2](https://github.com/jensvogt/euclid/compare/v1.0.1...v1.0.2) (2026-08-19)
 
 
