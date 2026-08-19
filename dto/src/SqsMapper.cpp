@@ -79,7 +79,10 @@ namespace Euclid::Dto::SQS {
 
     Message SqsMapper::toDto(const Database::Entity::SQS::Message &entity) {
         Message dto;
-        dto.ern = entity.queueErn;
+        dto.ern = entity.ern;
+        dto.queueErn = entity.queueErn;
+        dto.messageId = entity.messageId;
+        dto.status = Database::Entity::SQS::MessageStatusToString(entity.status);
         dto.body = entity.body;
         dto.md5Body = entity.md5Body;
         dto.receiptHandle = entity.receiptHandle;
@@ -104,14 +107,17 @@ namespace Euclid::Dto::SQS {
 
     Database::Entity::SQS::Message SqsMapper::toEntity(const Message &dto) {
         Database::Entity::SQS::Message entity;
-        entity.queueErn = dto.ern;
+        entity.ern = dto.ern;
+        entity.queueErn = dto.queueErn;
+        entity.messageId = dto.messageId;
+        entity.status = Database::Entity::SQS::MessageStatusFromString(dto.status);
         entity.body = dto.body;
         entity.md5Body = dto.md5Body;
+        entity.md5Attributes = dto.md5Attributes;
         entity.receiptHandle = dto.receiptHandle;
         for (const auto &[key, variant]: dto.attributes) {
             entity.attributes[key] = toEntity(variant);
         }
-        entity.md5Attributes = dto.md5Attributes;
         entity.lastReceived = dto.lastReceived;
         entity.created = dto.created;
         entity.modified = dto.modified;

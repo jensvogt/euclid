@@ -147,12 +147,13 @@ namespace Euclid::Database {
          * a message ID, persists it in the repository, and returns the persisted entity.
          *
          * @param messageId message ID
-         * @param ern ERN of the queue the message is sent to.
+         * @param ern ERN of the message
+         * @param queueErn ERN of the queue the message is sent to.
          * @param body message body.
          * @param attributes message attributes.
          * @return the newly created message entity.
          */
-        virtual Entity::SQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &body, const std::map<std::string, Entity::SQS::Variant> &attributes) = 0;
+        virtual Entity::SQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::SQS::Variant> &attributes) = 0;
 
         /**
          * @brief Receives up to maxCount available messages from a queue.
@@ -221,6 +222,20 @@ namespace Euclid::Database {
          */
         [[nodiscard]]
         virtual std::vector<Entity::SQS::Message> findAllMessages() const = 0;
+
+        /**
+         * @brief Lists the messages of a queue, without receiving them (i.e. without changing
+         * their status or visibility), paginated and sorted.
+         *
+         * @param queueErn ERN of the queue whose messages are listed.
+         * @param pageSize maximum number of messages to return, or <= 0 for no limit.
+         * @param pageIndex zero-based page index, combined with pageSize to compute the offset.
+         * @param sortColumn message field to sort ascending by, e.g. "created", "size",
+         * "messageId"; unrecognized/empty leaves the order unspecified.
+         * @return the requested page of messages.
+         */
+        [[nodiscard]]
+        virtual std::vector<Entity::SQS::Message> listMessages(const std::string &queueErn, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
 
         /**
          * @brief Checks if a message with the specified name exists in the repository.

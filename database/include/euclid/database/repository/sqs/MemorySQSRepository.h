@@ -132,11 +132,12 @@ namespace Euclid::Database {
             //_messageStore[message.name] = message;
         }
 
-        Entity::SQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &body, const std::map<std::string, Entity::SQS::Variant> &attributes) override {
+        Entity::SQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::SQS::Variant> &attributes) override {
             std::lock_guard lock(_mutex);
 
             Entity::SQS::Message message;
-            message.queueErn = ern;
+            message.ern = ern;
+            message.queueErn = queueErn;
             message.body = body;
             message.size = static_cast<long>(body.size());
             message.messageId = messageId;
@@ -145,7 +146,7 @@ namespace Euclid::Database {
             message.md5Attributes = Entity::SQS::Message::ComputeAttributesMd5(attributes);
 
             for (auto &queue: _queueStore | std::views::values) {
-                if (queue.ern == ern) {
+                if (queue.ern == queueErn) {
                     message.visibilityTimeout = queue.visibility;
                     queue.available += 1;
                     queue.size += message.size;
@@ -324,6 +325,31 @@ namespace Euclid::Database {
             std::vector<Entity::SQS::Message> result;
             result.reserve(_messageStore.size());
             for (const auto &m: _messageStore | std::views::values) result.push_back(m);
+            return result;
+        }
+
+        std::vector<Entity::SQS::Message> listMessages(const std::string &queueErn, const long pageSize, const long pageIndex, const std::string &sortColumn) const override {
+            std::lock_guard lock(_mutex);
+            std::vector<Entity::SQS::Message> result;
+            for (const auto &m: _messageStore | std::views::values) {
+                if (m.queueErn == queueErn) {
+                    result.push_back(m);
+                }
+            }
+
+            if (sortColumn == "created") {
+                std::ranges::sort(result, {}, &Entity::SQS::Message::created);
+            } else if (sortColumn == "size") {
+                std::ranges::sort(result, {}, &Entity::SQS::Message::size);
+            } else if (sortColumn == "messageId") {
+                std::ranges::sort(result, {}, &Entity::SQS::Message::messageId);
+            }
+
+            if (pageSize > 0) {
+                const auto offset = std::min<size_t>(std::max<long>(pageIndex, 0) * pageSize, result.size());
+                const auto end = std::min<size_t>(offset + pageSize, result.size());
+                result = std::vector(result.begin() + static_cast<long>(offset), result.begin() + static_cast<long>(end));
+            }
             return result;
         }
 

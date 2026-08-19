@@ -5,6 +5,7 @@
 #include <boost/beast/http.hpp>
 
 // Euclid includes
+#include <euclid/core/DateTimeUtils.h>
 #include <euclid/core/ErnUtils.h>
 #include <euclid/core/HttpActionServer.h>
 #include <euclid/core/LogStream.h>
@@ -22,8 +23,14 @@
 #include <euclid/dto/sqs/GetMessageAttributeResponse.h>
 #include <euclid/dto/sqs/GetMessageCountRequest.h>
 #include <euclid/dto/sqs/GetMessageCountResponse.h>
+#include <euclid/dto/sqs/GetMessageMetadataRequest.h>
+#include <euclid/dto/sqs/GetMessageMetadataResponse.h>
 #include <euclid/dto/sqs/GetQueueErnRequest.h>
 #include <euclid/dto/sqs/GetQueueErnResponse.h>
+#include <euclid/dto/sqs/GetQueueMetadataRequest.h>
+#include <euclid/dto/sqs/GetQueueMetadataResponse.h>
+#include <euclid/dto/sqs/ListMessagesRequest.h>
+#include <euclid/dto/sqs/ListMessagesResponse.h>
 #include <euclid/dto/sqs/ListQueueRequest.h>
 #include <euclid/dto/sqs/ListQueueResponse.h>
 #include <euclid/dto/sqs/PurgeAllQueuesRequest.h>

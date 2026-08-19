@@ -116,15 +116,29 @@ namespace Euclid::Database {
         return {};
     }
 
-    std::vector<Entity::SQS::Queue> MongoSQSRepository::listQueues(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const {
+    std::vector<Entity::SQS::Queue> MongoSQSRepository::listQueues(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
 
         try {
+
+            document filter = {};
+            if (!prefix.empty()) {
+                filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
+            }
+
+            mongocxx::options::find opts;
+            if (!sortColumn.empty()) {
+                opts.sort(make_document(kvp(sortColumn, 1)));
+            }
+            if (pageSize > 0) {
+                opts.limit(pageSize);
+                opts.skip(std::max<long>(pageIndex, 0) * pageSize);
+            }
 
             std::vector<Entity::SQS::Queue> queues;
             const auto entry = Database::instance().client();
             auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
 
-            for (auto queueCursor = queueCollection.find({}); auto queue: queueCursor) {
+            for (auto queueCursor = queueCollection.find(filter.view(), opts); auto queue: queueCursor) {
                 queues.push_back(Entity::SQS::Queue::fromDocument(queue));
             }
             return queues;
@@ -325,6 +339,36 @@ namespace Euclid::Database {
         return {};
     }
 
+    std::vector<Entity::SQS::Message> MongoSQSRepository::listMessages(const std::string &queueErn, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
+
+        std::vector<Entity::SQS::Message> messages;
+        try {
+            const auto filter = make_document(kvp("queueErn", queueErn));
+
+            mongocxx::options::find opts;
+            if (!sortColumn.empty()) {
+                opts.sort(make_document(kvp(sortColumn, 1)));
+            }
+            if (pageSize > 0) {
+                opts.limit(pageSize);
+                opts.skip(std::max<long>(pageIndex, 0) * pageSize);
+            }
+
+            const auto entry = Database::instance().client();
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            for (auto cursor = messageCollection.find(filter.view(), opts); auto doc: cursor) {
+                Entity::SQS::Message message;
+                message.FromDocument(doc);
+                messages.push_back(std::move(message));
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "List messages failed, queueErn: " << queueErn << ", error: " << e.what();
+        }
+        return messages;
+    }
+
     void MongoSQSRepository::upsertMessage(const Entity::SQS::Message &message) {
 
         try {
@@ -352,10 +396,11 @@ namespace Euclid::Database {
         }
     }
 
-    Entity::SQS::Message MongoSQSRepository::sendMessage(const std::string &messageId, const std::string &ern, const std::string &body, const std::map<std::string, Entity::SQS::Variant> &attributes) {
+    Entity::SQS::Message MongoSQSRepository::sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::SQS::Variant> &attributes) {
 
         Entity::SQS::Message message;
-        message.queueErn = ern;
+        message.ern = ern;
+        message.queueErn = queueErn;
         message.body = body;
         message.size = static_cast<long>(body.size());
         message.messageId = messageId;

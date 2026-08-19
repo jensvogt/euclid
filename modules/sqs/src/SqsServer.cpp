@@ -158,25 +158,50 @@ namespace Euclid::SQS {
         return SqsServer::JsonResponse(req, status::ok, response.toJson());
     }
 
-    static response<string_body> handleSendMessage(const request<string_body> &req) {
+    static response<string_body> handleListMessages(const request<string_body> &req) {
 
-        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "send-message");
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-messages");
 
         if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = SqsServer::ParseJsonBody(req, jv)) return *err;
 
+        const auto request = boost::json::value_to<Dto::SQS::ListMessagesRequest>(jv);
+        log_info << "SQS ListMessages, queueErn: " << request.queueErn;
+
+        const auto repo = Database::RepositoryFactory::instance().sqsRepository();
+        const std::vector<Database::Entity::SQS::Message> messages = repo->listMessages(request.queueErn, request.pageSize, request.pageIndex, request.sortColumn);
+        log_info << "Got message list, count: " << messages.size();
+
+        Dto::SQS::ListMessagesResponse response;
+        response.messages = Dto::SQS::SqsMapper::toDto(messages);
+        response.total = repo->countMessages(request.queueErn);
+
+        return SqsServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    static response<string_body> handleSendMessage(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "send-message");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = SqsServer::ParseJsonBody(req, jv)) return *err;
+
         const auto request = boost::json::value_to<Dto::SQS::SendMessageRequest>(jv);
-        log_info << "SQS SendMessage queueErn: " << request.ern;
+        log_info << "SQS SendMessage queueErn: " << request.queueErn;
 
         const std::string messageId = Core::UuidUtils::CreateRandomUuid();
+        const std::string ern = Core::createSqsMessageErn(auth.user.value().accountId, messageId);
         std::map<std::string, Database::Entity::SQS::Variant> attributes;
         for (const auto &[key, variant]: request.attributes) {
             attributes[key] = Dto::SQS::SqsMapper::toEntity(variant);
         }
         const auto repo = Database::RepositoryFactory::instance().sqsRepository();
-        const Database::Entity::SQS::Message message = repo->sendMessage(messageId, request.ern, request.body, attributes);
+        const Database::Entity::SQS::Message message = repo->sendMessage(messageId, ern, request.queueErn, request.body, attributes);
 
         Dto::SQS::SendMessageResponse response;
         response.messageId = message.messageId;
@@ -290,6 +315,40 @@ namespace Euclid::SQS {
         return SqsServer::JsonResponse(req, status::ok, response.toJson());
     }
 
+    static response<string_body> handleGetQueueMetadata(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-queue-metadata");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = SqsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::SQS::GetQueueMetadataRequest>(jv);
+        log_info << "SQS GetQueueMetadata, ern: " << request.ern;
+
+        const auto repo = Database::RepositoryFactory::instance().sqsRepository();
+        const std::optional<Database::Entity::SQS::Queue> queue = repo->findQueueByErn(request.ern);
+        if (!queue.has_value()) {
+            return SqsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + request.ern);
+        }
+
+        Dto::SQS::GetQueueMetadataResponse response;
+        response.region = queue->region;
+        response.accountId = Core::accountIdFromErn(queue->ern);
+        response.owner = queue->owner;
+        // Queues aren't namespace-scoped yet (no such field on Database::Entity::SQS::Queue), so
+        // this is always empty for now rather than reporting something fabricated.
+        response.nameSpace = "";
+        response.name = queue->name;
+        response.ern = queue->ern;
+        response.size = queue->size;
+        // "Total" across every message state, unlike get-message-count's breakdown into the three
+        // individual available/delayed/invisible counts.
+        response.messages = queue->available + queue->delayed + queue->invisible;
+        return SqsServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
     static response<string_body> handleGetMessageAttribute(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-message-attribute");
@@ -318,6 +377,40 @@ namespace Euclid::SQS {
         response.name = request.name;
         response.value = Dto::SQS::SqsMapper::toDto(attribute->second);
 
+        return SqsServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    static response<string_body> handleGetMessageMetadata(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-message-metadata");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = SqsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::SQS::GetMessageMetadataRequest>(jv);
+        log_info << "SQS GetMessageMetadata, messageId: " << request.messageId;
+
+        const auto repo = Database::RepositoryFactory::instance().sqsRepository();
+        const std::optional<Database::Entity::SQS::Message> message = repo->findMessageByName(request.messageId);
+        if (!message.has_value()) {
+            return SqsServer::ErrorResponse(req, status::not_found, "Message not found, messageId: " + request.messageId);
+        }
+
+        Dto::SQS::GetMessageMetadataResponse response;
+        response.messageId = message->messageId;
+        response.queueErn = message->queueErn;
+        response.receiptHandle = message->receiptHandle;
+        response.status = Database::Entity::SQS::MessageStatusToString(message->status);
+        response.size = message->size;
+        response.receivedCount = message->receivedCount;
+        response.visibilityTimeout = message->visibilityTimeout;
+        response.contentType = message->contentType;
+        response.md5Body = message->md5Body;
+        response.md5Attributes = message->md5Attributes;
+        response.created = Core::DateTimeUtils::ToISO8601(message->created);
+        response.modified = Core::DateTimeUtils::ToISO8601(message->modified);
         return SqsServer::JsonResponse(req, status::ok, response.toJson());
     }
 
@@ -366,8 +459,11 @@ namespace Euclid::SQS {
             DeleteQueue,
             GetQueueErn,
             GetMessageCount,
+            GetQueueMetadata,
             GetMessageAttribute,
+            GetMessageMetadata,
             ListQueues,
+            ListMessages,
             SendMessage,
             ReceiveMessages,
             DeleteMessage,
@@ -384,13 +480,16 @@ namespace Euclid::SQS {
         if (action == "delete-queue") return Command::DeleteQueue;
         if (action == "get-queue-ern") return Command::GetQueueErn;
         if (action == "list-queues") return Command::ListQueues;
+        if (action == "list-messages") return Command::ListMessages;
         if (action == "send-message") return Command::SendMessage;
         if (action == "receive-messages") return Command::ReceiveMessages;
         if (action == "delete-message") return Command::DeleteMessage;
         if (action == "purge-queue") return Command::PurgeQueue;
         if (action == "purge-all-queues") return Command::PurgeAllQueues;
         if (action == "get-message-count") return Command::GetMessageCount;
+        if (action == "get-queue-metadata") return Command::GetQueueMetadata;
         if (action == "get-message-attribute") return Command::GetMessageAttribute;
+        if (action == "get-message-metadata") return Command::GetMessageMetadata;
         if (action == "get-metadata") return Command::GetMetadata;
         if (action == "add-metadata") return Command::AddMetadata;
         if (action == "get-metrics") return Command::GetMetrics;
@@ -419,6 +518,9 @@ namespace Euclid::SQS {
             case Command::ListQueues:
                 return handleListQueues(req);
 
+            case Command::ListMessages:
+                return handleListMessages(req);
+
             case Command::SendMessage:
                 return handleSendMessage(req);
 
@@ -443,8 +545,14 @@ namespace Euclid::SQS {
             case Command::GetMessageCount:
                 return handleGetMessageCount(req);
 
+            case Command::GetQueueMetadata:
+                return handleGetQueueMetadata(req);
+
             case Command::GetMessageAttribute:
                 return handleGetMessageAttribute(req);
+
+            case Command::GetMessageMetadata:
+                return handleGetMessageMetadata(req);
 
             case Command::GetMetrics:
                 return SqsServer::MetricsResponse(req);
