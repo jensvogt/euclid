@@ -1,0 +1,8 @@
+Codename: stable
+Suite: stable
+Components: main
+Architectures: amd64
+SignWith: 778F7A50811B71E3BF37E48099C5F87190FD6E4C
+Origin: Euclid
+Label: Euclid APT Repository
+Description: APT repository for Euclid - local AWS API emulator

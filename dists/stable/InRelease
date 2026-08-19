@@ -1,0 +1,39 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Origin: Euclid
+Label: Euclid APT Repository
+Suite: stable
+Codename: stable
+Date: Wed, 19 Aug 2026 19:07:31 UTC
+Architectures: amd64
+Components: main
+Description: APT repository for Euclid - local AWS API emulator
+MD5Sum:
+ f79d05f627446a5a763fc9bf8c7e516e 488 main/binary-amd64/Packages
+ de2576915f362dd64e10ddbd76ff4feb 368 main/binary-amd64/Packages.gz
+ bfcc1390e0c267490f124a866b8e0e16 160 main/binary-amd64/Release
+SHA1:
+ ede8bf787d650316e3973ecbcbe561f9f0ecc825 488 main/binary-amd64/Packages
+ 9615ffcb92a9cc8c6e249a9a3b9065b66c34583c 368 main/binary-amd64/Packages.gz
+ 7304f35259e8511c9af36b51ec3fde4a2cffdb40 160 main/binary-amd64/Release
+SHA256:
+ f9acf1028ca202738d95c266f7e8fb7d68363ef814a8974460a08d631326d517 488 main/binary-amd64/Packages
+ 0a460305f75c761b4be4e0dd79daf3ceb2343012eb27eb7c11f4f8b32679f464 368 main/binary-amd64/Packages.gz
+ b433d6184003253f515285d0bda99ca8526c2ae910e4929a068178ded64d97d6 160 main/binary-amd64/Release
+-----BEGIN PGP SIGNATURE-----
+
+iQIzBAEBCgAdFiEEd496UIEbceO/N+SAmcX4cZD9bkwFAmqF/vQACgkQmcX4cZD9
+bkx8kQ//bJLaogHwSDEr6obnBLGDxeBh16FYRlIptjyrLx8wrAAwKqme99kav2EI
+miUtXo5zoQwgqOs333+/4/8ScPSwUaTqFdMH2zihGLDb3aK6dK6jApogT49DUlvf
+7b9mSSuTGUB83kLu7rjJPyGzI/Ay77npju32Cetmb4AqU6W3yl76ndIr/HM8W+2C
+U1Benpp5BXY9hmRjzwtBDPtSceGgtrEhUelAU/h8vF1k0W8SmBlu8tQvLlePLCWV
+yGB7DpPzd1hEd/T/8z/fux+k5XF8UV6mUk4Xd93GuiMj8empsBWkNOanmAi1jJNE
+D0BrgN1obM0qp7dyRSTMUwsWZl3nzLusGSExw1Odj/tyQ/sr8FnSpUNIMs5Ic3YB
+hJBjiRk+v3EwmlSuv8udDX+71JtGKxq3YRDIduA9B96Mi4MD230N6t4SPyLqgEAa
+KlYPxe68dyX02dzBhTnNePFv4ylL3sImt6maPoq9C9F7TqpdnCj5RVed9xKeuvZk
+hy7VUh7VMXdhDp/gnqoletnyAEmaK/zXQkTXeqMBMI7f68hiQk5yFTYNHTTZU9Az
+s8tiAJ3MaPRXjqqyvWaf/3aSFHXZ5IVvC1vpkjCovpnW8E/VBpEjNJM/k3/cpLTw
+Qr4hWIHgzf5ACVLIvAuO3Ln/kha8O6KKrpB8Qgvn3cEpG/TLLCg=
+=n8mW
+-----END PGP SIGNATURE-----

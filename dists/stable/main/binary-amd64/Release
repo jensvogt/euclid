@@ -1,0 +1,6 @@
+Archive: stable
+Component: main
+Origin: Euclid
+Label: Euclid APT Repository
+Architecture: amd64
+Description: APT repository for Euclid - local AWS API emulator
