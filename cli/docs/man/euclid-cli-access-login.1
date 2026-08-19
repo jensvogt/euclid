@@ -1,0 +1,57 @@
+.TH EUCLID-CLI-ACCESS-LOGIN 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-access-login \- authenticate to Euclid and store a session token
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B access login
+.BR \-\-user | \-u
+.I USERID
+.BR \-\-password | \-p
+.I PASSWORD
+.SH DESCRIPTION
+Sends the given user ID and password to the access service's
+.I login
+action. On success, the returned JWT bearer token is saved to
+.I $HOME/.euclid/credentials
+(see
+.BR euclid-cli-access (1)
+for details on that file), so that subsequent
+.B euclid-cli access
+commands are authenticated automatically without logging in again.
+.PP
+The full JSON response (containing the token) is also printed to standard
+output.
+.SH OPTIONS
+.TP
+.BR \-u ", " \-\-user " " \fIUSERID\fR
+User ID to authenticate as. Required.
+.TP
+.BR \-p ", " \-\-password " " \fIPASSWORD\fR
+Password for the user. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+Login succeeded and the token was saved.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, the
+credentials were rejected (\fIHTTP 401\fR, "Invalid credentials"), or the
+response did not contain a token.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 access login \e
+    --user jdoe --password 'hunter2'
+.fi
+.RE
+.SH FILES
+.TP
+.I $HOME/.euclid/credentials
+Where the bearer token is written on success (mode \fI0600\fR, in a
+directory created with mode \fI0700\fR if it doesn't already exist).
+.SH SEE ALSO
+.BR euclid-cli-access (1),
+.BR euclid-cli-access-register (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

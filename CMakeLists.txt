@@ -1,0 +1,42 @@
+cmake_minimum_required(VERSION 3.28)
+
+set(CMAKE_TOOLCHAIN_FILE "/home/vogje01/work/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "Vcpkg toolchain")
+
+project(euclid LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+
+set(CMAKE_FIND_PACKAGE_NO_SYSTEM_PACKAGE_REGISTRY ON)
+set(CMAKE_FIND_PACKAGE_NO_PACKAGE_REGISTRY ON)
+set(CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH OFF)
+
+find_package(LibArchive REQUIRED)
+find_package(bsoncxx CONFIG REQUIRED)
+find_package(mongocxx CONFIG REQUIRED)
+find_package(Boost CONFIG REQUIRED COMPONENTS filesystem thread process date_time program_options json url chrono log log_setup unit_test_framework locale)
+find_package(jwt-cpp CONFIG REQUIRED)
+find_package(OpenSSL REQUIRED COMPONENTS SSL Crypto)
+find_package(libssh CONFIG REQUIRED)
+
+find_library(TCMALLOC_LIBRARY NAMES tcmalloc tcmalloc_minimal)
+if(TCMALLOC_LIBRARY)
+    message(STATUS "tcmalloc found, linking all targets against ${TCMALLOC_LIBRARY}")
+    link_libraries(${TCMALLOC_LIBRARY})
+else()
+    message(STATUS "tcmalloc not found, using default allocator")
+endif()
+
+enable_testing()
+
+add_subdirectory(core)
+add_subdirectory(database)
+add_subdirectory(dto)
+add_subdirectory(main)
+add_subdirectory(modules/sqs)
+add_subdirectory(modules/access)
+add_subdirectory(modules/monitoring)
+add_subdirectory(cli)
+add_subdirectory(tests)
