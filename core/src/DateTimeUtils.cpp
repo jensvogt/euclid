@@ -4,6 +4,14 @@
 
 #include <euclid/core/DateTimeUtils.h>
 
+#ifdef _WIN32
+#include <clocale>
+#include <ctime>
+#include <iomanip>
+#include <locale>
+#include <sstream>
+#endif
+
 namespace Euclid::Core {
 
 #ifdef _WIN32
