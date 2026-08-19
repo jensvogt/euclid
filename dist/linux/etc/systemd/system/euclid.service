@@ -8,6 +8,8 @@ Type=simple
 Restart=always
 RestartSec=1
 User=root
+RuntimeDirectory=euclid
+RuntimeDirectoryMode=0755
 ExecStart=/usr/local/bin/euclid-mgr --loglevel info --config /etc/euclid/euclid.json
 KillSignal=SIGTERM
 
