@@ -1,4 +1,5 @@
 // C++ includes
+#include <algorithm>
 #include <filesystem>
 #include <iostream>
 
@@ -95,6 +96,49 @@ static int initializeDatabase(const Euclid::Core::Configuration &cfg) {
     return 0;
 }
 
+// Guarantees the user store always has at least one administrator to log in with. Complements
+// handleRegister()'s bootstrap path (which promotes the first *registered* user to admin) by
+// covering the case where nobody has registered anyone yet - e.g. a fresh install nobody has
+// touched. Non-fatal: a failure here shouldn't stop the service from starting.
+static void ensureDefaultAdminUser(const Euclid::Core::Configuration &cfg) {
+
+    try {
+        constexpr auto kDefaultAdminPassword = "admin";
+        constexpr auto kDefaultAdminUserId = "admin";
+        const auto repo = Euclid::Database::RepositoryFactory::instance().accessRepository();
+
+        if (const auto users = repo->listUsers("", 0, 0, ""); std::ranges::any_of(users, [](const auto &user) { return user.isAdmin; })) {
+            return;
+        }
+
+        if (repo->userExists(kDefaultAdminUserId)) {
+            log_warning << "No admin user configured, and a non-admin user named '" << kDefaultAdminUserId << "' already exists; skipping default admin creation";
+            return;
+        }
+
+        std::string accountId;
+        if (cfg.has("euclid.account-ids")) {
+            if (const auto accountIds = cfg.getArray<std::string>("euclid.account-ids"); !accountIds.empty()) {
+                accountId = accountIds.front();
+            }
+        }
+
+        Euclid::Database::Entity::Access::User user;
+        user.userId = kDefaultAdminUserId;
+        user.password = Euclid::Core::PasswordUtils::Hash(kDefaultAdminPassword);
+        user.isAdmin = true;
+        user.region = cfg.getOr<std::string>("euclid.region", "");
+        user.accountId = accountId;
+        user.email = "admin@example.com";
+        repo->upsertUser(user);
+
+        log_warning << "No admin user was configured; created default admin user (userId: '" << kDefaultAdminUserId << "', password: '" << kDefaultAdminPassword << "', region: '" << user.region << "', accountId: '" << user.accountId << "') - log in and change the password immediately";
+
+    } catch (const std::exception &e) {
+        log_error << "Failed to ensure default admin user: " << e.what();
+    }
+}
+
 int main(const int argc, char *argv[]) {
 
     const auto cliOpts = parseCommandLine(argc, argv);
@@ -124,6 +168,9 @@ int main(const int argc, char *argv[]) {
     if (const int error = initializeDatabase(cfg); error != 0) return error;
     Euclid::Database::WireAccessKeyLookup();
     Euclid::Database::WireModuleSocketLookup();
+
+    // ── Ensure there's always an administrator to log in with ──
+    ensureDefaultAdminUser(cfg);
 
     Euclid::Core::Monitoring::MetricsPusher metricsPusher("access");
     Euclid::Access::AccessServer server(cliOpts->socketPath);

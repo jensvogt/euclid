@@ -83,6 +83,7 @@ namespace Euclid::Dto::SQS {
         dto.queueErn = entity.queueErn;
         dto.messageId = entity.messageId;
         dto.status = Database::Entity::SQS::MessageStatusToString(entity.status);
+        dto.priority = Database::Entity::SQS::MessagePriorityToString(entity.priority);
         dto.body = entity.body;
         dto.md5Body = entity.md5Body;
         dto.receiptHandle = entity.receiptHandle;
@@ -111,6 +112,7 @@ namespace Euclid::Dto::SQS {
         entity.queueErn = dto.queueErn;
         entity.messageId = dto.messageId;
         entity.status = Database::Entity::SQS::MessageStatusFromString(dto.status);
+        entity.priority = Database::Entity::SQS::MessagePriorityFromString(dto.priority);
         entity.body = dto.body;
         entity.md5Body = dto.md5Body;
         entity.md5Attributes = dto.md5Attributes;
