@@ -9,7 +9,8 @@
 // Euclid includes
 #include <euclid/cli/access/AccessCli.h>
 #include <euclid/cli/credentials/Credentials.h>
-#include <euclid/cli/sqs/SqsCli.h>
+#include <euclid/cli/sqs/QueuesCli.h>
+#include <euclid/cli/storage/StorageCli.h>
 #include <euclid/core/Version.h>
 
 #define DEFAULT_ENDPOINT "https://localhost:5566"
@@ -90,8 +91,13 @@ int main(const int argc, char *argv[]) {
     }
     if (module == "queues") {
         const auto authToken = Euclid::CLI::Credentials::Load();
-        const Euclid::CLI::SqsCli sqs(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), true, caCert);
-        return sqs.process(action, args);
+        const Euclid::CLI::QueuesCli queues(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), true, caCert);
+        return queues.process(action, args);
+    }
+    if (module == "storage") {
+        const auto authToken = Euclid::CLI::Credentials::Load();
+        const Euclid::CLI::StorageCli storage(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), true, caCert);
+        return storage.process(action, args);
     }
 
     std::cerr << "error: unknown module '" << module << "'\n\n" << usage << std::endl;
