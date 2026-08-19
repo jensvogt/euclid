@@ -3,6 +3,7 @@
 //
 
 // C++ includes
+#include <array>
 #include <chrono>
 #include <map>
 #include <thread>
@@ -25,7 +26,7 @@ namespace Euclid::Database {
             const auto entry = Database::instance().client();
             auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
 
-            messageCollection.create_index(make_document(kvp("queueErn", 1), kvp("status", 1)));
+            messageCollection.create_index(make_document(kvp("queueErn", 1), kvp("status", 1), kvp("priority", 1)));
 
             mongocxx::options::index receiptHandleOpts;
             receiptHandleOpts.sparse(true);
@@ -396,7 +397,7 @@ namespace Euclid::Database {
         }
     }
 
-    Entity::SQS::Message MongoSQSRepository::sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::SQS::Variant> &attributes) {
+    Entity::SQS::Message MongoSQSRepository::sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::SQS::Variant> &attributes, const Entity::SQS::MessagePriority priority) {
 
         Entity::SQS::Message message;
         message.ern = ern;
@@ -409,6 +410,7 @@ namespace Euclid::Database {
         message.attributes = attributes;
         message.md5Attributes = Entity::SQS::Message::ComputeAttributesMd5(attributes);
         message.status = Entity::SQS::MessageStatus::AVAILABLE;
+        message.priority = priority;
 
         try {
 
@@ -416,15 +418,21 @@ namespace Euclid::Database {
             auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
             auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
 
-            const auto queueFilter = make_document(kvp("ern", ern));
+            const auto queueFilter = make_document(kvp("ern", queueErn));
             if (auto queueResult = queueCollection.find_one(queueFilter.view())) {
                 const auto queue = Entity::SQS::Queue::fromDocument(queueResult->view());
                 message.visibilityTimeout = queue.visibility;
 
+                if (queue.delay > 0) {
+                    message.status = Entity::SQS::MessageStatus::DELAYED;
+                    message.delayUntil = std::chrono::system_clock::now() + std::chrono::seconds(queue.delay);
+                }
+
                 const auto update = make_document(
                         kvp("$inc", make_document(
                                     kvp("size", static_cast<int64_t>(message.size)),
-                                    kvp("available", static_cast<int64_t>(1)))),
+                                    kvp("available", static_cast<int64_t>(queue.delay > 0 ? 0 : 1)),
+                                    kvp("delayed", static_cast<int64_t>(queue.delay > 0 ? 1 : 0)))),
                         kvp("$currentDate", make_document(
                                     kvp("modified", true))));
                 queueCollection.update_one(queueFilter.view(), update.view());
@@ -443,6 +451,8 @@ namespace Euclid::Database {
 
         std::vector<Entity::SQS::Message> result;
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(waitTime);
+        const auto weights = Entity::SQS::LoadPriorityWeights();
+        static constexpr std::array priorityOrder{Entity::SQS::MessagePriority::HIGH, Entity::SQS::MessagePriority::MIDDLE, Entity::SQS::MessagePriority::LOW};
 
         try {
             long maxReceiveCount = 0;
@@ -464,64 +474,80 @@ namespace Euclid::Database {
                 auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
                 auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
 
-                while (static_cast<long>(result.size()) < maxCount) {
-                    const auto receiptHandle = Core::UuidUtils::CreateRandomUuid();
-                    const auto filter = make_document(
+                std::map<Entity::SQS::MessagePriority, long> availableCounts;
+                for (const auto priority: priorityOrder) {
+                    availableCounts[priority] = messageCollection.count_documents(make_document(
                             kvp("queueErn", queueErn),
-                            kvp("status", MessageStatusToString(Entity::SQS::MessageStatus::AVAILABLE)));
-                    const auto update = make_document(
-                            kvp("$set", make_document(
-                                        kvp("status", MessageStatusToString(Entity::SQS::MessageStatus::INVISIBLE)),
-                                        kvp("receiptHandle", receiptHandle))),
-                            kvp("$inc", make_document(
-                                        kvp("receivedCount", 1))),
-                            kvp("$currentDate", make_document(
-                                        kvp("modified", true),
-                                        kvp("lastReceived", true)
-                                        )));
+                            kvp("status", MessageStatusToString(Entity::SQS::MessageStatus::AVAILABLE)),
+                            kvp("priority", Entity::SQS::MessagePriorityToString(priority))));
+                }
+                const auto takeCounts = Entity::SQS::ComputeReceiveCounts(maxCount, availableCounts, weights);
 
-                    mongocxx::options::find_one_and_update opts;
-                    opts.return_document(mongocxx::options::return_document::k_after);
+                for (const auto priority: priorityOrder) {
+                    const long target = takeCounts.at(priority);
+                    long taken = 0;
 
-                    const auto claimed = messageCollection.find_one_and_update(filter.view(), update.view(), opts);
-                    if (!claimed) break;
-
-                    Entity::SQS::Message message;
-                    message.FromDocument(claimed->view());
-
-                    // Move to dead letter queue if existing
-                    if (!deadLetterQueueErn.empty() && message.receivedCount > maxReceiveCount) {
-                        const auto moveUpdate = make_document(
+                    while (taken < target && static_cast<long>(result.size()) < maxCount) {
+                        const auto receiptHandle = Core::UuidUtils::CreateRandomUuid();
+                        const auto filter = make_document(
+                                kvp("queueErn", queueErn),
+                                kvp("status", MessageStatusToString(Entity::SQS::MessageStatus::AVAILABLE)),
+                                kvp("priority", Entity::SQS::MessagePriorityToString(priority)));
+                        const auto update = make_document(
                                 kvp("$set", make_document(
-                                            kvp("queueErn", deadLetterQueueErn),
-                                            kvp("status", MessageStatusToString(Entity::SQS::MessageStatus::AVAILABLE)),
-                                            kvp("receivedCount", 0),
-                                            kvp("receiptHandle", ""))),
-                                kvp("$currentDate", make_document(
-                                            kvp("modified", true))));
-                        messageCollection.update_one(make_document(kvp("messageId", message.messageId)).view(), moveUpdate.view());
-
-                        const auto sourceUpdate = make_document(
+                                            kvp("status", MessageStatusToString(Entity::SQS::MessageStatus::INVISIBLE)),
+                                            kvp("receiptHandle", receiptHandle))),
                                 kvp("$inc", make_document(
-                                            kvp("size", -message.size),
-                                            kvp("available", static_cast<int64_t>(-1)))),
+                                            kvp("receivedCount", 1))),
                                 kvp("$currentDate", make_document(
-                                            kvp("modified", true))));
-                        queueCollection.update_one(make_document(kvp("ern", queueErn)).view(), sourceUpdate.view());
+                                            kvp("modified", true),
+                                            kvp("lastReceived", true)
+                                            )));
 
-                        const auto targetUpdate = make_document(
-                                kvp("$inc", make_document(
-                                            kvp("size", static_cast<int64_t>(message.size)),
-                                            kvp("available", static_cast<int64_t>(1)))),
-                                kvp("$currentDate", make_document(
-                                            kvp("modified", true))));
-                        queueCollection.update_one(make_document(kvp("ern", deadLetterQueueErn)).view(), targetUpdate.view());
+                        mongocxx::options::find_one_and_update opts;
+                        opts.return_document(mongocxx::options::return_document::k_after);
 
-                        log_info << "Message moved to dead letter queue, ern: " << queueErn << ", dlqErn: " << deadLetterQueueErn << ", messageId: " << message.messageId;
-                        continue;
+                        const auto claimed = messageCollection.find_one_and_update(filter.view(), update.view(), opts);
+                        if (!claimed) break;
+
+                        Entity::SQS::Message message;
+                        message.FromDocument(claimed->view());
+
+                        // Move to dead letter queue if existing
+                        if (!deadLetterQueueErn.empty() && message.receivedCount > maxReceiveCount) {
+                            const auto moveUpdate = make_document(
+                                    kvp("$set", make_document(
+                                                kvp("queueErn", deadLetterQueueErn),
+                                                kvp("status", MessageStatusToString(Entity::SQS::MessageStatus::AVAILABLE)),
+                                                kvp("receivedCount", 0),
+                                                kvp("receiptHandle", ""))),
+                                    kvp("$currentDate", make_document(
+                                                kvp("modified", true))));
+                            messageCollection.update_one(make_document(kvp("messageId", message.messageId)).view(), moveUpdate.view());
+
+                            const auto sourceUpdate = make_document(
+                                    kvp("$inc", make_document(
+                                                kvp("size", -message.size),
+                                                kvp("available", static_cast<int64_t>(-1)))),
+                                    kvp("$currentDate", make_document(
+                                                kvp("modified", true))));
+                            queueCollection.update_one(make_document(kvp("ern", queueErn)).view(), sourceUpdate.view());
+
+                            const auto targetUpdate = make_document(
+                                    kvp("$inc", make_document(
+                                                kvp("size", static_cast<int64_t>(message.size)),
+                                                kvp("available", static_cast<int64_t>(1)))),
+                                    kvp("$currentDate", make_document(
+                                                kvp("modified", true))));
+                            queueCollection.update_one(make_document(kvp("ern", deadLetterQueueErn)).view(), targetUpdate.view());
+
+                            log_info << "Message moved to dead letter queue, ern: " << queueErn << ", dlqErn: " << deadLetterQueueErn << ", messageId: " << message.messageId;
+                            continue;
+                        }
+
+                        result.push_back(message);
+                        taken += 1;
                     }
-
-                    result.push_back(message);
                 }
 
                 // Update queue counters
@@ -700,6 +726,7 @@ namespace Euclid::Database {
         try {
             const auto now = std::chrono::system_clock::now();
             std::map<std::string, long> resetCountByQueue;
+            std::map<std::string, long> delayedResetCountByQueue;
 
             const auto entry = Database::instance().client();
             auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
@@ -731,10 +758,44 @@ namespace Euclid::Database {
                 log_debug << "Message visibility timeout expired, messageId: " << message.messageId << ", queueErn: " << message.queueErn;
             }
 
+            const auto delayedFilter = make_document(kvp("status", MessageStatusToString(Entity::SQS::MessageStatus::DELAYED)));
+            for (auto cursor = messageCollection.find(delayedFilter.view()); auto doc: cursor) {
+                Entity::SQS::Message message;
+                message.FromDocument(doc);
+                if (now < message.delayUntil) continue;
+
+                const auto resetFilter = make_document(
+                        kvp("_id", bsoncxx::oid{message.oid}),
+                        kvp("status", MessageStatusToString(Entity::SQS::MessageStatus::DELAYED)));
+                const auto update = make_document(
+                        kvp("$set", make_document(
+                                    kvp("status", MessageStatusToString(Entity::SQS::MessageStatus::AVAILABLE)))),
+                        kvp("$currentDate", make_document(
+                                    kvp("modified", true))));
+                const auto updateResult = messageCollection.update_one(resetFilter.view(), update.view());
+
+                // Message was concurrently deleted or already reset since the cursor read it; skip counting.
+                if (!updateResult || updateResult->modified_count() == 0) continue;
+
+                delayedResetCountByQueue[message.queueErn]++;
+                resetCount++;
+                log_debug << "Message delay expired, messageId: " << message.messageId << ", queueErn: " << message.queueErn;
+            }
+
             for (const auto &[queueErn, count]: resetCountByQueue) {
                 const auto queueUpdate = make_document(
                         kvp("$inc", make_document(
                                     kvp("invisible", -static_cast<int64_t>(count)),
+                                    kvp("available", static_cast<int64_t>(count)))),
+                        kvp("$currentDate", make_document(
+                                    kvp("modified", true))));
+                queueCollection.update_one(make_document(kvp("ern", queueErn)).view(), queueUpdate.view());
+            }
+
+            for (const auto &[queueErn, count]: delayedResetCountByQueue) {
+                const auto queueUpdate = make_document(
+                        kvp("$inc", make_document(
+                                    kvp("delayed", -static_cast<int64_t>(count)),
                                     kvp("available", static_cast<int64_t>(count)))),
                         kvp("$currentDate", make_document(
                                     kvp("modified", true))));

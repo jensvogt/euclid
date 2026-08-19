@@ -12,6 +12,7 @@
 
 // Euclid includes
 #include <euclid/database/entity/sqs/Message.h>
+#include <euclid/database/entity/sqs/MessagePriority.h>
 #include <euclid/database/entity/sqs/Queue.h>
 #include <euclid/database/entity/sqs/Variant.h>
 
@@ -151,9 +152,10 @@ namespace Euclid::Database {
          * @param queueErn ERN of the queue the message is sent to.
          * @param body message body.
          * @param attributes message attributes.
+         * @param priority message priority; defaults to MIDDLE.
          * @return the newly created message entity.
          */
-        virtual Entity::SQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::SQS::Variant> &attributes) = 0;
+        virtual Entity::SQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::SQS::Variant> &attributes, Entity::SQS::MessagePriority priority = Entity::SQS::MessagePriority::MIDDLE) = 0;
 
         /**
          * @brief Receives up to maxCount available messages from a queue.
@@ -163,6 +165,12 @@ namespace Euclid::Database {
          * immediately available and waitTime is greater than zero, the repository is polled
          * repeatedly (long polling) until either a message becomes available or waitTime seconds
          * have elapsed, whichever comes first.
+         *
+         * The maxCount slots are apportioned across the three priority tiers (HIGH/MIDDLE/LOW)
+         * proportionally to the configurable weights returned by
+         * Entity::SQS::LoadPriorityWeights() - see ComputeReceiveCounts() - so that with the
+         * default weights, most of a batch is HIGH priority, fewer are MIDDLE, and fewer still are
+         * LOW, while still filling up to maxCount whenever enough messages of any priority exist.
          *
          * @param queueErn ERN of the queue to receive messages from.
          * @param maxCount maximal number of messages to return.
@@ -273,14 +281,16 @@ namespace Euclid::Database {
         virtual void clearMessages() = 0;
 
         /**
-         * @brief Makes messages visible again once their visibility timeout has elapsed.
+         * @brief Makes messages available again once their visibility timeout or delay has elapsed.
          *
          * A message that was handed out by receiveMessages() is in status "INVISIBLE" so other
          * receivers don't get it too. If the receiver never deletes it (e.g. it crashed before
          * acknowledging it), the message must become receivable again once its visibilityTimeout
-         * has passed since it was claimed. Called periodically by a background task.
+         * has passed since it was claimed. Likewise, a message sent to a queue with delay > 0 is
+         * in status "DELAYED" and must become receivable once its delayUntil has passed.
+         * Called periodically by a background task.
          *
-         * @return number of messages that were reset to status "INITIAL"
+         * @return number of messages that were reset to status "AVAILABLE"
          */
         virtual long resetExpiredMessages() = 0;
     };
