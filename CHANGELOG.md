@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/jensvogt/euclid/compare/v1.0.0...v1.0.1) (2026-08-19)
+
+
+### Bug Fixes
+
+* add deployment, README, LICENSE ([031ace3](https://github.com/jensvogt/euclid/commit/031ace34f603ff995c8120f3b51e11a4b19a1794))
+
 ## 1.0.0 (2026-08-19)
 
 
