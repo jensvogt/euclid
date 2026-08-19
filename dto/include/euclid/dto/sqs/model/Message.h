@@ -35,6 +35,11 @@ namespace Euclid::Dto::SQS {
         std::string status;
 
         /**
+         * @brief Message priority, i.e. "LOW", "MIDDLE" or "HIGH". Defaults to "MIDDLE".
+         */
+        std::string priority = "MIDDLE";
+
+        /**
          * @brief Message body
          */
         std::string body;
@@ -97,6 +102,7 @@ namespace Euclid::Dto::SQS {
             r.queueErn = Core::GetStringValue(v, "queueErn");
             r.messageId = Core::GetStringValue(v, "messageId");
             r.status = Core::GetStringValue(v, "status");
+            r.priority = Core::GetStringValue(v, "priority");
             r.body = Core::GetStringValue(v, "body");
             r.md5Body = Core::GetStringValue(v, "md5sum");
             r.receiptHandle = Core::GetStringValue(v, "receiptHandle");
@@ -114,6 +120,7 @@ namespace Euclid::Dto::SQS {
                     {"queueErn", obj.queueErn},
                     {"messageId", obj.messageId},
                     {"status", obj.status},
+                    {"priority", obj.priority},
                     {"body", obj.body},
                     {"md5sum", obj.md5Body},
                     {"receiptHandle", obj.receiptHandle},

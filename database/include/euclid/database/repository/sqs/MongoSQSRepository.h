@@ -11,6 +11,7 @@
 #include <euclid/core/LogStream.h>
 #include <euclid/database/Database.h>
 #include <euclid/database/entity/module/Module.h>
+#include <euclid/database/entity/sqs/PriorityWeights.h>
 #include <euclid/database/repository/sqs/ISQSRepository.h>
 
 namespace Euclid::Database {
@@ -137,9 +138,11 @@ namespace Euclid::Database {
          * @param ern message ERN
          * @param queueErn queue ERN
          * @param body message body
+         * @param attributes message attributes
+         * @param priority message priority; defaults to MIDDLE
          * @return the newly created message entity
          */
-        Entity::SQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::SQS::Variant> &attributes) override;
+        Entity::SQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::SQS::Variant> &attributes, Entity::SQS::MessagePriority priority) override;
 
         /**
          * @brief Receives up to maxCount available messages from a queue, long-polling for up to waitTime seconds

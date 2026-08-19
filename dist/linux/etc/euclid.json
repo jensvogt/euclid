@@ -1,8 +1,8 @@
 {
   "euclid": {
     "region": "eu-central-1",
-    "account-id": [
-      "863459426936"
+    "account-ids": [
+      "000000000000"
     ],
     "namespaces": [
       "development",
@@ -73,6 +73,11 @@
         "reset-period": 30,
         "counter-period": 30,
         "receive-poll": 1000,
+        "priority-weights": {
+          "high": 4,
+          "middle": 2,
+          "low": 1
+        },
         "socketPath": "/var/run/euclid/sqs",
         "executable": "euclid-sqs",
         "name": "sqs",

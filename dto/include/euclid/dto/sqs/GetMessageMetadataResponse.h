@@ -32,6 +32,11 @@ namespace Euclid::Dto::SQS {
         std::string status{};
 
         /**
+         * @brief Message priority, i.e. "LOW", "MIDDLE" or "HIGH"
+         */
+        std::string priority{};
+
+        /**
          * @brief Message size in bytes
          */
         long size{};
@@ -86,6 +91,7 @@ namespace Euclid::Dto::SQS {
             r.queueErn = Core::GetStringValue(v, "queueErn");
             r.receiptHandle = Core::GetStringValue(v, "receiptHandle");
             r.status = Core::GetStringValue(v, "status");
+            r.priority = Core::GetStringValue(v, "priority");
             r.size = Core::GetLongValue(v, "size");
             r.receivedCount = Core::GetLongValue(v, "receivedCount");
             r.visibilityTimeout = Core::GetLongValue(v, "visibilityTimeout");
@@ -103,6 +109,7 @@ namespace Euclid::Dto::SQS {
                     {"queueErn", obj.queueErn},
                     {"receiptHandle", obj.receiptHandle},
                     {"status", obj.status},
+                    {"priority", obj.priority},
                     {"size", obj.size},
                     {"receivedCount", obj.receivedCount},
                     {"visibilityTimeout", obj.visibilityTimeout},

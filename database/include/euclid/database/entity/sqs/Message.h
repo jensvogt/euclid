@@ -14,6 +14,7 @@
 #include <bsoncxx/document/value.hpp>
 
 // Euclid includes
+#include <euclid/database/entity/sqs/MessagePriority.h>
 #include <euclid/database/entity/sqs/MessageStatus.h>
 #include <euclid/database/entity/sqs/Variant.h>
 
@@ -54,9 +55,25 @@ namespace Euclid::Database::Entity::SQS {
         MessageStatus status = MessageStatus::AVAILABLE;
 
         /**
+         * @brief Priority
+         *
+         * Used by receiveMessages() to favor higher priority messages over lower priority ones;
+         * see ISQSRepository::receiveMessages() for details. Defaults to MIDDLE.
+         */
+        MessagePriority priority = MessagePriority::MIDDLE;
+
+        /**
          * @brief Last send datetime
          */
         system_clock::time_point reset;
+
+        /**
+         * @brief Point in time at which a DELAYED message becomes AVAILABLE.
+         *
+         * Set at send time to now()+queue.delay when the owning queue has a delay configured.
+         * Ignored once the message is no longer in status DELAYED.
+         */
+        system_clock::time_point delayUntil;
 
         /**
          * @brief Number of times this message has been received (ApproximateReceiveCount).

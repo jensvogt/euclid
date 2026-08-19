@@ -32,6 +32,11 @@ namespace Euclid::Dto::SQS {
         std::map<std::string, Variant> attributes{};
 
         /**
+         * @brief Message priority, i.e. "LOW", "MIDDLE" or "HIGH". Defaults to "MIDDLE".
+         */
+        std::string priority{"MIDDLE"};
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -53,6 +58,8 @@ namespace Euclid::Dto::SQS {
             r.queueErn = Core::GetStringValue(v, "ern");
             r.body = Core::GetStringValue(v, "body");
             r.attributes = Core::GetMapFromObject<std::string, Variant>(v, "attributes");
+            r.priority = Core::GetStringValue(v, "priority");
+            if (r.priority.empty()) r.priority = "MIDDLE";
             return r;
         }
 
@@ -61,6 +68,7 @@ namespace Euclid::Dto::SQS {
                     {"ern", obj.queueErn},
                     {"body", obj.body},
                     {"attributes", boost::json::value_from(obj.attributes)},
+                    {"priority", obj.priority},
             };
         }
     };
