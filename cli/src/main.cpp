@@ -13,7 +13,7 @@
 #include <euclid/core/Version.h>
 
 #define DEFAULT_ENDPOINT "https://localhost:5566"
-#define DEFAULT_CERT "/etc/euclid/euclid_cert.crt"
+#define DEFAULT_CERT "/usr/local/euclid/etc/euclid_cert.crt"
 
 namespace po = boost::program_options;
 
