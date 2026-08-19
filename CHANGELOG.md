@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.2](https://github.com/jensvogt/euclid/compare/v1.0.1...v1.0.2) (2026-08-19)
+
+
+### Bug Fixes
+
+* macOS builds ([534e5f9](https://github.com/jensvogt/euclid/commit/534e5f9300d1b53fd36c78a5e0ff13c77bb4a456))
+* macOS builds ([f8ade9c](https://github.com/jensvogt/euclid/commit/f8ade9c0ce19d75c4fba8d46b8dc710f3575baf1))
+* maxOS builds ([65232e8](https://github.com/jensvogt/euclid/commit/65232e84c8e662aca0a4bf48bdeb07788672b3c1))
+
 ## [1.0.1](https://github.com/jensvogt/euclid/compare/v1.0.0...v1.0.1) (2026-08-19)
 
 
