@@ -15,9 +15,24 @@ namespace Euclid::Dto::SQS {
     struct Message {
 
         /**
-         * @brief Euclid resource name
+         * @brief Euclid queue resource name
          */
         std::string ern;
+
+        /**
+         * @brief Euclid queue resource name
+         */
+        std::string queueErn;
+
+        /**
+         * @brief Message ID
+         */
+        std::string messageId;
+
+        /**
+         * @brief Message status, i.e. "AVAILABLE", "DELAYED", "INVISIBLE" or "UNKNOWN"
+         */
+        std::string status;
 
         /**
          * @brief Message body
@@ -79,6 +94,9 @@ namespace Euclid::Dto::SQS {
         friend Message tag_invoke(boost::json::value_to_tag<Message>, boost::json::value const &v) {
             Message r;
             r.ern = Core::GetStringValue(v, "ern");
+            r.queueErn = Core::GetStringValue(v, "queueErn");
+            r.messageId = Core::GetStringValue(v, "messageId");
+            r.status = Core::GetStringValue(v, "status");
             r.body = Core::GetStringValue(v, "body");
             r.md5Body = Core::GetStringValue(v, "md5sum");
             r.receiptHandle = Core::GetStringValue(v, "receiptHandle");
@@ -93,6 +111,9 @@ namespace Euclid::Dto::SQS {
         friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, Message const &obj) {
             jv = {
                     {"ern", obj.ern},
+                    {"queueErn", obj.queueErn},
+                    {"messageId", obj.messageId},
+                    {"status", obj.status},
                     {"body", obj.body},
                     {"md5sum", obj.md5Body},
                     {"receiptHandle", obj.receiptHandle},

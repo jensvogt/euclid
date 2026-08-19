@@ -28,6 +28,7 @@ namespace Euclid::Database::Entity::SQS {
         }
 
         return bsoncxx::builder::basic::make_document(
+                bsoncxx::builder::basic::kvp("ern", ern),
                 bsoncxx::builder::basic::kvp("queueErn", queueErn),
                 bsoncxx::builder::basic::kvp("body", body),
                 bsoncxx::builder::basic::kvp("status", MessageStatusToString(status)),
@@ -50,6 +51,7 @@ namespace Euclid::Database::Entity::SQS {
         if (!document) return;
         for (const auto &field: *document) {
             if (const auto key = field.key(); key == "_id") oid = field.get_oid().value.to_string();
+            else if (key == "ern") ern = std::string(field.get_string().value);
             else if (key == "queueErn") queueErn = std::string(field.get_string().value);
             else if (key == "body") body = std::string(field.get_string().value);
             else if (key == "status") status = MessageStatusFromString(std::string(field.get_string().value));

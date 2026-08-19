@@ -68,4 +68,22 @@ namespace Euclid::Core {
         return createErn("access", accountId, "usergroup:" + name);
     }
 
+    /**
+     * @brief Extracts the account ID from an ERN, i.e. the fifth colon-separated field of
+     * "ern:euclid:{service}:{region}:{accountId}:{resourceType}:{resourceId}".
+     *
+     * @param ern ERN to parse
+     * @return the account ID, or an empty string if @p ern doesn't have enough fields.
+     */
+    inline std::string accountIdFromErn(const std::string &ern) {
+        std::size_t pos = 0;
+        for (int field = 0; field < 4; ++field) {
+            pos = ern.find(':', pos);
+            if (pos == std::string::npos) return {};
+            ++pos;
+        }
+        const auto end = ern.find(':', pos);
+        return end == std::string::npos ? ern.substr(pos) : ern.substr(pos, end - pos);
+    }
+
 }

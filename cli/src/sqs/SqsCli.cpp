@@ -33,6 +33,7 @@ namespace Euclid::CLI {
             return PrintModuleHelp("sqs", {
                                            {"create-queue", "Create a new queue"},
                                            {"list-queues", "List queues"},
+                                           {"list-messages", "List a queue's messages without receiving them"},
                                            {"get-queue-ern", "Resolve a queue's ERN by name"},
                                            {"get-message-count", "Returns the message counters"},
                                            {"purge-queue", "Delete all messages from a queue"},
@@ -42,6 +43,8 @@ namespace Euclid::CLI {
                                            {"receive-messages", "Send a message to a queue"},
                                            {"set-visibility", "Send a messages visibility"},
                                            {"get-message-attribute", "Return a message attribute by name"},
+                                           {"get-queue-metadata", "Return the metadata for a queue"},
+                                           {"get-message-metadata", "Return the metadata for a message"},
                                    });
         }
         if (action == "create-queue") {
@@ -49,6 +52,9 @@ namespace Euclid::CLI {
         }
         if (action == "list-queues") {
             return listQueues(args);
+        }
+        if (action == "list-messages") {
+            return listMessages(args);
         }
         if (action == "get-queue-ern") {
             return getQueueErn(args);
@@ -76,6 +82,12 @@ namespace Euclid::CLI {
         }
         if (action == "get-message-attribute") {
             return getMessageAttribute(args);
+        }
+        if (action == "get-queue-metadata") {
+            return getQueueMetadata(args);
+        }
+        if (action == "get-message-metadata") {
+            return getMessageMetadata(args);
         }
         std::cerr << "error: unknown SQS action '" << action << "'\n";
         return 1;
@@ -120,6 +132,50 @@ namespace Euclid::CLI {
             const HttpResponse response = client.Post("sqs", "create-queue", boost::json::value_from(request));
             if (!response.IsSuccess()) {
                 std::cerr << "error: create-queue failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int SqsCli::listMessages(const std::vector<std::string> &args) const {
+        po::options_description desc("lists a queue's messages without receiving them");
+        desc.add_options()
+                ("queue-ern,e", po::value<std::string>()->required(), "queue ERN")
+                ("page-size,s", po::value<long>()->default_value(10), "page size")
+                ("page-index,i", po::value<long>()->default_value(0), "page index")
+                ("sort-column,c", po::value<std::string>()->default_value("created"), "sort column");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("sqs", "list-messages", "--queue-ern <ern> [--page-size <n>] [--page-index <n>] [--sort-column <column>]",
+                                   "Lists a queue's messages without receiving them, i.e. without changing their status or visibility. Paginated: pageSize defaults to 10, pageIndex to 0, sortColumn to \"created\".",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::SQS::ListMessagesRequest request;
+        request.queueErn = vm["queue-ern"].as<std::string>();
+        request.pageSize = vm["page-size"].as<long>();
+        request.pageIndex = vm["page-index"].as<long>();
+        request.sortColumn = vm["sort-column"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("sqs", "list-messages", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: list-messages failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);
@@ -288,6 +344,44 @@ namespace Euclid::CLI {
         }
     }
 
+    int SqsCli::getQueueMetadata(const std::vector<std::string> &args) const {
+        po::options_description desc("returns the metadata of a queue");
+        desc.add_options()
+                ("ern,e", po::value<std::string>()->required(), "queue ERN");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("sqs", "get-queue-metadata", "--ern <ern>",
+                                   "Shows the metadata of a queue, i.e. region, accountId, namespace, size, number of messages.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::SQS::GetQueueMetadataRequest request;
+        request.ern = vm["ern"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("sqs", "get-queue-metadata", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: get-queue-metadata failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
     int SqsCli::deleteQueue(const std::vector<std::string> &args) const {
         po::options_description desc("delete queue options");
         desc.add_options()
@@ -350,7 +444,7 @@ namespace Euclid::CLI {
         }
 
         Dto::SQS::SendMessageRequest request;
-        request.ern = vm["ern"].as<std::string>();
+        request.queueErn = vm["ern"].as<std::string>();
 
         try {
             request.body = ResolveFileOrLiteral(vm["body"].as<std::string>());
@@ -523,6 +617,44 @@ namespace Euclid::CLI {
             const HttpResponse response = client.Post("sqs", "get-message-attribute", boost::json::value_from(request));
             if (!response.IsSuccess()) {
                 std::cerr << "error: get-message-attribute failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int SqsCli::getMessageMetadata(const std::vector<std::string> &args) const {
+        po::options_description desc("returns the metadata of a message");
+        desc.add_options()
+                ("message-id,m", po::value<std::string>()->required(), "message ID");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("sqs", "get-message-metadata", "--message-id <messageId>",
+                                   "Shows a message's metadata: messageId, queueErn, receiptHandle, status, size (bytes), receivedCount, visibilityTimeout, contentType, md5Body, md5Attributes, created, modified.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::SQS::GetMessageMetadataRequest request;
+        request.messageId = vm["message-id"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("sqs", "get-message-metadata", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: get-message-metadata failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);

@@ -21,6 +21,10 @@
 #include <euclid/dto/sqs/DeleteQueueRequest.h>
 #include <euclid/dto/sqs/GetMessageAttributeRequest.h>
 #include <euclid/dto/sqs/GetMessageCountRequest.h>
+#include <euclid/dto/sqs/GetMessageMetadataRequest.h>
+#include <euclid/dto/sqs/GetQueueMetadataRequest.h>
+#include <euclid/dto/sqs/ListMessagesRequest.h>
+#include <euclid/dto/sqs/ListMessagesResponse.h>
 #include <euclid/dto/sqs/ListQueueRequest.h>
 #include <euclid/dto/sqs/ListQueueResponse.h>
 #include <euclid/dto/sqs/PurgeAllQueuesRequest.h>
@@ -91,6 +95,15 @@ namespace Euclid::CLI {
         int listQueues(const std::vector<std::string> &args) const;
 
         /**
+         * @brief Lists a queue's messages without receiving them, paginated.
+         *
+         * @param args action arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int listMessages(const std::vector<std::string> &args) const;
+
+        /**
          * @brief Purge a queue by deleting all messages.
          *
          * @param args action arguments
@@ -107,6 +120,15 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int purgeAllQueues(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Returns the metadata of a queue
+         *
+         * @param args action arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int getQueueMetadata(const std::vector<std::string> &args) const;
 
         /**
          * @brief Delete a queue
@@ -161,6 +183,15 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int getMessageAttribute(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Returns a message's metadata, i.e. queueErn, size, status, etc.
+         *
+         * @param args action arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int getMessageMetadata(const std::vector<std::string> &args) const;
 
         /**
          * @brief Euclid endpoint

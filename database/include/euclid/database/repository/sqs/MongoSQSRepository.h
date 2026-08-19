@@ -134,11 +134,12 @@ namespace Euclid::Database {
          * @brief Sends a message to a queue
          *
          * @param messageId messageId
-         * @param ern queue ERN
+         * @param ern message ERN
+         * @param queueErn queue ERN
          * @param body message body
          * @return the newly created message entity
          */
-        Entity::SQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &body, const std::map<std::string, Entity::SQS::Variant> &attributes) override;
+        Entity::SQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::SQS::Variant> &attributes) override;
 
         /**
          * @brief Receives up to maxCount available messages from a queue, long-polling for up to waitTime seconds
@@ -197,6 +198,18 @@ namespace Euclid::Database {
          */
         [[nodiscard]]
         std::vector<Entity::SQS::Message> findAllMessages() const override;
+
+        /**
+         * @brief Lists a queue's messages without receiving them, paginated and sorted.
+         *
+         * @param queueErn ERN of the queue whose messages are listed.
+         * @param pageSize maximum number of messages to return, or <= 0 for no limit.
+         * @param pageIndex zero-based page index.
+         * @param sortColumn message field to sort ascending by; empty leaves the order unspecified.
+         * @return the requested page of messages.
+         */
+        [[nodiscard]]
+        std::vector<Entity::SQS::Message> listMessages(const std::string &queueErn, long pageSize, long pageIndex, const std::string &sortColumn) const override;
 
         /**
          * @brief Check the existence of the module by name

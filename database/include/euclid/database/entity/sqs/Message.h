@@ -34,6 +34,11 @@ namespace Euclid::Database::Entity::SQS {
         std::string oid;
 
         /**
+         * @brief Message ern
+         */
+        std::string ern;
+
+        /**
          * @brief Queue ERN
          */
         std::string queueErn;
