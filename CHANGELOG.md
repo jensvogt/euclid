@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.5](https://github.com/jensvogt/euclid/compare/1.0.4...v1.0.5) (2026-08-20)
+
+
+### Bug Fixes
+
+* debian installation ([f4dbd1e](https://github.com/jensvogt/euclid/commit/f4dbd1e0e89ae1ae28b515f5d82e0961a5067db7))
+
 ## [1.0.4](https://github.com/jensvogt/euclid/compare/v1.0.3...v1.0.4) (2026-08-20)
 
 
