@@ -44,6 +44,8 @@ find_package(jwt-cpp CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED COMPONENTS SSL Crypto)
 find_package(libssh CONFIG REQUIRED)
 
+find_package(unofficial-libmagic CONFIG REQUIRED)
+
 find_library(TCMALLOC_LIBRARY NAMES tcmalloc tcmalloc_minimal)
 if (TCMALLOC_LIBRARY)
     message(STATUS "tcmalloc found, linking all targets against ${TCMALLOC_LIBRARY}")

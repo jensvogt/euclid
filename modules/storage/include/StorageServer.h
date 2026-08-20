@@ -16,6 +16,7 @@
 #include <euclid/database/entity/storage/Bucket.h>
 #include <euclid/dto/BaseDto.h>
 #include <euclid/dto/storage/CreateBucketRequest.h>
+#include <euclid/dto/storage/CreateBucketResponse.h>
 
 namespace Euclid::Storage {
 
