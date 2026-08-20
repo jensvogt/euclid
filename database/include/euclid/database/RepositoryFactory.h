@@ -22,6 +22,9 @@
 #include <euclid/database/repository/monitoring/IMonitoringRepository.h>
 #include <euclid/database/repository/monitoring/MongoMonitoringRepository.h>
 #include <euclid/database/repository/monitoring/MemoryMonitoringRepository.h>
+#include <euclid/database/repository/storage/IStorageRepository.h>
+#include <euclid/database/repository/storage/MongoStorageRepository.h>
+#include <euclid/database/repository/storage/MemoryStorageRepository.h>
 
 namespace Euclid::Database {
 
@@ -60,6 +63,12 @@ namespace Euclid::Database {
         [[nodiscard]]
         std::shared_ptr<IMonitoringRepository> monitoringRepository() const {
             static auto repo = createMonitoringRepository();
+            return repo;
+        }
+
+        [[nodiscard]]
+        std::shared_ptr<IStorageRepository> storageRepository() const {
+            static auto repo = createStorageRepository();
             return repo;
         }
 
@@ -108,6 +117,17 @@ namespace Euclid::Database {
                     return std::make_shared<MemoryMonitoringRepository>();
             }
             return std::make_shared<MemoryMonitoringRepository>();
+        }
+
+        [[nodiscard]]
+        std::shared_ptr<IStorageRepository> createStorageRepository() const {
+            switch (_backend) {
+                case BackendType::MONGODB:
+                    return std::make_shared<MongoStorageRepository>();
+                case BackendType::MEMORY:
+                    return std::make_shared<MemoryStorageRepository>();
+            }
+            return std::make_shared<MemoryStorageRepository>();
         }
     };
 

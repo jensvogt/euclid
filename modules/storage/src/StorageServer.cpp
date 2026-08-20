@@ -66,13 +66,13 @@ namespace Euclid::Storage {
         bucket.region = auth.user->region;
         bucket.owner = auth.user->userId;
 
-        // const auto saved = Database::RepositoryFactory::instance().sqsRepository()->upsertQueue(queue);
-        //
-        //Dto::SQS::CreateQueueResponse response;
-        // response.name = saved.name;
-        // response.ern = saved.ern;
+        const auto saved = Database::RepositoryFactory::instance().storageRepository()->upsertBucket(bucket);
 
-        return StorageServer::JsonResponse(req, status::ok);
+        Dto::Storage::CreateBucketResponse response;
+        response.name = saved.name;
+        response.ern = saved.ern;
+
+        return StorageServer::JsonResponse(req, status::ok, response.toJson());
     }
 
     // ── Request dispatcher ───────────────────────────────────────────────────
