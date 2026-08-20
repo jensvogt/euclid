@@ -322,7 +322,6 @@ jobs:
 
       - name: Prepare DEB package structure
         run: |
-          mkdir -p ${{ env.PACKAGE_DIR_DEB }}/DEBIAN
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/etc/euclid
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/log
@@ -346,18 +345,12 @@ jobs:
           cp cli/docs/man/*.1 ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man1/ 2>/dev/null || true
           cp -R ${{ github.workspace }}/frontend/euclid-ui/dist/euclid-ui/browser/* ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/frontend/ 2>/dev/null || true
 
-          cat << EOF > ${{ env.PACKAGE_DIR_DEB }}/DEBIAN/control
-          Package: euclid
-          Version: ${SEMVER}
-          Section: utils
-          Priority: optional
-          Architecture: amd64
-          Maintainer: Jens Vogt <jens.vogt@opitz-consulting.com>
-          Description: Euclid local AWS emulator service
-          Depends: systemd, libmagic1
-          EOF
-
-          cat << EOF > ${{ env.PACKAGE_DIR_DEB }}/DEBIAN/postinst
+          # Maintainer scripts live OUTSIDE PACKAGE_DIR_DEB - that whole tree gets mapped
+          # verbatim onto the target filesystem root by fpm's "-s dir ... PACKAGE_DIR/=/"
+          # below, so anything placed inside it (including a hand-rolled DEBIAN/ directory)
+          # ends up installed as literal files rather than treated as package control data.
+          mkdir -p ${{ github.workspace }}/deb-scripts
+          cat << EOF > ${{ github.workspace }}/deb-scripts/postinstall.sh
           #!/bin/bash
           set -e
           ln -sf /usr/local/euclid/bin/euclid-cli /usr/local/bin/euclid-cli
@@ -367,7 +360,7 @@ jobs:
           systemctl restart euclid.service || true
           EOF
 
-          cat << EOF > ${{ env.PACKAGE_DIR_DEB }}/DEBIAN/postrm
+          cat << EOF > ${{ github.workspace }}/deb-scripts/postremove.sh
           #!/bin/bash
           set -e
           systemctl stop euclid.service || true
@@ -376,7 +369,7 @@ jobs:
           rm -f /usr/local/bin/euclid-cli /usr/local/bin/euclid-manager
           EOF
 
-          chmod 755 ${{ env.PACKAGE_DIR_DEB }}/DEBIAN/postinst ${{ env.PACKAGE_DIR_DEB }}/DEBIAN/postrm
+          chmod +x ${{ github.workspace }}/deb-scripts/postinstall.sh ${{ github.workspace }}/deb-scripts/postremove.sh
 
       - name: Build DEB with fpm
         run: |
@@ -384,6 +377,13 @@ jobs:
           --version "${{ env.SEMVER }}" \
           --architecture amd64 \
           --license "GPL-3.0-or-later" \
+          --maintainer "Jens Vogt <jens.vogt@opitz-consulting.com>" \
+          --description "Euclid local AWS emulator service" \
+          --category utils \
+          --depends systemd \
+          --depends libmagic1 \
+          --after-install ${{ github.workspace }}/deb-scripts/postinstall.sh \
+          --after-remove ${{ github.workspace }}/deb-scripts/postremove.sh \
           --package "${{ env.APP_NAME }}-${{ env.SEMVER }}-amd64.deb" \
           ${{ env.PACKAGE_DIR_DEB }}/=/
 
@@ -407,7 +407,6 @@ jobs:
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/data/backup
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man1
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/etc/systemd/system
-          mkdir -p ${{ env.PACKAGE_DIR_RPM }}/scripts
 
           cp ${{ env.BUILD_DIR }}/bin/euclid-manager ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-cli ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
@@ -422,7 +421,11 @@ jobs:
           cp cli/docs/man/*.1 ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man1/ 2>/dev/null || true
           cp -R ${{ github.workspace }}/frontend/euclid-ui/dist/euclid-ui/browser/* ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/frontend/ 2>/dev/null || true
 
-          cat << EOF > ${{ env.PACKAGE_DIR_RPM }}/scripts/postinstall.sh
+          # Maintainer scripts live OUTSIDE PACKAGE_DIR_RPM - see the matching comment in the
+          # DEB step above for why (this whole tree is mapped verbatim onto the target
+          # filesystem root by fpm below).
+          mkdir -p ${{ github.workspace }}/rpm-scripts
+          cat << EOF > ${{ github.workspace }}/rpm-scripts/postinstall.sh
           #!/bin/bash
           set -e
           ln -sf /usr/local/euclid/bin/euclid-cli /usr/local/bin/euclid-cli
@@ -432,7 +435,7 @@ jobs:
           systemctl restart euclid.service || true
           EOF
 
-          cat << EOF > ${{ env.PACKAGE_DIR_RPM }}/scripts/postremove.sh
+          cat << EOF > ${{ github.workspace }}/rpm-scripts/postremove.sh
           #!/bin/bash
           systemctl stop euclid.service || true
           systemctl disable euclid.service || true
@@ -441,7 +444,7 @@ jobs:
           systemctl daemon-reload
           EOF
 
-          chmod +x ${{ env.PACKAGE_DIR_RPM }}/scripts/postinstall.sh ${{ env.PACKAGE_DIR_RPM }}/scripts/postremove.sh
+          chmod +x ${{ github.workspace }}/rpm-scripts/postinstall.sh ${{ github.workspace }}/rpm-scripts/postremove.sh
 
       - name: Build RPM with fpm
         run: |
@@ -455,8 +458,8 @@ jobs:
           --depends systemd \
           --depends file-libs \
           --prefix / \
-          --after-install ${{ env.PACKAGE_DIR_RPM }}/scripts/postinstall.sh \
-          --after-remove ${{ env.PACKAGE_DIR_RPM }}/scripts/postremove.sh \
+          --after-install ${{ github.workspace }}/rpm-scripts/postinstall.sh \
+          --after-remove ${{ github.workspace }}/rpm-scripts/postremove.sh \
           ${{ env.PACKAGE_DIR_RPM }}/=/
 
       - name: Upload .rpm
