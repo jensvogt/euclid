@@ -1,0 +1,113 @@
+//
+// Created by vogje01 on 8/20/26.
+//
+
+#pragma once
+
+// C++ includes
+#include <optional>
+#include <string>
+#include <vector>
+
+// Euclid includes
+#include <euclid/database/entity/storage/Bucket.h>
+
+namespace Euclid::Database {
+
+    /**
+     * @brief Interface for storage (bucket) repository operations.
+     *
+     * Provides an abstraction for storing, retrieving, and managing bucket data.
+     */
+    class IStorageRepository {
+
+    public:
+
+        virtual ~IStorageRepository() = default;
+
+        /**
+         * @brief Inserts a new bucket or updates an existing one in the repository.
+         *
+         * @param bucket The bucket to be inserted or updated in the repository.
+         * @return the persisted bucket entity.
+         */
+        virtual Entity::Storage::Bucket upsertBucket(Entity::Storage::Bucket &bucket) = 0;
+
+        /**
+         * @brief Removes a bucket by its name.
+         *
+         * @param name The name of the bucket to be removed.
+         */
+        virtual void removeBucketByName(const std::string &name) = 0;
+
+        /**
+         * @brief Removes a bucket by its ERN.
+         *
+         * @param ern The Euclid resource name (ERN) of the bucket to be removed.
+         */
+        virtual void deleteBucketByErn(const std::string &ern) = 0;
+
+        /**
+         * @brief Searches for a bucket by its name.
+         *
+         * @param name The name of the bucket to search for.
+         * @return The matching bucket, or an empty optional if no match is found.
+         */
+        [[nodiscard]]
+        virtual std::optional<Entity::Storage::Bucket> findBucketByName(const std::string &name) const = 0;
+
+        /**
+         * @brief Locates a bucket in the repository by its unique identifier.
+         *
+         * @param oid The unique identifier of the bucket to search for.
+         * @return An optional containing the found bucket, or an empty optional
+         *         if no bucket with the given identifier exists.
+         */
+        [[nodiscard]]
+        virtual std::optional<Entity::Storage::Bucket> findBucketById(const std::string &oid) const = 0;
+
+        /**
+         * @brief Searches for a bucket by its ERN.
+         *
+         * @param ern The Euclid resource name (ERN) of the bucket to search for.
+         * @return The matching bucket, or an empty optional if no match is found.
+         */
+        [[nodiscard]]
+        virtual std::optional<Entity::Storage::Bucket> findBucketByErn(const std::string &ern) const = 0;
+
+        /**
+         * @brief Finds and retrieves all buckets, optionally filtered, paged and sorted.
+         *
+         * @param prefix only buckets whose name starts with this prefix are returned; empty matches all buckets
+         * @param pageSize maximum number of buckets to return; 0 or less means no limit
+         * @param pageIndex zero-based page index, applied when pageSize is set
+         * @param sortColumn field to sort by (e.g. "name", "ern"); empty means unsorted
+         * @return matching, paged and sorted list of buckets
+         */
+        [[nodiscard]]
+        virtual std::vector<Entity::Storage::Bucket> listBuckets(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
+
+        /**
+         * @brief Checks if a bucket with the specified name exists in the repository.
+         *
+         * @param name The name of the bucket to check for existence.
+         * @return True if a bucket with the given name exists, otherwise false.
+         */
+        [[nodiscard]]
+        virtual bool bucketExists(const std::string &name) const = 0;
+
+        /**
+         * @brief Retrieves the total count of buckets in the repository.
+         *
+         * @return The total number of buckets as a long integer.
+         */
+        [[nodiscard]]
+        virtual long countBuckets() const = 0;
+
+        /**
+         * @brief Removes all entries from the bucket repository, leaving it in an empty state.
+         */
+        virtual void clearBuckets() = 0;
+    };
+
+}// namespace Euclid::Database
