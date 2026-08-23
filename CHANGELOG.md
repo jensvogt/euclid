@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.16](https://github.com/jensvogt/euclid/compare/1.0.15...v1.0.16) (2026-08-23)
+
+
+### Bug Fixes
+
+* docker setup ([8a15e66](https://github.com/jensvogt/euclid/commit/8a15e661e67d8e786d546c2a8670762e39d9c247))
+
 ## [1.0.15](https://github.com/jensvogt/euclid/compare/1.0.14...v1.0.15) (2026-08-23)
 
 
