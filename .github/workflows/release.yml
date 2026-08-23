@@ -327,7 +327,6 @@ jobs:
         run: |
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/etc
-          mkdir -p ${{ env.PACKAGE_DIR_DEB }}/etc/euclid
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/log
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/frontend
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/init
@@ -415,7 +414,6 @@ jobs:
         run: |
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc
-          mkdir -p ${{ env.PACKAGE_DIR_RPM }}/etc/euclid
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/log
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/frontend
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/init
@@ -429,7 +427,7 @@ jobs:
           cp ${{ env.BUILD_DIR }}/bin/euclid-access ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-queues ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-monitoring ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
-          cp dist/linux/etc/* ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc/euclid
+          cp dist/linux/etc/* ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc/
           # See the DEB step above for why this is bundled rather than relying on the system's.
           cp ${{ env.BUILD_DIR }}/vcpkg_installed/x64-linux/share/libmagic/misc/magic.mgc ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc/magic.mgc
           cp dist/linux/systemd/system/euclid.service ${{ env.PACKAGE_DIR_RPM }}/etc/systemd/system
