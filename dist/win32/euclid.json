@@ -42,7 +42,7 @@
     "modules": {
       "access": {
         "active": true,
-        "socketPath": "/var/run/euclid/euclid-access.sock",
+        "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-access.sock",
         "executable": "C:\\Program Files\\euclid\\bin\\euclid-access",
         "name": "access",
         "minInstances": 1,
@@ -51,7 +51,9 @@
       },
       "storage": {
         "active": true,
-        "path": "C:\\Program Files\\euclid\\bin\\euclid-storage",
+        "name": "storage",
+        "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-storage.sock",
+        "executable": "C:\\Program Files\\euclid\\bin\\euclid-storage",
         "backup": {
           "active": true,
           "cron": "0 0 0 * * ?",
@@ -80,14 +82,17 @@
           "middle": 2,
           "low": 1
         },
-        "socketPath": "/var/run/euclid/euclid-queues.sock",
+        "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-queues.sock",
         "executable": "C:\\Program Files\\euclid\\bin\\euclid-queues",
         "name": "queues",
         "minInstances": 1,
         "maxInstances": 4
       },
       "topics": {
-        "active": true,
+        "active": false,
+        "name": "topics",
+        "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-topics.sock",
+        "executable": "C:\\Program Files\\euclid\\bin\\euclid-topics",
         "backup": {
           "active": true,
           "cron": "0 0 0 * * ?",
@@ -100,7 +105,7 @@
       },
       "monitoring": {
         "active": true,
-        "socketPath": "/var/run/euclid/euclid-mon.sock",
+        "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-monitoring.sock",
         "executable": "C:\\Program Files\\euclid\\bin\\euclid-monitoring",
         "name": "monitoring",
         "minInstances": 1,
