@@ -1,8 +1,10 @@
 // C++ includes
 #include <csignal>
+#include <optional>
 #include <unistd.h>
 
 // Euclid includes
+#include <euclid/core/Configuration.h>
 #include <euclid/core/LogStream.h>
 #include <euclid/core/UnixSocketServer.h>
 
@@ -14,6 +16,19 @@ namespace Euclid::Core {
     namespace local = asio::local;
 
     UnixSocketServer *UnixSocketServer::s_instance = nullptr;
+
+    namespace {
+        // Boost.Beast's parser defaults to a 1MB body limit when none is set explicitly, which a
+        // single storage upload-part can silently exceed (default part size alone is 5MB) - the
+        // parser then fails the read and the session tears down with no response, surfacing to
+        // the client as a bare "connection reset". Reuses the gateway's max-body config (already
+        // shipped in dist/etc/euclid*.json) since requests reaching here already passed through
+        // that same limit at the gateway hop.
+        std::uint64_t MaxBodySize() {
+            constexpr long kDefaultMaxBodySize = 512L * 1024 * 1024;
+            return static_cast<std::uint64_t>(Configuration::instance().getOr<long>("euclid.gateway.http.max-body", kDefaultMaxBodySize));
+        }
+    }// namespace
 
     // ── Session ──────────────────────────────────────────────────────────────
     // Handles one Unix-socket connection: reads requests in a loop, dispatches
@@ -29,18 +44,21 @@ namespace Euclid::Core {
     private:
 
         void doRead() {
-            _req = {};
-            http::async_read(_stream, _buf, _req, [self = shared_from_this()](beast::error_code ec, std::size_t) {
+            _parser.emplace();
+            _parser->body_limit(MaxBodySize());
+            http::async_read(_stream, _buf, *_parser, [self = shared_from_this()](beast::error_code ec, std::size_t) {
                 if (ec) return;
+
+                auto &req = self->_parser->get();
 
                 // A handler-level exception (e.g. malformed request body) must not take
                 // down the whole service - report it as a 500 instead of letting it
                 // escape the io_context worker thread and terminate the process.
                 try {
-                    self->doWrite(self->_server.Dispatch(self->_req));
+                    self->doWrite(self->_server.Dispatch(req));
                 } catch (const std::exception &e) {
                     log_error << self->_server._serviceName << " request handler threw, error: " << e.what();
-                    http::response<http::string_body> res{http::status::internal_server_error, self->_req.version()};
+                    http::response<http::string_body> res{http::status::internal_server_error, req.version()};
                     res.set(http::field::content_type, "application/json");
                     res.body() = R"({"error":"internal server error"})";
                     res.prepare_payload();
@@ -60,7 +78,7 @@ namespace Euclid::Core {
         // beast generic stream wrapper for a local socket
         beast::basic_stream<local::stream_protocol> _stream;
         beast::flat_buffer _buf;
-        http::request<http::string_body> _req;
+        std::optional<http::request_parser<http::string_body> > _parser;
         UnixSocketServer &_server;
     };
 

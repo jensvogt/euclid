@@ -11,6 +11,7 @@
 
 // Euclid includes
 #include <euclid/database/entity/storage/Bucket.h>
+#include <euclid/database/entity/storage/Object.h>
 
 namespace Euclid::Database {
 
@@ -108,6 +109,65 @@ namespace Euclid::Database {
          * @brief Removes all entries from the bucket repository, leaving it in an empty state.
          */
         virtual void clearBuckets() = 0;
+
+        /**
+         * @brief Inserts a new object or updates the existing one for the same bucket/key.
+         *
+         * The object's bytes live in a flat file on disk named after its internalName (a UUID);
+         * this is the only place the key-to-internalName mapping is recorded, so this call is
+         * what makes an uploaded object resolvable by key afterwards.
+         *
+         * @param object The object to be inserted or updated in the repository.
+         * @return the persisted object entity.
+         */
+        virtual Entity::Storage::Object upsertObject(Entity::Storage::Object &object) = 0;
+
+        /**
+         * @brief Searches for an object by its bucket and key.
+         *
+         * @param bucketErn The ERN of the bucket the object belongs to.
+         * @param key The object's key (path) within the bucket.
+         * @return The matching object, or an empty optional if no match is found.
+         */
+        [[nodiscard]]
+        virtual std::optional<Entity::Storage::Object> findObjectByBucketAndKey(const std::string &bucketErn, const std::string &key) const = 0;
+
+        /**
+         * @brief Retrieves the total number of objects in the repository.
+         *
+         * @return The total number of objects as a long integer.
+         */
+        [[nodiscard]]
+        virtual long countObjects() const = 0;
+
+        /**
+         * @brief Retrieves the total number og objects in a bucket.
+         *
+         * @paranm bucketErn bucket ERN
+         * @return The total number of messages as a long integer.
+         */
+        [[nodiscard]]
+        virtual long countObjects(const std::string &bucketErn) const = 0;
+
+        /**
+         * @brief Finds and retrieves all objects of a bucket, optionally filtered, paged and sorted.
+         *
+         * @param bucketErn The ERN of the bucket the object belongs to.
+         * @param prefix only buckets whose name starts with this prefix are returned; empty matches all buckets
+         * @param pageSize maximum number of buckets to return; 0 or less means no limit
+         * @param pageIndex zero-based page index, applied when pageSize is set
+         * @param sortColumn field to sort by (e.g. "name", "ern"); empty means unsorted
+         * @return matching, paged and sorted list of buckets
+         */
+        [[nodiscard]]
+        virtual std::vector<Entity::Storage::Object> listObjects(const std::string &bucketErn, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
+
+        /**
+         * @brief Removes a object by its ERN.
+         *
+         * @param ern The Euclid resource name (ERN) of the object to be removed.
+         */
+        virtual void deleteObjectByErn(const std::string &ern) = 0;
     };
 
 }// namespace Euclid::Database

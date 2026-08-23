@@ -2,6 +2,7 @@ set(LIBRARY eucliddto)
 set(SOURCES src/ModuleMapper.cpp
         src/AccessMapper.cpp
         src/SqsMapper.cpp
+        src/StorageMapper.cpp
         include/euclid/dto/access/AccessMapper.h
         include/euclid/dto/access/DeleteUserRequest.h
         include/euclid/dto/access/ListUserRequest.h
@@ -16,7 +17,19 @@ set(SOURCES src/ModuleMapper.cpp
         include/euclid/dto/sqs/model/Queue.h
         include/euclid/dto/sqs/model/Message.h
         include/euclid/dto/sqs/model/Variant.h
-        include/euclid/dto/sqs/SqsMapper.h)
+        include/euclid/dto/sqs/SqsMapper.h
+        include/euclid/dto/storage/CreateBucketRequest.h
+        include/euclid/dto/storage/CreateBucketResponse.h
+        include/euclid/dto/storage/CreateUploadRequest.h
+        include/euclid/dto/storage/CreateUploadResponse.h
+        include/euclid/dto/storage/CompleteUploadRequest.h
+        include/euclid/dto/storage/CompleteUploadResponse.h
+        include/euclid/dto/storage/DeleteBucketRequest.h
+        include/euclid/dto/storage/ListBucketsRequest.h
+        include/euclid/dto/storage/ListBucketsResponse.h
+        include/euclid/dto/storage/UploadPartResponse.h
+        include/euclid/dto/storage/model/Bucket.h
+        include/euclid/dto/storage/StorageMapper.h)
 
 add_library(${LIBRARY} STATIC ${SOURCES})
 

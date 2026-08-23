@@ -4,9 +4,6 @@
 
 #pragma once
 
-// C++ includes
-#include <string>
-
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 

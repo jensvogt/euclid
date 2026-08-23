@@ -1,5 +1,12 @@
 #pragma once
 
+// C++ includes
+#include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
+#include <sstream>
+
 // Boost includes
 #include <boost/json.hpp>
 #include <boost/beast/http.hpp>
@@ -14,9 +21,21 @@
 #include <euclid/core/monitoring/MonitoringTimer.h>
 #include <euclid/database/RepositoryFactory.h>
 #include <euclid/database/entity/storage/Bucket.h>
+#include <euclid/database/entity/storage/Object.h>
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/storage/CompleteUploadRequest.h>
+#include <euclid/dto/storage/CompleteUploadResponse.h>
 #include <euclid/dto/storage/CreateBucketRequest.h>
 #include <euclid/dto/storage/CreateBucketResponse.h>
+#include <euclid/dto/storage/CreateUploadRequest.h>
+#include <euclid/dto/storage/CreateUploadResponse.h>
+#include <euclid/dto/storage/DeleteBucketRequest.h>
+#include <euclid/dto/storage/GetBucketErnRequest.h>
+#include <euclid/dto/storage/GetBucketErnResponse.h>
+#include <euclid/dto/storage/ListBucketsRequest.h>
+#include <euclid/dto/storage/ListBucketsResponse.h>
+#include <euclid/dto/storage/StorageMapper.h>
+#include <euclid/dto/storage/UploadPartResponse.h>
 
 namespace Euclid::Storage {
 

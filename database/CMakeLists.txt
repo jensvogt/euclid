@@ -1,12 +1,11 @@
 set(LIBRARY eucliddb)
-set(SOURCES src/Database.cpp src/entity/module/Module.cpp
-        src/entity/sqs/Variant.cpp src/entity/sqs/QueueAttribute.cpp
-        src/entity/sqs/RedrivePolicy.cpp src/entity/sqs/Queue.cpp src/entity/sqs/Message.cpp
-        src/entity/sqs/PriorityWeights.cpp
-        src/repository/module/MongoModuleRepository.cpp src/repository/sqs/MongoSQSRepository.cpp
+set(SOURCES src/Database.cpp src/entity/module/Module.cpp src/entity/queues/Variant.cpp
+        src/entity/queues/QueueAttribute.cpp src/entity/queues/RedrivePolicy.cpp src/entity/queues/Queue.cpp
+        src/entity/queues/Message.cpp src/entity/queues/PriorityWeights.cpp
+        src/repository/module/MongoModuleRepository.cpp src/repository/queues/MongoQueuesRepository.cpp
         src/entity/access/User.cpp src/repository/access/MongoAccessRepository.cpp
         src/entity/monitoring/MonitoringData.cpp src/repository/monitoring/MongoMonitoringRepository.cpp
-        src/entity/storage/Bucket.cpp src/repository/storage/MongoStorageRepository.cpp)
+        src/entity/storage/Bucket.cpp src/entity/storage/Object.cpp src/repository/storage/MongoStorageRepository.cpp)
 
 add_library(${LIBRARY} STATIC ${SOURCES})
 target_include_directories(${LIBRARY} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/../core/include)

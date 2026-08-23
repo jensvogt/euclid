@@ -4,6 +4,8 @@
 #include <chrono>
 #include <stdexcept>
 #include <string>
+#include <utility>
+#include <vector>
 
 // Boost includes
 #include <boost/json.hpp>
@@ -57,8 +59,9 @@ namespace Euclid::CLI {
     };
 
     /**
-     * @brief Minimal JSON-over-HTTP(S) client used to talk to the euclid server. Request and
-     * response bodies are always JSON.
+     * @brief Minimal HTTP(S) client used to talk to the euclid server. Bodies are JSON except for
+     * PostBinary(), used by the one action (storage's "upload-part") that trades the JSON
+     * convention for transfer speed.
      *
      * @author jens.vogt\@opitz-consulting.com
      */
@@ -94,10 +97,11 @@ namespace Euclid::CLI {
          * @param target module target, e.g. "access" (sent as the "x-euclid-target" header)
          * @param action module action, e.g. "login" (sent as the "x-euclid-action" header)
          * @param body JSON request body
+         * @param extraHeaders additional headers to set on the request, e.g. a declared concurrency hint
          * @return parsed response
          */
         [[nodiscard]]
-        HttpResponse Post(const std::string &target, const std::string &action, const boost::json::value &body) const;
+        HttpResponse Post(const std::string &target, const std::string &action, const boost::json::value &body, const std::vector<std::pair<std::string, std::string> > &extraHeaders = {}) const;
 
         /**
          * @brief Sends a PUT request with a JSON body. The request path is always "/" - routing
@@ -122,6 +126,23 @@ namespace Euclid::CLI {
         [[nodiscard]]
         HttpResponse Delete(const std::string &target, const std::string &action) const;
 
+        /**
+         * @brief Sends a POST request with a raw binary body instead of JSON, for actions where
+         * base64-in-JSON overhead isn't worth paying (see storage's "upload-part": internal-only,
+         * high-volume, and every byte doubles as network + CPU cost). The request path is always
+         * "/" - routing is done via the "x-euclid-target" and "x-euclid-action" headers; any
+         * request-specific metadata that would normally be a JSON field must travel in extraHeaders
+         * instead, since the body is opaque bytes.
+         *
+         * @param target module target, e.g. "storage" (sent as the "x-euclid-target" header)
+         * @param action module action, e.g. "upload-part" (sent as the "x-euclid-action" header)
+         * @param extraHeaders additional headers to set on the request, e.g. upload ID/part number
+         * @param data raw bytes to send as the request body ("application/octet-stream")
+         * @return parsed response (the response body itself is still JSON)
+         */
+        [[nodiscard]]
+        HttpResponse PostBinary(const std::string &target, const std::string &action, const std::vector<std::pair<std::string, std::string> > &extraHeaders, const std::string &data) const;
+
     private:
 
         /**
@@ -133,10 +154,25 @@ namespace Euclid::CLI {
          * @param target module target, sent as the "x-euclid-target" header
          * @param action module action, sent as the "x-euclid-action" header
          * @param body JSON request body, or nullptr for requests without a body
+         * @param extraHeaders additional headers to set on the request
          * @return parsed response
          */
         [[nodiscard]]
-        HttpResponse Send(HttpMethod method, const std::string &target, const std::string &action, const boost::json::value *body) const;
+        HttpResponse Send(HttpMethod method, const std::string &target, const std::string &action, const boost::json::value *body, const std::vector<std::pair<std::string, std::string> > &extraHeaders = {}) const;
+
+        /**
+         * @brief Resolves _endpoint's host/port, sends a pre-built request over a plain or TLS
+         * connection depending on scheme, and returns the parsed response. Shared by Send() and
+         * PostBinary() so connection handling (timeouts, TLS setup, error wrapping) lives in one
+         * place regardless of how the request body was built.
+         *
+         * @param target module target, used only for the error message on failure
+         * @param action module action, used only for the error message on failure
+         * @param request fully-built request ready to send
+         * @return parsed response
+         */
+        [[nodiscard]]
+        HttpResponse Transmit(const std::string &target, const std::string &action, const boost::beast::http::request<boost::beast::http::string_body> &request) const;
 
         /**
          * @brief Euclid server endpoint, e.g. "http://localhost:5566"

@@ -26,7 +26,7 @@ set(CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH OFF)
 
 # -------------------------------------------------------------------------
 # Collect every executable (euclid-mgr, euclid-cli, euclid-acc, euclid-queues,
-# euclid-mon, ...) into a single flat <build>/bin/ directory, regardless of which
+# euclid-mon, ...) into a single flat <build>/bin/ storage, regardless of which
 # subdirectory add_executable() was called from and regardless of single- vs
 # multi-config generator - so packaging/installer scripts have one predictable path.
 # -------------------------------------------------------------------------

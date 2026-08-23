@@ -28,6 +28,12 @@ namespace Euclid::Database {
             ernOpts.unique(true);
             bucketCollection.create_index(make_document(kvp("ern", 1)), ernOpts);
 
+            auto objectCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
+
+            mongocxx::options::index objectKeyOpts;
+            objectKeyOpts.unique(true);
+            objectCollection.create_index(make_document(kvp("bucketErn", 1), kvp("key", 1)), objectKeyOpts);
+
         } catch (const std::exception &e) {
             log_error << "Ensure storage indexes failed, error: " << e.what();
         }
@@ -232,6 +238,132 @@ namespace Euclid::Database {
 
         } catch (const std::exception &e) {
             log_error << "Delete all buckets failed, error: " << e.what();
+        }
+    }
+
+    Entity::Storage::Object MongoStorageRepository::upsertObject(Entity::Storage::Object &object) {
+
+        try {
+
+            const auto filter = make_document(kvp("bucketErn", object.bucketErn), kvp("key", object.key));
+            const auto update = make_document(
+                    kvp("$set", object.toDocument()),
+                    kvp("$setOnInsert", make_document(
+                                kvp("created", bsoncxx::types::b_date{
+                                            std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                    object.created.time_since_epoch())})
+                                )),
+                    kvp("$currentDate", make_document(
+                                kvp("modified", true)
+                                )));
+
+            mongocxx::options::find_one_and_update opts;
+            opts.upsert(true);
+            opts.return_document(mongocxx::options::return_document::k_after);
+
+            const auto entry = Database::instance().client();
+            auto objectCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
+
+            if (auto result = objectCollection.find_one_and_update(filter.view(), update.view(), opts)) {
+                return Entity::Storage::Object::fromDocument(result->view());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Upsert object failed, error: " << e.what();
+        }
+        return object;
+    }
+
+    std::optional<Entity::Storage::Object> MongoStorageRepository::findObjectByBucketAndKey(const std::string &bucketErn, const std::string &key) const {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto objectCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
+
+            if (auto mResult = objectCollection.find_one(make_document(kvp("bucketErn", bucketErn), kvp("key", key)))) {
+                return Entity::Storage::Object::fromDocument(mResult.value());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Get object by bucket/key failed, bucketErn: " << bucketErn << ", key: " << key << ", error: " << e.what();
+        }
+        return {};
+    }
+
+    long MongoStorageRepository::countObjects() const {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto messageCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
+
+            return messageCollection.count_documents({});
+        } catch (const std::exception &e) {
+            log_error << "Count messages failed, error: " << e.what();
+        }
+        return -1;
+    }
+
+    long MongoStorageRepository::countObjects(const std::string &bucketErn) const {
+
+        try {
+            const auto filter = make_document(kvp("bucketErn", bucketErn));
+            const auto entry = Database::instance().client();
+            auto messageCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
+
+            return messageCollection.count_documents(filter.view());
+        } catch (const std::exception &e) {
+            log_error << "Count objects failed, ern: " << bucketErn << ", error: " << e.what();
+        }
+        return -1;
+    }
+
+    std::vector<Entity::Storage::Object> MongoStorageRepository::listObjects(const std::string &bucketErn, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
+
+        try {
+
+            document filter = {};
+            filter.append(kvp("bucketErn", bucketErn));
+            if (!prefix.empty()) {
+                filter.append(kvp("key", make_document(kvp("$regex", "^" + prefix))));
+            }
+
+            mongocxx::options::find opts;
+            if (!sortColumn.empty()) {
+                opts.sort(make_document(kvp(sortColumn, 1)));
+            }
+            if (pageSize > 0) {
+                opts.limit(pageSize);
+                opts.skip(std::max<long>(pageIndex, 0) * pageSize);
+            }
+
+            std::vector<Entity::Storage::Object> objects;
+            const auto entry = Database::instance().client();
+            auto objectCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
+
+            for (auto objectCursor = objectCollection.find(filter.view(), opts); auto object: objectCursor) {
+                objects.push_back(Entity::Storage::Object::fromDocument(object));
+            }
+            return objects;
+
+        } catch (const std::exception &e) {
+
+            log_error << "List objects failed, error: " << e.what();
+            return {};
+        }
+    }
+
+    void MongoStorageRepository::deleteObjectByErn(const std::string &ern) {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto bucketCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
+
+            const auto result = bucketCollection.delete_many(make_document(kvp("ern", ern)));
+            log_debug << "Object deleted, count: " << result->deleted_count();
+
+        } catch (const std::exception &e) {
+            log_error << "Delete object failed, error: " << e.what();
         }
     }
 

@@ -121,4 +121,26 @@ namespace Euclid::Core {
         return {digest, digest + digestLength};
     }
 
+    std::string CryptoUtils::Base64Encode(const std::string &data) {
+        std::string encoded(4 * ((data.size() + 2) / 3), '\0');
+        const int len = EVP_EncodeBlock(reinterpret_cast<unsigned char *>(encoded.data()), reinterpret_cast<const unsigned char *>(data.data()), static_cast<int>(data.size()));
+        encoded.resize(static_cast<std::size_t>(len));
+        return encoded;
+    }
+
+    std::string CryptoUtils::Base64Decode(const std::string &data) {
+        if (data.empty()) return {};
+
+        std::string decoded(3 * (data.size() / 4), '\0');
+        const int len = EVP_DecodeBlock(reinterpret_cast<unsigned char *>(decoded.data()), reinterpret_cast<const unsigned char *>(data.data()), static_cast<int>(data.size()));
+        if (len < 0) throw std::runtime_error("Invalid base64 input");
+
+        // EVP_DecodeBlock doesn't strip padding from its output length, so trim it back off here.
+        std::size_t padding = 0;
+        if (data.size() >= 1 && data[data.size() - 1] == '=') ++padding;
+        if (data.size() >= 2 && data[data.size() - 2] == '=') ++padding;
+        decoded.resize(static_cast<std::size_t>(len) - padding);
+        return decoded;
+    }
+
 }// namespace Euclid::Core
