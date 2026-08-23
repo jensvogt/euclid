@@ -18,8 +18,8 @@ namespace Euclid::Database::Entity::Storage {
                 bsoncxx::builder::basic::kvp("owner", owner),
                 bsoncxx::builder::basic::kvp("name", name),
                 bsoncxx::builder::basic::kvp("ern", ern),
-                bsoncxx::builder::basic::kvp("size", size),
-                bsoncxx::builder::basic::kvp("objects", objects));
+                bsoncxx::builder::basic::kvp("size", static_cast<int64_t>(size)),
+                bsoncxx::builder::basic::kvp("objects", static_cast<int64_t>(objects)));
     }
 
     Bucket Bucket::fromDocument(const std::optional<bsoncxx::document::view> &document) {

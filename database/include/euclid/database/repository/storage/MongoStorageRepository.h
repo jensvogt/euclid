@@ -138,6 +138,15 @@ namespace Euclid::Database {
         std::optional<Entity::Storage::Object> findObjectByBucketAndKey(const std::string &bucketErn, const std::string &key) const override;
 
         /**
+         * @brief Find an object by its ERN
+         *
+         * @param ern ERN of the object
+         * @return optional object
+         */
+        [[nodiscard]]
+        std::optional<Entity::Storage::Object> findObjectByErn(const std::string &ern) const override;
+
+        /**
          * @brief Retrieves the total number of objects in the repository.
          *
          * @return The total number of objects as a long integer.

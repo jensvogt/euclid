@@ -28,9 +28,29 @@ namespace Euclid::Dto::Storage {
         std::string key;
 
         /**
-         * @brief Total size of the assembled object, in bytes
+         * @brief Size of the upload's parts combined, in bytes
          */
         long size = 0;
+
+        /**
+         * @brief Object lifecycle status as of this response - always "UPLOADED" here, since
+         * complete-upload returns as soon as all parts are confirmed present, before the
+         * background post-processing (assembly, content-type detection, MD5) that sets the
+         * object to "COMPLETED" has run.
+         */
+        std::string status;
+
+        /**
+         * @brief MIME content type, determined during post-processing; empty in this response,
+         * since post-processing runs asynchronously after complete-upload returns
+         */
+        std::string contentType;
+
+        /**
+         * @brief MD5 checksum of the assembled object, hex-encoded, computed during post-processing;
+         * empty in this response, since post-processing runs asynchronously after complete-upload returns
+         */
+        std::string md5Sum;
 
         /**
          * @brief Serializes this request to a JSON string
@@ -48,6 +68,9 @@ namespace Euclid::Dto::Storage {
             r.bucketErn = Core::GetStringValue(v, "bucketErn");
             r.key = Core::GetStringValue(v, "key");
             r.size = Core::GetLongValue(v, "size");
+            r.status = Core::GetStringValue(v, "status");
+            r.contentType = Core::GetStringValue(v, "contentType");
+            r.md5Sum = Core::GetStringValue(v, "md5Sum");
             return r;
         }
 
@@ -57,6 +80,9 @@ namespace Euclid::Dto::Storage {
                     {"bucketErn", obj.bucketErn},
                     {"key", obj.key},
                     {"size", obj.size},
+                    {"status", obj.status},
+                    {"contentType", obj.contentType},
+                    {"md5Sum", obj.md5Sum},
             };
         }
     };

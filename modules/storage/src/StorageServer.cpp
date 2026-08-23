@@ -1,6 +1,11 @@
 // Euclid includes
 #include <StorageServer.h>
 
+#include <thread>
+
+#include <euclid/core/ContentTypeUtils.h>
+#include <euclid/core/CryptoUtils.h>
+#include <euclid/database/entity/storage/ObjectStatus.h>
 #include "euclid/dto/storage/DeleteObjectRequest.h"
 #include "euclid/dto/storage/GetBucketSizeRequest.h"
 #include "euclid/dto/storage/GetBucketSizeResponse.h"
@@ -47,6 +52,26 @@ namespace Euclid::Storage {
             std::ostringstream oss;
             oss << "part-" << std::setw(10) << std::setfill('0') << partNumber;
             return oss.str();
+        }
+
+        // Magic-byte sniffing only needs a small prefix of the file, not the whole thing - libmagic
+        // itself only ever looks at the first few hundred bytes of whatever buffer it's given, so
+        // reading more than this would just be wasted I/O against what can be a multi-GB assembled
+        // object.
+        constexpr std::size_t kContentTypeSniffBytes = 2000;
+
+        // Determines a content type by sniffing the first kContentTypeSniffBytes bytes of the
+        // assembled object with libmagic (Core::ContentTypeUtils), rather than trusting the key's
+        // file extension.
+        std::string contentTypeForFile(const std::filesystem::path &path) {
+            std::ifstream file(path, std::ios::binary);
+            if (!file.is_open()) return "application/octet-stream";
+
+            std::string prefix(kContentTypeSniffBytes, '\0');
+            file.read(prefix.data(), static_cast<std::streamsize>(prefix.size()));
+            prefix.resize(static_cast<std::size_t>(file.gcount()));
+
+            return Core::ContentTypeUtils::fromContent(prefix);
         }
     }// namespace
 
@@ -202,9 +227,27 @@ namespace Euclid::Storage {
         const auto request = boost::json::value_to<Dto::Storage::CreateUploadRequest>(jv);
         log_info << "Storage CreateUpload, bucketErn: " << request.bucketErn << ", key: " << request.key;
 
-        if (const auto bucket = Database::RepositoryFactory::instance().storageRepository()->findBucketByErn(request.bucketErn); !bucket.has_value()) {
+        const auto repo = Database::RepositoryFactory::instance().storageRepository();
+        if (!repo->findBucketByErn(request.bucketErn).has_value()) {
             return StorageServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.bucketErn);
         }
+
+        // Seeds the object row with status CREATED right away, so its lifecycle is observable
+        // from the very start of the upload rather than only appearing once complete-upload
+        // finishes. upload-part/complete-upload advance status via the same bucketErn+key key.
+        // Starts from any existing object at this key (a re-upload) rather than a blank one, so
+        // its internalName/ern/size - and thus the still-valid previous file on disk - survive
+        // until complete-upload actually replaces them.
+        Database::Entity::Storage::Object object;
+        if (const auto existing = repo->findObjectByBucketAndKey(request.bucketErn, request.key); existing.has_value()) {
+            object = *existing;
+        }
+        object.bucketErn = request.bucketErn;
+        object.key = request.key;
+        object.owner = auth.user->userId;
+        object.region = auth.user->region;
+        object.status = Database::Entity::Storage::ObjectStatus::CREATED;
+        repo->upsertObject(object);
 
         const auto uploadId = Core::UuidUtils::CreateRandomUuid();
         const auto uploadDir = uploadDirFor(uploadId);
@@ -270,6 +313,26 @@ namespace Euclid::Storage {
         const auto uploadDir = uploadDirFor(uploadId);
         if (!std::filesystem::exists(uploadDir / kUploadMetaFile)) {
             return StorageServer::ErrorResponse(req, status::not_found, "Upload not found, id: " + uploadId);
+        }
+
+        // Advances the object's status from CREATED to UPLOADING on the first part received.
+        // Guarded on the current status so only the first of what can be thousands of parts on a
+        // large upload triggers a write; every part still pays one indexed lookup, since the
+        // bucketErn/key needed to find the object row live only in the upload's meta file.
+        {
+            std::ifstream metaFile(uploadDir / kUploadMetaFile);
+            std::ostringstream buffer;
+            buffer << metaFile.rdbuf();
+            const auto meta = boost::json::parse(buffer.str());
+            const auto bucketErn = std::string(meta.at("bucketErn").as_string());
+            const auto key = std::string(meta.at("key").as_string());
+
+            const auto repo = Database::RepositoryFactory::instance().storageRepository();
+            if (auto object = repo->findObjectByBucketAndKey(bucketErn, key);
+                object.has_value() && object->status == Database::Entity::Storage::ObjectStatus::CREATED) {
+                object->status = Database::Entity::Storage::ObjectStatus::UPLOADING;
+                repo->upsertObject(*object);
+            }
         }
 
         const auto &data = req.body();
@@ -350,67 +413,120 @@ namespace Euclid::Storage {
         // resolve objects by key.
         const auto existingObject = repo->findObjectByBucketAndKey(bucketErn, key);
         const auto internalName = Core::UuidUtils::CreateRandomUuid();
+        const auto ern = Core::createStorageObjectErn(auth.user->accountId, bucket->name + "/" + key);
+
+        // Cheap (stat-only, no reads) so it can be reported in the response below without waiting
+        // for the background pass to actually assemble the file.
+        std::size_t totalSize = 0;
+        for (const auto &partPath: parts) totalSize += std::filesystem::file_size(partPath);
+
+        // All parts are in (that's what calling complete-upload means) but post-processing -
+        // assembly, MD5, content-type detection - hasn't run yet. Marking UPLOADED now and
+        // returning immediately makes that in-between window observable instead of blocking the
+        // caller (and the gateway worker thread handling them) for as long as a potentially huge
+        // file takes to assemble and hash; a background thread below does that work and advances
+        // the object to COMPLETED once it's actually done.
+        if (existingObject) {
+            Database::Entity::Storage::Object uploaded = *existingObject;
+            uploaded.status = Database::Entity::Storage::ObjectStatus::UPLOADED;
+            repo->upsertObject(uploaded);
+        }
 
         const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
         const std::filesystem::path destPath = std::filesystem::path(dataDir) / internalName;
+        const auto owner = auth.user->userId;
+        const auto region = auth.user->region;
 
-        std::error_code ec;
-        std::filesystem::create_directories(dataDir, ec);
-        if (ec) {
-            log_error << "Could not create storage data storage, path: " << dataDir << ", error: " << ec.message();
-            return StorageServer::ErrorResponse(req, status::internal_server_error, "Could not create storage data storage");
-        }
+        // Detached rather than joined: Dispatch() must return promptly so the gateway worker
+        // thread handling this request isn't tied up for as long as a multi-GB file takes to
+        // assemble and hash. Everything it touches is captured by value (paths, strings, the
+        // existingObject snapshot) since req and the variables above go out of scope once this
+        // handler returns. The whole body is wrapped in try/catch: an exception escaping a
+        // detached thread's entry function calls std::terminate() and takes down the entire
+        // process, unlike an exception in a normal request handler which route()/Dispatch() would
+        // otherwise catch.
+        std::thread([repo, uploadDir, parts, dataDir, destPath, internalName, ern, bucketErn, key, owner, region, existingObject, uploadId = request.uploadId] {
+            try {
+                std::error_code ec;
+                std::filesystem::create_directories(dataDir, ec);
+                if (ec) {
+                    log_error << "Could not create storage data storage, path: " << dataDir << ", error: " << ec.message();
+                    return;
+                }
 
-        std::size_t totalSize = 0;
-        {
-            std::ofstream dest(destPath, std::ios::binary | std::ios::trunc);
-            if (!dest.is_open()) {
-                return StorageServer::ErrorResponse(req, status::internal_server_error, "Could not write object");
+                std::size_t assembledSize = 0;
+                {
+                    std::ofstream dest(destPath, std::ios::binary | std::ios::trunc);
+                    if (!dest.is_open()) {
+                        log_error << "Could not write object, upload id: " << uploadId << ", path: " << destPath.string();
+                        return;
+                    }
+                    for (const auto &partPath: parts) {
+                        std::ifstream part(partPath, std::ios::binary);
+                        dest << part.rdbuf();
+                        assembledSize += std::filesystem::file_size(partPath);
+                    }
+                }
+
+                std::filesystem::remove_all(uploadDir, ec);
+                if (ec)
+                    log_warning << "Could not remove upload storage, path: " << uploadDir.string() << ", error: " << ec.message();
+
+                // Post-processing: MD5 the assembled file and sniff its content type from its
+                // first bytes before marking the object COMPLETED.
+                const auto md5Sum = Core::CryptoUtils::md5SumFile(destPath.string());
+                const auto contentType = contentTypeForFile(destPath);
+
+                Database::Entity::Storage::Object object;
+                if (existingObject) object.oid = existingObject->oid;
+                object.bucketErn = bucketErn;
+                object.key = key;
+                object.internalName = internalName;
+                object.ern = ern;
+                object.owner = owner;
+                object.region = region;
+                object.size = static_cast<long>(assembledSize);
+                object.status = Database::Entity::Storage::ObjectStatus::COMPLETED;
+                object.contentType = contentType;
+                object.md5Sum = md5Sum;
+                repo->upsertObject(object);
+
+                // Re-fetches the bucket rather than reusing the snapshot from before assembly
+                // started - post-processing can take a while for a large file, so that snapshot
+                // may be stale by now. Still starts from a real bucket (not a default-constructed
+                // one): upsertBucket() keys on ern, and upserting a blank one would create/
+                // accumulate into a separate phantom bucket instead of updating this one.
+                if (auto freshBucket = repo->findBucketByErn(bucketErn); freshBucket.has_value()) {
+                    freshBucket->size += object.size;
+                    freshBucket->objects++;
+                    freshBucket = repo->upsertBucket(*freshBucket);
+                    log_debug << "Updated bucket, ern: " << freshBucket->ern << ", size: " << freshBucket->size << ", objects: " << freshBucket->objects;
+                }
+
+                // A re-upload to the same key replaces the DB row above; drop the now-unreferenced old file.
+                if (existingObject && !existingObject->internalName.empty() && existingObject->internalName != internalName) {
+                    std::error_code oldEc;
+                    std::filesystem::remove(std::filesystem::path(dataDir) / existingObject->internalName, oldEc);
+                    if (oldEc)
+                        log_warning << "Could not remove superseded object file, internalName: " << existingObject->internalName << ", error: " << oldEc.message();
+                }
+
+                log_info << "Completed upload, id: " << uploadId << ", key: " << key << ", internalName: " << internalName << ", size: " << assembledSize;
+            } catch (const std::exception &e) {
+                log_error << "Post-processing failed, upload id: " << uploadId << ", error: " << e.what();
+            } catch (...) {
+                log_error << "Post-processing failed, upload id: " << uploadId << ", unknown error";
             }
-            for (const auto &partPath: parts) {
-                std::ifstream part(partPath, std::ios::binary);
-                dest << part.rdbuf();
-                totalSize += std::filesystem::file_size(partPath);
-            }
-        }
+        }).detach();
 
-        std::filesystem::remove_all(uploadDir, ec);
-        if (ec)
-            log_warning << "Could not remove upload storage, path: " << uploadDir.string() << ", error: " << ec.message();
-
-        Database::Entity::Storage::Object object;
-        if (existingObject) object.oid = existingObject->oid;
-        object.bucketErn = bucketErn;
-        object.key = key;
-        object.internalName = internalName;
-        object.ern = Core::createStorageObjectErn(auth.user->accountId, bucket->name + "/" + key);
-        object.owner = auth.user->userId;
-        object.region = auth.user->region;
-        object.size = static_cast<long>(totalSize);
-        repo->upsertObject(object);
-
-        // Update bucket
-        Database::Entity::Storage::Bucket realBucket;
-        realBucket.size += object.size;
-        realBucket.objects++;
-        realBucket = repo->upsertBucket(realBucket);
-        log_debug << "Updated bucket, ern: " << realBucket.ern << ", size: " << realBucket.size << ", objects: " << realBucket.objects;
-
-        // A re-upload to the same key replaces the DB row above; drop the now-unreferenced old file.
-        if (existingObject && existingObject->internalName != internalName) {
-            std::error_code oldEc;
-            std::filesystem::remove(std::filesystem::path(dataDir) / existingObject->internalName, oldEc);
-            if (oldEc)
-                log_warning << "Could not remove superseded object file, internalName: " << existingObject->internalName << ", error: " << oldEc.message();
-        }
-
-        log_info << "Completed upload, id: " << request.uploadId << ", key: " << key << ", internalName: " << internalName << ", size: " << totalSize;
+        log_info << "Accepted upload, id: " << request.uploadId << ", key: " << key << ", size: " << totalSize << " - post-processing in background";
 
         Dto::Storage::CompleteUploadResponse response;
         response.bucketErn = bucketErn;
         response.key = key;
-        response.ern = object.ern;
+        response.ern = ern;
         response.size = static_cast<long>(totalSize);
+        response.status = Database::Entity::Storage::ObjectStatusToString(Database::Entity::Storage::ObjectStatus::UPLOADED);
 
         return StorageServer::JsonResponse(req, status::ok, response.toJson());
     }
@@ -433,7 +549,7 @@ namespace Euclid::Storage {
 
         Dto::Storage::ListObjectsResponse response;
         response.objects = Dto::Storage::StorageMapper::toDto(objects);
-        response.total = repo->countObjects();
+        response.total = repo->countObjects(request.bucketErn);
 
         return StorageServer::JsonResponse(req, status::ok, response.toJson());
     }
@@ -448,9 +564,27 @@ namespace Euclid::Storage {
         if (const auto err = StorageServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = Dto::Storage::DeleteObjectRequest::fromJson(req.body());
-        log_info << "Storage DeleteBucket, ern: " << request.ern;
+        log_info << "Storage DeleteObject, ern: " << request.ern;
 
-        Database::RepositoryFactory::instance().storageRepository()->deleteObjectByErn(request.ern);
+        const auto repo = Database::RepositoryFactory::instance().storageRepository();
+
+        // Looked up before deleting so the bucket's aggregate size/objects can be adjusted -
+        // without this, a bucket's stats would only ever grow, never reflecting deletions.
+        if (const auto object = repo->findObjectByErn(request.ern); object.has_value()) {
+            if (auto bucket = repo->findBucketByErn(object->bucketErn); bucket.has_value()) {
+                bucket->size = std::max<long>(0, bucket->size - object->size);
+                bucket->objects = std::max<long>(0, bucket->objects - 1);
+                repo->upsertBucket(*bucket);
+            }
+
+            const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
+            std::error_code ec;
+            std::filesystem::remove(std::filesystem::path(dataDir) / object->internalName, ec);
+            if (ec)
+                log_warning << "Could not remove object file, internalName: " << object->internalName << ", error: " << ec.message();
+        }
+
+        repo->deleteObjectByErn(request.ern);
 
         return StorageServer::JsonResponse(req, status::ok);
     }
