@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.7](https://github.com/jensvogt/euclid/compare/v1.0.6...v1.0.7) (2026-08-23)
+
+
+### Bug Fixes
+
+* upload complete background threads ([db059c5](https://github.com/jensvogt/euclid/commit/db059c513c5f309b2b68038ed320147cc5132be2))
+
 ## [1.0.6](https://github.com/jensvogt/euclid/compare/1.0.5...v1.0.6) (2026-08-23)
 
 
