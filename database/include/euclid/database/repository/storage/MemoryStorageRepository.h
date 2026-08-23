@@ -120,10 +120,28 @@ namespace Euclid::Database {
             _bucketStore.clear();
         }
 
+        Entity::Storage::Object upsertObject(Entity::Storage::Object &object) override {
+            std::lock_guard lock(_mutex);
+            if (object.oid.empty()) {
+                object.oid = Core::UuidUtils::CreateRandomUuid();
+            }
+            _objectStore[object.oid] = object;
+            return object;
+        }
+
+        std::optional<Entity::Storage::Object> findObjectByBucketAndKey(const std::string &bucketErn, const std::string &key) const override {
+            std::lock_guard lock(_mutex);
+            for (const auto &o: _objectStore | std::views::values) {
+                if (o.bucketErn == bucketErn && o.key == key) return o;
+            }
+            return std::nullopt;
+        }
+
     private:
 
         mutable std::mutex _mutex;
         std::unordered_map<std::string, Entity::Storage::Bucket> _bucketStore;
+        std::unordered_map<std::string, Entity::Storage::Object> _objectStore;
     };
 
 }// namespace Euclid::Database

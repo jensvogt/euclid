@@ -12,9 +12,9 @@
 #include <bsoncxx/builder/basic/kvp.hpp>
 
 // Euclid includes
-#include <euclid/database/entity/sqs/RedrivePolicy.h>
+#include <euclid/database/entity/queues/RedrivePolicy.h>
 
-namespace Euclid::Database::Entity::SQS {
+namespace Euclid::Database::Entity::Queues {
 
     /**
      * @brief SQS queue attribute entity
@@ -135,4 +135,4 @@ namespace Euclid::Database::Entity::SQS {
         void FromDocument(const std::optional<bsoncxx::document::view> &document);
     };
 
-} // namespace Euclid::Database::Entity::SQS
+}// namespace Euclid::Database::Entity::SQS

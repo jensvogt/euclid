@@ -14,7 +14,7 @@
 
 // Euclid includes
 
-namespace Euclid::Database::Entity::SQS {
+namespace Euclid::Database::Entity::Queues {
 
     /**
      * @brief SQS queue re-drive policy entity
@@ -49,4 +49,4 @@ namespace Euclid::Database::Entity::SQS {
         [[maybe_unused]] void FromDocument(const std::optional<bsoncxx::document::view> &document);
     };
 
-} // namespace Euclid::Database::Entity::SQS
+}// namespace Euclid::Database::Entity::SQS

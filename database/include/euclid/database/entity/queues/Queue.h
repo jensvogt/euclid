@@ -16,9 +16,9 @@
 #include <bsoncxx/builder/basic/document.hpp>
 
 // Euclid includes
-#include <euclid/database/entity/sqs/QueueAttribute.h>
+#include <euclid/database/entity/queues/QueueAttribute.h>
 
-namespace Euclid::Database::Entity::SQS {
+namespace Euclid::Database::Entity::Queues {
 
     using std::chrono::system_clock;
 
@@ -135,4 +135,4 @@ namespace Euclid::Database::Entity::SQS {
         static Queue fromDocument(const std::optional<bsoncxx::document::view> &document);
     };
 
-} // namespace Euclid::Database::Entity::SQS
+}// namespace Euclid::Database::Entity::SQS

@@ -56,9 +56,9 @@ export PATH="$PWD/build/bin:$PATH"
 # change the password immediately in anything but a throwaway dev setup.
 euclid-cli access login --user admin --password admin
 
-euclid-cli queues create-queue --name my-queue
-euclid-cli queues send-message --ern <queue-ern> --body "hello" --priority HIGH
-euclid-cli queues receive-messages --ern <queue-ern> --maxCount 10
+euclid-cli queues create-queues --name my-queues
+euclid-cli queues send-message --ern <queues-ern> --body "hello" --priority HIGH
+euclid-cli queues receive-messages --ern <queues-ern> --maxCount 10
 ```
 
 ---

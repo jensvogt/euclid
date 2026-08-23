@@ -2,6 +2,7 @@
 
 // C++ includes
 #include <atomic>
+#include <chrono>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -187,6 +188,15 @@ namespace Euclid::main {
             Dto::ModuleConfig config;
             std::vector<std::shared_ptr<Dto::ModuleProcess> > instances;
             size_t rrCursor = 0;
+
+            /**
+             * @brief Last time any instance in this group was acquireInstance()'d, i.e. the
+             * group's own last-busy time as opposed to any single instance's. Scale-down is
+             * gated on this: round-robin can leave one instance unpicked for a while even while
+             * the group overall stays busy, and per-instance idle time alone can't tell the
+             * difference between "nobody wants this instance" and "nobody wants any instance."
+             */
+            std::chrono::steady_clock::time_point lastActivityAt = std::chrono::steady_clock::now();
         };
 
         /**
@@ -210,9 +220,11 @@ namespace Euclid::main {
         std::atomic<bool> _running{true};
 
         /**
-         * @brief Seconds an instance must sit idle (activeRequests == 0) before the autoscaler
-         *        will scale it down, provided the pool is above minInstances. Read once from
-         *        euclid.scaling.scale-down-idle-seconds when startWatchdog() is called.
+         * @brief Seconds a service GROUP must have zero acquireInstance() activity before the
+         *        autoscaler will scale one of its idle instances down, provided the pool is above
+         *        minInstances. Group-level rather than per-instance, so round-robin skipping one
+         *        instance for a while doesn't get it killed while its siblings stay busy. Read
+         *        once from euclid.scaling.scale-down-idle-seconds when startWatchdog() is called.
          */
         long _scaleDownIdleSeconds = 60;
 

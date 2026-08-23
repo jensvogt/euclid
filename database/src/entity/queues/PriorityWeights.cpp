@@ -2,7 +2,7 @@
 // Created by vogje01 on 8/19/26.
 //
 
-#include <euclid/database/entity/sqs/PriorityWeights.h>
+#include <euclid/database/entity/queues/PriorityWeights.h>
 
 // C++ includes
 #include <algorithm>
@@ -12,7 +12,7 @@
 // Euclid includes
 #include <euclid/core/Configuration.h>
 
-namespace Euclid::Database::Entity::SQS {
+namespace Euclid::Database::Entity::Queues {
 
     PriorityWeights LoadPriorityWeights() {
         auto &cfg = Core::Configuration::instance();
@@ -36,8 +36,8 @@ namespace Euclid::Database::Entity::SQS {
         if (totalWeight <= 0) return take;
 
         // Proportional apportionment, largest-remainder method.
-        std::array < long, 3 > target{};
-        std::array < double, 3 > remainder{};
+        std::array<long, 3> target{};
+        std::array<double, 3> remainder{};
         long allocated = 0;
         for (int i = 0; i < 3; ++i) {
             const double raw = static_cast<double>(maxCount) * w[i] / totalWeight;
@@ -46,7 +46,7 @@ namespace Euclid::Database::Entity::SQS {
             allocated += target[i];
         }
 
-        std::array < int, 3 > byRemainder{0, 1, 2};
+        std::array<int, 3> byRemainder{0, 1, 2};
         std::ranges::stable_sort(byRemainder, [&](const int a, const int b) { return remainder[a] > remainder[b]; });
         for (int i = 0; i < 3 && allocated < maxCount; ++i) {
             ++target[byRemainder[i]];
@@ -54,13 +54,13 @@ namespace Euclid::Database::Entity::SQS {
         }
 
         // Cap by what's actually available, redistributing any shortfall highest-priority-first.
-        std::array < long, 3 > avail{};
+        std::array<long, 3> avail{};
         for (int i = 0; i < 3; ++i) {
             const auto it = available.find(order[i]);
             avail[i] = it != available.end() ? it->second : 0;
         }
 
-        std::array < long, 3 > taken{};
+        std::array<long, 3> taken{};
         long shortfall = 0;
         for (int i = 0; i < 3; ++i) {
             taken[i] = std::min(target[i], avail[i]);
@@ -78,4 +78,4 @@ namespace Euclid::Database::Entity::SQS {
         return take;
     }
 
-} // namespace Euclid::Database::Entity::SQS
+}// namespace Euclid::Database::Entity::SQS

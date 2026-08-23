@@ -4,42 +4,39 @@
 
 #pragma once
 
-// C++ standard includes
-#include <string>
-
 // Euclid includes
 #include <euclid/core/LogStream.h>
 #include <euclid/database/Database.h>
 #include <euclid/database/entity/module/Module.h>
-#include <euclid/database/entity/sqs/PriorityWeights.h>
-#include <euclid/database/repository/sqs/ISQSRepository.h>
+#include <euclid/database/entity/queues/PriorityWeights.h>
+#include <euclid/database/repository/queues/IQueuesRepository.h>
 
 namespace Euclid::Database {
 
     using namespace bsoncxx::builder::basic;
 
     /**
-     * @brief Module MongoDB database.
+     * @brief Queueing MongoDB database.
      *
-     * Controls all the AwsMock modules.
+     * Controls all the Euclid queueing modules.
      *
      * @author jens.vogt\@opitz-consulting.com
      */
-    class MongoSQSRepository final : public ISQSRepository {
+    class MongoQueuesRepository final : public IQueuesRepository {
 
     public:
 
         /**
          * @brief Constructor
          */
-        explicit MongoSQSRepository();
+        explicit MongoQueuesRepository();
 
         /**
          * @brief Singleton instance
          */
-        static MongoSQSRepository &instance() {
-            static MongoSQSRepository sqsDatabase;
-            return sqsDatabase;
+        static MongoQueuesRepository &instance() {
+            static MongoQueuesRepository eqsDatabase;
+            return eqsDatabase;
         }
 
         /**
@@ -47,7 +44,7 @@ namespace Euclid::Database {
          *
          * @param queue queue entity
          */
-        Entity::SQS::Queue upsertQueue(Entity::SQS::Queue &queue) override;
+        Entity::Queues::Queue upsertQueue(Entity::Queues::Queue &queue) override;
 
         /**
          * @brief Removes a queue entity
@@ -70,7 +67,7 @@ namespace Euclid::Database {
          * @return optional queue
          */
         [[nodiscard]]
-        std::optional<Entity::SQS::Queue> findQueueByName(const std::string &name) const override;
+        std::optional<Entity::Queues::Queue> findQueueByName(const std::string &name) const override;
 
         /**
          * @brief Find by queue ID
@@ -79,7 +76,7 @@ namespace Euclid::Database {
          * @return optional queue
          */
         [[nodiscard]]
-        std::optional<Entity::SQS::Queue> findQueueById(const std::string &oid) const override;
+        std::optional<Entity::Queues::Queue> findQueueById(const std::string &oid) const override;
 
         /**
          * @brief Find by queue ERN
@@ -88,7 +85,7 @@ namespace Euclid::Database {
          * @return optional queue
          */
         [[nodiscard]]
-        std::optional<Entity::SQS::Queue> findQueueByErn(const std::string &ern) const override;
+        std::optional<Entity::Queues::Queue> findQueueByErn(const std::string &ern) const override;
 
         /**
          * @brief Find all queues
@@ -100,7 +97,7 @@ namespace Euclid::Database {
          * @return list of all queue entities.
          */
         [[nodiscard]]
-        std::vector<Entity::SQS::Queue> listQueues(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const override;
+        std::vector<Entity::Queues::Queue> listQueues(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const override;
 
         /**
          * @brief Check the existence of the module by name
@@ -129,7 +126,7 @@ namespace Euclid::Database {
          *
          * @param message message entity
          */
-        void upsertMessage(const Entity::SQS::Message &message) override;
+        void upsertMessage(const Entity::Queues::Message &message) override;
 
         /**
          * @brief Sends a message to a queue
@@ -142,7 +139,7 @@ namespace Euclid::Database {
          * @param priority message priority; defaults to MIDDLE
          * @return the newly created message entity
          */
-        Entity::SQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::SQS::Variant> &attributes, Entity::SQS::MessagePriority priority) override;
+        Entity::Queues::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::Queues::Variant> &attributes, Entity::Queues::MessagePriority priority) override;
 
         /**
          * @brief Receives up to maxCount available messages from a queue, long-polling for up to waitTime seconds
@@ -152,7 +149,7 @@ namespace Euclid::Database {
          * @param waitTime maximal number of seconds to wait for messages to become available
          * @return up to maxCount messages; empty if none became available within waitTime
          */
-        std::vector<Entity::SQS::Message> receiveMessages(const std::string &queueErn, long maxCount, long waitTime) override;
+        std::vector<Entity::Queues::Message> receiveMessages(const std::string &queueErn, long maxCount, long waitTime) override;
 
         /**
          * @brief Deletes a message entity
@@ -183,7 +180,7 @@ namespace Euclid::Database {
          * @return optional message
          */
         [[nodiscard]]
-        std::optional<Entity::SQS::Message> findMessageByName(const std::string &name) const override;
+        std::optional<Entity::Queues::Message> findMessageByName(const std::string &name) const override;
 
         /**
          * @brief Find by message ID
@@ -192,7 +189,7 @@ namespace Euclid::Database {
          * @return optional message
          */
         [[nodiscard]]
-        std::optional<Entity::SQS::Message> findMessageById(const std::string &oid) const override;
+        std::optional<Entity::Queues::Message> findMessageById(const std::string &oid) const override;
 
         /**
          * @brief Find all messages
@@ -200,7 +197,7 @@ namespace Euclid::Database {
          * @return list of all message entities.
          */
         [[nodiscard]]
-        std::vector<Entity::SQS::Message> findAllMessages() const override;
+        std::vector<Entity::Queues::Message> findAllMessages() const override;
 
         /**
          * @brief Lists a queue's messages without receiving them, paginated and sorted.
@@ -212,7 +209,7 @@ namespace Euclid::Database {
          * @return the requested page of messages.
          */
         [[nodiscard]]
-        std::vector<Entity::SQS::Message> listMessages(const std::string &queueErn, long pageSize, long pageIndex, const std::string &sortColumn) const override;
+        std::vector<Entity::Queues::Message> listMessages(const std::string &queueErn, long pageSize, long pageIndex, const std::string &sortColumn) const override;
 
         /**
          * @brief Check the existence of the module by name
@@ -255,8 +252,8 @@ namespace Euclid::Database {
     private:
 
         static constexpr auto DATABASE_NAME = "euclid";
-        static constexpr auto QUEUE_COLLECTION = "sqs_queue";
-        static constexpr auto MESSAGE_COLLECTION = "sqs_message";
+        static constexpr auto QUEUE_COLLECTION = "eqs_queue";
+        static constexpr auto MESSAGE_COLLECTION = "eqs_message";
 
         /**
          * @brief Creates the indexes required for efficient message lookup, if they do not already exist.
@@ -264,7 +261,7 @@ namespace Euclid::Database {
          * Without these, receiveMessages()/deleteMessage()/upsertMessage() degrade to full collection
          * scans over sqs_message as it grows, which under concurrent load causes receives to stall.
          */
-        void ensureIndexes() const;
+        static void ensureIndexes();
 
         /**
          * Database name

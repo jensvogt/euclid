@@ -17,7 +17,7 @@
 #include <bsoncxx/document/value-fwd.hpp>
 #include <bsoncxx/document/view-fwd.hpp>
 
-namespace Euclid::Database::Entity::SQS {
+namespace Euclid::Database::Entity::Queues {
 
     /**
      * @brief Raw binary payload for a message attribute.

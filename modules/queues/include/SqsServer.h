@@ -13,7 +13,7 @@
 #include <euclid/core/UuidUtils.h>
 #include <euclid/database/RepositoryFactory.h>
 #include <euclid/database/entity/access/User.h>
-#include <euclid/database/entity/sqs/Queue.h>
+#include <euclid/database/entity/queues/Queue.h>
 #include <euclid/dto/BaseDto.h>
 #include <euclid/dto/sqs/CreateQueueRequest.h>
 #include <euclid/dto/sqs/CreateQueueResponse.h>

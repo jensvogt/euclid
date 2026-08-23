@@ -18,10 +18,10 @@
 #include <euclid/core/ContentTypeUtils.h>
 #include <euclid/core/LogStream.h>
 #include <euclid/core/UuidUtils.h>
-#include <euclid/database/entity/sqs/Message.h>
-#include <euclid/database/entity/sqs/PriorityWeights.h>
-#include <euclid/database/entity/sqs/Queue.h>
-#include <euclid/database/repository/sqs/ISQSRepository.h>
+#include <euclid/database/entity/queues/Message.h>
+#include <euclid/database/entity/queues/PriorityWeights.h>
+#include <euclid/database/entity/queues/Queue.h>
+#include <euclid/database/repository/queues/IQueuesRepository.h>
 
 namespace Euclid::Database {
 
@@ -32,19 +32,19 @@ namespace Euclid::Database {
      *
      * @author jens.vogt\@opitz-consulting.com
      */
-    class MemorySQSRepository final : public ISQSRepository {
+    class MemoryQueuesRepository final : public IQueuesRepository {
 
     public:
 
         /**
          * @brief Singleton instance
          */
-        static MemorySQSRepository &instance() {
-            static MemorySQSRepository sqsDatabase;
+        static MemoryQueuesRepository &instance() {
+            static MemoryQueuesRepository sqsDatabase;
             return sqsDatabase;
         }
 
-        Entity::SQS::Queue upsertQueue(Entity::SQS::Queue &queue) override {
+        Entity::Queues::Queue upsertQueue(Entity::Queues::Queue &queue) override {
             std::lock_guard lock(_mutex);
             if (queue.oid.empty()) {
                 queue.oid = Core::UuidUtils::CreateRandomUuid();
@@ -67,14 +67,14 @@ namespace Euclid::Database {
             });
         }
 
-        std::optional<Entity::SQS::Queue> findQueueByName(const std::string &name) const override {
+        std::optional<Entity::Queues::Queue> findQueueByName(const std::string &name) const override {
             std::lock_guard lock(_mutex);
             const auto it = _queueStore.find(name);
             if (it == _queueStore.end()) return std::nullopt;
             return it->second;
         }
 
-        std::optional<Entity::SQS::Queue> findQueueById(const std::string &id) const override {
+        std::optional<Entity::Queues::Queue> findQueueById(const std::string &id) const override {
             std::lock_guard lock(_mutex);
             for (const auto &m: _queueStore | std::views::values) {
                 if (m.oid == id) return m;
@@ -82,7 +82,7 @@ namespace Euclid::Database {
             return std::nullopt;
         }
 
-        std::optional<Entity::SQS::Queue> findQueueByErn(const std::string &ern) const override {
+        std::optional<Entity::Queues::Queue> findQueueByErn(const std::string &ern) const override {
             std::lock_guard lock(_mutex);
             for (const auto &m: _queueStore | std::views::values) {
                 if (m.ern == ern) return m;
@@ -90,9 +90,9 @@ namespace Euclid::Database {
             return std::nullopt;
         }
 
-        std::vector<Entity::SQS::Queue> listQueues(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const override {
+        std::vector<Entity::Queues::Queue> listQueues(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const override {
             std::lock_guard lock(_mutex);
-            std::vector<Entity::SQS::Queue> result;
+            std::vector<Entity::Queues::Queue> result;
             for (const auto &m: _queueStore | std::views::values) {
                 if (prefix.empty() || m.name.starts_with(prefix)) {
                     result.push_back(m);
@@ -100,9 +100,9 @@ namespace Euclid::Database {
             }
 
             if (sortColumn == "name") {
-                std::ranges::sort(result, {}, &Entity::SQS::Queue::name);
+                std::ranges::sort(result, {}, &Entity::Queues::Queue::name);
             } else if (sortColumn == "ern") {
-                std::ranges::sort(result, {}, &Entity::SQS::Queue::ern);
+                std::ranges::sort(result, {}, &Entity::Queues::Queue::ern);
             }
 
             if (pageSize > 0) {
@@ -128,16 +128,16 @@ namespace Euclid::Database {
             _queueStore.clear();
         }
 
-        void upsertMessage(const Entity::SQS::Message &message) override {
+        void upsertMessage(const Entity::Queues::Message &message) override {
             std::lock_guard lock(_mutex);
             // TODO: fix me
             //_messageStore[message.name] = message;
         }
 
-        Entity::SQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::SQS::Variant> &attributes, const Entity::SQS::MessagePriority priority) override {
+        Entity::Queues::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::Queues::Variant> &attributes, const Entity::Queues::MessagePriority priority) override {
             std::lock_guard lock(_mutex);
 
-            Entity::SQS::Message message;
+            Entity::Queues::Message message;
             message.ern = ern;
             message.queueErn = queueErn;
             message.body = body;
@@ -145,14 +145,14 @@ namespace Euclid::Database {
             message.messageId = messageId;
             message.contentType = Core::ContentTypeUtils::fromContent(message.body);
             message.attributes = attributes;
-            message.md5Attributes = Entity::SQS::Message::ComputeAttributesMd5(attributes);
+            message.md5Attributes = Entity::Queues::Message::ComputeAttributesMd5(attributes);
             message.priority = priority;
 
             for (auto &queue: _queueStore | std::views::values) {
                 if (queue.ern == queueErn) {
                     message.visibilityTimeout = queue.visibility;
                     if (queue.delay > 0) {
-                        message.status = Entity::SQS::MessageStatus::DELAYED;
+                        message.status = Entity::Queues::MessageStatus::DELAYED;
                         message.delayUntil = std::chrono::system_clock::now() + std::chrono::seconds(queue.delay);
                         queue.delayed += 1;
                     } else {
@@ -168,10 +168,10 @@ namespace Euclid::Database {
             return message;
         }
 
-        std::vector<Entity::SQS::Message> receiveMessages(const std::string &queueErn, const long maxCount, const long waitTime) override {
+        std::vector<Entity::Queues::Message> receiveMessages(const std::string &queueErn, const long maxCount, const long waitTime) override {
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(waitTime);
-            const auto weights = Entity::SQS::LoadPriorityWeights();
-            static constexpr std::array priorityOrder{Entity::SQS::MessagePriority::HIGH, Entity::SQS::MessagePriority::MIDDLE, Entity::SQS::MessagePriority::LOW};
+            const auto weights = Entity::Queues::LoadPriorityWeights();
+            static constexpr std::array priorityOrder{Entity::Queues::MessagePriority::HIGH, Entity::Queues::MessagePriority::MIDDLE, Entity::Queues::MessagePriority::LOW};
 
             while (true) {
                 {
@@ -187,15 +187,15 @@ namespace Euclid::Database {
                         }
                     }
 
-                    std::map<Entity::SQS::MessagePriority, long> availableCounts;
+                    std::map<Entity::Queues::MessagePriority, long> availableCounts;
                     for (const auto &message: _messageStore | std::views::values) {
-                        if (message.queueErn == queueErn && message.status == Entity::SQS::MessageStatus::AVAILABLE) {
+                        if (message.queueErn == queueErn && message.status == Entity::Queues::MessageStatus::AVAILABLE) {
                             availableCounts[message.priority] += 1;
                         }
                     }
-                    const auto takeCounts = Entity::SQS::ComputeReceiveCounts(maxCount, availableCounts, weights);
+                    const auto takeCounts = Entity::Queues::ComputeReceiveCounts(maxCount, availableCounts, weights);
 
-                    std::vector<Entity::SQS::Message> result;
+                    std::vector<Entity::Queues::Message> result;
                     long movedCount = 0;
                     long movedSize = 0;
                     for (const auto priority: priorityOrder) {
@@ -205,7 +205,7 @@ namespace Euclid::Database {
 
                         for (auto &message: _messageStore | std::views::values) {
                             if (taken >= target || static_cast<long>(result.size()) >= maxCount) break;
-                            if (message.queueErn != queueErn || message.status != Entity::SQS::MessageStatus::AVAILABLE || message.priority != priority) continue;
+                            if (message.queueErn != queueErn || message.status != Entity::Queues::MessageStatus::AVAILABLE || message.priority != priority) continue;
 
                             message.receivedCount += 1;
                             message.modified = std::chrono::system_clock::now();
@@ -215,14 +215,14 @@ namespace Euclid::Database {
                                 movedCount += 1;
                                 movedSize += message.size;
                                 message.queueErn = deadLetterQueueErn;
-                                message.status = Entity::SQS::MessageStatus::AVAILABLE;
+                                message.status = Entity::Queues::MessageStatus::AVAILABLE;
                                 message.receivedCount = 0;
                                 message.receiptHandle.clear();
                                 log_info << "Message moved to dead letter queue, ern: " << queueErn << ", dlqErn: " << deadLetterQueueErn << ", messageId: " << message.messageId;
                                 continue;
                             }
 
-                            message.status = Entity::SQS::MessageStatus::INVISIBLE;
+                            message.status = Entity::Queues::MessageStatus::INVISIBLE;
                             message.receiptHandle = Core::UuidUtils::CreateRandomUuid();
                             result.push_back(message);
                             taken += 1;
@@ -276,11 +276,11 @@ namespace Euclid::Database {
             for (auto &queue: _queueStore | std::views::values) {
                 if (queue.ern == message.queueErn) {
                     queue.size -= message.size;
-                    if (message.status == Entity::SQS::MessageStatus::AVAILABLE) {
+                    if (message.status == Entity::Queues::MessageStatus::AVAILABLE) {
                         queue.available -= 1;
-                    } else if (message.status == Entity::SQS::MessageStatus::DELAYED) {
+                    } else if (message.status == Entity::Queues::MessageStatus::DELAYED) {
                         queue.delayed -= 1;
-                    } else if (message.status == Entity::SQS::MessageStatus::INVISIBLE) {
+                    } else if (message.status == Entity::Queues::MessageStatus::INVISIBLE) {
                         queue.invisible -= 1;
                     }
                     queue.modified = std::chrono::system_clock::now();
@@ -331,14 +331,14 @@ namespace Euclid::Database {
             });
         }
 
-        std::optional<Entity::SQS::Message> findMessageByName(const std::string &name) const override {
+        std::optional<Entity::Queues::Message> findMessageByName(const std::string &name) const override {
             std::lock_guard lock(_mutex);
             const auto it = _messageStore.find(name);
             if (it == _messageStore.end()) return std::nullopt;
             return it->second;
         }
 
-        std::optional<Entity::SQS::Message> findMessageById(const std::string &id) const override {
+        std::optional<Entity::Queues::Message> findMessageById(const std::string &id) const override {
             std::lock_guard lock(_mutex);
             for (const auto &m: _messageStore | std::views::values) {
                 if (m.oid == id) return m;
@@ -346,17 +346,17 @@ namespace Euclid::Database {
             return std::nullopt;
         }
 
-        std::vector<Entity::SQS::Message> findAllMessages() const override {
+        std::vector<Entity::Queues::Message> findAllMessages() const override {
             std::lock_guard lock(_mutex);
-            std::vector<Entity::SQS::Message> result;
+            std::vector<Entity::Queues::Message> result;
             result.reserve(_messageStore.size());
             for (const auto &m: _messageStore | std::views::values) result.push_back(m);
             return result;
         }
 
-        std::vector<Entity::SQS::Message> listMessages(const std::string &queueErn, const long pageSize, const long pageIndex, const std::string &sortColumn) const override {
+        std::vector<Entity::Queues::Message> listMessages(const std::string &queueErn, const long pageSize, const long pageIndex, const std::string &sortColumn) const override {
             std::lock_guard lock(_mutex);
-            std::vector<Entity::SQS::Message> result;
+            std::vector<Entity::Queues::Message> result;
             for (const auto &m: _messageStore | std::views::values) {
                 if (m.queueErn == queueErn) {
                     result.push_back(m);
@@ -364,11 +364,11 @@ namespace Euclid::Database {
             }
 
             if (sortColumn == "created") {
-                std::ranges::sort(result, {}, &Entity::SQS::Message::created);
+                std::ranges::sort(result, {}, &Entity::Queues::Message::created);
             } else if (sortColumn == "size") {
-                std::ranges::sort(result, {}, &Entity::SQS::Message::size);
+                std::ranges::sort(result, {}, &Entity::Queues::Message::size);
             } else if (sortColumn == "messageId") {
-                std::ranges::sort(result, {}, &Entity::SQS::Message::messageId);
+                std::ranges::sort(result, {}, &Entity::Queues::Message::messageId);
             }
 
             if (pageSize > 0) {
@@ -409,18 +409,18 @@ namespace Euclid::Database {
             std::map<std::string, long> delayedResetCountByQueue;
 
             for (auto &message: _messageStore | std::views::values) {
-                if (message.status == Entity::SQS::MessageStatus::INVISIBLE) {
+                if (message.status == Entity::Queues::MessageStatus::INVISIBLE) {
                     if (now < message.lastReceived + std::chrono::seconds(message.visibilityTimeout)) continue;
 
-                    message.status = Entity::SQS::MessageStatus::AVAILABLE;
+                    message.status = Entity::Queues::MessageStatus::AVAILABLE;
                     message.lastReceived = std::chrono::system_clock::time_point{};
                     message.receiptHandle.clear();
                     resetCountByQueue[message.queueErn]++;
                     log_debug << "Message visibility timeout expired, messageId: " << message.messageId << ", queueErn: " << message.queueErn;
-                } else if (message.status == Entity::SQS::MessageStatus::DELAYED) {
+                } else if (message.status == Entity::Queues::MessageStatus::DELAYED) {
                     if (now < message.delayUntil) continue;
 
-                    message.status = Entity::SQS::MessageStatus::AVAILABLE;
+                    message.status = Entity::Queues::MessageStatus::AVAILABLE;
                     delayedResetCountByQueue[message.queueErn]++;
                     log_debug << "Message delay expired, messageId: " << message.messageId << ", queueErn: " << message.queueErn;
                 }
@@ -459,8 +459,8 @@ namespace Euclid::Database {
     private:
 
         mutable std::mutex _mutex;
-        std::unordered_map<std::string, Entity::SQS::Queue> _queueStore;
-        std::unordered_map<std::string, Entity::SQS::Message> _messageStore;
+        std::unordered_map<std::string, Entity::Queues::Queue> _queueStore;
+        std::unordered_map<std::string, Entity::Queues::Message> _messageStore;
     };
 
 }// namespace Euclid::Database

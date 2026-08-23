@@ -2,11 +2,11 @@
 
 namespace Euclid::Dto::SQS {
 
-    Database::Entity::SQS::Variant SqsMapper::toEntity(const Variant &dto) {
-        Database::Entity::SQS::Variant entityVariant;
+    Database::Entity::Queues::Variant SqsMapper::toEntity(const Variant &dto) {
+        Database::Entity::Queues::Variant entityVariant;
         std::visit([&entityVariant]<typename T>(const T &val) {
             if constexpr (std::is_same_v<T, Binary>) {
-                entityVariant.value = Database::Entity::SQS::Binary(val.begin(), val.end());
+                entityVariant.value = Database::Entity::Queues::Binary(val.begin(), val.end());
             } else {
                 entityVariant.value = val;
             }
@@ -14,10 +14,10 @@ namespace Euclid::Dto::SQS {
         return entityVariant;
     }
 
-    Variant SqsMapper::toDto(const Database::Entity::SQS::Variant &entity) {
+    Variant SqsMapper::toDto(const Database::Entity::Queues::Variant &entity) {
         Variant variant;
         std::visit([&variant]<typename T>(const T &val) {
-            if constexpr (std::is_same_v<T, Database::Entity::SQS::Binary>) {
+            if constexpr (std::is_same_v<T, Database::Entity::Queues::Binary>) {
                 variant.value = Binary(val.begin(), val.end());
             } else {
                 variant.value = val;
@@ -26,7 +26,7 @@ namespace Euclid::Dto::SQS {
         return variant;
     }
 
-    Queue SqsMapper::toDto(const Database::Entity::SQS::Queue &entity) {
+    Queue SqsMapper::toDto(const Database::Entity::Queues::Queue &entity) {
         Queue dto;
         dto.region = entity.region;
         dto.name = entity.name;
@@ -47,7 +47,7 @@ namespace Euclid::Dto::SQS {
         return dto;
     }
 
-    std::vector<Queue> SqsMapper::toDto(const std::vector<Database::Entity::SQS::Queue> &entities) {
+    std::vector<Queue> SqsMapper::toDto(const std::vector<Database::Entity::Queues::Queue> &entities) {
         std::vector<Queue> dtos;
         dtos.reserve(entities.size());
         for (const auto &entity: entities) {
@@ -56,8 +56,8 @@ namespace Euclid::Dto::SQS {
         return dtos;
     }
 
-    Database::Entity::SQS::Queue SqsMapper::toEntity(const Queue &dto) {
-        Database::Entity::SQS::Queue entity;
+    Database::Entity::Queues::Queue SqsMapper::toEntity(const Queue &dto) {
+        Database::Entity::Queues::Queue entity;
         entity.region = dto.region;
         entity.name = dto.name;
         entity.owner = dto.owner;
@@ -77,13 +77,13 @@ namespace Euclid::Dto::SQS {
         return entity;
     }
 
-    Message SqsMapper::toDto(const Database::Entity::SQS::Message &entity) {
+    Message SqsMapper::toDto(const Database::Entity::Queues::Message &entity) {
         Message dto;
         dto.ern = entity.ern;
         dto.queueErn = entity.queueErn;
         dto.messageId = entity.messageId;
-        dto.status = Database::Entity::SQS::MessageStatusToString(entity.status);
-        dto.priority = Database::Entity::SQS::MessagePriorityToString(entity.priority);
+        dto.status = Database::Entity::Queues::MessageStatusToString(entity.status);
+        dto.priority = Database::Entity::Queues::MessagePriorityToString(entity.priority);
         dto.body = entity.body;
         dto.md5Body = entity.md5Body;
         dto.receiptHandle = entity.receiptHandle;
@@ -97,7 +97,7 @@ namespace Euclid::Dto::SQS {
         return dto;
     }
 
-    std::vector<Message> SqsMapper::toDto(const std::vector<Database::Entity::SQS::Message> &entities) {
+    std::vector<Message> SqsMapper::toDto(const std::vector<Database::Entity::Queues::Message> &entities) {
         std::vector<Message> dtos;
         dtos.reserve(entities.size());
         for (const auto &entity: entities) {
@@ -106,13 +106,13 @@ namespace Euclid::Dto::SQS {
         return dtos;
     }
 
-    Database::Entity::SQS::Message SqsMapper::toEntity(const Message &dto) {
-        Database::Entity::SQS::Message entity;
+    Database::Entity::Queues::Message SqsMapper::toEntity(const Message &dto) {
+        Database::Entity::Queues::Message entity;
         entity.ern = dto.ern;
         entity.queueErn = dto.queueErn;
         entity.messageId = dto.messageId;
-        entity.status = Database::Entity::SQS::MessageStatusFromString(dto.status);
-        entity.priority = Database::Entity::SQS::MessagePriorityFromString(dto.priority);
+        entity.status = Database::Entity::Queues::MessageStatusFromString(dto.status);
+        entity.priority = Database::Entity::Queues::MessagePriorityFromString(dto.priority);
         entity.body = dto.body;
         entity.md5Body = dto.md5Body;
         entity.md5Attributes = dto.md5Attributes;

@@ -3,6 +3,7 @@
 // C++ includes
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -16,7 +17,15 @@
 #include <euclid/cli/help/CliHelp.h>
 #include <euclid/cli/http/HttpClient.h>
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/storage/CompleteUploadRequest.h>
 #include <euclid/dto/storage/CreateBucketRequest.h>
+#include <euclid/dto/storage/CreateUploadRequest.h>
+#include <euclid/dto/storage/CreateUploadResponse.h>
+#include <euclid/dto/storage/DeleteBucketRequest.h>
+#include <euclid/dto/storage/ListBucketsRequest.h>
+
+#define DEFAULT_UPLOAD_PART_SIZE 5 * 1024 * 1024
+#define DEFAULT_CONCURRENCY 4
 
 namespace Euclid::CLI {
 
@@ -60,6 +69,78 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int createBucket(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Delete a bucket
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int deleteBucket(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief List buckets
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int listBuckets(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Uploads a local file to a bucket. The only upload action exposed to the user;
+         * internally splits the file into parts and drives create-upload/upload-part/complete-upload
+         * so multipart upload is invisible to the caller.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int uploadFile(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Starts a multipart upload (internal helper used by uploadFile; not a standalone
+         * CLI action).
+         *
+         * @param bucketErn ERN of the target bucket
+         * @param key destination key (path) within the bucket
+         * @return upload ID, or empty if the request failed (error already printed to stderr)
+         */
+        [[nodiscard]]
+        std::optional<std::string> createUpload(const std::string &bucketErn, const std::string &key) const;
+
+        /**
+         * @brief Uploads one part of a multipart upload (internal helper used by uploadFile; not a
+         * standalone CLI action).
+         *
+         * Unlike every other action here, this does NOT send a JSON body - uploadId/partNumber
+         * travel as headers and data goes straight over the wire as raw bytes (see
+         * HttpClient::PostBinary()). Parts are high-volume and internal-only, so the base64-in-JSON
+         * overhead every other action accepts for readability isn't worth paying here.
+         *
+         * Retries a few times with backoff on network failures or a 5xx response before giving up,
+         * since parts are the hot path of an upload (thousands of calls for a large file) and thus
+         * the most likely to hit a transient failure - e.g. a request landing on a storage instance
+         * the gateway's autoscaler is mid-way through killing.
+         *
+         * @param uploadId upload ID returned by createUpload()
+         * @param partNumber 1-based part number
+         * @param data raw part bytes
+         * @return true on success (error already printed to stderr on failure)
+         */
+        [[nodiscard]]
+        bool uploadPart(const std::string &uploadId, long partNumber, const std::string &data) const;
+
+        /**
+         * @brief Completes a multipart upload, assembling its parts into the final object
+         * (internal helper used by uploadFile; not a standalone CLI action).
+         *
+         * @param uploadId upload ID returned by createUpload()
+         * @return the parsed JSON response, or empty if the request failed (error already printed to stderr)
+         */
+        [[nodiscard]]
+        std::optional<boost::json::value> completeUpload(const std::string &uploadId) const;
 
         /**
          * @brief Euclid endpoint

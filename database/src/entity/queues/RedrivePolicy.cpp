@@ -2,14 +2,14 @@
 // Created by vogje01 on 12/10/23.
 //
 
-#include <euclid/database/entity/sqs/RedrivePolicy.h>
+#include <euclid/database/entity/queues/RedrivePolicy.h>
 
-namespace Euclid::Database::Entity::SQS {
+namespace Euclid::Database::Entity::Queues {
 
     bsoncxx::document::value RedrivePolicy::ToDocument() const {
         return bsoncxx::builder::basic::make_document(
-            bsoncxx::builder::basic::kvp("deadLetterTargetArn", deadLetterTargetArn),
-            bsoncxx::builder::basic::kvp("maxReceiveCount", static_cast<int32_t>(maxReceiveCount)));
+                bsoncxx::builder::basic::kvp("deadLetterTargetArn", deadLetterTargetArn),
+                bsoncxx::builder::basic::kvp("maxReceiveCount", static_cast<int32_t>(maxReceiveCount)));
     }
 
     void RedrivePolicy::FromDocument(const std::optional<bsoncxx::document::view> &document) {
@@ -23,4 +23,4 @@ namespace Euclid::Database::Entity::SQS {
         }
     }
 
-} // namespace Euclid::Database::Entity::SQS
+}// namespace Euclid::Database::Entity::SQS

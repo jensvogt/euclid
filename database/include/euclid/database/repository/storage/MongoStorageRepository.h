@@ -120,9 +120,27 @@ namespace Euclid::Database {
          */
         void clearBuckets() override;
 
+        /**
+         * @brief Update or insert an object, keyed by bucketErn+key
+         *
+         * @param object object entity
+         */
+        Entity::Storage::Object upsertObject(Entity::Storage::Object &object) override;
+
+        /**
+         * @brief Find an object by its bucket and key
+         *
+         * @param bucketErn ERN of the bucket the object belongs to
+         * @param key object key within the bucket
+         * @return optional object
+         */
+        [[nodiscard]]
+        std::optional<Entity::Storage::Object> findObjectByBucketAndKey(const std::string &bucketErn, const std::string &key) const override;
+
     private:
 
         static constexpr auto BUCKET_COLLECTION = "storage_bucket";
+        static constexpr auto OBJECT_COLLECTION = "storage_object";
 
         /**
          * @brief Creates the indexes required for efficient bucket lookup, if they do not already exist.

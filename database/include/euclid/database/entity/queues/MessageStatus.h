@@ -9,7 +9,7 @@
 #include <map>
 #include <string>
 
-namespace Euclid::Database::Entity::SQS {
+namespace Euclid::Database::Entity::Queues {
 
     /**
      * @brief SQS message attribute entity

@@ -2,7 +2,7 @@
 // Created by vogje01 on 8/16/26.
 //
 
-#include <euclid/database/entity/sqs/Variant.h>
+#include <euclid/database/entity/queues/Variant.h>
 
 // MongoDB includes
 #include <bsoncxx/builder/basic/document.hpp>
@@ -11,7 +11,7 @@
 #include <bsoncxx/document/view.hpp>
 #include <bsoncxx/types.hpp>
 
-namespace Euclid::Database::Entity::SQS {
+namespace Euclid::Database::Entity::Queues {
 
     bsoncxx::document::value Variant::ToDocument() const {
         bsoncxx::builder::basic::document doc;
