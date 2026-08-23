@@ -43,95 +43,95 @@ jobs:
           CLEAN="${TAG#v}"   # remove leading 'v'
           echo "clean_tag=$CLEAN" >> $GITHUB_OUTPUT
 
-  # Temporarily disabled - see release.yml history to re-enable.
-  # build-windows-msi:
-  #   name: Build & Package (Windows MSI)
-  #   runs-on: windows-latest
-  #   needs: [ release-please ]
-  #   if: ${{ needs.release-please.outputs.release_created == 'true' }}
-  #   env:
-  #     VCPKG_ROOT: "${{ github.workspace }}/vcpkg"
-  #     VCPKG_DEFAULT_BINARY_CACHE: "${{ github.workspace }}/vcpkg-bincache"
-  #     VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkg-bincache,readwrite"
-  #     BUILD_DIR: "${{ github.workspace }}/cmake-build-release"
-  #     SEMVER: ${{ needs.release-please.outputs.tag_name }}
-  #     VCPKG_DEFAULT_TRIPLET: x64-windows-static
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v4.2.2
-  #       with:
-  #         fetch-depth: 0
-  #
-  #     - name: Setup MSVC environment
-  #       uses: step-security/msvc-dev-cmd@v1
-  #       with:
-  #         arch: x64
-  #
-  #     - name: Create vcpkg binary cache dir
-  #       shell: bash
-  #       run: mkdir -p ${{ github.workspace }}/vcpkg-bincache
-  #
-  #     - name: Cache vcpkg binary packages
-  #       uses: actions/cache@v4
-  #       with:
-  #         path: ${{ github.workspace }}/vcpkg-bincache
-  #         key: vcpkg-${{ runner.os }}-${{ hashFiles('**/vcpkg.json') }}
-  #         restore-keys: |
-  #           vcpkg-${{ runner.os }}-
-  #
-  #     - name: Setup vcpkg
-  #       uses: lukka/run-vcpkg@v11
-  #       with:
-  #         vcpkgDirectory: "${{ github.workspace }}/vcpkg"
-  #         vcpkgJsonGlob: 'vcpkg.json'
-  #         runVcpkgInstall: false
-  #
-  #     - name: Build (Backend)
-  #       shell: cmd
-  #       run: |
-  #         mkdir "${{ env.BUILD_DIR }}"
-  #         cmake -B "${{ env.BUILD_DIR }}" -S . -DCMAKE_BUILD_TYPE=Release -DVCPKG_ROOT=${{ env.VCPKG_ROOT}} -DCMAKE_TOOLCHAIN_FILE="${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_DEFAULT_TRIPLET }} -DVCPKG_DISABLE_AUTO_PACKAGE_REGISTRATION=ON
-  #         cmake --build "${{ env.BUILD_DIR }}" --config Release --parallel 2
-  #
-  #     - name: Build (Frontend)
-  #       shell: pwsh
-  #       run: |
-  #         # euclid-ui doesn't exist as a separate repo yet - package without a bundled
-  #         # frontend until it does, rather than failing the whole release.
-  #         git ls-remote https://github.com/jensvogt/euclid-ui.git *>$null
-  #         if ($LASTEXITCODE -eq 0) {
-  #           git clone https://github.com/jensvogt/euclid-ui
-  #           cd euclid-ui
-  #           npm install
-  #           npm run build
-  #         } else {
-  #           Write-Warning "jensvogt/euclid-ui not found - packaging without a bundled frontend"
-  #           New-Item -ItemType Directory -Force -Path euclid-ui\dist\euclid-ui\browser | Out-Null
-  #         }
-  #
-  #     - name: Install NSIS
-  #       run: |
-  #         choco install nsis --no-progress -y
-  #         echo "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
-  #
-  #     - name: Install NSIS plugins
-  #       run: |
-  #         $pluginDir = "C:\Program Files (x86)\NSIS\Plugins\x86-unicode"
-  #         Copy-Item "${{ github.workspace }}\dist\msi\nsis\INetC.dll" "$pluginDir\"
-  #         Copy-Item "${{ github.workspace }}\dist\msi\nsis\nsJSON.dll" "$pluginDir\"
-  #         Copy-Item "${{ github.workspace }}\dist\msi\nsis\SimpleSC.dll" "$pluginDir\"
-  #
-  #     - name: Build NSIS installer
-  #       env:
-  #         SRCDIR: ${{ github.workspace }}
-  #       run: makensis /DSRCDIR=${{ github.workspace }} /DBUILDDIR="${{ env.BUILD_DIR }}" /DVERSION=${{ env.SEMVER }} dist\msi\product.nsi
-  #
-  #     - name: Upload Windows installer
-  #       uses: actions/upload-artifact@v7
-  #       with:
-  #         name: installer-windows
-  #         path: ${{ env.APP_NAME }}-${{ env.SEMVER }}-amd64.exe
-  #         overwrite: true
+   # Temporarily disabled - see release.yml history to re-enable.
+  build-windows-msi:
+    name: Build & Package (Windows MSI)
+    runs-on: windows-latest
+    needs: [ release-please ]
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    env:
+      VCPKG_ROOT: "${{ github.workspace }}/vcpkg"
+      VCPKG_DEFAULT_BINARY_CACHE: "${{ github.workspace }}/vcpkg-bincache"
+      VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkg-bincache,readwrite"
+      BUILD_DIR: "${{ github.workspace }}/cmake-build-release"
+      SEMVER: ${{ needs.release-please.outputs.tag_name }}
+      VCPKG_DEFAULT_TRIPLET: x64-windows-static
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Setup MSVC environment
+        uses: step-security/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Create vcpkg binary cache dir
+        shell: bash
+        run: mkdir -p ${{ github.workspace }}/vcpkg-bincache
+
+      - name: Cache vcpkg binary packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg-bincache
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('**/vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgDirectory: "${{ github.workspace }}/vcpkg"
+          vcpkgJsonGlob: 'vcpkg.json'
+          runVcpkgInstall: false
+
+      - name: Build (Backend)
+        shell: cmd
+        run: |
+          mkdir "${{ env.BUILD_DIR }}"
+          cmake -B "${{ env.BUILD_DIR }}" -S . -DCMAKE_BUILD_TYPE=Release -DVCPKG_ROOT=${{ env.VCPKG_ROOT}} -DCMAKE_TOOLCHAIN_FILE="${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_DEFAULT_TRIPLET }} -DVCPKG_DISABLE_AUTO_PACKAGE_REGISTRATION=ON
+          cmake --build "${{ env.BUILD_DIR }}" --config Release --parallel 2
+
+      - name: Build (Frontend)
+        shell: pwsh
+        run: |
+          # euclid-ui doesn't exist as a separate repo yet - package without a bundled
+          # frontend until it does, rather than failing the whole release.
+          git ls-remote https://github.com/jensvogt/euclid-ui.git *>$null
+          if ($LASTEXITCODE -eq 0) {
+            git clone https://github.com/jensvogt/euclid-ui
+            cd euclid-ui
+            npm install
+            npm run build
+          } else {
+            Write-Warning "jensvogt/euclid-ui not found - packaging without a bundled frontend"
+            New-Item -ItemType Directory -Force -Path euclid-ui\dist\euclid-ui\browser | Out-Null
+          }
+
+      - name: Install NSIS
+        run: |
+          choco install nsis --no-progress -y
+          echo "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
+
+      - name: Install NSIS plugins
+        run: |
+          $pluginDir = "C:\Program Files (x86)\NSIS\Plugins\x86-unicode"
+          Copy-Item "${{ github.workspace }}\dist\msi\nsis\INetC.dll" "$pluginDir\"
+          Copy-Item "${{ github.workspace }}\dist\msi\nsis\nsJSON.dll" "$pluginDir\"
+          Copy-Item "${{ github.workspace }}\dist\msi\nsis\SimpleSC.dll" "$pluginDir\"
+
+      - name: Build NSIS installer
+        env:
+          SRCDIR: ${{ github.workspace }}
+        run: makensis /DSRCDIR=${{ github.workspace }} /DBUILDDIR="${{ env.BUILD_DIR }}" /DVERSION=${{ env.SEMVER }} dist\msi\product.nsi
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: installer-windows
+          path: ${{ env.APP_NAME }}-${{ env.SEMVER }}-amd64.exe
+          overwrite: true
 
   build-macos:
     name: Build & Package (macOS)
@@ -612,7 +612,7 @@ jobs:
       - release-please
       - build-linux
       - build-macos
-      # - build-windows-msi  # temporarily disabled
+      - build-windows-msi  # temporarily disabled
     env:
       SEMVER: "${{ needs.release-please.outputs.tag_name }}"
     steps:
@@ -621,11 +621,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      # - name: Download Windows installer
-      #   uses: actions/download-artifact@v7
-      #   with:
-      #     name: installer-windows
-      #     path: artifacts/windows
+      - name: Download Windows installer
+        uses: actions/download-artifact@v7
+        with:
+          name: installer-windows
+          path: artifacts/windows
 
       - name: Download macOS installer
         uses: actions/download-artifact@v7
