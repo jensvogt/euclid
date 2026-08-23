@@ -12,6 +12,8 @@
 #include <boost/beast/http.hpp>
 
 // Euclid includes
+#include <euclid/core/ContentTypeUtils.h>
+#include <euclid/core/CryptoUtils.h>
 #include <euclid/core/DateTimeUtils.h>
 #include <euclid/core/ErnUtils.h>
 #include <euclid/core/HttpActionServer.h>
@@ -22,6 +24,7 @@
 #include <euclid/database/RepositoryFactory.h>
 #include <euclid/database/entity/storage/Bucket.h>
 #include <euclid/database/entity/storage/Object.h>
+#include <euclid/database/entity/storage/ObjectStatus.h>
 #include <euclid/dto/BaseDto.h>
 #include <euclid/dto/storage/CompleteUploadRequest.h>
 #include <euclid/dto/storage/CompleteUploadResponse.h>
@@ -30,10 +33,15 @@
 #include <euclid/dto/storage/CreateUploadRequest.h>
 #include <euclid/dto/storage/CreateUploadResponse.h>
 #include <euclid/dto/storage/DeleteBucketRequest.h>
+#include <euclid/dto/storage/DeleteObjectRequest.h>
 #include <euclid/dto/storage/GetBucketErnRequest.h>
 #include <euclid/dto/storage/GetBucketErnResponse.h>
+#include <euclid/dto/storage/GetBucketSizeRequest.h>
+#include <euclid/dto/storage/GetBucketSizeResponse.h>
 #include <euclid/dto/storage/ListBucketsRequest.h>
 #include <euclid/dto/storage/ListBucketsResponse.h>
+#include <euclid/dto/storage/ListObjectsRequest.h>
+#include <euclid/dto/storage/ListObjectsResponse.h>
 #include <euclid/dto/storage/StorageMapper.h>
 #include <euclid/dto/storage/UploadPartResponse.h>
 
