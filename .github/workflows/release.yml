@@ -225,7 +225,7 @@ jobs:
           cp ${{ env.BUILD_DIR }}/bin/euclid-access ${{ env.PACKAGE_DIR }}/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-queues ${{ env.PACKAGE_DIR }}/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-monitoring ${{ env.PACKAGE_DIR }}/euclid/bin/
-          cp dist/etc/euclid_macos.json ${{ env.PACKAGE_DIR }}/euclid/etc/euclid.json
+          cp dist/macos/euclid.json ${{ env.PACKAGE_DIR }}/euclid/etc
           # euclid statically links vcpkg's own libmagic, whose compiled magic database format
           # isn't guaranteed compatible with any other libmagic's (see Core::ContentTypeUtils) -
           # take the one this exact build produced instead of a separately maintained copy.
@@ -341,7 +341,7 @@ jobs:
           cp ${{ env.BUILD_DIR }}/bin/euclid-access ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-queues ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-monitoring ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
-          cp dist/linux/etc/euclid.json ${{ env.PACKAGE_DIR_DEB }}/etc/euclid/euclid.json
+          cp dist/linux/euclid.json ${{ env.PACKAGE_DIR_DEB }}/etc/euclid
           # euclid statically links vcpkg's own libmagic, whose compiled magic database format
           # isn't guaranteed compatible with the system's /usr/lib/file/magic.mgc (see
           # Core::ContentTypeUtils) - bundle the one this exact build produced instead, at the
@@ -372,10 +372,19 @@ jobs:
           cat << EOF > ${{ github.workspace }}/deb-scripts/postremove.sh
           #!/bin/bash
           set -e
-          systemctl stop euclid.service || true
-          systemctl disable euclid.service || true
-          rm -f /etc/systemd/system/euclid.service
-          rm -f /usr/local/bin/euclid-cli /usr/local/bin/euclid-manager
+          # dpkg invokes the OLD package's postrm as "postrm upgrade <new-version>" partway
+          # through every upgrade, AFTER the new package's files (including this unit file) are
+          # already unpacked - so without this guard, a routine upgrade would delete the
+          # freshly-installed euclid.service and stop/disable the service right before postinst's
+          # "systemctl enable euclid.service" runs against it, which fails with "Unit file
+          # euclid.service does not exist" and leaves the package half-configured. Only actually
+          # tear down on a real removal/purge, not on upgrade/failed-upgrade/abort-install.
+          if [ "\$1" = "remove" ] || [ "\$1" = "purge" ]; then
+            systemctl stop euclid.service || true
+            systemctl disable euclid.service || true
+            rm -f /etc/systemd/system/euclid.service
+            rm -f /usr/local/bin/euclid-cli /usr/local/bin/euclid-manager
+          fi
           EOF
 
           chmod +x ${{ github.workspace }}/deb-scripts/postinstall.sh ${{ github.workspace }}/deb-scripts/postremove.sh
@@ -423,7 +432,7 @@ jobs:
           cp ${{ env.BUILD_DIR }}/bin/euclid-access ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-queues ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-monitoring ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
-          cp dist/linux/etc/euclid.json ${{ env.PACKAGE_DIR_RPM }}/etc/euclid/euclid.json
+          cp dist/linux/euclid.json ${{ env.PACKAGE_DIR_RPM }}/etc/euclid
           # See the DEB step above for why this is bundled rather than relying on the system's.
           cp ${{ env.BUILD_DIR }}/vcpkg_installed/x64-linux/share/libmagic/misc/magic.mgc ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc/magic.mgc
           cp dist/linux/etc/euclid_cert.crt ${{ env.PACKAGE_DIR_RPM }}/etc/euclid/euclid_cert.crt
@@ -449,11 +458,19 @@ jobs:
 
           cat << EOF > ${{ github.workspace }}/rpm-scripts/postremove.sh
           #!/bin/bash
-          systemctl stop euclid.service || true
-          systemctl disable euclid.service || true
-          rm -f /etc/systemd/system/euclid.service
-          rm -f /usr/local/bin/euclid-cli /usr/local/bin/euclid-manager
-          systemctl daemon-reload
+          # This runs as the RPM %postun scriptlet, where \$1 is the number of package instances
+          # left installed AFTER this action: >=1 during an upgrade (the new version's files are
+          # already on disk by this point), 0 only on a genuine full removal. Without this guard,
+          # a routine upgrade would delete the freshly-installed euclid.service and stop/disable
+          # the service right before postinst's "systemctl enable euclid.service" runs against it -
+          # see the matching guard in the DEB postremove.sh above for the same bug on that side.
+          if [ "\$1" -eq 0 ]; then
+            systemctl stop euclid.service || true
+            systemctl disable euclid.service || true
+            rm -f /etc/systemd/system/euclid.service
+            rm -f /usr/local/bin/euclid-cli /usr/local/bin/euclid-manager
+            systemctl daemon-reload
+          fi
           EOF
 
           chmod +x ${{ github.workspace }}/rpm-scripts/postinstall.sh ${{ github.workspace }}/rpm-scripts/postremove.sh
