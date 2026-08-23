@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.6](https://github.com/jensvogt/euclid/compare/1.0.5...v1.0.6) (2026-08-23)
+
+
+### Bug Fixes
+
+* added storage upload-file ([2bd5591](https://github.com/jensvogt/euclid/commit/2bd559168e087b69f38c2d965a5148d0299ca619))
+* storage upload file command ([e6327cb](https://github.com/jensvogt/euclid/commit/e6327cb70a39cca87b0c175da1d80f7a33e4cc62))
+
 ## [1.0.5](https://github.com/jensvogt/euclid/compare/1.0.4...v1.0.5) (2026-08-20)
 
 
