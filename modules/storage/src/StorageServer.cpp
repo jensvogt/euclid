@@ -3,15 +3,6 @@
 
 #include <thread>
 
-#include <euclid/core/ContentTypeUtils.h>
-#include <euclid/core/CryptoUtils.h>
-#include <euclid/database/entity/storage/ObjectStatus.h>
-#include "euclid/dto/storage/DeleteObjectRequest.h"
-#include "euclid/dto/storage/GetBucketSizeRequest.h"
-#include "euclid/dto/storage/GetBucketSizeResponse.h"
-#include "euclid/dto/storage/ListObjectsRequest.h"
-#include "euclid/dto/storage/ListObjectsResponse.h"
-
 namespace Euclid::Storage {
 
     namespace beast = boost::beast;
@@ -110,6 +101,7 @@ namespace Euclid::Storage {
         bucket.owner = auth.user->userId;
 
         const auto saved = Database::RepositoryFactory::instance().storageRepository()->upsertBucket(bucket);
+        log_info << "ESM bucket created, ern: " << bucket.ern;
 
         Dto::Storage::CreateBucketResponse response;
         response.name = saved.name;
@@ -128,11 +120,10 @@ namespace Euclid::Storage {
         if (const auto err = StorageServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::Storage::ListBucketsRequest>(jv);
-        log_info << "Storage ListBuckets" << (!request.prefix.empty() ? ", prefix: " + request.prefix : "");
 
         const auto repo = Database::RepositoryFactory::instance().storageRepository();
         const std::vector<Database::Entity::Storage::Bucket> buckets = repo->listBuckets(request.prefix, request.pageSize, request.pageIndex, request.sortColumn);
-        log_info << "Got bucket list, count: " << buckets.size();
+        log_info << "ESM bucket list, count: " << buckets.size();
 
         Dto::Storage::ListBucketsResponse response;
         response.buckets = Dto::Storage::StorageMapper::toDto(buckets);
@@ -151,10 +142,9 @@ namespace Euclid::Storage {
         if (const auto err = StorageServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::Storage::GetBucketErnRequest>(jv);
-        log_info << "ESS GetBucketErn, name: " << request.name;
 
         const std::optional<Database::Entity::Storage::Bucket> bucket = Database::RepositoryFactory::instance().storageRepository()->findBucketByName(request.name);
-        log_debug << "Got ESS bucket ERN, name: " << request.name << ", ern: " << (bucket.has_value() ? bucket->ern : "(none)");
+        log_debug << "EMS bucket ERN, name: " << request.name << ", ern: " << (bucket.has_value() ? bucket->ern : "(none)");
 
         if (!bucket.has_value()) {
             return StorageServer::ErrorResponse(req, status::not_found, "Bucket not found, name: " + request.name);
@@ -176,10 +166,9 @@ namespace Euclid::Storage {
         if (const auto err = StorageServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::Storage::GetBucketSizeRequest>(jv);
-        log_info << "ESS GetBucketSize, ern: " << request.ern;
 
         const std::optional<Database::Entity::Storage::Bucket> bucket = Database::RepositoryFactory::instance().storageRepository()->findBucketByErn(request.ern);
-        log_debug << "Got ESS bucket size, ern: " << request.ern << ", size: " << bucket->size;
+        log_debug << "ESM bucket size, ern: " << request.ern << ", size: " << bucket->size;
 
         if (!bucket.has_value()) {
             return StorageServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.ern);
@@ -196,14 +185,13 @@ namespace Euclid::Storage {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-bucket");
 
-        const auto auth = authenticate(req);
-        if (!auth.user.has_value()) return unauthorized(req, auth);
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = StorageServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = Dto::Storage::DeleteBucketRequest::fromJson(req.body());
-        log_info << "Storage DeleteBucket, ern: " << request.ern;
+        log_info << "ESM bucket deleted, ern: " << request.ern;
 
         Database::RepositoryFactory::instance().storageRepository()->deleteBucketByErn(request.ern);
 
@@ -225,7 +213,6 @@ namespace Euclid::Storage {
         if (const auto err = StorageServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::Storage::CreateUploadRequest>(jv);
-        log_info << "Storage CreateUpload, bucketErn: " << request.bucketErn << ", key: " << request.key;
 
         const auto repo = Database::RepositoryFactory::instance().storageRepository();
         if (!repo->findBucketByErn(request.bucketErn).has_value()) {
@@ -255,7 +242,7 @@ namespace Euclid::Storage {
         std::error_code ec;
         std::filesystem::create_directories(uploadDir, ec);
         if (ec) {
-            log_error << "Could not create upload storage, path: " << uploadDir.string() << ", error: " << ec.message();
+            log_error << "ESM could not create upload, path: " << uploadDir.string() << ", error: " << ec.message();
             return StorageServer::ErrorResponse(req, status::internal_server_error, "Could not create upload storage");
         }
 
@@ -271,7 +258,7 @@ namespace Euclid::Storage {
         metaFile << boost::json::serialize(meta);
         metaFile.close();
 
-        log_info << "Created upload, id: " << uploadId << ", path: " << uploadDir.string();
+        log_info << "ESM upload created, id: " << uploadId << ", path: " << uploadDir.string();
 
         Dto::Storage::CreateUploadResponse response;
         response.uploadId = uploadId;
@@ -344,7 +331,7 @@ namespace Euclid::Storage {
         partFile.write(data.data(), static_cast<std::streamsize>(data.size()));
         partFile.close();
 
-        log_debug << "Stored upload part, id: " << uploadId << ", part: " << partNumber << ", size: " << data.size();
+        log_debug << "ESM upload part, id: " << uploadId << ", part: " << partNumber << ", size: " << data.size();
 
         Dto::Storage::UploadPartResponse response;
         response.uploadId = uploadId;
@@ -369,7 +356,7 @@ namespace Euclid::Storage {
         if (const auto err = StorageServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::Storage::CompleteUploadRequest>(jv);
-        log_info << "Storage CompleteUpload, id: " << request.uploadId;
+        log_info << "ESM CompleteUpload, id: " << request.uploadId;
 
         const auto uploadDir = uploadDirFor(request.uploadId);
         const auto metaPath = uploadDir / kUploadMetaFile;
@@ -541,11 +528,11 @@ namespace Euclid::Storage {
         if (const auto err = StorageServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::Storage::ListObjectsRequest>(jv);
-        log_info << "ESS ListObjects, bucket: " << request.bucketErn << (!request.prefix.empty() ? ", prefix: " + request.prefix : "");
+        log_info << "ESM ListObjects, bucket: " << request.bucketErn << (!request.prefix.empty() ? ", prefix: " + request.prefix : "");
 
         const auto repo = Database::RepositoryFactory::instance().storageRepository();
         const std::vector<Database::Entity::Storage::Object> objects = repo->listObjects(request.bucketErn, request.prefix, request.pageSize, request.pageIndex, request.sortColumn);
-        log_info << "ESS got object list, bucket: " << request.bucketErn << ", count: " << objects.size();
+        log_info << "ESM got object list, bucket: " << request.bucketErn << ", count: " << objects.size();
 
         Dto::Storage::ListObjectsResponse response;
         response.objects = Dto::Storage::StorageMapper::toDto(objects);
@@ -630,7 +617,7 @@ namespace Euclid::Storage {
         if (action.empty()) {
             return StorageServer::ErrorResponse(req, status::bad_request, "Missing x-euclid-action header");
         }
-        log_debug << "EST action=" << action;
+        log_debug << "ESM action=" << action;
 
         switch (commandFromString(action)) {
 
@@ -663,7 +650,6 @@ namespace Euclid::Storage {
 
             case Command::ListObjects:
                 return handleListObjects(req);
-
 
             case Command::Unknown:
             default:
