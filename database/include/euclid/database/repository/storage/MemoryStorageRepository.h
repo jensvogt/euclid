@@ -137,6 +137,48 @@ namespace Euclid::Database {
             return std::nullopt;
         }
 
+        long countObjects() const override {
+            std::lock_guard lock(_mutex);
+            return _objectStore.size();
+        }
+
+        long countObjects(const std::string &bucketErn) const override {
+            std::lock_guard lock(_mutex);
+            return std::ranges::count_if(_objectStore | std::views::values, [&bucketErn](const auto &message) {
+                return message.bucketErn == bucketErn;
+            });
+        }
+
+        std::vector<Entity::Storage::Object> listObjects(const std::string &bucket, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const override {
+            std::lock_guard lock(_mutex);
+            std::vector<Entity::Storage::Object> result;
+            for (const auto &b: _objectStore | std::views::values) {
+                if (b.bucketErn == bucket && (prefix.empty() || b.key.starts_with(prefix))) {
+                    result.push_back(b);
+                }
+            }
+
+            if (sortColumn == "key") {
+                std::ranges::sort(result, {}, &Entity::Storage::Object::key);
+            } else if (sortColumn == "ern") {
+                std::ranges::sort(result, {}, &Entity::Storage::Object::ern);
+            }
+
+            if (pageSize > 0) {
+                const auto offset = std::min<size_t>(std::max<long>(pageIndex, 0) * pageSize, result.size());
+                const auto end = std::min<size_t>(offset + pageSize, result.size());
+                result = std::vector(result.begin() + static_cast<long>(offset), result.begin() + static_cast<long>(end));
+            }
+            return result;
+        }
+
+        void deleteObjectByErn(const std::string &ern) override {
+            std::lock_guard lock(_mutex);
+            std::erase_if(_objectStore, [&ern](const auto &kv) {
+                return kv.second.ern == ern;
+            });
+        }
+
     private:
 
         mutable std::mutex _mutex;

@@ -137,6 +137,43 @@ namespace Euclid::Database {
         [[nodiscard]]
         std::optional<Entity::Storage::Object> findObjectByBucketAndKey(const std::string &bucketErn, const std::string &key) const override;
 
+        /**
+         * @brief Retrieves the total number of objects in the repository.
+         *
+         * @return The total number of objects as a long integer.
+         */
+        [[nodiscard]]
+        long countObjects() const override;
+
+        /**
+         * @brief Retrieves the total number og objects in a bucket.
+         *
+         * @paranm bucketErn bucket ERN
+         * @return The total number of messages as a long integer.
+         */
+        [[nodiscard]]
+        long countObjects(const std::string &bucketErn) const override;
+
+        /**
+         * @brief Find all buckets, optionally filtered, paged and sorted.
+         *
+         * @param bucketErn ERN of the bucket the object belongs to
+         * @param prefix only buckets whose name starts with this prefix are returned; empty matches all buckets
+         * @param pageSize maximum number of buckets to return; 0 or less means no limit
+         * @param pageIndex zero-based page index, applied when pageSize is set
+         * @param sortColumn field to sort by (e.g. "name", "ern"); empty means unsorted
+         * @return list of matching bucket entities.
+         */
+        [[nodiscard]]
+        std::vector<Entity::Storage::Object> listObjects(const std::string &bucketErn, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const override;
+
+        /**
+         * @brief Removes a object entity by ERN
+         *
+         * @param ern object ERN
+         */
+        void deleteObjectByErn(const std::string &ern) override;
+
     private:
 
         static constexpr auto BUCKET_COLLECTION = "storage_bucket";

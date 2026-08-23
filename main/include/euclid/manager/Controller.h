@@ -47,6 +47,18 @@ namespace Euclid::main {
     class ServiceController {
     public:
         /**
+         * @brief Stops the watchdog thread so this object can be destroyed safely.
+         *
+         * std::thread's destructor calls std::terminate() immediately if the thread is still
+         * joinable, and nothing else ever stops the watchdog - its own loop only exits once
+         * _running is false, which only this destructor sets. Without this, destroying a
+         * ServiceController while the watchdog is running (always, in practice, since it runs for
+         * the process's whole lifetime) crashes the process right as it would otherwise exit
+         * cleanly.
+         */
+        ~ServiceController();
+
+        /**
          * @brief Registers a module with the system.
          *
          * Creates a pool for this module, pre-populated with `cfg.minInstances` stopped
@@ -151,6 +163,34 @@ namespace Euclid::main {
         void releaseInstance(const std::string &name, pid_t pid);
 
         /**
+         * @brief Lets a client proactively declare how many instances of a service it's about to
+         * need, instead of the autoscaler having to infer demand from sampling activeRequests.
+         *
+         * Reactive scaling has an inherent blind spot for this kind of workload: a request's
+         * activeRequests>0 window is often much shorter than the watchdog's 1s sampling interval
+         * (e.g. a storage part upload's gateway-to-module hop is typically single-digit
+         * milliseconds), so as a pool grows, the odds of the sample catching any given instance
+         * mid-request keep dropping - scale-up can stall well below what real throughput would
+         * justify. A client that already knows its own concurrency (e.g. the CLI's upload-file
+         * --concurrency) can just say so up front.
+         *
+         * Takes the max of the current desired count and this call's value, so multiple
+         * concurrent declarations (e.g. two uploads in flight at once) don't undercut each other.
+         * The declared target is dropped back to minInstances the next time the group is deemed
+         * idle enough to scale down - see evaluateScaling() - so it doesn't become a permanent
+         * floor once the work it was declared for is done.
+         *
+         * @param name Service name (e.g. "storage").
+         * @param desired Instance count the caller expects to use soon.
+         * @return False if the service is registered and `desired` exceeds its configured
+         *         maxInstances (caller should reject the request rather than silently clamp, so
+         *         the client finds out its concurrency won't be honored instead of just seeing
+         *         degraded throughput). True if accepted, or if the service isn't registered at
+         *         all (that's a different failure, left for acquireInstance() to report).
+         */
+        [[nodiscard]] bool declareExpectedConcurrency(const std::string &name, int desired);
+
+        /**
          * @brief Waits for a process to terminate or for a timeout to elapse.
          *
          * @param pid The process ID of the target process to monitor.
@@ -197,6 +237,14 @@ namespace Euclid::main {
              * difference between "nobody wants this instance" and "nobody wants any instance."
              */
             std::chrono::steady_clock::time_point lastActivityAt = std::chrono::steady_clock::now();
+
+            /**
+             * @brief Instance count a client has proactively declared it expects to use soon, via
+             * declareExpectedConcurrency(). evaluateScaling() ramps toward this as an additional
+             * scale-up trigger alongside busy>0, and it's reset to minInstances the next time the
+             * group actually scales down, so it doesn't outlive the workload that declared it.
+             */
+            int desiredCount = 0;
         };
 
         /**

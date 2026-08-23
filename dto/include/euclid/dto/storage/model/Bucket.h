@@ -34,6 +34,16 @@ namespace Euclid::Dto::Storage {
         std::string ern;
 
         /**
+         * @brief Size in bytes
+         */
+        long size{};
+
+        /**
+         * @brief Number of objects
+         */
+        long objects{};
+
+        /**
          * @brief Creation date
          */
         system_clock::time_point created;
@@ -66,6 +76,8 @@ namespace Euclid::Dto::Storage {
             r.owner = Core::GetStringValue(v, "owner");
             r.name = Core::GetStringValue(v, "name");
             r.ern = Core::GetStringValue(v, "ern");
+            r.size = Core::GetLongValue(v, "size");
+            r.objects = Core::GetLongValue(v, "objects");
             r.created = Core::GetDatetimeValue(v, "created");
             r.modified = Core::GetDatetimeValue(v, "modified");
             return r;
@@ -77,6 +89,8 @@ namespace Euclid::Dto::Storage {
                     {"owner", obj.owner},
                     {"name", obj.name},
                     {"ern", obj.ern},
+                    {"size", obj.size},
+                    {"objects", obj.objects},
                     {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
             };

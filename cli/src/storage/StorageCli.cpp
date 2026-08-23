@@ -1,13 +1,7 @@
-// C++ includes
-#include <algorithm>
-#include <deque>
-#include <filesystem>
-#include <future>
-#include <mutex>
-#include <thread>
-
 // Euclid includes
 #include <euclid/cli/storage/StorageCli.h>
+
+#include "euclid/dto/storage/ListObjectsRequest.h"
 
 namespace Euclid::CLI {
 
@@ -58,7 +52,11 @@ namespace Euclid::CLI {
                                            {"create-bucket", "Create a new bucket"},
                                            {"delete-bucket", "Delete a bucket"},
                                            {"list-buckets", "List buckets"},
+                                           {"get-bucket-ern", "Resolve a bucket's ERN by name"},
+                                           {"get-bucket-size", "Returns the bucket size in bytes"},
                                            {"upload-file", "Upload a local file to a bucket"},
+                                           {"list-objects", "List objects"},
+                                           {"delete-object", "Deletes an object by ERN"},
                                    });
         }
         if (action == "create-bucket") {
@@ -70,8 +68,20 @@ namespace Euclid::CLI {
         if (action == "list-buckets") {
             return listBuckets(args);
         }
+        if (action == "get-bucket-ern") {
+            return getBucketErn(args);
+        }
+        if (action == "get-bucket-size") {
+            return getBucketSize(args);
+        }
         if (action == "upload-file") {
             return uploadFile(args);
+        }
+        if (action == "list-objects") {
+            return listObjects(args);
+        }
+        if (action == "delete-object") {
+            return deleteObject(args);
         }
         std::cerr << "error: unknown SQS action '" << action << "'\n";
         return 1;
@@ -197,14 +207,98 @@ namespace Euclid::CLI {
         }
     }
 
-    std::optional<std::string> StorageCli::createUpload(const std::string &bucketErn, const std::string &key) const {
+    int StorageCli::getBucketErn(const std::vector<std::string> &args) const {
+        po::options_description desc("get bucket ern options");
+        desc.add_options()
+                ("name,n", po::value<std::string>()->required(), "name");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("storage", "get-bucket-ern", "--name <name>",
+                                   "Resolves the Euclid resource name (ERN) of a bucket by its name.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::Storage::GetBucketErnRequest request;
+        request.name = vm["name"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("storage", "get-bucket-ern", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: get-bucket-ern failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int StorageCli::getBucketSize(const std::vector<std::string> &args) const {
+        po::options_description desc("get bucket size options");
+        desc.add_options()
+                ("ern,e", po::value<std::string>()->required(), "euclid resource name");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("storage", "get-bucket-size", "--ern <ern>",
+                                   "Returns the bucket size in bytes.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::Storage::GetBucketSizeRequest request;
+        request.ern = vm["ern"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("storage", "get-bucket-size", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: get-bucket-size failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    std::optional<std::string> StorageCli::createUpload(const std::string &bucketErn, const std::string &key, const int concurrency) const {
         Dto::Storage::CreateUploadRequest request;
         request.bucketErn = bucketErn;
         request.key = key;
 
+        // Declares the concurrency the upload is about to use so the gateway's autoscaler can
+        // ramp storage instances toward it directly instead of waiting to sample busy instances -
+        // see ServiceController::declareExpectedConcurrency()'s doc comment for why that reactive
+        // sampling alone falls short for this workload (many short-lived part uploads).
+        const std::vector<std::pair<std::string, std::string> > headers{
+                {"x-euclid-expected-concurrency", std::to_string(concurrency)},
+        };
+
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("storage", "create-upload", boost::json::value_from(request));
+            const HttpResponse response = client.Post("storage", "create-upload", boost::json::value_from(request), headers);
             if (!response.IsSuccess()) {
                 std::cerr << "error: create-upload failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return std::nullopt;
@@ -321,23 +415,38 @@ namespace Euclid::CLI {
             return 1;
         }
 
-        const auto uploadId = createUpload(bucketErn, key);
+        const auto uploadId = createUpload(bucketErn, key, concurrency);
         if (!uploadId) return 1;
 
         // Bounded pipeline: parts are read from disk sequentially (cheap, and std::ifstream isn't
         // safe to read concurrently) but their uploads run in the background, up to <concurrency>
         // at a time, so network latency for one part overlaps with reading/uploading the next.
         bool ok = true;
-        std::deque<std::future<bool> > inFlight;
+        std::vector<std::future<bool> > inFlight;
 
-        const auto waitOldest = [&inFlight, &ok] {
-            if (inFlight.empty()) return;
-            if (!inFlight.front().get()) ok = false;
-            inFlight.pop_front();
+        // Reaps ANY finished future, not just the oldest submission: a plain FIFO wait-on-front
+        // means one slow-for-any-reason part (retry backoff, a scheduling hiccup, whatever) blocks
+        // the entire pipeline from submitting new work even while every other slot has long since
+        // finished - observed in practice as long flat stretches with zero progress followed by a
+        // burst once the stuck one finally resolves. Polling for whichever slot finishes first
+        // keeps all <concurrency> slots genuinely busy instead of head-of-line-blocked on one.
+        const auto reapOneCompleted = [&]() -> bool {
+            for (auto it = inFlight.begin(); it != inFlight.end(); ++it) {
+                if (it->wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+                    if (!it->get()) ok = false;
+                    inFlight.erase(it);
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        const auto waitForSlot = [&] {
+            while (!reapOneCompleted()) std::this_thread::sleep_for(std::chrono::milliseconds(5));
         };
 
         const auto submitPart = [&](const long partNumber, std::string data) {
-            if (static_cast<int>(inFlight.size()) >= concurrency) waitOldest();
+            if (static_cast<int>(inFlight.size()) >= concurrency) waitForSlot();
             inFlight.push_back(std::async(std::launch::async, [this, id = *uploadId, partNumber, data = std::move(data)] {
                 return uploadPart(id, partNumber, data);
             }));
@@ -354,7 +463,7 @@ namespace Euclid::CLI {
             }
         }
 
-        while (!inFlight.empty()) waitOldest();
+        while (!inFlight.empty()) waitForSlot();
         if (!ok) return 1;
 
         const auto result = completeUpload(*uploadId);
@@ -362,6 +471,90 @@ namespace Euclid::CLI {
 
         Core::WriteJson(std::cout, *result, _pretty);
         return 0;
+    }
+
+    int StorageCli::listObjects(const std::vector<std::string> &args) const {
+        po::options_description desc("list objects options");
+        desc.add_options()
+                ("bucket,b", po::value<std::string>(), "bucket ERN")
+                ("prefix,p", po::value<std::string>(), "bucket name prefix")
+                ("pageSize,s", po::value<long>()->default_value(-1), "page size")
+                ("pageIndex,i", po::value<long>()->default_value(-1), "page index")
+                ("sortColumn,c", po::value<std::string>()->default_value("name"), "sort column");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("storage", "list-objects", "--bucket <ern> [--prefix <prefix>] [--pageSize <n>] [--pageIndex <n>] [--sortColumn <column>]",
+                                   "Lists storage objects by bucket, optionally filtered by name prefix and paginated.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::Storage::ListObjectsRequest request;
+        request.pageSize = vm["pageSize"].as<long>();
+        if (vm.contains("prefix")) {
+            request.prefix = vm["prefix"].as<std::string>();
+        }
+        request.pageSize = vm["pageSize"].as<long>();
+        request.pageIndex = vm["pageIndex"].as<long>();
+        request.sortColumn = vm["sortColumn"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("storage", "list-objects", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: list-objects failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int StorageCli::deleteObject(const std::vector<std::string> &args) const {
+        po::options_description desc("delete object options");
+        desc.add_options()
+                ("ern,e", po::value<std::string>()->required(), "euclid resource name");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("storage", "delete-object", "--ern <ern>",
+                                   "Deletes a storage object identified by its Euclid resource name (ERN).",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::Storage::DeleteObjectRequest request;
+        request.ern = vm["ern"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            if (const HttpResponse response = client.Post("storage", "delete-object", boost::json::value_from(request)); !response.IsSuccess()) {
+                std::cerr << "error: delete-object failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
     }
 
 }

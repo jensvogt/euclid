@@ -35,7 +35,7 @@ FROM node:24-alpine AS buildfrontend
 
 RUN apk update && apk upgrade && apk add --no-cache git
 
-# Build euclid-ui, if it exists yet - falls back to an empty directory so the runtime
+# Build euclid-ui, if it exists yet - falls back to an empty storage so the runtime
 # image still builds with no bundled frontend until that repo is created.
 WORKDIR /usr/src
 RUN if git ls-remote https://github.com/jensvogt/euclid-ui.git >/dev/null 2>&1; then \

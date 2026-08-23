@@ -1,4 +1,5 @@
 // C++ includes
+#include <charconv>
 #include <optional>
 
 // Boost includes
@@ -163,30 +164,59 @@ namespace Euclid::main {
             return jsonResponse(status, boost::json::serialize(boost::json::object{{"error", msg}}));
         };
 
-        // ── AWS service dispatch ─────────────────────────────────────────
-        if (const auto service = detectAwsService(req); !service.empty()) {
-            if (const auto action = std::string(req["x-euclid-action"]); !isPublicAction(service, action)) {
-                if (const auto auth = Core::HttpActionServer::Authenticate(req); !auth.subject.has_value()) {
-                    return Core::HttpActionServer::Unauthorized(req, auth);
+        // A single unhandled exception anywhere below (auth, JSON parsing, forwarding, ...) must
+        // not escape this function: it would propagate out of the async_read completion handler
+        // that called route(), out of the io_context::run() on whichever gateway worker thread
+        // happened to be running it, and - since an exception escaping a std::thread's entry
+        // function calls std::terminate() - take down the entire manager process, every module it
+        // manages included. Converting it into a 500 here costs one failed request instead of the
+        // whole gateway. Mirrors the same guard UnixSocketServer::Session::doRead() already has
+        // around Dispatch() for individual module processes.
+        try {
+            // ── AWS service dispatch ─────────────────────────────────────────
+            if (const auto service = detectAwsService(req); !service.empty()) {
+                if (const auto action = std::string(req["x-euclid-action"]); !isPublicAction(service, action)) {
+                    if (const auto auth = Core::HttpActionServer::Authenticate(req); !auth.subject.has_value()) {
+                        return Core::HttpActionServer::Unauthorized(req, auth);
+                    }
                 }
+
+                // Lets a client proactively declare concurrency it's about to need (e.g. the
+                // storage CLI's upload-file --concurrency, sent on create-upload) so the autoscaler
+                // can ramp toward it directly instead of waiting to sample busy instances - see
+                // ServiceController::declareExpectedConcurrency()'s doc comment. Generic at the
+                // gateway level (any module's requests can carry it), not storage-specific.
+                if (const auto concurrency = req["x-euclid-expected-concurrency"]; !concurrency.empty()) {
+                    if (int desired = 0; std::from_chars(concurrency.data(), concurrency.data() + concurrency.size(), desired).ec == std::errc{} && desired > 0) {
+                        if (!ctrl.declareExpectedConcurrency(service, desired)) {
+                            return err(http::status::bad_request, "requested concurrency (" + std::to_string(desired) + ") exceeds configured max instances for service '" + service + "'");
+                        }
+                    }
+                }
+
+                const auto handle = ctrl.acquireInstance(service);
+                if (!handle) return err(http::status::service_unavailable, "service '" + service + "' not registered or not running");
+
+                // Guarantees the autoscaler's active-request count is released on every exit path
+                // below, however forwardToService() returns.
+                struct ReleaseGuard {
+                    ServiceController &ctrl;
+                    const std::string &name;
+                    pid_t pid;
+                    ~ReleaseGuard() { ctrl.releaseInstance(name, pid); }
+                } guard{.ctrl = ctrl, .name = service, .pid = handle->pid};
+
+                return forwardToService(req, handle->socketPath);
             }
 
-            const auto handle = ctrl.acquireInstance(service);
-            if (!handle) return err(http::status::service_unavailable, "service '" + service + "' not registered or not running");
-
-            // Guarantees the autoscaler's active-request count is released on every exit path
-            // below, however forwardToService() returns.
-            struct ReleaseGuard {
-                ServiceController &ctrl;
-                const std::string &name;
-                pid_t pid;
-                ~ReleaseGuard() { ctrl.releaseInstance(name, pid); }
-            } guard{.ctrl = ctrl, .name = service, .pid = handle->pid};
-
-            return forwardToService(req, handle->socketPath);
+            return err(http::status::not_found, "not found");
+        } catch (const std::exception &ex) {
+            log_error << "route() threw, error: " << ex.what();
+            return err(http::status::internal_server_error, ex.what());
+        } catch (...) {
+            log_error << "route() threw a non-std::exception";
+            return err(http::status::internal_server_error, "internal server error");
         }
-
-        return err(http::status::not_found, "not found");
     }
 
     // ── GatewaySession ───────────────────────────────────────────────────────

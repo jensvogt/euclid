@@ -58,6 +58,8 @@
           "count": 5
         },
         "data-dir": "/usr/local/euclid/data/storage",
+        "minInstances": 1,
+        "maxInstances": 10,
         "counter-period": 60,
         "sync-period": 3600,
         "archive-timeout": 300
