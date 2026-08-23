@@ -1,6 +1,6 @@
 set(BINARY euclid-manager)
 
-add_executable(${BINARY} src/main.cpp src/Controller.cpp src/GatewayServer.cpp)
+add_executable(${BINARY} src/main.cpp src/Controller.cpp src/GatewayServer.cpp src/ControllerPlatform.cpp)
 
 set_target_properties(${BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 

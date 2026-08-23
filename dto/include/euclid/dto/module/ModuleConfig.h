@@ -6,10 +6,12 @@
 
 // C++ includes
 #include <chrono>
+#include <cstdint>
 #include <string>
 #ifdef _WIN32
 #include <windows.h>
-using pid_t = DWORD;
+// See ModuleProcess.h for why this must be signed rather than DWORD.
+using pid_t = std::int32_t;
 #else
 #include <sys/types.h>
 #include <unistd.h>
