@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.14](https://github.com/jensvogt/euclid/compare/1.0.13...v1.0.14) (2026-08-23)
+
+
+### Bug Fixes
+
+* startup modules ([737849a](https://github.com/jensvogt/euclid/commit/737849a13146d49aba44d5a9b62e88a5d40e381d))
+
 ## [1.0.13](https://github.com/jensvogt/euclid/compare/1.0.12...v1.0.13) (2026-08-23)
 
 
