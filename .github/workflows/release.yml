@@ -341,16 +341,13 @@ jobs:
           cp ${{ env.BUILD_DIR }}/bin/euclid-access ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-queues ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-monitoring ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
-          cp dist/linux/etc/* ${{ env.PACKAGE_DIR_DEB }}/etc/euclid
+          cp dist/linux/etc/* ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/etc/
           # euclid statically links vcpkg's own libmagic, whose compiled magic database format
           # isn't guaranteed compatible with the system's /usr/lib/file/magic.mgc (see
           # Core::ContentTypeUtils) - bundle the one this exact build produced instead, at the
           # path "magic-file" in euclid.json points to.
           cp ${{ env.BUILD_DIR }}/vcpkg_installed/x64-linux/share/libmagic/misc/magic.mgc ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/etc/magic.mgc
-          cp dist/linux/etc/euclid_cert.crt ${{ env.PACKAGE_DIR_DEB }}/etc/euclid/euclid_cert.crt
-          cp dist/linux/etc/euclid_cert.key ${{ env.PACKAGE_DIR_DEB }}/etc/euclid/euclid_cert.key
-          cp dist/linux/etc/ssh_host_key ${{ env.PACKAGE_DIR_DEB }}/etc/euclid/ssh_host_key
-          cp dist/linux/etc/systemd/system/euclid.service ${{ env.PACKAGE_DIR_DEB }}/etc/systemd/system
+          cp dist/linux/systemd/system/euclid.service ${{ env.PACKAGE_DIR_DEB }}/etc/systemd/system/
           cp cli/docs/man/*.1 ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man1/ 2>/dev/null || true
           cp -R ${{ github.workspace }}/frontend/euclid-ui/dist/euclid-ui/browser/* ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/frontend/ 2>/dev/null || true
 
@@ -432,13 +429,10 @@ jobs:
           cp ${{ env.BUILD_DIR }}/bin/euclid-access ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-queues ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-monitoring ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
-          cp dist/linux/etc/* ${{ env.PACKAGE_DIR_RPM }}/etc/euclid
+          cp dist/linux/etc/* ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc/euclid
           # See the DEB step above for why this is bundled rather than relying on the system's.
           cp ${{ env.BUILD_DIR }}/vcpkg_installed/x64-linux/share/libmagic/misc/magic.mgc ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc/magic.mgc
-          cp dist/linux/etc/euclid_cert.crt ${{ env.PACKAGE_DIR_RPM }}/etc/euclid/euclid_cert.crt
-          cp dist/linux/etc/euclid_cert.key ${{ env.PACKAGE_DIR_RPM }}/etc/euclid/euclid_cert.key
-          cp dist/linux/etc/ssh_host_key ${{ env.PACKAGE_DIR_RPM }}/etc/euclid/ssh_host_key
-          cp dist/linux/etc/systemd/system/euclid.service ${{ env.PACKAGE_DIR_RPM }}/etc/systemd/system
+          cp dist/linux/systemd/system/euclid.service ${{ env.PACKAGE_DIR_RPM }}/etc/systemd/system
           cp cli/docs/man/*.1 ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man1/ 2>/dev/null || true
           cp -R ${{ github.workspace }}/frontend/euclid-ui/dist/euclid-ui/browser/* ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/frontend/ 2>/dev/null || true
 
