@@ -93,21 +93,21 @@ jobs:
           cmake -B "${{ env.BUILD_DIR }}" -S . -DCMAKE_BUILD_TYPE=Release -DVCPKG_ROOT=${{ env.VCPKG_ROOT}} -DCMAKE_TOOLCHAIN_FILE="${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_DEFAULT_TRIPLET }} -DVCPKG_DISABLE_AUTO_PACKAGE_REGISTRATION=ON
           cmake --build "${{ env.BUILD_DIR }}" --config Release --parallel 2
 
-      - name: Build (Frontend)
-        shell: pwsh
-        run: |
-          # euclid-ui doesn't exist as a separate repo yet - package without a bundled
-          # frontend until it does, rather than failing the whole release.
-          git ls-remote https://github.com/jensvogt/euclid-ui.git *>$null
-          if ($LASTEXITCODE -eq 0) {
-            git clone https://github.com/jensvogt/euclid-ui
-            cd euclid-ui
-            npm install
-            npm run build
-          } else {
-            Write-Warning "jensvogt/euclid-ui not found - packaging without a bundled frontend"
-            New-Item -ItemType Directory -Force -Path euclid-ui\dist\euclid-ui\browser | Out-Null
-          }
+#      - name: Build (Frontend)
+#        shell: pwsh
+#        run: |
+#          # euclid-ui doesn't exist as a separate repo yet - package without a bundled
+#          # frontend until it does, rather than failing the whole release.
+#          git ls-remote https://github.com/jensvogt/euclid-ui.git *>$null
+#          if ($LASTEXITCODE -eq 0) {
+#            git clone https://github.com/jensvogt/euclid-ui
+#            cd euclid-ui
+#            npm install
+#            npm run build
+#          } else {
+#            Write-Warning "jensvogt/euclid-ui not found - packaging without a bundled frontend"
+#            New-Item -ItemType Directory -Force -Path euclid-ui\dist\euclid-ui\browser | Out-Null
+#          }
 
       - name: Install NSIS
         run: |
@@ -117,14 +117,14 @@ jobs:
       - name: Install NSIS plugins
         run: |
           $pluginDir = "C:\Program Files (x86)\NSIS\Plugins\x86-unicode"
-          Copy-Item "${{ github.workspace }}\dist\msi\nsis\INetC.dll" "$pluginDir\"
-          Copy-Item "${{ github.workspace }}\dist\msi\nsis\nsJSON.dll" "$pluginDir\"
-          Copy-Item "${{ github.workspace }}\dist\msi\nsis\SimpleSC.dll" "$pluginDir\"
+          Copy-Item "${{ github.workspace }}\dist\win32\msi\nsis\INetC.dll" "$pluginDir\"
+          Copy-Item "${{ github.workspace }}\dist\win32\msi\nsis\nsJSON.dll" "$pluginDir\"
+          Copy-Item "${{ github.workspace }}\dist\win32\msi\nsis\SimpleSC.dll" "$pluginDir\"
 
       - name: Build NSIS installer
         env:
           SRCDIR: ${{ github.workspace }}
-        run: makensis /DSRCDIR=${{ github.workspace }} /DBUILDDIR="${{ env.BUILD_DIR }}" /DVERSION=${{ env.SEMVER }} dist\msi\product.nsi
+        run: makensis /DSRCDIR=${{ github.workspace }} /DBUILDDIR="${{ env.BUILD_DIR }}" /DVERSION=${{ env.SEMVER }} dist\win32\msi\product.nsi
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v7
