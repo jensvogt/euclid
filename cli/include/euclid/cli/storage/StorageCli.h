@@ -32,6 +32,7 @@
 #include <euclid/dto/storage/GetBucketErnRequest.h>
 #include <euclid/dto/storage/GetBucketSizeRequest.h>
 #include <euclid/dto/storage/ListBucketsRequest.h>
+#include <euclid/dto/storage/ListObjectsRequest.h>
 
 #define DEFAULT_UPLOAD_PART_SIZE (5 * 1024 * 1024)
 #define DEFAULT_CONCURRENCY 4
@@ -98,7 +99,7 @@ namespace Euclid::CLI {
         int listBuckets(const std::vector<std::string> &args) const;
 
         /**
-         * @brief Return the queue ERN
+         * @brief Return the bucket ERN
          *
          * @param args command line arguments
          * @return ok
@@ -106,6 +107,13 @@ namespace Euclid::CLI {
         [[nodiscard]]
         int getBucketErn(const std::vector<std::string> &args) const;
 
+        /**
+         * @brief Return the bucket size
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
         int getBucketSize(const std::vector<std::string> &args) const;
 
         /**
@@ -119,8 +127,22 @@ namespace Euclid::CLI {
         [[nodiscard]]
         int uploadFile(const std::vector<std::string> &args) const;
 
+        /**
+         * @brief List all objects of a bucket
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
         int listObjects(const std::vector<std::string> &args) const;
 
+        /**
+         * @brief Deletes an object
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
         int deleteObject(const std::vector<std::string> &args) const;
 
         /**
