@@ -1,3 +1,4 @@
+#include <euclid/database/entity/storage/ObjectStatus.h>
 #include <euclid/dto/storage/StorageMapper.h>
 
 namespace Euclid::Dto::Storage {
@@ -31,6 +32,9 @@ namespace Euclid::Dto::Storage {
         dto.ern = entity.ern;
         dto.key = entity.key;
         dto.size = entity.size;
+        dto.status = Database::Entity::Storage::ObjectStatusToString(entity.status);
+        dto.contentType = entity.contentType;
+        dto.md5Sum = entity.md5Sum;
         dto.created = entity.created;
         dto.modified = entity.modified;
         return dto;

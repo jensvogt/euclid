@@ -34,6 +34,21 @@ namespace Euclid::Dto::Storage {
         long size{};
 
         /**
+         * @brief Lifecycle status: CREATED, UPLOADING, UPLOADED or COMPLETED
+         */
+        std::string status;
+
+        /**
+         * @brief MIME content type; empty until status reaches COMPLETED
+         */
+        std::string contentType;
+
+        /**
+         * @brief MD5 checksum, hex-encoded; empty until status reaches COMPLETED
+         */
+        std::string md5Sum;
+
+        /**
          * @brief Creation date
          */
         system_clock::time_point created;
@@ -66,6 +81,9 @@ namespace Euclid::Dto::Storage {
             r.ern = Core::GetStringValue(v, "ern");
             r.key = Core::GetStringValue(v, "key");
             r.size = Core::GetLongValue(v, "size");
+            r.status = Core::GetStringValue(v, "status");
+            r.contentType = Core::GetStringValue(v, "contentType");
+            r.md5Sum = Core::GetStringValue(v, "md5Sum");
             r.created = Core::GetDatetimeValue(v, "created");
             r.modified = Core::GetDatetimeValue(v, "modified");
             return r;
@@ -77,6 +95,9 @@ namespace Euclid::Dto::Storage {
                     {"ern", obj.ern},
                     {"key", obj.key},
                     {"size", obj.size},
+                    {"status", obj.status},
+                    {"contentType", obj.contentType},
+                    {"md5Sum", obj.md5Sum},
                     {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
             };
