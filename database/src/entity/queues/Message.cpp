@@ -2,7 +2,7 @@
 // Created by vogje01 on 01/06/2023.
 //
 
-#include <euclid/database/entity/sqs/Message.h>
+#include <euclid/database/entity/queues/Message.h>
 
 // MongoDB includes
 #include <bsoncxx/json.hpp>
@@ -10,7 +10,7 @@
 // Euclid includes
 #include <euclid/core/CryptoUtils.h>
 
-namespace Euclid::Database::Entity::SQS {
+namespace Euclid::Database::Entity::Queues {
 
     namespace {
         long getBsonInt(const bsoncxx::document::element &field) {

@@ -28,6 +28,12 @@ namespace Euclid::Database {
             ernOpts.unique(true);
             bucketCollection.create_index(make_document(kvp("ern", 1)), ernOpts);
 
+            auto objectCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
+
+            mongocxx::options::index objectKeyOpts;
+            objectKeyOpts.unique(true);
+            objectCollection.create_index(make_document(kvp("bucketErn", 1), kvp("key", 1)), objectKeyOpts);
+
         } catch (const std::exception &e) {
             log_error << "Ensure storage indexes failed, error: " << e.what();
         }
@@ -233,6 +239,56 @@ namespace Euclid::Database {
         } catch (const std::exception &e) {
             log_error << "Delete all buckets failed, error: " << e.what();
         }
+    }
+
+    Entity::Storage::Object MongoStorageRepository::upsertObject(Entity::Storage::Object &object) {
+
+        try {
+
+            const auto filter = make_document(kvp("bucketErn", object.bucketErn), kvp("key", object.key));
+            const auto update = make_document(
+                    kvp("$set", object.toDocument()),
+                    kvp("$setOnInsert", make_document(
+                                kvp("created", bsoncxx::types::b_date{
+                                            std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                    object.created.time_since_epoch())})
+                                )),
+                    kvp("$currentDate", make_document(
+                                kvp("modified", true)
+                                )));
+
+            mongocxx::options::find_one_and_update opts;
+            opts.upsert(true);
+            opts.return_document(mongocxx::options::return_document::k_after);
+
+            const auto entry = Database::instance().client();
+            auto objectCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
+
+            if (auto result = objectCollection.find_one_and_update(filter.view(), update.view(), opts)) {
+                return Entity::Storage::Object::fromDocument(result->view());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Upsert object failed, error: " << e.what();
+        }
+        return object;
+    }
+
+    std::optional<Entity::Storage::Object> MongoStorageRepository::findObjectByBucketAndKey(const std::string &bucketErn, const std::string &key) const {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto objectCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
+
+            if (auto mResult = objectCollection.find_one(make_document(kvp("bucketErn", bucketErn), kvp("key", key)))) {
+                return Entity::Storage::Object::fromDocument(mResult.value());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Get object by bucket/key failed, bucketErn: " << bucketErn << ", key: " << key << ", error: " << e.what();
+        }
+        return {};
     }
 
 }// namespace Euclid::Database

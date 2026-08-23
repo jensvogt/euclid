@@ -8,9 +8,9 @@
 #include <map>
 
 // Euclid includes
-#include <euclid/database/entity/sqs/MessagePriority.h>
+#include <euclid/database/entity/queues/MessagePriority.h>
 
-namespace Euclid::Database::Entity::SQS {
+namespace Euclid::Database::Entity::Queues {
 
     /**
      * @brief Relative weight of each priority tier when apportioning receiveMessages() slots.

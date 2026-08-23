@@ -11,6 +11,7 @@
 
 // Euclid includes
 #include <euclid/database/entity/storage/Bucket.h>
+#include <euclid/database/entity/storage/Object.h>
 
 namespace Euclid::Database {
 
@@ -108,6 +109,28 @@ namespace Euclid::Database {
          * @brief Removes all entries from the bucket repository, leaving it in an empty state.
          */
         virtual void clearBuckets() = 0;
+
+        /**
+         * @brief Inserts a new object or updates the existing one for the same bucket/key.
+         *
+         * The object's bytes live in a flat file on disk named after its internalName (a UUID);
+         * this is the only place the key-to-internalName mapping is recorded, so this call is
+         * what makes an uploaded object resolvable by key afterwards.
+         *
+         * @param object The object to be inserted or updated in the repository.
+         * @return the persisted object entity.
+         */
+        virtual Entity::Storage::Object upsertObject(Entity::Storage::Object &object) = 0;
+
+        /**
+         * @brief Searches for an object by its bucket and key.
+         *
+         * @param bucketErn The ERN of the bucket the object belongs to.
+         * @param key The object's key (path) within the bucket.
+         * @return The matching object, or an empty optional if no match is found.
+         */
+        [[nodiscard]]
+        virtual std::optional<Entity::Storage::Object> findObjectByBucketAndKey(const std::string &bucketErn, const std::string &key) const = 0;
     };
 
 }// namespace Euclid::Database

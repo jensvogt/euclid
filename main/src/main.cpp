@@ -1,5 +1,9 @@
 // C++ includes
+#include <cerrno>
 #include <csignal>
+#include <cstring>
+#include <iostream>
+#include <unistd.h>
 
 // Boost includes
 #include <boost/program_options.hpp>
@@ -30,6 +34,18 @@ static void handleReload() { if (g_ctrl) g_ctrl->restartAll(); }
 namespace po = boost::program_options;
 
 static void setupSignals() {
+
+    // g_sigFd must be a real pipe before any handler below can run - without this, both "ends"
+    // default to fd 0 (stdin), so the handler's write() and signalDispatchLoop()'s read() are the
+    // same fd instead of two ends of a pipe. That happened to look like it worked when stdin was
+    // an interactive terminal (read() just blocks on it, same as it would block on a real empty
+    // pipe), but the moment stdin isn't a TTY - e.g. under systemd's default StandardInput=null,
+    // or any other non-interactive launch - read() sees immediate EOF and signalDispatchLoop()
+    // returns right away, tearing down every managed instance seconds after startup.
+    if (pipe(g_sigFd) != 0) {
+        std::cerr << "Failed to create signal pipe: " << strerror(errno) << "\n";
+        std::exit(1);
+    }
 
     struct sigaction sa{};
     memset(&sa, 0, sizeof(sa));// safest zero-init in C++

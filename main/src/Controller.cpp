@@ -260,9 +260,10 @@ namespace Euclid::main {
         const size_t n = group->instances.size();
         for (size_t i = 0; i < n; ++i) {
             const size_t idx = (group->rrCursor + i) % n;
-            if (auto &svc = group->instances[idx]; svc->state == Database::Entity::ModuleState::RUNNING) {
+            if (const auto &svc = group->instances[idx]; svc->state == Database::Entity::ModuleState::RUNNING) {
                 group->rrCursor = (idx + 1) % n;
                 svc->activeRequests++;
+                group->lastActivityAt = std::chrono::steady_clock::now();
                 return InstanceHandle{.socketPath = svc->instanceSocketPath, .pid = svc->pid};
             }
         }
@@ -472,17 +473,33 @@ namespace Euclid::main {
                 ++running;
                 if (svc->activeRequests > 0) {
                     ++busy;
-                } else if (!idleCandidate && std::chrono::duration_cast<std::chrono::seconds>(now - svc->lastIdleAt).count() >= _scaleDownIdleSeconds) {
+                } else if (!idleCandidate || svc->lastIdleAt < idleCandidate->lastIdleAt) {
+                    // Least-recently-used among the currently-idle instances, so if the group
+                    // does turn out to be idle enough to shrink, we stop the one round-robin has
+                    // favored least rather than an arbitrary one.
                     idleCandidate = svc;
                 }
             }
 
-            if (running > 0 && busy == running && running < group.config.maxInstances) {
+            // Scale up on ANY current demand rather than requiring every instance to be busy at
+            // once: acquireInstance() round-robins blindly (it doesn't prefer idle instances), so
+            // one instance being busy is already a sign the pool is under load, not proof the
+            // whole group is saturated. Requiring full saturation at a single 1s watchdog tick
+            // made this almost never fire for a workload of many quick requests - throughput would
+            // stay well above what one instance could serve, but the poll would rarely catch every
+            // instance mid-request at the same instant.
+            if (busy > 0 && running < group.config.maxInstances) {
                 auto svc = std::make_shared<Dto::ModuleProcess>();
                 svc->config = group.config;
                 group.instances.push_back(svc);
                 toSpawn.push_back(svc);
-            } else if (idleCandidate && running > group.config.minInstances) {
+            } else if (idleCandidate && running > group.config.minInstances &&
+                       std::chrono::duration_cast<std::chrono::seconds>(now - group.lastActivityAt).count() >= _scaleDownIdleSeconds) {
+                // Gated on the GROUP's last activity, not just this instance's: round-robin can
+                // leave one instance unpicked for a while even while its siblings stay busy, and
+                // per-instance idle time alone can't tell "nobody wants this instance" apart from
+                // "nobody wants any instance" - the former should NOT trigger a scale-down while
+                // the group is still doing real work.
                 std::erase(group.instances, idleCandidate);
                 toStop.push_back(idleCandidate);
             }

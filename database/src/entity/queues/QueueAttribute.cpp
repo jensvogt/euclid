@@ -2,9 +2,9 @@
 // Created by vogje01 on 12/10/23.
 //
 
-#include <euclid/database/entity/sqs/QueueAttribute.h>
+#include <euclid/database/entity/queues/QueueAttribute.h>
 
-namespace Euclid::Database::Entity::SQS {
+namespace Euclid::Database::Entity::Queues {
 
     namespace {
         long getBsonInt(const bsoncxx::document::element &field) {

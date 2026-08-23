@@ -11,10 +11,10 @@
 #include <vector>
 
 // Euclid includes
-#include <euclid/database/entity/sqs/Message.h>
-#include <euclid/database/entity/sqs/MessagePriority.h>
-#include <euclid/database/entity/sqs/Queue.h>
-#include <euclid/database/entity/sqs/Variant.h>
+#include <euclid/database/entity/queues/Message.h>
+#include <euclid/database/entity/queues/MessagePriority.h>
+#include <euclid/database/entity/queues/Queue.h>
+#include <euclid/database/entity/queues/Variant.h>
 
 namespace Euclid::Database {
 
@@ -24,7 +24,7 @@ namespace Euclid::Database {
      * Provides an abstraction for storing, retrieving, and managing
      * SQS-related data.
      */
-    class ISQSRepository {
+    class IQueuesRepository {
 
     public:
 
@@ -34,7 +34,7 @@ namespace Euclid::Database {
          * Ensures derived classes' destructor is invoked correctly
          * during object destruction to release resources.
          */
-        virtual ~ISQSRepository() = default;
+        virtual ~IQueuesRepository() = default;
 
         /**
          * @brief Inserts a new queue or updates an existing one in the repository.
@@ -45,7 +45,7 @@ namespace Euclid::Database {
          *
          * @param queue The queue to be inserted or updated in the repository.
          */
-        virtual Entity::SQS::Queue upsertQueue(Entity::SQS::Queue &queue) = 0;
+        virtual Entity::Queues::Queue upsertQueue(Entity::Queues::Queue &queue) = 0;
 
         /**
          * @brief Removes the specified element or elements from the collection or data structure.
@@ -68,7 +68,7 @@ namespace Euclid::Database {
          * @return The item matching the given name, or nullptr if no match is found.
          */
         [[nodiscard]]
-        virtual std::optional<Entity::SQS::Queue> findQueueByName(const std::string &name) const = 0;
+        virtual std::optional<Entity::Queues::Queue> findQueueByName(const std::string &name) const = 0;
 
         /**
          * @brief Locates a queue in the repository by its unique identifier.
@@ -81,7 +81,7 @@ namespace Euclid::Database {
          *         if no module with the given identifier exists.
          */
         [[nodiscard]]
-        virtual std::optional<Entity::SQS::Queue> findQueueById(const std::string &oid) const = 0;
+        virtual std::optional<Entity::Queues::Queue> findQueueById(const std::string &oid) const = 0;
 
         /**
          * @brief Searches for a queue by its ERN.
@@ -90,7 +90,7 @@ namespace Euclid::Database {
          * @return The item matching the given ERN, or an empty optional if no match is found.
          */
         [[nodiscard]]
-        virtual std::optional<Entity::SQS::Queue> findQueueByErn(const std::string &ern) const = 0;
+        virtual std::optional<Entity::Queues::Queue> findQueueByErn(const std::string &ern) const = 0;
 
         /**
          * @brief Finds and retrieves all available entities or objects.
@@ -102,7 +102,7 @@ namespace Euclid::Database {
          * @return A collection containing all entities or objects found.
          */
         [[nodiscard]]
-        virtual std::vector<Entity::SQS::Queue> listQueues(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
+        virtual std::vector<Entity::Queues::Queue> listQueues(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
 
         /**
          * @brief Checks if a queue with the specified name exists in the repository.
@@ -139,7 +139,7 @@ namespace Euclid::Database {
          *
          * @param message The message to be inserted or updated in the repository.
          */
-        virtual void upsertMessage(const Entity::SQS::Message &message) = 0;
+        virtual void upsertMessage(const Entity::Queues::Message &message) = 0;
 
         /**
          * @brief Sends a message to a queue.
@@ -155,7 +155,7 @@ namespace Euclid::Database {
          * @param priority message priority; defaults to MIDDLE.
          * @return the newly created message entity.
          */
-        virtual Entity::SQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::SQS::Variant> &attributes, Entity::SQS::MessagePriority priority = Entity::SQS::MessagePriority::MIDDLE) = 0;
+        virtual Entity::Queues::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::Queues::Variant> &attributes, Entity::Queues::MessagePriority priority = Entity::Queues::MessagePriority::MIDDLE) = 0;
 
         /**
          * @brief Receives up to maxCount available messages from a queue.
@@ -168,7 +168,7 @@ namespace Euclid::Database {
          *
          * The maxCount slots are apportioned across the three priority tiers (HIGH/MIDDLE/LOW)
          * proportionally to the configurable weights returned by
-         * Entity::SQS::LoadPriorityWeights() - see ComputeReceiveCounts() - so that with the
+         * Entity::Queues::LoadPriorityWeights() - see ComputeReceiveCounts() - so that with the
          * default weights, most of a batch is HIGH priority, fewer are MIDDLE, and fewer still are
          * LOW, while still filling up to maxCount whenever enough messages of any priority exist.
          *
@@ -177,7 +177,7 @@ namespace Euclid::Database {
          * @param waitTime maximal number of seconds to wait for messages to become available.
          * @return up to maxCount messages; empty if none became available within waitTime.
          */
-        virtual std::vector<Entity::SQS::Message> receiveMessages(const std::string &queueErn, long maxCount, long waitTime) = 0;
+        virtual std::vector<Entity::Queues::Message> receiveMessages(const std::string &queueErn, long maxCount, long waitTime) = 0;
 
         /**
          * @brief Deletes a message from the repository.
@@ -208,7 +208,7 @@ namespace Euclid::Database {
          * @return The item matching the given name, or nullptr if no match is found.
          */
         [[nodiscard]]
-        virtual std::optional<Entity::SQS::Message> findMessageByName(const std::string &name) const = 0;
+        virtual std::optional<Entity::Queues::Message> findMessageByName(const std::string &name) const = 0;
 
         /**
          * @brief Locates a message in the repository by its unique identifier.
@@ -221,7 +221,7 @@ namespace Euclid::Database {
          *         if no module with the given identifier exists.
          */
         [[nodiscard]]
-        virtual std::optional<Entity::SQS::Message> findMessageById(const std::string &oid) const = 0;
+        virtual std::optional<Entity::Queues::Message> findMessageById(const std::string &oid) const = 0;
 
         /**
          * @brief Finds and retrieves all available entities or objects.
@@ -229,7 +229,7 @@ namespace Euclid::Database {
          * @return A collection containing all entities or objects found.
          */
         [[nodiscard]]
-        virtual std::vector<Entity::SQS::Message> findAllMessages() const = 0;
+        virtual std::vector<Entity::Queues::Message> findAllMessages() const = 0;
 
         /**
          * @brief Lists the messages of a queue, without receiving them (i.e. without changing
@@ -243,7 +243,7 @@ namespace Euclid::Database {
          * @return the requested page of messages.
          */
         [[nodiscard]]
-        virtual std::vector<Entity::SQS::Message> listMessages(const std::string &queueErn, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
+        virtual std::vector<Entity::Queues::Message> listMessages(const std::string &queueErn, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
 
         /**
          * @brief Checks if a message with the specified name exists in the repository.

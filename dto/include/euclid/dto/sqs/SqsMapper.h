@@ -8,8 +8,8 @@
 #include <vector>
 
 // Euclid includes
-#include <euclid/database/entity/sqs/Message.h>
-#include <euclid/database/entity/sqs/Queue.h>
+#include <euclid/database/entity/queues/Message.h>
+#include <euclid/database/entity/queues/Queue.h>
 #include <euclid/dto/sqs/model/Message.h>
 #include <euclid/dto/sqs/model/Queue.h>
 
@@ -26,7 +26,7 @@ namespace Euclid::Dto::SQS {
          * @param entity source Queue entity from the database
          * @return Queue DTO
          */
-        static Queue toDto(const Database::Entity::SQS::Queue &entity);
+        static Queue toDto(const Database::Entity::Queues::Queue &entity);
 
         /**
          * @brief Maps a list of Queue entities to a list of Queue DTOs.
@@ -34,7 +34,7 @@ namespace Euclid::Dto::SQS {
          * @param entities source Queue entities from the database
          * @return list of Queue DTOs
          */
-        static std::vector<Queue> toDto(const std::vector<Database::Entity::SQS::Queue> &entities);
+        static std::vector<Queue> toDto(const std::vector<Database::Entity::Queues::Queue> &entities);
 
         /**
          * @brief Maps a Queue DTO to a Queue entity.
@@ -42,7 +42,7 @@ namespace Euclid::Dto::SQS {
          * @param dto source Queue DTO
          * @return Queue entity ready for persistence
          */
-        static Database::Entity::SQS::Queue toEntity(const Queue &dto);
+        static Database::Entity::Queues::Queue toEntity(const Queue &dto);
 
         /**
          * @brief Maps a Message entity to a Message DTO.
@@ -50,7 +50,7 @@ namespace Euclid::Dto::SQS {
          * @param entity source Message entity from the database
          * @return Message DTO
          */
-        static Message toDto(const Database::Entity::SQS::Message &entity);
+        static Message toDto(const Database::Entity::Queues::Message &entity);
 
         /**
          * @brief Maps a list of Message entities to a list of Message DTOs.
@@ -58,7 +58,7 @@ namespace Euclid::Dto::SQS {
          * @param entities source Message entities from the database
          * @return list of Message DTOs
          */
-        static std::vector<Message> toDto(const std::vector<Database::Entity::SQS::Message> &entities);
+        static std::vector<Message> toDto(const std::vector<Database::Entity::Queues::Message> &entities);
 
         /**
          * @brief Maps a Message DTO to a Message entity.
@@ -66,7 +66,7 @@ namespace Euclid::Dto::SQS {
          * @param dto source Message DTO
          * @return Message entity ready for persistence
          */
-        static Database::Entity::SQS::Message toEntity(const Message &dto);
+        static Database::Entity::Queues::Message toEntity(const Message &dto);
 
         /**
          * @brief Maps a message attribute DTO to a message attribute entity.
@@ -74,7 +74,7 @@ namespace Euclid::Dto::SQS {
          * @param dto source Variant DTO
          * @return Variant entity ready for persistence
          */
-        static Database::Entity::SQS::Variant toEntity(const Variant &dto);
+        static Database::Entity::Queues::Variant toEntity(const Variant &dto);
 
         /**
          * @brief Maps a message attribute entity to a message attribute DTO.
@@ -82,7 +82,7 @@ namespace Euclid::Dto::SQS {
          * @param entity source Variant entity from the database
          * @return Variant DTO
          */
-        static Variant toDto(const Database::Entity::SQS::Variant &entity);
+        static Variant toDto(const Database::Entity::Queues::Variant &entity);
     };
 
 }// namespace Euclid::Dto::SQS

@@ -12,15 +12,15 @@
 #include <euclid/core/ContentTypeUtils.h>
 #include <euclid/core/CryptoUtils.h>
 #include <euclid/core/UuidUtils.h>
-#include <euclid/database/repository/sqs/MongoSQSRepository.h>
+#include <euclid/database/repository/queues/MongoQueuesRepository.h>
 
 namespace Euclid::Database {
 
-    MongoSQSRepository::MongoSQSRepository() : _databaseName("euclid") {
+    MongoQueuesRepository::MongoQueuesRepository() : _databaseName("euclid") {
         ensureIndexes();
     }
 
-    void MongoSQSRepository::ensureIndexes() const {
+    void MongoQueuesRepository::ensureIndexes() {
 
         try {
             const auto entry = Database::instance().client();
@@ -41,7 +41,7 @@ namespace Euclid::Database {
         }
     }
 
-    bool MongoSQSRepository::queueExists(const std::string &name) const {
+    bool MongoQueuesRepository::queueExists(const std::string &name) const {
 
         try {
 
@@ -63,7 +63,7 @@ namespace Euclid::Database {
         return false;
     }
 
-    std::optional<Entity::SQS::Queue> MongoSQSRepository::findQueueById(const std::string &oid) const {
+    std::optional<Entity::Queues::Queue> MongoQueuesRepository::findQueueById(const std::string &oid) const {
 
         try {
 
@@ -74,7 +74,7 @@ namespace Euclid::Database {
             auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
 
             if (auto mResult = queueCollection.find_one(document.view())) {
-                return Entity::SQS::Queue::fromDocument(mResult->view());
+                return Entity::Queues::Queue::fromDocument(mResult->view());
             }
 
         } catch (const std::exception &e) {
@@ -83,7 +83,7 @@ namespace Euclid::Database {
         return {};
     }
 
-    std::optional<Entity::SQS::Queue> MongoSQSRepository::findQueueByName(const std::string &name) const {
+    std::optional<Entity::Queues::Queue> MongoQueuesRepository::findQueueByName(const std::string &name) const {
 
         try {
 
@@ -91,7 +91,7 @@ namespace Euclid::Database {
             auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
 
             if (auto mResult = queueCollection.find_one(make_document(kvp("name", name)))) {
-                return Entity::SQS::Queue::fromDocument(mResult.value());
+                return Entity::Queues::Queue::fromDocument(mResult.value());
             }
 
         } catch (const std::exception &e) {
@@ -100,7 +100,7 @@ namespace Euclid::Database {
         return {};
     }
 
-    std::optional<Entity::SQS::Queue> MongoSQSRepository::findQueueByErn(const std::string &ern) const {
+    std::optional<Entity::Queues::Queue> MongoQueuesRepository::findQueueByErn(const std::string &ern) const {
 
         try {
 
@@ -108,7 +108,7 @@ namespace Euclid::Database {
             auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
 
             if (auto mResult = queueCollection.find_one(make_document(kvp("ern", ern)))) {
-                return Entity::SQS::Queue::fromDocument(mResult.value());
+                return Entity::Queues::Queue::fromDocument(mResult.value());
             }
 
         } catch (const std::exception &e) {
@@ -117,7 +117,7 @@ namespace Euclid::Database {
         return {};
     }
 
-    std::vector<Entity::SQS::Queue> MongoSQSRepository::listQueues(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
+    std::vector<Entity::Queues::Queue> MongoQueuesRepository::listQueues(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
 
         try {
 
@@ -135,12 +135,12 @@ namespace Euclid::Database {
                 opts.skip(std::max<long>(pageIndex, 0) * pageSize);
             }
 
-            std::vector<Entity::SQS::Queue> queues;
+            std::vector<Entity::Queues::Queue> queues;
             const auto entry = Database::instance().client();
             auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
 
             for (auto queueCursor = queueCollection.find(filter.view(), opts); auto queue: queueCursor) {
-                queues.push_back(Entity::SQS::Queue::fromDocument(queue));
+                queues.push_back(Entity::Queues::Queue::fromDocument(queue));
             }
             return queues;
 
@@ -151,22 +151,22 @@ namespace Euclid::Database {
         }
     }
 
-    Entity::SQS::Queue MongoSQSRepository::upsertQueue(Entity::SQS::Queue &queue) {
+    Entity::Queues::Queue MongoQueuesRepository::upsertQueue(Entity::Queues::Queue &queue) {
 
         try {
 
             const auto filter = make_document(kvp("name", queue.name));
             const auto update = make_document(
-                kvp("$set", queue.toDocument()),
-                kvp("$setOnInsert", make_document(
-                        kvp("created", bsoncxx::types::b_date{
-                                std::chrono::duration_cast<std::chrono::milliseconds>(
-                                    queue.created.time_since_epoch())
-                            })
-                    )),
-                kvp("$currentDate", make_document(
-                        kvp("modified", true)
-                    )));
+                    kvp("$set", queue.toDocument()),
+                    kvp("$setOnInsert", make_document(
+                                kvp("created", bsoncxx::types::b_date{
+                                            std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                    queue.created.time_since_epoch())
+                                    })
+                                )),
+                    kvp("$currentDate", make_document(
+                                kvp("modified", true)
+                                )));
 
             mongocxx::options::find_one_and_update opts;
             opts.upsert(true);
@@ -176,7 +176,7 @@ namespace Euclid::Database {
             auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
 
             if (auto result = queueCollection.find_one_and_update(filter.view(), update.view(), opts)) {
-                return Entity::SQS::Queue::fromDocument(result->view());
+                return Entity::Queues::Queue::fromDocument(result->view());
             }
 
         } catch (const std::exception &e) {
@@ -185,7 +185,7 @@ namespace Euclid::Database {
         return queue;
     }
 
-    long MongoSQSRepository::countQueues() const {
+    long MongoQueuesRepository::countQueues() const {
 
         try {
 
@@ -203,7 +203,7 @@ namespace Euclid::Database {
         return -1;
     }
 
-    void MongoSQSRepository::removeQueueByName(const std::string &name) {
+    void MongoQueuesRepository::removeQueueByName(const std::string &name) {
 
         try {
             const auto entry = Database::instance().client();
@@ -234,7 +234,7 @@ namespace Euclid::Database {
 
     }
 
-    void MongoSQSRepository::deleteQueueByErn(const std::string &ern) {
+    void MongoQueuesRepository::deleteQueueByErn(const std::string &ern) {
 
         try {
             const auto entry = Database::instance().client();
@@ -254,7 +254,7 @@ namespace Euclid::Database {
 
     }
 
-    void MongoSQSRepository::clearQueues() {
+    void MongoQueuesRepository::clearQueues() {
 
         try {
             const auto entry = Database::instance().client();
@@ -268,11 +268,11 @@ namespace Euclid::Database {
         }
     }
 
-    bool MongoSQSRepository::messageExists(const std::string &messageId) const {
+    bool MongoQueuesRepository::messageExists(const std::string &messageId) const {
 
         try {
             const auto query = make_document(
-                kvp("messageId", messageId));
+                    kvp("messageId", messageId));
             const auto entry = Database::instance().client();
             auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
 
@@ -284,16 +284,16 @@ namespace Euclid::Database {
         return false;
     }
 
-    std::optional<Entity::SQS::Message> MongoSQSRepository::findMessageById(const std::string &oid) const {
+    std::optional<Entity::Queues::Message> MongoQueuesRepository::findMessageById(const std::string &oid) const {
 
         try {
             const auto query = make_document(
-                kvp("_id", oid));
+                    kvp("_id", oid));
             const auto entry = Database::instance().client();
             auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
 
             if (auto mResult = messageCollection.find_one(query.view())) {
-                Entity::SQS::Message message;
+                Entity::Queues::Message message;
                 message.FromDocument(mResult->view());
                 return message;
             }
@@ -303,16 +303,16 @@ namespace Euclid::Database {
         return {};
     }
 
-    std::optional<Entity::SQS::Message> MongoSQSRepository::findMessageByName(const std::string &messageId) const {
+    std::optional<Entity::Queues::Message> MongoQueuesRepository::findMessageByName(const std::string &messageId) const {
 
         try {
             const auto query = make_document(
-                kvp("messageId", messageId));
+                    kvp("messageId", messageId));
             const auto entry = Database::instance().client();
             auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
 
             if (auto mResult = messageCollection.find_one(query.view())) {
-                Entity::SQS::Message message;
+                Entity::Queues::Message message;
                 message.FromDocument(mResult->view());
                 return message;
             }
@@ -322,15 +322,15 @@ namespace Euclid::Database {
         return {};
     }
 
-    std::vector<Entity::SQS::Message> MongoSQSRepository::findAllMessages() const {
+    std::vector<Entity::Queues::Message> MongoQueuesRepository::findAllMessages() const {
 
         try {
-            std::vector<Entity::SQS::Message> messages;
+            std::vector<Entity::Queues::Message> messages;
             const auto entry = Database::instance().client();
             auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
 
             for (auto cursor = messageCollection.find({}); auto doc: cursor) {
-                Entity::SQS::Message message;
+                Entity::Queues::Message message;
                 message.FromDocument(doc);
                 messages.push_back(std::move(message));
             }
@@ -341,9 +341,9 @@ namespace Euclid::Database {
         return {};
     }
 
-    std::vector<Entity::SQS::Message> MongoSQSRepository::listMessages(const std::string &queueErn, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
+    std::vector<Entity::Queues::Message> MongoQueuesRepository::listMessages(const std::string &queueErn, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
 
-        std::vector<Entity::SQS::Message> messages;
+        std::vector<Entity::Queues::Message> messages;
         try {
             const auto filter = make_document(kvp("queueErn", queueErn));
 
@@ -360,7 +360,7 @@ namespace Euclid::Database {
             auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
 
             for (auto cursor = messageCollection.find(filter.view(), opts); auto doc: cursor) {
-                Entity::SQS::Message message;
+                Entity::Queues::Message message;
                 message.FromDocument(doc);
                 messages.push_back(std::move(message));
             }
@@ -371,20 +371,20 @@ namespace Euclid::Database {
         return messages;
     }
 
-    void MongoSQSRepository::upsertMessage(const Entity::SQS::Message &message) {
+    void MongoQueuesRepository::upsertMessage(const Entity::Queues::Message &message) {
 
         try {
             const auto filter = make_document(
-                kvp("messageId", message.messageId));
+                    kvp("messageId", message.messageId));
             const auto update = make_document(
-                kvp("$set", message.ToDocument()),
-                kvp("$setOnInsert", make_document(
-                        kvp("created", bsoncxx::types::b_date{
-                                std::chrono::duration_cast<std::chrono::milliseconds>(
-                                    message.created.time_since_epoch())
-                            }))),
-                kvp("$currentDate", make_document(
-                        kvp("modified", true))));
+                    kvp("$set", message.ToDocument()),
+                    kvp("$setOnInsert", make_document(
+                                kvp("created", bsoncxx::types::b_date{
+                                            std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                    message.created.time_since_epoch())
+                                    }))),
+                    kvp("$currentDate", make_document(
+                                kvp("modified", true))));
 
             mongocxx::options::update opts;
             opts.upsert(true);
@@ -399,10 +399,10 @@ namespace Euclid::Database {
         }
     }
 
-    Entity::SQS::Message MongoSQSRepository::sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::SQS::Variant> &attributes,
-                                                         const Entity::SQS::MessagePriority priority) {
+    Entity::Queues::Message MongoQueuesRepository::sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::Queues::Variant> &attributes,
+                                                               const Entity::Queues::MessagePriority priority) {
 
-        Entity::SQS::Message message;
+        Entity::Queues::Message message;
         message.ern = ern;
         message.queueErn = queueErn;
         message.body = body;
@@ -411,8 +411,8 @@ namespace Euclid::Database {
         message.md5Body = Core::CryptoUtils::md5Sum(message.body);
         message.contentType = Core::ContentTypeUtils::fromContent(message.body);
         message.attributes = attributes;
-        message.md5Attributes = Entity::SQS::Message::ComputeAttributesMd5(attributes);
-        message.status = Entity::SQS::MessageStatus::AVAILABLE;
+        message.md5Attributes = Entity::Queues::Message::ComputeAttributesMd5(attributes);
+        message.status = Entity::Queues::MessageStatus::AVAILABLE;
         message.priority = priority;
 
         try {
@@ -423,21 +423,21 @@ namespace Euclid::Database {
 
             const auto queueFilter = make_document(kvp("ern", queueErn));
             if (auto queueResult = queueCollection.find_one(queueFilter.view())) {
-                const auto queue = Entity::SQS::Queue::fromDocument(queueResult->view());
+                const auto queue = Entity::Queues::Queue::fromDocument(queueResult->view());
                 message.visibilityTimeout = queue.visibility;
 
                 if (queue.delay > 0) {
-                    message.status = Entity::SQS::MessageStatus::DELAYED;
+                    message.status = Entity::Queues::MessageStatus::DELAYED;
                     message.delayUntil = std::chrono::system_clock::now() + std::chrono::seconds(queue.delay);
                 }
 
                 const auto update = make_document(
-                    kvp("$inc", make_document(
-                            kvp("size", static_cast<int64_t>(message.size)),
-                            kvp("available", static_cast<int64_t>(queue.delay > 0 ? 0 : 1)),
-                            kvp("delayed", static_cast<int64_t>(queue.delay > 0 ? 1 : 0)))),
-                    kvp("$currentDate", make_document(
-                            kvp("modified", true))));
+                        kvp("$inc", make_document(
+                                    kvp("size", static_cast<int64_t>(message.size)),
+                                    kvp("available", static_cast<int64_t>(queue.delay > 0 ? 0 : 1)),
+                                    kvp("delayed", static_cast<int64_t>(queue.delay > 0 ? 1 : 0)))),
+                        kvp("$currentDate", make_document(
+                                    kvp("modified", true))));
                 queueCollection.update_one(queueFilter.view(), update.view());
             }
 
@@ -450,12 +450,12 @@ namespace Euclid::Database {
         return message;
     }
 
-    std::vector<Entity::SQS::Message> MongoSQSRepository::receiveMessages(const std::string &queueErn, const long maxCount, const long waitTime) {
+    std::vector<Entity::Queues::Message> MongoQueuesRepository::receiveMessages(const std::string &queueErn, const long maxCount, const long waitTime) {
 
-        std::vector<Entity::SQS::Message> result;
+        std::vector<Entity::Queues::Message> result;
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(waitTime);
-        const auto weights = Entity::SQS::LoadPriorityWeights();
-        static constexpr std::array priorityOrder{Entity::SQS::MessagePriority::HIGH, Entity::SQS::MessagePriority::MIDDLE, Entity::SQS::MessagePriority::LOW};
+        const auto weights = Entity::Queues::LoadPriorityWeights();
+        static constexpr std::array priorityOrder{Entity::Queues::MessagePriority::HIGH, Entity::Queues::MessagePriority::MIDDLE, Entity::Queues::MessagePriority::LOW};
 
         try {
             long maxReceiveCount = 0;
@@ -464,7 +464,7 @@ namespace Euclid::Database {
                 const auto entry = Database::instance().client();
                 auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
                 if (const auto queueResult = queueCollection.find_one(make_document(kvp("ern", queueErn)))) {
-                    const auto queue = Entity::SQS::Queue::fromDocument(queueResult->view());
+                    const auto queue = Entity::Queues::Queue::fromDocument(queueResult->view());
                     maxReceiveCount = queue.maxReceiveCount;
                     deadLetterQueueErn = queue.deadLetterQueueErn;
                 }
@@ -477,14 +477,14 @@ namespace Euclid::Database {
                 auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
                 auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
 
-                std::map<Entity::SQS::MessagePriority, long> availableCounts;
+                std::map<Entity::Queues::MessagePriority, long> availableCounts;
                 for (const auto priority: priorityOrder) {
                     availableCounts[priority] = messageCollection.count_documents(make_document(
-                        kvp("queueErn", queueErn),
-                        kvp("status", MessageStatusToString(Entity::SQS::MessageStatus::AVAILABLE)),
-                        kvp("priority", Entity::SQS::MessagePriorityToString(priority))));
+                            kvp("queueErn", queueErn),
+                            kvp("status", MessageStatusToString(Entity::Queues::MessageStatus::AVAILABLE)),
+                            kvp("priority", Entity::Queues::MessagePriorityToString(priority))));
                 }
-                const auto takeCounts = Entity::SQS::ComputeReceiveCounts(maxCount, availableCounts, weights);
+                const auto takeCounts = Entity::Queues::ComputeReceiveCounts(maxCount, availableCounts, weights);
 
                 for (const auto priority: priorityOrder) {
                     const long target = takeCounts.at(priority);
@@ -493,19 +493,19 @@ namespace Euclid::Database {
                     while (taken < target && static_cast<long>(result.size()) < maxCount) {
                         const auto receiptHandle = Core::UuidUtils::CreateRandomUuid();
                         const auto filter = make_document(
-                            kvp("queueErn", queueErn),
-                            kvp("status", MessageStatusToString(Entity::SQS::MessageStatus::AVAILABLE)),
-                            kvp("priority", Entity::SQS::MessagePriorityToString(priority)));
+                                kvp("queueErn", queueErn),
+                                kvp("status", MessageStatusToString(Entity::Queues::MessageStatus::AVAILABLE)),
+                                kvp("priority", Entity::Queues::MessagePriorityToString(priority)));
                         const auto update = make_document(
-                            kvp("$set", make_document(
-                                    kvp("status", MessageStatusToString(Entity::SQS::MessageStatus::INVISIBLE)),
-                                    kvp("receiptHandle", receiptHandle))),
-                            kvp("$inc", make_document(
-                                    kvp("receivedCount", 1))),
-                            kvp("$currentDate", make_document(
-                                    kvp("modified", true),
-                                    kvp("lastReceived", true)
-                                )));
+                                kvp("$set", make_document(
+                                            kvp("status", MessageStatusToString(Entity::Queues::MessageStatus::INVISIBLE)),
+                                            kvp("receiptHandle", receiptHandle))),
+                                kvp("$inc", make_document(
+                                            kvp("receivedCount", 1))),
+                                kvp("$currentDate", make_document(
+                                            kvp("modified", true),
+                                            kvp("lastReceived", true)
+                                            )));
 
                         mongocxx::options::find_one_and_update opts;
                         opts.return_document(mongocxx::options::return_document::k_after);
@@ -513,35 +513,35 @@ namespace Euclid::Database {
                         const auto claimed = messageCollection.find_one_and_update(filter.view(), update.view(), opts);
                         if (!claimed) break;
 
-                        Entity::SQS::Message message;
+                        Entity::Queues::Message message;
                         message.FromDocument(claimed->view());
 
                         // Move to dead letter queue if existing
                         if (!deadLetterQueueErn.empty() && message.receivedCount > maxReceiveCount) {
                             const auto moveUpdate = make_document(
-                                kvp("$set", make_document(
-                                        kvp("queueErn", deadLetterQueueErn),
-                                        kvp("status", MessageStatusToString(Entity::SQS::MessageStatus::AVAILABLE)),
-                                        kvp("receivedCount", 0),
-                                        kvp("receiptHandle", ""))),
-                                kvp("$currentDate", make_document(
-                                        kvp("modified", true))));
+                                    kvp("$set", make_document(
+                                                kvp("queueErn", deadLetterQueueErn),
+                                                kvp("status", MessageStatusToString(Entity::Queues::MessageStatus::AVAILABLE)),
+                                                kvp("receivedCount", 0),
+                                                kvp("receiptHandle", ""))),
+                                    kvp("$currentDate", make_document(
+                                                kvp("modified", true))));
                             messageCollection.update_one(make_document(kvp("messageId", message.messageId)).view(), moveUpdate.view());
 
                             const auto sourceUpdate = make_document(
-                                kvp("$inc", make_document(
-                                        kvp("size", static_cast<int64_t>(-message.size)),
-                                        kvp("available", static_cast<int64_t>(-1)))),
-                                kvp("$currentDate", make_document(
-                                        kvp("modified", true))));
+                                    kvp("$inc", make_document(
+                                                kvp("size", static_cast<int64_t>(-message.size)),
+                                                kvp("available", static_cast<int64_t>(-1)))),
+                                    kvp("$currentDate", make_document(
+                                                kvp("modified", true))));
                             queueCollection.update_one(make_document(kvp("ern", queueErn)).view(), sourceUpdate.view());
 
                             const auto targetUpdate = make_document(
-                                kvp("$inc", make_document(
-                                        kvp("size", static_cast<int64_t>(message.size)),
-                                        kvp("available", static_cast<int64_t>(1)))),
-                                kvp("$currentDate", make_document(
-                                        kvp("modified", true))));
+                                    kvp("$inc", make_document(
+                                                kvp("size", static_cast<int64_t>(message.size)),
+                                                kvp("available", static_cast<int64_t>(1)))),
+                                    kvp("$currentDate", make_document(
+                                                kvp("modified", true))));
                             queueCollection.update_one(make_document(kvp("ern", deadLetterQueueErn)).view(), targetUpdate.view());
 
                             log_info << "Message moved to dead letter queue, ern: " << queueErn << ", dlqErn: " << deadLetterQueueErn << ", messageId: " << message.messageId;
@@ -557,11 +557,11 @@ namespace Euclid::Database {
                 if (!result.empty()) {
                     const auto queueFilter = make_document(kvp("ern", queueErn));
                     const auto queueUpdate = make_document(
-                        kvp("$inc", make_document(
-                                kvp("invisible", static_cast<int64_t>(result.size())),
-                                kvp("available", -static_cast<int64_t>(result.size())))),
-                        kvp("$currentDate", make_document(
-                                kvp("modified", true))));
+                            kvp("$inc", make_document(
+                                        kvp("invisible", static_cast<int64_t>(result.size())),
+                                        kvp("available", -static_cast<int64_t>(result.size())))),
+                            kvp("$currentDate", make_document(
+                                        kvp("modified", true))));
                     queueCollection.update_one(queueFilter.view(), queueUpdate.view());
                     log_debug << "Messages received, ern: " << queueErn << ", count: " << result.size();
                     return result;
@@ -578,17 +578,17 @@ namespace Euclid::Database {
         return result;
     }
 
-    void MongoSQSRepository::deleteMessage(const std::string &receiptHandle) {
+    void MongoQueuesRepository::deleteMessage(const std::string &receiptHandle) {
 
         try {
             const auto filter = make_document(
-                kvp("receiptHandle", receiptHandle));
+                    kvp("receiptHandle", receiptHandle));
 
             const auto entry = Database::instance().client();
             auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
             auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
 
-            Entity::SQS::Message message;
+            Entity::Queues::Message message;
             if (auto mResult = messageCollection.find_one(filter.view())) {
                 message.FromDocument(mResult->view());
             }
@@ -599,13 +599,13 @@ namespace Euclid::Database {
             if (result && result->deleted_count() > 0 && !message.queueErn.empty()) {
                 const auto queueFilter = make_document(kvp("ern", message.queueErn));
                 const auto update = make_document(
-                    kvp("$inc", make_document(
-                            kvp("size", static_cast<int64_t>(-message.size)),
-                            kvp("available", static_cast<int64_t>(message.status == Entity::SQS::MessageStatus::AVAILABLE ? -1 : 0)),
-                            kvp("delayed", static_cast<int64_t>(message.status == Entity::SQS::MessageStatus::DELAYED ? -1 : 0)),
-                            kvp("invisible", static_cast<int64_t>(message.status == Entity::SQS::MessageStatus::INVISIBLE ? -1 : 0)))),
-                    kvp("$currentDate", make_document(
-                            kvp("modified", true))));
+                        kvp("$inc", make_document(
+                                    kvp("size", static_cast<int64_t>(-message.size)),
+                                    kvp("available", static_cast<int64_t>(message.status == Entity::Queues::MessageStatus::AVAILABLE ? -1 : 0)),
+                                    kvp("delayed", static_cast<int64_t>(message.status == Entity::Queues::MessageStatus::DELAYED ? -1 : 0)),
+                                    kvp("invisible", static_cast<int64_t>(message.status == Entity::Queues::MessageStatus::INVISIBLE ? -1 : 0)))),
+                        kvp("$currentDate", make_document(
+                                    kvp("modified", true))));
                 queueCollection.update_one(queueFilter.view(), update.view());
             }
         } catch (const std::exception &e) {
@@ -613,11 +613,11 @@ namespace Euclid::Database {
         }
     }
 
-    void MongoSQSRepository::purgeQueue(const std::string &queueErn) {
+    void MongoQueuesRepository::purgeQueue(const std::string &queueErn) {
 
         try {
             const auto filter = make_document(
-                kvp("queueErn", queueErn));
+                    kvp("queueErn", queueErn));
 
             const auto entry = Database::instance().client();
             auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
@@ -628,20 +628,20 @@ namespace Euclid::Database {
 
             const auto queueFilter = make_document(kvp("ern", queueErn));
             const auto update = make_document(
-                kvp("$set", make_document(
-                        kvp("size", static_cast<int64_t>(0)),
-                        kvp("available", static_cast<int64_t>(0)),
-                        kvp("delayed", static_cast<int64_t>(0)),
-                        kvp("invisible", static_cast<int64_t>(0)))),
-                kvp("$currentDate", make_document(
-                        kvp("modified", true))));
+                    kvp("$set", make_document(
+                                kvp("size", static_cast<int64_t>(0)),
+                                kvp("available", static_cast<int64_t>(0)),
+                                kvp("delayed", static_cast<int64_t>(0)),
+                                kvp("invisible", static_cast<int64_t>(0)))),
+                    kvp("$currentDate", make_document(
+                                kvp("modified", true))));
             queueCollection.update_one(queueFilter.view(), update.view());
         } catch (const std::exception &e) {
             log_error << "Purge queue failed, ern: " << queueErn << ", error: " << e.what();
         }
     }
 
-    void MongoSQSRepository::purgeAllQueues(const std::string &region, const std::string &accountId) {
+    void MongoQueuesRepository::purgeAllQueues(const std::string &region, const std::string &accountId) {
 
         try {
             const std::string marker = ":" + region + ":" + accountId + ":";
@@ -653,7 +653,7 @@ namespace Euclid::Database {
             array ernArray;
             long queueCount = 0;
             for (auto queueCursor = queueCollection.find({}); auto queue: queueCursor) {
-                if (const auto entity = Entity::SQS::Queue::fromDocument(queue); entity.ern.find(marker) != std::string::npos) {
+                if (const auto entity = Entity::Queues::Queue::fromDocument(queue); entity.ern.find(marker) != std::string::npos) {
                     ernArray.append(entity.ern);
                     ++queueCount;
                 }
@@ -670,20 +670,20 @@ namespace Euclid::Database {
             log_debug << "Queues purged, region: " << region << ", accountId: " << accountId << ", queueCount: " << queueCount << ", messageCount: " << messageResult->deleted_count();
 
             const auto update = make_document(
-                kvp("$set", make_document(
-                        kvp("size", static_cast<int64_t>(0)),
-                        kvp("available", static_cast<int64_t>(0)),
-                        kvp("delayed", static_cast<int64_t>(0)),
-                        kvp("invisible", static_cast<int64_t>(0)))),
-                kvp("$currentDate", make_document(
-                        kvp("modified", true))));
+                    kvp("$set", make_document(
+                                kvp("size", static_cast<int64_t>(0)),
+                                kvp("available", static_cast<int64_t>(0)),
+                                kvp("delayed", static_cast<int64_t>(0)),
+                                kvp("invisible", static_cast<int64_t>(0)))),
+                    kvp("$currentDate", make_document(
+                                kvp("modified", true))));
             queueCollection.update_many(queueFilter.view(), update.view());
         } catch (const std::exception &e) {
             log_error << "Purge all queues failed, region: " << region << ", accountId: " << accountId << ", error: " << e.what();
         }
     }
 
-    long MongoSQSRepository::countMessages() const {
+    long MongoQueuesRepository::countMessages() const {
 
         try {
             const auto entry = Database::instance().client();
@@ -696,7 +696,7 @@ namespace Euclid::Database {
         return -1;
     }
 
-    long MongoSQSRepository::countMessages(const std::string &queueErn) const {
+    long MongoQueuesRepository::countMessages(const std::string &queueErn) const {
 
         try {
             const auto filter = make_document(kvp("queueErn", queueErn));
@@ -710,7 +710,7 @@ namespace Euclid::Database {
         return -1;
     }
 
-    void MongoSQSRepository::clearMessages() {
+    void MongoQueuesRepository::clearMessages() {
 
         try {
             const auto entry = Database::instance().client();
@@ -723,7 +723,7 @@ namespace Euclid::Database {
         }
     }
 
-    long MongoSQSRepository::resetExpiredMessages() {
+    long MongoQueuesRepository::resetExpiredMessages() {
 
         long resetCount = 0;
         try {
@@ -735,22 +735,22 @@ namespace Euclid::Database {
             auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
             auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
 
-            const auto filter = make_document(kvp("status", MessageStatusToString(Entity::SQS::MessageStatus::INVISIBLE)));
+            const auto filter = make_document(kvp("status", MessageStatusToString(Entity::Queues::MessageStatus::INVISIBLE)));
             for (auto cursor = messageCollection.find(filter.view()); auto doc: cursor) {
-                Entity::SQS::Message message;
+                Entity::Queues::Message message;
                 message.FromDocument(doc);
                 if (now < message.lastReceived + std::chrono::seconds(message.visibilityTimeout)) continue;
 
                 const auto resetFilter = make_document(
-                    kvp("_id", bsoncxx::oid{message.oid}),
-                    kvp("status", MessageStatusToString(Entity::SQS::MessageStatus::INVISIBLE)));
+                        kvp("_id", bsoncxx::oid{message.oid}),
+                        kvp("status", MessageStatusToString(Entity::Queues::MessageStatus::INVISIBLE)));
                 const auto update = make_document(
-                    kvp("$set", make_document(
-                            kvp("status", MessageStatusToString(Entity::SQS::MessageStatus::AVAILABLE)),
-                            kvp("receiptHandle", ""))),
-                    kvp("$currentDate", make_document(
-                            kvp("modified", true),
-                            kvp("lastReceived", true))));
+                        kvp("$set", make_document(
+                                    kvp("status", MessageStatusToString(Entity::Queues::MessageStatus::AVAILABLE)),
+                                    kvp("receiptHandle", ""))),
+                        kvp("$currentDate", make_document(
+                                    kvp("modified", true),
+                                    kvp("lastReceived", true))));
                 const auto updateResult = messageCollection.update_one(resetFilter.view(), update.view());
 
                 // Message was concurrently deleted or already reset since the cursor read it; skip counting.
@@ -761,20 +761,20 @@ namespace Euclid::Database {
                 log_debug << "Message visibility timeout expired, messageId: " << message.messageId << ", queueErn: " << message.queueErn;
             }
 
-            const auto delayedFilter = make_document(kvp("status", MessageStatusToString(Entity::SQS::MessageStatus::DELAYED)));
+            const auto delayedFilter = make_document(kvp("status", MessageStatusToString(Entity::Queues::MessageStatus::DELAYED)));
             for (auto cursor = messageCollection.find(delayedFilter.view()); auto doc: cursor) {
-                Entity::SQS::Message message;
+                Entity::Queues::Message message;
                 message.FromDocument(doc);
                 if (now < message.delayUntil) continue;
 
                 const auto resetFilter = make_document(
-                    kvp("_id", bsoncxx::oid{message.oid}),
-                    kvp("status", MessageStatusToString(Entity::SQS::MessageStatus::DELAYED)));
+                        kvp("_id", bsoncxx::oid{message.oid}),
+                        kvp("status", MessageStatusToString(Entity::Queues::MessageStatus::DELAYED)));
                 const auto update = make_document(
-                    kvp("$set", make_document(
-                            kvp("status", MessageStatusToString(Entity::SQS::MessageStatus::AVAILABLE)))),
-                    kvp("$currentDate", make_document(
-                            kvp("modified", true))));
+                        kvp("$set", make_document(
+                                    kvp("status", MessageStatusToString(Entity::Queues::MessageStatus::AVAILABLE)))),
+                        kvp("$currentDate", make_document(
+                                    kvp("modified", true))));
                 const auto updateResult = messageCollection.update_one(resetFilter.view(), update.view());
 
                 // Message was concurrently deleted or already reset since the cursor read it; skip counting.
@@ -787,21 +787,21 @@ namespace Euclid::Database {
 
             for (const auto &[queueErn, count]: resetCountByQueue) {
                 const auto queueUpdate = make_document(
-                    kvp("$inc", make_document(
-                            kvp("invisible", -static_cast<int64_t>(count)),
-                            kvp("available", static_cast<int64_t>(count)))),
-                    kvp("$currentDate", make_document(
-                            kvp("modified", true))));
+                        kvp("$inc", make_document(
+                                    kvp("invisible", -static_cast<int64_t>(count)),
+                                    kvp("available", static_cast<int64_t>(count)))),
+                        kvp("$currentDate", make_document(
+                                    kvp("modified", true))));
                 queueCollection.update_one(make_document(kvp("ern", queueErn)).view(), queueUpdate.view());
             }
 
             for (const auto &[queueErn, count]: delayedResetCountByQueue) {
                 const auto queueUpdate = make_document(
-                    kvp("$inc", make_document(
-                            kvp("delayed", -static_cast<int64_t>(count)),
-                            kvp("available", static_cast<int64_t>(count)))),
-                    kvp("$currentDate", make_document(
-                            kvp("modified", true))));
+                        kvp("$inc", make_document(
+                                    kvp("delayed", -static_cast<int64_t>(count)),
+                                    kvp("available", static_cast<int64_t>(count)))),
+                        kvp("$currentDate", make_document(
+                                    kvp("modified", true))));
                 queueCollection.update_one(make_document(kvp("ern", queueErn)).view(), queueUpdate.view());
             }
 
@@ -814,4 +814,4 @@ namespace Euclid::Database {
         return resetCount;
     }
 
-} // namespace Euclid::Database
+}// namespace Euclid::Database

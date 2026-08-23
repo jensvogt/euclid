@@ -14,11 +14,11 @@
 #include <bsoncxx/document/value.hpp>
 
 // Euclid includes
-#include <euclid/database/entity/sqs/MessagePriority.h>
-#include <euclid/database/entity/sqs/MessageStatus.h>
-#include <euclid/database/entity/sqs/Variant.h>
+#include <euclid/database/entity/queues/MessagePriority.h>
+#include <euclid/database/entity/queues/MessageStatus.h>
+#include <euclid/database/entity/queues/Variant.h>
 
-namespace Euclid::Database::Entity::SQS {
+namespace Euclid::Database::Entity::Queues {
 
     using std::chrono::system_clock;
 

@@ -61,9 +61,9 @@ namespace Euclid::SQS {
 
         const auto request = boost::json::value_to<Dto::SQS::CreateQueueRequest>(jv);
 
-        Database::Entity::SQS::Queue dlqSaved;
+        Database::Entity::Queues::Queue dlqSaved;
         if (!request.dlqName.empty()) {
-            Database::Entity::SQS::Queue dlQueue;
+            Database::Entity::Queues::Queue dlQueue;
             dlQueue.name = request.dlqName;
             dlQueue.ern = Core::createSqsQueueErn(auth.user->accountId, request.dlqName);
             dlQueue.visibility = request.visibility;
@@ -76,7 +76,7 @@ namespace Euclid::SQS {
             dlqSaved = Database::RepositoryFactory::instance().sqsRepository()->upsertQueue(dlQueue);
         }
 
-        Database::Entity::SQS::Queue queue;
+        Database::Entity::Queues::Queue queue;
         queue.name = request.name;
         queue.ern = Core::createSqsQueueErn(auth.user->accountId, request.name);
         queue.visibility = request.visibility;
@@ -124,7 +124,7 @@ namespace Euclid::SQS {
         const auto request = boost::json::value_to<Dto::SQS::GetQueueErnRequest>(jv);
         log_info << "SQS GetQueueErn, name: " << request.name;
 
-        const std::optional<Database::Entity::SQS::Queue> queue = Database::RepositoryFactory::instance().sqsRepository()->findQueueByName(request.name);
+        const std::optional<Database::Entity::Queues::Queue> queue = Database::RepositoryFactory::instance().sqsRepository()->findQueueByName(request.name);
         log_debug << "Got SQS queue, name: " << request.name << ", ern: " << (queue.has_value() ? queue->ern : "(none)");
 
         if (!queue.has_value()) {
@@ -150,7 +150,7 @@ namespace Euclid::SQS {
         log_info << "SQS ListQueues" << (!request.prefix.empty() ? ", prefix: " + request.prefix : "");
 
         const auto repo = Database::RepositoryFactory::instance().sqsRepository();
-        const std::vector<Database::Entity::SQS::Queue> queues = repo->listQueues(request.prefix, request.pageSize, request.pageIndex, request.sortColumn);
+        const std::vector<Database::Entity::Queues::Queue> queues = repo->listQueues(request.prefix, request.pageSize, request.pageIndex, request.sortColumn);
         log_info << "Got queue list, count: " << queues.size();
 
         Dto::SQS::ListQueueResponse response;
@@ -173,7 +173,7 @@ namespace Euclid::SQS {
         log_info << "SQS ListMessages, queueErn: " << request.queueErn;
 
         const auto repo = Database::RepositoryFactory::instance().sqsRepository();
-        const std::vector<Database::Entity::SQS::Message> messages = repo->listMessages(request.queueErn, request.pageSize, request.pageIndex, request.sortColumn);
+        const std::vector<Database::Entity::Queues::Message> messages = repo->listMessages(request.queueErn, request.pageSize, request.pageIndex, request.sortColumn);
         log_info << "Got message list, count: " << messages.size();
 
         Dto::SQS::ListMessagesResponse response;
@@ -198,12 +198,12 @@ namespace Euclid::SQS {
 
         const std::string messageId = Core::UuidUtils::CreateRandomUuid();
         const std::string ern = Core::createSqsMessageErn(auth.user.value().accountId, messageId);
-        std::map<std::string, Database::Entity::SQS::Variant> attributes;
+        std::map<std::string, Database::Entity::Queues::Variant> attributes;
         for (const auto &[key, variant]: request.attributes) {
             attributes[key] = Dto::SQS::SqsMapper::toEntity(variant);
         }
         const auto repo = Database::RepositoryFactory::instance().sqsRepository();
-        const Database::Entity::SQS::Message message = repo->sendMessage(messageId, ern, request.queueErn, request.body, attributes, Database::Entity::SQS::MessagePriorityFromString(request.priority));
+        const Database::Entity::Queues::Message message = repo->sendMessage(messageId, ern, request.queueErn, request.body, attributes, Database::Entity::Queues::MessagePriorityFromString(request.priority));
 
         Dto::SQS::SendMessageResponse response;
         response.messageId = message.messageId;
@@ -226,7 +226,7 @@ namespace Euclid::SQS {
         log_info << "SQS ReceiveMessages ern: " << request.ern;
 
         const auto repo = Database::RepositoryFactory::instance().sqsRepository();
-        std::vector<Database::Entity::SQS::Message> messages = repo->receiveMessages(request.ern, request.maxCount, request.waitTime);
+        std::vector<Database::Entity::Queues::Message> messages = repo->receiveMessages(request.ern, request.maxCount, request.waitTime);
 
         Dto::SQS::ReceiveMessagesResponse response;
         response.messages = Dto::SQS::SqsMapper::toDto(messages);
@@ -304,7 +304,7 @@ namespace Euclid::SQS {
         log_info << "SQS GetMessageCount, ern: " << request.ern;
 
         const auto repo = Database::RepositoryFactory::instance().sqsRepository();
-        const std::optional<Database::Entity::SQS::Queue> queue = repo->findQueueByErn(request.ern);
+        const std::optional<Database::Entity::Queues::Queue> queue = repo->findQueueByErn(request.ern);
         if (!queue.has_value()) {
             return SqsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + request.ern);
         }
@@ -331,7 +331,7 @@ namespace Euclid::SQS {
         log_info << "SQS GetQueueMetadata, ern: " << request.ern;
 
         const auto repo = Database::RepositoryFactory::instance().sqsRepository();
-        const std::optional<Database::Entity::SQS::Queue> queue = repo->findQueueByErn(request.ern);
+        const std::optional<Database::Entity::Queues::Queue> queue = repo->findQueueByErn(request.ern);
         if (!queue.has_value()) {
             return SqsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + request.ern);
         }
@@ -365,7 +365,7 @@ namespace Euclid::SQS {
         log_info << "SQS GetMessageAttribute, messageId: " << request.messageId << ", name: " << request.name;
 
         const auto repo = Database::RepositoryFactory::instance().sqsRepository();
-        const std::optional<Database::Entity::SQS::Message> message = repo->findMessageByName(request.messageId);
+        const std::optional<Database::Entity::Queues::Message> message = repo->findMessageByName(request.messageId);
         if (!message.has_value()) {
             return SqsServer::ErrorResponse(req, status::not_found, "Message not found, messageId: " + request.messageId);
         }
@@ -396,7 +396,7 @@ namespace Euclid::SQS {
         log_info << "SQS GetMessageMetadata, messageId: " << request.messageId;
 
         const auto repo = Database::RepositoryFactory::instance().sqsRepository();
-        const std::optional<Database::Entity::SQS::Message> message = repo->findMessageByName(request.messageId);
+        const std::optional<Database::Entity::Queues::Message> message = repo->findMessageByName(request.messageId);
         if (!message.has_value()) {
             return SqsServer::ErrorResponse(req, status::not_found, "Message not found, messageId: " + request.messageId);
         }
@@ -405,8 +405,8 @@ namespace Euclid::SQS {
         response.messageId = message->messageId;
         response.queueErn = message->queueErn;
         response.receiptHandle = message->receiptHandle;
-        response.status = Database::Entity::SQS::MessageStatusToString(message->status);
-        response.priority = Database::Entity::SQS::MessagePriorityToString(message->priority);
+        response.status = Database::Entity::Queues::MessageStatusToString(message->status);
+        response.priority = Database::Entity::Queues::MessagePriorityToString(message->priority);
         response.size = message->size;
         response.receivedCount = message->receivedCount;
         response.visibilityTimeout = message->visibilityTimeout;
