@@ -1,5 +1,5 @@
 Package: euclid
-Version: 1.0.17
+Version: 1.0.18
 License: GPL-3.0-or-later
 Vendor: none
 Architecture: amd64
@@ -9,10 +9,10 @@ Depends: systemd, libmagic1
 Homepage: http://example.com/no-uri-given
 Priority: optional
 Section: utils
-Filename: pool/main/e/euclid/euclid_1.0.17_amd64.deb
-Size: 32222026
-SHA256: 376816a7b7719c311960803b0d0848bad028e8c55df10c4f46d297ffaf0e5e13
-SHA1: 1449df0700945a11802669732f716a0e0d346c80
-MD5sum: 89bba93bce251e286614da4856659a9e
+Filename: pool/main/e/euclid/euclid_1.0.18_amd64.deb
+Size: 32222040
+SHA256: 0afe5a9b0e9d7e4a9837637bbe2ce2c0866f4409becafd61a81b0344469c183e
+SHA1: 03ed56ca432e307f27a26f0fa2a01d50fb44560b
+MD5sum: a7b4168bc10264dbea10fa831cc9264a
 Description: Euclid local AWS emulator service
 
