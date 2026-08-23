@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.12](https://github.com/jensvogt/euclid/compare/1.0.11...v1.0.12) (2026-08-23)
+
+
+### Bug Fixes
+
+* remove color log formatter ([37a505d](https://github.com/jensvogt/euclid/commit/37a505d097c1b2908d638c454bef6284b46063c0))
+* streamline etc handling ([90ed3a9](https://github.com/jensvogt/euclid/commit/90ed3a9f4e55f9cbcfbc278fe544c2f1feb40adb))
+
 ## [1.0.11](https://github.com/jensvogt/euclid/compare/v1.0.10...v1.0.11) (2026-08-23)
 
 
