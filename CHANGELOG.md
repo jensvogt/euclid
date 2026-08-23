@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.17](https://github.com/jensvogt/euclid/compare/1.0.16...v1.0.17) (2026-08-23)
+
+
+### Bug Fixes
+
+* fir release.yml/windows ([5b1f28e](https://github.com/jensvogt/euclid/commit/5b1f28e013f64568a4d052a37619208d71205b46))
+* windows port ([ecffe4d](https://github.com/jensvogt/euclid/commit/ecffe4d6b7ac2c87f0a3f4be5a3c0cf41f40a952))
+* windows port ([b402265](https://github.com/jensvogt/euclid/commit/b4022657ca6ace436e8fdd45a512bb75b0e79be0))
+
 ## [1.0.16](https://github.com/jensvogt/euclid/compare/1.0.15...v1.0.16) (2026-08-23)
 
 
