@@ -34,9 +34,9 @@
         "timeout": 300
       },
       "tls": {
-        "enabled": false,
-        "cert-file": "",
-        "key-file": ""
+        "enabled": true,
+        "cert-file": "/usr/local/euclid/etc/euclid_cert.crt",
+        "key-file": "/usr/local/euclid/etc/euclid_cert.key"
       }
     },
     "modules": {
