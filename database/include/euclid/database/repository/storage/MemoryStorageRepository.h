@@ -137,6 +137,14 @@ namespace Euclid::Database {
             return std::nullopt;
         }
 
+        std::optional<Entity::Storage::Object> findObjectByErn(const std::string &ern) const override {
+            std::lock_guard lock(_mutex);
+            for (const auto &o: _objectStore | std::views::values) {
+                if (o.ern == ern) return o;
+            }
+            return std::nullopt;
+        }
+
         long countObjects() const override {
             std::lock_guard lock(_mutex);
             return _objectStore.size();

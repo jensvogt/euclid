@@ -291,6 +291,23 @@ namespace Euclid::Database {
         return {};
     }
 
+    std::optional<Entity::Storage::Object> MongoStorageRepository::findObjectByErn(const std::string &ern) const {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto objectCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
+
+            if (auto mResult = objectCollection.find_one(make_document(kvp("ern", ern)))) {
+                return Entity::Storage::Object::fromDocument(mResult.value());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Get object by ern failed, ern: " << ern << ", error: " << e.what();
+        }
+        return {};
+    }
+
     long MongoStorageRepository::countObjects() const {
 
         try {

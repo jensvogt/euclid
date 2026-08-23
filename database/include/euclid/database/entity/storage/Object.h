@@ -13,6 +13,9 @@
 #include <bsoncxx/document/value-fwd.hpp>
 #include <bsoncxx/builder/basic/document.hpp>
 
+// Euclid includes
+#include <euclid/database/entity/storage/ObjectStatus.h>
+
 namespace Euclid::Database::Entity::Storage {
 
     using std::chrono::system_clock;
@@ -67,6 +70,23 @@ namespace Euclid::Database::Entity::Storage {
          * @brief Object size in bytes
          */
         long size = 0;
+
+        /**
+         * @brief Lifecycle status - see ObjectStatus.
+         */
+        ObjectStatus status = ObjectStatus::CREATED;
+
+        /**
+         * @brief MIME content type, determined during post-processing (complete-upload); empty
+         * until status reaches COMPLETED.
+         */
+        std::string contentType;
+
+        /**
+         * @brief MD5 checksum of the assembled object, hex-encoded, computed during
+         * post-processing (complete-upload); empty until status reaches COMPLETED.
+         */
+        std::string md5Sum;
 
         /**
          * @brief Creation date

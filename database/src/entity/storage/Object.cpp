@@ -15,7 +15,10 @@ namespace Euclid::Database::Entity::Storage {
                 bsoncxx::builder::basic::kvp("key", key),
                 bsoncxx::builder::basic::kvp("internalName", internalName),
                 bsoncxx::builder::basic::kvp("ern", ern),
-                bsoncxx::builder::basic::kvp("size", static_cast<int64_t>(size)));
+                bsoncxx::builder::basic::kvp("size", static_cast<int64_t>(size)),
+                bsoncxx::builder::basic::kvp("status", ObjectStatusToString(status)),
+                bsoncxx::builder::basic::kvp("contentType", contentType),
+                bsoncxx::builder::basic::kvp("md5Sum", md5Sum));
     }
 
     Object Object::fromDocument(const std::optional<bsoncxx::document::view> &document) {
@@ -31,6 +34,9 @@ namespace Euclid::Database::Entity::Storage {
             else if (fieldKey == "internalName") object.internalName = std::string(field.get_string().value);
             else if (fieldKey == "ern") object.ern = std::string(field.get_string().value);
             else if (fieldKey == "size") object.size = field.get_int64().value;
+            else if (fieldKey == "status") object.status = ObjectStatusFromString(std::string(field.get_string().value));
+            else if (fieldKey == "contentType") object.contentType = std::string(field.get_string().value);
+            else if (fieldKey == "md5Sum") object.md5Sum = std::string(field.get_string().value);
             else if (fieldKey == "created") object.created = system_clock::time_point{field.get_date().value};
             else if (fieldKey == "modified") object.modified = system_clock::time_point{field.get_date().value};
         }

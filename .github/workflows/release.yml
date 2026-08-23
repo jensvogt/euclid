@@ -226,7 +226,10 @@ jobs:
           cp ${{ env.BUILD_DIR }}/bin/euclid-queues ${{ env.PACKAGE_DIR }}/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-monitoring ${{ env.PACKAGE_DIR }}/euclid/bin/
           cp dist/etc/euclid_macos.json ${{ env.PACKAGE_DIR }}/euclid/etc/euclid.json
-          cp dist/linux/etc/magic.mgc ${{ env.PACKAGE_DIR }}/euclid/etc/magic.mgc
+          # euclid statically links vcpkg's own libmagic, whose compiled magic database format
+          # isn't guaranteed compatible with any other libmagic's (see Core::ContentTypeUtils) -
+          # take the one this exact build produced instead of a separately maintained copy.
+          cp ${{ env.BUILD_DIR }}/vcpkg_installed/arm64-osx/share/libmagic/misc/magic.mgc ${{ env.PACKAGE_DIR }}/euclid/etc/magic.mgc
           cp dist/linux/etc/ssh_host_key ${{ env.PACKAGE_DIR }}/euclid/etc/ssh_host_key
           cp dist/linux/etc/euclid_cert.crt ${{ env.PACKAGE_DIR }}/euclid/etc/euclid_cert.crt
           cp dist/linux/etc/euclid_cert.key ${{ env.PACKAGE_DIR }}/euclid/etc/euclid_cert.key
@@ -323,6 +326,7 @@ jobs:
       - name: Prepare DEB package structure
         run: |
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin
+          mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/etc
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/etc/euclid
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/log
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/frontend
@@ -338,6 +342,11 @@ jobs:
           cp ${{ env.BUILD_DIR }}/bin/euclid-queues ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-monitoring ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
           cp dist/linux/etc/euclid.json ${{ env.PACKAGE_DIR_DEB }}/etc/euclid/euclid.json
+          # euclid statically links vcpkg's own libmagic, whose compiled magic database format
+          # isn't guaranteed compatible with the system's /usr/lib/file/magic.mgc (see
+          # Core::ContentTypeUtils) - bundle the one this exact build produced instead, at the
+          # path "magic-file" in euclid.json points to.
+          cp ${{ env.BUILD_DIR }}/vcpkg_installed/x64-linux/share/libmagic/misc/magic.mgc ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/etc/magic.mgc
           cp dist/linux/etc/euclid_cert.crt ${{ env.PACKAGE_DIR_DEB }}/etc/euclid/euclid_cert.crt
           cp dist/linux/etc/euclid_cert.key ${{ env.PACKAGE_DIR_DEB }}/etc/euclid/euclid_cert.key
           cp dist/linux/etc/ssh_host_key ${{ env.PACKAGE_DIR_DEB }}/etc/euclid/ssh_host_key
@@ -399,6 +408,7 @@ jobs:
       - name: Prepare RPM package structure
         run: |
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin
+          mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/etc/euclid
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/log
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/frontend
@@ -414,6 +424,8 @@ jobs:
           cp ${{ env.BUILD_DIR }}/bin/euclid-queues ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-monitoring ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
           cp dist/linux/etc/euclid.json ${{ env.PACKAGE_DIR_RPM }}/etc/euclid/euclid.json
+          # See the DEB step above for why this is bundled rather than relying on the system's.
+          cp ${{ env.BUILD_DIR }}/vcpkg_installed/x64-linux/share/libmagic/misc/magic.mgc ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc/magic.mgc
           cp dist/linux/etc/euclid_cert.crt ${{ env.PACKAGE_DIR_RPM }}/etc/euclid/euclid_cert.crt
           cp dist/linux/etc/euclid_cert.key ${{ env.PACKAGE_DIR_RPM }}/etc/euclid/euclid_cert.key
           cp dist/linux/etc/ssh_host_key ${{ env.PACKAGE_DIR_RPM }}/etc/euclid/ssh_host_key
