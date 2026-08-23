@@ -2,19 +2,19 @@ Origin: Euclid
 Label: Euclid APT Repository
 Suite: stable
 Codename: stable
-Date: Sun, 23 Aug 2026 19:56:53 UTC
+Date: Sun, 23 Aug 2026 20:16:57 UTC
 Architectures: amd64
 Components: main
 Description: APT repository for Euclid - local AWS API emulator
 MD5Sum:
- 565b02ea9d0bdd8625af24011f17d46f 549 main/binary-amd64/Packages
- 299133e274fe8ef8cc47b69c113cece6 420 main/binary-amd64/Packages.gz
+ e47664ade45cef9a1a0825679663a3ea 550 main/binary-amd64/Packages
+ b3c06be6b9f9446c98f50b467613f89f 420 main/binary-amd64/Packages.gz
  bfcc1390e0c267490f124a866b8e0e16 160 main/binary-amd64/Release
 SHA1:
- a4f6bfe074fef336575b612250173e58a123a20d 549 main/binary-amd64/Packages
- bfb9449d473ca7b504becc5388a8e5cbb44a796d 420 main/binary-amd64/Packages.gz
+ 19680632c8848808e1de30ccd182c57be517979f 550 main/binary-amd64/Packages
+ aa818bd60a59db28ba467824fd67b1123cc8c53e 420 main/binary-amd64/Packages.gz
  7304f35259e8511c9af36b51ec3fde4a2cffdb40 160 main/binary-amd64/Release
 SHA256:
- fdf6432785af7d5457e9261072b67296c42d331c714a87a929121315b696d9a1 549 main/binary-amd64/Packages
- 3440522f23223fc257c91fa758921472a13c575f2b54d7b8b413051f64a7190e 420 main/binary-amd64/Packages.gz
+ 964d27830aac669b16b99d103ca58f530c3309b47d6cc5399b9ac0d1f351342d 550 main/binary-amd64/Packages
+ e2f28b60135a57a5a3163427689ef81dcb291386ec4b7114f54ed2c579fc0a34 420 main/binary-amd64/Packages.gz
  b433d6184003253f515285d0bda99ca8526c2ae910e4929a068178ded64d97d6 160 main/binary-amd64/Release
