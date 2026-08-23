@@ -225,7 +225,7 @@ jobs:
           cp ${{ env.BUILD_DIR }}/bin/euclid-access ${{ env.PACKAGE_DIR }}/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-queues ${{ env.PACKAGE_DIR }}/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-monitoring ${{ env.PACKAGE_DIR }}/euclid/bin/
-          cp dist/macos/euclid.json ${{ env.PACKAGE_DIR }}/euclid/etc
+          cp dist/macos/etc/* ${{ env.PACKAGE_DIR }}/euclid/etc
           # euclid statically links vcpkg's own libmagic, whose compiled magic database format
           # isn't guaranteed compatible with any other libmagic's (see Core::ContentTypeUtils) -
           # take the one this exact build produced instead of a separately maintained copy.
@@ -341,7 +341,7 @@ jobs:
           cp ${{ env.BUILD_DIR }}/bin/euclid-access ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-queues ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-monitoring ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
-          cp dist/linux/euclid.json ${{ env.PACKAGE_DIR_DEB }}/etc/euclid
+          cp dist/linux/etc/* ${{ env.PACKAGE_DIR_DEB }}/etc/euclid
           # euclid statically links vcpkg's own libmagic, whose compiled magic database format
           # isn't guaranteed compatible with the system's /usr/lib/file/magic.mgc (see
           # Core::ContentTypeUtils) - bundle the one this exact build produced instead, at the
@@ -432,7 +432,7 @@ jobs:
           cp ${{ env.BUILD_DIR }}/bin/euclid-access ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-queues ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-monitoring ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
-          cp dist/linux/euclid.json ${{ env.PACKAGE_DIR_RPM }}/etc/euclid
+          cp dist/linux/etc/* ${{ env.PACKAGE_DIR_RPM }}/etc/euclid
           # See the DEB step above for why this is bundled rather than relying on the system's.
           cp ${{ env.BUILD_DIR }}/vcpkg_installed/x64-linux/share/libmagic/misc/magic.mgc ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc/magic.mgc
           cp dist/linux/etc/euclid_cert.crt ${{ env.PACKAGE_DIR_RPM }}/etc/euclid/euclid_cert.crt
