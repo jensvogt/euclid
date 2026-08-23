@@ -11,37 +11,27 @@ namespace Euclid::Dto::Storage {
 
     using std::chrono::system_clock;
 
-    struct Bucket {
+    struct Object {
 
         /**
-         * @brief Region the bucket lives in
-         */
-        std::string region;
-
-        /**
-         * @brief Bucket owner
-         */
-        std::string owner;
-
-        /**
-         * @brief Bucket name
-         */
-        std::string name;
-
-        /**
-         * @brief Euclid resource name
+         * @brief ERN
          */
         std::string ern;
+
+        /**
+         * @brief Bucket ERN
+         */
+        std::string bucketErn;
+
+        /**
+         * @brief Object key
+         */
+        std::string key;
 
         /**
          * @brief Size in bytes
          */
         long size{};
-
-        /**
-         * @brief Number of objects
-         */
-        long objects{};
 
         /**
          * @brief Creation date
@@ -64,33 +54,29 @@ namespace Euclid::Dto::Storage {
          * @brief Deserializes this request from a JSON string
          */
         [[nodiscard]]
-        static Bucket fromJson(const std::string &json) {
-            return boost::json::value_to<Bucket>(Core::ParseJsonString(json));
+        static Object fromJson(const std::string &json) {
+            return boost::json::value_to<Object>(Core::ParseJsonString(json));
         }
 
     private:
 
-        friend Bucket tag_invoke(boost::json::value_to_tag<Bucket>, boost::json::value const &v) {
-            Bucket r;
-            r.region = Core::GetStringValue(v, "region");
-            r.owner = Core::GetStringValue(v, "owner");
-            r.name = Core::GetStringValue(v, "name");
+        friend Object tag_invoke(boost::json::value_to_tag<Object>, boost::json::value const &v) {
+            Object r;
+            r.bucketErn = Core::GetStringValue(v, "bucketErn");
             r.ern = Core::GetStringValue(v, "ern");
+            r.key = Core::GetStringValue(v, "key");
             r.size = Core::GetLongValue(v, "size");
-            r.objects = Core::GetLongValue(v, "objects");
             r.created = Core::GetDatetimeValue(v, "created");
             r.modified = Core::GetDatetimeValue(v, "modified");
             return r;
         }
 
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, Bucket const &obj) {
+        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, Object const &obj) {
             jv = {
-                    {"region", obj.region},
-                    {"owner", obj.owner},
-                    {"name", obj.name},
+                    {"bucketErn", obj.bucketErn},
                     {"ern", obj.ern},
+                    {"key", obj.key},
                     {"size", obj.size},
-                    {"objects", obj.objects},
                     {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
             };

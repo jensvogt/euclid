@@ -138,6 +138,11 @@ namespace Euclid::main {
         return false;
     }
 
+    ServiceController::~ServiceController() {
+        _running = false;
+        if (_watchdog.joinable()) _watchdog.join();
+    }
+
     void ServiceController::registerModule(const Dto::ModuleConfig &cfg) {
         std::lock_guard lock(_mutex);
 
@@ -263,6 +268,7 @@ namespace Euclid::main {
             if (const auto &svc = group->instances[idx]; svc->state == Database::Entity::ModuleState::RUNNING) {
                 group->rrCursor = (idx + 1) % n;
                 svc->activeRequests++;
+                svc->wasBusySinceLastCheck = true;
                 group->lastActivityAt = std::chrono::steady_clock::now();
                 return InstanceHandle{.socketPath = svc->instanceSocketPath, .pid = svc->pid};
             }
@@ -280,6 +286,15 @@ namespace Euclid::main {
             if (svc->activeRequests == 0) svc->lastIdleAt = std::chrono::steady_clock::now();
             return;
         }
+    }
+
+    bool ServiceController::declareExpectedConcurrency(const std::string &name, const int desired) {
+        std::lock_guard lock(_mutex);
+        auto *group = getGroup(name);
+        if (!group) return true;
+        if (desired > group->config.maxInstances) return false;
+        group->desiredCount = std::max(group->desiredCount, desired);
+        return true;
     }
 
     bool ServiceController::waitForExit(const pid_t pid, const int timeoutMs) {
@@ -471,7 +486,9 @@ namespace Euclid::main {
             for (const auto &svc: group.instances) {
                 if (svc->state != Database::Entity::ModuleState::RUNNING) continue;
                 ++running;
-                if (svc->activeRequests > 0) {
+                // wasBusySinceLastCheck catches bursts that happened between two ticks, not just
+                // ones caught mid-flight at this exact instant - see the field's doc comment.
+                if (svc->activeRequests > 0 || svc->wasBusySinceLastCheck) {
                     ++busy;
                 } else if (!idleCandidate || svc->lastIdleAt < idleCandidate->lastIdleAt) {
                     // Least-recently-used among the currently-idle instances, so if the group
@@ -479,6 +496,7 @@ namespace Euclid::main {
                     // favored least rather than an arbitrary one.
                     idleCandidate = svc;
                 }
+                svc->wasBusySinceLastCheck = false;
             }
 
             // Scale up on ANY current demand rather than requiring every instance to be busy at
@@ -488,7 +506,11 @@ namespace Euclid::main {
             // made this almost never fire for a workload of many quick requests - throughput would
             // stay well above what one instance could serve, but the poll would rarely catch every
             // instance mid-request at the same instant.
-            if (busy > 0 && running < group.config.maxInstances) {
+            // running < desiredCount fires scale-up proactively, ahead of any busy sample, when a
+            // client has declared it's about to need more instances than the pool currently has -
+            // see declareExpectedConcurrency()'s doc comment for why busy>0 alone can't be trusted
+            // to catch this for high-instance-count/short-request workloads.
+            if ((busy > 0 || running < group.desiredCount) && running < group.config.maxInstances) {
                 auto svc = std::make_shared<Dto::ModuleProcess>();
                 svc->config = group.config;
                 group.instances.push_back(svc);
@@ -502,6 +524,10 @@ namespace Euclid::main {
                 // the group is still doing real work.
                 std::erase(group.instances, idleCandidate);
                 toStop.push_back(idleCandidate);
+                // The group is genuinely idle now, so drop any earlier declared target back to the
+                // floor - otherwise a one-off high-concurrency declaration would keep forcing the
+                // pool back up forever even after that workload finished.
+                group.desiredCount = group.config.minInstances;
             }
         }
     }

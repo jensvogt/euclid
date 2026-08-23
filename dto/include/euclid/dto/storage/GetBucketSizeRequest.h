@@ -6,14 +6,13 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
-#include <euclid/dto/BaseDto.h>
 
-namespace Euclid::Dto::SQS {
+namespace Euclid::Dto::Storage {
 
-    struct GetQueueErnResponse : BaseDto {
+    struct GetBucketSizeRequest {
 
         /**
-         * @brief Queue ERN
+         * @brief Bucket ERN
          */
         std::string ern{};
 
@@ -26,16 +25,14 @@ namespace Euclid::Dto::SQS {
 
     private:
 
-        friend GetQueueErnResponse tag_invoke(boost::json::value_to_tag<GetQueueErnResponse>, boost::json::value const &v) {
-            GetQueueErnResponse r;
-            static_cast<BaseDto &>(r) = GetMetadata(v);
+        friend GetBucketSizeRequest tag_invoke(boost::json::value_to_tag<GetBucketSizeRequest>, boost::json::value const &v) {
+            GetBucketSizeRequest r;
             r.ern = Core::GetStringValue(v, "ern");
             return r;
         }
 
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetQueueErnResponse const &obj) {
+        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetBucketSizeRequest const &obj) {
             jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
                     {"ern", obj.ern},
             };
         }

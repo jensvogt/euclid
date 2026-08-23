@@ -8,14 +8,19 @@
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/BaseDto.h>
 
-namespace Euclid::Dto::SQS {
+namespace Euclid::Dto::Storage {
 
-    struct GetQueueErnResponse : BaseDto {
+    struct GetBucketSizeResponse : BaseDto {
 
         /**
-         * @brief Queue ERN
+         * @brief Bucket ERN
          */
         std::string ern{};
+
+        /**
+         * @brief Bucket size in bytes
+         */
+        long size{};
 
         /**
          * @brief Serializes this request to a JSON string
@@ -26,17 +31,18 @@ namespace Euclid::Dto::SQS {
 
     private:
 
-        friend GetQueueErnResponse tag_invoke(boost::json::value_to_tag<GetQueueErnResponse>, boost::json::value const &v) {
-            GetQueueErnResponse r;
+        friend GetBucketSizeResponse tag_invoke(boost::json::value_to_tag<GetBucketSizeResponse>, boost::json::value const &v) {
+            GetBucketSizeResponse r;
             static_cast<BaseDto &>(r) = GetMetadata(v);
             r.ern = Core::GetStringValue(v, "ern");
+            r.size = Core::GetLongValue(v, "size");
             return r;
         }
 
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetQueueErnResponse const &obj) {
+        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetBucketSizeResponse const &obj) {
             jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
                     {"ern", obj.ern},
+                    {"size", obj.size},
             };
         }
     };

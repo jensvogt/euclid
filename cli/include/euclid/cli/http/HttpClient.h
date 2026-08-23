@@ -97,10 +97,11 @@ namespace Euclid::CLI {
          * @param target module target, e.g. "access" (sent as the "x-euclid-target" header)
          * @param action module action, e.g. "login" (sent as the "x-euclid-action" header)
          * @param body JSON request body
+         * @param extraHeaders additional headers to set on the request, e.g. a declared concurrency hint
          * @return parsed response
          */
         [[nodiscard]]
-        HttpResponse Post(const std::string &target, const std::string &action, const boost::json::value &body) const;
+        HttpResponse Post(const std::string &target, const std::string &action, const boost::json::value &body, const std::vector<std::pair<std::string, std::string> > &extraHeaders = {}) const;
 
         /**
          * @brief Sends a PUT request with a JSON body. The request path is always "/" - routing
@@ -153,10 +154,11 @@ namespace Euclid::CLI {
          * @param target module target, sent as the "x-euclid-target" header
          * @param action module action, sent as the "x-euclid-action" header
          * @param body JSON request body, or nullptr for requests without a body
+         * @param extraHeaders additional headers to set on the request
          * @return parsed response
          */
         [[nodiscard]]
-        HttpResponse Send(HttpMethod method, const std::string &target, const std::string &action, const boost::json::value *body) const;
+        HttpResponse Send(HttpMethod method, const std::string &target, const std::string &action, const boost::json::value *body, const std::vector<std::pair<std::string, std::string> > &extraHeaders = {}) const;
 
         /**
          * @brief Resolves _endpoint's host/port, sends a pre-built request over a plain or TLS

@@ -1,5 +1,12 @@
 #pragma once
 
+// C++ includes
+#include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
+#include <sstream>
+
 // Boost includes
 #include <boost/json.hpp>
 #include <boost/beast/http.hpp>
@@ -23,6 +30,8 @@
 #include <euclid/dto/storage/CreateUploadRequest.h>
 #include <euclid/dto/storage/CreateUploadResponse.h>
 #include <euclid/dto/storage/DeleteBucketRequest.h>
+#include <euclid/dto/storage/GetBucketErnRequest.h>
+#include <euclid/dto/storage/GetBucketErnResponse.h>
 #include <euclid/dto/storage/ListBucketsRequest.h>
 #include <euclid/dto/storage/ListBucketsResponse.h>
 #include <euclid/dto/storage/StorageMapper.h>

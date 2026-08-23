@@ -9,7 +9,9 @@
 
 // Euclid includes
 #include <euclid/database/entity/storage/Bucket.h>
+#include <euclid/database/entity/storage/Object.h>
 #include <euclid/dto/storage/model/Bucket.h>
+#include <euclid/dto/storage/model/Object.h>
 
 namespace Euclid::Dto::Storage {
 
@@ -33,6 +35,22 @@ namespace Euclid::Dto::Storage {
          * @return list of Bucket DTOs
          */
         static std::vector<Bucket> toDto(const std::vector<Database::Entity::Storage::Bucket> &entities);
+
+        /**
+         * @brief Maps a Object entity to a Object DTO.
+         *
+         * @param entity source Object entity from the database
+         * @return Object DTO
+         */
+        static Object toDto(const Database::Entity::Storage::Object &entity);
+
+        /**
+         * @brief Maps a list of Object entities to a list of Object DTOs.
+         *
+         * @param entities source Object entities from the database
+         * @return list of Object DTOs
+         */
+        static std::vector<Object> toDto(const std::vector<Database::Entity::Storage::Object> &entities);
     };
 
 }// namespace Euclid::Dto::Storage

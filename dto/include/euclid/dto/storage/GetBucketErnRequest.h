@@ -7,12 +7,12 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 
-namespace Euclid::Dto::SQS {
+namespace Euclid::Dto::Storage {
 
-    struct GetQueueErnRequest {
+    struct GetBucketErnRequest {
 
         /**
-         * @brief Queue name
+         * @brief Bucket name
          */
         std::string name{};
 
@@ -25,13 +25,13 @@ namespace Euclid::Dto::SQS {
 
     private:
 
-        friend GetQueueErnRequest tag_invoke(boost::json::value_to_tag<GetQueueErnRequest>, boost::json::value const &v) {
-            GetQueueErnRequest r;
+        friend GetBucketErnRequest tag_invoke(boost::json::value_to_tag<GetBucketErnRequest>, boost::json::value const &v) {
+            GetBucketErnRequest r;
             r.name = Core::GetStringValue(v, "name");
             return r;
         }
 
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetQueueErnRequest const &obj) {
+        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetBucketErnRequest const &obj) {
             jv = {
                     {"name", obj.name},
             };

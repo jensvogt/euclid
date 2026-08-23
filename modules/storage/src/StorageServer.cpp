@@ -1,12 +1,11 @@
-// C++ includes
-#include <algorithm>
-#include <filesystem>
-#include <fstream>
-#include <iomanip>
-#include <sstream>
-
 // Euclid includes
 #include <StorageServer.h>
+
+#include "euclid/dto/storage/DeleteObjectRequest.h"
+#include "euclid/dto/storage/GetBucketSizeRequest.h"
+#include "euclid/dto/storage/GetBucketSizeResponse.h"
+#include "euclid/dto/storage/ListObjectsRequest.h"
+#include "euclid/dto/storage/ListObjectsResponse.h"
 
 namespace Euclid::Storage {
 
@@ -34,7 +33,7 @@ namespace Euclid::Storage {
 
         // Name of the per-upload file recording the upload's target bucket/key, written by
         // create-upload and read back by upload-part/complete-upload. Its presence also marks a
-        // directory under .../uploads/ as a valid, still-open upload.
+        // storage under .../uploads/ as a valid, still-open upload.
         constexpr auto kUploadMetaFile = "upload.json";
 
         // Directory a multipart upload's parts are staged in until the upload is completed or aborted.
@@ -43,7 +42,7 @@ namespace Euclid::Storage {
             return std::filesystem::path(dataDir) / "uploads" / uploadId;
         }
 
-        // Zero-padded so lexicographic directory-listing order matches numeric part order.
+        // Zero-padded so lexicographic storage-listing order matches numeric part order.
         std::string partFileName(const long partNumber) {
             std::ostringstream oss;
             oss << "part-" << std::setw(10) << std::setfill('0') << partNumber;
@@ -98,8 +97,7 @@ namespace Euclid::Storage {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-buckets");
 
-        const auto auth = authenticate(req);
-        if (!auth.user.has_value()) return unauthorized(req, auth);
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = StorageServer::ParseJsonBody(req, jv)) return *err;
@@ -114,6 +112,57 @@ namespace Euclid::Storage {
         Dto::Storage::ListBucketsResponse response;
         response.buckets = Dto::Storage::StorageMapper::toDto(buckets);
         response.total = repo->countBuckets();
+
+        return StorageServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    static response<string_body> handleGetBucketErn(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-bucket-ern");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = StorageServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::Storage::GetBucketErnRequest>(jv);
+        log_info << "ESS GetBucketErn, name: " << request.name;
+
+        const std::optional<Database::Entity::Storage::Bucket> bucket = Database::RepositoryFactory::instance().storageRepository()->findBucketByName(request.name);
+        log_debug << "Got ESS bucket ERN, name: " << request.name << ", ern: " << (bucket.has_value() ? bucket->ern : "(none)");
+
+        if (!bucket.has_value()) {
+            return StorageServer::ErrorResponse(req, status::not_found, "Bucket not found, name: " + request.name);
+        }
+
+        Dto::Storage::GetBucketErnResponse response;
+        response.ern = bucket->ern;
+
+        return StorageServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    static response<string_body> handleGetBucketSize(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-bucket-size");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = StorageServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::Storage::GetBucketSizeRequest>(jv);
+        log_info << "ESS GetBucketSize, ern: " << request.ern;
+
+        const std::optional<Database::Entity::Storage::Bucket> bucket = Database::RepositoryFactory::instance().storageRepository()->findBucketByErn(request.ern);
+        log_debug << "Got ESS bucket size, ern: " << request.ern << ", size: " << bucket->size;
+
+        if (!bucket.has_value()) {
+            return StorageServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.ern);
+        }
+
+        Dto::Storage::GetBucketSizeResponse response;
+        response.ern = bucket->ern;
+        response.size = bucket->size;
 
         return StorageServer::JsonResponse(req, status::ok, response.toJson());
     }
@@ -136,7 +185,7 @@ namespace Euclid::Storage {
         return StorageServer::JsonResponse(req, status::ok);
     }
 
-    // Starts a multipart upload: stages a scratch directory on disk that the "upload-part" action
+    // Starts a multipart upload: stages a scratch storage on disk that the "upload-part" action
     // will later copy each part into, keyed by an upload ID the caller carries for the lifetime of
     // the upload. Internal to the create-upload/upload-part/complete-upload workflow used by the
     // CLI/Java client, rather than a bucket-management action in its own right.
@@ -163,8 +212,8 @@ namespace Euclid::Storage {
         std::error_code ec;
         std::filesystem::create_directories(uploadDir, ec);
         if (ec) {
-            log_error << "Could not create upload directory, path: " << uploadDir.string() << ", error: " << ec.message();
-            return StorageServer::ErrorResponse(req, status::internal_server_error, "Could not create upload directory");
+            log_error << "Could not create upload storage, path: " << uploadDir.string() << ", error: " << ec.message();
+            return StorageServer::ErrorResponse(req, status::internal_server_error, "Could not create upload storage");
         }
 
         // Records the upload's target bucket/key alongside the staged parts, so "complete-upload"
@@ -243,7 +292,7 @@ namespace Euclid::Storage {
     }
 
     // Assembles a completed multipart upload's staged parts into the final object under the
-    // bucket's storage directory, then discards the upload's scratch directory. Internal to the
+    // bucket's storage storage, then discards the upload's scratch storage. Internal to the
     // create-upload/upload-part/complete-upload workflow; called by the CLI's "upload-file" action
     // once all parts have been uploaded.
     static response<string_body> handleCompleteUpload(const request<string_body> &req) {
@@ -295,9 +344,9 @@ namespace Euclid::Storage {
             return StorageServer::ErrorResponse(req, status::bad_request, "Upload has no parts, id: " + request.uploadId);
         }
 
-        // Objects live in a flat directory named after a freshly generated UUID rather than
+        // Objects live in a flat storage named after a freshly generated UUID rather than
         // under a bucket/key path - the database (looked up below by bucketErn+key) is the only
-        // place that mapping is recorded, so a bare directory listing can't be used to browse or
+        // place that mapping is recorded, so a bare storage listing can't be used to browse or
         // resolve objects by key.
         const auto existingObject = repo->findObjectByBucketAndKey(bucketErn, key);
         const auto internalName = Core::UuidUtils::CreateRandomUuid();
@@ -308,8 +357,8 @@ namespace Euclid::Storage {
         std::error_code ec;
         std::filesystem::create_directories(dataDir, ec);
         if (ec) {
-            log_error << "Could not create storage data directory, path: " << dataDir << ", error: " << ec.message();
-            return StorageServer::ErrorResponse(req, status::internal_server_error, "Could not create storage data directory");
+            log_error << "Could not create storage data storage, path: " << dataDir << ", error: " << ec.message();
+            return StorageServer::ErrorResponse(req, status::internal_server_error, "Could not create storage data storage");
         }
 
         std::size_t totalSize = 0;
@@ -327,7 +376,7 @@ namespace Euclid::Storage {
 
         std::filesystem::remove_all(uploadDir, ec);
         if (ec)
-            log_warning << "Could not remove upload directory, path: " << uploadDir.string() << ", error: " << ec.message();
+            log_warning << "Could not remove upload storage, path: " << uploadDir.string() << ", error: " << ec.message();
 
         Database::Entity::Storage::Object object;
         if (existingObject) object.oid = existingObject->oid;
@@ -339,6 +388,13 @@ namespace Euclid::Storage {
         object.region = auth.user->region;
         object.size = static_cast<long>(totalSize);
         repo->upsertObject(object);
+
+        // Update bucket
+        Database::Entity::Storage::Bucket realBucket;
+        realBucket.size += object.size;
+        realBucket.objects++;
+        realBucket = repo->upsertBucket(realBucket);
+        log_debug << "Updated bucket, ern: " << realBucket.ern << ", size: " << realBucket.size << ", objects: " << realBucket.objects;
 
         // A re-upload to the same key replaces the DB row above; drop the now-unreferenced old file.
         if (existingObject && existingObject->internalName != internalName) {
@@ -359,6 +415,46 @@ namespace Euclid::Storage {
         return StorageServer::JsonResponse(req, status::ok, response.toJson());
     }
 
+    static response<string_body> handleListObjects(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-objects");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = StorageServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::Storage::ListObjectsRequest>(jv);
+        log_info << "ESS ListObjects, bucket: " << request.bucketErn << (!request.prefix.empty() ? ", prefix: " + request.prefix : "");
+
+        const auto repo = Database::RepositoryFactory::instance().storageRepository();
+        const std::vector<Database::Entity::Storage::Object> objects = repo->listObjects(request.bucketErn, request.prefix, request.pageSize, request.pageIndex, request.sortColumn);
+        log_info << "ESS got object list, bucket: " << request.bucketErn << ", count: " << objects.size();
+
+        Dto::Storage::ListObjectsResponse response;
+        response.objects = Dto::Storage::StorageMapper::toDto(objects);
+        response.total = repo->countObjects();
+
+        return StorageServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    static response<string_body> handleDeleteObject(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-object");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = StorageServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = Dto::Storage::DeleteObjectRequest::fromJson(req.body());
+        log_info << "Storage DeleteBucket, ern: " << request.ern;
+
+        Database::RepositoryFactory::instance().storageRepository()->deleteObjectByErn(request.ern);
+
+        return StorageServer::JsonResponse(req, status::ok);
+    }
+
     // ── Request dispatcher ───────────────────────────────────────────────────
 
     namespace {
@@ -368,9 +464,13 @@ namespace Euclid::Storage {
             CreateBucket,
             DeleteBucket,
             ListBuckets,
+            GetBucketErn,
+            GetBucketSize,
             CreateUpload,
             UploadPart,
             CompleteUpload,
+            ListObjects,
+            DeleteObject,
             GetMetrics
         };
     }
@@ -379,9 +479,13 @@ namespace Euclid::Storage {
         if (action == "create-bucket") return Command::CreateBucket;
         if (action == "delete-bucket") return Command::DeleteBucket;
         if (action == "list-buckets") return Command::ListBuckets;
+        if (action == "get-bucket-ern") return Command::GetBucketErn;
+        if (action == "get-bucket-size") return Command::GetBucketSize;
         if (action == "create-upload") return Command::CreateUpload;
         if (action == "upload-part") return Command::UploadPart;
         if (action == "complete-upload") return Command::CompleteUpload;
+        if (action == "list-objects") return Command::ListObjects;
+        if (action == "delete-object") return Command::DeleteObject;
         if (action == "get-metrics") return Command::GetMetrics;
         return Command::Unknown;
     }
@@ -402,8 +506,17 @@ namespace Euclid::Storage {
             case Command::DeleteBucket:
                 return handleDeleteBucket(req);
 
+            case Command::DeleteObject:
+                return handleDeleteObject(req);
+
             case Command::ListBuckets:
                 return handleListBuckets(req);
+
+            case Command::GetBucketErn:
+                return handleGetBucketErn(req);
+
+            case Command::GetBucketSize:
+                return handleGetBucketSize(req);
 
             case Command::CreateUpload:
                 return handleCreateUpload(req);
@@ -413,6 +526,10 @@ namespace Euclid::Storage {
 
             case Command::CompleteUpload:
                 return handleCompleteUpload(req);
+
+            case Command::ListObjects:
+                return handleListObjects(req);
+
 
             case Command::Unknown:
             default:

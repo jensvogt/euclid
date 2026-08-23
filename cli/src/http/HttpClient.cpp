@@ -53,10 +53,13 @@ namespace Euclid::CLI {
             }
         }
 
-        http::request<http::string_body> BuildRequest(const HttpMethod method, const std::string &host, const std::string &target, const std::string &action, const boost::json::value *body, const Credentials::Entry &authentication) {
+        http::request<http::string_body> BuildRequest(const HttpMethod method, const std::string &host, const std::string &target, const std::string &action, const boost::json::value *body, const std::vector<std::pair<std::string, std::string> > &extraHeaders, const Credentials::Entry &authentication) {
 
             http::request<http::string_body> request(ToVerb(method), "/", 11);
             SetCommonHeaders(request, host, target, action, authentication);
+            for (const auto &[name, value]: extraHeaders) {
+                request.set(name, value);
+            }
             if (body != nullptr) {
                 request.set(http::field::content_type, "application/json");
                 request.body() = boost::json::serialize(*body);
@@ -231,9 +234,9 @@ namespace Euclid::CLI {
         }
     }
 
-    HttpResponse HttpClient::Send(const HttpMethod method, const std::string &target, const std::string &action, const boost::json::value *body) const {
+    HttpResponse HttpClient::Send(const HttpMethod method, const std::string &target, const std::string &action, const boost::json::value *body, const std::vector<std::pair<std::string, std::string> > &extraHeaders) const {
         const auto [scheme, host, port] = ParseEndpoint(_endpoint);
-        const http::request<http::string_body> request = BuildRequest(method, host, target, action, body, _authentication);
+        const http::request<http::string_body> request = BuildRequest(method, host, target, action, body, extraHeaders, _authentication);
         return Transmit(target, action, request);
     }
 
@@ -241,8 +244,8 @@ namespace Euclid::CLI {
         return Send(HttpMethod::GET, target, action, nullptr);
     }
 
-    HttpResponse HttpClient::Post(const std::string &target, const std::string &action, const boost::json::value &body) const {
-        return Send(HttpMethod::POST, target, action, &body);
+    HttpResponse HttpClient::Post(const std::string &target, const std::string &action, const boost::json::value &body, const std::vector<std::pair<std::string, std::string> > &extraHeaders) const {
+        return Send(HttpMethod::POST, target, action, &body, extraHeaders);
     }
 
     HttpResponse HttpClient::Put(const std::string &target, const std::string &action, const boost::json::value &body) const {

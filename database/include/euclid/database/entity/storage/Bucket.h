@@ -42,14 +42,24 @@ namespace Euclid::Database::Entity::Storage {
         std::string oid;
 
         /**
-         * @brief Queue name
+         * @brief Bucket name
          */
         std::string name;
 
         /**
-         * @brief Queue ERN
+         * @brief Bucket ERN
          */
         std::string ern;
+
+        /**
+         * @brief Bucket size in bytes
+         */
+        long size{};
+
+        /**
+         * @brief Number of objects
+         */
+        long objects{};
 
         /**
          * @brief Creation date

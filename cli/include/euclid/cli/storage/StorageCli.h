@@ -1,11 +1,16 @@
 #pragma once
 
 // C++ includes
+#include <algorithm>
+#include <filesystem>
 #include <fstream>
+#include <future>
 #include <iostream>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 // Boost includes
@@ -17,14 +22,18 @@
 #include <euclid/cli/help/CliHelp.h>
 #include <euclid/cli/http/HttpClient.h>
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/sqs/CreateQueueRequest.h>
 #include <euclid/dto/storage/CompleteUploadRequest.h>
 #include <euclid/dto/storage/CreateBucketRequest.h>
 #include <euclid/dto/storage/CreateUploadRequest.h>
 #include <euclid/dto/storage/CreateUploadResponse.h>
 #include <euclid/dto/storage/DeleteBucketRequest.h>
+#include <euclid/dto/storage/DeleteObjectRequest.h>
+#include <euclid/dto/storage/GetBucketErnRequest.h>
+#include <euclid/dto/storage/GetBucketSizeRequest.h>
 #include <euclid/dto/storage/ListBucketsRequest.h>
 
-#define DEFAULT_UPLOAD_PART_SIZE 5 * 1024 * 1024
+#define DEFAULT_UPLOAD_PART_SIZE (5 * 1024 * 1024)
 #define DEFAULT_CONCURRENCY 4
 
 namespace Euclid::CLI {
@@ -89,6 +98,17 @@ namespace Euclid::CLI {
         int listBuckets(const std::vector<std::string> &args) const;
 
         /**
+         * @brief Return the queue ERN
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int getBucketErn(const std::vector<std::string> &args) const;
+
+        int getBucketSize(const std::vector<std::string> &args) const;
+
+        /**
          * @brief Uploads a local file to a bucket. The only upload action exposed to the user;
          * internally splits the file into parts and drives create-upload/upload-part/complete-upload
          * so multipart upload is invisible to the caller.
@@ -99,16 +119,22 @@ namespace Euclid::CLI {
         [[nodiscard]]
         int uploadFile(const std::vector<std::string> &args) const;
 
+        int listObjects(const std::vector<std::string> &args) const;
+
+        int deleteObject(const std::vector<std::string> &args) const;
+
         /**
          * @brief Starts a multipart upload (internal helper used by uploadFile; not a standalone
          * CLI action).
          *
          * @param bucketErn ERN of the target bucket
          * @param key destination key (path) within the bucket
+         * @param concurrency number of parts the caller intends to upload in parallel; sent as an
+         * "x-euclid-expected-concurrency" header so the autoscaler can proactively scale toward it
          * @return upload ID, or empty if the request failed (error already printed to stderr)
          */
         [[nodiscard]]
-        std::optional<std::string> createUpload(const std::string &bucketErn, const std::string &key) const;
+        std::optional<std::string> createUpload(const std::string &bucketErn, const std::string &key, int concurrency) const;
 
         /**
          * @brief Uploads one part of a multipart upload (internal helper used by uploadFile; not a
