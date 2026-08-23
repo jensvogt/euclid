@@ -34,24 +34,26 @@
         "timeout": 300
       },
       "tls": {
-        "enabled": false,
-        "cert-file": "",
-        "key-file": ""
+        "enabled": true,
+        "cert-file": "/usr/local/euclid/etc/euclid_cert.crt",
+        "key-file": "/usr/local/euclid/etc/euclid_cert.key"
       }
     },
     "modules": {
       "access": {
         "active": true,
+        "name": "access",
         "socketPath": "/var/run/euclid/euclid-access.sock",
         "executable": "/usr/local/euclid/bin/euclid-access",
-        "name": "access",
         "minInstances": 1,
         "maxInstances": 2,
         "jwt-secret": "changeme-set-a-real-secret-in-production"
       },
       "storage": {
         "active": true,
-        "path": "/usr/local/euclid/bin/euclid-storage",
+        "name": "storage",
+        "socketPath": "/var/run/euclid/euclid-storage.sock",
+        "executable": "/usr/local/euclid/bin/euclid-storage",
         "backup": {
           "active": true,
           "cron": "0 0 0 * * ?",
@@ -66,6 +68,9 @@
       },
       "queues": {
         "active": true,
+        "name": "queues",
+        "socketPath": "/var/run/euclid/euclid-queues.sock",
+        "executable": "/usr/local/euclid/bin/euclid-queues",
         "backup": {
           "active": true,
           "cron": "0 0 0 * * ?",
@@ -80,14 +85,14 @@
           "middle": 2,
           "low": 1
         },
-        "socketPath": "/var/run/euclid/euclid-queues.sock",
-        "executable": "/usr/local/euclid/bin/euclid-queues",
-        "name": "queues",
         "minInstances": 1,
         "maxInstances": 4
       },
       "topics": {
-        "active": true,
+        "active": false,
+        "name": "topics",
+        "socketPath": "/var/run/euclid/euclid-topics.sock",
+        "executable": "/usr/local/euclid/bin/euclid-topics",
         "backup": {
           "active": true,
           "cron": "0 0 0 * * ?",
@@ -100,9 +105,9 @@
       },
       "monitoring": {
         "active": true,
+        "name": "monitoring",
         "socketPath": "/var/run/euclid/euclid-mon.sock",
         "executable": "/usr/local/euclid/bin/euclid-monitoring",
-        "name": "monitoring",
         "minInstances": 1,
         "maxInstances": 1
       },

@@ -1,8 +1,6 @@
 // Euclid includes
 #include <euclid/cli/storage/StorageCli.h>
 
-#include "euclid/dto/storage/ListObjectsRequest.h"
-
 namespace Euclid::CLI {
 
     namespace po = boost::program_options;
@@ -83,7 +81,7 @@ namespace Euclid::CLI {
         if (action == "delete-object") {
             return deleteObject(args);
         }
-        std::cerr << "error: unknown SQS action '" << action << "'\n";
+        std::cerr << "error: unknown ESM action '" << action << "'\n";
         return 1;
     }
 

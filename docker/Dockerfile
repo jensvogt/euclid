@@ -75,10 +75,10 @@ COPY --from=build /usr/src/euclid/build/bin/euclid-monitoring /usr/local/euclid/
 # guaranteed compatible with any other libmagic's (see Core::ContentTypeUtils) - take the one
 # this exact build produced instead of a separately maintained copy.
 COPY --from=build /usr/src/euclid/build/vcpkg_installed/x64-linux/share/libmagic/misc/magic.mgc /usr/local/euclid/etc/magic.mgc
-COPY --from=build /usr/src/euclid/dist/linux/etc/ssh_host_key /usr/local/euclid/etc/ssh_host_key
-COPY --from=build /usr/src/euclid/dist/linux/etc/euclid_cert.crt /usr/local/euclid/etc/euclid_cert.crt
-COPY --from=build /usr/src/euclid/dist/linux/etc/euclid_cert.key /usr/local/euclid/etc/euclid_cert.key
-COPY --from=build /usr/src/euclid/dist/etc/euclid_docker.json /usr/local/euclid/etc/euclid.json
+COPY --from=build /usr/src/euclid/dist/docker/etc/ssh_host_key /usr/local/euclid/etc/ssh_host_key
+COPY --from=build /usr/src/euclid/dist/docker/etc/euclid_cert.crt /usr/local/euclid/etc/euclid_cert.crt
+COPY --from=build /usr/src/euclid/dist/docker/etc/euclid_cert.key /usr/local/euclid/etc/euclid_cert.key
+COPY --from=build /usr/src/euclid/dist/docker/etc/euclid.json /usr/local/euclid/etc/euclid.json
 
 # euclid-manager resolves euclid-access/euclid-queues/euclid-monitoring via PATH
 ENV PATH="/usr/local/euclid/bin:${PATH}"
