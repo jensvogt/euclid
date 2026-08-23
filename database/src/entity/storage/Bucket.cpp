@@ -17,7 +17,9 @@ namespace Euclid::Database::Entity::Storage {
                 bsoncxx::builder::basic::kvp("region", region),
                 bsoncxx::builder::basic::kvp("owner", owner),
                 bsoncxx::builder::basic::kvp("name", name),
-                bsoncxx::builder::basic::kvp("ern", ern));
+                bsoncxx::builder::basic::kvp("ern", ern),
+                bsoncxx::builder::basic::kvp("size", size),
+                bsoncxx::builder::basic::kvp("objects", objects));
     }
 
     Bucket Bucket::fromDocument(const std::optional<bsoncxx::document::view> &document) {
@@ -30,6 +32,8 @@ namespace Euclid::Database::Entity::Storage {
             else if (key == "owner") bucket.owner = std::string(field.get_string().value);
             else if (key == "name") bucket.name = std::string(field.get_string().value);
             else if (key == "ern") bucket.ern = std::string(field.get_string().value);
+            else if (key == "size") bucket.size = field.get_int64().value;
+            else if (key == "objects") bucket.objects = field.get_int64().value;
             else if (key == "created") bucket.created = system_clock::time_point{field.get_date().value};
             else if (key == "modified") bucket.modified = system_clock::time_point{field.get_date().value};
         }

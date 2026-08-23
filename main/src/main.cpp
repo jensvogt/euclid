@@ -1,5 +1,10 @@
 // C++ includes
+#include <atomic>
+#include <cerrno>
 #include <csignal>
+#include <cstring>
+#include <iostream>
+#include <unistd.h>
 
 // Boost includes
 #include <boost/program_options.hpp>
@@ -17,19 +22,43 @@
 #define DEFAULT_CONFIGURATION_FILE "/usr/local/euclid/etc/euclid.json"
 #define DEFAULT_LOG_LEVEL          "info"
 #define DEFAULT_HTTP_PORT          5566
+#define DEFAULT_HTTP_THREADS       2
 
 // ── Globals ───────────────────────────────────────────────
 static int g_sigFd[2];
 static Euclid::main::ServiceController *g_ctrl = nullptr;
 
+// Set once handleShutdown() has stopped every managed instance, so signalDispatchLoop() knows to
+// stop blocking on the next signal and let main() fall through to its own final cleanup/exit.
+// Without this, SIGTERM correctly stops every child but the manager process itself never
+// terminates - it just sits there with nothing left to manage, still blocked in read().
+static std::atomic<bool> g_shutdownRequested{false};
+
 // ── Signal handlers ───────────────────────────────────────
 static void handleChildExit() { if (g_ctrl) g_ctrl->onChildExit(); }
-static void handleShutdown() { if (g_ctrl) g_ctrl->stopAll(); }
+
+static void handleShutdown() {
+    if (g_ctrl) g_ctrl->stopAll();
+    g_shutdownRequested = true;
+}
+
 static void handleReload() { if (g_ctrl) g_ctrl->restartAll(); }
 
 namespace po = boost::program_options;
 
 static void setupSignals() {
+
+    // g_sigFd must be a real pipe before any handler below can run - without this, both "ends"
+    // default to fd 0 (stdin), so the handler's write() and signalDispatchLoop()'s read() are the
+    // same fd instead of two ends of a pipe. That happened to look like it worked when stdin was
+    // an interactive terminal (read() just blocks on it, same as it would block on a real empty
+    // pipe), but the moment stdin isn't a TTY - e.g. under systemd's default StandardInput=null,
+    // or any other non-interactive launch - read() sees immediate EOF and signalDispatchLoop()
+    // returns right away, tearing down every managed instance seconds after startup.
+    if (pipe(g_sigFd) != 0) {
+        std::cerr << "Failed to create signal pipe: " << strerror(errno) << "\n";
+        std::exit(1);
+    }
 
     struct sigaction sa{};
     memset(&sa, 0, sizeof(sa));// safest zero-init in C++
@@ -45,6 +74,7 @@ static void setupSignals() {
     sigaction(SIGCHLD, &sa, nullptr);
     sigaction(SIGTERM, &sa, nullptr);
     sigaction(SIGHUP, &sa, nullptr);
+    sigaction(SIGINT, &sa, nullptr);// Ctrl-C in a foreground terminal
 }
 
 namespace {
@@ -61,12 +91,13 @@ namespace {
 
 static void signalDispatchLoop() {
     char sig;
-    while (read(g_sigFd[0], &sig, 1) == 1) {
+    while (!g_shutdownRequested && read(g_sigFd[0], &sig, 1) == 1) {
         switch (sig) {
             case SIGCHLD:
                 handleChildExit();
                 break;
             case SIGTERM:
+            case SIGINT:
                 handleShutdown();
                 break;
             case SIGHUP:
@@ -96,7 +127,7 @@ static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
     logging.add_options()
             ("console-log", po::value<bool>(&opts.consoleLog)->default_value(true)->implicit_value(true), "Enable console logging")
             ("file-log", po::value<bool>(&opts.fileLog)->default_value(false)->implicit_value(true), "Enable file logging")
-            ("log-dir", po::value<std::string>(&opts.logDir)->default_value("/var/log/euclid"), "Log file directory (requires --file-log)");
+            ("log-dir", po::value<std::string>(&opts.logDir)->default_value("/var/log/euclid"), "Log file storage (requires --file-log)");
 
     po::options_description all("euclid options");
     all.add(general).add(server).add(logging);
@@ -248,6 +279,7 @@ int main(const int argc, char *argv[]) {
             << ", loglevel: " << Euclid::Core::Configuration::instance().get<std::string>("euclid.logging.level") << ", boost: " << BOOST_LIB_VERSION;
 
     Euclid::main::ServiceController ctrl;
+    g_ctrl = &ctrl;// must happen before setupSignals() installs handlers that dereference it
     setupSignals();
 
     // Register modules
@@ -258,7 +290,8 @@ int main(const int argc, char *argv[]) {
 
     // Start HTTP gateway
     const auto httpPort = static_cast<unsigned short>(cfg.getOr<int>("euclid.gateway.http.port", DEFAULT_HTTP_PORT));
-    Euclid::main::GatewayServer gateway(ctrl, httpPort);
+    const auto httpThreads = cfg.getOr<int>("euclid.gateway.http.max-thread", DEFAULT_HTTP_THREADS);
+    Euclid::main::GatewayServer gateway(ctrl, httpPort, httpThreads);
     gateway.start();
 
     // Signal dispatch blocks here

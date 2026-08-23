@@ -1,3 +1,7 @@
+// C++ includes
+#include <charconv>
+#include <optional>
+
 // Boost includes
 #include <boost/asio/ssl/stream.hpp>
 #include <boost/beast/ssl.hpp>
@@ -13,6 +17,26 @@ namespace Euclid::main {
     namespace http = beast::http;
     namespace asio = boost::asio;
     using tcp = asio::ip::tcp;
+
+    // Boost.Beast's parser defaults to a 1MB body limit when none is set explicitly, which is
+    // silently exceeded by a single storage upload-part (default part size alone is 5MB) - the
+    // parser then fails the read and the session tears down with no response, surfacing to the
+    // client as a bare "connection reset". euclid.gateway.http.max-body already exists in the
+    // shipped configs for this; it just wasn't wired to anything, so this is what makes it real.
+    static std::uint64_t MaxBodySize() {
+        constexpr long kDefaultMaxBodySize = 512L * 1024 * 1024;
+        return static_cast<std::uint64_t>(Core::Configuration::instance().getOr<long>("euclid.gateway.http.max-body", kDefaultMaxBodySize));
+    }
+
+    // How long forwardToService() waits on the module before giving up. Matters most when the
+    // autoscaler kills an instance mid-request (or any other backend hiccup): without a bound
+    // here, that single request can wedge a gateway worker thread forever, and enough of those
+    // pile up until the whole gateway - not just the module the stuck request happened to hit -
+    // stops making progress on anything.
+    static std::chrono::seconds BackendTimeout() {
+        constexpr long kDefaultBackendTimeoutSeconds = 60;
+        return std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.gateway.http.backend-timeout-seconds", kDefaultBackendTimeoutSeconds));
+    }
 
     // ── AWS service detection ────────────────────────────────────────────────
 
@@ -72,14 +96,39 @@ namespace Euclid::main {
             return r;
         }
 
+        // Chained as a single async pipeline (connect -> write -> read) under one ioc.run() so
+        // BackendTimeout() actually bounds the whole exchange - beast::basic_stream's timeout
+        // support, like tcp_stream's, only takes effect for asynchronous operations. The
+        // synchronous connect/write/read this replaced ignored the timeout entirely and could
+        // hang the calling gateway worker thread forever on a backend that never responds.
         try {
             asio::io_context ioc;
-            local::stream_protocol::socket sock(ioc);
-            sock.connect(local::stream_protocol::endpoint(socketPath));
-            http::write(sock, req);
+            beast::basic_stream<local::stream_protocol> stream(ioc);
+            stream.expires_after(BackendTimeout());
+
+            beast::error_code opEc;
             beast::flat_buffer buf;
             http::response<http::string_body> res;
-            http::read(sock, buf, res);
+
+            stream.async_connect(local::stream_protocol::endpoint(socketPath), [&](const beast::error_code &ec) {
+                if (ec) {
+                    opEc = ec;
+                    return;
+                }
+                http::async_write(stream, req, [&](const beast::error_code &writeEc, std::size_t) {
+                    if (writeEc) {
+                        opEc = writeEc;
+                        return;
+                    }
+                    http::async_read(stream, buf, res, [&](const beast::error_code &readEc, std::size_t) {
+                        opEc = readEc;
+                    });
+                });
+            });
+
+            ioc.run();
+
+            if (opEc) return errorResponse(http::status::bad_gateway, opEc.message());
             return res;
         } catch (const std::exception &ex) {
             return errorResponse(http::status::bad_gateway, ex.what());
@@ -115,30 +164,59 @@ namespace Euclid::main {
             return jsonResponse(status, boost::json::serialize(boost::json::object{{"error", msg}}));
         };
 
-        // ── AWS service dispatch ─────────────────────────────────────────
-        if (const auto service = detectAwsService(req); !service.empty()) {
-            if (const auto action = std::string(req["x-euclid-action"]); !isPublicAction(service, action)) {
-                if (const auto auth = Core::HttpActionServer::Authenticate(req); !auth.subject.has_value()) {
-                    return Core::HttpActionServer::Unauthorized(req, auth);
+        // A single unhandled exception anywhere below (auth, JSON parsing, forwarding, ...) must
+        // not escape this function: it would propagate out of the async_read completion handler
+        // that called route(), out of the io_context::run() on whichever gateway worker thread
+        // happened to be running it, and - since an exception escaping a std::thread's entry
+        // function calls std::terminate() - take down the entire manager process, every module it
+        // manages included. Converting it into a 500 here costs one failed request instead of the
+        // whole gateway. Mirrors the same guard UnixSocketServer::Session::doRead() already has
+        // around Dispatch() for individual module processes.
+        try {
+            // ── AWS service dispatch ─────────────────────────────────────────
+            if (const auto service = detectAwsService(req); !service.empty()) {
+                if (const auto action = std::string(req["x-euclid-action"]); !isPublicAction(service, action)) {
+                    if (const auto auth = Core::HttpActionServer::Authenticate(req); !auth.subject.has_value()) {
+                        return Core::HttpActionServer::Unauthorized(req, auth);
+                    }
                 }
+
+                // Lets a client proactively declare concurrency it's about to need (e.g. the
+                // storage CLI's upload-file --concurrency, sent on create-upload) so the autoscaler
+                // can ramp toward it directly instead of waiting to sample busy instances - see
+                // ServiceController::declareExpectedConcurrency()'s doc comment. Generic at the
+                // gateway level (any module's requests can carry it), not storage-specific.
+                if (const auto concurrency = req["x-euclid-expected-concurrency"]; !concurrency.empty()) {
+                    if (int desired = 0; std::from_chars(concurrency.data(), concurrency.data() + concurrency.size(), desired).ec == std::errc{} && desired > 0) {
+                        if (!ctrl.declareExpectedConcurrency(service, desired)) {
+                            return err(http::status::bad_request, "requested concurrency (" + std::to_string(desired) + ") exceeds configured max instances for service '" + service + "'");
+                        }
+                    }
+                }
+
+                const auto handle = ctrl.acquireInstance(service);
+                if (!handle) return err(http::status::service_unavailable, "service '" + service + "' not registered or not running");
+
+                // Guarantees the autoscaler's active-request count is released on every exit path
+                // below, however forwardToService() returns.
+                struct ReleaseGuard {
+                    ServiceController &ctrl;
+                    const std::string &name;
+                    pid_t pid;
+                    ~ReleaseGuard() { ctrl.releaseInstance(name, pid); }
+                } guard{.ctrl = ctrl, .name = service, .pid = handle->pid};
+
+                return forwardToService(req, handle->socketPath);
             }
 
-            const auto handle = ctrl.acquireInstance(service);
-            if (!handle) return err(http::status::service_unavailable, "service '" + service + "' not registered or not running");
-
-            // Guarantees the autoscaler's active-request count is released on every exit path
-            // below, however forwardToService() returns.
-            struct ReleaseGuard {
-                ServiceController &ctrl;
-                const std::string &name;
-                pid_t pid;
-                ~ReleaseGuard() { ctrl.releaseInstance(name, pid); }
-            } guard{.ctrl = ctrl, .name = service, .pid = handle->pid};
-
-            return forwardToService(req, handle->socketPath);
+            return err(http::status::not_found, "not found");
+        } catch (const std::exception &ex) {
+            log_error << "route() threw, error: " << ex.what();
+            return err(http::status::internal_server_error, ex.what());
+        } catch (...) {
+            log_error << "route() threw a non-std::exception";
+            return err(http::status::internal_server_error, "internal server error");
         }
-
-        return err(http::status::not_found, "not found");
     }
 
     // ── GatewaySession ───────────────────────────────────────────────────────
@@ -155,18 +233,19 @@ namespace Euclid::main {
     private:
 
         void doRead() {
-            _req = {};
+            _parser.emplace();
+            _parser->body_limit(MaxBodySize());
             _stream.expires_after(std::chrono::seconds(30));
             http::async_read(
-                    _stream, _buf, _req,
+                    _stream, _buf, *_parser,
                     [self = shared_from_this()](const beast::error_code &ec, std::size_t) {
                         if (!ec) self->handleRequest();
-                        // on error (EOF, timeout, etc.) the session destructs naturally
+                        // on error (EOF, timeout, body_limit exceeded, etc.) the session destructs naturally
                     });
         }
 
         void handleRequest() {
-            auto res = route(_req, _ctrl);
+            auto res = route(_parser->get(), _ctrl);
             auto sp = std::make_shared<http::response<http::string_body> >(std::move(res));
             const bool keepAlive = sp->keep_alive();
             http::async_write(
@@ -182,7 +261,7 @@ namespace Euclid::main {
 
         beast::tcp_stream _stream;
         beast::flat_buffer _buf;
-        http::request<http::string_body> _req;
+        std::optional<http::request_parser<http::string_body> > _parser;
         ServiceController &_ctrl;
     };
 
@@ -210,18 +289,19 @@ namespace Euclid::main {
     private:
 
         void doRead() {
-            _req = {};
+            _parser.emplace();
+            _parser->body_limit(MaxBodySize());
             beast::get_lowest_layer(_stream).expires_after(std::chrono::seconds(30));
             http::async_read(
-                    _stream, _buf, _req,
+                    _stream, _buf, *_parser,
                     [self = shared_from_this()](const beast::error_code &ec, std::size_t) {
                         if (!ec) self->handleRequest();
-                        // on error (EOF, timeout, etc.) the session destructs naturally
+                        // on error (EOF, timeout, body_limit exceeded, etc.) the session destructs naturally
                     });
         }
 
         void handleRequest() {
-            auto res = route(_req, _ctrl);
+            auto res = route(_parser->get(), _ctrl);
             auto sp = std::make_shared<http::response<http::string_body> >(std::move(res));
             const bool keepAlive = sp->keep_alive();
             http::async_write(
@@ -237,7 +317,7 @@ namespace Euclid::main {
 
         beast::ssl_stream<beast::tcp_stream> _stream;
         beast::flat_buffer _buf;
-        http::request<http::string_body> _req;
+        std::optional<http::request_parser<http::string_body> > _parser;
         ServiceController &_ctrl;
     };
 

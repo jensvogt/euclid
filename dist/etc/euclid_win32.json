@@ -58,6 +58,8 @@
           "count": 5
         },
         "data-dir": "C:\\Program Files\\euclid\\data\\storage",
+        "minInstances": 1,
+        "maxInstances": 4,
         "counter-period": 60,
         "sync-period": 3600,
         "archive-timeout": 300

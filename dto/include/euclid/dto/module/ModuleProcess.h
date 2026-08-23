@@ -92,5 +92,20 @@ namespace Euclid::Dto {
          * scaling it down.
          */
         std::chrono::steady_clock::time_point lastIdleAt = std::chrono::steady_clock::now();
+
+        /**
+         * @brief True if acquireInstance() picked this instance at any point since the
+         * autoscaler's last evaluateScaling() check.
+         *
+         * A single forwarded request typically holds activeRequests > 0 for only as long as the
+         * gateway-to-module hop over a local socket takes - often just milliseconds - which is far
+         * shorter than the watchdog's 1-second sampling interval. Checking activeRequests alone at
+         * the sampling instant means an instance's brief busy windows are very likely to fall
+         * *between* two ticks, so the autoscaler undercounts real demand and scale-up stalls well
+         * below what the traffic actually warrants. This flag is set on every acquireInstance()
+         * pick and cleared once per tick after evaluateScaling() reads it, so any burst that
+         * happened anywhere in the last ~1s still counts as busy, not just one caught red-handed.
+         */
+        bool wasBusySinceLastCheck = false;
     };
 }

@@ -67,6 +67,22 @@ namespace Euclid::Core {
          * @return the 32-byte MAC, as raw bytes.
          */
         static std::vector<unsigned char> hmacSha256(const std::vector<unsigned char> &key, const std::string &data);
+
+        /**
+         * @brief Base64-encodes arbitrary bytes, e.g. for embedding binary payloads in a JSON request/response body.
+         *
+         * @param data raw bytes to encode.
+         * @return base64-encoded string.
+         */
+        static std::string Base64Encode(const std::string &data);
+
+        /**
+         * @brief Decodes a base64-encoded string back to raw bytes.
+         *
+         * @param data base64-encoded input, as produced by Base64Encode().
+         * @return decoded raw bytes.
+         */
+        static std::string Base64Decode(const std::string &data);
     };
 
 }// namespace Euclid::Core

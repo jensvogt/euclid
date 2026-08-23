@@ -13,9 +13,9 @@
 #include <euclid/database/repository/access/IAccessRepository.h>
 #include <euclid/database/repository/access/MemoryAccessRepository.h>
 #include <euclid/database/repository/access/MongoAccessRepository.h>
-#include <euclid/database/repository/sqs/ISQSRepository.h>
-#include <euclid/database/repository/sqs/MemorySQSRepository.h>
-#include <euclid/database/repository/sqs/MongoSQSRepository.h>
+#include <euclid/database/repository/queues/IQueuesRepository.h>
+#include <euclid/database/repository/queues/MemoryQueuesRepository.h>
+#include <euclid/database/repository/queues/MongoQueuesRepository.h>
 #include <euclid/database/repository/module/IModuleRepository.h>
 #include <euclid/database/repository/module/MongoModuleRepository.h>
 #include <euclid/database/repository/module/MemoryModuleRepository.h>
@@ -33,6 +33,7 @@ namespace Euclid::Database {
     class RepositoryFactory {
 
     public:
+
         static RepositoryFactory &instance() {
             static RepositoryFactory inst;
             return inst;
@@ -49,8 +50,8 @@ namespace Euclid::Database {
         }
 
         [[nodiscard]]
-        std::shared_ptr<ISQSRepository> sqsRepository() const {
-            static auto repo = createSQSRepository();
+        std::shared_ptr<IQueuesRepository> sqsRepository() const {
+            static auto repo = createQueuesRepository();
             return repo;
         }
 
@@ -73,6 +74,7 @@ namespace Euclid::Database {
         }
 
     private:
+
         BackendType _backend = BackendType::MONGODB;
 
         [[nodiscard]]
@@ -87,14 +89,14 @@ namespace Euclid::Database {
         }
 
         [[nodiscard]]
-        std::shared_ptr<ISQSRepository> createSQSRepository() const {
+        std::shared_ptr<IQueuesRepository> createQueuesRepository() const {
             switch (_backend) {
                 case BackendType::MONGODB:
-                    return std::make_shared<MongoSQSRepository>();
+                    return std::make_shared<MongoQueuesRepository>();
                 case BackendType::MEMORY:
-                    return std::make_shared<MemorySQSRepository>();
+                    return std::make_shared<MemoryQueuesRepository>();
             }
-            return std::make_shared<MemorySQSRepository>();
+            return std::make_shared<MemoryQueuesRepository>();
         }
 
         [[nodiscard]]
@@ -173,4 +175,4 @@ namespace Euclid::Database {
         });
     }
 
-} // namespace Euclid::Database
+}// namespace Euclid::Database
