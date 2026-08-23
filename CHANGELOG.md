@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.18](https://github.com/jensvogt/euclid/compare/v1.0.17...v1.0.18) (2026-08-23)
+
+
+### Bug Fixes
+
+* release build on windows ([3974d3d](https://github.com/jensvogt/euclid/commit/3974d3dadc92c33f32ad7d152131dead2ccaf5e3))
+
 ## [1.0.17](https://github.com/jensvogt/euclid/compare/1.0.16...v1.0.17) (2026-08-23)
 
 
