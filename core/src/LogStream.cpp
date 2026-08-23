@@ -49,61 +49,6 @@ namespace Euclid::Core {
 #endif
     }
 
-    void SetColorCoding(boost::log::record_view const &rec, boost::log::formatting_ostream &strm) {
-
-        const auto severity = rec[boost::log::trivial::severity];
-        if (severity) {
-            switch (severity.get()) {
-                case boost::log::trivial::trace:
-                    strm << "\033[36m";
-                    break;
-                case boost::log::trivial::debug:
-                    strm << "\033[32m";
-                    break;
-                case boost::log::trivial::info:
-                    strm << "\033[97m";
-                    break;
-                case boost::log::trivial::warning:
-                    strm << "\033[33m";
-                    break;
-                case boost::log::trivial::error:
-                case boost::log::trivial::fatal:
-                    strm << "\033[31m";
-                    break;
-                default:
-                    break;
-            }
-        }
-    }
-
-    void ResetColorCoding(boost::log::formatting_ostream &strm) {
-        strm << "\033[97m";
-    }
-
-    void LogColorFormatter(boost::log::record_view const &rec, boost::log::formatting_ostream &strm) {
-
-        std::string func = processFuncName(boost::log::extract<std::string>("Function", rec)->c_str());
-
-#ifndef _WIN32
-        SetColorCoding(rec, strm);
-#endif
-
-        auto date_time_formatter = boost::log::expressions::stream << boost::log::expressions::format_date_time<boost::posix_time::ptime>("TimeStamp", "%Y-%m-%d %H:%M:%S.%f");
-        date_time_formatter(rec, strm);
-
-        // The same for the severity
-        strm << " [" << rec[boost::log::trivial::severity] << "]";
-        strm << " [" << rec[thread_id].get().native_id() << "]";
-        strm << " [" << func << ":" << boost::log::extract<int>("Line", rec) << "] ";
-
-        // Finally, put the record message to the stream
-        strm << rec[boost::log::expressions::smessage];
-
-#ifndef _WIN32
-        ResetColorCoding(strm);
-#endif
-    }
-
     void LogFormatter(boost::log::record_view const &rec, boost::log::formatting_ostream &strm) {
 
         std::string func = processFuncName(boost::log::extract<std::string>("Function", rec)->c_str());
@@ -126,7 +71,14 @@ namespace Euclid::Core {
 
         boost::log::add_common_attributes();
         _consoleSink = boost::log::add_console_log(std::cout);
-        _consoleSink->set_formatter(&LogColorFormatter);
+
+        // No ANSI color codes: under systemd (or any other non-interactive launcher), stdout is
+        // a pipe straight into journald, which stores whatever bytes it receives verbatim - a
+        // colorizing formatter would leave raw \033[...m escape sequences embedded in the
+        // journal. journalctl -o cat prints the MESSAGE field completely unescaped, so viewing
+        // that history later dumps raw escape sequences straight at whatever terminal is reading
+        // it, which can hang or crash a terminal emulator.
+        _consoleSink->set_formatter(&LogFormatter);
         _consoleSink->set_filter(boost::log::trivial::severity >= boost::log::trivial::info);
         _consoleSink->locked_backend()->auto_flush(true);
 
@@ -156,7 +108,7 @@ namespace Euclid::Core {
             boost::log::keywords::file_name = dir + "/" + prefix + ".log",
             boost::log::keywords::rotation_size = size,
             boost::log::keywords::target_file_name = dir + "/" + prefix + "_%N.log",
-            boost::log::keywords::format = &LogColorFormatter);
+            boost::log::keywords::format = &LogFormatter);
 #endif
 
         // Set level
