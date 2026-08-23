@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.11](https://github.com/jensvogt/euclid/compare/v1.0.10...v1.0.11) (2026-08-23)
+
+
+### Bug Fixes
+
+* streamline etc handling ([3b7c540](https://github.com/jensvogt/euclid/commit/3b7c540d8ef4fd3cc1ab57f9f4cd1b350194feaf))
+
 ## [1.0.10](https://github.com/jensvogt/euclid/compare/v1.0.9...v1.0.10) (2026-08-23)
 
 
