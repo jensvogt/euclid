@@ -1,7 +1,12 @@
 // C++ includes
+#include <condition_variable>
 #include <csignal>
+#include <cstdio>
+#include <mutex>
 #include <optional>
-#include <unistd.h>
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 
 // Euclid includes
 #include <euclid/core/Configuration.h>
@@ -87,7 +92,7 @@ namespace Euclid::Core {
     UnixSocketServer::UnixSocketServer(std::string serviceName, std::string socketPath, const int threads)
         : _serviceName(std::move(serviceName)), _socketPath(std::move(socketPath)), _ioc(threads), _acceptor(_ioc), _threads(threads) {
 
-        unlink(_socketPath.c_str());
+        std::remove(_socketPath.c_str());
 
         const local::stream_protocol::endpoint ep(_socketPath);
         _acceptor.open(ep.protocol());
@@ -106,7 +111,7 @@ namespace Euclid::Core {
     void UnixSocketServer::stop() {
         _ioc.stop();
         for (auto &t: _workers) if (t.joinable()) t.join();
-        ::unlink(_socketPath.c_str());
+        std::remove(_socketPath.c_str());
         log_info << _serviceName << " service stopped";
     }
 
@@ -117,23 +122,62 @@ namespace Euclid::Core {
         });
     }
 
+    namespace {
+        std::mutex s_signalMutex;
+        std::condition_variable s_signalCv;
+        bool s_signalled = false;
+    }// namespace
+
     void UnixSocketServer::onSignal(int) {
-        if (s_instance) s_instance->stop();
+        {
+            std::lock_guard lock(s_signalMutex);
+            s_signalled = true;
+        }
+        s_signalCv.notify_all();
     }
+
+#if defined(_WIN32)
+    namespace {
+        // Console control events aren't delivered through std::signal()'s SIGTERM/SIGINT on
+        // Windows - a process can only be asked to shut down gracefully via
+        // SetConsoleCtrlHandler. This is what ServiceController::stopInstance's
+        // Platform::RequestGracefulStop() (CTRL_BREAK_EVENT) actually reaches on this side.
+        // Sets the same s_signalMutex/s_signalCv/s_signalled state onSignal() does above
+        // directly, rather than calling onSignal() (a private UnixSocketServer member a
+        // free function can't reach).
+        BOOL WINAPI consoleHandler(const DWORD ctrlType) {
+            switch (ctrlType) {
+                case CTRL_C_EVENT:
+                case CTRL_BREAK_EVENT:
+                case CTRL_CLOSE_EVENT:
+                case CTRL_SHUTDOWN_EVENT: {
+                    {
+                        std::lock_guard lock(s_signalMutex);
+                        s_signalled = true;
+                    }
+                    s_signalCv.notify_all();
+                    return TRUE;
+                }
+                default:
+                    return FALSE;
+            }
+        }
+    }// namespace
+#endif
 
     int UnixSocketServer::RunUntilSignal() {
         s_instance = this;
+#if defined(_WIN32)
+        SetConsoleCtrlHandler(consoleHandler, TRUE);
+#else
         std::signal(SIGTERM, onSignal);
         std::signal(SIGINT, onSignal);
+#endif
 
         start();
 
-        sigset_t mask;
-        sigemptyset(&mask);
-        sigaddset(&mask, SIGTERM);
-        sigaddset(&mask, SIGINT);
-        int sig = 0;
-        sigwait(&mask, &sig);
+        std::unique_lock lock(s_signalMutex);
+        s_signalCv.wait(lock, [] { return s_signalled; });
 
         stop();
         return 0;
