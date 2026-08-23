@@ -225,6 +225,7 @@ jobs:
           cp ${{ env.BUILD_DIR }}/bin/euclid-access ${{ env.PACKAGE_DIR }}/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-queues ${{ env.PACKAGE_DIR }}/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-monitoring ${{ env.PACKAGE_DIR }}/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-storage ${{ env.PACKAGE_DIR }}/euclid/bin/
           cp dist/macos/etc/* ${{ env.PACKAGE_DIR }}/euclid/etc
           # euclid statically links vcpkg's own libmagic, whose compiled magic database format
           # isn't guaranteed compatible with any other libmagic's (see Core::ContentTypeUtils) -
@@ -340,6 +341,7 @@ jobs:
           cp ${{ env.BUILD_DIR }}/bin/euclid-access ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-queues ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-monitoring ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-storage ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
           cp dist/linux/etc/* ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/etc/
           # euclid statically links vcpkg's own libmagic, whose compiled magic database format
           # isn't guaranteed compatible with the system's /usr/lib/file/magic.mgc (see
@@ -427,6 +429,7 @@ jobs:
           cp ${{ env.BUILD_DIR }}/bin/euclid-access ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-queues ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-monitoring ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-storage ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
           cp dist/linux/etc/* ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc/
           # See the DEB step above for why this is bundled rather than relying on the system's.
           cp ${{ env.BUILD_DIR }}/vcpkg_installed/x64-linux/share/libmagic/misc/magic.mgc ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc/magic.mgc

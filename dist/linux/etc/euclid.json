@@ -42,28 +42,28 @@
     "modules": {
       "access": {
         "active": true,
+        "name": "access",
+        "socketPath": "/var/run/euclid/euclid-access.sock",
+        "executable": "/usr/local/euclid/bin/euclid-access",
         "backup": {
           "active": true,
           "cron": "0 0 0 * * ?",
           "count": 5
         },
-        "socketPath": "/var/run/euclid/euclid-access.sock",
-        "executable": "/usr/local/euclid/bin/euclid-access",
-        "name": "access",
         "minInstances": 1,
         "maxInstances": 2,
         "jwt-secret": "changeme-set-a-real-secret-in-production"
       },
       "storage": {
         "active": true,
+        "name": "storage",
+        "socketPath": "/var/run/euclid/euclid-storage.sock",
+        "executable": "/usr/local/euclid/bin/euclid-storage",
         "backup": {
           "active": true,
           "cron": "0 0 0 * * ?",
           "count": 5
         },
-        "socketPath": "/var/run/euclid/euclid-storage.sock",
-        "executable": "/usr/local/euclid/bin/euclid-storage",
-        "name": "storage",
         "data-dir": "/usr/local/euclid/data/storage",
         "minInstances": 1,
         "maxInstances": 10,
@@ -73,6 +73,9 @@
       },
       "queues": {
         "active": true,
+        "name": "queues",
+        "socketPath": "/var/run/euclid/euclid-queues.sock",
+        "executable": "/usr/local/euclid/bin/euclid-queues",
         "backup": {
           "active": true,
           "cron": "0 0 0 * * ?",
@@ -87,22 +90,19 @@
           "middle": 2,
           "low": 1
         },
-        "socketPath": "/var/run/euclid/euclid-queues.sock",
-        "executable": "/usr/local/euclid/bin/euclid-queues",
-        "name": "queues",
         "minInstances": 1,
         "maxInstances": 4
       },
       "topics": {
         "active": false,
+        "name": "topics",
+        "socketPath": "/var/run/euclid/euclid-topics.sock",
+        "executable": "/usr/local/euclid/bin/euclid-topics",
         "backup": {
           "active": true,
           "cron": "0 0 0 * * ?",
           "count": 5
         },
-        "socketPath": "/var/run/euclid/euclid-topics.sock",
-        "executable": "/usr/local/euclid/bin/euclid-topics",
-        "name": "topics",
         "timeout": 14,
         "monitoring-period": 300,
         "delete-period": 300,
@@ -110,7 +110,7 @@
       },
       "monitoring": {
         "active": true,
-        "socketPath": "/var/run/euclid/euclid-mon.sock",
+        "socketPath": "/var/run/euclid/euclid-monitoring.sock",
         "executable": "/usr/local/euclid/bin/euclid-monitoring",
         "name": "monitoring",
         "minInstances": 1,
