@@ -48,7 +48,7 @@ namespace Euclid::Database {
             const auto cmd = bsoncxx::builder::stream::document{} << "ping" << 1 << bsoncxx::builder::stream::finalize;
 
             db.run_command(cmd.view());
-            log_info << "MongoDB ping successful";
+            log_trace << "MongoDB ping successful";
 
         } catch (const mongocxx::exception &e) {
             log_error << "MongoDB ping failed: " << e.what();

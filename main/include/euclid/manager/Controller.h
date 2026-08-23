@@ -277,6 +277,36 @@ namespace Euclid::main {
         long _scaleDownIdleSeconds = 60;
 
         /**
+         * @brief True if this deployment uses the MongoDB backend (euclid.database.backend), read
+         *        once from config when startWatchdog() is called. Gates whether the watchdog
+         *        bothers checking database reachability at all - a memory-backend deployment has
+         *        no such dependency to check.
+         */
+        bool _usesMongoBackend = true;
+
+        /**
+         * @brief Tracks the database's reachability across ticks so transitions (outage start/end)
+         *        can be logged once instead of every watchdog tick.
+         */
+        bool _databaseWasReachable = true;
+
+        /**
+         * @brief Checks whether the configured database backend is currently reachable.
+         *
+         * A crashed/unreachable MongoDB makes every module fail its startup health checks at
+         * once, and without this check the watchdog would keep respawning all of them in
+         * lockstep every tick, forking dozens of short-lived processes per second across the
+         * whole module set - a thundering herd that has been observed to spike real memory
+         * pressure severely enough for the kernel's OOM killer to start killing unrelated
+         * processes system-wide (including MongoDB itself, compounding the outage, and on one
+         * occasion the caller's desktop session). Always true for the memory backend, which has
+         * no such external dependency.
+         *
+         * @return True if spawning/restarting should proceed this tick.
+         */
+        [[nodiscard]] bool isDatabaseReachable() const;
+
+        /**
          * @brief Retrieves a service group by name.
          *
          * @param name The name of the service module to retrieve.
