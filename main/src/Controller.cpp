@@ -12,6 +12,7 @@
 // Euclid includes
 #include <euclid/core/Configuration.h>
 #include <euclid/core/LogStream.h>
+#include <euclid/database/Database.h>
 #include <euclid/database/repository/module/MongoModuleRepository.h>
 #include <euclid/dto/module/ModuleMapper.h>
 #include <euclid/manager/Controller.h>
@@ -351,17 +352,35 @@ namespace Euclid::main {
         return false;
     }
 
+    bool ServiceController::isDatabaseReachable() const {
+        if (!_usesMongoBackend) return true;
+        try {
+            Database::Database::instance().ping();
+            return true;
+        } catch (const std::exception &) {
+            return false;
+        }
+    }
+
     void ServiceController::startWatchdog() {
         _scaleDownIdleSeconds = Core::Configuration::instance().getOr<long>("euclid.scaling.scale-down-idle-seconds", 60);
+        _usesMongoBackend = Core::Configuration::instance().getOr<std::string>("euclid.database.backend", "mongodb") != "memory";
 
         _watchdog = std::thread([this] {
             while (_running) {
                 std::this_thread::sleep_for(std::chrono::seconds(1));
 
+                const bool dbReachable = isDatabaseReachable();
+                if (dbReachable != _databaseWasReachable) {
+                    if (dbReachable) log_info << "Database reachable again, resuming spawn/restart";
+                    else log_error << "Database unreachable - pausing all instance spawn/restart until it recovers";
+                    _databaseWasReachable = dbReachable;
+                }
+
                 std::vector<std::shared_ptr<Dto::ModuleProcess> > toRestart;
                 std::vector<std::shared_ptr<Dto::ModuleProcess> > toSpawn;
                 std::vector<std::shared_ptr<Dto::ModuleProcess> > toStop;
-                {
+                if (dbReachable) {
                     std::lock_guard lock(_mutex);
 
                     for (auto &group: _services | std::views::values) {
