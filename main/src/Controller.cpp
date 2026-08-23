@@ -19,6 +19,32 @@
 
 namespace Euclid::main {
 
+    // Escapes ASCII control bytes (other than tab) as \xHH before a child's output is forwarded
+    // into the journal. A module's stdout/stderr isn't trusted content - it can carry raw bytes
+    // from a misbehaving dependency (e.g. libmagic's own fprintf warnings when handed a
+    // corrupt/mismatched magic database dump non-UTF8 garbage that happened to include a raw ESC
+    // byte). journalctl -o cat prints the MESSAGE field completely unescaped, so an unsanitized
+    // ESC byte here becomes an attacker-uncontrolled terminal escape sequence on whatever
+    // terminal later views the log - which is exactly the kind of thing that can hang or crash a
+    // terminal emulator. Every other log_raw()/log_* call in this codebase goes through
+    // Boost.Log's own formatter, which already escapes control characters; this is the one path
+    // that bypasses it by design (to preserve a child's own source location), so it needs its own
+    // guard.
+    static std::string sanitizeForLog(const std::string &raw) {
+        std::string out;
+        out.reserve(raw.size());
+        for (const unsigned char c: raw) {
+            if (c == '\t' || (c >= 0x20 && c != 0x7f)) {
+                out += static_cast<char>(c);
+            } else {
+                char buf[5];
+                std::snprintf(buf, sizeof(buf), "\\x%02x", c);
+                out += buf;
+            }
+        }
+        return out;
+    }
+
     // Reads lines from fd until EOF. Re-emits each line through Boost.Log
     // using the child's own source location so it looks like a native log line.
     // Runs on a detached background thread; closes fd when done.
@@ -26,7 +52,7 @@ namespace Euclid::main {
         std::string line;
         char ch;
         auto emit = [&](const std::string &raw) {
-            log_raw(raw);
+            log_raw(sanitizeForLog(raw));
         };
         while (read(fd, &ch, 1) == 1) {
             if (ch == '\n') {
