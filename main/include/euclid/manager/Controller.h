@@ -324,6 +324,28 @@ namespace Euclid::main {
         std::shared_ptr<Dto::ModuleProcess> findByPid(pid_t pid);
 
         /**
+         * @brief Shared cleanup for an instance whose process has already exited, run by
+         *        onChildExit() once it learns about the exit - via waitpid() on POSIX, or by
+         *        polling GetExitCodeProcess() on Windows (see reapExitedWindows()).
+         *
+         * Distinguishes a deliberate stop (state already STOPPING/STOPPED) from a crash,
+         * unlinks the instance's socket file, and schedules a restart for the latter if the
+         * module's config allows it.
+         *
+         * @param svc The instance whose process has exited.
+         */
+        void handleExitedInstance(const std::shared_ptr<Dto::ModuleProcess> &svc);
+
+#if defined(_WIN32)
+        /**
+         * @brief Windows has no SIGCHLD/waitpid(-1) equivalent to learn about child exits
+         *        asynchronously, so onChildExit() instead polls every tracked instance's
+         *        process handle here; called once per watchdog tick (see startWatchdog()).
+         */
+        void reapExitedWindows();
+#endif
+
+        /**
          * @brief Calculates the stable runtime of a module instance.
          *
          * @param svc A shared pointer to the module instance for which the stable runtime is to be calculated.

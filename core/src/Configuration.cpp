@@ -92,7 +92,7 @@ namespace Euclid::Core {
                 return v.get_bool();
 
             case boost::json::kind::int64:
-                return v.get_int64();
+                return static_cast<long>(v.get_int64());
 
             case boost::json::kind::uint64:
                 return static_cast<long>(v.get_uint64());

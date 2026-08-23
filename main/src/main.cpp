@@ -1,10 +1,14 @@
 // C++ includes
 #include <atomic>
 #include <cerrno>
+#include <condition_variable>
 #include <csignal>
 #include <cstring>
 #include <iostream>
+#include <mutex>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 
 // Boost includes
 #include <boost/program_options.hpp>
@@ -16,6 +20,7 @@
 #include <euclid/database/Database.h>
 #include <euclid/database/RepositoryFactory.h>
 #include <euclid/manager/Controller.h>
+#include <euclid/manager/ControllerPlatform.h>
 #include <euclid/manager/GatewayServer.h>
 
 // ── Constants ───────────────────────────────────────────────
@@ -25,7 +30,12 @@
 #define DEFAULT_HTTP_THREADS       2
 
 // ── Globals ───────────────────────────────────────────────
+#if defined(_WIN32)
+static std::mutex g_shutdownMutex;
+static std::condition_variable g_shutdownCv;
+#else
 static int g_sigFd[2];
+#endif
 static Euclid::main::ServiceController *g_ctrl = nullptr;
 
 // Set once handleShutdown() has stopped every managed instance, so signalDispatchLoop() knows to
@@ -35,18 +45,45 @@ static Euclid::main::ServiceController *g_ctrl = nullptr;
 static std::atomic<bool> g_shutdownRequested{false};
 
 // ── Signal handlers ───────────────────────────────────────
+#ifndef _WIN32
 static void handleChildExit() { if (g_ctrl) g_ctrl->onChildExit(); }
+#endif
 
 static void handleShutdown() {
     if (g_ctrl) g_ctrl->stopAll();
     g_shutdownRequested = true;
+#if defined(_WIN32)
+    g_shutdownCv.notify_all();
+#endif
 }
 
 static void handleReload() { if (g_ctrl) g_ctrl->restartAll(); }
 
 namespace po = boost::program_options;
 
+#if defined(_WIN32)
+// Windows has no SIGTERM/SIGHUP delivery across processes, so a console control handler
+// is the manager's own equivalent of the signal handler below - Ctrl+C, Ctrl+Break, the
+// console window closing, or a system/user shutdown all funnel through here. Config
+// reload (SIGHUP on POSIX) has no Windows trigger wired up yet, so it's not handled.
+static BOOL WINAPI consoleHandler(const DWORD ctrlType) {
+    switch (ctrlType) {
+        case CTRL_C_EVENT:
+        case CTRL_BREAK_EVENT:
+        case CTRL_CLOSE_EVENT:
+        case CTRL_SHUTDOWN_EVENT:
+            handleShutdown();
+            return TRUE;
+        default:
+            return FALSE;
+    }
+}
+#endif
+
 static void setupSignals() {
+#if defined(_WIN32)
+    SetConsoleCtrlHandler(consoleHandler, TRUE);
+#else
 
     // g_sigFd must be a real pipe before any handler below can run - without this, both "ends"
     // default to fd 0 (stdin), so the handler's write() and signalDispatchLoop()'s read() are the
@@ -75,6 +112,7 @@ static void setupSignals() {
     sigaction(SIGTERM, &sa, nullptr);
     sigaction(SIGHUP, &sa, nullptr);
     sigaction(SIGINT, &sa, nullptr);// Ctrl-C in a foreground terminal
+#endif
 }
 
 namespace {
@@ -90,6 +128,13 @@ namespace {
 }
 
 static void signalDispatchLoop() {
+#if defined(_WIN32)
+    // Child-exit reaping has no async trigger on Windows either (see
+    // ServiceController::reapExitedWindows()) - the watchdog thread polls for it every
+    // tick instead, so this loop only has shutdown left to wait for.
+    std::unique_lock lock(g_shutdownMutex);
+    g_shutdownCv.wait(lock, [] { return g_shutdownRequested.load(); });
+#else
     char sig;
     while (!g_shutdownRequested && read(g_sigFd[0], &sig, 1) == 1) {
         switch (sig) {
@@ -106,6 +151,7 @@ static void signalDispatchLoop() {
             default: ;
         }
     }
+#endif
 }
 
 static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
@@ -212,7 +258,7 @@ static void registerModules(Euclid::main::ServiceController &ctrl) {
                 .executable = executable,
                 // --socket is appended per-instance (with the instance's own pid) by
                 // ServiceController::spawnInstance, not baked in here.
-                .args = {"--config", Euclid::Core::Configuration::instance().filePath()},
+                .args = {"--config", Euclid::Core::Configuration::instance().filePath().string()},
                 .socketPath = socketPath,
                 .maxRestarts = -1,
                 .autoRestart = true,

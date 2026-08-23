@@ -96,7 +96,11 @@ namespace Euclid::Core {
         std::pair<std::string, std::string> nowAmzDate() {
             const std::time_t t = std::time(nullptr);
             std::tm tm{};
+#if defined(_WIN32)
+            gmtime_s(&tm, &t);
+#else
             gmtime_r(&t, &tm);
+#endif
             char buf[32];
             std::strftime(buf, sizeof(buf), "%Y%m%dT%H%M%SZ", &tm);
             return {std::string(buf), std::string(buf, 8)};
@@ -105,8 +109,15 @@ namespace Euclid::Core {
         // Parses a SigV4 timestamp ("20260818T120000Z") back to a time_point, for skew checking.
         std::optional<std::chrono::system_clock::time_point> parseAmzDate(const std::string &amzDate) {
             std::tm tm{};
-            if (strptime(amzDate.c_str(), "%Y%m%dT%H%M%SZ", &tm) == nullptr) return std::nullopt;
-            return std::chrono::system_clock::from_time_t(timegm(&tm));
+            std::istringstream iss(amzDate);
+            iss >> std::get_time(&tm, "%Y%m%dT%H%M%SZ");
+            if (iss.fail()) return std::nullopt;
+#if defined(_WIN32)
+            const std::time_t t = _mkgmtime(&tm);
+#else
+            const std::time_t t = timegm(&tm);
+#endif
+            return std::chrono::system_clock::from_time_t(t);
         }
 
         std::map<std::string, std::string> headerMap(const http::request<http::string_body> &req) {
