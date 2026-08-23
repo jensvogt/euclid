@@ -6,10 +6,15 @@
 
 // C++ includes
 #include <chrono>
+#include <cstdint>
 #include <string>
 #ifdef _WIN32
 #include <windows.h>
-using pid_t = DWORD;
+// Signed so the existing -1 "no process" sentinel and pid>0/pid<=0 checks
+// throughout ServiceController work as-is; DWORD (unsigned) would make -1
+// wrap to a huge positive value and break those comparisons. Real Windows
+// PIDs fit comfortably within int32_t.
+using pid_t = std::int32_t;
 #else
 #include <sys/types.h>
 #include <unistd.h>
@@ -68,6 +73,14 @@ namespace Euclid::Dto {
          * @brief stderr capture
          */
         int stderrFd = -1;
+
+#ifdef _WIN32
+        /**
+         * @brief Windows process handle from CreateProcess(), used for TerminateProcess()/
+         *        GetExitCodeProcess() since Windows has no waitpid()-by-pid equivalent.
+         */
+        HANDLE processHandle = nullptr;
+#endif
 
         /**
          * @brief Actual (PID-suffixed) Unix domain socket path this running instance is bound to.

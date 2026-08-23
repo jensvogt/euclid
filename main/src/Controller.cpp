@@ -1,13 +1,14 @@
 // C++ includes
 #include <algorithm>
-#include <csignal>
+#include <atomic>
+#include <cstdio>
 #include <cstring>
 #include <ranges>
-#include <sys/socket.h>
-#include <sys/un.h>
-#include <sys/wait.h>
 #include <thread>
-#include <unistd.h>
+
+// Boost includes
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/local/stream_protocol.hpp>
 
 // Euclid includes
 #include <euclid/core/Configuration.h>
@@ -17,6 +18,11 @@
 #include <euclid/dto/module/ModuleMapper.h>
 #include <euclid/manager/Controller.h>
 #include <euclid/manager/ControllerPlatform.h>
+
+// ControllerPlatform.h pulls in <sys/wait.h>/<csignal>/<unistd.h>/... on POSIX, and
+// <windows.h>/<process.h>/<io.h> on Windows - so the rest of this file only needs to
+// branch on _WIN32 for the handful of calls (fork/exec vs CreateProcess, kill vs
+// TerminateProcess, waitpid vs GetExitCodeProcess) that don't have a shared name.
 
 namespace Euclid::main {
 
@@ -55,31 +61,39 @@ namespace Euclid::main {
         auto emit = [&](const std::string &raw) {
             log_raw(sanitizeForLog(raw));
         };
+#if defined(_WIN32)
+        while (Platform::PipeRead(fd, &ch, 1) == 1) {
+#else
         while (read(fd, &ch, 1) == 1) {
+#endif
             if (ch == '\n') {
                 emit(line);
                 line.clear();
             } else line += ch;
         }
         if (!line.empty()) emit(line);
+#if defined(_WIN32)
+        Platform::PipeClose(fd);
+#else
         close(fd);
+#endif
     }
 
     bool waitForSocket(const std::string &path, const int timeoutMs) {
+        // Goes through boost::asio rather than raw BSD sockets so this works unchanged on
+        // Windows (which only gained AF_UNIX support in Windows 10 1803+, via a different
+        // header/API surface than POSIX) - boost::asio::local already abstracts that, and
+        // UnixSocketServer's accept side uses the same protocol type.
+        namespace local = boost::asio::local;
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
 
         while (std::chrono::steady_clock::now() < deadline) {
-            const int fd = socket(AF_UNIX, SOCK_STREAM, 0);
-            sockaddr_un addr{};
-            addr.sun_family = AF_UNIX;
-            std::strncpy(addr.sun_path, path.c_str(), sizeof(addr.sun_path) - 1);
+            boost::asio::io_context ioc;
+            local::stream_protocol::socket sock(ioc);
+            boost::system::error_code ec;
+            sock.connect(local::stream_protocol::endpoint(path), ec);
+            if (!ec) return true;
 
-            if (connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0) {
-                close(fd);
-                return true;
-            }
-
-            close(fd);
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
         return false;
@@ -93,6 +107,63 @@ namespace Euclid::main {
         return base + "." + std::to_string(pid);
     }
 
+#if defined(_WIN32)
+    bool spawnInstance(const std::shared_ptr<Dto::ModuleProcess> &svc) {
+        // Unlike fork()+exec(), CreateProcess() needs the full command line - including
+        // --socket - before it hands back the new process's real pid, so the instance
+        // socket path can't be derived from the pid the way the POSIX path does (there,
+        // fork()'s return value in the parent and getpid() in the child are guaranteed to
+        // be the same value, computable independently on both sides with no IPC). A
+        // monotonic counter plays the same "unique id both sides agree on" role instead:
+        // it's decided before spawning and passed to the child via --socket directly.
+        static std::atomic<std::uint32_t> s_nextInstanceId{1};
+        const auto instanceId = static_cast<pid_t>(s_nextInstanceId.fetch_add(1));
+        const std::string instanceSocket = makeInstanceSocketPath(svc->config.socketPath, instanceId);
+
+        pid_t pid = -1;
+        HANDLE processHandle = nullptr;
+        int outFd = -1, errFd = -1;
+        if (!Platform::SpawnInstance(svc->config, instanceSocket, pid, processHandle, outFd, errFd)) {
+            svc->state = Database::Entity::ModuleState::CRASHED;
+            return false;
+        }
+
+        svc->pid = pid;
+        svc->processHandle = processHandle;
+        svc->instanceSocketPath = instanceSocket;
+        svc->state = Database::Entity::ModuleState::STARTING;
+        svc->startTime = std::chrono::steady_clock::now();
+        svc->stdoutFd = outFd;
+        svc->stderrFd = errFd;
+        svc->activeRequests = 0;
+        svc->lastIdleAt = std::chrono::steady_clock::now();
+
+        std::thread(drainPipe, outFd, false).detach();
+        std::thread(drainPipe, errFd, true).detach();
+
+        if (waitForSocket(svc->instanceSocketPath, 5000)) {
+            svc->state = Database::Entity::ModuleState::RUNNING;
+            log_info << "Service ready, name: " << svc->config.name << ", pid: " << svc->pid << ", socket: " << svc->instanceSocketPath;
+            Database::MongoModuleRepository::instance().upsert(Dto::ModuleMapper::toEntity(*svc));
+            return true;
+        }
+
+        log_error << "Service " << svc->config.name << " did not become ready, killing pid " << svc->pid;
+        Platform::ForceKill(svc->processHandle);
+        ServiceController::waitForExit(svc->pid, 2000);
+        if (svc->processHandle) {
+            CloseHandle(svc->processHandle);
+            svc->processHandle = nullptr;
+        }
+        if (!svc->instanceSocketPath.empty()) std::remove(svc->instanceSocketPath.c_str());
+        svc->pid = -1;
+        svc->instanceSocketPath.clear();
+        svc->state = Database::Entity::ModuleState::PENDING_RESTART;
+        svc->lastCrashTime = std::chrono::steady_clock::now();
+        Database::MongoModuleRepository::instance().upsert(Dto::ModuleMapper::toEntity(*svc));
+        return false;
+    }
+#else
     bool spawnInstance(const std::shared_ptr<Dto::ModuleProcess> &svc) {
         int outPipe[2], errPipe[2];
         std::ignore = pipe(outPipe);
@@ -164,6 +235,7 @@ namespace Euclid::main {
         Database::MongoModuleRepository::instance().upsert(Dto::ModuleMapper::toEntity(*svc));
         return false;
     }
+#endif
 
     ServiceController::~ServiceController() {
         _running = false;
@@ -324,6 +396,23 @@ namespace Euclid::main {
         return true;
     }
 
+#if defined(_WIN32)
+    bool ServiceController::waitForExit(const pid_t pid, const int timeoutMs) {
+        HANDLE h = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(pid));
+        if (!h) return true;// no such process = already gone
+
+        const DWORD result = WaitForSingleObject(h, static_cast<DWORD>(timeoutMs));
+        if (result == WAIT_OBJECT_0) {
+            DWORD exitCode = 0;
+            GetExitCodeProcess(h, &exitCode);
+            log_info << "Process " << pid << " exited with code " << exitCode;
+            CloseHandle(h);
+            return true;
+        }
+        CloseHandle(h);
+        return false;
+    }
+#else
     bool ServiceController::waitForExit(const pid_t pid, const int timeoutMs) {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
 
@@ -351,6 +440,7 @@ namespace Euclid::main {
 
         return false;
     }
+#endif
 
     bool ServiceController::isDatabaseReachable() const {
         if (!_usesMongoBackend) return true;
@@ -369,6 +459,12 @@ namespace Euclid::main {
         _watchdog = std::thread([this] {
             while (_running) {
                 std::this_thread::sleep_for(std::chrono::seconds(1));
+
+                // On POSIX this duplicates the SIGCHLD-driven call in main.cpp's dispatch
+                // loop (harmless - waitpid(WNOHANG) just returns immediately when there's
+                // nothing to reap). On Windows it's the only way instances get reaped at
+                // all, since there's no SIGCHLD/waitpid(-1) equivalent there.
+                onChildExit();
 
                 const bool dbReachable = isDatabaseReachable();
                 if (dbReachable != _databaseWasReachable) {
@@ -435,31 +531,63 @@ namespace Euclid::main {
         });
     }
 
+    void ServiceController::handleExitedInstance(const std::shared_ptr<Dto::ModuleProcess> &svc) {
+        if (svc->state == Database::Entity::ModuleState::STOPPING || svc->state == Database::Entity::ModuleState::STOPPED) {
+            svc->pid = -1;
+            svc->state = Database::Entity::ModuleState::STOPPED;
+            Database::MongoModuleRepository::instance().upsert(Dto::ModuleMapper::toEntity(*svc));
+            return;
+        }
+
+        const pid_t exitedPid = svc->pid;
+        if (!svc->instanceSocketPath.empty()) std::remove(svc->instanceSocketPath.c_str());
+        svc->pid = -1;
+        svc->instanceSocketPath.clear();
+        svc->state = Database::Entity::ModuleState::CRASHED;
+        svc->lastCrashTime = std::chrono::steady_clock::now();
+        Database::MongoModuleRepository::instance().upsert(Dto::ModuleMapper::toEntity(*svc));
+        log_warning << "Service " << svc->config.name << " crashed (pid=" << exitedPid << ")";
+
+        if (svc->config.autoRestart) scheduleRestart(svc);
+    }
+
+#if defined(_WIN32)
+    void ServiceController::reapExitedWindows() {
+        // Windows has no SIGCHLD/waitpid(-1) to learn about a child dying asynchronously,
+        // so this polls every tracked instance's handle instead - called once per
+        // watchdog tick (see startWatchdog()).
+        std::vector<std::shared_ptr<Dto::ModuleProcess> > exited;
+        {
+            std::lock_guard lock(_mutex);
+            for (auto &group: _services | std::views::values) {
+                for (auto &svc: group.instances) {
+                    if (svc->pid > 0 && !Platform::IsRunning(svc->processHandle)) {
+                        exited.push_back(svc);
+                    }
+                }
+            }
+        }
+        for (auto &svc: exited) {
+            if (svc->processHandle) {
+                CloseHandle(svc->processHandle);
+                svc->processHandle = nullptr;
+            }
+            handleExitedInstance(svc);
+        }
+    }
+
+    void ServiceController::onChildExit() { reapExitedWindows(); }
+#else
     void ServiceController::onChildExit() {
         int status;
         pid_t pid;
         while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
             auto svc = findByPid(pid);
             if (!svc) continue;
-
-            if (svc->state == Database::Entity::ModuleState::STOPPING || svc->state == Database::Entity::ModuleState::STOPPED) {
-                svc->pid = -1;
-                svc->state = Database::Entity::ModuleState::STOPPED;
-                Database::MongoModuleRepository::instance().upsert(Dto::ModuleMapper::toEntity(*svc));
-                continue;
-            }
-
-            if (!svc->instanceSocketPath.empty()) unlink(svc->instanceSocketPath.c_str());
-            svc->pid = -1;
-            svc->instanceSocketPath.clear();
-            svc->state = Database::Entity::ModuleState::CRASHED;
-            svc->lastCrashTime = std::chrono::steady_clock::now();
-            Database::MongoModuleRepository::instance().upsert(Dto::ModuleMapper::toEntity(*svc));
-            log_warning << "Service " << svc->config.name << " crashed (pid=" << pid << ")";
-
-            if (svc->config.autoRestart) scheduleRestart(svc);
+            handleExitedInstance(svc);
         }
     }
+#endif
 
     void ServiceController::restartAll() {
         std::vector<std::string> names;
@@ -498,6 +626,25 @@ namespace Euclid::main {
         svc->state = Database::Entity::ModuleState::STOPPING;
         log_info << "Stopping instance '" << svc->config.name << "' (pid " << svc->pid << ")";
 
+#if defined(_WIN32)
+        Platform::RequestGracefulStop(svc->pid);
+        if (!waitForExit(svc->pid, timeoutMs)) {
+            log_warning << "Instance '" << svc->config.name << "' (pid " << svc->pid << ") did not stop in " << timeoutMs << "ms, terminating";
+            Platform::ForceKill(svc->processHandle);
+            if (!waitForExit(svc->pid, 2000)) {
+                log_error << "ERROR: Instance '" << svc->config.name << "' (pid " << svc->pid << ") could not be killed";
+                Database::MongoModuleRepository::instance().upsert(Dto::ModuleMapper::toEntity(*svc));
+                return false;
+            }
+            log_info << "Instance '" << svc->config.name << "' (pid " << svc->pid << ") killed";
+        } else {
+            log_info << "Instance '" << svc->config.name << "' (pid " << svc->pid << ") stopped cleanly";
+        }
+        if (svc->processHandle) {
+            CloseHandle(svc->processHandle);
+            svc->processHandle = nullptr;
+        }
+#else
         kill(svc->pid, SIGTERM);
         if (!waitForExit(svc->pid, timeoutMs)) {
             log_warning << "Instance '" << svc->config.name << "' (pid " << svc->pid << ") did not stop in " << timeoutMs << "ms, sending SIGKILL";
@@ -511,8 +658,9 @@ namespace Euclid::main {
         } else {
             log_info << "Instance '" << svc->config.name << "' (pid " << svc->pid << ") stopped cleanly";
         }
+#endif
 
-        if (!svc->instanceSocketPath.empty()) unlink(svc->instanceSocketPath.c_str());
+        if (!svc->instanceSocketPath.empty()) std::remove(svc->instanceSocketPath.c_str());
         svc->pid = -1;
         svc->instanceSocketPath.clear();
         svc->state = Database::Entity::ModuleState::STOPPED;

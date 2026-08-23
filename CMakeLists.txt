@@ -8,6 +8,21 @@ string(STRIP "${VERSION_STRING_RAW}" VERSION_STRING)
 
 project(euclid VERSION ${VERSION_STRING} LANGUAGES CXX)
 
+if (MSVC)
+    # vcpkg's x64-windows-static triplet builds all dependencies (Boost, etc.) against
+    # the static CRT; match that here so every target in this project links against the
+    # same CRT, otherwise linking against those libs fails with LNK2038/LNK2005 CRT
+    # symbol mismatches.
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
+    # /MP compiles multiple .cpp files of a target in parallel, but they all
+    # write debug info into one shared .pdb; /FS makes cl.exe serialize those
+    # writes instead of racing (C1041: cannot open program database).
+    # /bigobj raises the number-of-sections limit in a single .obj, needed by
+    # heavily-templated Boost.Beast/Boost.Asio translation units (C1128).
+    add_compile_options(/MP /FS /bigobj)
+endif ()
+
 include(cmake/ReadVersion.cmake)
 
 # -------------------------------------------------------------------------
@@ -23,6 +38,15 @@ set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 set(CMAKE_FIND_PACKAGE_NO_SYSTEM_PACKAGE_REGISTRY ON)
 set(CMAKE_FIND_PACKAGE_NO_PACKAGE_REGISTRY ON)
 set(CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH OFF)
+
+if (WIN32)
+    # Target Windows 10+ so boost::winapi exposes WaitOnAddress/WakeByAddress*
+    # (required by boost::atomic's wait/notify support); otherwise it falls
+    # back to a Windows 7 baseline that lacks these APIs.
+    # NOMINMAX keeps Windows.h from defining max/min macros, which otherwise
+    # break calls like std::numeric_limits<T>::max() (e.g. in bsoncxx headers).
+    add_compile_definitions(_WIN32_WINNT=0x0A00 WINVER=0x0A00 NOMINMAX WIN32_LEAN_AND_MEAN)
+endif ()
 
 # -------------------------------------------------------------------------
 # Collect every executable (euclid-mgr, euclid-cli, euclid-acc, euclid-queues,
