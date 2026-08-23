@@ -20,10 +20,11 @@
 
 set -euo pipefail
 
+UUID=$(uuidgen)
 SIZE=10737418240
 BUCKET_NAME="test-bucket"
-FILE_NAME=/tmp/testfile.asc
-OBJECT_KEY="temp/testfile.asc"
+FILE_NAME="/tmp/$UUID.asc"
+OBJECT_KEY="tmp/$UUID.asc"
 ENDPOINT="https://localhost:5566"
 CLI="euclid-cli"
 CONCURRENCY=""
@@ -80,7 +81,7 @@ if [ -z "$ern" ]; then
 fi
 echo "Uploading a file with size $SIZE to '$BUCKET_NAME' (ern: $ern)"
 
-fallocate -l $SIZE $FILE_NAME
+fallocate -l "$SIZE" "$FILE_NAME"
 
 upload_args=(storage upload-file --bucket-ern "$ern" --key "$OBJECT_KEY" --file "$FILE_NAME")
 if [ -n "$CONCURRENCY" ]; then
@@ -88,6 +89,7 @@ if [ -n "$CONCURRENCY" ]; then
 fi
 result=$(cli "${upload_args[@]}")
 
-echo "Done. Uploaded file with size $SIZE to bucket $BUCKET_NAME. Result: $result"
+echo "Done. Uploaded file with size $SIZE to bucket $BUCKET_NAME. Result:"
+echo "$result"
 
-rm -rf $FILE_NAME
+rm -rf "$FILE_NAME"

@@ -498,7 +498,9 @@ namespace Euclid::CLI {
         }
 
         Dto::Storage::ListObjectsRequest request;
-        request.pageSize = vm["pageSize"].as<long>();
+        if (vm.contains("bucket")) {
+            request.bucketErn = vm["bucket"].as<std::string>();
+        }
         if (vm.contains("prefix")) {
             request.prefix = vm["prefix"].as<std::string>();
         }

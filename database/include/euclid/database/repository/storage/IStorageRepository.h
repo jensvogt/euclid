@@ -133,6 +133,15 @@ namespace Euclid::Database {
         virtual std::optional<Entity::Storage::Object> findObjectByBucketAndKey(const std::string &bucketErn, const std::string &key) const = 0;
 
         /**
+         * @brief Searches for an object by its ERN.
+         *
+         * @param ern The Euclid resource name (ERN) of the object to search for.
+         * @return The matching object, or an empty optional if no match is found.
+         */
+        [[nodiscard]]
+        virtual std::optional<Entity::Storage::Object> findObjectByErn(const std::string &ern) const = 0;
+
+        /**
          * @brief Retrieves the total number of objects in the repository.
          *
          * @return The total number of objects as a long integer.

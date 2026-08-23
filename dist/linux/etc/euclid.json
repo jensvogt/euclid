@@ -16,7 +16,7 @@
       "pretty": false
     },
     "dockerized": false,
-    "magic-file": "/usr/lib/file/magic.mgc",
+    "magic-file": "/usr/local/euclid/etc/magic.mgc",
     "autoload": {
       "active": true,
       "file": "/usr/local/euclid/init/01_init.json",
