@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.25](https://github.com/jensvogt/euclid/compare/1.0.24...v1.0.25) (2026-08-24)
+
+
+### Bug Fixes
+
+* euclid-mgr renaming ([6b17aff](https://github.com/jensvogt/euclid/commit/6b17aff3e2a32627e00aef2414984ca4e6f849d7))
+
 ## [1.0.24](https://github.com/jensvogt/euclid/compare/1.0.23...v1.0.24) (2026-08-24)
 
 
