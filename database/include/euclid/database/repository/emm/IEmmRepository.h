@@ -32,15 +32,29 @@ namespace Euclid::Database {
         virtual ~IEmmRepository() = default;
 
         /**
-         * @brief Inserts a new module or updates an existing one in the repository.
+         * @brief Upserts one instance into a module's live instance pool.
          *
-         * If a module with the same identifier already exists, its data will be updated
-         * with the provided module information. Otherwise, a new module will be added
-         * to the repository.
+         * Creates the module document (using `module`'s static fields: executable, socketPath,
+         * active, autoRestart, maxRestarts, args) if it doesn't exist yet, then upserts `instance`
+         * into its `instances` array, matched by `instance.instanceId` - so restarts of the same
+         * pool slot update that slot's existing entry in place rather than appending a new one.
          *
-         * @param module The module to be inserted or updated in the repository.
+         * @param module module-level fields to upsert; its own `instances` field is ignored.
+         * @param instance the single instance to upsert into the module's instances array.
          */
-        virtual void upsert(const Entity::Module &module) = 0;
+        virtual void upsertInstance(const Entity::Module &module, const Entity::ModuleInstance &instance) = 0;
+
+        /**
+         * @brief Permanently removes one instance from a module's live instance pool.
+         *
+         * Only for instances that are truly gone (autoscaler scale-down, or given up on after
+         * exceeding maxRestarts) - not for ordinary state transitions (crashed/stopped instances
+         * that may still restart stay in the pool via upsertInstance() instead).
+         *
+         * @param moduleName name of the module the instance belongs to.
+         * @param instanceId stable identifier of the instance to remove.
+         */
+        virtual void removeInstance(const std::string &moduleName, const std::string &instanceId) = 0;
 
         /**
          * @brief Removes the specified element or elements from the collection or data structure.

@@ -28,11 +28,6 @@ namespace Euclid::Database {
     public:
 
         /**
-         * @brief Constructor
-         */
-        explicit MongoEmmRepository() : _databaseName("euclid"), _moduleCollectionName("module") {}
-
-        /**
          * @brief Singleton instance
          */
         static MongoEmmRepository &instance() {
@@ -41,11 +36,14 @@ namespace Euclid::Database {
         }
 
         /**
-         * @brief Update or insert modules
-         *
-         * @param module module entity
+         * @brief Upserts one instance into a module's live instance pool. See IEmmRepository.
          */
-        void upsert(const Entity::Module &module) override;
+        void upsertInstance(const Entity::Module &module, const Entity::ModuleInstance &instance) override;
+
+        /**
+         * @brief Permanently removes one instance from a module's live instance pool. See IEmmRepository.
+         */
+        void removeInstance(const std::string &moduleName, const std::string &instanceId) override;
 
         /**
          * @brief Removes a module entity
@@ -104,17 +102,7 @@ namespace Euclid::Database {
 
     private:
 
-        static constexpr auto COLLECTION = "module";
-
-        /**
-         * Database name
-         */
-        std::string _databaseName;
-
-        /**
-         * Module collection name
-         */
-        std::string _moduleCollectionName;
+        static constexpr auto COLLECTION = "emm_module";
     };
 
 }// namespace Euclid::Database

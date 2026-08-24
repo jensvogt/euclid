@@ -10,6 +10,7 @@
 // Euclid includes
 #include <euclid/cli/credentials/Credentials.h>
 #include <euclid/cli/eam/EamCli.h>
+#include <euclid/cli/emm/EmmCli.h>
 #include <euclid/cli/eqs/EqsCli.h>
 #include <euclid/cli/esm/EsmCli.h>
 #include <euclid/core/Configuration.h>
@@ -118,6 +119,11 @@ int main(const int argc, char *argv[]) {
         const auto authToken = Euclid::CLI::Credentials::Load();
         const Euclid::CLI::EsmCli esm(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), true, caCert);
         return esm.process(action, args);
+    }
+    if (module == "emm") {
+        const auto authToken = Euclid::CLI::Credentials::Load();
+        const Euclid::CLI::EmmCli emm(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), true, caCert);
+        return emm.process(action, args);
     }
 
     std::cerr << "error: unknown module '" << module << "'\n\n" << usage << std::endl;
