@@ -67,6 +67,7 @@ namespace Euclid::main {
         while (read(fd, &ch, 1) == 1) {
 #endif
             if (ch == '\n') {
+                if (!line.empty() && line.back() == '\r') line.pop_back();
                 emit(line);
                 line.clear();
             } else line += ch;

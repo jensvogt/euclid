@@ -169,6 +169,40 @@ namespace Euclid::main::Platform {
         return exitCode == STILL_ACTIVE;
     }
 
+    std::string InstallService(const std::string &configFilePath) {
+        char exePath[MAX_PATH];
+        const DWORD len = GetModuleFileNameA(nullptr, exePath, MAX_PATH);
+        if (len == 0 || len == MAX_PATH) return "Failed to resolve the running executable's own path";
+
+        const std::string binPath = QuoteArg(exePath) + " --config " + QuoteArg(configFilePath);
+
+        const SC_HANDLE scm = OpenSCManagerA(nullptr, nullptr, SC_MANAGER_CREATE_SERVICE);
+        if (!scm) {
+            if (GetLastError() == ERROR_ACCESS_DENIED) return "Access denied - re-run as Administrator";
+            return "Failed to open the Service Control Manager (error " + std::to_string(GetLastError()) + ")";
+        }
+
+        const SC_HANDLE svc = CreateServiceA(
+                scm, "euclid", "Euclid",
+                SERVICE_ALL_ACCESS, SERVICE_WIN32_OWN_PROCESS, SERVICE_AUTO_START, SERVICE_ERROR_NORMAL,
+                binPath.c_str(), nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        if (!svc) {
+            const DWORD err = GetLastError();
+            CloseServiceHandle(scm);
+            if (err == ERROR_SERVICE_EXISTS) return "Service 'euclid' is already installed";
+            if (err == ERROR_ACCESS_DENIED) return "Access denied - re-run as Administrator";
+            return "CreateService failed (error " + std::to_string(err) + ")";
+        }
+
+        SERVICE_DESCRIPTIONA desc{const_cast<char *>("AWS Cloud Service Simulator")};
+        ChangeServiceConfig2A(svc, SERVICE_CONFIG_DESCRIPTION, &desc);
+
+        CloseServiceHandle(svc);
+        CloseServiceHandle(scm);
+        return "";
+    }
+
 }// namespace Euclid::main::Platform
 
 #endif

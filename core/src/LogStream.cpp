@@ -69,6 +69,16 @@ namespace Euclid::Core {
 
         namespace net = boost::asio;
 
+#if defined(_WIN32) && defined(_DEBUG)
+        // Module processes are spawned hidden (CREATE_NO_WINDOW) by the manager, so the debug
+        // CRT's default abort()/assert() dialog is invisible and blocks forever with nothing to
+        // click - redirect those reports to stderr instead of a modal window.
+        _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE);
+        _CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
+        _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+        _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+#endif
+
         boost::log::add_common_attributes();
         _consoleSink = boost::log::add_console_log(std::cout);
 
