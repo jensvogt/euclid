@@ -13,7 +13,7 @@ namespace Euclid::Core::Monitoring {
      *
      * @par
      * On a fixed schedule, drains Core::Monitoring::MonitoringCollector::instance().Collect()
-     * and POSTs whatever it returns to every currently-running instance of the "monitoring"
+     * and POSTs whatever it returns to every currently-running instance of the "emo"
      * module, resolved via SetModuleSocketLookup(). Because each producer decides for itself
      * when to push, there's no window where the monitoring module has to reach out to a
      * socket whose process the autoscaler is in the middle of tearing down - the producer
@@ -42,7 +42,7 @@ namespace Euclid::Core::Monitoring {
 
         /**
          * @brief Resolves the live Unix socket path(s) of every running instance of the named
-         * module - here, always "monitoring".
+         * module - here, always "emo".
          *
          * core can't depend on database (database depends on core), so this is the same
          * lookup-injection pattern as HttpActionServer::SetAccessKeyLookup(): each process

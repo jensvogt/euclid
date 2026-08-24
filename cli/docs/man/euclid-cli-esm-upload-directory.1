@@ -1,0 +1,129 @@
+.TH EUCLID-CLI-ESM-UPLOAD-DIRECTORY 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-upload-directory \- upload every file in a local directory to a bucket
+.SH SYNOPSIS
+.B euclid-cli esm upload-directory
+.BR \-\-bucket\-ern | \-b
+.I ERN
+.BR \-\-dir | \-d
+.I PATH
+[\fB\-\-prefix\fR|\fB\-p\fR \fIPREFIX\fR]
+[\fB\-\-recursive\fR|\fB\-r\fR]
+[\fB\-\-part\-size\fR|\fB\-s\fR \fIBYTES\fR]
+[\fB\-\-concurrency\fR|\fB\-j\fR \fIN\fR]
+.SH DESCRIPTION
+Uploads every file found under a local directory to a bucket, one
+object per file. This is the batch counterpart to
+.BR euclid-cli-esm-upload-file (1);
+each file uses the exact same single-request/multipart logic that
+action does, chosen independently per file by its size relative to
+.BR \-\-part\-size .
+.PP
+Without
+.BR \-\-recursive ,
+only files directly inside
+.B \-\-dir
+are uploaded; subdirectories and their contents are skipped. With
+.BR \-\-recursive ,
+the whole directory tree under
+.B \-\-dir
+is walked and every regular file found is uploaded.
+.PP
+Each object's key is
+.B \-\-prefix
+(empty by default) followed by the file's path relative to
+.BR \-\-dir ,
+with forward slashes regardless of platform - e.g. a file at
+.I <dir>/sub/report.csv
+becomes key
+.I <prefix>sub/report.csv .
+Files are uploaded in a deterministic order (sorted by path), one at a
+time; within a single file's multipart upload, up to
+.B \-\-concurrency
+parts still run in parallel, same as
+.BR euclid-cli-esm-upload-file (1).
+.PP
+Processing continues after a single file fails, so one bad file
+doesn't block the rest of the directory; the command's own exit status
+reflects whether every file succeeded.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-bucket\-ern " " \fIERN\fR
+Euclid resource name of the destination bucket. Required.
+.TP
+.BR \-d ", " \-\-dir " " \fIPATH\fR
+Local directory to upload. Required; the command fails immediately if
+this is not a directory.
+.TP
+.BR \-p ", " \-\-prefix " " \fIPREFIX\fR
+Prepended to every uploaded object's key, in front of the file's path
+relative to \fB\-\-dir\fR. Optional; empty by default.
+.TP
+.BR \-r ", " \-\-recursive
+Walk subdirectories too, instead of only the top level of
+\fB\-\-dir\fR.
+.TP
+.BR \-s ", " \-\-part\-size " " \fIBYTES\fR
+Size threshold, in bytes, above which a file is uploaded as multipart
+rather than in a single request - applied per file, same as
+.BR euclid-cli-esm-upload-file (1)
+\&'s option of the same name. Defaults to \fI5242880\fR (5 MiB), or the
+value of \fIeuclid.modules.storage.part-size\fR in the loaded
+configuration file if set - see
+.BR \-\-config
+in
+.BR euclid-cli-esm (1).
+.TP
+.BR \-j ", " \-\-concurrency " " \fIN\fR
+Number of parts to upload in parallel, for any file that goes the
+multipart route. Defaults to \fI4\fR, or the value of
+\fIeuclid.modules.storage.concurrency\fR in the loaded configuration
+file if set; values less than \fI1\fR are treated as \fI1\fR.
+.SH EXIT STATUS
+.TP
+.B 0
+Every file was uploaded; a JSON array is printed, one entry per file
+.RI ( "{key, file, result}" ),
+where
+.I result
+is that file's uploaded object metadata (the same shape
+.BR euclid-cli-esm-upload-file (1)
+prints for a single file).
+.TP
+.B 1
+Missing/invalid arguments, \fB\-\-dir\fR is not a directory, or one or
+more files failed to upload; the printed JSON array still contains one
+entry per file, with
+.RI ( "{key, file, error: true}" )
+in place of
+.I result
+for each one that failed. Per-file errors are also printed to standard
+error as they happen.
+.SH EXAMPLES
+Upload only the files directly inside a directory, keyed under a
+prefix:
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm upload-directory \e
+    --bucket-ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports \e
+    --dir ./reports --prefix 2026-08/
+.fi
+.RE
+.PP
+Upload an entire directory tree, with higher per-file part
+concurrency:
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm upload-directory \e
+    --bucket-ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports \e
+    --dir ./reports --prefix archive/ --recursive \e
+    --part-size 8388608 --concurrency 8
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-upload-file (1),
+.BR euclid-cli-esm-download-bucket (1),
+.BR euclid-cli-esm-list-objects (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

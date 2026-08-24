@@ -16,13 +16,17 @@ S3-compatible storage buckets and the objects stored in them. Every
 .B esm
 command sends a single JSON request to the gateway
 (\fB\-\-endpoint\fR, default \fIhttps://localhost:5566\fR) and prints the
-JSON response on success, with two exceptions:
+JSON response on success, with a few exceptions:
 .B upload-file
 streams the file's raw bytes to the gateway as part of a multipart
-upload, and
+upload,
 .B download-file
 receives an object's raw bytes back the same way as part of a
-multipart download.
+multipart download, and
+.BR upload-directory " and " download-bucket
+do this once per file (or object) under a local directory (or bucket
+prefix), printing a JSON array (one entry per file) instead of a
+single response.
 .PP
 All
 .B esm
@@ -56,10 +60,20 @@ Uploads a local file to a bucket, transparently as a multipart upload.
 See
 .BR euclid-cli-esm-upload-file (1).
 .TP
+.B upload-directory
+Uploads every file in a local directory to a bucket, one object per
+file. See
+.BR euclid-cli-esm-upload-directory (1).
+.TP
 .B download-file
 Downloads an object from a bucket to a local file, transparently as a
 multipart download. See
 .BR euclid-cli-esm-download-file (1).
+.TP
+.B download-bucket
+Downloads a bucket's objects to a local directory, one file per
+object. See
+.BR euclid-cli-esm-download-bucket (1).
 .TP
 .B list-objects
 Lists a bucket's objects, optionally filtered by name prefix, paged and
@@ -223,7 +237,9 @@ euclid-cli --endpoint http://localhost:5566 esm purge-bucket \e
 .BR euclid-cli-esm-get-bucket-size (1),
 .BR euclid-cli-esm-delete-bucket (1),
 .BR euclid-cli-esm-upload-file (1),
+.BR euclid-cli-esm-upload-directory (1),
 .BR euclid-cli-esm-download-file (1),
+.BR euclid-cli-esm-download-bucket (1),
 .BR euclid-cli-esm-list-objects (1),
 .BR euclid-cli-esm-get-object-count (1),
 .BR euclid-cli-esm-delete-object (1),

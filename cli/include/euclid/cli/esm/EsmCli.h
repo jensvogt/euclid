@@ -38,6 +38,7 @@
 #include <euclid/dto/esm/GetObjectCountRequest.h>
 #include <euclid/dto/esm/ListBucketsRequest.h>
 #include <euclid/dto/esm/ListObjectsRequest.h>
+#include <euclid/dto/esm/ListObjectsResponse.h>
 #include <euclid/dto/esm/PurgeBucketRequest.h>
 
 // Fallbacks used when euclid.modules.storage.part-size/concurrency aren't set in the loaded
@@ -140,6 +141,20 @@ namespace Euclid::CLI {
         int uploadFile(const std::vector<std::string> &args) const;
 
         /**
+         * @brief Uploads every file in a local directory to a bucket, one object per file. Each
+         * file's object key is the given prefix followed by its path relative to the directory
+         * (with forward slashes regardless of platform). Without --recursive, only files directly
+         * inside the directory are uploaded; with it, subdirectories are walked too. Each file is
+         * uploaded via uploadOneFile(), the same put-object/multipart logic uploadFile() uses for
+         * its single --file.
+         *
+         * @param args command line arguments
+         * @return ok (0 only if every file uploaded successfully)
+         */
+        [[nodiscard]]
+        int uploadDirectory(const std::vector<std::string> &args) const;
+
+        /**
          * @brief Downloads an object from a bucket to a local file. The mirror image of
          * uploadFile(); internally drives create-download/download-part/complete-download so
          * multipart download is invisible to the caller.
@@ -149,6 +164,21 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int downloadFile(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Downloads objects from a bucket to a local directory, one file per object. Each
+         * local file's path is the given directory followed by the object's key with the given
+         * prefix stripped off the front. Without --recursive, only an object's direct
+         * descendants are downloaded (keys with no further '/' after the prefix); with it, every
+         * key matching the prefix is downloaded, however deeply nested. Each object is downloaded
+         * via downloadOneFile(), the same get-object/multipart logic downloadFile() uses for its
+         * single --key.
+         *
+         * @param args command line arguments
+         * @return ok (0 only if every matching object downloaded successfully)
+         */
+        [[nodiscard]]
+        int downloadBucket(const std::vector<std::string> &args) const;
 
         /**
          * @brief List all objects of a bucket
@@ -178,6 +208,27 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int purgeBucket(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Uploads one local file to one bucket/key - the per-file logic shared by
+         * uploadFile() (its single --file) and uploadDirectory() (every file it finds), so both
+         * pick single-request vs multipart the same way, based on the file's size relative to
+         * partSize; only how the (bucketErn, key, filePath) triple is produced differs between
+         * the two callers.
+         *
+         * @param bucketErn ERN of the target bucket
+         * @param key destination key (path) within the bucket
+         * @param filePath local file to upload
+         * @param partSize files at or above this size are split into parts and sent via
+         * create-upload/upload-part/complete-upload; smaller files go through putObject() instead
+         * @param concurrency number of parts to upload in parallel, for files that go the
+         * multipart route
+         * @param outResult set to the uploaded object's metadata (put-object's or
+         * complete-upload's response) on success; untouched on failure
+         * @return 0 on success, 1 on failure (error already printed to stderr)
+         */
+        [[nodiscard]]
+        int uploadOneFile(const std::string &bucketErn, const std::string &key, const std::string &filePath, long partSize, int concurrency, boost::json::value &outResult) const;
 
         /**
          * @brief Stores a small object in a single request, skipping the
@@ -319,6 +370,39 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         bool completeDownload(const std::string &downloadId) const;
+
+        /**
+         * @brief Downloads one bucket/key to one local file - the per-file logic shared by
+         * downloadFile() (its single --key) and downloadBucket() (every matching key it finds),
+         * so both pick single-request vs multipart the same way. Creates filePath's parent
+         * directories first, since downloadBucket()'s keys can be nested arbitrarily deep under
+         * directories that don't exist locally yet.
+         *
+         * @param bucketErn ERN of the source bucket
+         * @param key key (path) of the object within the bucket
+         * @param filePath local destination file; overwritten if it already exists
+         * @param partSize objects at or above this size are fetched via
+         * create-download/download-part/complete-download; smaller ones via getObject() instead
+         * @param concurrency number of parts to download in parallel, for objects that go the
+         * multipart route
+         * @param outResult set to the downloaded file's summary metadata on success; untouched
+         * on failure
+         * @return 0 on success, 1 on failure (error already printed to stderr)
+         */
+        [[nodiscard]]
+        int downloadOneFile(const std::string &bucketErn, const std::string &key, const std::string &filePath, long partSize, int concurrency, boost::json::value &outResult) const;
+
+        /**
+         * @brief Fetches every object matching bucketErn/prefix, paging through list-objects
+         * until exhausted (internal helper used by downloadBucket(); not a standalone CLI
+         * action).
+         *
+         * @param bucketErn ERN of the bucket to list
+         * @param prefix only objects whose key starts with this are returned; empty matches all
+         * @return every matching object, or empty if the request failed (error already printed to stderr)
+         */
+        [[nodiscard]]
+        std::optional<std::vector<Dto::ESM::Object> > listAllObjects(const std::string &bucketErn, const std::string &prefix) const;
 
         /**
          * @brief Euclid endpoint

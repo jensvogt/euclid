@@ -904,7 +904,7 @@ namespace Euclid::ESM {
 
         Dto::ESM::ListObjectsResponse response;
         response.objects = Dto::ESM::EsmMapper::toDto(objects);
-        response.total = repo->countObjects(request.bucketErn);
+        response.total = repo->countObjects(request.bucketErn, request.prefix);
 
         return EsmServer::JsonResponse(req, status::ok, response.toJson());
     }
