@@ -34,6 +34,25 @@ namespace Euclid::CLI {
             return Core::Configuration::instance().getOr<int>("euclid.modules.storage.concurrency", DEFAULT_CONCURRENCY);
         }
 
+        // Joins root with an object key's prefix-stripped remainder to get downloadBucket()'s
+        // local destination path. Object keys are opaque strings, not real filesystem paths - a
+        // key starting with '/' (e.g. someone having uploaded files keyed by their original
+        // absolute local path) doesn't mean "OS-absolute", so it's normalized to relative rather
+        // than rejected; std::filesystem::path::operator/ would otherwise silently discard root
+        // and resolve to that absolute path directly, which relative_path() here prevents. ".."
+        // components are still refused, though - a key is server-returned data, not necessarily
+        // benign local input, so walking back out of root entirely is the one thing this guards
+        // against, the same class of guard as unpacking an untrusted archive (zip-slip).
+        // std::nullopt means "refuse it".
+        std::optional<std::filesystem::path> SafeJoin(const std::filesystem::path &root, const std::string &remainder) {
+            std::filesystem::path rel(remainder);
+            if (rel.is_absolute()) rel = rel.relative_path();
+            for (const auto &part: rel) {
+                if (part == "..") return std::nullopt;
+            }
+            return root / rel;
+        }
+
     }
 
     EsmCli::EsmCli(std::string endpoint, Credentials::Entry authentication, const bool pretty, std::string caCertPath) : _endpoint(std::move(endpoint)), _authentication(std::move(authentication)), _pretty(pretty), _caCertPath(std::move(caCertPath)) {}
@@ -48,7 +67,9 @@ namespace Euclid::CLI {
                                            {"purge-bucket", "Removes all objects from a bucket"},
                                            {"delete-bucket", "Delete a bucket"},
                                            {"upload-file", "Upload a local file to a bucket"},
+                                           {"upload-directory", "Upload every file in a local directory to a bucket"},
                                            {"download-file", "Download an object from a bucket to a local file"},
+                                           {"download-bucket", "Download a bucket's objects to a local directory"},
                                            {"list-objects", "List objects"},
                                            {"get-object-count", "Return the number of objects in a bucket"},
                                            {"delete-object", "Deletes an object by ERN"},
@@ -72,8 +93,14 @@ namespace Euclid::CLI {
         if (action == "upload-file") {
             return uploadFile(args);
         }
+        if (action == "upload-directory") {
+            return uploadDirectory(args);
+        }
         if (action == "download-file") {
             return downloadFile(args);
+        }
+        if (action == "download-bucket") {
+            return downloadBucket(args);
         }
         if (action == "list-objects") {
             return listObjects(args);
@@ -516,38 +543,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int EsmCli::uploadFile(const std::vector<std::string> &args) const {
-        po::options_description desc("upload file options");
-        desc.add_options()
-                ("bucket-ern,b", po::value<std::string>()->required(), "ERN of the target bucket")
-                ("key,k", po::value<std::string>()->required(), "destination key (path) within the bucket")
-                ("file,f", po::value<std::string>()->required(), "local file to upload")
-                ("part-size,s", po::value<long>()->default_value(DefaultPartSize()), "part size in bytes")
-                ("concurrency,j", po::value<int>()->default_value(DefaultConcurrency()), "number of parts to upload in parallel");
-
-        if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "upload-file", "--bucket-ern <ern> --key <key> --file <path> [--part-size <bytes>] [--concurrency <n>]",
-                                   "Uploads a local file to a bucket. Files smaller than --part-size are stored in a single request; "
-                                   "larger files are transparently split into parts for a multipart upload, uploading up to <concurrency> "
-                                   "parts at a time in background threads.",
-                                   desc);
-        }
-
-        po::variables_map vm;
-        try {
-            po::store(po::command_line_parser(args).options(desc).run(), vm);
-            po::notify(vm);
-        } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
-            return 1;
-        }
-
-        const auto bucketErn = vm["bucket-ern"].as<std::string>();
-        const auto key = vm["key"].as<std::string>();
-        const auto filePath = vm["file"].as<std::string>();
-        const auto partSize = vm["part-size"].as<long>();
-        const auto concurrency = std::max(1, vm["concurrency"].as<int>());
-
+    int EsmCli::uploadOneFile(const std::string &bucketErn, const std::string &key, const std::string &filePath, const long partSize, const int concurrency, boost::json::value &outResult) const {
         std::error_code fsEc;
         const auto fileSize = std::filesystem::file_size(filePath, fsEc);
         if (fsEc) {
@@ -572,7 +568,7 @@ namespace Euclid::CLI {
             }
             const auto result = putObject(bucketErn, key, data);
             if (!result) return 1;
-            Core::WriteJson(std::cout, *result, _pretty);
+            outResult = *result;
             return 0;
         }
 
@@ -630,24 +626,24 @@ namespace Euclid::CLI {
         const auto result = completeUpload(*uploadId);
         if (!result) return 1;
 
-        Core::WriteJson(std::cout, *result, _pretty);
+        outResult = *result;
         return 0;
     }
 
-    int EsmCli::downloadFile(const std::vector<std::string> &args) const {
-        po::options_description desc("download file options");
+    int EsmCli::uploadFile(const std::vector<std::string> &args) const {
+        po::options_description desc("upload file options");
         desc.add_options()
-                ("bucket-ern,b", po::value<std::string>()->required(), "ERN of the source bucket")
-                ("key,k", po::value<std::string>()->required(), "key (path) of the object within the bucket")
-                ("file,f", po::value<std::string>()->required(), "local destination file")
+                ("bucket-ern,b", po::value<std::string>()->required(), "ERN of the target bucket")
+                ("key,k", po::value<std::string>()->required(), "destination key (path) within the bucket")
+                ("file,f", po::value<std::string>()->required(), "local file to upload")
                 ("part-size,s", po::value<long>()->default_value(DefaultPartSize()), "part size in bytes")
-                ("concurrency,j", po::value<int>()->default_value(DefaultConcurrency()), "number of parts to download in parallel");
+                ("concurrency,j", po::value<int>()->default_value(DefaultConcurrency()), "number of parts to upload in parallel");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "download-file", "--bucket-ern <ern> --key <key> --file <path> [--part-size <bytes>] [--concurrency <n>]",
-                                   "Downloads an object from a bucket to a local file. Objects smaller than --part-size are fetched in a "
-                                   "single request; larger objects are transparently split into parts for a multipart download, downloading "
-                                   "up to <concurrency> parts at a time in background threads.",
+            return PrintActionHelp("esm", "upload-file", "--bucket-ern <ern> --key <key> --file <path> [--part-size <bytes>] [--concurrency <n>]",
+                                   "Uploads a local file to a bucket. Files smaller than --part-size are stored in a single request; "
+                                   "larger files are transparently split into parts for a multipart upload, uploading up to <concurrency> "
+                                   "parts at a time in background threads.",
                                    desc);
         }
 
@@ -666,9 +662,117 @@ namespace Euclid::CLI {
         const auto partSize = vm["part-size"].as<long>();
         const auto concurrency = std::max(1, vm["concurrency"].as<int>());
 
+        boost::json::value result;
+        if (uploadOneFile(bucketErn, key, filePath, partSize, concurrency, result) != 0) return 1;
+
+        Core::WriteJson(std::cout, result, _pretty);
+        return 0;
+    }
+
+    int EsmCli::uploadDirectory(const std::vector<std::string> &args) const {
+        po::options_description desc("upload directory options");
+        desc.add_options()
+                ("bucket,b", po::value<std::string>()->required(), "ERN of the target bucket")
+                ("dir,d", po::value<std::string>()->required(), "local directory to upload")
+                ("prefix,p", po::value<std::string>()->default_value(""), "prefix prepended to each object's key")
+                ("recursive,r", po::bool_switch()->default_value(false), "recurse into subdirectories")
+                ("part-size,s", po::value<long>()->default_value(DefaultPartSize()), "part size in bytes")
+                ("concurrency,j", po::value<int>()->default_value(DefaultConcurrency()), "number of parts to upload in parallel, per file");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", "upload-directory", "--bucket-ern <ern> --dir <path> [--prefix <prefix>] [--recursive] [--part-size <bytes>] [--concurrency <n>]",
+                                   "Uploads every file in a local directory to a bucket, one object per file. Each object's key is "
+                                   "--prefix followed by the file's path relative to --dir (forward slashes regardless of platform). "
+                                   "Without --recursive, only files directly inside --dir are uploaded; with it, subdirectories are "
+                                   "walked too. Each file uses the same put-object/multipart logic as upload-file, chosen by its own "
+                                   "size relative to --part-size.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        const auto bucketErn = vm["bucket"].as<std::string>();
+        const auto dirPath = vm["dir"].as<std::string>();
+        const auto prefix = vm["prefix"].as<std::string>();
+        const bool recursive = vm["recursive"].as<bool>();
+        const auto partSize = vm["part-size"].as<long>();
+        const auto concurrency = std::max(1, vm["concurrency"].as<int>());
+
+        std::error_code fsEc;
+        const std::filesystem::path root(dirPath);
+        if (!std::filesystem::is_directory(root, fsEc) || fsEc) {
+            std::cerr << "error: '" << dirPath << "' is not a directory\n";
+            return 1;
+        }
+
+        // Walked up front into a sorted list rather than uploaded while iterating, so the
+        // directory_iterator is closed (and any transient walk error caught) before the first
+        // upload starts, and files are processed in a deterministic order regardless of what
+        // order the filesystem happens to hand them back in.
+        std::vector<std::filesystem::path> files;
+        std::error_code walkEc;
+        constexpr auto walkOpts = std::filesystem::directory_options::skip_permission_denied;
+        if (recursive) {
+            for (auto it = std::filesystem::recursive_directory_iterator(root, walkOpts, walkEc);
+                 !walkEc && it != std::filesystem::recursive_directory_iterator(); it.increment(walkEc)) {
+                if (it->is_regular_file(walkEc)) files.push_back(it->path());
+            }
+        } else {
+            for (auto it = std::filesystem::directory_iterator(root, walkOpts, walkEc);
+                 !walkEc && it != std::filesystem::directory_iterator(); it.increment(walkEc)) {
+                if (it->is_regular_file(walkEc)) files.push_back(it->path());
+            }
+        }
+        if (walkEc) {
+            std::cerr << "error: could not walk directory '" << dirPath << "': " << walkEc.message() << "\n";
+            return 1;
+        }
+        std::ranges::sort(files);
+
+        if (files.empty()) {
+            std::cerr << "warning: no files found under '" << dirPath << "'" << (recursive ? "" : " (use --recursive to include subdirectories)") << "\n";
+        }
+
+        bool ok = true;
+        boost::json::array results;
+        for (const auto &file: files) {
+            const auto relative = std::filesystem::relative(file, root, fsEc);
+            const std::string key = prefix + (fsEc ? file.filename().string() : relative.generic_string());
+
+            boost::json::value uploadResult;
+            if (uploadOneFile(bucketErn, key, file.string(), partSize, concurrency, uploadResult) != 0) {
+                std::cerr << "error: failed to upload '" << file.string() << "' to key '" << key << "'\n";
+                ok = false;
+                results.push_back(boost::json::object{{"key", key}, {"file", file.string()}, {"error", true}});
+                continue;
+            }
+            results.push_back(boost::json::object{{"key", key}, {"file", file.string()}, {"result", uploadResult}});
+        }
+
+        Core::WriteJson(std::cout, results, _pretty);
+        return ok ? 0 : 1;
+    }
+
+    int EsmCli::downloadOneFile(const std::string &bucketErn, const std::string &key, const std::string &filePath, const long partSize, const int concurrency, boost::json::value &outResult) const {
+        if (const auto parent = std::filesystem::path(filePath).parent_path(); !parent.empty()) {
+            std::error_code mkEc;
+            std::filesystem::create_directories(parent, mkEc);
+            if (mkEc) {
+                std::cerr << "error: could not create directory '" << parent.string() << "': " << mkEc.message() << "\n";
+                return 1;
+            }
+        }
+
         // Objects that fit under a single part skip multipart entirely: get-object fetches them in
         // one request/response round trip instead of paying for create-download + one
-        // download-part + complete-download. Unlike uploadFile() (which stats the local file
+        // download-part + complete-download. Unlike uploadOneFile() (which stats the local file
         // upfront and so already knows before making any request whether it's small), a download's
         // size isn't known until asked, so this is tried unconditionally first; HTTP 413 means the
         // object turned out to be too large, and the multipart path below takes over instead.
@@ -688,13 +792,12 @@ namespace Euclid::CLI {
             out.write(inlineResponse.data.data(), static_cast<std::streamsize>(inlineResponse.data.size()));
             out.close();
 
-            const boost::json::value result{
+            outResult = boost::json::value{
                     {"bucketErn", bucketErn},
                     {"key", key},
                     {"size", static_cast<long>(inlineResponse.data.size())},
                     {"file", filePath},
             };
-            Core::WriteJson(std::cout, result, _pretty);
             return 0;
         }
 
@@ -706,7 +809,7 @@ namespace Euclid::CLI {
 
         // Pre-sizes the destination file so worker threads below can each write their assigned
         // byte range directly at the right offset regardless of completion order - the download
-        // equivalent of uploadFile() reading its source file sequentially while letting uploads
+        // equivalent of uploadOneFile() reading its source file sequentially while letting uploads
         // themselves complete out of order.
         {
             std::ofstream out(filePath, std::ios::binary | std::ios::trunc);
@@ -720,9 +823,9 @@ namespace Euclid::CLI {
             }
         }
 
-        // Bounded pipeline, same shape as uploadFile()'s: up to <concurrency> part downloads run
+        // Bounded pipeline, same shape as uploadOneFile()'s: up to <concurrency> part downloads run
         // in the background at a time, and whichever slot finishes first is reaped so one
-        // slow-for-any-reason part can't head-of-line-block the rest (see uploadFile()'s
+        // slow-for-any-reason part can't head-of-line-block the rest (see uploadOneFile()'s
         // reapOneCompleted() for why that matters in practice).
         bool ok = true;
         std::vector<std::future<bool> > inFlight;
@@ -758,7 +861,7 @@ namespace Euclid::CLI {
 
         if (!completeDownload(downloadId)) return 1;
 
-        const boost::json::value result{
+        outResult = boost::json::value{
                 {"bucketErn", created->bucketErn},
                 {"key", created->key},
                 {"ern", created->ern},
@@ -766,8 +869,164 @@ namespace Euclid::CLI {
                 {"contentType", created->contentType},
                 {"file", filePath},
         };
+        return 0;
+    }
+
+    int EsmCli::downloadFile(const std::vector<std::string> &args) const {
+        po::options_description desc("download file options");
+        desc.add_options()
+                ("bucket-ern,b", po::value<std::string>()->required(), "ERN of the source bucket")
+                ("key,k", po::value<std::string>()->required(), "key (path) of the object within the bucket")
+                ("file,f", po::value<std::string>()->required(), "local destination file")
+                ("part-size,s", po::value<long>()->default_value(DefaultPartSize()), "part size in bytes")
+                ("concurrency,j", po::value<int>()->default_value(DefaultConcurrency()), "number of parts to download in parallel");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", "download-file", "--bucket-ern <ern> --key <key> --file <path> [--part-size <bytes>] [--concurrency <n>]",
+                                   "Downloads an object from a bucket to a local file. Objects smaller than --part-size are fetched in a "
+                                   "single request; larger objects are transparently split into parts for a multipart download, downloading "
+                                   "up to <concurrency> parts at a time in background threads.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        const auto bucketErn = vm["bucket-ern"].as<std::string>();
+        const auto key = vm["key"].as<std::string>();
+        const auto filePath = vm["file"].as<std::string>();
+        const auto partSize = vm["part-size"].as<long>();
+        const auto concurrency = std::max(1, vm["concurrency"].as<int>());
+
+        boost::json::value result;
+        if (downloadOneFile(bucketErn, key, filePath, partSize, concurrency, result) != 0) return 1;
+
         Core::WriteJson(std::cout, result, _pretty);
         return 0;
+    }
+
+    std::optional<std::vector<Dto::ESM::Object> > EsmCli::listAllObjects(const std::string &bucketErn, const std::string &prefix) const {
+        constexpr long kPageSize = 1000;
+        std::vector<Dto::ESM::Object> objects;
+
+        for (long pageIndex = 0;; ++pageIndex) {
+            Dto::ESM::ListObjectsRequest request;
+            request.bucketErn = bucketErn;
+            request.prefix = prefix;
+            request.pageSize = kPageSize;
+            request.pageIndex = pageIndex;
+            request.sortColumn = "key";
+
+            try {
+                const HttpClient client(_endpoint, _authentication, _caCertPath);
+                const HttpResponse response = client.Post("esm", "list-objects", boost::json::value_from(request));
+                if (!response.IsSuccess()) {
+                    std::cerr << "error: list-objects failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                    return std::nullopt;
+                }
+                const auto page = boost::json::value_to<Dto::ESM::ListObjectsResponse>(response.body);
+                objects.insert(objects.end(), page.objects.begin(), page.objects.end());
+                if (static_cast<long>(page.objects.size()) < kPageSize) break;
+            } catch (const std::exception &ex) {
+                std::cerr << "error: " << ex.what() << std::endl;
+                return std::nullopt;
+            }
+        }
+        return objects;
+    }
+
+    int EsmCli::downloadBucket(const std::vector<std::string> &args) const {
+        po::options_description desc("download bucket options");
+        desc.add_options()
+                ("bucket-ern,b", po::value<std::string>()->required(), "ERN of the source bucket")
+                ("dir,d", po::value<std::string>()->required(), "local directory to download into")
+                ("prefix,p", po::value<std::string>()->default_value(""), "object key prefix filter")
+                ("recursive,r", po::bool_switch()->default_value(false), "recurse through all matching keys, not just direct descendants")
+                ("part-size,s", po::value<long>()->default_value(DefaultPartSize()), "part size in bytes")
+                ("concurrency,j", po::value<int>()->default_value(DefaultConcurrency()), "number of parts to download in parallel, per file");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", "download-bucket", "--bucket-ern <ern> --dir <path> [--prefix <prefix>] [--recursive] [--part-size <bytes>] [--concurrency <n>]",
+                                   "Downloads objects from a bucket to a local directory, one file per object. Without --recursive, only "
+                                   "an object's direct descendants are downloaded - keys matching --prefix with no further '/' after it; "
+                                   "with --recursive, every key matching --prefix is downloaded, however deeply nested. Each local file's "
+                                   "path is --dir followed by the object's key with --prefix stripped off the front. Each object uses the "
+                                   "same get-object/multipart logic as download-file, chosen by its own size relative to --part-size.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        const auto bucketErn = vm["bucket-ern"].as<std::string>();
+        const auto dirPath = vm["dir"].as<std::string>();
+        const auto prefix = vm["prefix"].as<std::string>();
+        const bool recursive = vm["recursive"].as<bool>();
+        const auto partSize = vm["part-size"].as<long>();
+        const auto concurrency = std::max(1, vm["concurrency"].as<int>());
+
+        const auto objects = listAllObjects(bucketErn, prefix);
+        if (!objects) return 1;
+
+        // Direct descendants only (no --recursive): a key's remainder after stripping --prefix
+        // must have no further '/' - the same "delimiter" semantics S3-style listings use to
+        // simulate a directory's immediate contents, since objects don't actually have real
+        // parent directories.
+        std::vector<const Dto::ESM::Object *> matched;
+        for (const auto &object: *objects) {
+            const std::string remainder = object.key.size() >= prefix.size() ? object.key.substr(prefix.size()) : object.key;
+            if (!recursive && remainder.find('/') != std::string::npos) continue;
+            matched.push_back(&object);
+        }
+
+        if (matched.empty()) {
+            std::cerr << "warning: no matching objects under prefix '" << prefix << "'" << (recursive ? "" : " (use --recursive to include nested keys)") << "\n";
+        }
+
+        const std::filesystem::path root(dirPath);
+        std::error_code mkRootEc;
+        std::filesystem::create_directories(root, mkRootEc);
+        if (mkRootEc) {
+            std::cerr << "error: could not create directory '" << dirPath << "': " << mkRootEc.message() << "\n";
+            return 1;
+        }
+
+        bool ok = true;
+        boost::json::array results;
+        for (const auto *object: matched) {
+            const std::string remainder = object->key.size() >= prefix.size() ? object->key.substr(prefix.size()) : object->key;
+            const auto filePath = SafeJoin(root, remainder);
+            if (!filePath) {
+                std::cerr << "error: refusing key '" << object->key << "' - its path would escape '" << dirPath << "'\n";
+                ok = false;
+                results.push_back(boost::json::object{{"key", object->key}, {"error", true}});
+                continue;
+            }
+
+            boost::json::value downloadResult;
+            if (downloadOneFile(bucketErn, object->key, filePath->string(), partSize, concurrency, downloadResult) != 0) {
+                std::cerr << "error: failed to download key '" << object->key << "' to '" << filePath->string() << "'\n";
+                ok = false;
+                results.push_back(boost::json::object{{"key", object->key}, {"file", filePath->string()}, {"error", true}});
+                continue;
+            }
+            results.push_back(boost::json::object{{"key", object->key}, {"file", filePath->string()}, {"result", downloadResult}});
+        }
+
+        Core::WriteJson(std::cout, results, _pretty);
+        return ok ? 0 : 1;
     }
 
     int EsmCli::listObjects(const std::vector<std::string> &args) const {

@@ -34,6 +34,10 @@ namespace Euclid::Database {
             objectKeyOpts.unique(true);
             objectCollection.create_index(make_document(kvp("bucketErn", 1), kvp("key", 1)), objectKeyOpts);
 
+            mongocxx::options::index objectErnOpts;
+            objectErnOpts.unique(true);
+            objectCollection.create_index(make_document(kvp("ern", 1)), objectErnOpts);
+
         } catch (const std::exception &e) {
             log_error << "Ensure storage indexes failed, error: " << e.what();
         }

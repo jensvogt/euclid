@@ -24,9 +24,24 @@ namespace Euclid::Database {
 
         try {
             const auto entry = Database::instance().client();
+            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+
+            mongocxx::options::index queueNameOpts;
+            queueNameOpts.unique(true);
+            queueCollection.create_index(make_document(kvp("name", 1)), queueNameOpts);
+
+            mongocxx::options::index queueErnOpts;
+            queueErnOpts.unique(true);
+            queueCollection.create_index(make_document(kvp("ern", 1)), queueErnOpts);
+
             auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
 
             messageCollection.create_index(make_document(kvp("queueErn", 1), kvp("status", 1), kvp("priority", 1)));
+
+            // Supports resetExpiredMessages()'s per-status sweeps (INVISIBLE, then DELAYED),
+            // which filter by status alone - the compound index above can't serve that, since
+            // queueErn is its leading field and isn't part of that filter.
+            messageCollection.create_index(make_document(kvp("status", 1)));
 
             mongocxx::options::index receiptHandleOpts;
             receiptHandleOpts.sparse(true);
