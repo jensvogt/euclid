@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.22](https://github.com/jensvogt/euclid/compare/v1.0.21...v1.0.22) (2026-08-24)
+
+
+### Bug Fixes
+
+* rename all modules ([eb9f528](https://github.com/jensvogt/euclid/commit/eb9f528fa309b0afa6ddbfa15cd5f1aa019c1838))
+
 ## [1.0.21](https://github.com/jensvogt/euclid/compare/1.0.20...v1.0.21) (2026-08-24)
 
 
