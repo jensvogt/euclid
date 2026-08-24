@@ -41,6 +41,8 @@
 #include <euclid/dto/esm/GetBucketErnResponse.h>
 #include <euclid/dto/esm/GetBucketSizeRequest.h>
 #include <euclid/dto/esm/GetBucketSizeResponse.h>
+#include <euclid/dto/esm/GetObjectCountRequest.h>
+#include <euclid/dto/esm/GetObjectCountResponse.h>
 #include <euclid/dto/esm/ListBucketsRequest.h>
 #include <euclid/dto/esm/ListBucketsResponse.h>
 #include <euclid/dto/esm/ListObjectsRequest.h>
@@ -73,6 +75,9 @@ namespace Euclid::ESM {
          */
         explicit EsmServer(std::string socketPath, int threads = 2);
 
+        /**
+         * @brief Destructor
+         */
         ~EsmServer() override;
 
     protected:

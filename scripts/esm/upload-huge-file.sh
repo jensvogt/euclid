@@ -41,7 +41,7 @@ Usage: upload-huge-file.sh [-s SIZE] [-b BUCKET_NAME] [-e ENDPOINT] [-c CLI_PATH
                   --concurrency" (default: euclid-cli's own default, currently 4)
 
 Requires: euclid-cli (built and on PATH, or pointed to via -c), jq, and a valid
-euclid-cli login session (run "euclid-cli access login --user <user> --password <password>" first).
+euclid-cli session (run "euclid-cli eam login --user <user> --password <password>" first).
 EOF
     exit 1
 }
@@ -74,16 +74,16 @@ command -v jq >/dev/null 2>&1 || { echo "error: jq is required" >&2; exit 1; }
 cli() { "$CLI" --pretty false --endpoint "$ENDPOINT" "$@"; }
 
 # Resolve the bucket's ERN, creating the bucket on the fly if it doesn't exist yet.
-ern=$(cli storage get-bucket-ern --name "$BUCKET_NAME" 2>/dev/null | jq -r '.ern // empty')
+ern=$(cli esm get-bucket-ern --name "$BUCKET_NAME" 2>/dev/null | jq -r '.ern // empty') || true
 if [ -z "$ern" ]; then
     echo "Bucket '$BUCKET_NAME' not found, creating it..."
-    ern=$(cli storage create-bucket --name "$BUCKET_NAME" | jq -r '.ern')
+    ern=$(cli esm create-bucket --name "$BUCKET_NAME" | jq -r '.ern')
 fi
 echo "Uploading a file with size $SIZE to '$BUCKET_NAME' (ern: $ern)"
 
 fallocate -l "$SIZE" "$FILE_NAME"
 
-upload_args=(storage upload-file --bucket-ern "$ern" --key "$OBJECT_KEY" --file "$FILE_NAME")
+upload_args=(esm upload-file --bucket-ern "$ern" --key "$OBJECT_KEY" --file "$FILE_NAME")
 if [ -n "$CONCURRENCY" ]; then
     upload_args+=(--concurrency "$CONCURRENCY")
 fi
