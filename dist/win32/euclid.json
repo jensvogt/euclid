@@ -40,34 +40,37 @@
       }
     },
     "modules": {
-      "access": {
+      "eam": {
         "active": true,
-        "name": "access",
-        "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-access.sock",
-        "executable": "C:\\Program Files\\euclid\\bin\\euclid-access",
+        "name": "eam",
+        "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-eam.sock",
+        "executable": "C:\\Program Files\\euclid\\bin\\euclid-eam",
         "minInstances": 1,
         "maxInstances": 2,
         "jwt-secret": "04cb52d1fdd9e1b68388a5919709d5eec8f271b88b5af0925b4a73ea123fd1f4"
       },
-      "storage": {
+      "esm": {
         "active": true,
-        "name": "storage",
-        "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-storage.sock",
-        "executable": "C:\\Program Files\\euclid\\bin\\euclid-storage",
+        "name": "esm",
+        "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-esm.sock",
+        "executable": "C:\\Program Files\\euclid\\bin\\euclid-esm",
         "backup": {
           "active": true,
           "cron": "0 0 0 * * ?",
           "count": 5
         },
-        "data-dir": "C:\\Program Files\\euclid\\data\\storage",
+        "data-dir": "C:\\Program Files\\euclid\\data\\esm",
         "minInstances": 1,
         "maxInstances": 4,
         "counter-period": 60,
         "sync-period": 3600,
         "archive-timeout": 300
       },
-      "queues": {
+      "eqs": {
         "active": true,
+        "name": "eqs",
+        "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-eqs.sock",
+        "executable": "C:\\Program Files\\euclid\\bin\\euclid-eqs",
         "backup": {
           "active": true,
           "cron": "0 0 0 * * ?",
@@ -82,17 +85,14 @@
           "middle": 2,
           "low": 1
         },
-        "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-queues.sock",
-        "executable": "C:\\Program Files\\euclid\\bin\\euclid-queues",
-        "name": "queues",
         "minInstances": 1,
         "maxInstances": 4
       },
-      "topics": {
+      "ens": {
         "active": false,
-        "name": "topics",
-        "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-topics.sock",
-        "executable": "C:\\Program Files\\euclid\\bin\\euclid-topics",
+        "name": "ens",
+        "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-ens.sock",
+        "executable": "C:\\Program Files\\euclid\\bin\\euclid-ens",
         "backup": {
           "active": true,
           "cron": "0 0 0 * * ?",
@@ -103,10 +103,10 @@
         "delete-period": 300,
         "counter-period": 10
       },
-      "monitoring": {
+      "emo": {
         "active": true,
-        "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-monitoring.sock",
-        "executable": "C:\\Program Files\\euclid\\bin\\euclid-monitoring",
+        "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-emo.sock",
+        "executable": "C:\\Program Files\\euclid\\bin\\euclid-emo",
         "name": "monitoring",
         "minInstances": 1,
         "maxInstances": 1

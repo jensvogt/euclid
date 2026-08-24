@@ -144,7 +144,7 @@ namespace Euclid::Core {
         Unauthorized(const boost::beast::http::request<boost::beast::http::string_body> &req, const AuthResult &auth);
 
         /**
-         * @brief Validates the configured HS256 JWT signing secret (euclid.modules.access.jwt-secret).
+         * @brief Validates the configured HS256 JWT signing secret (euclid.modules.eam.jwt-secret).
          *
          * Logs an error describing the problem and returns false if the secret is missing
          * (falling back to the insecure built-in default) or shorter than the 32-byte
@@ -157,7 +157,7 @@ namespace Euclid::Core {
         static bool ValidateJwtSecret();
 
         /**
-         * @brief Reads the configured HS256 JWT signing secret (euclid.modules.access.jwt-secret),
+         * @brief Reads the configured HS256 JWT signing secret (euclid.modules.eam.jwt-secret),
          * falling back to the insecure built-in default if unconfigured.
          *
          * Exposed so modules that issue tokens (e.g. access, on login) can sign them with the
