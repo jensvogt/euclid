@@ -1,0 +1,45 @@
+.TH EUCLID-CLI-EAM-DELETE-ACCESS-KEY 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eam-delete-access-key \- delete one of the logged-in user's own access keys
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B eam delete-access-key
+.BR \-\-accessKeyId | \-k
+.I ACCESSKEYID
+.SH DESCRIPTION
+Deletes the access key identified by \fIACCESSKEYID\fR via the eam service's
+.I delete-access-key
+action. Only the logged-in user's own access keys may be deleted this way.
+.PP
+Self-service: any authenticated user may delete their own access keys, no
+administrator privileges required.
+.SH OPTIONS
+.TP
+.BR \-k ", " \-\-accessKeyId " " \fIACCESSKEYID\fR
+ID of the access key to delete. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The access key was deleted.
+.TP
+.B 1
+Missing/invalid arguments, the request could not be sent, the caller is not
+authenticated, or no access key with that ID exists for the caller. If the
+failure was an expired or invalid session (\fIHTTP 401\fR), the stored
+credentials file is removed; run
+.B euclid-cli eam login
+again before retrying.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eam delete-access-key --accessKeyId AKIAEXAMPLE
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-eam-create-access-key (1),
+.BR euclid-cli-eam-list-access-keys (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

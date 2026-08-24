@@ -147,7 +147,7 @@ Section "Main Application" SecMain
   File "${BUILDDIR}\bin\euclid-eam.exe"
   File "${BUILDDIR}\bin\euclid-queues.exe"
   File "${BUILDDIR}\bin\euclid-storage.exe"
-  File "${BUILDDIR}\bin\euclid-monitoring.exe"
+  File "${BUILDDIR}\bin\euclid-emo.exe"
 
   SetOutPath "$INSTDIR\etc"
   File "/oname=euclid.json" "${SRCDIR}\dist\win32\euclid.json"
@@ -206,7 +206,7 @@ Section "Windows Service" SecService
   SimpleSC::StopService "euclid" 1 30
   SimpleSC::RemoveService "euclid"
 
-  ; Install service (euclid-manager spawns euclid-eam/euclid-queues/euclid-monitoring as
+  ; Install service (euclid-manager spawns euclid-eam/euclid-queues/euclid-emo as
   ; subprocesses, resolved via PATH, so $INSTDIR\bin is added to the service's PATH)
   SimpleSC::InstallService "euclid" "Euclid" 16 2 \
     `"$INSTDIR\bin\euclid-manager.exe" --config "$INSTDIR\etc\euclid.json"` "" "" ""
@@ -236,7 +236,7 @@ Section "Uninstall"
   Delete "$INSTDIR\bin\euclid-cli.exe"
   Delete "$INSTDIR\bin\euclid-eam.exe"
   Delete "$INSTDIR\bin\euclid-queues.exe"
-  Delete "$INSTDIR\bin\euclid-monitoring.exe"
+  Delete "$INSTDIR\bin\euclid-emo.exe"
   Delete "$INSTDIR\bin\euclid-storage.exe"
   Delete "$INSTDIR\etc\euclid.json"
   Delete "$INSTDIR\etc\magic.mgc"
