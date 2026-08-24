@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.26](https://github.com/jensvogt/euclid/compare/1.0.25...v1.0.26) (2026-08-24)
+
+
+### Bug Fixes
+
+* dockerfile and euclid modules names ([c71cf7c](https://github.com/jensvogt/euclid/commit/c71cf7c84bc6cf9fa3a19bf1fe29e32a4db4e6d6))
+* ESM purge bucket ([39450ff](https://github.com/jensvogt/euclid/commit/39450ff3ae8efc1cec78730f860d66565460fe75))
+* ESM purge bucket ([7f2677f](https://github.com/jensvogt/euclid/commit/7f2677ff95e9abe6aad5641a8937b7a0d74761b0))
+
 ## [1.0.25](https://github.com/jensvogt/euclid/compare/1.0.24...v1.0.25) (2026-08-24)
 
 
