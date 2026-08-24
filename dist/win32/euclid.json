@@ -105,9 +105,9 @@
       },
       "emo": {
         "active": true,
+        "name": "emo",
         "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-emo.sock",
         "executable": "C:\\Program Files\\euclid\\bin\\euclid-emo",
-        "name": "monitoring",
         "minInstances": 1,
         "maxInstances": 1
       },

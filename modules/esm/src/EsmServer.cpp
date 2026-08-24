@@ -580,10 +580,53 @@ namespace Euclid::ESM {
         return EsmServer::JsonResponse(req, status::ok);
     }
 
+    // Removes every object of a bucket, e.g. so the (now empty) bucket can be deleted. Reuses the
+    // same per-object disk cleanup as handleDeleteObject() rather than calling it directly, since
+    // looking the object back up by ERN for each one would be wasted work when listObjects() already
+    // has it.
+    static response<string_body> handlePurgeBucket(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "purge-bucket");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = Dto::ESM::PurgeBucketRequest::fromJson(req.body());
+        log_info << "ESM PurgeBucket, ern: " << request.ern;
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        const auto objects = repo->listObjects(request.ern, "", -1, -1, "");
+
+        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
+        for (const auto &object: objects) {
+            std::error_code ec;
+            std::filesystem::remove(std::filesystem::path(dataDir) / object.internalName, ec);
+            if (ec)
+                log_warning << "Could not remove object file, internalName: " << object.internalName << ", error: " << ec.message();
+            repo->deleteObjectByErn(object.ern);
+        }
+
+        if (auto bucket = repo->findBucketByErn(request.ern); bucket.has_value()) {
+            bucket->size = 0;
+            bucket->objects = 0;
+            repo->upsertBucket(*bucket);
+        }
+
+        log_info << "ESM bucket purged, ern: " << request.ern << ", count: " << objects.size();
+
+        Dto::ESM::PurgeBucketResponse response;
+        response.ern = request.ern;
+        response.count = static_cast<long>(objects.size());
+
+        return EsmServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
     // ── Request dispatcher ───────────────────────────────────────────────────
 
     namespace {
-        // Commands the SQS service accepts via the "x-euclid-action" header.
+        // Commands the ESM service accepts via the "x-euclid-action" header.
         enum class Command {
             Unknown,
             CreateBucket,
@@ -596,6 +639,7 @@ namespace Euclid::ESM {
             CompleteUpload,
             ListObjects,
             DeleteObject,
+            PurgeBucket,
             GetMetrics
         };
     }
@@ -611,6 +655,7 @@ namespace Euclid::ESM {
         if (action == "complete-upload") return Command::CompleteUpload;
         if (action == "list-objects") return Command::ListObjects;
         if (action == "delete-object") return Command::DeleteObject;
+        if (action == "purge-bucket") return Command::PurgeBucket;
         if (action == "get-metrics") return Command::GetMetrics;
         return Command::Unknown;
     }
@@ -655,6 +700,9 @@ namespace Euclid::ESM {
             case Command::ListObjects:
                 return handleListObjects(req);
 
+            case Command::PurgeBucket:
+                return handlePurgeBucket(req);
+
             case Command::Unknown:
             default:
                 return EsmServer::ErrorResponse(req, status::not_found, "Action not implemented: " + action);
@@ -663,7 +711,7 @@ namespace Euclid::ESM {
 
     // ── EsmServer ────────────────────────────────────────────────────────────
 
-    EsmServer::EsmServer(std::string socketPath, const int threads) : HttpActionServer("storage", std::move(socketPath), threads) {
+    EsmServer::EsmServer(std::string socketPath, const int threads) : HttpActionServer("ESM", std::move(socketPath), threads) {
     }
 
     EsmServer::~EsmServer() = default;
