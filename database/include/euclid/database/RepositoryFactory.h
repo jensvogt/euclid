@@ -140,7 +140,7 @@ namespace Euclid::Database {
      * core can't depend on database (database depends on core), so this is the glue that closes
      * the loop - call once per process, after RepositoryFactory::initialize(), in every
      * executable whose HttpActionServer-derived server needs to verify SigV4-signed requests
-     * (the gateway and every AWS-service module).
+     * (the gateway and every Euclid-service module).
      */
     inline void WireAccessKeyLookup() {
         Core::HttpActionServer::SetAccessKeyLookup([](const std::string &accessKeyId) -> std::optional<Core::HttpActionServer::AccessKeyRecord> {

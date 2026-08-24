@@ -63,7 +63,7 @@ namespace Euclid::Database::Entity::EQS {
         /**
          * Policy
          *
-         * <p>The queue's policy. A valid AWS policy. For more information about policy structure, see Overview of AWS IAM Policies in the AWS Identity and Access Management User Guide.</p>
+         * <p>The queue's policy. A valid Euclid policy.
          */
         std::string policy;
 
@@ -86,7 +86,7 @@ namespace Euclid::Database::Entity::EQS {
          * <ul>
          * <li>redrivePermission – The permission type that defines which source queues can specify the current queue as the dead-letter queue. Valid values are:
          * <ul>
-         * <li>allowAll – (Default) Any source queues in this AWS account in the same Region can specify this queue as the dead-letter queue.</li>
+         * <li>allowAll – (Default) Any source queues in this Euclid account in the same Region can specify this queue as the dead-letter queue.</li>
          * <li>denyAll – No source queues can specify this queue as the dead-letter queue.</li>
          * <li>byQueue – Only queues specified by the sourceQueueArns parameter can specify this queue as the dead-letter queue.</li>
          * </ul>
@@ -114,7 +114,7 @@ namespace Euclid::Database::Entity::EQS {
         long approximateNumberOfMessagesNotVisible = 0;
 
         /**
-         * AWS ARN
+         * Euclid ARN
          */
         std::string queueErn;
 

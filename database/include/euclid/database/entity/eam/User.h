@@ -17,7 +17,7 @@
 namespace Euclid::Database::Entity::EAM {
 
     /**
-     * @brief An AWS-style access key pair, used to authenticate SigV4-signed service calls.
+     * @brief An  (mirrors AWS IAM)-style access key pair, used to authenticate SigV4-signed service calls.
      */
     struct AccessKey {
 
@@ -102,7 +102,7 @@ namespace Euclid::Database::Entity::EAM {
         bool isAdmin{false};
 
         /**
-         * @brief AWS-style access keys owned by this user, used for SigV4-signed service calls.
+         * @brief Euclid-style access keys owned by this user, used for SigV4-signed service calls.
          */
         std::vector<AccessKey> accessKeys;
 
