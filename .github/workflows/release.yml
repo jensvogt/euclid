@@ -220,12 +220,12 @@ jobs:
           mkdir -p ${{ env.PACKAGE_DIR }}/euclid/data/backup
           mkdir -p ${{ env.PACKAGE_DIR }}/euclid/share/man/man1
 
-          cp ${{ env.BUILD_DIR }}/bin/euclid-manager ${{ env.PACKAGE_DIR }}/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-mgr ${{ env.PACKAGE_DIR }}/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-cli ${{ env.PACKAGE_DIR }}/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-eam ${{ env.PACKAGE_DIR }}/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-queues ${{ env.PACKAGE_DIR }}/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-eqs ${{ env.PACKAGE_DIR }}/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-emo ${{ env.PACKAGE_DIR }}/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-storage ${{ env.PACKAGE_DIR }}/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-esm ${{ env.PACKAGE_DIR }}/euclid/bin/
           cp dist/macos/etc/* ${{ env.PACKAGE_DIR }}/euclid/etc
           # euclid statically links vcpkg's own libmagic, whose compiled magic database format
           # isn't guaranteed compatible with any other libmagic's (see Core::ContentTypeUtils) -
@@ -336,12 +336,12 @@ jobs:
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man1
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/etc/systemd/system
 
-          cp ${{ env.BUILD_DIR }}/bin/euclid-manager ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-mgr ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-cli ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-eam ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-queues ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-eqs ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-emo ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-storage ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-esm ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
           cp dist/linux/etc/* ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/etc/
           # euclid statically links vcpkg's own libmagic, whose compiled magic database format
           # isn't guaranteed compatible with the system's /usr/lib/file/magic.mgc (see
@@ -361,7 +361,7 @@ jobs:
           #!/bin/bash
           set -e
           ln -sf /usr/local/euclid/bin/euclid-cli /usr/local/bin/euclid-cli
-          ln -sf /usr/local/euclid/bin/euclid-manager /usr/local/bin/euclid-manager
+          ln -sf /usr/local/euclid/bin/euclid-mgr /usr/local/bin/euclid-mgr
           systemctl daemon-reload
           systemctl enable euclid.service
           systemctl restart euclid.service || true
@@ -381,7 +381,7 @@ jobs:
             systemctl stop euclid.service || true
             systemctl disable euclid.service || true
             rm -f /etc/systemd/system/euclid.service
-            rm -f /usr/local/bin/euclid-cli /usr/local/bin/euclid-manager
+            rm -f /usr/local/bin/euclid-cli /usr/local/bin/euclid-mgr
           fi
           EOF
 
@@ -394,7 +394,7 @@ jobs:
           --architecture amd64 \
           --license "GPL-3.0-or-later" \
           --maintainer "Jens Vogt <jens.vogt@opitz-consulting.com>" \
-          --description "Euclid local AWS emulator service" \
+          --description "Euclid Cloud Services" \
           --category utils \
           --depends systemd \
           --depends libmagic1 \
@@ -424,12 +424,12 @@ jobs:
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man1
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/etc/systemd/system
 
-          cp ${{ env.BUILD_DIR }}/bin/euclid-manager ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-mgr ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-cli ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-eam ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-queues ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-eqs ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-emo ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-storage ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-esm ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
           cp dist/linux/etc/* ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc/
           # See the DEB step above for why this is bundled rather than relying on the system's.
           cp ${{ env.BUILD_DIR }}/vcpkg_installed/x64-linux/share/libmagic/misc/magic.mgc ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc/magic.mgc
@@ -445,7 +445,7 @@ jobs:
           #!/bin/bash
           set -e
           ln -sf /usr/local/euclid/bin/euclid-cli /usr/local/bin/euclid-cli
-          ln -sf /usr/local/euclid/bin/euclid-manager /usr/local/bin/euclid-manager
+          ln -sf /usr/local/euclid/bin/euclid-mgr /usr/local/bin/euclid-mgr
           systemctl daemon-reload
           systemctl enable euclid.service
           systemctl restart euclid.service || true
@@ -463,7 +463,7 @@ jobs:
             systemctl stop euclid.service || true
             systemctl disable euclid.service || true
             rm -f /etc/systemd/system/euclid.service
-            rm -f /usr/local/bin/euclid-cli /usr/local/bin/euclid-manager
+            rm -f /usr/local/bin/euclid-cli /usr/local/bin/euclid-mgr
             systemctl daemon-reload
           fi
           EOF
@@ -475,7 +475,7 @@ jobs:
           fpm -s dir -t rpm \
           -n euclid \
           -v ${SEMVER} \
-          --description "Euclid - Local AWS API mocking environment" \
+          --description "Euclid - Euclid Cloud Service" \
           --url "https://github.com/jensvogt/euclid" \
           --vendor "Euclid Project" \
           --license "GPL-3.0-or-later" \

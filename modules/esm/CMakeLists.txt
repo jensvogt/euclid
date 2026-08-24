@@ -1,4 +1,4 @@
-set(BINARY euclid-storage)
+set(BINARY euclid-esm)
 
 add_executable(${BINARY} src/main.cpp src/EsmServer.cpp)
 
