@@ -3,19 +3,19 @@
 euclid-cli-esm-list-objects \- list a bucket's objects
 .SH SYNOPSIS
 .B euclid-cli esm list-objects
-[\fB\-\-bucket\fR|\fB\-b\fR \fIERN\fR]
+.BR \-\-bucket | \-b
+.I ERN
 [\fB\-\-prefix\fR|\fB\-p\fR \fIPREFIX\fR]
 [\fB\-\-pageSize\fR|\fB\-s\fR \fIN\fR]
 [\fB\-\-pageIndex\fR|\fB\-i\fR \fIN\fR]
 [\fB\-\-sortColumn\fR|\fB\-c\fR \fICOLUMN\fR]
 .SH DESCRIPTION
-Lists storage objects by bucket, optionally filtered by name prefix and
+Lists a bucket's objects, optionally filtered by key prefix and
 paginated.
 .SH OPTIONS
 .TP
 .BR \-b ", " \-\-bucket " " \fIERN\fR
-Euclid resource name of the bucket to list objects from. Optional; if
-omitted, objects across all buckets are listed.
+Euclid resource name of the bucket to list objects from. Required.
 .TP
 .BR \-p ", " \-\-prefix " " \fIPREFIX\fR
 Only list objects whose key starts with this prefix. Optional.
@@ -52,6 +52,7 @@ euclid-cli --endpoint http://localhost:5566 esm list-objects \e
 .BR euclid-cli-esm (1),
 .BR euclid-cli-esm-upload-file (1),
 .BR euclid-cli-esm-delete-object (1),
-.BR euclid-cli-esm-get-bucket-size (1)
+.BR euclid-cli-esm-get-bucket-size (1),
+.BR euclid-cli-esm-get-object-count (1)
 .SH AUTHOR
 Jens Vogt <jens.vogt@opitz-consulting.com>

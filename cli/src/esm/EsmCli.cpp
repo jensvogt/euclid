@@ -823,11 +823,13 @@ namespace Euclid::CLI {
     int EsmCli::getObjectCount(const std::vector<std::string> &args) const {
         po::options_description desc("get object count options");
         desc.add_options()
-                ("bucket,b", po::value<std::string>()->required(), "bucket ERN");
+                ("bucket,b", po::value<std::string>()->required(), "bucket ERN")
+                ("prefix,p", po::value<std::string>(), "object key prefix");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("esm", "get-object-count", "--bucket <ern>",
-                                   "Returns the number of objects in a bucket.",
+                                   "Returns the number of objects in a bucket, optionally filtered by object key prefix and paginated. The return object contains the "
+                                   "ERN and the number of objects.",
                                    desc);
         }
 
@@ -842,7 +844,9 @@ namespace Euclid::CLI {
 
         Dto::ESM::GetObjectCountRequest request;
         request.ern = vm["bucket"].as<std::string>();
-
+        if (vm.contains("prefix")) {
+            request.prefix = vm["prefix"].as<std::string>();
+        }
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
             const HttpResponse response = client.Post("esm", "get-object-count", boost::json::value_from(request));
