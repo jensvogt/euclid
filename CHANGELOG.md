@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.31](https://github.com/jensvogt/euclid/compare/1.0.30...v1.0.31) (2026-08-24)
+
+
+### Bug Fixes
+
+* download-bucket ([0751013](https://github.com/jensvogt/euclid/commit/075101314ae3d0ad0de478b556f5281ed532800a))
+* get object count command ([311f1b2](https://github.com/jensvogt/euclid/commit/311f1b2647782a5fcd330bd1f0103b0af9141c24))
+
 ## [1.0.30](https://github.com/jensvogt/euclid/compare/1.0.29...v1.0.30) (2026-08-24)
 
 
