@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.20](https://github.com/jensvogt/euclid/compare/1.0.19...v1.0.20) (2026-08-24)
+
+
+### Bug Fixes
+
+* windows installer deployment ([4f89336](https://github.com/jensvogt/euclid/commit/4f893361b7a43b97d8ad0265868648e6e8f7277d))
+
 ## [1.0.19](https://github.com/jensvogt/euclid/compare/1.0.18...v1.0.19) (2026-08-24)
 
 
