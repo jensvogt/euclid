@@ -1,0 +1,90 @@
+.TH EUCLID-CLI-ESM-DOWNLOAD-FILE 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-download-file \- download an object from a bucket to a local file
+.SH SYNOPSIS
+.B euclid-cli esm download-file
+.BR \-\-bucket\-ern | \-b
+.I ERN
+.BR \-\-key | \-k
+.I KEY
+.BR \-\-file | \-f
+.I PATH
+[\fB\-\-part\-size\fR|\fB\-s\fR \fIBYTES\fR]
+[\fB\-\-concurrency\fR|\fB\-j\fR \fIN\fR]
+.SH DESCRIPTION
+Downloads an object from a bucket to a local file. This is the mirror
+image of
+.BR euclid-cli-esm-upload-file (1).
+Since an object's size isn't known until asked (unlike a local file
+being uploaded), a single-request fetch is always tried first; if the
+object turns out to be at or above
+.BR \-\-part\-size ,
+the server rejects it and this transparently falls back to the
+create-download/download-part/complete-download sequence instead, so
+multipart download is invisible to the caller either way.
+.PP
+For a multipart download, the destination file is created and
+pre-sized to the object's full length up front, then up to
+.B \-\-concurrency
+parts are downloaded in parallel in background threads, each one
+written directly at its own byte offset - so parts can land in any
+order without corrupting the file. Each part is retried a few times
+with backoff on network failures or a server error (HTTP 5xx) before
+the whole download is aborted; a rejected part (HTTP 4xx) is not
+retried.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-bucket\-ern " " \fIERN\fR
+Euclid resource name of the source bucket. Required.
+.TP
+.BR \-k ", " \-\-key " " \fIKEY\fR
+Key (path) of the object within the bucket. Required.
+.TP
+.BR \-f ", " \-\-file " " \fIPATH\fR
+Local destination file. Overwritten if it already exists. Required.
+.TP
+.BR \-s ", " \-\-part\-size " " \fIBYTES\fR
+Size of each part, in bytes. Defaults to \fI5242880\fR (5 MiB), or the
+value of \fIeuclid.modules.storage.part-size\fR in the loaded
+configuration file if set - see
+.BR \-\-config
+in
+.BR euclid-cli (1).
+.TP
+.BR \-j ", " \-\-concurrency " " \fIN\fR
+Number of parts to download in parallel. Defaults to \fI4\fR, or the
+value of \fIeuclid.modules.storage.concurrency\fR in the loaded
+configuration file if set; values less than \fI1\fR are treated as
+\fI1\fR.
+.SH EXIT STATUS
+.TP
+.B 0
+The file was downloaded. On the single-request path, a summary
+.RI ( "{bucketErn, key, size, file}" )
+is printed as JSON; on the multipart path, the full object metadata
+.RI ( "{bucketErn, key, ern, size, contentType, file}" )
+is printed instead.
+.TP
+.B 1
+Missing/invalid arguments, the destination file could not be created,
+no object with that bucket/key exists, the object is not yet fully
+uploaded, or any part failed to download after retries.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm download-file \e
+    --bucket-ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports \e
+    --key 2026-08.csv --file ./2026-08.csv
+
+euclid-cli --endpoint http://localhost:5566 esm download-file \e
+    --bucket-ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports \e
+    --key archive/2026-08.csv --file ./2026-08.csv \e
+    --part-size 8388608 --concurrency 8
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-upload-file (1),
+.BR euclid-cli-esm-list-objects (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

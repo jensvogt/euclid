@@ -1,4 +1,5 @@
 // C++ includes
+#include <filesystem>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -11,13 +12,16 @@
 #include <euclid/cli/eam/EamCli.h>
 #include <euclid/cli/eqs/EqsCli.h>
 #include <euclid/cli/esm/EsmCli.h>
+#include <euclid/core/Configuration.h>
 #include <euclid/core/Version.h>
 
 #define DEFAULT_ENDPOINT "https://localhost:5566"
 #ifdef _WIN32
 #define DEFAULT_CERT "C:\\Program Files\\euclid\\etc\\euclid_cert.crt"
+#define DEFAULT_CONFIG_FILE "C:\\Program Files\\euclid\\etc\\euclid.json"
 #else
 #define DEFAULT_CERT "/usr/local/euclid/etc/euclid_cert.crt"
+#define DEFAULT_CONFIG_FILE "/usr/local/euclid/etc/euclid.json"
 #endif
 
 namespace po = boost::program_options;
@@ -30,6 +34,7 @@ int main(const int argc, char *argv[]) {
             ("pretty,p", po::value<bool>()->default_value(true), "pretty print output")
             ("endpoint,e", po::value<std::string>()->default_value(DEFAULT_ENDPOINT), "service endpoint URL")
             ("ca-cert", po::value<std::string>()->default_value(DEFAULT_CERT), "path to a PEM CA certificate to trust in addition to the system trust store (e.g. for self-signed development certificates)")
+            ("config,c", po::value<std::string>()->default_value(DEFAULT_CONFIG_FILE), "path to a JSON configuration file providing defaults for action options (e.g. euclid.modules.storage.part-size/concurrency for esm's upload-file/download-file); silently ignored if the file doesn't exist")
             ("loglevel,l", po::value<std::string>()->default_value("info"), "log level (trace|debug|info|warning|error|fatal)");
 
     po::options_description hidden("Hidden options");
@@ -87,6 +92,17 @@ int main(const int argc, char *argv[]) {
     const std::string caCert = vm.contains("ca-cert") ? vm["ca-cert"].as<std::string>() : std::string();
     const std::string module = vm["module"].as<std::string>();
     const std::string action = vm["action"].as<std::string>();
+
+    // Optional: euclid-cli is commonly run with no config at all (a bare client talking to a
+    // remote endpoint), so a missing file here isn't an error - only load if it's actually
+    // present, and don't let a malformed one block the CLI from running with built-in defaults.
+    if (const auto configFile = vm["config"].as<std::string>(); std::filesystem::exists(configFile)) {
+        try {
+            Euclid::Core::Configuration::instance().load(configFile);
+        } catch (const std::exception &ex) {
+            std::cerr << "warning: could not load config file '" << configFile << "': " << ex.what() << "\n";
+        }
+    }
 
     if (module == "eam") {
         const auto authToken = Euclid::CLI::Credentials::Load();
