@@ -1,4 +1,4 @@
-set(BINARY euclid-manager)
+set(BINARY euclid-mgr)
 
 add_executable(${BINARY} src/main.cpp src/Controller.cpp src/GatewayServer.cpp src/ControllerPlatform.cpp)
 
