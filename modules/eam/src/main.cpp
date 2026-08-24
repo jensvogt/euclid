@@ -60,12 +60,12 @@ static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
         po::store(po::command_line_parser(argc, argv).options(all).run(), vm);
 
         if (vm.contains("help")) {
-            std::cout << "euclid-eam v" << APP_VERSION << " - Euclid Access Management service process\n\n" << all << "\n";
+            std::cout << "EAM v" << APP_VERSION << " - EAM service process\n\n" << all << "\n";
             return std::nullopt;
         }
 
         if (vm.contains("version")) {
-            std::cout << "euclid-eam version " << APP_VERSION << "\n";
+            std::cout << "EAM version " << APP_VERSION << "\n";
             return std::nullopt;
         }
 

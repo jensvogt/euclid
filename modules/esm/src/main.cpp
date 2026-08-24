@@ -51,7 +51,7 @@ static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
             ("console-log", po::value<bool>(&opts.consoleLog)->default_value(true)->implicit_value(true), "Enable console logging")
             ("file-log", po::value<bool>(&opts.fileLog)->default_value(false)->implicit_value(true), "Enable file logging");
 
-    po::options_description all("euclid-storage options");
+    po::options_description all("ESM options");
     all.add(general).add(logging);
 
     try {
@@ -59,12 +59,12 @@ static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
         po::store(po::command_line_parser(argc, argv).options(all).run(), vm);
 
         if (vm.contains("help")) {
-            std::cout << "euclid-storage v" << APP_VERSION << " - SQS service process\n\n" << all << "\n";
+            std::cout << "ESM v" << APP_VERSION << " - ESM service process\n\n" << all << "\n";
             return std::nullopt;
         }
 
         if (vm.contains("version")) {
-            std::cout << "euclid-storage version " << APP_VERSION << "\n";
+            std::cout << "ESM version " << APP_VERSION << "\n";
             return std::nullopt;
         }
 
@@ -135,10 +135,10 @@ int main(const int argc, char *argv[]) {
         Euclid::ESM::EsmServer server(cliOpts->socketPath);
         return server.RunUntilSignal();
     } catch (const std::exception &e) {
-        log_error << "Failed to start storage service: " << e.what();
+        log_error << "Failed to start ESM service: " << e.what();
         return 1;
     } catch (...) {
-        log_error << "Failed to start storage service: unknown exception type";
+        log_error << "Failed to start ESM service: unknown exception type";
         return 1;
     }
 }

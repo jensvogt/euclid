@@ -110,9 +110,9 @@
       },
       "emo": {
         "active": true,
+        "name": "emo",
         "socketPath": "/var/run/euclid/euclid-emo.sock",
         "executable": "/usr/local/euclid/bin/euclid-emo",
-        "name": "monitoring",
         "minInstances": 1,
         "maxInstances": 1
       },

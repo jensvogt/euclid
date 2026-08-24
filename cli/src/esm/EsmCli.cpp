@@ -55,6 +55,7 @@ namespace Euclid::CLI {
                                            {"upload-file", "Upload a local file to a bucket"},
                                            {"list-objects", "List objects"},
                                            {"delete-object", "Deletes an object by ERN"},
+                                           {"purge-bucket", "Removes all objects from a bucket"},
                                    });
         }
         if (action == "create-bucket") {
@@ -80,6 +81,9 @@ namespace Euclid::CLI {
         }
         if (action == "delete-object") {
             return deleteObject(args);
+        }
+        if (action == "purge-bucket") {
+            return purgeBucket(args);
         }
         std::cerr << "error: unknown ESM action '" << action << "'\n";
         return 1;
@@ -550,6 +554,44 @@ namespace Euclid::CLI {
                 std::cerr << "error: delete-object failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EsmCli::purgeBucket(const std::vector<std::string> &args) const {
+        po::options_description desc("purge bucket options");
+        desc.add_options()
+                ("ern,e", po::value<std::string>()->required(), "euclid resource name");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", "purge-bucket", "--ern <ern>",
+                                   "Removes all objects from a bucket identified by its Euclid resource name (ERN), leaving the (empty) bucket itself in place.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ESM::PurgeBucketRequest request;
+        request.ern = vm["ern"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("esm", "purge-bucket", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: purge-bucket failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
             return 0;
         } catch (const std::exception &ex) {
             std::cerr << "error: " << ex.what() << std::endl;

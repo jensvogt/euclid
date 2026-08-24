@@ -33,6 +33,7 @@
 #include <euclid/dto/esm/GetBucketSizeRequest.h>
 #include <euclid/dto/esm/ListBucketsRequest.h>
 #include <euclid/dto/esm/ListObjectsRequest.h>
+#include <euclid/dto/esm/PurgeBucketRequest.h>
 
 #define DEFAULT_UPLOAD_PART_SIZE (5 * 1024 * 1024)
 #define DEFAULT_CONCURRENCY 4
@@ -144,6 +145,15 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int deleteObject(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Removes all objects from a bucket
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int purgeBucket(const std::vector<std::string> &args) const;
 
         /**
          * @brief Starts a multipart upload (internal helper used by uploadFile; not a standalone
