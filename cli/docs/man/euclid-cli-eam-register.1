@@ -1,10 +1,10 @@
-.TH EUCLID-CLI-ACCESS-REGISTER 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.TH EUCLID-CLI-EAM-REGISTER 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
 .SH NAME
-euclid-cli-access-register \- create a new Euclid user account
+euclid-cli-eam-register \- create a new Euclid user account
 .SH SYNOPSIS
 .B euclid-cli
 [\fB\-\-endpoint\fR \fIURL\fR]
-.B access register
+.B eam register
 .BR \-\-user | \-u
 .I USERID
 .BR \-\-email | \-e
@@ -12,12 +12,12 @@ euclid-cli-access-register \- create a new Euclid user account
 .BR \-\-password | \-p
 .I PASSWORD
 .SH DESCRIPTION
-Creates a new user account via the access service's
+Creates a new user account via the eam service's
 .I register
 action.
 .PP
 The caller must be authenticated as an administrator (see
-.BR euclid-cli-access-login (1)),
+.BR euclid-cli-eam-login (1)),
 .B except
 when the server's user store is completely empty: the very first account
 ever registered is allowed through unauthenticated and is automatically
@@ -46,13 +46,13 @@ not an authenticated administrator, the user ID is already taken, or the
 server otherwise rejected the request. If the failure was an expired or
 invalid session (\fIHTTP 401\fR), the stored credentials file is removed;
 run
-.B euclid-cli access login
+.B euclid-cli eam login
 again before retrying.
 .SH EXAMPLES
 Bootstrap the first account on an empty server (no login required):
 .RS
 .nf
-euclid-cli --endpoint http://localhost:5566 access register \e
+euclid-cli --endpoint http://localhost:5566 eam register \e
     --user admin --email admin@example.com --password 'change-me'
 .fi
 .RE
@@ -60,17 +60,17 @@ euclid-cli --endpoint http://localhost:5566 access register \e
 Register a second account once logged in as an administrator:
 .RS
 .nf
-euclid-cli --endpoint http://localhost:5566 access login \e
+euclid-cli --endpoint http://localhost:5566 eam login \e
     --user admin --password 'change-me'
 
-euclid-cli --endpoint http://localhost:5566 access register \e
+euclid-cli --endpoint http://localhost:5566 eam register \e
     --user jdoe --email jdoe@example.com --password 'hunter2'
 .fi
 .RE
 .SH SEE ALSO
-.BR euclid-cli-access (1),
-.BR euclid-cli-access-login (1),
-.BR euclid-cli-access-list-users (1),
-.BR euclid-cli-access-delete-user (1)
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-eam-list-users (1),
+.BR euclid-cli-eam-delete-user (1)
 .SH AUTHOR
 Jens Vogt <jens.vogt@opitz-consulting.com>
