@@ -1,0 +1,37 @@
+.TH EUCLID-CLI-EQS-GET-QUEUE-METADATA 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eqs-get-queue-metadata \- show a queue's metadata
+.SH SYNOPSIS
+.B euclid-cli eqs get-queue-metadata
+.BR \-\-ern | \-e
+.I ERN
+.SH DESCRIPTION
+Shows the metadata of a queue: region, accountId, namespace, size, and
+number of messages. See
+.BR euclid-cli-eqs-get-queue-ern (1)
+for how to resolve a queue's ERN from its name.
+.SH OPTIONS
+.TP
+.BR \-e ", " \-\-ern " " \fIERN\fR
+Euclid resource name of the queue. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The queue's metadata is printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or no queue
+with that ERN exists.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eqs get-queue-metadata \e
+    --ern ern:euclid:queues:eu-central-1:000000000000:queue:orders
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eqs (1),
+.BR euclid-cli-eqs-get-queue-ern (1),
+.BR euclid-cli-eqs-get-message-count (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

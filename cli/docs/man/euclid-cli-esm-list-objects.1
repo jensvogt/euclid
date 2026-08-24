@@ -1,0 +1,57 @@
+.TH EUCLID-CLI-ESM-LIST-OBJECTS 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-list-objects \- list a bucket's objects
+.SH SYNOPSIS
+.B euclid-cli esm list-objects
+[\fB\-\-bucket\fR|\fB\-b\fR \fIERN\fR]
+[\fB\-\-prefix\fR|\fB\-p\fR \fIPREFIX\fR]
+[\fB\-\-pageSize\fR|\fB\-s\fR \fIN\fR]
+[\fB\-\-pageIndex\fR|\fB\-i\fR \fIN\fR]
+[\fB\-\-sortColumn\fR|\fB\-c\fR \fICOLUMN\fR]
+.SH DESCRIPTION
+Lists storage objects by bucket, optionally filtered by name prefix and
+paginated.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-bucket " " \fIERN\fR
+Euclid resource name of the bucket to list objects from. Optional; if
+omitted, objects across all buckets are listed.
+.TP
+.BR \-p ", " \-\-prefix " " \fIPREFIX\fR
+Only list objects whose key starts with this prefix. Optional.
+.TP
+.BR \-s ", " \-\-pageSize " " \fIN\fR
+Maximum number of objects to return. Defaults to \fI-1\fR (no paging).
+.TP
+.BR \-i ", " \-\-pageIndex " " \fIN\fR
+Zero-based page index to return when \fB\-\-pageSize\fR is set.
+Defaults to \fI-1\fR.
+.TP
+.BR \-c ", " \-\-sortColumn " " \fICOLUMN\fR
+Column to sort results by. Defaults to \fIname\fR.
+.SH EXIT STATUS
+.TP
+.B 0
+The matching objects are printed as JSON (possibly an empty list).
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or the
+server rejected the request.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm list-objects \e
+    --bucket ern:euclid:storage:eu-central-1:000000000000:bucket:reports
+
+euclid-cli --endpoint http://localhost:5566 esm list-objects \e
+    --bucket ern:euclid:storage:eu-central-1:000000000000:bucket:reports \e
+    --prefix archive/ --pageSize 20 --pageIndex 0
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-upload-file (1),
+.BR euclid-cli-esm-delete-object (1),
+.BR euclid-cli-esm-get-bucket-size (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

@@ -1,0 +1,176 @@
+.TH EUCLID-CLI-ESM 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm \- manage Euclid S3-compatible storage buckets and objects
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+[\fB\-\-loglevel\fR \fILEVEL\fR]
+.B esm
+.I action
+[\fIaction-options\fR...]
+.SH DESCRIPTION
+The
+.B esm
+module talks to the Euclid gateway's esm service to create and manage
+S3-compatible storage buckets and the objects stored in them. Every
+.B esm
+command sends a single JSON request to the gateway
+(\fB\-\-endpoint\fR, default \fIhttps://localhost:5566\fR) and prints the
+JSON response on success, with one exception:
+.B upload-file
+also streams the file's raw bytes to the gateway as part of a multipart
+upload.
+.PP
+All
+.B esm
+commands require the caller to be authenticated; see
+.B AUTHENTICATION
+below for how the session used to sign these requests is obtained.
+.SH ACTIONS
+.TP
+.B create-bucket
+Creates a new storage bucket. See
+.BR euclid-cli-esm-create-bucket (1).
+.TP
+.B list-buckets
+Lists buckets, optionally filtered by name prefix, paged and sorted. See
+.BR euclid-cli-esm-list-buckets (1).
+.TP
+.B get-bucket-ern
+Resolves a bucket's Euclid resource name (ERN) by its name. See
+.BR euclid-cli-esm-get-bucket-ern (1).
+.TP
+.B get-bucket-size
+Returns a bucket's total size in bytes. See
+.BR euclid-cli-esm-get-bucket-size (1).
+.TP
+.B delete-bucket
+Deletes a bucket by its ERN. See
+.BR euclid-cli-esm-delete-bucket (1).
+.TP
+.B upload-file
+Uploads a local file to a bucket, transparently as a multipart upload.
+See
+.BR euclid-cli-esm-upload-file (1).
+.TP
+.B list-objects
+Lists a bucket's objects, optionally filtered by name prefix, paged and
+sorted. See
+.BR euclid-cli-esm-list-objects (1).
+.TP
+.B delete-object
+Deletes an object by its ERN. See
+.BR euclid-cli-esm-delete-object (1).
+.SH GLOBAL OPTIONS
+These options are given to
+.B euclid-cli
+itself, before the
+.I esm
+module name.
+.TP
+.BR \-e ", " \-\-endpoint " " \fIURL\fR
+Euclid gateway endpoint to talk to, e.g. \fIhttps://localhost:5566\fR.
+.TP
+.BR \-\-ca\-cert " " \fIPATH\fR
+Path to a PEM CA certificate to trust in addition to the system trust
+store, e.g. for self-signed development certificates.
+.TP
+.BR \-l ", " \-\-loglevel " " \fILEVEL\fR
+Log level: one of \fItrace\fR, \fIdebug\fR, \fIinfo\fR, \fIwarning\fR,
+\fIerror\fR, \fIfatal\fR. Defaults to \fIinfo\fR.
+.TP
+.BR \-h ", " \-\-help
+Print top-level usage and exit.
+.TP
+.BR \-v ", " \-\-version
+Print the euclid-cli version and exit.
+.SH AUTHENTICATION
+.B esm
+commands are authenticated using the session created by
+.BR euclid-cli-eam-login (1),
+loaded from
+.IR $HOME/.euclid/credentials .
+Unlike
+.B eam
+commands, which always send the bearer token,
+.B esm
+requests are signed with SigV4 (the same scheme AWS SDKs use for S3)
+using the access key ID and secret stored in that file, if present;
+.BR euclid-cli-eam-login (1)
+provisions this access key automatically on first login, so a separate
+.B eam create-access-key
+call is not normally needed. If no access key is stored, the bearer
+token is sent instead as an
+.I "Authorization: Bearer"
+header.
+.PP
+If the server rejects a request with
+.IR "HTTP 401" ,
+the stored credentials are left untouched (unlike
+.BR eam ,
+which clears them on 401); run
+.B euclid-cli eam login
+again if requests start failing with 401.
+.SH EXIT STATUS
+.TP
+.B 0
+The action completed successfully.
+.TP
+.B 1
+Argument parsing failed, the request could not be sent, or the server
+rejected it (missing/expired session, invalid input, bucket or object
+not found, etc.). Details are printed to standard error.
+.SH FILES
+.TP
+.I $HOME/.euclid/credentials
+JSON file holding the current session's bearer token and/or SigV4
+access key, created by
+.B euclid-cli eam login
+and read by every
+.B esm
+action.
+.SH EXAMPLES
+Create a bucket, upload a file to it, and list its objects:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm create-bucket \e
+    --name reports
+
+euclid-cli --endpoint http://localhost:5566 esm upload-file \e
+    --bucket-ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports \e
+    --key 2026-08.csv --file ./2026-08.csv
+
+euclid-cli --endpoint http://localhost:5566 esm list-objects \e
+    --bucket ern:euclid:storage:eu-central-1:000000000000:bucket:reports
+.fi
+.RE
+.PP
+Check a bucket's size, then delete an object and the bucket:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm get-bucket-size \e
+    --ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports
+
+euclid-cli --endpoint http://localhost:5566 esm delete-object \e
+    --ern ern:euclid:storage:eu-central-1:000000000000:object:2026-08.csv
+
+euclid-cli --endpoint http://localhost:5566 esm delete-bucket \e
+    --ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli (1),
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-esm-create-bucket (1),
+.BR euclid-cli-esm-list-buckets (1),
+.BR euclid-cli-esm-get-bucket-ern (1),
+.BR euclid-cli-esm-get-bucket-size (1),
+.BR euclid-cli-esm-delete-bucket (1),
+.BR euclid-cli-esm-upload-file (1),
+.BR euclid-cli-esm-list-objects (1),
+.BR euclid-cli-esm-delete-object (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

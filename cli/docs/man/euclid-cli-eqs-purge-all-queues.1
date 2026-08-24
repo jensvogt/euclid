@@ -1,0 +1,38 @@
+.TH EUCLID-CLI-EQS-PURGE-ALL-QUEUES 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eqs-purge-all-queues \- delete all messages from every queue in a region/account
+.SH SYNOPSIS
+.B euclid-cli eqs purge-all-queues
+.BR \-\-region | \-r
+.I REGION
+.BR \-\-accountId | \-a
+.I ACCOUNT-ID
+.SH DESCRIPTION
+Deletes all messages from every queue in the given region and account.
+No queue is deleted, only its messages. This cannot be undone.
+.SH OPTIONS
+.TP
+.BR \-r ", " \-\-region " " \fIREGION\fR
+Region whose queues should be purged. Required.
+.TP
+.BR \-a ", " \-\-accountId " " \fIACCOUNT-ID\fR
+Account ID whose queues should be purged. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+Every matching queue's messages were deleted. No output is printed.
+.TP
+.B 1
+Missing/invalid arguments or the server could not be reached.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eqs purge-all-queues \e
+    --region eu-central-1 --accountId 000000000000
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eqs (1),
+.BR euclid-cli-eqs-purge-queue (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

@@ -1,0 +1,79 @@
+.TH EUCLID-CLI-EQS-SEND-MESSAGE 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eqs-send-message \- send a message to a queue
+.SH SYNOPSIS
+.B euclid-cli eqs send-message
+.BR \-\-ern | \-e
+.I ERN
+.BR \-\-body | \-b
+.I BODY
+[\fB\-\-attributes\fR|\fB\-a\fR \fIJSON\fR]
+[\fB\-\-priority\fR|\fB\-p\fR \fIPRIORITY\fR]
+.SH DESCRIPTION
+Sends a message to a queue. If
+.B \-\-body
+starts with
+.IR file:// ,
+the message body is read from the referenced file instead of being
+taken literally.
+.PP
+The optional
+.B \-\-attributes
+value sets the message attributes as a JSON object mapping attribute
+name to
+.IR "{\(dqtype\(dq: <int|long|double|float|bool|string|binary>, \(dqvalue\(dq: <value>}" ,
+given either literally or via
+.I file://path
+to a file containing the JSON.
+.PP
+.B \-\-priority
+defaults to
+.I MIDDLE
+and influences how the message is prioritized by
+.BR euclid-cli-eqs-receive-messages (1).
+.SH OPTIONS
+.TP
+.BR \-e ", " \-\-ern " " \fIERN\fR
+Euclid resource name of the destination queue. Required.
+.TP
+.BR \-b ", " \-\-body " " \fIBODY\fR
+Message body, given literally or as
+.I file://path
+to a file to read it from. Required.
+.TP
+.BR \-a ", " \-\-attributes " " \fIJSON\fR
+Message attributes as a JSON object, given literally or as
+.I file://path
+to a file to read it from. Optional.
+.TP
+.BR \-p ", " \-\-priority " " \fIPRIORITY\fR
+One of \fILOW\fR, \fIMIDDLE\fR, \fIHIGH\fR. Defaults to \fIMIDDLE\fR.
+.SH EXIT STATUS
+.TP
+.B 0
+The message was sent; its ID and other metadata are printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, a referenced
+.I file://
+path could not be read, the message body exceeds the queue's
+\fB\-\-max\-length\fR, or no queue with that ERN exists.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eqs send-message \e
+    --ern ern:euclid:queues:eu-central-1:000000000000:queue:orders --body 'hello world'
+
+euclid-cli --endpoint http://localhost:5566 eqs send-message \e
+    --ern ern:euclid:queues:eu-central-1:000000000000:queue:orders \e
+    --body file://./payload.json \e
+    --attributes '{"orderId": {"type": "string", "value": "42"}}' \e
+    --priority HIGH
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eqs (1),
+.BR euclid-cli-eqs-receive-messages (1),
+.BR euclid-cli-eqs-get-message-attribute (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

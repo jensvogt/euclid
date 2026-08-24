@@ -1,0 +1,51 @@
+.TH EUCLID-CLI-ESM-LIST-BUCKETS 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-list-buckets \- list storage buckets
+.SH SYNOPSIS
+.B euclid-cli esm list-buckets
+[\fB\-\-prefix\fR|\fB\-p\fR \fIPREFIX\fR]
+[\fB\-\-pageSize\fR|\fB\-s\fR \fIN\fR]
+[\fB\-\-pageIndex\fR|\fB\-i\fR \fIN\fR]
+[\fB\-\-sortColumn\fR|\fB\-c\fR \fICOLUMN\fR]
+.SH DESCRIPTION
+Lists storage buckets, optionally filtered by name prefix and
+paginated.
+.SH OPTIONS
+.TP
+.BR \-p ", " \-\-prefix " " \fIPREFIX\fR
+Only list buckets whose name starts with this prefix. Optional; if
+omitted, all buckets are listed.
+.TP
+.BR \-s ", " \-\-pageSize " " \fIN\fR
+Maximum number of buckets to return. Defaults to \fI-1\fR (no paging).
+.TP
+.BR \-i ", " \-\-pageIndex " " \fIN\fR
+Zero-based page index to return when \fB\-\-pageSize\fR is set.
+Defaults to \fI-1\fR.
+.TP
+.BR \-c ", " \-\-sortColumn " " \fICOLUMN\fR
+Column to sort results by. Defaults to \fIname\fR.
+.SH EXIT STATUS
+.TP
+.B 0
+The matching buckets are printed as JSON (possibly an empty list).
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or the
+server rejected the request.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm list-buckets
+
+euclid-cli --endpoint http://localhost:5566 esm list-buckets \e
+    --prefix report- --pageSize 20 --pageIndex 0 --sortColumn name
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-create-bucket (1),
+.BR euclid-cli-esm-get-bucket-ern (1),
+.BR euclid-cli-esm-get-bucket-size (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

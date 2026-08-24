@@ -1,0 +1,37 @@
+.TH EUCLID-CLI-EQS-PURGE-QUEUE 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eqs-purge-queue \- delete all messages from a queue
+.SH SYNOPSIS
+.B euclid-cli eqs purge-queue
+.BR \-\-ern | \-e
+.I ERN
+.SH DESCRIPTION
+Deletes all messages from a queue identified by its Euclid resource
+name (ERN). The queue itself is not deleted; see
+.BR euclid-cli-eqs-delete-queue (1)
+for that. This cannot be undone.
+.SH OPTIONS
+.TP
+.BR \-e ", " \-\-ern " " \fIERN\fR
+Euclid resource name of the queue to purge. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The queue's messages were deleted. No output is printed.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or no queue
+with that ERN exists.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eqs purge-queue \e
+    --ern ern:euclid:queues:eu-central-1:000000000000:queue:orders
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eqs (1),
+.BR euclid-cli-eqs-purge-all-queues (1),
+.BR euclid-cli-eqs-delete-queue (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
