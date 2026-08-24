@@ -142,11 +142,11 @@ FunctionEnd
 Section "Main Application" SecMain
 
   SetOutPath "$INSTDIR\bin"
-  File "${BUILDDIR}\bin\euclid-manager.exe"
+  File "${BUILDDIR}\bin\euclid-mgr.exe"
   File "${BUILDDIR}\bin\euclid-cli.exe"
   File "${BUILDDIR}\bin\euclid-eam.exe"
-  File "${BUILDDIR}\bin\euclid-queues.exe"
-  File "${BUILDDIR}\bin\euclid-storage.exe"
+  File "${BUILDDIR}\bin\euclid-eqs.exe"
+  File "${BUILDDIR}\bin\euclid-esm.exe"
   File "${BUILDDIR}\bin\euclid-emo.exe"
 
   SetOutPath "$INSTDIR\etc"
@@ -167,9 +167,7 @@ Section "Main Application" SecMain
   CreateDirectory "$INSTDIR\data\run"
   CreateDirectory "$INSTDIR\data\eam"
   CreateDirectory "$INSTDIR\data\eqm"
-  CreateDirectory "$INSTDIR\data\queues"
   CreateDirectory "$INSTDIR\data\esm"
-  CreateDirectory "$INSTDIR\data\storage"
   CreateDirectory "$INSTDIR\frontend"
 
   ; Copy frontend recursively, if it was built (see release.yml - skipped when the
