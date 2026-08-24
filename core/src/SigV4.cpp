@@ -258,10 +258,10 @@ namespace Euclid::Core {
 
         // Fixed policy, not client-negotiated: reject anything that doesn't cover exactly the
         // headers Sign() always signs - see the class comment for why this can't be a
-        // client-chosen list here the way real AWS allows.
+        // client-chosen list here the way real Euclid allows.
         std::string expectedSignedHeaders;
         for (std::size_t i = 0; i < SignedHeaderNames().size(); ++i) {
-            if (i > 0) expectedSignedHeaders += ";";
+            if (i > 0) expectedSignedHeaders += ';';
             expectedSignedHeaders += SignedHeaderNames()[i];
         }
         if (parsed->signedHeaders != expectedSignedHeaders) return std::nullopt;

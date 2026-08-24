@@ -72,7 +72,7 @@ namespace Euclid::CLI {
                                    "returned bearer token locally so it is used automatically to authenticate "
                                    "subsequent commands. Also provisions a SigV4 access key on first login (or "
                                    "reuses the existing one on later logins) and stores it alongside the token, "
-                                   "so a separate 'create-access-key' call is not needed for AWS-service commands.",
+                                   "so a separate 'create-access-key' call is not needed for Euclid-service commands.",
                                    desc);
         }
 
@@ -258,7 +258,7 @@ namespace Euclid::CLI {
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eam", "create-access-key", "",
                                    "Creates a new SigV4 access key for the logged-in user and stores it locally "
-                                   "so subsequent AWS-service commands sign requests with it instead of the "
+                                   "so subsequent Euclid-service commands sign requests with it instead of the "
                                    "bearer token. The secret is only ever shown once, right here.",
                                    {});
         }

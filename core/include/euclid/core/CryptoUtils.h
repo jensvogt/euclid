@@ -35,14 +35,14 @@ namespace Euclid::Core {
         static std::string md5SumFile(const std::string &filePath);
 
         /**
-         * @brief Generates an AWS-style access key ID.
+         * @brief Generates an Euclid-style access key ID.
          *
          * @return "AKIA" followed by 16 random uppercase-alphanumeric characters.
          */
         static std::string GenerateAccessKeyId();
 
         /**
-         * @brief Generates an AWS-style secret access key.
+         * @brief Generates an Euclid-style secret access key.
          *
          * @return 40 cryptographically random bytes, base64-encoded.
          */

@@ -5,4 +5,4 @@ Architectures: amd64
 SignWith: __GPG_KEY_ID__
 Origin: Euclid
 Label: Euclid APT Repository
-Description: APT repository for Euclid - local AWS API emulator
+Description: APT repository for Euclid - Cloud Services

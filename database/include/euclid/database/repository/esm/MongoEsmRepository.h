@@ -185,7 +185,14 @@ namespace Euclid::Database {
 
     private:
 
+        /**
+         * @brief Bucket collection name
+         */
         static constexpr auto BUCKET_COLLECTION = "esm_bucket";
+
+        /**
+         * @brief Objects collection name
+         */
         static constexpr auto OBJECT_COLLECTION = "esm_object";
 
         /**

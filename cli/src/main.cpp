@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 // Boost includes
@@ -34,41 +35,57 @@ int main(const int argc, char *argv[]) {
             ("version,v", "print version information and exit")
             ("pretty,p", po::value<bool>()->default_value(true), "pretty print output")
             ("endpoint,e", po::value<std::string>()->default_value(DEFAULT_ENDPOINT), "service endpoint URL")
-            ("ca-cert", po::value<std::string>()->default_value(DEFAULT_CERT), "path to a PEM CA certificate to trust in addition to the system trust store (e.g. for self-signed development certificates)")
+            ("ca-cert,t", po::value<std::string>()->default_value(DEFAULT_CERT), "path to a PEM CA certificate to trust in addition to the system trust store (e.g. for self-signed development certificates)")
             ("config,c", po::value<std::string>()->default_value(DEFAULT_CONFIG_FILE), "path to a JSON configuration file providing defaults for action options (e.g. euclid.modules.storage.part-size/concurrency for esm's upload-file/download-file); silently ignored if the file doesn't exist")
             ("loglevel,l", po::value<std::string>()->default_value("info"), "log level (trace|debug|info|warning|error|fatal)");
 
-    po::options_description hidden("Hidden options");
-    hidden.add_options()
-            ("module", po::value<std::string>(), "module name, e.g. queues, sns, s3")
-            ("action", po::value<std::string>(), "action to perform, e.g. list-queues")
-            ("args", po::value<std::vector<std::string> >(), "additional arguments for the action");
-
-    po::options_description all;
-    all.add(desc).add(hidden);
-
-    po::positional_options_description pos;
-    pos.add("module", 1).add("action", 1).add("args", -1);
-
     const std::string usage = "Usage: euclid-cli [options] <module> <action> [args...]\n"
-            "Example: euclid-cli --endpoint http://localhost:5566 queues list-queues\n";
+            "Example: euclid-cli --endpoint http://localhost:5566 eqs list-queues\n";
+
+    // Global options are only recognized before <module> - the first token that isn't one of
+    // them (or a value for one) starts <module> <action> [args...], which is taken verbatim from
+    // there on and never touched by this parser again. This used to be a single flat
+    // allow_unregistered() parse of the whole command line, but that meant a short option
+    // letter reused by an action (e.g. eam login's "-p" for --password) collided with a
+    // same-lettered global option ("-p" for --pretty): boost::program_options has no notion of
+    // "only before the first positional", so it greedily matched the global one wherever "-p"
+    // appeared, silently feeding "admin" to --pretty (a bool) instead of leaving it for the
+    // action to parse as its password. Splitting the command line ourselves before handing
+    // anything to boost::program_options sidesteps that entirely: an action's own options are
+    // simply never visible to the global parser at all.
+    static const std::unordered_set<std::string> kGlobalFlags{"-h", "--help", "-v", "--version"};
+    static const std::unordered_set<std::string> kGlobalValueOptions{
+            "-p", "--pretty", "-e", "--endpoint", "--ca-cert", "-c", "--config", "-l", "--loglevel"
+    };
+
+    std::vector<std::string> globalArgs;
+    std::vector<std::string> rest;
+    {
+        int i = 1;
+        for (; i < argc; ++i) {
+            const std::string tok = argv[i];
+            if (kGlobalFlags.contains(tok)) {
+                globalArgs.push_back(tok);
+                continue;
+            }
+            if (kGlobalValueOptions.contains(tok)) {
+                globalArgs.push_back(tok);
+                if (i + 1 < argc) globalArgs.emplace_back(argv[++i]);
+                continue;
+            }
+            if (const auto eq = tok.find('='); tok.starts_with("--") && eq != std::string::npos && kGlobalValueOptions.contains(tok.substr(0, eq))) {
+                globalArgs.push_back(tok);
+                continue;
+            }
+            break;// first token that isn't a recognized global option (or its value) - <module> starts here
+        }
+        for (; i < argc; ++i) rest.emplace_back(argv[i]);
+    }
 
     po::variables_map vm;
-    std::vector<std::string> args;
     try {
-        // allow_unregistered() lets anything after <module> <action> (including further
-        // "--flag value" style options meant for the action) pass through untouched.
-        const po::parsed_options parsed = po::command_line_parser(argc, argv).options(all).positional(pos).allow_unregistered().run();
-        po::store(parsed, vm);
+        po::store(po::command_line_parser(globalArgs).options(desc).run(), vm);
         po::notify(vm);
-
-        args = po::collect_unrecognized(parsed.options, po::include_positional);
-        // The first two collected tokens are the module and action themselves; drop them.
-        if (args.size() >= 2) {
-            args.erase(args.begin(), args.begin() + 2);
-        } else {
-            args.clear();
-        }
     } catch (const po::error &ex) {
         std::cerr << "error: " << ex.what() << "\n\n" << usage << "\n" << desc << std::endl;
         return 1;
@@ -84,15 +101,17 @@ int main(const int argc, char *argv[]) {
         return 0;
     }
 
-    if (!vm.contains("module") || !vm.contains("action")) {
+    if (rest.size() < 2) {
         std::cerr << "error: <module> and <action> are required\n\n" << usage << "\n" << desc << std::endl;
         return 1;
     }
 
     const std::string endpoint = vm.contains("endpoint") ? vm["endpoint"].as<std::string>() : std::string();
     const std::string caCert = vm.contains("ca-cert") ? vm["ca-cert"].as<std::string>() : std::string();
-    const std::string module = vm["module"].as<std::string>();
-    const std::string action = vm["action"].as<std::string>();
+    const bool pretty = vm["pretty"].as<bool>();
+    const std::string module = rest[0];
+    const std::string action = rest[1];
+    const std::vector<std::string> args(rest.begin() + 2, rest.end());
 
     // Optional: euclid-cli is commonly run with no config at all (a bare client talking to a
     // remote endpoint), so a missing file here isn't an error - only load if it's actually
@@ -107,22 +126,22 @@ int main(const int argc, char *argv[]) {
 
     if (module == "eam") {
         const auto authToken = Euclid::CLI::Credentials::Load();
-        const Euclid::CLI::EamCli eam(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), true, caCert);
+        const Euclid::CLI::EamCli eam(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), pretty, caCert);
         return eam.process(action, args);
     }
     if (module == "eqs") {
         const auto authToken = Euclid::CLI::Credentials::Load();
-        const Euclid::CLI::EqsCli eqs(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), true, caCert);
+        const Euclid::CLI::EqsCli eqs(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), pretty, caCert);
         return eqs.process(action, args);
     }
     if (module == "esm") {
         const auto authToken = Euclid::CLI::Credentials::Load();
-        const Euclid::CLI::EsmCli esm(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), true, caCert);
+        const Euclid::CLI::EsmCli esm(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), pretty, caCert);
         return esm.process(action, args);
     }
     if (module == "emm") {
         const auto authToken = Euclid::CLI::Credentials::Load();
-        const Euclid::CLI::EmmCli emm(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), true, caCert);
+        const Euclid::CLI::EmmCli emm(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), pretty, caCert);
         return emm.process(action, args);
     }
 
