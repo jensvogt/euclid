@@ -35,6 +35,7 @@
 #include <euclid/dto/esm/DeleteObjectRequest.h>
 #include <euclid/dto/esm/GetBucketErnRequest.h>
 #include <euclid/dto/esm/GetBucketSizeRequest.h>
+#include <euclid/dto/esm/GetObjectCountRequest.h>
 #include <euclid/dto/esm/ListBucketsRequest.h>
 #include <euclid/dto/esm/ListObjectsRequest.h>
 #include <euclid/dto/esm/PurgeBucketRequest.h>
@@ -157,6 +158,8 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int listObjects(const std::vector<std::string> &args) const;
+
+        int getObjectCount(const std::vector<std::string> &args) const;
 
         /**
          * @brief Deletes an object

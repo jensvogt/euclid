@@ -909,6 +909,31 @@ namespace Euclid::ESM {
         return EsmServer::JsonResponse(req, status::ok, response.toJson());
     }
 
+    static response<string_body> handleGetObjectCount(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-object-count");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ESM::GetObjectCountRequest>(jv);
+
+        const std::optional<Database::Entity::ESM::Bucket> bucket = Database::RepositoryFactory::instance().esmRepository()->findBucketByErn(request.ern);
+
+        if (!bucket.has_value()) {
+            return EsmServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.ern);
+        }
+        log_info << "ESM get object count, ern: " << request.ern << ", count: " << bucket->objects;
+
+        Dto::ESM::GetObjectCountResponse response;
+        response.ern = bucket->ern;
+        response.count = bucket->objects;
+
+        return EsmServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
     static response<string_body> handleDeleteObject(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-object");
@@ -961,7 +986,7 @@ namespace Euclid::ESM {
         log_info << "ESM PurgeBucket, ern: " << request.ern;
 
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
-        const auto objects = repo->listObjects(request.ern, "", -1, -1, "");
+        const auto objects = repo->listObjects(request.ern, request.prefix, -1, -1, "");
 
         const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
         for (const auto &object: objects) {
@@ -971,14 +996,7 @@ namespace Euclid::ESM {
                 log_warning << "Could not remove object file, internalName: " << object.internalName << ", error: " << ec.message();
             repo->deleteObjectByErn(object.ern);
         }
-
-        if (auto bucket = repo->findBucketByErn(request.ern); bucket.has_value()) {
-            bucket->size = 0;
-            bucket->objects = 0;
-            repo->upsertBucket(*bucket);
-        }
-
-        log_info << "ESM bucket purged, ern: " << request.ern << ", count: " << objects.size();
+        log_info << "ESM bucket purged, ern: " << request.ern << ", remaining count: " << objects.size();
 
         Dto::ESM::PurgeBucketResponse response;
         response.ern = request.ern;
@@ -1006,6 +1024,7 @@ namespace Euclid::ESM {
             CreateDownload,
             DownloadPart,
             CompleteDownload,
+            GetObjectCount,
             ListObjects,
             DeleteObject,
             PurgeBucket,
@@ -1028,6 +1047,7 @@ namespace Euclid::ESM {
         if (action == "download-part") return Command::DownloadPart;
         if (action == "complete-download") return Command::CompleteDownload;
         if (action == "list-objects") return Command::ListObjects;
+        if (action == "get-object-count") return Command::GetObjectCount;
         if (action == "delete-object") return Command::DeleteObject;
         if (action == "purge-bucket") return Command::PurgeBucket;
         if (action == "get-metrics") return Command::GetMetrics;
@@ -1089,6 +1109,9 @@ namespace Euclid::ESM {
             case Command::ListObjects:
                 return handleListObjects(req);
 
+            case Command::GetObjectCount:
+                return handleGetObjectCount(req);
+
             case Command::PurgeBucket:
                 return handlePurgeBucket(req);
 
@@ -1100,8 +1123,7 @@ namespace Euclid::ESM {
 
     // ── EsmServer ────────────────────────────────────────────────────────────
 
-    EsmServer::EsmServer(std::string socketPath, const int threads) : HttpActionServer("ESM", std::move(socketPath), threads) {
-    }
+    EsmServer::EsmServer(std::string socketPath, const int threads) : HttpActionServer("ESM", std::move(socketPath), threads) {}
 
     EsmServer::~EsmServer() = default;
 

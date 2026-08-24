@@ -3,7 +3,7 @@
 euclid-cli-esm-purge-bucket \- remove all objects from a bucket
 .SH SYNOPSIS
 .B euclid-cli esm purge-bucket
-.BR \-\-ern | \-e
+.BR \-\-bucket | \-e
 .I ERN
 .SH DESCRIPTION
 Removes every object from a bucket identified by its Euclid resource
@@ -12,7 +12,7 @@ name (ERN), leaving the (now empty) bucket itself in place; see
 to remove the bucket too. This cannot be undone.
 .SH OPTIONS
 .TP
-.BR \-e ", " \-\-ern " " \fIERN\fR
+.BR \-e ", " \-\-bucket " " \fIERN\fR
 Euclid resource name of the bucket to purge. Required.
 .SH EXIT STATUS
 .TP
