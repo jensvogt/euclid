@@ -150,13 +150,14 @@ namespace Euclid::Database {
         virtual long countObjects() const = 0;
 
         /**
-         * @brief Retrieves the total number og objects in a bucket.
+         * @brief Retrieves the total number og objects in a bucket, optionally filtered by object key prefix.
          *
          * @paranm bucketErn bucket ERN
+         * @paranm prefix object key prefix
          * @return The total number of messages as a long integer.
          */
         [[nodiscard]]
-        virtual long countObjects(const std::string &bucketErn) const = 0;
+        virtual long countObjects(const std::string &bucketErn, const std::string &prefix) const = 0;
 
         /**
          * @brief Finds and retrieves all objects of a bucket, optionally filtered, paged and sorted.

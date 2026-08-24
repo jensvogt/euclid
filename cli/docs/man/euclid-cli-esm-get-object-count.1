@@ -1,0 +1,55 @@
+.TH EUCLID-CLI-ESM-GET-OBJECT-COUNT 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-get-object-count \- return the number of objects in a bucket
+.SH SYNOPSIS
+.B euclid-cli esm get-object-count
+.BR \-\-bucket | \-b
+.I ERN
+[\fB\-\-prefix\fR|\fB\-p\fR \fIPREFIX\fR]
+.SH DESCRIPTION
+Returns the number of objects in a bucket, optionally filtered by
+object key prefix.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-bucket " " \fIERN\fR
+Euclid resource name of the bucket. Required.
+.TP
+.BR \-p ", " \-\-prefix " " \fIPREFIX\fR
+Only count objects whose key starts with this prefix. Optional; if
+omitted, every object in the bucket is counted.
+.SH EXIT STATUS
+.TP
+.B 0
+A summary
+.RI ( "{ern, count}" )
+is printed as JSON, where
+.I count
+is the number of matching objects.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or no
+bucket with that ERN exists.
+.SH EXAMPLES
+Count every object in a bucket:
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm get-object-count \e
+    --bucket ern:euclid:storage:eu-central-1:000000000000:bucket:reports
+.fi
+.RE
+.PP
+Count only objects under a given key prefix:
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm get-object-count \e
+    --bucket ern:euclid:storage:eu-central-1:000000000000:bucket:reports \e
+    --prefix 2025/
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-list-objects (1),
+.BR euclid-cli-esm-get-bucket-size (1),
+.BR euclid-cli-esm-purge-bucket (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
