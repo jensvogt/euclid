@@ -69,6 +69,14 @@ module name.
 Euclid gateway endpoint to talk to, e.g. \fIhttp://localhost:5566\fR. If
 omitted, an empty endpoint is used, which will fail to connect.
 .TP
+.BR \-c ", " \-\-config " " \fIPATH\fR
+Path to a JSON configuration file providing defaults for action
+options (currently used by
+.BR euclid-cli-esm (1)
+only). Defaults to
+.IR /usr/local/euclid/etc/euclid.json ;
+silently ignored if the file doesn't exist.
+.TP
 .BR \-l ", " \-\-loglevel " " \fILEVEL\fR
 Log level: one of \fItrace\fR, \fIdebug\fR, \fIinfo\fR, \fIwarning\fR,
 \fIerror\fR, \fIfatal\fR. Defaults to \fIinfo\fR.

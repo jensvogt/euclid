@@ -26,10 +26,13 @@
 #include <euclid/database/entity/esm/Object.h>
 #include <euclid/database/entity/esm/ObjectStatus.h>
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/esm/CompleteDownloadRequest.h>
 #include <euclid/dto/esm/CompleteUploadRequest.h>
 #include <euclid/dto/esm/CompleteUploadResponse.h>
 #include <euclid/dto/esm/CreateBucketRequest.h>
 #include <euclid/dto/esm/CreateBucketResponse.h>
+#include <euclid/dto/esm/CreateDownloadRequest.h>
+#include <euclid/dto/esm/CreateDownloadResponse.h>
 #include <euclid/dto/esm/CreateUploadRequest.h>
 #include <euclid/dto/esm/CreateUploadResponse.h>
 #include <euclid/dto/esm/DeleteBucketRequest.h>

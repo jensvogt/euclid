@@ -42,6 +42,18 @@ namespace Euclid::ESM {
             return std::filesystem::path(dataDir) / "uploads" / uploadId;
         }
 
+        // Name of the per-download file recording the object being downloaded, written by
+        // create-download and read back by download-part/complete-download. Mirrors kUploadMetaFile,
+        // but records where to read parts *from* (an existing object's internalName) rather than
+        // where to write them to.
+        constexpr auto kDownloadMetaFile = "download.json";
+
+        // Directory a multipart download's metadata is staged in until the download is completed or aborted.
+        std::filesystem::path downloadDirFor(const std::string &downloadId) {
+            const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
+            return std::filesystem::path(dataDir) / "downloads" / downloadId;
+        }
+
         // Zero-padded so lexicographic storage-listing order matches numeric part order.
         std::string partFileName(const long partNumber) {
             std::ostringstream oss;
@@ -200,6 +212,117 @@ namespace Euclid::ESM {
         Database::RepositoryFactory::instance().esmRepository()->deleteBucketByErn(request.ern);
 
         return EsmServer::JsonResponse(req, status::ok);
+    }
+
+    // Stores a small object in a single request/response round trip, skipping the
+    // create-upload/upload-part/complete-upload dance entirely. Worthwhile for objects that fit
+    // under the client's chosen part size, where multipart buys nothing (there's only ever one
+    // part) but still costs three requests plus staging-then-assembling-then-discarding a scratch
+    // file for no reason. Internal to the CLI/Java client's upload path - "upload-file" picks
+    // between this and the multipart flow based on the source file's size, invisibly to the caller
+    // either way.
+    //
+    // Like upload-part, this does NOT conform to the JSON request convention used elsewhere -
+    // bucketErn/key travel as headers and the body is the object's raw bytes - but unlike
+    // upload-part its *response* is still JSON: reuses Dto::ESM::CompleteUploadResponse as-is,
+    // since "here's the object that now exists" has the same shape whether it was assembled from
+    // multipart parts or written in one shot (status here is "COMPLETED" rather than "UPLOADED",
+    // since there's no post-processing left to do once this returns - content type/MD5 are already
+    // known).
+    static response<string_body> handlePutObject(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "put-object");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        const auto bucketErn = std::string(req["x-euclid-bucket-ern"]);
+        if (bucketErn.empty()) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "Missing x-euclid-bucket-ern header");
+        }
+        const auto key = std::string(req["x-euclid-key"]);
+        if (key.empty()) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "Missing x-euclid-key header");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        const auto bucket = repo->findBucketByErn(bucketErn);
+        if (!bucket.has_value()) {
+            return EsmServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + bucketErn);
+        }
+
+        const auto &data = req.body();
+
+        // Looked up before writing so a re-upload to the same key can be recognized (and the file
+        // it replaces cleaned up below), same as complete-upload's existingObject.
+        const auto existingObject = repo->findObjectByBucketAndKey(bucketErn, key);
+        const auto internalName = Core::UuidUtils::CreateRandomUuid();
+        const auto ern = Core::createStorageObjectErn(auth.user->accountId, bucket->name + "/" + key);
+
+        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
+        std::error_code ec;
+        std::filesystem::create_directories(dataDir, ec);
+        if (ec) {
+            log_error << "ESM could not create storage data directory, path: " << dataDir << ", error: " << ec.message();
+            return EsmServer::ErrorResponse(req, status::internal_server_error, "Could not store object");
+        }
+
+        const std::filesystem::path destPath = std::filesystem::path(dataDir) / internalName;
+        {
+            std::ofstream dest(destPath, std::ios::binary | std::ios::trunc);
+            if (!dest.is_open()) {
+                return EsmServer::ErrorResponse(req, status::internal_server_error, "Could not write object");
+            }
+            dest.write(data.data(), static_cast<std::streamsize>(data.size()));
+        }
+
+        // Small enough to hash/sniff inline rather than handing off to a background thread the way
+        // complete-upload does for a potentially huge assembled file - this whole handler only
+        // exists for objects under the client's part size in the first place.
+        const auto md5Sum = Core::CryptoUtils::md5SumFile(destPath.string());
+        const auto contentType = contentTypeForFile(destPath);
+
+        Database::Entity::ESM::Object object;
+        if (existingObject) object.oid = existingObject->oid;
+        object.bucketErn = bucketErn;
+        object.key = key;
+        object.internalName = internalName;
+        object.ern = ern;
+        object.owner = auth.user->userId;
+        object.region = auth.user->region;
+        object.size = static_cast<long>(data.size());
+        object.status = Database::Entity::ESM::ObjectStatus::COMPLETED;
+        object.contentType = contentType;
+        object.md5Sum = md5Sum;
+        repo->upsertObject(object);
+
+        if (auto freshBucket = repo->findBucketByErn(bucketErn); freshBucket.has_value()) {
+            freshBucket->size += object.size;
+            freshBucket->objects++;
+            freshBucket = repo->upsertBucket(*freshBucket);
+            log_debug << "Updated bucket, ern: " << freshBucket->ern << ", size: " << freshBucket->size << ", objects: " << freshBucket->objects;
+        }
+
+        // A re-upload to the same key replaces the DB row above; drop the now-unreferenced old file.
+        if (existingObject && !existingObject->internalName.empty() && existingObject->internalName != internalName) {
+            std::error_code oldEc;
+            std::filesystem::remove(std::filesystem::path(dataDir) / existingObject->internalName, oldEc);
+            if (oldEc)
+                log_warning << "Could not remove superseded object file, internalName: " << existingObject->internalName << ", error: " << oldEc.message();
+        }
+
+        log_info << "ESM put object, bucket: " << bucketErn << ", key: " << key << ", internalName: " << internalName << ", size: " << data.size();
+
+        Dto::ESM::CompleteUploadResponse response;
+        response.bucketErn = bucketErn;
+        response.key = key;
+        response.ern = ern;
+        response.size = object.size;
+        response.status = Database::Entity::ESM::ObjectStatusToString(Database::Entity::ESM::ObjectStatus::COMPLETED);
+        response.contentType = contentType;
+        response.md5Sum = md5Sum;
+
+        return EsmServer::JsonResponse(req, status::ok, response.toJson());
     }
 
     // Starts a multipart upload: stages a scratch storage on disk that the "upload-part" action
@@ -522,6 +645,247 @@ namespace Euclid::ESM {
         return EsmServer::JsonResponse(req, status::ok, response.toJson());
     }
 
+    // Mirrors handlePutObject() for downloads: returns a small object's full bytes in a single
+    // request/response round trip, skipping the create-download/download-part/complete-download
+    // sequence entirely. Internal to the CLI/Java client's download path - "download-file" tries
+    // this first and falls back to the multipart flow only if it comes back too large.
+    //
+    // Unlike create-download, this needs no session/scratch state at all - it looks the object up
+    // by bucket/key directly, same as put-object does for the write side. The size cutoff is
+    // enforced HERE rather than by the caller: since a download's size isn't known until asked
+    // (unlike an upload, where the caller already has the local file stat'd), the caller declares
+    // its part size as "x-euclid-part-size" and an object at or above that size is rejected with
+    // HTTP 413 rather than streamed back - telling the caller to fall back to the multipart flow
+    // instead of this handler ever risking an unbounded response body.
+    //
+    // Like download-part, the response body is raw bytes ("application/octet-stream"), not JSON.
+    static response<string_body> handleGetObject(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-object");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        const auto bucketErn = std::string(req["x-euclid-bucket-ern"]);
+        if (bucketErn.empty()) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "Missing x-euclid-bucket-ern header");
+        }
+        const auto key = std::string(req["x-euclid-key"]);
+        if (key.empty()) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "Missing x-euclid-key header");
+        }
+
+        long maxInlineSize = 0;
+        try {
+            maxInlineSize = std::stol(std::string(req["x-euclid-part-size"]));
+        } catch (const std::exception &) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "Missing or invalid x-euclid-part-size header");
+        }
+        if (maxInlineSize < 1) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "x-euclid-part-size must be >= 1");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        const auto object = repo->findObjectByBucketAndKey(bucketErn, key);
+        if (!object.has_value()) {
+            return EsmServer::ErrorResponse(req, status::not_found, "Object not found, bucket: " + bucketErn + ", key: " + key);
+        }
+        if (object->status != Database::Entity::ESM::ObjectStatus::COMPLETED) {
+            return EsmServer::ErrorResponse(req, status::conflict, "Object is not available for download, status: " + Database::Entity::ESM::ObjectStatusToString(object->status));
+        }
+        if (object->size >= maxInlineSize) {
+            return EsmServer::ErrorResponse(req, status::payload_too_large, "Object is too large for a single-request download, size: " + std::to_string(object->size));
+        }
+
+        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
+        std::ifstream in(std::filesystem::path(dataDir) / object->internalName, std::ios::binary);
+        if (!in.is_open()) {
+            return EsmServer::ErrorResponse(req, status::internal_server_error, "Could not open object file for download, bucket: " + bucketErn + ", key: " + key);
+        }
+
+        std::ostringstream buffer;
+        buffer << in.rdbuf();
+        std::string data = buffer.str();
+
+        log_debug << "ESM get object, bucket: " << bucketErn << ", key: " << key << ", size: " << data.size();
+
+        response<string_body> res{status::ok, req.version()};
+        res.set(field::content_type, "application/octet-stream");
+        res.keep_alive(req.keep_alive());
+        res.body() = std::move(data);
+        res.prepare_payload();
+        return res;
+    }
+
+    // Starts a multipart download: the mirror image of handleCreateUpload() - rather than staging
+    // an empty scratch storage for the caller to fill via upload-part, it looks up the already-
+    // completed object being downloaded and stages a meta file recording where download-part
+    // should read bytes *from*, keyed by a download ID the caller carries for the lifetime of the
+    // download.
+    static response<string_body> handleCreateDownload(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "create-download");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ESM::CreateDownloadRequest>(jv);
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        const auto object = repo->findObjectByBucketAndKey(request.bucketErn, request.key);
+        if (!object.has_value()) {
+            return EsmServer::ErrorResponse(req, status::not_found, "Object not found, bucket: " + request.bucketErn + ", key: " + request.key);
+        }
+        if (object->status != Database::Entity::ESM::ObjectStatus::COMPLETED) {
+            return EsmServer::ErrorResponse(req, status::conflict, "Object is not available for download, status: " + Database::Entity::ESM::ObjectStatusToString(object->status));
+        }
+
+        const auto downloadId = Core::UuidUtils::CreateRandomUuid();
+        const auto downloadDir = downloadDirFor(downloadId);
+
+        std::error_code ec;
+        std::filesystem::create_directories(downloadDir, ec);
+        if (ec) {
+            log_error << "ESM could not create download, path: " << downloadDir.string() << ", error: " << ec.message();
+            return EsmServer::ErrorResponse(req, status::internal_server_error, "Could not create download storage");
+        }
+
+        // Records the object being downloaded so download-part can serve byte ranges using only
+        // the download ID the client carries, mirroring how create-upload's meta file lets
+        // upload-part/complete-upload resolve the target bucket/key.
+        const boost::json::value meta = {
+                {"bucketErn", object->bucketErn},
+                {"key", object->key},
+                {"internalName", object->internalName},
+                {"size", object->size},
+                {"owner", auth.user->userId},
+                {"created", Core::DateTimeUtils::ToISO8601(std::chrono::system_clock::now())},
+        };
+        std::ofstream metaFile(downloadDir / kDownloadMetaFile);
+        metaFile << boost::json::serialize(meta);
+        metaFile.close();
+
+        log_info << "ESM download created, id: " << downloadId << ", path: " << downloadDir.string();
+
+        Dto::ESM::CreateDownloadResponse response;
+        response.downloadId = downloadId;
+        response.bucketErn = object->bucketErn;
+        response.key = object->key;
+        response.ern = object->ern;
+        response.size = object->size;
+        response.contentType = object->contentType;
+
+        return EsmServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    // Serves one byte-range part of an in-progress multipart download. Internal to the
+    // create-download/download-part/complete-download workflow; the CLI's "download-file" action
+    // is the only caller, requesting one part per <part-size> chunk of the object.
+    //
+    // The mirror image of handleUploadPart(): download ID/part number/part size travel as headers
+    // (there's nothing worth putting in a JSON request body here), but where upload-part reads raw
+    // bytes from the request body, download-part *writes* raw bytes to the response body -
+    // "application/octet-stream", not JSON - for the same reason upload-part skips base64: parts
+    // are typically the bulk of a download's bytes.
+    static response<string_body> handleDownloadPart(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "download-part");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        const auto downloadId = std::string(req["x-euclid-download-id"]);
+        if (downloadId.empty()) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "Missing x-euclid-download-id header");
+        }
+
+        long partNumber = 0;
+        try {
+            partNumber = std::stol(std::string(req["x-euclid-part-number"]));
+        } catch (const std::exception &) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "Missing or invalid x-euclid-part-number header");
+        }
+        if (partNumber < 1) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "x-euclid-part-number must be >= 1");
+        }
+
+        long partSize = 0;
+        try {
+            partSize = std::stol(std::string(req["x-euclid-part-size"]));
+        } catch (const std::exception &) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "Missing or invalid x-euclid-part-size header");
+        }
+        if (partSize < 1) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "x-euclid-part-size must be >= 1");
+        }
+
+        const auto downloadDir = downloadDirFor(downloadId);
+        if (!std::filesystem::exists(downloadDir / kDownloadMetaFile)) {
+            return EsmServer::ErrorResponse(req, status::not_found, "Download not found, id: " + downloadId);
+        }
+
+        boost::json::value meta;
+        {
+            std::ifstream metaFile(downloadDir / kDownloadMetaFile);
+            std::ostringstream buffer;
+            buffer << metaFile.rdbuf();
+            meta = boost::json::parse(buffer.str());
+        }
+        const auto internalName = std::string(meta.at("internalName").as_string());
+        const auto totalSize = meta.at("size").as_int64();
+
+        const auto offset = (partNumber - 1) * partSize;
+        if (offset >= totalSize) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "Part number beyond end of object, id: " + downloadId + ", part: " + std::to_string(partNumber));
+        }
+
+        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
+        std::ifstream in(std::filesystem::path(dataDir) / internalName, std::ios::binary);
+        if (!in.is_open()) {
+            return EsmServer::ErrorResponse(req, status::internal_server_error, "Could not open object file for download, id: " + downloadId);
+        }
+        in.seekg(offset);
+
+        const auto readSize = std::min<std::int64_t>(partSize, totalSize - offset);
+        std::string data(static_cast<std::size_t>(readSize), '\0');
+        in.read(data.data(), static_cast<std::streamsize>(readSize));
+        data.resize(static_cast<std::size_t>(in.gcount()));
+
+        log_debug << "ESM download part, id: " << downloadId << ", part: " << partNumber << ", size: " << data.size();
+
+        response<string_body> res{status::ok, req.version()};
+        res.set(field::content_type, "application/octet-stream");
+        res.keep_alive(req.keep_alive());
+        res.body() = std::move(data);
+        res.prepare_payload();
+        return res;
+    }
+
+    // Discards a completed (or abandoned) download's scratch meta storage. The mirror image of
+    // handleCompleteUpload(), but far simpler - a download doesn't assemble or mutate anything, so
+    // there's no post-processing step, just cleanup.
+    static response<string_body> handleCompleteDownload(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "complete-download");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = Dto::ESM::CompleteDownloadRequest::fromJson(req.body());
+        log_info << "ESM CompleteDownload, id: " << request.downloadId;
+
+        const auto downloadDir = downloadDirFor(request.downloadId);
+        std::error_code ec;
+        std::filesystem::remove_all(downloadDir, ec);
+        if (ec)
+            log_warning << "Could not remove download storage, path: " << downloadDir.string() << ", error: " << ec.message();
+
+        return EsmServer::JsonResponse(req, status::ok);
+    }
+
     static response<string_body> handleListObjects(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-objects");
@@ -634,9 +998,14 @@ namespace Euclid::ESM {
             ListBuckets,
             GetBucketErn,
             GetBucketSize,
+            PutObject,
             CreateUpload,
             UploadPart,
             CompleteUpload,
+            GetObject,
+            CreateDownload,
+            DownloadPart,
+            CompleteDownload,
             ListObjects,
             DeleteObject,
             PurgeBucket,
@@ -650,9 +1019,14 @@ namespace Euclid::ESM {
         if (action == "list-buckets") return Command::ListBuckets;
         if (action == "get-bucket-ern") return Command::GetBucketErn;
         if (action == "get-bucket-size") return Command::GetBucketSize;
+        if (action == "put-object") return Command::PutObject;
         if (action == "create-upload") return Command::CreateUpload;
         if (action == "upload-part") return Command::UploadPart;
         if (action == "complete-upload") return Command::CompleteUpload;
+        if (action == "get-object") return Command::GetObject;
+        if (action == "create-download") return Command::CreateDownload;
+        if (action == "download-part") return Command::DownloadPart;
+        if (action == "complete-download") return Command::CompleteDownload;
         if (action == "list-objects") return Command::ListObjects;
         if (action == "delete-object") return Command::DeleteObject;
         if (action == "purge-bucket") return Command::PurgeBucket;
@@ -688,6 +1062,9 @@ namespace Euclid::ESM {
             case Command::GetBucketSize:
                 return handleGetBucketSize(req);
 
+            case Command::PutObject:
+                return handlePutObject(req);
+
             case Command::CreateUpload:
                 return handleCreateUpload(req);
 
@@ -696,6 +1073,18 @@ namespace Euclid::ESM {
 
             case Command::CompleteUpload:
                 return handleCompleteUpload(req);
+
+            case Command::GetObject:
+                return handleGetObject(req);
+
+            case Command::CreateDownload:
+                return handleCreateDownload(req);
+
+            case Command::DownloadPart:
+                return handleDownloadPart(req);
+
+            case Command::CompleteDownload:
+                return handleCompleteDownload(req);
 
             case Command::ListObjects:
                 return handleListObjects(req);

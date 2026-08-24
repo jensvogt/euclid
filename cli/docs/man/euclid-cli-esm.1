@@ -16,10 +16,13 @@ S3-compatible storage buckets and the objects stored in them. Every
 .B esm
 command sends a single JSON request to the gateway
 (\fB\-\-endpoint\fR, default \fIhttps://localhost:5566\fR) and prints the
-JSON response on success, with one exception:
+JSON response on success, with two exceptions:
 .B upload-file
-also streams the file's raw bytes to the gateway as part of a multipart
-upload.
+streams the file's raw bytes to the gateway as part of a multipart
+upload, and
+.B download-file
+receives an object's raw bytes back the same way as part of a
+multipart download.
 .PP
 All
 .B esm
@@ -53,6 +56,11 @@ Uploads a local file to a bucket, transparently as a multipart upload.
 See
 .BR euclid-cli-esm-upload-file (1).
 .TP
+.B download-file
+Downloads an object from a bucket to a local file, transparently as a
+multipart download. See
+.BR euclid-cli-esm-download-file (1).
+.TP
 .B list-objects
 Lists a bucket's objects, optionally filtered by name prefix, paged and
 sorted. See
@@ -61,6 +69,11 @@ sorted. See
 .B delete-object
 Deletes an object by its ERN. See
 .BR euclid-cli-esm-delete-object (1).
+.TP
+.B purge-bucket
+Removes all objects from a bucket, leaving the bucket itself in place.
+See
+.BR euclid-cli-esm-purge-bucket (1).
 .SH GLOBAL OPTIONS
 These options are given to
 .B euclid-cli
@@ -74,6 +87,22 @@ Euclid gateway endpoint to talk to, e.g. \fIhttps://localhost:5566\fR.
 .BR \-\-ca\-cert " " \fIPATH\fR
 Path to a PEM CA certificate to trust in addition to the system trust
 store, e.g. for self-signed development certificates.
+.TP
+.BR \-c ", " \-\-config " " \fIPATH\fR
+Path to a JSON configuration file providing defaults for action
+options - currently
+.I euclid.modules.storage.part-size
+and
+.I euclid.modules.storage.concurrency
+, used by
+.BR euclid-cli-esm-upload-file (1)
+and
+.BR euclid-cli-esm-download-file (1).
+Defaults to
+.IR /usr/local/euclid/etc/euclid.json ;
+silently ignored if the file doesn't exist, so
+.B esm
+works with no config file present.
 .TP
 .BR \-l ", " \-\-loglevel " " \fILEVEL\fR
 Log level: one of \fItrace\fR, \fIdebug\fR, \fIinfo\fR, \fIwarning\fR,
@@ -146,6 +175,16 @@ euclid-cli --endpoint http://localhost:5566 esm list-objects \e
 .fi
 .RE
 .PP
+Download that file back down under a different name:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm download-file \e
+    --bucket-ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports \e
+    --key 2026-08.csv --file ./2026-08-restored.csv
+.fi
+.RE
+.PP
 Check a bucket's size, then delete an object and the bucket:
 .PP
 .RS
@@ -160,6 +199,15 @@ euclid-cli --endpoint http://localhost:5566 esm delete-bucket \e
     --ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports
 .fi
 .RE
+.PP
+Empty a bucket without deleting it:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm purge-bucket \e
+    --ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports
+.fi
+.RE
 .SH SEE ALSO
 .BR euclid-cli (1),
 .BR euclid-cli-eam (1),
@@ -170,7 +218,9 @@ euclid-cli --endpoint http://localhost:5566 esm delete-bucket \e
 .BR euclid-cli-esm-get-bucket-size (1),
 .BR euclid-cli-esm-delete-bucket (1),
 .BR euclid-cli-esm-upload-file (1),
+.BR euclid-cli-esm-download-file (1),
 .BR euclid-cli-esm-list-objects (1),
-.BR euclid-cli-esm-delete-object (1)
+.BR euclid-cli-esm-delete-object (1),
+.BR euclid-cli-esm-purge-bucket (1)
 .SH AUTHOR
 Jens Vogt <jens.vogt@opitz-consulting.com>
