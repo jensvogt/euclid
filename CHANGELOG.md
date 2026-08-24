@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.19](https://github.com/jensvogt/euclid/compare/1.0.18...v1.0.19) (2026-08-24)
+
+
+### Bug Fixes
+
+* windows service ([b6717ed](https://github.com/jensvogt/euclid/commit/b6717eda392c0f9a5542665020aa2928343c27a8))
+* windows service ([c11b8ab](https://github.com/jensvogt/euclid/commit/c11b8abdf7ee6eea357e85bd213801b9f1dc0a7c))
+
 ## [1.0.18](https://github.com/jensvogt/euclid/compare/v1.0.17...v1.0.18) (2026-08-23)
 
 
