@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.28](https://github.com/jensvogt/euclid/compare/1.0.27...v1.0.28) (2026-08-24)
+
+
+### Bug Fixes
+
+* upload/download performance ([91c877a](https://github.com/jensvogt/euclid/commit/91c877a65531a144c7079cf3e4a5148afed38c8d))
+
 ## [1.0.27](https://github.com/jensvogt/euclid/compare/1.0.26...v1.0.27) (2026-08-24)
 
 
