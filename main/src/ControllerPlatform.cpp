@@ -195,7 +195,7 @@ namespace Euclid::main::Platform {
             return "CreateService failed (error " + std::to_string(err) + ")";
         }
 
-        SERVICE_DESCRIPTIONA desc{const_cast<char *>("AWS Cloud Service Simulator")};
+        SERVICE_DESCRIPTIONA desc{const_cast<char *>("Euclid Cloud Services")};
         ChangeServiceConfig2A(svc, SERVICE_CONFIG_DESCRIPTION, &desc);
 
         CloseServiceHandle(svc);

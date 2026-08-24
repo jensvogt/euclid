@@ -41,7 +41,7 @@ namespace Euclid::CLI {
         }
 
         // Service calls (everything but the access module itself) sign with SigV4 when an
-        // access key is configured, matching how real AWS SDKs authenticate; access-module
+        // access key is configured, matching how real Euclid SDKs authenticate; access-module
         // calls (login/register/access-key management) always use the bearer token, since
         // there's no access key yet at login time and key management is euclid's own session
         // auth, not an euclid service call.

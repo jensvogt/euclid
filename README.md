@@ -12,25 +12,24 @@
 
 ## What is this?
 
-euclid runs a local gateway that authenticates requests (JWT bearer tokens and
-AWS-style SigV4 signing) and routes them, by service name, to one of several
-independent module processes it manages as subprocesses - each communicating with
-the gateway over a Unix domain socket. Persistence is pluggable: an in-memory
-backend for fast, disposable test runs, or MongoDB for state that survives a
-restart.
+euclid runs a local gateway that authenticates requests (JWT bearer tokens and AWS-style SigV4 signing) and routes them,
+by service name, to one of several independent module processes it manages as subprocesses - each communicating with the
+gateway over a Unix domain socket. Persistence is pluggable: an in-memory backend for fast, disposable test runs, or
+MongoDB for state that survives a restart.
 
-It's an early-stage rewrite, currently shipping two functional services plus
-metrics:
+It's an early-stage rewrite, currently shipping two functional services plus metrics:
 
-| Module         | What it does                                                                  | Status |
-|----------------|--------------------------------------------------------------------------------|--------|
-| **access**     | User accounts, JWT login sessions, AWS-style access keys, admin bootstrap      | ✅      |
-| **sqs**        | Queues, delayed/dead-letter delivery, and priority-weighted `receive-messages` | ✅      |
-| **monitoring** | Metrics collection/retention behind the other modules                          | ✅      |
-| s3, sns, dynamodb, lambda, ... | Reserved service names in the gateway's routing table          | 🚧 planned |
+| Module                | What it does                                                                 | Status     |
+|-----------------------|------------------------------------------------------------------------------|------------|
+| **eam**               | User accounts, JWT login sessions, Euclid-style access keys, admin bootstrap | ✅         |
+| **eqs**               | Queues, delayed/dead-letter delivery, and priority-weighted message delivery | ✅         |
+| **emon**              | Metrics collection/retention behind the other modules                        | ✅         |
+| **esm**               | Storage management with buckets/object                                       | ✅         |
+| **ens**               | Notification management usinfg publish/subscribe topis                       | ✅         |
+| dynamodb, lambda, ... | Reserved service names in the gateway's routing table                        | 🚧 planned |
 
-Everything is driven through `euclid-cli`, a single client binary with one
-subcommand set per module (`euclid-cli sqs ...`, `euclid-cli access ...`).
+Everything is driven through `euclid-cli`, a single client binary with one subcommand set per module
+(`euclid-cli eqs ...`, `euclid-cli eam ...`).
 
 ---
 
@@ -54,27 +53,25 @@ export PATH="$PWD/build/bin:$PATH"
 
 # First run bootstraps a default administrator (userId: admin, password: admin) -
 # change the password immediately in anything but a throwaway dev setup.
-euclid-cli access login --user admin --password admin
+euclid-cli eam login --user admin --password admin
 
-euclid-cli queues create-queues --name my-queues
-euclid-cli queues send-message --ern <queues-ern> --body "hello" --priority HIGH
-euclid-cli queues receive-messages --ern <queues-ern> --maxCount 10
+euclid-cli eqs create-queues --name my-queues
+euclid-cli eqs send-message --ern <queues-ern> --body "hello" --priority HIGH
+euclid-cli eqs receive-messages --ern <queues-ern> --maxCount 10
 ```
 
 ---
 
 ## Architecture
 
-- **Gateway** (`euclid-mgr`) - single HTTP(S) entry point. Identifies the target
-  service from the `x-euclid-target` header or the SigV4 credential scope, then
-  forwards the request over a Unix domain socket to that module's process.
-- **Modules** (`euclid-acc`, `euclid-sqs`, `euclid-mon`, ...) - independent
-  processes, started and supervised by the gateway, each owning one service's
-  logic and its own socket.
+- **Gateway** (`euclid-mgr`) - single HTTP (S) entry point. Identifies the target service from the `x-euclid-target`
+  header or the SigV4 credential scope, then forwards the request over a Unix domain socket to that module's process.
+- **Modules** (`euclid-eam`, `euclid-eqs`, `euclid-emo`, ...) - independent processes, started and supervised by the
+  gateway, each owning one service's logic and its own socket.
 - **Storage** - `euclid.database.backend` selects `mongodb` (persistent) or
   `memory` (in-process, wiped on restart).
-- **CLI** (`euclid-cli`) - talks to the gateway over HTTPS; credentials are cached
-  under `$HOME/.euclid/credentials` after `euclid-cli access login`.
+- **CLI** (`euclid-cli`) - talks to the gateway over HTTPS; credentials are cached under `$HOME/.euclid/credentials`
+  after `euclid-cli eam login`.
 
 ---
 
@@ -139,16 +136,15 @@ Requires a C++23 compiler (GCC 14+/Clang), CMake 3.28+, and
 ## Configuration
 
 Every process reads the same JSON config (`--config <path>`, default
-`/etc/euclid/euclid.json`; see `dist/linux/etc/euclid.json` for the full,
-commented reference). Key defaults:
+`/etc/euclid/euclid.json`; see `dist/linux/etc/euclid.json` for the full, commented reference). Key defaults:
 
-| Setting                             | Default | Purpose                          |
-|--------------------------------------|---------|-----------------------------------|
-| `euclid.gateway.http.port`           | 5566    | Gateway HTTP(S) entry point       |
-| `euclid.frontend.port`               | 4567    | Static frontend (when built)      |
-| `euclid.logging.websocket-port`      | 4569    | Live log streaming                |
-| `euclid.database.backend`            | mongodb | `mongodb` or `memory`             |
-| `euclid.modules.sqs.priority-weights`| 4:2:1   | HIGH:MIDDLE:LOW receive weighting |
+| Setting                               | Default | Purpose                           |
+|---------------------------------------|---------|-----------------------------------|
+| `euclid.gateway.http.port`            | 5566    | Gateway HTTP(S) entry point       |
+| `euclid.frontend.port`                | 4567    | Static frontend (when built)      |
+| `euclid.logging.websocket-port`       | 4569    | Live log streaming                |
+| `euclid.database.backend`             | mongodb | `mongodb` or `memory`             |
+| `euclid.modules.sqs.priority-weights` | 4:2:1   | HIGH:MIDDLE:LOW receive weighting |
 
 ---
 

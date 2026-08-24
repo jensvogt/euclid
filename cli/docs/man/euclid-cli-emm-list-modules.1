@@ -1,0 +1,88 @@
+.TH EUCLID-CLI-EMM-LIST-MODULES 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-emm-list-modules \- list modules known to the Euclid manager
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B emm list-modules
+.SH DESCRIPTION
+Lists every module the manager
+.RI ( euclid-mgr )
+knows about, as persisted in the module repository (Mongo or in-memory,
+per
+.IR euclid.database.backend ).
+Takes no arguments.
+.PP
+The result is one entry per module name - not one per running process -
+with an
+.I instances
+array holding the module's current live pool: each element is one
+instance, updated in place across restarts (matched internally by a
+stable instance ID, not by pid, since pid changes on every restart) and
+removed once it's permanently gone (scaled down, or given up on after
+exceeding its configured restart limit). The caller must be
+authenticated as an administrator; see
+.BR euclid-cli-emm (1)
+for how that's checked.
+.PP
+The JSON response is printed to standard output. Each module object has:
+.RS
+.TP
+.I name
+Module name, e.g. \fIeam\fR, \fIeqs\fR, \fIesm\fR.
+.TP
+.I executable
+Full path to the module's executable.
+.TP
+.I socketPath
+Configured (template) Unix domain socket path; each instance's actual
+socket is derived from this.
+.TP
+.I active
+Whether the module is enabled in configuration.
+.TP
+.I autoRestart
+Whether crashed instances are automatically restarted.
+.TP
+.I maxRestarts
+Maximum restarts allowed per instance, or \fI\-1\fR for unlimited.
+.TP
+.I created ", " modified
+ISO 8601 timestamps.
+.TP
+.I instances
+Array of the module's current instances, each with
+.IR instanceId ", " pid ", " state
+(one of \fISTOPPED\fR, \fISTARTING\fR, \fIRUNNING\fR, \fISTOPPING\fR,
+\fICRASHED\fR, \fIPENDING_RESTART\fR, \fIRESTARTING\fR, \fIUNKNOWN\fR),
+.IR socketPath ", " restartCount ", "
+and its own
+.IR created "/" modified
+timestamps.
+.RE
+.SH OPTIONS
+None.
+.SH EXIT STATUS
+.TP
+.B 0
+The listing was retrieved and printed as JSON.
+.TP
+.B 1
+The stored session is missing or not an administrator's, the request
+could not be sent, or the server rejected it. If the failure was an
+expired or invalid session
+.RI ( "HTTP 401" ),
+the stored credentials file is removed; run
+.B euclid-cli eam login
+again before retrying.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm list-modules
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-emm (1),
+.BR euclid-cli-eam-login (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
