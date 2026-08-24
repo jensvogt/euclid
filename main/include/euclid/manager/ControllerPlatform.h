@@ -97,6 +97,18 @@ namespace Euclid::main::Platform {
      */
     bool IsRunning(HANDLE processHandle);
 
+    /**
+     * @brief Registers the currently running executable as the Windows service "euclid"
+     *        (SERVICE_AUTO_START, running as Local System), with `--config configFilePath`
+     *        as its startup command line. Mirrors the installer's own
+     *        SimpleSC::InstallService call (dist/win32/msi/product.nsi), for anyone who
+     *        deploys the binaries without running the NSIS installer.
+     *
+     * @return empty string on success; a human-readable error message otherwise (e.g.
+     *         "already exists", "access denied - run as Administrator").
+     */
+    std::string InstallService(const std::string &configFilePath);
+
 }// namespace Euclid::main::Platform
 
 #endif

@@ -53,6 +53,9 @@ namespace Euclid::Database {
         } catch (const mongocxx::exception &e) {
             log_error << "MongoDB ping failed: " << e.what();
             throw std::runtime_error(std::string("MongoDB ping failed: ") + e.what());
+        } catch (const std::exception &e) {
+            log_error << "MongoDB ping failed: " << e.what();
+            throw;
         }
     }
 

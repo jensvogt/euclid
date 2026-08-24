@@ -34,20 +34,20 @@
         "timeout": 300
       },
       "tls": {
-        "enabled": false,
-        "cert-file": "",
-        "key-file": ""
+        "enabled": true,
+        "cert-file": "C:\\Program Files\\euclid\\etc\\euclid_cert.crt",
+        "key-file": "C:\\Program Files\\euclid\\etc\\euclid_cert.key"
       }
     },
     "modules": {
       "access": {
         "active": true,
+        "name": "access",
         "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-access.sock",
         "executable": "C:\\Program Files\\euclid\\bin\\euclid-access",
-        "name": "access",
         "minInstances": 1,
         "maxInstances": 2,
-        "jwt-secret": "changeme-set-a-real-secret-in-production"
+        "jwt-secret": "04cb52d1fdd9e1b68388a5919709d5eec8f271b88b5af0925b4a73ea123fd1f4"
       },
       "storage": {
         "active": true,

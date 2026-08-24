@@ -2,15 +2,12 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/core/SystemUtils.h>
 
 namespace Euclid::CLI {
 
     std::string Credentials::FilePath() {
-        const char *home = std::getenv("HOME");
-        if (home == nullptr || *home == '\0') {
-            throw std::runtime_error("HOME environment variable is not set");
-        }
-        return std::string(home) + "/.euclid/credentials";
+        return Core::SystemUtils::GetHomeDir() + "/.euclid/credentials";
     }
 
     void Credentials::Save(const Entry &entry) {

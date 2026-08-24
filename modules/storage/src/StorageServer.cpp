@@ -25,7 +25,11 @@ namespace Euclid::Storage {
         constexpr auto kServiceCounter = "storage-service-count";
 
         // Fallback for "euclid.modules.storage.data-dir", matching the default in dist/etc/euclid*.json.
+#ifdef _WIN32
+        constexpr auto kDefaultDataDir = "C:\\Program Files\\euclid\\data\\storage";
+#else
         constexpr auto kDefaultDataDir = "/usr/local/euclid/data/storage";
+#endif
 
         // Name of the per-upload file recording the upload's target bucket/key, written by
         // create-upload and read back by upload-part/complete-upload. Its presence also marks a
