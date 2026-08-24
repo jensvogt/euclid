@@ -1,10 +1,10 @@
 set(LIBRARY eucliddb)
-set(SOURCES src/Database.cpp src/entity/module/Module.cpp src/entity/eqs/Variant.cpp
+set(SOURCES src/Database.cpp src/entity/emm/Module.cpp src/entity/eqs/Variant.cpp
         src/entity/eqs/QueueAttribute.cpp src/entity/eqs/RedrivePolicy.cpp src/entity/eqs/Queue.cpp
         src/entity/eqs/Message.cpp src/entity/eqs/PriorityWeights.cpp
         src/repository/emm/MongoEmmRepository.cpp src/repository/eqs/MongoEqsRepository.cpp
         src/entity/eam/User.cpp src/repository/eam/MongoEamRepository.cpp
-        src/entity/monitoring/MonitoringData.cpp src/repository/emo/MongoEmoRepository.cpp
+        src/entity/emo/MonitoringData.cpp src/repository/emo/MongoEmoRepository.cpp
         src/entity/esm/Bucket.cpp src/entity/esm/Object.cpp src/repository/esm/MongoEsmRepository.cpp)
 
 add_library(${LIBRARY} STATIC ${SOURCES})

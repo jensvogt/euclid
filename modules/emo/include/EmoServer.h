@@ -12,7 +12,7 @@
 #include <euclid/core/LogStream.h>
 #include <euclid/core/Scheduler.h>
 #include <euclid/database/RepositoryFactory.h>
-#include <euclid/database/entity/monitoring/MonitoringData.h>
+#include <euclid/database/entity/emo/MonitoringData.h>
 
 namespace Euclid::Monitoring {
 
@@ -30,6 +30,7 @@ namespace Euclid::Monitoring {
      */
     class EmoServer final : public Core::HttpActionServer {
     public:
+
         /**
          * @brief Constructs the server.
          *
@@ -46,6 +47,7 @@ namespace Euclid::Monitoring {
         ~EmoServer() override;
 
     protected:
+
         /**
          * @brief Dispatch the request.
          *
@@ -56,6 +58,7 @@ namespace Euclid::Monitoring {
         response<string_body> Dispatch(const request<string_body> &req) override;
 
     private:
+
         /**
          * @brief Averages the current period's accumulated samples (see the file-local
          * accumulator state in MonitoringServer.cpp, fed by the "push-metrics" action handler)

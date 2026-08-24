@@ -127,6 +127,7 @@ namespace Euclid::EAM {
         response.accessKeyId = key.accessKeyId;
         response.secretAccessKey = key.secretAccessKey;
         response.createdAt = key.createdAt;
+        response.isAdmin = user->isAdmin;
         return response;
     }
 

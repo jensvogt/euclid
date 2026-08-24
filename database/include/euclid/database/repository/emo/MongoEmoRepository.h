@@ -37,7 +37,7 @@ namespace Euclid::Database {
 
     private:
 
-        static constexpr auto COLLECTION = "monitoring_data";
+        static constexpr auto COLLECTION = "emo_data";
     };
 
 }// namespace Euclid::Database

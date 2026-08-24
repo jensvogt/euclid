@@ -42,6 +42,13 @@ namespace Euclid::Dto::EAM {
         std::string createdAt;
 
         /**
+         * @brief Whether the logged-in user has administrator privileges. The CLI stores this
+         * alongside the token so admin-only commands (e.g. "emm") can be rejected locally
+         * without a round trip, though the server enforces this independently regardless.
+         */
+        bool isAdmin{false};
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -57,6 +64,7 @@ namespace Euclid::Dto::EAM {
             r.accessKeyId = Core::GetStringValue(v, "accessKeyId");
             r.secretAccessKey = Core::GetStringValue(v, "secretAccessKey");
             r.createdAt = Core::GetStringValue(v, "createdAt");
+            r.isAdmin = Core::GetBoolValue(v, "isAdmin");
             return r;
         }
 
@@ -67,6 +75,7 @@ namespace Euclid::Dto::EAM {
                     {"accessKeyId", obj.accessKeyId},
                     {"secretAccessKey", obj.secretAccessKey},
                     {"createdAt", obj.createdAt},
+                    {"isAdmin", obj.isAdmin},
             };
         }
     };

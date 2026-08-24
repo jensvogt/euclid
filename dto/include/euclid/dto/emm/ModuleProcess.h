@@ -22,6 +22,7 @@ using pid_t = std::int32_t;
 #include <vector>
 
 // Euclid includes
+#include <euclid/core/UuidUtils.h>
 #include <euclid/dto/emm/ModuleConfig.h>
 #include <euclid/database/entity/emm/ModuleState.h>
 
@@ -33,6 +34,14 @@ namespace Euclid::Dto {
          * @brief Module config
          */
         ModuleConfig config;
+
+        /**
+         * @brief Stable identifier for this pool slot, generated once when the slot is created
+         * and unchanged across restarts (unlike pid, which changes every time the process is
+         * respawned). Used as the key to update this slot's entry in the database's per-module
+         * instances array in place, instead of appending a new entry on every restart.
+         */
+        std::string instanceId = Core::UuidUtils::CreateRandomUuid();
 
         /**
          * @brief Process ID

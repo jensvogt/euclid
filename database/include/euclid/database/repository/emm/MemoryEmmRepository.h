@@ -4,6 +4,7 @@
 #pragma once
 
 // C++ includes
+#include <algorithm>
 #include <mutex>
 #include <ranges>
 #include <unordered_map>
@@ -31,9 +32,39 @@ namespace Euclid::Database {
             return moduleDatabase;
         }
 
-        void upsert(const Entity::Module &module) override {
+        void upsertInstance(const Entity::Module &module, const Entity::ModuleInstance &instance) override {
             std::lock_guard lock(_mutex);
-            _store[module.name] = module;
+            auto &stored = _store[module.name];
+            const auto now = std::chrono::system_clock::now();
+            if (stored.name.empty()) {
+                stored.name = module.name;
+                stored.created = now;
+            }
+            stored.executable = module.executable;
+            stored.socketPath = module.socketPath;
+            stored.active = module.active;
+            stored.autoRestart = module.autoRestart;
+            stored.maxRestarts = module.maxRestarts;
+            stored.args = module.args;
+            stored.modified = now;
+
+            Entity::ModuleInstance toStore = instance;
+            const auto it = std::ranges::find_if(stored.instances, [&](const auto &i) { return i.instanceId == instance.instanceId; });
+            if (it != stored.instances.end()) {
+                toStore.created = it->created;
+                *it = toStore;
+            } else {
+                toStore.created = now;
+                stored.instances.push_back(toStore);
+            }
+        }
+
+        void removeInstance(const std::string &moduleName, const std::string &instanceId) override {
+            std::lock_guard lock(_mutex);
+            const auto it = _store.find(moduleName);
+            if (it == _store.end()) return;
+            std::erase_if(it->second.instances, [&](const auto &i) { return i.instanceId == instanceId; });
+            it->second.modified = std::chrono::system_clock::now();
         }
 
         void remove(const std::string &name) override {

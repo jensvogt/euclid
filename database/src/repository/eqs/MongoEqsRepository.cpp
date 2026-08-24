@@ -16,7 +16,7 @@
 
 namespace Euclid::Database {
 
-    MongoEqsRepository::MongoEqsRepository() : _databaseName("euclid") {
+    MongoEqsRepository::MongoEqsRepository() {
         ensureIndexes();
     }
 
