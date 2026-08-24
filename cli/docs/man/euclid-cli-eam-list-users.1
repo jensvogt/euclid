@@ -1,21 +1,21 @@
-.TH EUCLID-CLI-ACCESS-LIST-USERS 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.TH EUCLID-CLI-EAM-LIST-USERS 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
 .SH NAME
-euclid-cli-access-list-users \- list Euclid user accounts
+euclid-cli-eam-list-users \- list Euclid user accounts
 .SH SYNOPSIS
 .B euclid-cli
 [\fB\-\-endpoint\fR \fIURL\fR]
-.B access list-users
+.B eam list-users
 [\fB\-\-prefix\fR \fIPREFIX\fR]
 [\fB\-\-pageSize\fR \fIN\fR]
 [\fB\-\-pageIndex\fR \fIN\fR]
 [\fB\-\-sortColumn\fR \fICOLUMN\fR]
 .SH DESCRIPTION
-Lists user accounts via the access service's
+Lists user accounts via the eam service's
 .I list-users
 action. The caller must be authenticated as an administrator (see
-.BR euclid-cli-access-login (1));
+.BR euclid-cli-eam-login (1));
 unlike
-.BR euclid-cli-access-register (1)
+.BR euclid-cli-eam-register (1)
 there is no bootstrap exception, since an empty user store has nothing to
 list.
 .PP
@@ -46,26 +46,26 @@ The listing was retrieved.
 Invalid arguments, the request could not be sent, or the caller is not an
 authenticated administrator. If the failure was an expired or invalid
 session (\fIHTTP 401\fR), the stored credentials file is removed; run
-.B euclid-cli access login
+.B euclid-cli eam login
 again before retrying.
 .SH EXAMPLES
 List every user:
 .RS
 .nf
-euclid-cli --endpoint http://localhost:5566 access list-users
+euclid-cli --endpoint http://localhost:5566 eam list-users
 .fi
 .RE
 .PP
 List up to 20 users whose ID starts with "jd", sorted by email:
 .RS
 .nf
-euclid-cli --endpoint http://localhost:5566 access list-users \e
+euclid-cli --endpoint http://localhost:5566 eam list-users \e
     --prefix jd --pageSize 20 --pageIndex 0 --sortColumn email
 .fi
 .RE
 .SH SEE ALSO
-.BR euclid-cli-access (1),
-.BR euclid-cli-access-login (1),
-.BR euclid-cli-access-delete-user (1)
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-eam-delete-user (1)
 .SH AUTHOR
 Jens Vogt <jens.vogt@opitz-consulting.com>

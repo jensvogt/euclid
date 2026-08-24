@@ -15,10 +15,10 @@
 #define DEFAULT_LOG_LEVEL          "info"
 #ifdef _WIN32
 #define DEFAULT_CONFIGURATION_FILE "C:\\Program Files\\euclid\\etc\\euclid.json"
-#define DEFAULT_SOCKET_PATH        "C:\\Program Files\\euclid\\data\\run\\euclid-monitoring.sock"
+#define DEFAULT_SOCKET_PATH        "C:\\Program Files\\euclid\\data\\run\\euclid-emo.sock"
 #else
 #define DEFAULT_CONFIGURATION_FILE "/usr/local/euclid/etc/euclid.json"
-#define DEFAULT_SOCKET_PATH        "/var/run/euclid-monitoring.sock"
+#define DEFAULT_SOCKET_PATH        "/var/run/euclid-emo.sock"
 #endif
 
 namespace po = boost::program_options;
@@ -50,7 +50,7 @@ static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
             ("console-log", po::value<bool>(&opts.consoleLog)->default_value(true)->implicit_value(true), "Enable console logging")
             ("file-log", po::value<bool>(&opts.fileLog)->default_value(false)->implicit_value(true), "Enable file logging");
 
-    po::options_description all("euclid-monitoring options");
+    po::options_description all("euclid-emo options");
     all.add(general).add(logging);
 
     try {
@@ -58,12 +58,12 @@ static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
         po::store(po::command_line_parser(argc, argv).options(all).run(), vm);
 
         if (vm.contains("help")) {
-            std::cout << "euclid-monitoring v" << APP_VERSION << " - Monitoring service process\n\n" << all << "\n";
+            std::cout << "euclid-emo v" << APP_VERSION << " - Monitoring service process\n\n" << all << "\n";
             return std::nullopt;
         }
 
         if (vm.contains("version")) {
-            std::cout << "euclid-monitoring version " << APP_VERSION << "\n";
+            std::cout << "euclid-emo version " << APP_VERSION << "\n";
             return std::nullopt;
         }
 
