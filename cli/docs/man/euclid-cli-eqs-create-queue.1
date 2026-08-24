@@ -1,0 +1,65 @@
+.TH EUCLID-CLI-EQS-CREATE-QUEUE 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eqs-create-queue \- create a new queue
+.SH SYNOPSIS
+.B euclid-cli eqs create-queue
+.BR \-\-name | \-n
+.I NAME
+[\fB\-\-visibility\fR|\fB\-v\fR \fISECONDS\fR]
+[\fB\-\-max\-retries\fR|\fB\-m\fR \fICOUNT\fR]
+[\fB\-\-max\-length\fR|\fB\-l\fR \fIBYTES\fR]
+[\fB\-\-dlq\-name\fR|\fB\-d\fR \fINAME\fR]
+[\fB\-\-delay\fR|\fB\-e\fR \fISECONDS\fR]
+.SH DESCRIPTION
+Creates a new queue with the given name, max retries, max message
+length, dead letter queue name, and visibility timeout. The dead letter
+queue name is optional.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+Name of the queue to create. Required.
+.TP
+.BR \-v ", " \-\-visibility " " \fISECONDS\fR
+Visibility timeout applied to received messages, in seconds. Defaults
+to \fI30\fR.
+.TP
+.BR \-m ", " \-\-max\-retries " " \fICOUNT\fR
+Maximum number of times a message may be received before it is moved
+to the dead letter queue (if any). Defaults to \fI3\fR.
+.TP
+.BR \-l ", " \-\-max\-length " " \fIBYTES\fR
+Maximum message body length, in bytes. Defaults to \fI1048576\fR (1 MiB).
+.TP
+.BR \-d ", " \-\-dlq\-name " " \fINAME\fR
+Name of an existing queue to use as the dead letter queue. Optional; if
+omitted, messages that exceed \fB\-\-max\-retries\fR are dropped.
+.TP
+.BR \-e ", " \-\-delay " " \fISECONDS\fR
+Delay before newly sent messages become visible to receivers. Defaults
+to \fI0\fR.
+.SH EXIT STATUS
+.TP
+.B 0
+The queue was created; its ERN and other metadata are printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or the
+server rejected the request (e.g. a queue with that name already
+exists, or \fB\-\-dlq\-name\fR does not refer to an existing queue).
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eqs create-queue \e
+    --name orders --visibility 30 --max-retries 3 --max-length 65536
+
+euclid-cli --endpoint http://localhost:5566 eqs create-queue \e
+    --name orders --dlq-name orders-dlq --delay 5
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eqs (1),
+.BR euclid-cli-eqs-list-queues (1),
+.BR euclid-cli-eqs-get-queue-ern (1),
+.BR euclid-cli-eqs-delete-queue (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

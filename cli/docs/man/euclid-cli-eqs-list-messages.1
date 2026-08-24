@@ -1,0 +1,54 @@
+.TH EUCLID-CLI-EQS-LIST-MESSAGES 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eqs-list-messages \- list a queue's messages without receiving them
+.SH SYNOPSIS
+.B euclid-cli eqs list-messages
+.BR \-\-queue\-ern | \-e
+.I ERN
+[\fB\-\-page\-size\fR|\fB\-s\fR \fIN\fR]
+[\fB\-\-page\-index\fR|\fB\-i\fR \fIN\fR]
+[\fB\-\-sort\-column\fR|\fB\-c\fR \fICOLUMN\fR]
+.SH DESCRIPTION
+Lists a queue's messages without receiving them, i.e. without changing
+their status or visibility. Unlike
+.BR euclid-cli-eqs-receive-messages (1),
+this is a read-only, non-destructive inspection of the queue's
+contents, and is paginated.
+.SH OPTIONS
+.TP
+.BR \-e ", " \-\-queue\-ern " " \fIERN\fR
+Euclid resource name of the queue to list messages from. Required.
+.TP
+.BR \-s ", " \-\-page\-size " " \fIN\fR
+Maximum number of messages to return. Defaults to \fI10\fR.
+.TP
+.BR \-i ", " \-\-page\-index " " \fIN\fR
+Zero-based page index to return. Defaults to \fI0\fR.
+.TP
+.BR \-c ", " \-\-sort\-column " " \fICOLUMN\fR
+Column to sort results by. Defaults to \fIcreated\fR.
+.SH EXIT STATUS
+.TP
+.B 0
+The matching messages are printed as JSON (possibly an empty list).
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or no queue
+with that ERN exists.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eqs list-messages \e
+    --queue-ern ern:euclid:queues:eu-central-1:000000000000:queue:orders
+
+euclid-cli --endpoint http://localhost:5566 eqs list-messages \e
+    --queue-ern ern:euclid:queues:eu-central-1:000000000000:queue:orders \e
+    --page-size 25 --page-index 1 --sort-column created
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eqs (1),
+.BR euclid-cli-eqs-receive-messages (1),
+.BR euclid-cli-eqs-get-message-metadata (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

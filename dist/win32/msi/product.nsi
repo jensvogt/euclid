@@ -204,10 +204,10 @@ Section "Windows Service" SecService
   SimpleSC::StopService "euclid" 1 30
   SimpleSC::RemoveService "euclid"
 
-  ; Install service (euclid-manager spawns euclid-eam/euclid-queues/euclid-emo as
+  ; Install service (euclid-mgr spawns euclid-eam/euclid-eqs/euclid-esm/euclid-emo as
   ; subprocesses, resolved via PATH, so $INSTDIR\bin is added to the service's PATH)
   SimpleSC::InstallService "euclid" "Euclid" 16 2 \
-    `"$INSTDIR\bin\euclid-manager.exe" --config "$INSTDIR\etc\euclid.json"` "" "" ""
+    `"$INSTDIR\bin\euclid-mgr.exe" --config "$INSTDIR\etc\euclid.json"` "" "" ""
   SimpleSC::SetServiceDescription "euclid" "Euclid Cloud Services"
 
   ; Start service
@@ -230,12 +230,12 @@ Section "Uninstall"
   SimpleSC::RemoveService "euclid"
 
   ; Remove files
-  Delete "$INSTDIR\bin\euclid-manager.exe"
+  Delete "$INSTDIR\bin\euclid-mgr.exe"
   Delete "$INSTDIR\bin\euclid-cli.exe"
   Delete "$INSTDIR\bin\euclid-eam.exe"
-  Delete "$INSTDIR\bin\euclid-queues.exe"
+  Delete "$INSTDIR\bin\euclid-eqs.exe"
   Delete "$INSTDIR\bin\euclid-emo.exe"
-  Delete "$INSTDIR\bin\euclid-storage.exe"
+  Delete "$INSTDIR\bin\euclid-esm.exe"
   Delete "$INSTDIR\etc\euclid.json"
   Delete "$INSTDIR\etc\magic.mgc"
   Delete "$INSTDIR\etc\ssh_host_key"

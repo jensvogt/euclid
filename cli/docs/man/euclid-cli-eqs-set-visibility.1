@@ -1,0 +1,43 @@
+.TH EUCLID-CLI-EQS-SET-VISIBILITY 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eqs-set-visibility \- set a message's visibility timeout
+.SH SYNOPSIS
+.B euclid-cli eqs set-visibility
+.BR \-\-message\-id | \-m
+.I MESSAGE-ID
+.BR \-\-visibility | \-v
+.I SECONDS
+.SH DESCRIPTION
+Sets the visibility timeout for an individual message that was
+previously received via
+.BR euclid-cli-eqs-receive-messages (1),
+extending or shortening how long it stays invisible to other receivers
+before it can be received again.
+.SH OPTIONS
+.TP
+.BR \-m ", " \-\-message\-id " " \fIMESSAGE-ID\fR
+ID of the message to update. Required.
+.TP
+.BR \-v ", " \-\-visibility " " \fISECONDS\fR
+New visibility timeout, in seconds. Defaults to \fI10\fR.
+.SH EXIT STATUS
+.TP
+.B 0
+The message's visibility timeout was updated. No output is printed.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or no
+message with that ID exists.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eqs set-visibility \e
+    --message-id 6f1b1e2e-... --visibility 60
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eqs (1),
+.BR euclid-cli-eqs-receive-messages (1),
+.BR euclid-cli-eqs-get-message-metadata (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

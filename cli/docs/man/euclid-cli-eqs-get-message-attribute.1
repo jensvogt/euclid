@@ -1,0 +1,42 @@
+.TH EUCLID-CLI-EQS-GET-MESSAGE-ATTRIBUTE 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eqs-get-message-attribute \- return a message attribute by name
+.SH SYNOPSIS
+.B euclid-cli eqs get-message-attribute
+.BR \-\-message\-id | \-m
+.I MESSAGE-ID
+.BR \-\-name | \-n
+.I NAME
+.SH DESCRIPTION
+Returns a single message attribute by name, as set via
+.BR \-\-attributes
+on
+.BR euclid-cli-eqs-send-message (1).
+.SH OPTIONS
+.TP
+.BR \-m ", " \-\-message\-id " " \fIMESSAGE-ID\fR
+ID of the message to query. Required.
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+Name of the attribute to return. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The attribute's type and value are printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, no message
+with that ID exists, or the message has no attribute with that name.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eqs get-message-attribute \e
+    --message-id 6f1b1e2e-... --name orderId
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eqs (1),
+.BR euclid-cli-eqs-send-message (1),
+.BR euclid-cli-eqs-get-message-metadata (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
