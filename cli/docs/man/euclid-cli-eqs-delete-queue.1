@@ -1,0 +1,35 @@
+.TH EUCLID-CLI-EQS-DELETE-QUEUE 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eqs-delete-queue \- delete a queue
+.SH SYNOPSIS
+.B euclid-cli eqs delete-queue
+.BR \-\-ern | \-e
+.I ERN
+.SH DESCRIPTION
+Deletes a queue identified by its Euclid resource name (ERN), along
+with all of its remaining messages. This cannot be undone.
+.SH OPTIONS
+.TP
+.BR \-e ", " \-\-ern " " \fIERN\fR
+Euclid resource name of the queue to delete. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The queue was deleted. No output is printed.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or no queue
+with that ERN exists.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eqs delete-queue \e
+    --ern ern:euclid:queues:eu-central-1:000000000000:queue:orders
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eqs (1),
+.BR euclid-cli-eqs-create-queue (1),
+.BR euclid-cli-eqs-purge-queue (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

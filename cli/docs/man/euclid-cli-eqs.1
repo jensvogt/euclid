@@ -1,0 +1,205 @@
+.TH EUCLID-CLI-EQS 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eqs \- manage Euclid SQS-compatible queues and messages
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+[\fB\-\-loglevel\fR \fILEVEL\fR]
+.B eqs
+.I action
+[\fIaction-options\fR...]
+.SH DESCRIPTION
+The
+.B eqs
+module talks to the Euclid gateway's eqs service to create and manage
+SQS-compatible queues and their messages. Every
+.B eqs
+command sends a single JSON request to the gateway
+(\fB\-\-endpoint\fR, default \fIhttps://localhost:5566\fR) and prints the
+JSON response on success.
+.PP
+All
+.B eqs
+commands require the caller to be authenticated; see
+.B AUTHENTICATION
+below for how the session used to sign these requests is obtained.
+.SH ACTIONS
+.TP
+.B create-queue
+Creates a new queue, optionally with a dead letter queue, visibility
+timeout, retry limit, message size limit and delivery delay. See
+.BR euclid-cli-eqs-create-queue (1).
+.TP
+.B list-queues
+Lists queues, optionally filtered by name prefix, paged and sorted. See
+.BR euclid-cli-eqs-list-queues (1).
+.TP
+.B get-queue-ern
+Resolves a queue's Euclid resource name (ERN) by its name. See
+.BR euclid-cli-eqs-get-queue-ern (1).
+.TP
+.B get-queue-metadata
+Shows a queue's metadata (region, account, namespace, size, message
+counts). See
+.BR euclid-cli-eqs-get-queue-metadata (1).
+.TP
+.B delete-queue
+Deletes a queue by its ERN. See
+.BR euclid-cli-eqs-delete-queue (1).
+.TP
+.B purge-queue
+Deletes all messages from a single queue. See
+.BR euclid-cli-eqs-purge-queue (1).
+.TP
+.B purge-all-queues
+Deletes all messages from every queue in a region/account. See
+.BR euclid-cli-eqs-purge-all-queues (1).
+.TP
+.B send-message
+Sends a message to a queue, with optional attributes and priority. See
+.BR euclid-cli-eqs-send-message (1).
+.TP
+.B receive-messages
+Receives up to a given number of messages from a queue, favoring higher
+priority messages. See
+.BR euclid-cli-eqs-receive-messages (1).
+.TP
+.B list-messages
+Lists a queue's messages without receiving them, i.e. without changing
+their status or visibility. See
+.BR euclid-cli-eqs-list-messages (1).
+.TP
+.B set-visibility
+Sets the visibility timeout for an individual message. See
+.BR euclid-cli-eqs-set-visibility (1).
+.TP
+.B get-message-count
+Returns a queue's message counters (total, invisible, delayed). See
+.BR euclid-cli-eqs-get-message-count (1).
+.TP
+.B get-message-attribute
+Returns a single message attribute by name. See
+.BR euclid-cli-eqs-get-message-attribute (1).
+.TP
+.B get-message-metadata
+Shows a single message's metadata (status, priority, size, receive
+count, timestamps, etc.). See
+.BR euclid-cli-eqs-get-message-metadata (1).
+.SH GLOBAL OPTIONS
+These options are given to
+.B euclid-cli
+itself, before the
+.I eqs
+module name.
+.TP
+.BR \-e ", " \-\-endpoint " " \fIURL\fR
+Euclid gateway endpoint to talk to, e.g. \fIhttps://localhost:5566\fR.
+.TP
+.BR \-\-ca\-cert " " \fIPATH\fR
+Path to a PEM CA certificate to trust in addition to the system trust
+store, e.g. for self-signed development certificates.
+.TP
+.BR \-l ", " \-\-loglevel " " \fILEVEL\fR
+Log level: one of \fItrace\fR, \fIdebug\fR, \fIinfo\fR, \fIwarning\fR,
+\fIerror\fR, \fIfatal\fR. Defaults to \fIinfo\fR.
+.TP
+.BR \-h ", " \-\-help
+Print top-level usage and exit.
+.TP
+.BR \-v ", " \-\-version
+Print the euclid-cli version and exit.
+.SH AUTHENTICATION
+.B eqs
+commands are authenticated using the session created by
+.BR euclid-cli-eam-login (1),
+loaded from
+.IR $HOME/.euclid/credentials .
+Unlike
+.B eam
+commands, which always send the bearer token,
+.B eqs
+requests are signed with SigV4 (the same scheme AWS SDKs use for SQS)
+using the access key ID and secret stored in that file, if present;
+.BR euclid-cli-eam-login (1)
+provisions this access key automatically on first login, so a separate
+.B eam create-access-key
+call is not normally needed. If no access key is stored, the bearer
+token is sent instead as an
+.I "Authorization: Bearer"
+header.
+.PP
+If the server rejects a request with
+.IR "HTTP 401" ,
+the stored credentials are left untouched (unlike
+.BR eam ,
+which clears them on 401); run
+.B euclid-cli eam login
+again if requests start failing with 401.
+.SH EXIT STATUS
+.TP
+.B 0
+The action completed successfully.
+.TP
+.B 1
+Argument parsing failed, the request could not be sent, or the server
+rejected it (missing/expired session, invalid input, queue or message
+not found, etc.). Details are printed to standard error.
+.SH FILES
+.TP
+.I $HOME/.euclid/credentials
+JSON file holding the current session's bearer token and/or SigV4
+access key, created by
+.B euclid-cli eam login
+and read by every
+.B eqs
+action.
+.SH EXAMPLES
+Create a queue, resolve its ERN, and send/receive a message:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eqs create-queue \e
+    --name orders --visibility 30 --max-retries 3
+
+euclid-cli --endpoint http://localhost:5566 eqs get-queue-ern \e
+    --name orders
+
+euclid-cli --endpoint http://localhost:5566 eqs send-message \e
+    --ern ern:euclid:queues:eu-central-1:000000000000:queue:orders --body 'hello'
+
+euclid-cli --endpoint http://localhost:5566 eqs receive-messages \e
+    --ern ern:euclid:queues:eu-central-1:000000000000:queue:orders
+.fi
+.RE
+.PP
+Purge and delete a queue:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eqs purge-queue \e
+    --ern ern:euclid:queues:eu-central-1:000000000000:queue:orders
+
+euclid-cli --endpoint http://localhost:5566 eqs delete-queue \e
+    --ern ern:euclid:queues:eu-central-1:000000000000:queue:orders
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli (1),
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-eqs-create-queue (1),
+.BR euclid-cli-eqs-list-queues (1),
+.BR euclid-cli-eqs-get-queue-ern (1),
+.BR euclid-cli-eqs-get-queue-metadata (1),
+.BR euclid-cli-eqs-delete-queue (1),
+.BR euclid-cli-eqs-purge-queue (1),
+.BR euclid-cli-eqs-purge-all-queues (1),
+.BR euclid-cli-eqs-send-message (1),
+.BR euclid-cli-eqs-receive-messages (1),
+.BR euclid-cli-eqs-list-messages (1),
+.BR euclid-cli-eqs-set-visibility (1),
+.BR euclid-cli-eqs-get-message-count (1),
+.BR euclid-cli-eqs-get-message-attribute (1),
+.BR euclid-cli-eqs-get-message-metadata (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

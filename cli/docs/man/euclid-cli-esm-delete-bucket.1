@@ -1,0 +1,35 @@
+.TH EUCLID-CLI-ESM-DELETE-BUCKET 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-delete-bucket \- delete a storage bucket
+.SH SYNOPSIS
+.B euclid-cli esm delete-bucket
+.BR \-\-ern | \-e
+.I ERN
+.SH DESCRIPTION
+Deletes a storage bucket identified by its Euclid resource name (ERN).
+This cannot be undone.
+.SH OPTIONS
+.TP
+.BR \-e ", " \-\-ern " " \fIERN\fR
+Euclid resource name of the bucket to delete. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The bucket was deleted. No output is printed.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or no
+bucket with that ERN exists.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm delete-bucket \e
+    --ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-create-bucket (1),
+.BR euclid-cli-esm-list-objects (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

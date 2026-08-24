@@ -1,0 +1,50 @@
+.TH EUCLID-CLI-EQS-LIST-QUEUES 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eqs-list-queues \- list queues
+.SH SYNOPSIS
+.B euclid-cli eqs list-queues
+[\fB\-\-prefix\fR|\fB\-p\fR \fIPREFIX\fR]
+[\fB\-\-pageSize\fR|\fB\-s\fR \fIN\fR]
+[\fB\-\-pageIndex\fR|\fB\-i\fR \fIN\fR]
+[\fB\-\-sortColumn\fR|\fB\-c\fR \fICOLUMN\fR]
+.SH DESCRIPTION
+Lists queues, optionally filtered by name prefix and paginated.
+.SH OPTIONS
+.TP
+.BR \-p ", " \-\-prefix " " \fIPREFIX\fR
+Only list queues whose name starts with this prefix. Optional; if
+omitted, all queues are listed.
+.TP
+.BR \-s ", " \-\-pageSize " " \fIN\fR
+Maximum number of queues to return. Defaults to \fI-1\fR (no paging).
+.TP
+.BR \-i ", " \-\-pageIndex " " \fIN\fR
+Zero-based page index to return when \fB\-\-pageSize\fR is set.
+Defaults to \fI-1\fR.
+.TP
+.BR \-c ", " \-\-sortColumn " " \fICOLUMN\fR
+Column to sort results by. Defaults to \fIname\fR.
+.SH EXIT STATUS
+.TP
+.B 0
+The matching queues are printed as JSON (possibly an empty list).
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or the
+server rejected the request.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eqs list-queues
+
+euclid-cli --endpoint http://localhost:5566 eqs list-queues \e
+    --prefix orders- --pageSize 20 --pageIndex 0 --sortColumn name
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eqs (1),
+.BR euclid-cli-eqs-create-queue (1),
+.BR euclid-cli-eqs-get-queue-ern (1),
+.BR euclid-cli-eqs-get-queue-metadata (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

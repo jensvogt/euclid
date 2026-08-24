@@ -1,0 +1,40 @@
+.TH EUCLID-CLI-ESM-GET-BUCKET-ERN 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-get-bucket-ern \- resolve a bucket's ERN by name
+.SH SYNOPSIS
+.B euclid-cli esm get-bucket-ern
+.BR \-\-name | \-n
+.I NAME
+.SH DESCRIPTION
+Resolves the Euclid resource name (ERN) of a bucket by its name. The
+ERN is what most other
+.B esm
+actions (e.g.
+.BR euclid-cli-esm-upload-file (1),
+.BR euclid-cli-esm-delete-bucket (1))
+require to identify the bucket.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+Name of the bucket to resolve. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The bucket's ERN is printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or no
+bucket with that name exists.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm get-bucket-ern \e
+    --name reports
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-create-bucket (1),
+.BR euclid-cli-esm-list-buckets (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

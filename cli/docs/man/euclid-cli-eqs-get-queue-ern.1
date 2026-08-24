@@ -1,0 +1,40 @@
+.TH EUCLID-CLI-EQS-GET-QUEUE-ERN 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eqs-get-queue-ern \- resolve a queue's ERN by name
+.SH SYNOPSIS
+.B euclid-cli eqs get-queue-ern
+.BR \-\-name | \-n
+.I NAME
+.SH DESCRIPTION
+Resolves the Euclid resource name (ERN) of a queue by its name. The ERN
+is what most other
+.B eqs
+actions (e.g.
+.BR euclid-cli-eqs-send-message (1),
+.BR euclid-cli-eqs-delete-queue (1))
+require to identify the queue.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+Name of the queue to resolve. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The queue's ERN is printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or no queue
+with that name exists.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eqs get-queue-ern \e
+    --name orders
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eqs (1),
+.BR euclid-cli-eqs-create-queue (1),
+.BR euclid-cli-eqs-list-queues (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

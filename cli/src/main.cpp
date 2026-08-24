@@ -7,10 +7,10 @@
 #include <boost/program_options.hpp>
 
 // Euclid includes
-#include <euclid/cli/eam/EamCli.h>
 #include <euclid/cli/credentials/Credentials.h>
-#include <euclid/cli/eqs/QueuesCli.h>
-#include <euclid/cli/esm/StorageCli.h>
+#include <euclid/cli/eam/EamCli.h>
+#include <euclid/cli/eqs/EqsCli.h>
+#include <euclid/cli/esm/EsmCli.h>
 #include <euclid/core/Version.h>
 
 #define DEFAULT_ENDPOINT "https://localhost:5566"
@@ -93,15 +93,15 @@ int main(const int argc, char *argv[]) {
         const Euclid::CLI::EamCli eam(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), true, caCert);
         return eam.process(action, args);
     }
-    if (module == "queues") {
+    if (module == "eqs") {
         const auto authToken = Euclid::CLI::Credentials::Load();
-        const Euclid::CLI::QueuesCli queues(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), true, caCert);
-        return queues.process(action, args);
+        const Euclid::CLI::EqsCli eqs(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), true, caCert);
+        return eqs.process(action, args);
     }
-    if (module == "storage") {
+    if (module == "esm") {
         const auto authToken = Euclid::CLI::Credentials::Load();
-        const Euclid::CLI::StorageCli storage(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), true, caCert);
-        return storage.process(action, args);
+        const Euclid::CLI::EsmCli esm(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), true, caCert);
+        return esm.process(action, args);
     }
 
     std::cerr << "error: unknown module '" << module << "'\n\n" << usage << std::endl;
