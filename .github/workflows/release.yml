@@ -681,7 +681,7 @@ jobs:
       - name: Create site folder
         run: |
           mkdir public
-          # cp ./artifacts/installer-windows/*.exe public/ || true  # temporarily disabled
+          cp ./artifacts/installer-windows/*.exe public/ || true
           cp ./artifacts/installer-macos/*.tgz public/ || true
           cp ./artifacts/deb-package-linux/*.deb public/ || true
           cp ./artifacts/rpm-package-linux/*.rpm public/ || true
