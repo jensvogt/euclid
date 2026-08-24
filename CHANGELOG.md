@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.29](https://github.com/jensvogt/euclid/compare/1.0.28...v1.0.29) (2026-08-24)
+
+
+### Bug Fixes
+
+* more man pages, fix command line options ([ae17512](https://github.com/jensvogt/euclid/commit/ae175126efb9269907f4b894838c9d4160442eb2))
+
 ## [1.0.28](https://github.com/jensvogt/euclid/compare/1.0.27...v1.0.28) (2026-08-24)
 
 
