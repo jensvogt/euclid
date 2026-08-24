@@ -164,6 +164,8 @@ Section "Main Application" SecMain
   CreateDirectory "$INSTDIR\init"
   CreateDirectory "$INSTDIR\data\tmp"
   CreateDirectory "$INSTDIR\data\backup"
+  CreateDirectory "$INSTDIR\data\run"
+  CreateDirectory "$INSTDIR\data\storage"
   CreateDirectory "$INSTDIR\frontend"
 
   ; Copy frontend recursively, if it was built (see release.yml - skipped when the
