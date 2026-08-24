@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.24](https://github.com/jensvogt/euclid/compare/1.0.23...v1.0.24) (2026-08-24)
+
+
+### Bug Fixes
+
+* rename manager and esm ([7482e6f](https://github.com/jensvogt/euclid/commit/7482e6f51449f5f77f6dd80f58b3f8d1ec5d30ee))
+
 ## [1.0.23](https://github.com/jensvogt/euclid/compare/v1.0.22...v1.0.23) (2026-08-24)
 
 
