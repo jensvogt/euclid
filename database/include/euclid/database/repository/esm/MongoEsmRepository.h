@@ -185,18 +185,13 @@ namespace Euclid::Database {
 
     private:
 
-        static constexpr auto BUCKET_COLLECTION = "storage_bucket";
-        static constexpr auto OBJECT_COLLECTION = "storage_object";
+        static constexpr auto BUCKET_COLLECTION = "esm_bucket";
+        static constexpr auto OBJECT_COLLECTION = "esm_object";
 
         /**
          * @brief Creates the indexes required for efficient bucket lookup, if they do not already exist.
          */
         static void ensureIndexes();
-
-        /**
-         * Database name
-         */
-        std::string _databaseName;
     };
 
 }// namespace Euclid::Database

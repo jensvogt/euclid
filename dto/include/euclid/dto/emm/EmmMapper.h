@@ -14,25 +14,28 @@
 namespace Euclid::Dto {
 
     /**
-     * @brief Maps between ServiceProcess (controller) and Module (database entity)
+     * @brief Maps between ModuleProcess (controller) and Module/ModuleInstance (database entities)
      */
     struct EmmMapper {
 
         /**
-         * @brief Maps a ServiceProcess to a Module entity
+         * @brief Maps a ModuleProcess's module-level (static/config) fields to a Module entity.
+         * The returned entity's `instances` is left empty - callers pass it alongside the
+         * separately-mapped ModuleInstance to IEmmRepository::upsertInstance(), which only reads
+         * this entity's module-level fields.
          *
          * @param svc  source service process from controller
          * @return     Module entity ready for persistence
          */
-        static Database::Entity::Module toEntity(const ModuleProcess &svc);
+        static Database::Entity::Module toModuleEntity(const ModuleProcess &svc);
 
         /**
-         * @brief Maps a Module entity back to a ModuleProcess
+         * @brief Maps a ModuleProcess's per-instance (live/dynamic) fields to a ModuleInstance entity.
          *
-         * @param m   source Module entity from the database
-         * @return    ServiceConfig for registering with controller
+         * @param svc  source service process from controller
+         * @return     ModuleInstance entity ready for persistence
          */
-        static ModuleProcess toDto(const Database::Entity::Module &m);
+        static Database::Entity::ModuleInstance toInstanceEntity(const ModuleProcess &svc);
     };
 
 } // namespace Euclid::Database::Entity

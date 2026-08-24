@@ -262,11 +262,6 @@ namespace Euclid::Database {
          * scans over sqs_message as it grows, which under concurrent load causes receives to stall.
          */
         static void ensureIndexes();
-
-        /**
-         * Database name
-         */
-        std::string _databaseName;
     };
 
 }// namespace Euclid::Database

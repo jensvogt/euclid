@@ -8,7 +8,9 @@
 
 // Euclid includes
 #include <euclid/core/Configuration.h>
+#include <euclid/core/DateTimeUtils.h>
 #include <euclid/core/SigV4.h>
+#include <euclid/database/RepositoryFactory.h>
 #include <euclid/manager/GatewayServer.h>
 
 namespace Euclid::main {
@@ -48,7 +50,7 @@ namespace Euclid::main {
     //   2. Authorization   — SigV4 credential scope: "<key>/<date>/<region>/<svc>/aws4_request"
     static std::string detectAwsService(const http::request<http::string_body> &req) {
         static const std::unordered_set<std::string> kModules{
-                "eam", "esm", "eqs", "ens"
+                "eam", "esm", "eqs", "ens", "emm"
         };
 
         if (const auto module = std::string(req["x-euclid-target"]); !module.empty()) {
@@ -135,6 +137,74 @@ namespace Euclid::main {
         }
     }
 
+    // ── "emm" (module manager) handling ────────────────────────────────────────
+    // Unlike eam/esm/eqs/ens, "emm" isn't a separate module subprocess reachable over a Unix
+    // socket - it's the manager itself, so its actions are answered directly here instead of
+    // going through forwardToService(), reading straight from the module repository (Mongo or
+    // in-memory, per euclid.database.backend - see RepositoryFactory) rather than proxying
+    // anywhere.
+    //
+    // Every emm action is administrator-only (it exposes every module's live process pool -
+    // pids, sockets, restart history), so this re-checks the caller's isAdmin flag itself
+    // instead of trusting the CLI's own client-side check, which is a UX nicety only and not a
+    // security boundary (nothing stops a modified/older client, or a direct SigV4-signed curl,
+    // from skipping it). subject is the already-authenticated caller from route() - always set,
+    // since "emm" is never in isPublicAction's allowlist.
+    static http::response<http::string_body> handleEmmRequest(const http::request<http::string_body> &req, const std::string &subject) {
+        auto jsonResponse = [&](const http::status status, std::string body) {
+            http::response<http::string_body> r{status, req.version()};
+            r.set(http::field::content_type, "application/json");
+            r.keep_alive(req.keep_alive());
+            r.body() = std::move(body);
+            r.prepare_payload();
+            return r;
+        };
+        auto err = [&](const http::status status, const std::string &msg) {
+            return jsonResponse(status, boost::json::serialize(boost::json::object{{"error", msg}}));
+        };
+
+        const auto caller = Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(subject);
+        if (!caller.has_value() || !caller->isAdmin) {
+            return err(http::status::forbidden, "administrator privileges required");
+        }
+
+        if (const auto action = std::string(req["x-euclid-action"]); action != "list-modules") {
+            return err(http::status::not_found, "unknown emm action '" + action + "'");
+        }
+
+        boost::json::array modules;
+        for (const auto &m: Database::RepositoryFactory::instance().emmRepository()->findAll()) {
+            boost::json::array instances;
+            for (const auto &i: m.instances) {
+                instances.push_back(boost::json::object{
+                        {"instanceId", i.instanceId},
+                        {"pid", i.pid},
+                        {"state", Database::Entity::ModuleStateToString(i.state)},
+                        {"socketPath", i.socketPath},
+                        {"restartCount", i.restartCount},
+                        {"created", Core::DateTimeUtils::ToISO8601(i.created)},
+                        {"modified", Core::DateTimeUtils::ToISO8601(i.modified)},
+                });
+            }
+            modules.push_back(boost::json::object{
+                    {"name", m.name},
+                    {"executable", m.executable},
+                    {"socketPath", m.socketPath},
+                    {"active", m.active},
+                    {"autoRestart", m.autoRestart},
+                    {"maxRestarts", m.maxRestarts},
+                    {"created", Core::DateTimeUtils::ToISO8601(m.created)},
+                    {"modified", Core::DateTimeUtils::ToISO8601(m.modified)},
+                    {"instances", std::move(instances)},
+            });
+        }
+        const auto total = static_cast<long>(modules.size());
+        return jsonResponse(http::status::ok, boost::json::serialize(boost::json::object{
+                                    {"modules", std::move(modules)},
+                                    {"total", total},
+                            }));
+    }
+
     // ── Router ───────────────────────────────────────────────────────────────
     // Shared by both GatewaySession and GatewayTlsSession - routing doesn't depend
     // on the underlying stream type.
@@ -175,10 +245,20 @@ namespace Euclid::main {
         try {
             // ── AWS service dispatch ─────────────────────────────────────────
             if (const auto service = detectAwsService(req); !service.empty()) {
-                if (const auto action = std::string(req["x-euclid-action"]); !isPublicAction(service, action)) {
-                    if (const auto auth = Core::HttpActionServer::Authenticate(req); !auth.subject.has_value()) {
+                const auto action = std::string(req["x-euclid-action"]);
+                std::optional<std::string> subject;
+                if (!isPublicAction(service, action)) {
+                    const auto auth = Core::HttpActionServer::Authenticate(req);
+                    if (!auth.subject.has_value()) {
                         return Core::HttpActionServer::Unauthorized(req, auth);
                     }
+                    subject = auth.subject;
+                }
+
+                // "emm" is never public (not in isPublicAction's allowlist), so subject is
+                // always set here - handleEmmRequest() re-checks the caller is an admin itself.
+                if (service == "emm") {
+                    return handleEmmRequest(req, *subject);
                 }
 
                 // Lets a client proactively declare concurrency it's about to need (e.g. the

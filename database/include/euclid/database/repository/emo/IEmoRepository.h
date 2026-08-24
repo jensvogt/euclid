@@ -10,7 +10,7 @@
 #include <vector>
 
 // Euclid includes
-#include <euclid/database/entity/monitoring/MonitoringData.h>
+#include <euclid/database/entity/emo/MonitoringData.h>
 
 namespace Euclid::Database {
 
