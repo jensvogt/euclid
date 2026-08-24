@@ -1,19 +1,19 @@
-.TH EUCLID-CLI-ACCESS 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.TH EUCLID-CLI-EAM 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
 .SH NAME
-euclid-cli-access \- manage Euclid user accounts (login, registration, listing, deletion)
+euclid-cli-eam \- manage Euclid user accounts (login, registration, listing, deletion)
 .SH SYNOPSIS
 .B euclid-cli
 [\fB\-\-endpoint\fR \fIURL\fR]
 [\fB\-\-loglevel\fR \fILEVEL\fR]
-.B access
+.B eam
 .I action
 [\fIaction-options\fR...]
 .SH DESCRIPTION
 The
-.B access
-module talks to the Euclid gateway's access service to authenticate and
+.B eam
+module talks to the Euclid gateway's eam service to authenticate and
 manage user accounts. Every
-.B access
+.B eam
 command sends a single JSON request to the gateway
 (\fB\-\-endpoint\fR, default \fIhttp://localhost:5566\fR) and prints the
 JSON response on success.
@@ -28,26 +28,41 @@ below for how the session token is obtained and stored.
 .B login
 Authenticates with a user ID and password and stores the returned bearer
 token for use by later commands. See
-.BR euclid-cli-access-login (1).
+.BR euclid-cli-eam-login (1).
 .TP
 .B register
 Creates a new user account. Requires administrator privileges, with one
 exception: bootstrapping the very first account. See
-.BR euclid-cli-access-register (1).
+.BR euclid-cli-eam-register (1).
 .TP
 .B list-users
 Lists user accounts, optionally filtered by user ID prefix, paged and
 sorted. Requires administrator privileges. See
-.BR euclid-cli-access-list-users (1).
+.BR euclid-cli-eam-list-users (1).
 .TP
 .B delete-user
 Deletes a user account by user ID. Requires administrator privileges. See
-.BR euclid-cli-access-delete-user (1).
+.BR euclid-cli-eam-delete-user (1).
+.TP
+.B create-access-key
+Creates a new SigV4 access key for the logged-in user and stores it
+locally. Self-service; no administrator privileges required. See
+.BR euclid-cli-eam-create-access-key (1).
+.TP
+.B list-access-keys
+Lists the logged-in user's own access keys. Self-service; no
+administrator privileges required. See
+.BR euclid-cli-eam-list-access-keys (1).
+.TP
+.B delete-access-key
+Deletes one of the logged-in user's own access keys. Self-service; no
+administrator privileges required. See
+.BR euclid-cli-eam-delete-access-key (1).
 .SH GLOBAL OPTIONS
 These options are given to
 .B euclid-cli
 itself, before the
-.I access
+.I eam
 module name.
 .TP
 .BR \-e ", " \-\-endpoint " " \fIURL\fR
@@ -64,7 +79,7 @@ Print top-level usage and exit.
 .BR \-v ", " \-\-version
 Print the euclid-cli version and exit.
 .SH AUTHENTICATION
-.B euclid-cli-access-login (1)
+.B euclid-cli-eam-login (1)
 exchanges a user ID and password for a signed bearer token (a JWT, valid
 for one hour by default) and saves it as JSON at
 .IR $HOME/.euclid/credentials .
@@ -73,14 +88,14 @@ The containing directory is created if needed and both the directory
 since the file grants whoever can read it your session.
 .PP
 Every subsequent
-.B access
+.B eam
 command automatically loads this token at startup and sends it as an
 .I "Authorization: Bearer"
 header. If the server rejects a request with
 .I "HTTP 401"
 (the token is missing, invalid, or has expired), the stored credentials
 file is deleted so that the failure is unambiguous, and you need to run
-.B euclid-cli access login
+.B euclid-cli eam login
 again before retrying.
 .SH EXIT STATUS
 .TP
@@ -97,7 +112,7 @@ privileges, invalid input, etc.). Details are printed to standard error.
 JSON file holding the current session's bearer token, created by
 .B login
 and consumed by every other
-.B access
+.B eam
 action.
 .SH EXAMPLES
 Bootstrap the first administrator account (allowed unauthenticated only
@@ -105,10 +120,10 @@ while the user store is empty), then log in:
 .PP
 .RS
 .nf
-euclid-cli --endpoint http://localhost:5566 access register \e
+euclid-cli --endpoint http://localhost:5566 eam register \e
     --user admin --email admin@example.com --password 'change-me'
 
-euclid-cli --endpoint http://localhost:5566 access login \e
+euclid-cli --endpoint http://localhost:5566 eam login \e
     --user admin --password 'change-me'
 .fi
 .RE
@@ -117,16 +132,19 @@ List every user, then delete one:
 .PP
 .RS
 .nf
-euclid-cli --endpoint http://localhost:5566 access list-users
+euclid-cli --endpoint http://localhost:5566 eam list-users
 
-euclid-cli --endpoint http://localhost:5566 access delete-user --userId jdoe
+euclid-cli --endpoint http://localhost:5566 eam delete-user --userId jdoe
 .fi
 .RE
 .SH SEE ALSO
 .BR euclid-cli (1),
-.BR euclid-cli-access-login (1),
-.BR euclid-cli-access-register (1),
-.BR euclid-cli-access-list-users (1),
-.BR euclid-cli-access-delete-user (1)
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-eam-register (1),
+.BR euclid-cli-eam-list-users (1),
+.BR euclid-cli-eam-delete-user (1),
+.BR euclid-cli-eam-create-access-key (1),
+.BR euclid-cli-eam-list-access-keys (1),
+.BR euclid-cli-eam-delete-access-key (1)
 .SH AUTHOR
 Jens Vogt <jens.vogt@opitz-consulting.com>

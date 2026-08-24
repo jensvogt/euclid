@@ -13,7 +13,7 @@ namespace Euclid::CLI {
         void reportFailure(const std::string_view action, const HttpResponse &response) {
             if (response.statusCode == 401) {
                 Credentials::ClearToken();
-                std::cerr << "error: " << action << " failed: not authenticated - your session is missing, invalid or expired; run 'euclid-cli access login' again\n";
+                std::cerr << "error: " << action << " failed: not authenticated - your session is missing, invalid or expired; run 'euclid-cli eam login' again\n";
                 return;
             }
             std::cerr << "error: " << action << " failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
@@ -56,7 +56,7 @@ namespace Euclid::CLI {
         if (action == "delete-access-key") {
             return deleteAccessKey(args);
         }
-        std::cerr << "error: unknown access action '" << action << "'\n";
+        std::cerr << "error: unknown eam action '" << action << "'\n";
         return 1;
     }
 
@@ -67,7 +67,7 @@ namespace Euclid::CLI {
                 ("password,p", po::value<std::string>()->required(), "password");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("access", "login", "--user <username> --password <password>",
+            return PrintActionHelp("eam", "login", "--user <username> --password <password>",
                                    "Authenticates against the Euclid access module and, on success, stores the "
                                    "returned bearer token locally so it is used automatically to authenticate "
                                    "subsequent commands. Also provisions a SigV4 access key on first login (or "
@@ -201,7 +201,7 @@ namespace Euclid::CLI {
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("access", "list-users", boost::json::value_from(request));
+            const HttpResponse response = client.Post("eam", "list-users", boost::json::value_from(request));
 
             if (!response.IsSuccess()) {
                 reportFailure("list-users", response);
@@ -264,7 +264,7 @@ namespace Euclid::CLI {
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("access", "create-access-key", boost::json::value());
+            const HttpResponse response = client.Post("eam", "create-access-key", boost::json::value());
 
             if (!response.IsSuccess()) {
                 reportFailure("create-access-key", response);
@@ -296,7 +296,7 @@ namespace Euclid::CLI {
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("access", "list-access-keys", boost::json::value());
+            const HttpResponse response = client.Post("eam", "list-access-keys", boost::json::value());
 
             if (!response.IsSuccess()) {
                 reportFailure("list-access-keys", response);

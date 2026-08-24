@@ -1,0 +1,52 @@
+.TH EUCLID-CLI-EAM-CREATE-ACCESS-KEY 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eam-create-access-key \- create a new SigV4 access key for the logged-in user
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B eam create-access-key
+.SH DESCRIPTION
+Creates a new SigV4 access key for the logged-in user via the eam service's
+.I create-access-key
+action, and stores it locally alongside the bearer token (see
+.BR euclid-cli-eam-login (1)
+for the credentials file), so subsequent AWS-service commands sign requests
+with it instead of the bearer token.
+.PP
+The secret is only ever shown once, in this command's JSON output - if it is
+lost, delete the key with
+.BR euclid-cli-eam-delete-access-key (1)
+and create a new one.
+.PP
+Self-service: any authenticated user may create their own access key, no
+administrator privileges required.
+.SH OPTIONS
+None.
+.SH EXIT STATUS
+.TP
+.B 0
+The access key was created and saved.
+.TP
+.B 1
+The request could not be sent, or the caller is not authenticated. If the
+failure was an expired or invalid session (\fIHTTP 401\fR), the stored
+credentials file is removed; run
+.B euclid-cli eam login
+again before retrying.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eam create-access-key
+.fi
+.RE
+.SH FILES
+.TP
+.I $HOME/.euclid/credentials
+Updated with the new \fIaccessKeyId\fR/\fIsecretAccessKey\fR on success.
+.SH SEE ALSO
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-eam-list-access-keys (1),
+.BR euclid-cli-eam-delete-access-key (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
