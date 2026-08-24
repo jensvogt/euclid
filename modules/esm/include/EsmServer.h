@@ -43,6 +43,8 @@
 #include <euclid/dto/esm/ListObjectsRequest.h>
 #include <euclid/dto/esm/ListObjectsResponse.h>
 #include <euclid/dto/esm/EsmMapper.h>
+#include <euclid/dto/esm/PurgeBucketRequest.h>
+#include <euclid/dto/esm/PurgeBucketResponse.h>
 #include <euclid/dto/esm/UploadPartResponse.h>
 
 namespace Euclid::ESM {
