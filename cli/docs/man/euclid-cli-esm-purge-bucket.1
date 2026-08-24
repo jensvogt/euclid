@@ -3,21 +3,31 @@
 euclid-cli-esm-purge-bucket \- remove all objects from a bucket
 .SH SYNOPSIS
 .B euclid-cli esm purge-bucket
-.BR \-\-bucket | \-e
+.BR \-\-bucket | \-b
 .I ERN
+[\fB\-\-prefix\fR|\fB\-p\fR \fIPREFIX\fR]
 .SH DESCRIPTION
-Removes every object from a bucket identified by its Euclid resource
-name (ERN), leaving the (now empty) bucket itself in place; see
+Removes objects from a bucket identified by its Euclid resource name
+(ERN), leaving the bucket itself in place; see
 .BR euclid-cli-esm-delete-bucket (1)
 to remove the bucket too. This cannot be undone.
+.PP
+By default every object in the bucket is removed. If
+.B \-\-prefix
+is given, only objects whose key starts with it are removed, so the
+bucket may still hold non-matching objects afterward.
 .SH OPTIONS
 .TP
-.BR \-e ", " \-\-bucket " " \fIERN\fR
+.BR \-b ", " \-\-bucket " " \fIERN\fR
 Euclid resource name of the bucket to purge. Required.
+.TP
+.BR \-p ", " \-\-prefix " " \fIPREFIX\fR
+Only remove objects whose key starts with this prefix. Optional; if
+omitted, every object in the bucket is removed.
 .SH EXIT STATUS
 .TP
 .B 0
-The bucket's objects were deleted; a summary
+The matching objects were deleted; a summary
 .RI ( "{ern, count}" )
 is printed as JSON, where
 .I count
@@ -27,16 +37,27 @@ is the number of objects removed.
 Missing/invalid arguments, the server could not be reached, or no
 bucket with that ERN exists.
 .SH EXAMPLES
+Remove every object from a bucket:
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 esm purge-bucket \e
-    --ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports
+    --bucket ern:euclid:storage:eu-central-1:000000000000:bucket:reports
+.fi
+.RE
+.PP
+Remove only objects under a given key prefix:
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm purge-bucket \e
+    --bucket ern:euclid:storage:eu-central-1:000000000000:bucket:reports \e
+    --prefix 2025/
 .fi
 .RE
 .SH SEE ALSO
 .BR euclid-cli-esm (1),
 .BR euclid-cli-esm-delete-bucket (1),
 .BR euclid-cli-esm-delete-object (1),
-.BR euclid-cli-esm-list-objects (1)
+.BR euclid-cli-esm-list-objects (1),
+.BR euclid-cli-esm-get-object-count (1)
 .SH AUTHOR
 Jens Vogt <jens.vogt@opitz-consulting.com>
