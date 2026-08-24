@@ -40,10 +40,10 @@ namespace Euclid::main {
         return std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.gateway.http.backend-timeout-seconds", kDefaultBackendTimeoutSeconds));
     }
 
-    // ── AWS service detection ────────────────────────────────────────────────
+    // ── Euclid service detection ────────────────────────────────────────────────
 
-    // Returns the lowercase AWS service name for a request, or empty string if
-    // this is not an AWS service call.
+    // Returns the lowercase Euclid service name for a request, or empty string if
+    // this is not an Euclid service call.
     //
     // Detection order:
     //   1. x-euclid-target — "DynamoDB_20120810.PutItem" → "dynamodb"
@@ -243,7 +243,7 @@ namespace Euclid::main {
         // whole gateway. Mirrors the same guard UnixSocketServer::Session::doRead() already has
         // around Dispatch() for individual module processes.
         try {
-            // ── AWS service dispatch ─────────────────────────────────────────
+            // ── Euclid service dispatch ─────────────────────────────────────────
             if (const auto service = detectAwsService(req); !service.empty()) {
                 const auto action = std::string(req["x-euclid-action"]);
                 std::optional<std::string> subject;

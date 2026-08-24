@@ -1,0 +1,138 @@
+.TH EUCLID-CLI-EMM 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-emm \- inspect the Euclid module manager's live module pool
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+[\fB\-\-loglevel\fR \fILEVEL\fR]
+.B emm
+.I action
+[\fIaction-options\fR...]
+.SH DESCRIPTION
+The
+.B emm
+module talks directly to the Euclid gateway itself, rather than to a
+separate module process the way
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eqs (1)
+and
+.BR euclid-cli-esm (1)
+do - the gateway
+.RI ( euclid-mgr )
+answers
+.B emm
+requests locally, reading straight from the module repository (Mongo or
+in-memory, per
+.IR euclid.database.backend ).
+.PP
+Every
+.B emm
+command requires the caller to be authenticated as an administrator; see
+.B AUTHENTICATION
+below.
+.SH ACTIONS
+.TP
+.B list-modules
+Lists every module known to the manager, one entry per module name, each
+with its live pool of instances (pid, state, socket, restart count).
+See
+.BR euclid-cli-emm-list-modules (1).
+.SH GLOBAL OPTIONS
+These options are given to
+.B euclid-cli
+itself, before the
+.I emm
+module name.
+.TP
+.BR \-e ", " \-\-endpoint " " \fIURL\fR
+Euclid gateway endpoint to talk to, e.g. \fIhttps://localhost:5566\fR.
+.TP
+.BR \-\-ca\-cert " " \fIPATH\fR
+Path to a PEM CA certificate to trust in addition to the system trust
+store, e.g. for self-signed development certificates.
+.TP
+.BR \-c ", " \-\-config " " \fIPATH\fR
+Path to a JSON configuration file (currently used by
+.BR euclid-cli-esm (1)
+only). Defaults to
+.IR /usr/local/euclid/etc/euclid.json ;
+silently ignored if the file doesn't exist.
+.TP
+.BR \-l ", " \-\-loglevel " " \fILEVEL\fR
+Log level: one of \fItrace\fR, \fIdebug\fR, \fIinfo\fR, \fIwarning\fR,
+\fIerror\fR, \fIfatal\fR. Defaults to \fIinfo\fR.
+.TP
+.BR \-h ", " \-\-help
+Print top-level usage and exit.
+.TP
+.BR \-v ", " \-\-version
+Print the euclid-cli version and exit.
+.SH AUTHENTICATION
+.B emm
+commands are authenticated using the session created by
+.BR euclid-cli-eam-login (1),
+loaded from
+.IR $HOME/.euclid/credentials .
+Like
+.BR esm (1)
+and
+.BR eqs (1)
+requests, they are signed with SigV4 using the stored access key ID and
+secret if present, falling back to the bearer token otherwise.
+.PP
+Every
+.B emm
+action additionally requires the logged-in user to be an administrator.
+The CLI checks the
+.I isAdmin
+flag stored in
+.I $HOME/.euclid/credentials
+(recorded there on login) before sending the request, so a non-admin
+session fails immediately with a clear local error instead of a round
+trip. This is a convenience only, not the security boundary: the gateway
+independently re-checks the caller's administrator status on every
+request regardless of what the client sends, and rejects the request
+with
+.I "HTTP 403"
+if it isn't satisfied.
+.PP
+If your stored session predates this check (i.e. you logged in before
+.I isAdmin
+was recorded), run
+.B euclid-cli eam login
+again to refresh it.
+.SH EXIT STATUS
+.TP
+.B 0
+The action completed successfully.
+.TP
+.B 1
+The stored session is missing or not an administrator's, the request
+could not be sent, or the server rejected it. Details are printed to
+standard error.
+.SH FILES
+.TP
+.I $HOME/.euclid/credentials
+JSON file holding the current session's bearer token, SigV4 access key
+and
+.I isAdmin
+flag, created by
+.B euclid-cli eam login
+and read by every
+.B emm
+action.
+.SH EXAMPLES
+List every module the manager knows about:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm list-modules
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli (1),
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-emm-list-modules (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

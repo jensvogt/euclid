@@ -30,11 +30,25 @@ namespace Euclid::Database {
             return monitoringDatabase;
         }
 
+        /**
+         * @brief Insert new monitoring data
+         *
+         * @param data monitoring data
+         */
         void insert(const Entity::Monitoring::MonitoringData &data) override {
             std::lock_guard lock(_mutex);
             _store.push_back(data);
         }
 
+        /**
+         * @brief Return a list of monitoring data
+         *
+         * @param name metric name
+         * @param labelName label name
+         * @param labelValue label value
+         * @param limit maximal number of monitoring data entries
+         * @return list of monitoring metrics
+         */
         std::vector<Entity::Monitoring::MonitoringData> list(const std::string &name, const std::string &labelName, const std::string &labelValue, const long limit) const override {
             std::lock_guard lock(_mutex);
 
@@ -54,6 +68,11 @@ namespace Euclid::Database {
             return result;
         }
 
+        /**
+         * @brief clean up monitoring data
+         *
+         * @param cutoff cut off timestamp
+         */
         void deleteOlderThan(const std::chrono::system_clock::time_point cutoff) override {
             std::lock_guard lock(_mutex);
             std::erase_if(_store, [&](const auto &data) { return data.timestamp < cutoff; });
@@ -61,7 +80,14 @@ namespace Euclid::Database {
 
     private:
 
+        /**
+         * @brief Monitoring data mutex
+         */
         mutable std::mutex _mutex;
+
+        /**
+         * @brief memory database vector.
+         */
         std::vector<Entity::Monitoring::MonitoringData> _store;
     };
 

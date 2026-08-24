@@ -266,7 +266,7 @@ namespace Euclid::EAM {
 
     // Creates a new access key for the authenticated caller. Self-service - unlike
     // handleListUsers/handleDeleteUser there's no admin requirement, since a user managing
-    // their own signing credentials doesn't need elevated privileges (mirrors AWS IAM).
+    // their own signing credentials doesn't need elevated privileges.
     static response<string_body> handleCreateAccessKey(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "create-access-key");
