@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.32](https://github.com/jensvogt/euclid/compare/v1.0.31...v1.0.32) (2026-08-24)
+
+
+### Bug Fixes
+
+* graceful shutdown ([9b921f0](https://github.com/jensvogt/euclid/commit/9b921f0c89d922faba486c2317303bfb52dbf8eb))
+
 ## [1.0.31](https://github.com/jensvogt/euclid/compare/1.0.30...v1.0.31) (2026-08-24)
 
 
