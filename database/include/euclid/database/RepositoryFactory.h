@@ -10,21 +10,21 @@
 // Euclid includes
 #include <euclid/core/HttpActionServer.h>
 #include <euclid/core/monitoring/MetricsPusher.h>
-#include <euclid/database/repository/access/IAccessRepository.h>
-#include <euclid/database/repository/access/MemoryAccessRepository.h>
-#include <euclid/database/repository/access/MongoAccessRepository.h>
-#include <euclid/database/repository/queues/IQueuesRepository.h>
-#include <euclid/database/repository/queues/MemoryQueuesRepository.h>
-#include <euclid/database/repository/queues/MongoQueuesRepository.h>
-#include <euclid/database/repository/module/IModuleRepository.h>
-#include <euclid/database/repository/module/MongoModuleRepository.h>
-#include <euclid/database/repository/module/MemoryModuleRepository.h>
-#include <euclid/database/repository/monitoring/IMonitoringRepository.h>
-#include <euclid/database/repository/monitoring/MongoMonitoringRepository.h>
-#include <euclid/database/repository/monitoring/MemoryMonitoringRepository.h>
-#include <euclid/database/repository/storage/IStorageRepository.h>
-#include <euclid/database/repository/storage/MongoStorageRepository.h>
-#include <euclid/database/repository/storage/MemoryStorageRepository.h>
+#include <euclid/database/repository/eam/IEamRepository.h>
+#include <euclid/database/repository/eam/MemoryEamRepository.h>
+#include <euclid/database/repository/eam/MongoEamRepository.h>
+#include <euclid/database/repository/emm/IEmmRepository.h>
+#include <euclid/database/repository/emm/MemoryEmmRepository.h>
+#include <euclid/database/repository/emm/MongoEmmRepository.h>
+#include <euclid/database/repository/eqs/IEqsRepository.h>
+#include <euclid/database/repository/eqs/MemoryEqsRepository.h>
+#include <euclid/database/repository/eqs/MongoEqsRepository.h>
+#include <euclid/database/repository/esm/IEsmRepository.h>
+#include <euclid/database/repository/esm/MemoryEsmRepository.h>
+#include <euclid/database/repository/esm/MongoEsmRepository.h>
+#include <euclid/database/repository/emo/IEmoRepository.h>
+#include <euclid/database/repository/emo/MemoryEmoRepository.h>
+#include <euclid/database/repository/emo/MongoEmoRepository.h>
 
 namespace Euclid::Database {
 
@@ -44,32 +44,32 @@ namespace Euclid::Database {
         }
 
         [[nodiscard]]
-        std::shared_ptr<IModuleRepository> moduleRepository() const {
-            static auto repo = createModuleRepository();
+        std::shared_ptr<IEmmRepository> emmRepository() const {
+            static auto repo = createEmmRepository();
             return repo;
         }
 
         [[nodiscard]]
-        std::shared_ptr<IQueuesRepository> sqsRepository() const {
-            static auto repo = createQueuesRepository();
+        std::shared_ptr<IEqsRepository> eqsRepository() const {
+            static auto repo = createEqsRepository();
             return repo;
         }
 
         [[nodiscard]]
-        std::shared_ptr<IAccessRepository> accessRepository() const {
-            static auto repo = createAccessRepository();
+        std::shared_ptr<IEamRepository> eamRepository() const {
+            static auto repo = createEamRepository();
             return repo;
         }
 
         [[nodiscard]]
-        std::shared_ptr<IMonitoringRepository> monitoringRepository() const {
-            static auto repo = createMonitoringRepository();
+        std::shared_ptr<IEmoRepository> emoRepository() const {
+            static auto repo = createEmoRepository();
             return repo;
         }
 
         [[nodiscard]]
-        std::shared_ptr<IStorageRepository> storageRepository() const {
-            static auto repo = createStorageRepository();
+        std::shared_ptr<IEsmRepository> esmRepository() const {
+            static auto repo = createEsmRepository();
             return repo;
         }
 
@@ -78,58 +78,58 @@ namespace Euclid::Database {
         BackendType _backend = BackendType::MONGODB;
 
         [[nodiscard]]
-        std::shared_ptr<IModuleRepository> createModuleRepository() const {
+        std::shared_ptr<IEmmRepository> createEmmRepository() const {
             switch (_backend) {
                 case BackendType::MONGODB:
-                    return std::make_shared<MongoModuleRepository>();
+                    return std::make_shared<MongoEmmRepository>();
                 case BackendType::MEMORY:
-                    return std::make_shared<MemoryModuleRepository>();
+                    return std::make_shared<MemoryEmmRepository>();
             }
-            return std::make_shared<MemoryModuleRepository>();
+            return std::make_shared<MemoryEmmRepository>();
         }
 
         [[nodiscard]]
-        std::shared_ptr<IQueuesRepository> createQueuesRepository() const {
+        std::shared_ptr<IEqsRepository> createEqsRepository() const {
             switch (_backend) {
                 case BackendType::MONGODB:
-                    return std::make_shared<MongoQueuesRepository>();
+                    return std::make_shared<MongoEqsRepository>();
                 case BackendType::MEMORY:
-                    return std::make_shared<MemoryQueuesRepository>();
+                    return std::make_shared<MemoryEqsRepository>();
             }
-            return std::make_shared<MemoryQueuesRepository>();
+            return std::make_shared<MemoryEqsRepository>();
         }
 
         [[nodiscard]]
-        std::shared_ptr<IAccessRepository> createAccessRepository() const {
+        std::shared_ptr<IEamRepository> createEamRepository() const {
             switch (_backend) {
                 case BackendType::MONGODB:
-                    return std::make_shared<MongoAccessRepository>();
+                    return std::make_shared<MongoEamRepository>();
                 case BackendType::MEMORY:
-                    return std::make_shared<MemoryAccessRepository>();
+                    return std::make_shared<MemoryEamRepository>();
             }
-            return std::make_shared<MemoryAccessRepository>();
+            return std::make_shared<MemoryEamRepository>();
         }
 
         [[nodiscard]]
-        std::shared_ptr<IMonitoringRepository> createMonitoringRepository() const {
+        std::shared_ptr<IEmoRepository> createEmoRepository() const {
             switch (_backend) {
                 case BackendType::MONGODB:
-                    return std::make_shared<MongoMonitoringRepository>();
+                    return std::make_shared<MongoEmoRepository>();
                 case BackendType::MEMORY:
-                    return std::make_shared<MemoryMonitoringRepository>();
+                    return std::make_shared<MemoryEmoRepository>();
             }
-            return std::make_shared<MemoryMonitoringRepository>();
+            return std::make_shared<MemoryEmoRepository>();
         }
 
         [[nodiscard]]
-        std::shared_ptr<IStorageRepository> createStorageRepository() const {
+        std::shared_ptr<IEsmRepository> createEsmRepository() const {
             switch (_backend) {
                 case BackendType::MONGODB:
-                    return std::make_shared<MongoStorageRepository>();
+                    return std::make_shared<MongoEsmRepository>();
                 case BackendType::MEMORY:
-                    return std::make_shared<MemoryStorageRepository>();
+                    return std::make_shared<MemoryEsmRepository>();
             }
-            return std::make_shared<MemoryStorageRepository>();
+            return std::make_shared<MemoryEsmRepository>();
         }
     };
 
@@ -144,7 +144,7 @@ namespace Euclid::Database {
      */
     inline void WireAccessKeyLookup() {
         Core::HttpActionServer::SetAccessKeyLookup([](const std::string &accessKeyId) -> std::optional<Core::HttpActionServer::AccessKeyRecord> {
-            const auto user = RepositoryFactory::instance().accessRepository()->findUserByAccessKeyId(accessKeyId);
+            const auto user = RepositoryFactory::instance().eamRepository()->findUserByAccessKeyId(accessKeyId);
             if (!user.has_value()) return std::nullopt;
             for (const auto &key: user->accessKeys) {
                 if (key.accessKeyId == accessKeyId && key.active) {
@@ -167,7 +167,7 @@ namespace Euclid::Database {
     inline void WireModuleSocketLookup() {
         Core::Monitoring::MetricsPusher::SetModuleSocketLookup([](const std::string &moduleName) -> std::vector<std::string> {
             std::vector<std::string> sockets;
-            for (const auto &instance: RepositoryFactory::instance().moduleRepository()->findAll()) {
+            for (const auto &instance: RepositoryFactory::instance().emmRepository()->findAll()) {
                 if (instance.name != moduleName || instance.state != Entity::ModuleState::RUNNING) continue;
                 sockets.push_back(instance.socketPath);
             }

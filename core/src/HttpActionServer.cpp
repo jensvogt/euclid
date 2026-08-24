@@ -90,20 +90,20 @@ namespace Euclid::Core {
     }
 
     std::string HttpActionServer::JwtSecret() {
-        return Configuration::instance().getOr<std::string>("euclid.modules.access.jwt-secret", kInsecureDefaultJwtSecret);
+        return Configuration::instance().getOr<std::string>("euclid.modules.eam.jwt-secret", kInsecureDefaultJwtSecret);
     }
 
     bool HttpActionServer::ValidateJwtSecret() {
         const auto secret = JwtSecret();
 
         if (secret == kInsecureDefaultJwtSecret) {
-            log_error << "euclid.modules.access.jwt-secret is not configured - refusing to start with the insecure default secret; "
+            log_error << "euclid.modules.eam.jwt-secret is not configured - refusing to start with the insecure default secret; "
                        << "set a random secret of at least " << kMinJwtSecretLength << " bytes (e.g. `openssl rand -hex 32`)";
             return false;
         }
 
         if (secret.size() < kMinJwtSecretLength) {
-            log_error << "euclid.modules.access.jwt-secret is only " << secret.size() << " bytes; HS256 requires at least "
+            log_error << "euclid.modules.eam.jwt-secret is only " << secret.size() << " bytes; HS256 requires at least "
                        << kMinJwtSecretLength << " bytes - generate one with `openssl rand -hex 32`";
             return false;
         }

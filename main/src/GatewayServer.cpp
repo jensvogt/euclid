@@ -48,7 +48,7 @@ namespace Euclid::main {
     //   2. Authorization   — SigV4 credential scope: "<key>/<date>/<region>/<svc>/aws4_request"
     static std::string detectAwsService(const http::request<http::string_body> &req) {
         static const std::unordered_set<std::string> kModules{
-                "access", "storage", "queues", "topics"
+                "eam", "esm", "eqs", "ens"
         };
 
         if (const auto module = std::string(req["x-euclid-target"]); !module.empty()) {
@@ -67,7 +67,7 @@ namespace Euclid::main {
     // yet, and register's own admin-vs-bootstrap check happens downstream in the access module
     // (it needs to know whether the user store is empty, which only that module can see).
     static bool isPublicAction(const std::string &service, const std::string &action) {
-        static const std::unordered_set<std::string> kPublic{"access:login", "access:register"};
+        static const std::unordered_set<std::string> kPublic{"eam:login", "eam:register"};
         return kPublic.contains(service + ":" + action);
     }
 

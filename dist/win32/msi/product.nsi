@@ -144,7 +144,7 @@ Section "Main Application" SecMain
   SetOutPath "$INSTDIR\bin"
   File "${BUILDDIR}\bin\euclid-manager.exe"
   File "${BUILDDIR}\bin\euclid-cli.exe"
-  File "${BUILDDIR}\bin\euclid-access.exe"
+  File "${BUILDDIR}\bin\euclid-eam.exe"
   File "${BUILDDIR}\bin\euclid-queues.exe"
   File "${BUILDDIR}\bin\euclid-storage.exe"
   File "${BUILDDIR}\bin\euclid-monitoring.exe"
@@ -165,6 +165,10 @@ Section "Main Application" SecMain
   CreateDirectory "$INSTDIR\data\tmp"
   CreateDirectory "$INSTDIR\data\backup"
   CreateDirectory "$INSTDIR\data\run"
+  CreateDirectory "$INSTDIR\data\eam"
+  CreateDirectory "$INSTDIR\data\eqm"
+  CreateDirectory "$INSTDIR\data\queues"
+  CreateDirectory "$INSTDIR\data\esm"
   CreateDirectory "$INSTDIR\data\storage"
   CreateDirectory "$INSTDIR\frontend"
 
@@ -202,11 +206,11 @@ Section "Windows Service" SecService
   SimpleSC::StopService "euclid" 1 30
   SimpleSC::RemoveService "euclid"
 
-  ; Install service (euclid-manager spawns euclid-access/euclid-queues/euclid-monitoring as
+  ; Install service (euclid-manager spawns euclid-eam/euclid-queues/euclid-monitoring as
   ; subprocesses, resolved via PATH, so $INSTDIR\bin is added to the service's PATH)
   SimpleSC::InstallService "euclid" "Euclid" 16 2 \
     `"$INSTDIR\bin\euclid-manager.exe" --config "$INSTDIR\etc\euclid.json"` "" "" ""
-  SimpleSC::SetServiceDescription "euclid" "AWS Cloud Service Simulator"
+  SimpleSC::SetServiceDescription "euclid" "Euclid Cloud Services"
 
   ; Start service
   SimpleSC::StartService "euclid" "" 30
@@ -230,7 +234,7 @@ Section "Uninstall"
   ; Remove files
   Delete "$INSTDIR\bin\euclid-manager.exe"
   Delete "$INSTDIR\bin\euclid-cli.exe"
-  Delete "$INSTDIR\bin\euclid-access.exe"
+  Delete "$INSTDIR\bin\euclid-eam.exe"
   Delete "$INSTDIR\bin\euclid-queues.exe"
   Delete "$INSTDIR\bin\euclid-monitoring.exe"
   Delete "$INSTDIR\bin\euclid-storage.exe"

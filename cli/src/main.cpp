@@ -7,10 +7,10 @@
 #include <boost/program_options.hpp>
 
 // Euclid includes
-#include <euclid/cli/access/AccessCli.h>
+#include <euclid/cli/eam/EamCli.h>
 #include <euclid/cli/credentials/Credentials.h>
-#include <euclid/cli/sqs/QueuesCli.h>
-#include <euclid/cli/storage/StorageCli.h>
+#include <euclid/cli/eqs/QueuesCli.h>
+#include <euclid/cli/esm/StorageCli.h>
 #include <euclid/core/Version.h>
 
 #define DEFAULT_ENDPOINT "https://localhost:5566"
@@ -88,10 +88,10 @@ int main(const int argc, char *argv[]) {
     const std::string module = vm["module"].as<std::string>();
     const std::string action = vm["action"].as<std::string>();
 
-    if (module == "access") {
+    if (module == "eam") {
         const auto authToken = Euclid::CLI::Credentials::Load();
-        const Euclid::CLI::AccessCli access(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), true, caCert);
-        return access.process(action, args);
+        const Euclid::CLI::EamCli eam(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), true, caCert);
+        return eam.process(action, args);
     }
     if (module == "queues") {
         const auto authToken = Euclid::CLI::Credentials::Load();

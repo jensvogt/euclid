@@ -2,7 +2,7 @@
 // Created by vogje01 on 03/09/2023.
 //
 
-#include <euclid/database/entity/module/Module.h>
+#include <euclid/database/entity/emm/Module.h>
 
 namespace Euclid::Database::Entity {
 

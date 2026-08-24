@@ -13,7 +13,7 @@
 #include <vector>
 
 // Euclid includes
-#include <euclid/dto/module/ModuleProcess.h>
+#include <euclid/dto/emm/ModuleProcess.h>
 
 namespace Euclid::main {
 

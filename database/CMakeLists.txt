@@ -1,11 +1,11 @@
 set(LIBRARY eucliddb)
-set(SOURCES src/Database.cpp src/entity/module/Module.cpp src/entity/queues/Variant.cpp
-        src/entity/queues/QueueAttribute.cpp src/entity/queues/RedrivePolicy.cpp src/entity/queues/Queue.cpp
-        src/entity/queues/Message.cpp src/entity/queues/PriorityWeights.cpp
-        src/repository/module/MongoModuleRepository.cpp src/repository/queues/MongoQueuesRepository.cpp
-        src/entity/access/User.cpp src/repository/access/MongoAccessRepository.cpp
-        src/entity/monitoring/MonitoringData.cpp src/repository/monitoring/MongoMonitoringRepository.cpp
-        src/entity/storage/Bucket.cpp src/entity/storage/Object.cpp src/repository/storage/MongoStorageRepository.cpp)
+set(SOURCES src/Database.cpp src/entity/module/Module.cpp src/entity/eqs/Variant.cpp
+        src/entity/eqs/QueueAttribute.cpp src/entity/eqs/RedrivePolicy.cpp src/entity/eqs/Queue.cpp
+        src/entity/eqs/Message.cpp src/entity/eqs/PriorityWeights.cpp
+        src/repository/emm/MongoEmmRepository.cpp src/repository/eqs/MongoEqsRepository.cpp
+        src/entity/eam/User.cpp src/repository/eam/MongoEamRepository.cpp
+        src/entity/monitoring/MonitoringData.cpp src/repository/emo/MongoEmoRepository.cpp
+        src/entity/esm/Bucket.cpp src/entity/esm/Object.cpp src/repository/esm/MongoEsmRepository.cpp)
 
 add_library(${LIBRARY} STATIC ${SOURCES})
 target_include_directories(${LIBRARY} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/../core/include)
