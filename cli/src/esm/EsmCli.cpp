@@ -42,15 +42,16 @@ namespace Euclid::CLI {
         if (action == "help" || action == "--help" || action == "-h") {
             return PrintModuleHelp("esm", {
                                            {"create-bucket", "Create a new bucket"},
-                                           {"delete-bucket", "Delete a bucket"},
                                            {"list-buckets", "List buckets"},
                                            {"get-bucket-ern", "Resolve a bucket's ERN by name"},
                                            {"get-bucket-size", "Returns the bucket size in bytes"},
+                                           {"purge-bucket", "Removes all objects from a bucket"},
+                                           {"delete-bucket", "Delete a bucket"},
                                            {"upload-file", "Upload a local file to a bucket"},
                                            {"download-file", "Download an object from a bucket to a local file"},
                                            {"list-objects", "List objects"},
+                                           {"get-object-count", "Return the number of objects in a bucket"},
                                            {"delete-object", "Deletes an object by ERN"},
-                                           {"purge-bucket", "Removes all objects from a bucket"},
                                    });
         }
         if (action == "create-bucket") {
@@ -76,6 +77,9 @@ namespace Euclid::CLI {
         }
         if (action == "list-objects") {
             return listObjects(args);
+        }
+        if (action == "get-object-count") {
+            return getObjectCount(args);
         }
         if (action == "delete-object") {
             return deleteObject(args);
@@ -769,7 +773,7 @@ namespace Euclid::CLI {
     int EsmCli::listObjects(const std::vector<std::string> &args) const {
         po::options_description desc("list objects options");
         desc.add_options()
-                ("bucket,b", po::value<std::string>(), "bucket ERN")
+                ("bucket,b", po::value<std::string>()->required(), "bucket ERN")
                 ("prefix,p", po::value<std::string>(), "bucket name prefix")
                 ("pageSize,s", po::value<long>()->default_value(-1), "page size")
                 ("pageIndex,i", po::value<long>()->default_value(-1), "page index")
@@ -806,6 +810,44 @@ namespace Euclid::CLI {
             const HttpResponse response = client.Post("esm", "list-objects", boost::json::value_from(request));
             if (!response.IsSuccess()) {
                 std::cerr << "error: list-objects failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EsmCli::getObjectCount(const std::vector<std::string> &args) const {
+        po::options_description desc("get object count options");
+        desc.add_options()
+                ("bucket,b", po::value<std::string>()->required(), "bucket ERN");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", "get-object-count", "--bucket <ern>",
+                                   "Returns the number of objects in a bucket.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ESM::GetObjectCountRequest request;
+        request.ern = vm["bucket"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("esm", "get-object-count", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: get-object-count failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);
@@ -855,11 +897,13 @@ namespace Euclid::CLI {
     int EsmCli::purgeBucket(const std::vector<std::string> &args) const {
         po::options_description desc("purge bucket options");
         desc.add_options()
-                ("ern,e", po::value<std::string>()->required(), "euclid resource name");
+                ("bucket,b", po::value<std::string>()->required(), "bucket ERN")
+                ("prefix,p", po::value<std::string>(), "object key prefix");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "purge-bucket", "--ern <ern>",
-                                   "Removes all objects from a bucket identified by its Euclid resource name (ERN), leaving the (empty) bucket itself in place.",
+            return PrintActionHelp("esm", "purge-bucket", "--ern <ern> [--prefix <value>]",
+                                   "Removes all objects from a bucket identified by its Euclid resource name (ERN), leaving the (empty) "
+                                   "bucket itself in place, optionally filtered by object key prefix. It returns the ERN and the number of remaining objects.",
                                    desc);
         }
 
@@ -873,7 +917,10 @@ namespace Euclid::CLI {
         }
 
         Dto::ESM::PurgeBucketRequest request;
-        request.ern = vm["ern"].as<std::string>();
+        request.ern = vm["bucket"].as<std::string>();
+        if (vm.contains("prefix")) {
+            request.prefix = vm["prefix"].as<std::string>();
+        }
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
