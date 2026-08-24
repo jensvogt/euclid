@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.30](https://github.com/jensvogt/euclid/compare/1.0.29...v1.0.30) (2026-08-24)
+
+
+### Bug Fixes
+
+* purge bucket man pages ([6917f64](https://github.com/jensvogt/euclid/commit/6917f64216084445bfa271ca7fe2023bc57e17a2))
+* purge bucket with object key prefix ([b06a2fc](https://github.com/jensvogt/euclid/commit/b06a2fc941f0e3e6502657d78adb013397d4ef83))
+
 ## [1.0.29](https://github.com/jensvogt/euclid/compare/1.0.28...v1.0.29) (2026-08-24)
 
 
