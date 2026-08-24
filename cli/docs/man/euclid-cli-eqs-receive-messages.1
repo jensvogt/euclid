@@ -1,0 +1,62 @@
+.TH EUCLID-CLI-EQS-RECEIVE-MESSAGES 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eqs-receive-messages \- receive messages from a queue
+.SH SYNOPSIS
+.B euclid-cli eqs receive-messages
+.BR \-\-ern | \-e
+.I ERN
+[\fB\-\-maxCount\fR|\fB\-m\fR \fIN\fR]
+[\fB\-\-waitTime\fR|\fB\-w\fR \fISECONDS\fR]
+.SH DESCRIPTION
+Receives messages from a queue. If messages are available, returns up
+to
+.B \-\-maxCount
+messages. The returned messages favor higher priority ones:
+.B \-\-maxCount
+slots are split across LOW/MIDDLE/HIGH priority proportionally to the
+server's configurable priority weights (4:2:1 by default), so most of a
+batch is HIGH priority, fewer MIDDLE, and fewer still LOW.
+.PP
+Each received message becomes invisible to other receivers for its
+visibility timeout (set at queue creation, see
+.BR euclid-cli-eqs-create-queue (1),
+or per-message via
+.BR euclid-cli-eqs-set-visibility (1)),
+until it is deleted or the timeout expires.
+.SH OPTIONS
+.TP
+.BR \-e ", " \-\-ern " " \fIERN\fR
+Euclid resource name of the queue to receive from. Required.
+.TP
+.BR \-m ", " \-\-maxCount " " \fIN\fR
+Maximum number of messages to receive. Defaults to \fI10\fR.
+.TP
+.BR \-w ", " \-\-waitTime " " \fISECONDS\fR
+Maximum time to wait for messages to become available. Defaults to
+\fI0\fR (return immediately with whatever is available).
+.SH EXIT STATUS
+.TP
+.B 0
+The received messages (possibly none) are printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or no queue
+with that ERN exists.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eqs receive-messages \e
+    --ern ern:euclid:queues:eu-central-1:000000000000:queue:orders
+
+euclid-cli --endpoint http://localhost:5566 eqs receive-messages \e
+    --ern ern:euclid:queues:eu-central-1:000000000000:queue:orders \e
+    --maxCount 5 --waitTime 10
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eqs (1),
+.BR euclid-cli-eqs-send-message (1),
+.BR euclid-cli-eqs-list-messages (1),
+.BR euclid-cli-eqs-set-visibility (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

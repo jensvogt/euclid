@@ -1,5 +1,5 @@
 // Euclid includes
-#include <euclid/cli/esm/StorageCli.h>
+#include <euclid/cli/esm/EsmCli.h>
 
 namespace Euclid::CLI {
 
@@ -42,11 +42,11 @@ namespace Euclid::CLI {
 
     }
 
-    StorageCli::StorageCli(std::string endpoint, Credentials::Entry authentication, const bool pretty, std::string caCertPath) : _endpoint(std::move(endpoint)), _authentication(std::move(authentication)), _pretty(pretty), _caCertPath(std::move(caCertPath)) {}
+    EsmCli::EsmCli(std::string endpoint, Credentials::Entry authentication, const bool pretty, std::string caCertPath) : _endpoint(std::move(endpoint)), _authentication(std::move(authentication)), _pretty(pretty), _caCertPath(std::move(caCertPath)) {}
 
-    int StorageCli::process(const std::string &action, const std::vector<std::string> &args) const {
+    int EsmCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
-            return PrintModuleHelp("queues", {
+            return PrintModuleHelp("esm", {
                                            {"create-bucket", "Create a new bucket"},
                                            {"delete-bucket", "Delete a bucket"},
                                            {"list-buckets", "List buckets"},
@@ -85,13 +85,13 @@ namespace Euclid::CLI {
         return 1;
     }
 
-    int StorageCli::createBucket(const std::vector<std::string> &args) const {
+    int EsmCli::createBucket(const std::vector<std::string> &args) const {
         po::options_description desc("create bucket options");
         desc.add_options()
                 ("name,n", po::value<std::string>()->required(), "name");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("storage", "create-bucket", "--name <name>",
+            return PrintActionHelp("esm", "create-bucket", "--name <name>",
                                    "Creates a new storage bucket with the given name.",
                                    desc);
         }
@@ -123,13 +123,13 @@ namespace Euclid::CLI {
         }
     }
 
-    int StorageCli::deleteBucket(const std::vector<std::string> &args) const {
+    int EsmCli::deleteBucket(const std::vector<std::string> &args) const {
         po::options_description desc("delete bucket options");
         desc.add_options()
                 ("ern,e", po::value<std::string>()->required(), "euclid resource name");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("storage", "delete-bucket", "--ern <ern>",
+            return PrintActionHelp("esm", "delete-bucket", "--ern <ern>",
                                    "Deletes a storage bucket identified by its Euclid resource name (ERN).",
                                    desc);
         }
@@ -159,7 +159,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int StorageCli::listBuckets(const std::vector<std::string> &args) const {
+    int EsmCli::listBuckets(const std::vector<std::string> &args) const {
         po::options_description desc("list buckets options");
         desc.add_options()
                 ("prefix,p", po::value<std::string>(), "bucket name prefix")
@@ -168,7 +168,7 @@ namespace Euclid::CLI {
                 ("sortColumn,c", po::value<std::string>()->default_value("name"), "sort column");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("storage", "list-buckets", "[--prefix <prefix>] [--pageSize <n>] [--pageIndex <n>] [--sortColumn <column>]",
+            return PrintActionHelp("esm", "list-buckets", "[--prefix <prefix>] [--pageSize <n>] [--pageIndex <n>] [--sortColumn <column>]",
                                    "Lists storage buckets, optionally filtered by name prefix and paginated.",
                                    desc);
         }
@@ -205,13 +205,13 @@ namespace Euclid::CLI {
         }
     }
 
-    int StorageCli::getBucketErn(const std::vector<std::string> &args) const {
+    int EsmCli::getBucketErn(const std::vector<std::string> &args) const {
         po::options_description desc("get bucket ern options");
         desc.add_options()
                 ("name,n", po::value<std::string>()->required(), "name");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("storage", "get-bucket-ern", "--name <name>",
+            return PrintActionHelp("esm", "get-bucket-ern", "--name <name>",
                                    "Resolves the Euclid resource name (ERN) of a bucket by its name.",
                                    desc);
         }
@@ -243,13 +243,13 @@ namespace Euclid::CLI {
         }
     }
 
-    int StorageCli::getBucketSize(const std::vector<std::string> &args) const {
+    int EsmCli::getBucketSize(const std::vector<std::string> &args) const {
         po::options_description desc("get bucket size options");
         desc.add_options()
                 ("ern,e", po::value<std::string>()->required(), "euclid resource name");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("storage", "get-bucket-size", "--ern <ern>",
+            return PrintActionHelp("esm", "get-bucket-size", "--ern <ern>",
                                    "Returns the bucket size in bytes.",
                                    desc);
         }
@@ -281,7 +281,7 @@ namespace Euclid::CLI {
         }
     }
 
-    std::optional<std::string> StorageCli::createUpload(const std::string &bucketErn, const std::string &key, const int concurrency) const {
+    std::optional<std::string> EsmCli::createUpload(const std::string &bucketErn, const std::string &key, const int concurrency) const {
         Dto::ESM::CreateUploadRequest request;
         request.bucketErn = bucketErn;
         request.key = key;
@@ -313,7 +313,7 @@ namespace Euclid::CLI {
     // instead of a base64 JSON field, to speed up transfer of what's typically the bulk of an
     // upload's bytes. It's internal-only (uploadFile() is the only caller), so there's no external
     // client relying on a stable JSON schema for it.
-    bool StorageCli::uploadPart(const std::string &uploadId, const long partNumber, const std::string &data) const {
+    bool EsmCli::uploadPart(const std::string &uploadId, const long partNumber, const std::string &data) const {
         const std::vector<std::pair<std::string, std::string> > headers{
                 {"x-euclid-upload-id", uploadId},
                 {"x-euclid-part-number", std::to_string(partNumber)},
@@ -324,7 +324,7 @@ namespace Euclid::CLI {
 
             try {
                 const HttpClient client(_endpoint, _authentication, _caCertPath);
-                const HttpResponse response = client.PostBinary("storage", "upload-part", headers, data);
+                const HttpResponse response = client.PostBinary("esm", "upload-part", headers, data);
                 if (response.IsSuccess()) return true;
 
                 // A 4xx means the request itself is wrong (bad upload ID, malformed part, etc.) -
@@ -351,7 +351,7 @@ namespace Euclid::CLI {
         return false;// unreachable
     }
 
-    std::optional<boost::json::value> StorageCli::completeUpload(const std::string &uploadId) const {
+    std::optional<boost::json::value> EsmCli::completeUpload(const std::string &uploadId) const {
         Dto::ESM::CompleteUploadRequest request;
         request.uploadId = uploadId;
 
@@ -369,7 +369,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int StorageCli::uploadFile(const std::vector<std::string> &args) const {
+    int EsmCli::uploadFile(const std::vector<std::string> &args) const {
         po::options_description desc("upload file options");
         desc.add_options()
                 ("bucket-ern,b", po::value<std::string>()->required(), "ERN of the target bucket")
@@ -379,7 +379,7 @@ namespace Euclid::CLI {
                 ("concurrency,j", po::value<int>()->default_value(DEFAULT_CONCURRENCY), "number of parts to upload in parallel");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("storage", "upload-file", "--bucket-ern <ern> --key <key> --file <path> [--part-size <bytes>] [--concurrency <n>]",
+            return PrintActionHelp("esm", "upload-file", "--bucket-ern <ern> --key <key> --file <path> [--part-size <bytes>] [--concurrency <n>]",
                                    "Uploads a local file to a bucket, transparently splitting it into parts for a multipart upload "
                                    "and uploading up to <concurrency> parts at a time in background threads.",
                                    desc);
@@ -471,7 +471,7 @@ namespace Euclid::CLI {
         return 0;
     }
 
-    int StorageCli::listObjects(const std::vector<std::string> &args) const {
+    int EsmCli::listObjects(const std::vector<std::string> &args) const {
         po::options_description desc("list objects options");
         desc.add_options()
                 ("bucket,b", po::value<std::string>(), "bucket ERN")
@@ -481,7 +481,7 @@ namespace Euclid::CLI {
                 ("sortColumn,c", po::value<std::string>()->default_value("name"), "sort column");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("storage", "list-objects", "--bucket <ern> [--prefix <prefix>] [--pageSize <n>] [--pageIndex <n>] [--sortColumn <column>]",
+            return PrintActionHelp("esm", "list-objects", "--bucket <ern> [--prefix <prefix>] [--pageSize <n>] [--pageIndex <n>] [--sortColumn <column>]",
                                    "Lists storage objects by bucket, optionally filtered by name prefix and paginated.",
                                    desc);
         }
@@ -521,13 +521,13 @@ namespace Euclid::CLI {
         }
     }
 
-    int StorageCli::deleteObject(const std::vector<std::string> &args) const {
+    int EsmCli::deleteObject(const std::vector<std::string> &args) const {
         po::options_description desc("delete object options");
         desc.add_options()
                 ("ern,e", po::value<std::string>()->required(), "euclid resource name");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("storage", "delete-object", "--ern <ern>",
+            return PrintActionHelp("esm", "delete-object", "--ern <ern>",
                                    "Deletes a storage object identified by its Euclid resource name (ERN).",
                                    desc);
         }

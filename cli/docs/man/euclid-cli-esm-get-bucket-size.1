@@ -1,0 +1,35 @@
+.TH EUCLID-CLI-ESM-GET-BUCKET-SIZE 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-get-bucket-size \- return a bucket's size in bytes
+.SH SYNOPSIS
+.B euclid-cli esm get-bucket-size
+.BR \-\-ern | \-e
+.I ERN
+.SH DESCRIPTION
+Returns the total size, in bytes, of all objects currently stored in a
+bucket.
+.SH OPTIONS
+.TP
+.BR \-e ", " \-\-ern " " \fIERN\fR
+Euclid resource name of the bucket. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The bucket's size is printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or no
+bucket with that ERN exists.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm get-bucket-size \e
+    --ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-get-bucket-ern (1),
+.BR euclid-cli-esm-list-objects (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
