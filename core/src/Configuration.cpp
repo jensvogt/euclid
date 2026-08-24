@@ -2,7 +2,7 @@
 // Created by vogje01 on 5/23/26.
 //
 
-#include <../include/euclid/core/Configuration.h>
+#include <euclid/core/Configuration.h>
 
 namespace Euclid::Core {
 

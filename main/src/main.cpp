@@ -24,10 +24,34 @@
 #include <euclid/manager/GatewayServer.h>
 
 // ── Constants ───────────────────────────────────────────────
+#ifdef _WIN32
+#define DEFAULT_CONFIGURATION_FILE "C:\\Program Files\\euclid\\etc\\euclid.json"
+#else
 #define DEFAULT_CONFIGURATION_FILE "/usr/local/euclid/etc/euclid.json"
+#endif
 #define DEFAULT_LOG_LEVEL          "info"
 #define DEFAULT_HTTP_PORT          5566
 #define DEFAULT_HTTP_THREADS       2
+
+namespace {
+    // ── Command line parsing ──────────────────────────────────
+    struct CliOptions {
+        std::string configFile;
+        std::string logLevel;
+        int httpPort{};
+        bool consoleLog{};
+        bool fileLog{};
+        std::string logDir;
+#if defined(_WIN32)
+        bool install{};
+        // Skips the Windows Service dispatch (StartServiceCtrlDispatcher) and runs the same
+        // startup/shutdown logic as an ordinary console process instead - for interactive/dev
+        // use. Without this, running the exe directly (not launched by the SCM) just fails
+        // StartServiceCtrlDispatcher with ERROR_FAILED_SERVICE_CONTROLLER_CONNECT.
+        bool foreground{};
+#endif
+    };
+}
 
 // ── Globals ───────────────────────────────────────────────
 #if defined(_WIN32)
@@ -60,6 +84,42 @@ static void handleShutdown() {
 static void handleReload() { if (g_ctrl) g_ctrl->restartAll(); }
 
 namespace po = boost::program_options;
+
+#if defined(_WIN32)
+// ── Windows Service dispatch ───────────────────────────────
+// Populated by main() (pointing at its own on-stack CliOptions) before calling
+// StartServiceCtrlDispatcherA, since serviceMain's own argc/argv are for extra start
+// parameters (see StartService's lpServiceArgVectors) - normally none here, since the
+// real command line (e.g. "--config ...") is already baked into the service's binPath
+// by Platform::InstallService and delivered to this process's own main(argc, argv).
+static const CliOptions *g_serviceCliOpts = nullptr;
+static SERVICE_STATUS_HANDLE g_serviceStatusHandle = nullptr;
+static SERVICE_STATUS g_serviceStatus{};
+static DWORD g_serviceCheckpoint = 0;
+
+static void updateServiceStatus(const DWORD state, const DWORD exitCode = NO_ERROR, const DWORD waitHint = 0) {
+    if (!g_serviceStatusHandle) return;
+    g_serviceStatus.dwCurrentState = state;
+    g_serviceStatus.dwWin32ExitCode = exitCode;
+    g_serviceStatus.dwWaitHint = waitHint;
+    g_serviceStatus.dwCheckPoint = (state == SERVICE_START_PENDING || state == SERVICE_STOP_PENDING) ? ++g_serviceCheckpoint : 0;
+    SetServiceStatus(g_serviceStatusHandle, &g_serviceStatus);
+}
+
+static DWORD WINAPI serviceCtrlHandlerEx(const DWORD ctrl, DWORD, LPVOID, LPVOID) {
+    switch (ctrl) {
+        case SERVICE_CONTROL_STOP:
+        case SERVICE_CONTROL_SHUTDOWN:
+            updateServiceStatus(SERVICE_STOP_PENDING, NO_ERROR, 30000);
+            handleShutdown();
+            return NO_ERROR;
+        case SERVICE_CONTROL_INTERROGATE:
+            return NO_ERROR;
+        default:
+            return ERROR_CALL_NOT_IMPLEMENTED;
+    }
+}
+#endif
 
 #if defined(_WIN32)
 // Windows has no SIGTERM/SIGHUP delivery across processes, so a console control handler
@@ -115,18 +175,6 @@ static void setupSignals() {
 #endif
 }
 
-namespace {
-    // ── Command line parsing ──────────────────────────────────
-    struct CliOptions {
-        std::string configFile;
-        std::string logLevel;
-        int httpPort{};
-        bool consoleLog{};
-        bool fileLog{};
-        std::string logDir;
-    };
-}
-
 static void signalDispatchLoop() {
 #if defined(_WIN32)
     // Child-exit reaping has no async trigger on Windows either (see
@@ -162,7 +210,12 @@ static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
     general.add_options()
             ("help,h", "Show this help message")
             ("version,v", "Show version information")
-            ("config,c", po::value<std::string>(&opts.configFile)->default_value(DEFAULT_CONFIGURATION_FILE), "Path to JSON configuration file");
+            ("config,c", po::value<std::string>(&opts.configFile)->default_value(DEFAULT_CONFIGURATION_FILE), "Path to JSON configuration file")
+#if defined(_WIN32)
+            ("install", po::bool_switch(&opts.install), "Register this executable as the Windows service \"euclid\" (SERVICE_AUTO_START), then exit; requires an elevated (Administrator) prompt")
+            ("foreground", po::bool_switch(&opts.foreground), "Run as an ordinary console process instead of dispatching through the Service Control Manager; for interactive/dev use")
+#endif
+            ;
 
     po::options_description server("Server options", 120, 50);
     server.add_options()
@@ -282,25 +335,22 @@ static int initializeDatabase(const Euclid::Core::Configuration &cfg) {
     return 0;
 }
 
-// ── Entry point ───────────────────────────────────────────
-int main(const int argc, char *argv[]) {
-
-    // Parse command line
-    const auto cliOpts = parseCommandLine(argc, argv);
-    if (!cliOpts) {
-        return 0;
-    }
+// Shared by both the ordinary console path and the Windows Service path (serviceMain below) -
+// the only difference between the two is who calls this and how shutdown gets triggered
+// (console control handler vs. service control handler), both of which just set
+// g_shutdownRequested and let signalDispatchLoop() below fall through the same way.
+static int RunManager(const CliOptions &opts, [[maybe_unused]] const bool reportServiceStatus) {
 
     // Load JSON configuration
     try {
-        Euclid::Core::Configuration::instance().load(std::filesystem::path(cliOpts->configFile));
+        Euclid::Core::Configuration::instance().load(std::filesystem::path(opts.configFile));
     } catch (const std::exception &e) {
         std::cerr << "Failed to load config: " << e.what() << "\n";
         return 1;
     }
 
     // CLI overrides win over config file ─────────────
-    applyCliOverrides(*cliOpts);
+    applyCliOverrides(opts);
 
     // Initialize logging ─────────────────────────────
     const auto &cfg = Euclid::Core::Configuration::instance();
@@ -319,7 +369,7 @@ int main(const int argc, char *argv[]) {
     // previous run is stale (those pids/sockets no longer exist) - start from a clean slate.
     Euclid::Database::RepositoryFactory::instance().moduleRepository()->clear();
 
-    log_info << "Euclid starting, config: " << cliOpts->configFile;
+    log_info << "Euclid starting, config: " << opts.configFile;
     log_info << "Gateway port: " << cfg.getOr<int>("euclid.gateway.http.port", DEFAULT_HTTP_PORT);
     log_info << "Starting euclid-manager " << APP_VERSION << ", pid: " << Euclid::Core::SystemUtils::GetPid()
             << ", loglevel: " << Euclid::Core::Configuration::instance().get<std::string>("euclid.logging.level") << ", boost: " << BOOST_LIB_VERSION;
@@ -340,6 +390,10 @@ int main(const int argc, char *argv[]) {
     Euclid::main::GatewayServer gateway(ctrl, httpPort, httpThreads);
     gateway.start();
 
+#if defined(_WIN32)
+    if (reportServiceStatus) updateServiceStatus(SERVICE_RUNNING);
+#endif
+
     // Signal dispatch blocks here
     signalDispatchLoop();
 
@@ -347,4 +401,65 @@ int main(const int argc, char *argv[]) {
     ctrl.stopAll();
 
     return 0;
+}
+
+#if defined(_WIN32)
+static void WINAPI serviceMain(DWORD, LPSTR *) {
+    g_serviceStatus.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
+    g_serviceStatus.dwControlsAccepted = SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN;
+
+    g_serviceStatusHandle = RegisterServiceCtrlHandlerExA("euclid", serviceCtrlHandlerEx, nullptr);
+    if (!g_serviceStatusHandle) return;// nothing to report to - SCM already logged the failure
+
+    updateServiceStatus(SERVICE_START_PENDING, NO_ERROR, 30000);
+    const int rc = RunManager(*g_serviceCliOpts, true);
+    updateServiceStatus(SERVICE_STOPPED, rc == 0 ? static_cast<DWORD>(NO_ERROR) : static_cast<DWORD>(ERROR_SERVICE_SPECIFIC_ERROR));
+}
+#endif
+
+// ── Entry point ───────────────────────────────────────────
+int main(const int argc, char *argv[]) {
+
+    // Parse command line
+    const auto cliOpts = parseCommandLine(argc, argv);
+    if (!cliOpts) {
+        return 0;
+    }
+
+#if defined(_WIN32)
+    if (cliOpts->install) {
+        if (const std::string error = Euclid::main::Platform::InstallService(cliOpts->configFile); !error.empty()) {
+            std::cerr << "Failed to install the euclid service: " << error << "\n";
+            return 1;
+        }
+        std::cout << "Service 'euclid' installed (start type: automatic). Start it with:\n"
+                     "  sc start euclid\n"
+                     "or from services.msc.\n";
+        return 0;
+    }
+
+    if (!cliOpts->foreground) {
+        // Populate before StartServiceCtrlDispatcherA, since serviceMain has no other way
+        // to reach the options this process was actually invoked with.
+        g_serviceCliOpts = &*cliOpts;
+
+        SERVICE_TABLE_ENTRYA table[] = {
+                {const_cast<char *>("euclid"), serviceMain},
+                {nullptr, nullptr}
+        };
+        if (!StartServiceCtrlDispatcherA(table)) {
+            if (GetLastError() == ERROR_FAILED_SERVICE_CONTROLLER_CONNECT) {
+                std::cerr << "euclid-manager is not running under the Service Control Manager.\n"
+                             "Use --foreground to run it as an ordinary console process, or start\n"
+                             "the installed service instead: sc start euclid\n";
+            } else {
+                std::cerr << "StartServiceCtrlDispatcher failed (error " << GetLastError() << ")\n";
+            }
+            return 1;
+        }
+        return 0;
+    }
+#endif
+
+    return RunManager(*cliOpts, false);
 }
