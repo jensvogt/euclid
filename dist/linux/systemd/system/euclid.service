@@ -10,7 +10,7 @@ RestartSec=1
 User=root
 RuntimeDirectory=euclid
 RuntimeDirectoryMode=0755
-ExecStart=/usr/local/euclid/bin/euclid-manager --loglevel info --config /usr/local/euclid/etc/euclid.json
+ExecStart=/usr/local/euclid/bin/euclid-mgr --loglevel info --config /usr/local/euclid/etc/euclid.json
 KillSignal=SIGTERM
 
 [Install]
