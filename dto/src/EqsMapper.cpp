@@ -1,0 +1,129 @@
+#include <euclid/dto/eqs/EqsMapper.h>
+
+namespace Euclid::Dto::EQS {
+
+    Database::Entity::EQS::Variant EqsMapper::toEntity(const Variant &dto) {
+        Database::Entity::EQS::Variant entityVariant;
+        std::visit([&entityVariant]<typename T>(const T &val) {
+            if constexpr (std::is_same_v<T, Binary>) {
+                entityVariant.value = Database::Entity::EQS::Binary(val.begin(), val.end());
+            } else {
+                entityVariant.value = val;
+            }
+        }, dto.value);
+        return entityVariant;
+    }
+
+    Variant EqsMapper::toDto(const Database::Entity::EQS::Variant &entity) {
+        Variant variant;
+        std::visit([&variant]<typename T>(const T &val) {
+            if constexpr (std::is_same_v<T, Database::Entity::EQS::Binary>) {
+                variant.value = Binary(val.begin(), val.end());
+            } else {
+                variant.value = val;
+            }
+        }, entity.value);
+        return variant;
+    }
+
+    Queue EqsMapper::toDto(const Database::Entity::EQS::Queue &entity) {
+        Queue dto;
+        dto.region = entity.region;
+        dto.name = entity.name;
+        dto.owner = entity.owner;
+        dto.ern = entity.ern;
+        dto.delay = entity.delay;
+        dto.tags = entity.tags;
+        dto.size = entity.size;
+        dto.messages = entity.available;
+        dto.delayed = entity.delayed;
+        dto.busy = entity.invisible;
+        dto.visibility = entity.visibility;
+        dto.maxMessageLength = entity.maxMessageLength;
+        dto.maxReceiveCount = entity.maxReceiveCount;
+        dto.deadLetterQueueArn = entity.deadLetterQueueErn;
+        dto.created = entity.created;
+        dto.modified = entity.modified;
+        return dto;
+    }
+
+    std::vector<Queue> EqsMapper::toDto(const std::vector<Database::Entity::EQS::Queue> &entities) {
+        std::vector<Queue> dtos;
+        dtos.reserve(entities.size());
+        for (const auto &entity: entities) {
+            dtos.push_back(toDto(entity));
+        }
+        return dtos;
+    }
+
+    Database::Entity::EQS::Queue EqsMapper::toEntity(const Queue &dto) {
+        Database::Entity::EQS::Queue entity;
+        entity.region = dto.region;
+        entity.name = dto.name;
+        entity.owner = dto.owner;
+        entity.ern = dto.ern;
+        entity.size = dto.size;
+        entity.delay = dto.delay;
+        entity.available = dto.messages;
+        entity.delayed = dto.delayed;
+        entity.invisible = dto.busy;
+        entity.visibility = dto.visibility;
+        entity.maxMessageLength = dto.maxMessageLength;
+        entity.maxReceiveCount = dto.maxReceiveCount;
+        entity.deadLetterQueueErn = dto.deadLetterQueueArn;
+        entity.tags = dto.tags;
+        entity.created = dto.created;
+        entity.modified = dto.modified;
+        return entity;
+    }
+
+    Message EqsMapper::toDto(const Database::Entity::EQS::Message &entity) {
+        Message dto;
+        dto.ern = entity.ern;
+        dto.queueErn = entity.queueErn;
+        dto.messageId = entity.messageId;
+        dto.status = Database::Entity::EQS::MessageStatusToString(entity.status);
+        dto.priority = Database::Entity::EQS::MessagePriorityToString(entity.priority);
+        dto.body = entity.body;
+        dto.md5Body = entity.md5Body;
+        dto.receiptHandle = entity.receiptHandle;
+        for (const auto &[key, attr]: entity.attributes) {
+            dto.attributes[key] = toDto(attr);
+        }
+        dto.md5Attributes = entity.md5Attributes;
+        dto.lastReceived = entity.lastReceived;
+        dto.created = entity.created;
+        dto.modified = entity.modified;
+        return dto;
+    }
+
+    std::vector<Message> EqsMapper::toDto(const std::vector<Database::Entity::EQS::Message> &entities) {
+        std::vector<Message> dtos;
+        dtos.reserve(entities.size());
+        for (const auto &entity: entities) {
+            dtos.push_back(toDto(entity));
+        }
+        return dtos;
+    }
+
+    Database::Entity::EQS::Message EqsMapper::toEntity(const Message &dto) {
+        Database::Entity::EQS::Message entity;
+        entity.ern = dto.ern;
+        entity.queueErn = dto.queueErn;
+        entity.messageId = dto.messageId;
+        entity.status = Database::Entity::EQS::MessageStatusFromString(dto.status);
+        entity.priority = Database::Entity::EQS::MessagePriorityFromString(dto.priority);
+        entity.body = dto.body;
+        entity.md5Body = dto.md5Body;
+        entity.md5Attributes = dto.md5Attributes;
+        entity.receiptHandle = dto.receiptHandle;
+        for (const auto &[key, variant]: dto.attributes) {
+            entity.attributes[key] = toEntity(variant);
+        }
+        entity.lastReceived = dto.lastReceived;
+        entity.created = dto.created;
+        entity.modified = dto.modified;
+        return entity;
+    }
+
+}// namespace Euclid::Dto::EQS

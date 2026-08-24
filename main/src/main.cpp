@@ -236,12 +236,12 @@ static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
         po::store(po::command_line_parser(argc, argv).options(all).run(), vm);
 
         if (vm.contains("help")) {
-            std::cout << "euclid v" << APP_VERSION << " - AWS mock server\n\n" << all << "\n";
+            std::cout << "Euclid v" << APP_VERSION << " - Cloud Services\n\n" << all << "\n";
             return std::nullopt;
         }
 
         if (vm.contains("version")) {
-            std::cout << "euclid version " << APP_VERSION << "\n";
+            std::cout << "Euclid version " << APP_VERSION << "\n";
             return std::nullopt;
         }
 
@@ -309,8 +309,6 @@ static void registerModules(Euclid::main::ServiceController &ctrl) {
         ctrl.registerModule({
                 .name = headerName,
                 .executable = executable,
-                // --socket is appended per-instance (with the instance's own pid) by
-                // ServiceController::spawnInstance, not baked in here.
                 .args = {"--config", Euclid::Core::Configuration::instance().filePath().string()},
                 .socketPath = socketPath,
                 .maxRestarts = -1,
@@ -367,7 +365,7 @@ static int RunManager(const CliOptions &opts, [[maybe_unused]] const bool report
 
     // Module records track this manager's own child processes, so anything left over from a
     // previous run is stale (those pids/sockets no longer exist) - start from a clean slate.
-    Euclid::Database::RepositoryFactory::instance().moduleRepository()->clear();
+    Euclid::Database::RepositoryFactory::instance().emmRepository()->clear();
 
     log_info << "Euclid starting, config: " << opts.configFile;
     log_info << "Gateway port: " << cfg.getOr<int>("euclid.gateway.http.port", DEFAULT_HTTP_PORT);
@@ -443,7 +441,7 @@ int main(const int argc, char *argv[]) {
         // to reach the options this process was actually invoked with.
         g_serviceCliOpts = &*cliOpts;
 
-        SERVICE_TABLE_ENTRYA table[] = {
+        constexpr SERVICE_TABLE_ENTRYA table[] = {
                 {const_cast<char *>("euclid"), serviceMain},
                 {nullptr, nullptr}
         };
