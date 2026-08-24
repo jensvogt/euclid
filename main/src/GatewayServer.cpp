@@ -309,8 +309,18 @@ namespace Euclid::main {
                     [self = shared_from_this(), sp, keepAlive](const beast::error_code &ec, std::size_t) {
                         if (!ec && keepAlive) self->doRead();
                         else {
-                            beast::error_code ignored;
-                            std::ignore = self->_stream.shutdown(ignored);
+                            // Deliberately closes the raw socket rather than calling the
+                            // stream's shutdown() (SSL "close_notify" handshake): that overload
+                            // is *synchronous* and, unlike every other operation here, isn't
+                            // covered by expires_after() - it blocks waiting for the peer to
+                            // send its own close_notify back, and a client that's already done
+                            // with the connection (e.g. one that never reuses connections, like
+                            // euclid-cli) has no reason to send one. Since this runs on a
+                            // gateway worker thread shared by every other in-flight connection
+                            // (see BackendTimeout()'s doc comment on the same hazard for
+                            // forwardToService()), a single hung shutdown() here would stall the
+                            // whole gateway, not just this session.
+                            beast::get_lowest_layer(self->_stream).close();
                         }
                     });
         }

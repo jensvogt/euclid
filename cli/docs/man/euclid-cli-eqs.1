@@ -99,6 +99,14 @@ Euclid gateway endpoint to talk to, e.g. \fIhttps://localhost:5566\fR.
 Path to a PEM CA certificate to trust in addition to the system trust
 store, e.g. for self-signed development certificates.
 .TP
+.BR \-c ", " \-\-config " " \fIPATH\fR
+Path to a JSON configuration file providing defaults for action
+options (currently used by
+.BR euclid-cli-esm (1)
+only). Defaults to
+.IR /usr/local/euclid/etc/euclid.json ;
+silently ignored if the file doesn't exist.
+.TP
 .BR \-l ", " \-\-loglevel " " \fILEVEL\fR
 Log level: one of \fItrace\fR, \fIdebug\fR, \fIinfo\fR, \fIwarning\fR,
 \fIerror\fR, \fIfatal\fR. Defaults to \fIinfo\fR.

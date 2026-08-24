@@ -14,10 +14,13 @@ euclid-cli-esm-upload-file \- upload a local file to a bucket
 .SH DESCRIPTION
 Uploads a local file to a bucket. This is the only upload action
 exposed by
-.BR euclid-cli (1);
-it transparently splits the file into parts and drives the
-create-upload/upload-part/complete-upload sequence behind the scenes,
-so multipart upload is invisible to the caller.
+.BR euclid-cli (1).
+Files smaller than
+.B \-\-part\-size
+are stored in a single request; larger files are transparently split
+into parts and uploaded via the create-upload/upload-part/
+complete-upload sequence behind the scenes, so multipart upload is
+invisible to the caller either way.
 .PP
 The file is read from disk sequentially, but up to
 .B \-\-concurrency
@@ -38,11 +41,18 @@ Destination key (path) within the bucket. Required.
 Local file to upload. Required.
 .TP
 .BR \-s ", " \-\-part\-size " " \fIBYTES\fR
-Size of each part, in bytes. Defaults to \fI5242880\fR (5 MiB).
+Size of each part, in bytes. Defaults to \fI5242880\fR (5 MiB), or the
+value of \fIeuclid.modules.storage.part-size\fR in the loaded
+configuration file if set - see
+.BR \-\-config
+in
+.BR euclid-cli (1).
 .TP
 .BR \-j ", " \-\-concurrency " " \fIN\fR
-Number of parts to upload in parallel. Defaults to \fI4\fR; values less
-than \fI1\fR are treated as \fI1\fR.
+Number of parts to upload in parallel. Defaults to \fI4\fR, or the
+value of \fIeuclid.modules.storage.concurrency\fR in the loaded
+configuration file if set; values less than \fI1\fR are treated as
+\fI1\fR.
 .SH EXIT STATUS
 .TP
 .B 0
@@ -68,6 +78,7 @@ euclid-cli --endpoint http://localhost:5566 esm upload-file \e
 .RE
 .SH SEE ALSO
 .BR euclid-cli-esm (1),
+.BR euclid-cli-esm-download-file (1),
 .BR euclid-cli-esm-list-objects (1),
 .BR euclid-cli-esm-delete-object (1)
 .SH AUTHOR

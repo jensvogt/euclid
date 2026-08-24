@@ -1,0 +1,42 @@
+.TH EUCLID-CLI-ESM-PURGE-BUCKET 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-purge-bucket \- remove all objects from a bucket
+.SH SYNOPSIS
+.B euclid-cli esm purge-bucket
+.BR \-\-ern | \-e
+.I ERN
+.SH DESCRIPTION
+Removes every object from a bucket identified by its Euclid resource
+name (ERN), leaving the (now empty) bucket itself in place; see
+.BR euclid-cli-esm-delete-bucket (1)
+to remove the bucket too. This cannot be undone.
+.SH OPTIONS
+.TP
+.BR \-e ", " \-\-ern " " \fIERN\fR
+Euclid resource name of the bucket to purge. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The bucket's objects were deleted; a summary
+.RI ( "{ern, count}" )
+is printed as JSON, where
+.I count
+is the number of objects removed.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or no
+bucket with that ERN exists.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm purge-bucket \e
+    --ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-delete-bucket (1),
+.BR euclid-cli-esm-delete-object (1),
+.BR euclid-cli-esm-list-objects (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

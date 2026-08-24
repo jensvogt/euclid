@@ -59,6 +59,40 @@ namespace Euclid::CLI {
     };
 
     /**
+     * @brief Result of PostForBinary(): status code plus the raw (non-JSON) response body.
+     *
+     * The mirror image of HttpResponse - used for the one action (storage's "download-part")
+     * whose *response* is a large binary payload rather than JSON, the same way PostBinary()'s
+     * request is for "upload-part".
+     *
+     * @author jens.vogt\@opitz-consulting.com
+     */
+    struct BinaryHttpResponse {
+
+        /**
+         * @brief HTTP status code, e.g. 200
+         */
+        int statusCode = 0;
+
+        /**
+         * @brief Raw response body bytes on success; empty on failure (see errorBody instead).
+         */
+        std::string data;
+
+        /**
+         * @brief Parsed JSON error body, populated only when the request failed - a successful
+         * response's body is raw bytes, not JSON, so there's nothing to parse into this.
+         */
+        boost::json::value errorBody;
+
+        /**
+         * @brief True for 2xx status codes.
+         */
+        [[nodiscard]]
+        bool IsSuccess() const;
+    };
+
+    /**
      * @brief Minimal HTTP(S) client used to talk to the euclid server. Bodies are JSON except for
      * PostBinary(), used by the one action (storage's "upload-part") that trades the JSON
      * convention for transfer speed.
@@ -143,11 +177,25 @@ namespace Euclid::CLI {
         [[nodiscard]]
         HttpResponse PostBinary(const std::string &target, const std::string &action, const std::vector<std::pair<std::string, std::string> > &extraHeaders, const std::string &data) const;
 
+        /**
+         * @brief Sends a POST request whose *response* is a raw binary body instead of JSON - the
+         * mirror image of PostBinary(), for actions where the response (rather than the request)
+         * is the large payload (see storage's "download-part"). Request metadata that would
+         * normally be a JSON field travels in extraHeaders instead, and there's no request body.
+         *
+         * @param target module target, e.g. "storage" (sent as the "x-euclid-target" header)
+         * @param action module action, e.g. "download-part" (sent as the "x-euclid-action" header)
+         * @param extraHeaders additional headers to set on the request, e.g. download ID/part number
+         * @return status code plus raw response bytes on success, or a parsed JSON error body on failure
+         */
+        [[nodiscard]]
+        BinaryHttpResponse PostForBinary(const std::string &target, const std::string &action, const std::vector<std::pair<std::string, std::string> > &extraHeaders) const;
+
     private:
 
         /**
          * @brief Connects to _endpoint (HTTP or HTTPS, inferred from the endpoint scheme), sends
-         * the request and returns the parsed response. Throws std::runtime_error on any
+         * the request and returns the raw response. Throws std::runtime_error on any
          * connection/transport failure.
          *
          * @param method HTTP method
@@ -162,17 +210,19 @@ namespace Euclid::CLI {
 
         /**
          * @brief Resolves _endpoint's host/port, sends a pre-built request over a plain or TLS
-         * connection depending on scheme, and returns the parsed response. Shared by Send() and
-         * PostBinary() so connection handling (timeouts, TLS setup, error wrapping) lives in one
-         * place regardless of how the request body was built.
+         * connection depending on scheme, and returns the raw response, unparsed. Shared by
+         * Send(), PostBinary() and PostForBinary() so connection handling (timeouts, TLS setup,
+         * error wrapping) lives in one place regardless of how the request body was built or how
+         * the response body needs to be interpreted.
          *
          * @param target module target, used only for the error message on failure
          * @param action module action, used only for the error message on failure
          * @param request fully-built request ready to send
-         * @return parsed response
+         * @return raw response
          */
         [[nodiscard]]
-        HttpResponse Transmit(const std::string &target, const std::string &action, const boost::beast::http::request<boost::beast::http::string_body> &request) const;
+        boost::beast::http::response<boost::beast::http::string_body>
+        Transmit(const std::string &target, const std::string &action, const boost::beast::http::request<boost::beast::http::string_body> &request) const;
 
         /**
          * @brief Euclid server endpoint, e.g. "http://localhost:5566"
