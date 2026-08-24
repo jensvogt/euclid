@@ -40,7 +40,7 @@
 
 #if defined(_WIN32)
 
-#include <euclid/dto/module/ModuleConfig.h>
+#include <euclid/dto/emm/ModuleConfig.h>
 
 namespace Euclid::main::Platform {
 

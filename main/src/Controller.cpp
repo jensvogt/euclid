@@ -14,8 +14,8 @@
 #include <euclid/core/Configuration.h>
 #include <euclid/core/LogStream.h>
 #include <euclid/database/Database.h>
-#include <euclid/database/repository/module/MongoModuleRepository.h>
-#include <euclid/dto/module/ModuleMapper.h>
+#include <euclid/database/repository/emm/MongoEmmRepository.h>
+#include <euclid/dto/emm/EmmMapper.h>
 #include <euclid/manager/Controller.h>
 #include <euclid/manager/ControllerPlatform.h>
 
@@ -145,7 +145,7 @@ namespace Euclid::main {
         if (waitForSocket(svc->instanceSocketPath, 5000)) {
             svc->state = Database::Entity::ModuleState::RUNNING;
             log_info << "Service ready, name: " << svc->config.name << ", pid: " << svc->pid << ", socket: " << svc->instanceSocketPath;
-            Database::MongoModuleRepository::instance().upsert(Dto::ModuleMapper::toEntity(*svc));
+            Database::MongoEmmRepository::instance().upsert(Dto::EmmMapper::toEntity(*svc));
             return true;
         }
 
@@ -161,7 +161,7 @@ namespace Euclid::main {
         svc->instanceSocketPath.clear();
         svc->state = Database::Entity::ModuleState::PENDING_RESTART;
         svc->lastCrashTime = std::chrono::steady_clock::now();
-        Database::MongoModuleRepository::instance().upsert(Dto::ModuleMapper::toEntity(*svc));
+        Database::MongoEmmRepository::instance().upsert(Dto::EmmMapper::toEntity(*svc));
         return false;
     }
 #else
@@ -536,7 +536,7 @@ namespace Euclid::main {
         if (svc->state == Database::Entity::ModuleState::STOPPING || svc->state == Database::Entity::ModuleState::STOPPED) {
             svc->pid = -1;
             svc->state = Database::Entity::ModuleState::STOPPED;
-            Database::MongoModuleRepository::instance().upsert(Dto::ModuleMapper::toEntity(*svc));
+            Database::MongoEmmRepository::instance().upsert(Dto::EmmMapper::toEntity(*svc));
             return;
         }
 
@@ -546,7 +546,7 @@ namespace Euclid::main {
         svc->instanceSocketPath.clear();
         svc->state = Database::Entity::ModuleState::CRASHED;
         svc->lastCrashTime = std::chrono::steady_clock::now();
-        Database::MongoModuleRepository::instance().upsert(Dto::ModuleMapper::toEntity(*svc));
+        Database::MongoEmmRepository::instance().upsert(Dto::EmmMapper::toEntity(*svc));
         log_warning << "Service " << svc->config.name << " crashed (pid=" << exitedPid << ")";
 
         if (svc->config.autoRestart) scheduleRestart(svc);
@@ -634,7 +634,7 @@ namespace Euclid::main {
             Platform::ForceKill(svc->processHandle);
             if (!waitForExit(svc->pid, 2000)) {
                 log_error << "ERROR: Instance '" << svc->config.name << "' (pid " << svc->pid << ") could not be killed";
-                Database::MongoModuleRepository::instance().upsert(Dto::ModuleMapper::toEntity(*svc));
+                Database::MongoEmmRepository::instance().upsert(Dto::EmmMapper::toEntity(*svc));
                 return false;
             }
             log_info << "Instance '" << svc->config.name << "' (pid " << svc->pid << ") killed";
@@ -652,7 +652,7 @@ namespace Euclid::main {
             kill(svc->pid, SIGKILL);
             if (!waitForExit(svc->pid, 2000)) {
                 log_error << "ERROR: Instance '" << svc->config.name << "' (pid " << svc->pid << ") could not be killed";
-                Database::MongoModuleRepository::instance().upsert(Dto::ModuleMapper::toEntity(*svc));
+                Database::MongoModuleRepository::instance().upsert(Dto::EmmMapper::toEntity(*svc));
                 return false;
             }
             log_info << "Instance '" << svc->config.name << "' (pid " << svc->pid << ") killed";
@@ -665,7 +665,7 @@ namespace Euclid::main {
         svc->pid = -1;
         svc->instanceSocketPath.clear();
         svc->state = Database::Entity::ModuleState::STOPPED;
-        Database::MongoModuleRepository::instance().upsert(Dto::ModuleMapper::toEntity(*svc));
+        Database::MongoEmmRepository::instance().upsert(Dto::EmmMapper::toEntity(*svc));
         return true;
     }
 

@@ -46,7 +46,7 @@ namespace Euclid::CLI {
         // there's no access key yet at login time and key management is euclid's own session
         // auth, not an euclid service call.
         void AuthenticateRequest(http::request<http::string_body> &request, const std::string &target, const Credentials::Entry &authentication) {
-            if (target != "access" && !authentication.accessKeyId.empty() && !authentication.secretAccessKey.empty()) {
+            if (target != "eam" && !authentication.accessKeyId.empty() && !authentication.secretAccessKey.empty()) {
                 Core::SigV4::Sign(request, authentication.accessKeyId, authentication.secretAccessKey, authentication.region, target);
             } else if (!authentication.token.empty()) {
                 request.set(http::field::authorization, "Bearer " + authentication.token);

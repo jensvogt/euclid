@@ -222,7 +222,7 @@ jobs:
 
           cp ${{ env.BUILD_DIR }}/bin/euclid-manager ${{ env.PACKAGE_DIR }}/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-cli ${{ env.PACKAGE_DIR }}/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-access ${{ env.PACKAGE_DIR }}/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-eam ${{ env.PACKAGE_DIR }}/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-queues ${{ env.PACKAGE_DIR }}/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-monitoring ${{ env.PACKAGE_DIR }}/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-storage ${{ env.PACKAGE_DIR }}/euclid/bin/
@@ -338,7 +338,7 @@ jobs:
 
           cp ${{ env.BUILD_DIR }}/bin/euclid-manager ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-cli ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-access ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-eam ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-queues ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-monitoring ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-storage ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
@@ -426,7 +426,7 @@ jobs:
 
           cp ${{ env.BUILD_DIR }}/bin/euclid-manager ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-cli ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-access ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
+          cp ${{ env.BUILD_DIR }}/bin/euclid-eam ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-queues ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-monitoring ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-storage ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/

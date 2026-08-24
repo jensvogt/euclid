@@ -68,7 +68,7 @@ COPY --from=buildfrontend /usr/src/euclid-ui/dist/euclid-ui/browser/ /usr/local/
 # Install euclid
 COPY --from=build /usr/src/euclid/build/bin/euclid-manager /usr/local/euclid/bin/
 COPY --from=build /usr/src/euclid/build/bin/euclid-cli /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-access /usr/local/euclid/bin/
+COPY --from=build /usr/src/euclid/build/bin/euclid-eam /usr/local/euclid/bin/
 COPY --from=build /usr/src/euclid/build/bin/euclid-queues /usr/local/euclid/bin/
 COPY --from=build /usr/src/euclid/build/bin/euclid-monitoring /usr/local/euclid/bin/
 # euclid statically links vcpkg's own libmagic, whose compiled magic database format isn't
@@ -80,7 +80,7 @@ COPY --from=build /usr/src/euclid/dist/docker/etc/euclid_cert.crt /usr/local/euc
 COPY --from=build /usr/src/euclid/dist/docker/etc/euclid_cert.key /usr/local/euclid/etc/euclid_cert.key
 COPY --from=build /usr/src/euclid/dist/docker/etc/euclid.json /usr/local/euclid/etc/euclid.json
 
-# euclid-manager resolves euclid-access/euclid-queues/euclid-monitoring via PATH
+# euclid-manager resolves euclid-eam/euclid-queues/euclid-monitoring via PATH
 ENV PATH="/usr/local/euclid/bin:${PATH}"
 RUN ln -s /usr/local/euclid/bin/euclid-cli /usr/bin/euclid-cli || true
 RUN ln -s /usr/local/euclid/bin/euclid-manager /usr/bin/euclid-manager || true

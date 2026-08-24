@@ -24,7 +24,7 @@
 #include <euclid/core/HttpActionServer.h>
 #include <euclid/core/HttpUtils.h>
 #include <euclid/core/LogStream.h>
-#include <euclid/database/entity/module/ModuleState.h>
+#include <euclid/database/entity/emm/ModuleState.h>
 #include <euclid/manager/Controller.h>
 
 namespace Euclid::main {
