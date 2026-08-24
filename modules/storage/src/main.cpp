@@ -13,9 +13,14 @@
 #include <euclid/database/RepositoryFactory.h>
 #include <StorageServer.h>
 
-#define DEFAULT_CONFIGURATION_FILE "/usr/local/euclid/etc/euclid.json"
 #define DEFAULT_LOG_LEVEL          "info"
+#ifdef _WIN32
+#define DEFAULT_CONFIGURATION_FILE "C:\\Program Files\\euclid\\etc\\euclid.json"
+#define DEFAULT_SOCKET_PATH        "C:\\Program Files\\euclid\\data\\run\\euclid-storage.sock"
+#else
+#define DEFAULT_CONFIGURATION_FILE "/usr/local/euclid/etc/euclid.json"
 #define DEFAULT_SOCKET_PATH        "/var/run/euclid-storage.sock"
+#endif
 
 namespace po = boost::program_options;
 
@@ -91,6 +96,9 @@ static int initializeDatabase(const Euclid::Core::Configuration &cfg) {
     } catch (std::exception &e) {
         log_error << "Failed to initialize database: " << e.what();
         return 1;
+    } catch (...) {
+        log_error << "Failed to initialize database: unknown exception type";
+        return 1;
     }
     return 0;
 }
@@ -123,6 +131,14 @@ int main(const int argc, char *argv[]) {
     Euclid::Database::WireModuleSocketLookup();
 
     Euclid::Core::Monitoring::MetricsPusher metricsPusher("storage");
-    Euclid::Storage::StorageServer server(cliOpts->socketPath);
-    return server.RunUntilSignal();
+    try {
+        Euclid::Storage::StorageServer server(cliOpts->socketPath);
+        return server.RunUntilSignal();
+    } catch (const std::exception &e) {
+        log_error << "Failed to start storage service: " << e.what();
+        return 1;
+    } catch (...) {
+        log_error << "Failed to start storage service: unknown exception type";
+        return 1;
+    }
 }
