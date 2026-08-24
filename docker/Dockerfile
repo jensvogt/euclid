@@ -56,6 +56,10 @@ RUN apk update && apk upgrade && apk add --no-cache libstdc++ libgcc unzip libar
 # Make directories
 RUN mkdir -p /usr/local/euclid/data/tmp && \
     mkdir -p /usr/local/euclid/data/backup && \
+    mkdir -p /usr/local/euclid/data/eam && \
+    mkdir -p /usr/local/euclid/data/eqs && \
+    mkdir -p /usr/local/euclid/data/esm && \
+    mkdir -p /usr/local/euclid/data/ens && \
     mkdir -p /usr/local/euclid/bin && \
     mkdir -p /usr/local/euclid/etc && \
     mkdir -p /usr/local/euclid/init && \
@@ -66,10 +70,10 @@ RUN mkdir -p /usr/local/euclid/data/tmp && \
 COPY --from=buildfrontend /usr/src/euclid-ui/dist/euclid-ui/browser/ /usr/local/euclid/frontend/
 
 # Install euclid
-COPY --from=build /usr/src/euclid/build/bin/euclid-manager /usr/local/euclid/bin/
+COPY --from=build /usr/src/euclid/build/bin/euclid-mgr /usr/local/euclid/bin/
 COPY --from=build /usr/src/euclid/build/bin/euclid-cli /usr/local/euclid/bin/
 COPY --from=build /usr/src/euclid/build/bin/euclid-eam /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-queues /usr/local/euclid/bin/
+COPY --from=build /usr/src/euclid/build/bin/euclid-eqs /usr/local/euclid/bin/
 COPY --from=build /usr/src/euclid/build/bin/euclid-emo /usr/local/euclid/bin/
 # euclid statically links vcpkg's own libmagic, whose compiled magic database format isn't
 # guaranteed compatible with any other libmagic's (see Core::ContentTypeUtils) - take the one
@@ -83,11 +87,11 @@ COPY --from=build /usr/src/euclid/dist/docker/etc/euclid.json /usr/local/euclid/
 # euclid-manager resolves euclid-eam/euclid-queues/euclid-emo via PATH
 ENV PATH="/usr/local/euclid/bin:${PATH}"
 RUN ln -s /usr/local/euclid/bin/euclid-cli /usr/bin/euclid-cli || true
-RUN ln -s /usr/local/euclid/bin/euclid-manager /usr/bin/euclid-manager || true
+RUN ln -s /usr/local/euclid/bin/euclid-mgr /usr/bin/euclid-mgr || true
 
 # Gateway HTTP / frontend / websocket ports
 EXPOSE 5566
 EXPOSE 4567
 EXPOSE 4569
 
-CMD ["/usr/local/euclid/bin/euclid-manager", "--config", "/usr/local/euclid/etc/euclid.json"]
+CMD ["/usr/local/euclid/bin/euclid-mgr", "--config", "/usr/local/euclid/etc/euclid.json"]
