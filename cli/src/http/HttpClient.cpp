@@ -127,7 +127,7 @@ namespace Euclid::CLI {
         // if any step stalls past kTimeout, the stream's internal timer cancels it and the pending
         // handler gets an error instead of hanging.
 
-        HttpResponse SendPlain(asio::io_context &ioc, const tcp::resolver::results_type &endpoints, const http::request<http::string_body> &request) {
+        http::response<http::string_body> SendPlain(asio::io_context &ioc, const tcp::resolver::results_type &endpoints, const http::request<http::string_body> &request) {
             beast::tcp_stream stream(ioc);
             stream.expires_after(kTimeout);
 
@@ -157,10 +157,10 @@ namespace Euclid::CLI {
             std::ignore = stream.socket().shutdown(tcp::socket::shutdown_both, ec);
 
             if (opEc) throw boost::system::system_error(opEc);
-            return ToHttpResponse(response);
+            return response;
         }
 
-        HttpResponse SendTls(asio::io_context &ioc, const tcp::resolver::results_type &endpoints, const std::string &host, const http::request<http::string_body> &request, const std::string &caCertPath) {
+        http::response<http::string_body> SendTls(asio::io_context &ioc, const tcp::resolver::results_type &endpoints, const std::string &host, const http::request<http::string_body> &request, const std::string &caCertPath) {
             ssl::context ctx(ssl::context::tlsv12_client);
             ctx.set_default_verify_paths();
             if (!caCertPath.empty()) {
@@ -202,11 +202,20 @@ namespace Euclid::CLI {
 
             ioc.run();
 
-            beast::error_code ec;
-            std::ignore = stream.shutdown(ec);
+            // Deliberately does NOT call stream.shutdown() here (the SSL "close_notify"
+            // handshake): unlike every other operation on this stream, that overload is
+            // *synchronous* and, per this function's opening comment, is NOT covered by
+            // expires_after() - it blocks waiting for the peer to send its own close_notify back,
+            // and hangs forever if that never arrives (e.g. a backend that resets the connection
+            // right after responding instead of performing a clean mutual TLS shutdown, which is
+            // common enough in practice to matter: this connection is discarded either way, so a
+            // graceful close buys nothing worth risking a permanent hang for). Closing the
+            // underlying TCP socket directly tears the connection down immediately regardless of
+            // what the peer does.
+            beast::get_lowest_layer(stream).close();
 
             if (opEc) throw boost::system::system_error(opEc);
-            return ToHttpResponse(response);
+            return response;
         }
 
     }
@@ -215,9 +224,13 @@ namespace Euclid::CLI {
         return statusCode >= 200 && statusCode < 300;
     }
 
+    bool BinaryHttpResponse::IsSuccess() const {
+        return statusCode >= 200 && statusCode < 300;
+    }
+
     HttpClient::HttpClient(std::string endpoint, Credentials::Entry authentication, std::string caCertPath) : _endpoint(std::move(endpoint)), _authentication(std::move(authentication)), _caCertPath(std::move(caCertPath)) {}
 
-    HttpResponse HttpClient::Transmit(const std::string &target, const std::string &action, const http::request<http::string_body> &request) const {
+    http::response<http::string_body> HttpClient::Transmit(const std::string &target, const std::string &action, const http::request<http::string_body> &request) const {
         const auto [scheme, host, port] = ParseEndpoint(_endpoint);
 
         try {
@@ -237,7 +250,7 @@ namespace Euclid::CLI {
     HttpResponse HttpClient::Send(const HttpMethod method, const std::string &target, const std::string &action, const boost::json::value *body, const std::vector<std::pair<std::string, std::string> > &extraHeaders) const {
         const auto [scheme, host, port] = ParseEndpoint(_endpoint);
         const http::request<http::string_body> request = BuildRequest(method, host, target, action, body, extraHeaders, _authentication);
-        return Transmit(target, action, request);
+        return ToHttpResponse(Transmit(target, action, request));
     }
 
     HttpResponse HttpClient::Get(const std::string &target, const std::string &action) const {
@@ -259,7 +272,24 @@ namespace Euclid::CLI {
     HttpResponse HttpClient::PostBinary(const std::string &target, const std::string &action, const std::vector<std::pair<std::string, std::string> > &extraHeaders, const std::string &data) const {
         const auto [scheme, host, port] = ParseEndpoint(_endpoint);
         const http::request<http::string_body> request = BuildBinaryRequest(host, target, action, extraHeaders, data, _authentication);
-        return Transmit(target, action, request);
+        return ToHttpResponse(Transmit(target, action, request));
+    }
+
+    BinaryHttpResponse HttpClient::PostForBinary(const std::string &target, const std::string &action, const std::vector<std::pair<std::string, std::string> > &extraHeaders) const {
+        const auto [scheme, host, port] = ParseEndpoint(_endpoint);
+        const http::request<http::string_body> request = BuildRequest(HttpMethod::POST, host, target, action, nullptr, extraHeaders, _authentication);
+        const auto raw = Transmit(target, action, request);
+
+        BinaryHttpResponse result;
+        result.statusCode = static_cast<int>(raw.result_int());
+        if (result.IsSuccess()) {
+            result.data = raw.body();
+        } else if (!raw.body().empty()) {
+            boost::system::error_code ec;
+            result.errorBody = boost::json::parse(raw.body(), ec);
+            if (ec) result.errorBody = boost::json::value(raw.body());
+        }
+        return result;
     }
 
 }

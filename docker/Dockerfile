@@ -75,9 +75,6 @@ COPY --from=build /usr/src/euclid/build/bin/euclid-cli /usr/local/euclid/bin/
 COPY --from=build /usr/src/euclid/build/bin/euclid-eam /usr/local/euclid/bin/
 COPY --from=build /usr/src/euclid/build/bin/euclid-eqs /usr/local/euclid/bin/
 COPY --from=build /usr/src/euclid/build/bin/euclid-emo /usr/local/euclid/bin/
-# euclid statically links vcpkg's own libmagic, whose compiled magic database format isn't
-# guaranteed compatible with any other libmagic's (see Core::ContentTypeUtils) - take the one
-# this exact build produced instead of a separately maintained copy.
 COPY --from=build /usr/src/euclid/build/vcpkg_installed/x64-linux/share/libmagic/misc/magic.mgc /usr/local/euclid/etc/magic.mgc
 COPY --from=build /usr/src/euclid/dist/docker/etc/ssh_host_key /usr/local/euclid/etc/ssh_host_key
 COPY --from=build /usr/src/euclid/dist/docker/etc/euclid_cert.crt /usr/local/euclid/etc/euclid_cert.crt
