@@ -248,6 +248,10 @@ namespace Euclid::main {
 #endif
 
     ServiceController::~ServiceController() {
+        stopWatchdog();
+    }
+
+    void ServiceController::stopWatchdog() {
         _running = false;
         if (_watchdog.joinable()) _watchdog.join();
     }

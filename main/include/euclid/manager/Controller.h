@@ -208,6 +208,22 @@ namespace Euclid::main {
         void startWatchdog();
 
         /**
+         * @brief Stops the watchdog thread and joins it. Safe to call more than once (a no-op
+         * if the watchdog isn't running, e.g. already stopped or never started).
+         *
+         * Callers doing an orderly shutdown must call this - and let it fully join - before
+         * stopAll(): otherwise the watchdog can still be mid-tick, autoscaling a module up in
+         * response to still-arriving traffic, while stopAll() is concurrently working through
+         * its own (already-taken) snapshot of instances to stop. Any instance the watchdog
+         * spawns after that snapshot was taken is invisible to that stopAll() call and is left
+         * running - the module most likely to be caught this way is whichever one both runs
+         * multiple instances and has the slowest-draining in-flight requests (e.g. esm, mid
+         * large-file transfer), since that's what keeps the autoscaler's "busy" signal alive
+         * long enough to overlap a long sequential stop.
+         */
+        void stopWatchdog();
+
+        /**
          * @brief Handles the termination of a child process.
          *
          * Invoked when a child process exits, this method manages cleanup and

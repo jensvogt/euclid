@@ -63,10 +63,11 @@ static int g_sigFd[2];
 #endif
 static Euclid::main::ServiceController *g_ctrl = nullptr;
 
-// Set once handleShutdown() has stopped every managed instance, so signalDispatchLoop() knows to
-// stop blocking on the next signal and let main() fall through to its own final cleanup/exit.
-// Without this, SIGTERM correctly stops every child but the manager process itself never
-// terminates - it just sits there with nothing left to manage, still blocked in read().
+// Set on shutdown so signalDispatchLoop() knows to stop blocking on the next signal and let
+// main() fall through to RunManager()'s own tail, which does the actual stopping (watchdog,
+// then gateway, then every managed instance - see that tail's comment for why the order
+// matters). Without this flag, SIGTERM would never wake signalDispatchLoop() out of its
+// blocking read()/wait() and the manager process would never terminate.
 static std::atomic<bool> g_shutdownRequested{false};
 
 // ── Signal handlers ───────────────────────────────────────
@@ -74,8 +75,13 @@ static std::atomic<bool> g_shutdownRequested{false};
 static void handleChildExit() { if (g_ctrl) g_ctrl->onChildExit(); }
 #endif
 
+// Deliberately does NOT stop anything itself - see g_shutdownRequested's comment. Stopping
+// instances here, before the gateway is stopped, would leave it free to keep forwarding
+// traffic (and the watchdog free to keep autoscaling in response to it) for the entire
+// duration of that stop - long enough, for a module like esm that both runs multiple
+// instances and can have slow-draining requests, for the autoscaler to spawn an instance
+// that's invisible to the stop already in progress and so never gets stopped at all.
 static void handleShutdown() {
-    if (g_ctrl) g_ctrl->stopAll();
     g_shutdownRequested = true;
 #if defined(_WIN32)
     g_shutdownCv.notify_all();
@@ -391,6 +397,7 @@ static int RunManager(const CliOptions &opts, [[maybe_unused]] const bool report
         gatewayOpt.emplace(ctrl, httpPort, httpThreads);
     } catch (const std::exception &e) {
         log_error << "Failed to start gateway on port " << httpPort << ": " << e.what();
+        ctrl.stopWatchdog();
         ctrl.stopAll();
         return 1;
     }
@@ -404,6 +411,13 @@ static int RunManager(const CliOptions &opts, [[maybe_unused]] const bool report
     // Signal dispatch blocks here
     signalDispatchLoop();
 
+    // Order matters: the watchdog must be fully stopped (join()ed) before the gateway stops
+    // accepting/forwarding traffic, and the gateway must be stopped before stopAll() starts
+    // working through instances - otherwise both traffic and autoscaling can still be live
+    // while stopAll() is (potentially for several seconds, sequentially, per instance)
+    // mid-shutdown, and the watchdog can spawn an instance that stopAll()'s already-taken
+    // snapshot will never see. See handleShutdown()'s comment for the failure mode this avoids.
+    ctrl.stopWatchdog();
     gateway.stop();
     ctrl.stopAll();
 
