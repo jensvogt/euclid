@@ -6,6 +6,7 @@
 #include <cstring>
 #include <iostream>
 #include <mutex>
+#include <optional>
 #ifndef _WIN32
 #include <unistd.h>
 #endif
@@ -385,7 +386,15 @@ static int RunManager(const CliOptions &opts, [[maybe_unused]] const bool report
     // Start HTTP gateway
     const auto httpPort = static_cast<unsigned short>(cfg.getOr<int>("euclid.gateway.http.port", DEFAULT_HTTP_PORT));
     const auto httpThreads = cfg.getOr<int>("euclid.gateway.http.max-thread", DEFAULT_HTTP_THREADS);
-    Euclid::main::GatewayServer gateway(ctrl, httpPort, httpThreads);
+    std::optional<Euclid::main::GatewayServer> gatewayOpt;
+    try {
+        gatewayOpt.emplace(ctrl, httpPort, httpThreads);
+    } catch (const std::exception &e) {
+        log_error << "Failed to start gateway on port " << httpPort << ": " << e.what();
+        ctrl.stopAll();
+        return 1;
+    }
+    auto &gateway = *gatewayOpt;
     gateway.start();
 
 #if defined(_WIN32)
