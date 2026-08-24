@@ -21,6 +21,11 @@ namespace Euclid::Database {
     public:
 
         /**
+         * @brief Constructor
+         */
+        explicit MongoEmoRepository();
+
+        /**
          * @brief Singleton instance
          */
         static MongoEmoRepository &instance() {
@@ -60,6 +65,11 @@ namespace Euclid::Database {
          * @brief Collection name
          */
         static constexpr auto COLLECTION = "emo_data";
+
+        /**
+         * @brief Creates the indexes required for efficient monitoring data queries, if they do not already exist.
+         */
+        static void ensureIndexes();
     };
 
 }// namespace Euclid::Database

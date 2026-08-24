@@ -1,0 +1,160 @@
+.TH EUCLID-CLI-ESM-DOWNLOAD-BUCKET 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-download-bucket \- download a bucket's objects to a local directory
+.SH SYNOPSIS
+.B euclid-cli esm download-bucket
+.BR \-\-bucket\-ern | \-b
+.I ERN
+.BR \-\-dir | \-d
+.I PATH
+[\fB\-\-prefix\fR|\fB\-p\fR \fIPREFIX\fR]
+[\fB\-\-recursive\fR|\fB\-r\fR]
+[\fB\-\-part\-size\fR|\fB\-s\fR \fIBYTES\fR]
+[\fB\-\-concurrency\fR|\fB\-j\fR \fIN\fR]
+.SH DESCRIPTION
+Downloads objects from a bucket to a local directory, one file per
+object. This is the batch counterpart to
+.BR euclid-cli-esm-download-file (1);
+each object uses the exact same single-request/multipart logic that
+action does, chosen independently per object by its size relative to
+.BR \-\-part\-size .
+.PP
+Objects don't have real parent directories, so
+.B \-\-recursive
+controls how many of a bucket's keys are treated as "in" it, the same
+"delimiter" semantics S3-style listings use to simulate a directory's
+immediate contents:
+without
+.BR \-\-recursive ,
+only an object's
+.I direct descendants
+are downloaded - keys matching
+.B \-\-prefix
+with no further
+.B /
+after it. With
+.BR \-\-recursive ,
+every key matching
+.B \-\-prefix
+is downloaded, however deeply nested.
+.PP
+Each downloaded file's local path is
+.B \-\-dir
+followed by the object's key with
+.B \-\-prefix
+stripped off the front - e.g. with
+.B \-\-prefix
+.I archive/
+and
+.BR \-\-recursive ,
+an object keyed
+.I archive/2026/report.csv
+is written to
+.IR <dir>/2026/report.csv ,
+creating intermediate directories as needed. Object keys are opaque
+strings, not real filesystem paths, so a key that looks absolute (e.g.
+.IR /etc/passwd )
+is still resolved relative to
+.BR \-\-dir ,
+not treated as an OS-absolute path; a key containing
+.B ..
+components is refused rather than written, though, since that would
+walk back out of
+.B \-\-dir
+entirely.
+.PP
+The full matching object list is fetched (paging through list-objects
+as needed) before any download starts. Objects are then downloaded one
+at a time, in a deterministic order (sorted by key); within a single
+object's multipart download, up to
+.B \-\-concurrency
+parts still run in parallel, same as
+.BR euclid-cli-esm-download-file (1).
+Processing continues after a single object fails, so one bad object
+doesn't block the rest; the command's own exit status reflects whether
+every object succeeded.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-bucket\-ern " " \fIERN\fR
+Euclid resource name of the source bucket. Required.
+.TP
+.BR \-d ", " \-\-dir " " \fIPATH\fR
+Local directory to download into. Created (including any missing
+parent directories) if it doesn't already exist. Required.
+.TP
+.BR \-p ", " \-\-prefix " " \fIPREFIX\fR
+Only download objects whose key starts with this prefix, and strip it
+from the front of each key to form the local file path. Optional;
+empty by default, which matches every object in the bucket.
+.TP
+.BR \-r ", " \-\-recursive
+Download every key matching \fB\-\-prefix\fR, however deeply nested,
+instead of only its direct descendants.
+.TP
+.BR \-s ", " \-\-part\-size " " \fIBYTES\fR
+Size threshold, in bytes, at or above which an object is fetched as
+multipart rather than in a single request - applied per object, same
+as
+.BR euclid-cli-esm-download-file (1)
+\&'s option of the same name. Defaults to \fI5242880\fR (5 MiB), or the
+value of \fIeuclid.modules.storage.part-size\fR in the loaded
+configuration file if set - see
+.BR \-\-config
+in
+.BR euclid-cli-esm (1).
+.TP
+.BR \-j ", " \-\-concurrency " " \fIN\fR
+Number of parts to download in parallel, for any object that goes the
+multipart route. Defaults to \fI4\fR, or the value of
+\fIeuclid.modules.storage.concurrency\fR in the loaded configuration
+file if set; values less than \fI1\fR are treated as \fI1\fR.
+.SH EXIT STATUS
+.TP
+.B 0
+Every matching object was downloaded (a bucket/prefix combination with
+no matching objects is not an error - a warning is printed to standard
+error, and an empty JSON array is printed); a JSON array is printed,
+one entry per object
+.RI ( "{key, file, result}" ),
+where
+.I result
+is that object's downloaded file summary (the same shape
+.BR euclid-cli-esm-download-file (1)
+prints for a single object).
+.TP
+.B 1
+Missing/invalid arguments, \fB\-\-dir\fR could not be created, or one
+or more objects failed to download; the printed JSON array still
+contains one entry per object, with
+.RI ( "{key, file, error: true}" )
+in place of
+.I result
+for each one that failed. Per-object errors are also printed to
+standard error as they happen.
+.SH EXAMPLES
+Download only the direct contents of a bucket under a prefix:
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm download-bucket \e
+    --bucket-ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports \e
+    --dir ./reports --prefix 2026-08/
+.fi
+.RE
+.PP
+Download an entire prefix's tree, with higher per-object part
+concurrency:
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm download-bucket \e
+    --bucket-ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports \e
+    --dir ./archive --prefix archive/ --recursive \e
+    --part-size 8388608 --concurrency 8
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-download-file (1),
+.BR euclid-cli-esm-upload-directory (1),
+.BR euclid-cli-esm-list-objects (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

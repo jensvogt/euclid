@@ -6,6 +6,33 @@
 
 namespace Euclid::Database {
 
+    MongoEmoRepository::MongoEmoRepository() {
+        ensureIndexes();
+    }
+
+    void MongoEmoRepository::ensureIndexes() {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+
+            // Covers list()'s equality filters (name/labelName/labelValue, each optional) plus its
+            // always-applied timestamp sort in one index.
+            collection.create_index(bsoncxx::builder::basic::make_document(
+                    bsoncxx::builder::basic::kvp("name", 1),
+                    bsoncxx::builder::basic::kvp("labelName", 1),
+                    bsoncxx::builder::basic::kvp("labelValue", 1),
+                    bsoncxx::builder::basic::kvp("timestamp", -1)));
+
+            // Needed separately for deleteOlderThan()'s range delete - the compound index above
+            // can't serve a timestamp-only filter, since it isn't the leading field.
+            collection.create_index(bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("timestamp", 1)));
+
+        } catch (const std::exception &e) {
+            log_error << "Ensure monitoring indexes failed, error: " << e.what();
+        }
+    }
+
     void MongoEmoRepository::insert(const Entity::Monitoring::MonitoringData &data) {
 
         try {

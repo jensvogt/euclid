@@ -28,6 +28,11 @@ namespace Euclid::Database {
     public:
 
         /**
+         * @brief Constructor
+         */
+        explicit MongoEmmRepository();
+
+        /**
          * @brief Singleton instance
          */
         static MongoEmmRepository &instance() {
@@ -103,6 +108,11 @@ namespace Euclid::Database {
     private:
 
         static constexpr auto COLLECTION = "emm_module";
+
+        /**
+         * @brief Creates the indexes required for efficient module lookup, if they do not already exist.
+         */
+        static void ensureIndexes();
     };
 
 }// namespace Euclid::Database
