@@ -86,7 +86,7 @@ namespace Euclid::Core::Monitoring {
         const auto &lookup = moduleSocketLookup();
         if (!lookup) return;
 
-        const auto sockets = lookup("monitoring");
+        const auto sockets = lookup("emo");
         if (sockets.empty()) return;
 
         boost::json::array items;

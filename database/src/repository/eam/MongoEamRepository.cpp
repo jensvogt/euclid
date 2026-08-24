@@ -9,6 +9,37 @@
 
 namespace Euclid::Database {
 
+    MongoEamRepository::MongoEamRepository() {
+        ensureIndexes();
+    }
+
+    void MongoEamRepository::ensureIndexes() {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto userCollection = (*entry)[Database::instance().databaseName()][USER_COLLECTION];
+
+            mongocxx::options::index userIdOpts;
+            userIdOpts.unique(true);
+            userCollection.create_index(make_document(kvp("userId", 1)), userIdOpts);
+
+            mongocxx::options::index emailOpts;
+            emailOpts.unique(true);
+            emailOpts.sparse(true);
+            userCollection.create_index(make_document(kvp("email", 1)), emailOpts);
+
+            // Resolves the caller on every SigV4-signed request to every module
+            // (RepositoryFactory::WireAccessKeyLookup()) - the hottest lookup on this collection.
+            mongocxx::options::index accessKeyIdOpts;
+            accessKeyIdOpts.unique(true);
+            accessKeyIdOpts.sparse(true);
+            userCollection.create_index(make_document(kvp("accessKeys.accessKeyId", 1)), accessKeyIdOpts);
+
+        } catch (const std::exception &e) {
+            log_error << "Ensure user indexes failed, error: " << e.what();
+        }
+    }
+
     Entity::EAM::User MongoEamRepository::upsertUser(Entity::EAM::User &user) {
 
         try {

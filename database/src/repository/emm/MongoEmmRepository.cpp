@@ -10,6 +10,28 @@
 
 namespace Euclid::Database {
 
+    MongoEmmRepository::MongoEmmRepository() {
+        ensureIndexes();
+    }
+
+    void MongoEmmRepository::ensureIndexes() {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+
+            // One document per module name by design (see Module.h) - nearly every read/write
+            // filters on it. Not worth also indexing instances.instanceId: once name narrows to
+            // (at most) a single document, indexing the array field within it buys nothing.
+            mongocxx::options::index nameOpts;
+            nameOpts.unique(true);
+            collection.create_index(bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("name", 1)), nameOpts);
+
+        } catch (const std::exception &e) {
+            log_error << "Ensure module indexes failed, error: " << e.what();
+        }
+    }
+
     bool MongoEmmRepository::exists(const std::string &name) const {
 
         try {

@@ -31,6 +31,11 @@ namespace Euclid::Database {
     public:
 
         /**
+         * @brief Constructor
+         */
+        explicit MongoEamRepository();
+
+        /**
          * @brief Singleton instance
          */
         static MongoEamRepository &instance() {
@@ -108,6 +113,11 @@ namespace Euclid::Database {
     private:
 
         static constexpr auto USER_COLLECTION = "eam_user";
+
+        /**
+         * @brief Creates the indexes required for efficient user lookup, if they do not already exist.
+         */
+        static void ensureIndexes();
     };
 
 }// namespace Euclid::Database
