@@ -155,13 +155,14 @@ namespace Euclid::Database {
         long countObjects() const override;
 
         /**
-         * @brief Retrieves the total number og objects in a bucket.
+         * @brief Retrieves the total number of objects in a bucket, optionally filtered by object key prefix.
          *
-         * @paranm bucketErn bucket ERN
+         * @param bucketErn bucket ERN
+         * @param prefix object key prefix
          * @return The total number of messages as a long integer.
          */
         [[nodiscard]]
-        long countObjects(const std::string &bucketErn) const override;
+        long countObjects(const std::string &bucketErn, const std::string &prefix) const override;
 
         /**
          * @brief Find all buckets, optionally filtered, paged and sorted.

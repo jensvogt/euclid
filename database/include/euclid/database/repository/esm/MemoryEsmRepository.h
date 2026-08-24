@@ -229,15 +229,16 @@ namespace Euclid::Database {
         }
 
         /**
-         * @brief Retrieves the total number og objects in a bucket.
+         * @brief Retrieves the total number of objects in a bucket, optionally filtered by object key prefix.
          *
          * @paranm bucketErn bucket ERN
+         * @paranm prefix object key prefix
          * @return The total number of messages as a long integer.
          */
-        long countObjects(const std::string &bucketErn) const override {
+        long countObjects(const std::string &bucketErn, const std::string &prefix) const override {
             std::lock_guard lock(_mutex);
-            return std::ranges::count_if(_objectStore | std::views::values, [&bucketErn](const auto &message) {
-                return message.bucketErn == bucketErn;
+            return std::ranges::count_if(_objectStore | std::views::values, [&bucketErn,prefix](const auto &objects) {
+                return objects.bucketErn == bucketErn && (prefix.empty() || objects.key.starts_with(prefix));
             });
         }
 

@@ -321,10 +321,14 @@ namespace Euclid::Database {
         return -1;
     }
 
-    long MongoEsmRepository::countObjects(const std::string &bucketErn) const {
+    long MongoEsmRepository::countObjects(const std::string &bucketErn, const std::string &prefix) const {
 
         try {
-            const auto filter = make_document(kvp("bucketErn", bucketErn));
+            document filter = {};
+            filter.append(kvp("bucketErn", bucketErn));
+            if (!prefix.empty()) {
+                filter.append(kvp("key", make_document(kvp("$regex", "^" + prefix))));
+            }
             const auto entry = Database::instance().client();
             auto messageCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
 
