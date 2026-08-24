@@ -2,7 +2,7 @@
 // Created by vogje01 on 8/18/26.
 //
 
-#include <euclid/database/entity/monitoring/MonitoringData.h>
+#include <euclid/database/entity/emo/MonitoringData.h>
 
 namespace Euclid::Database::Entity::Monitoring {
 

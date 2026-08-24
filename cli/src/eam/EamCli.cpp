@@ -110,6 +110,7 @@ namespace Euclid::CLI {
                     .region = loginResponse.region,
                     .accessKeyId = loginResponse.accessKeyId,
                     .secretAccessKey = loginResponse.secretAccessKey,
+                    .isAdmin = loginResponse.isAdmin,
             });
 
             Core::WriteJson(std::cout, response.body, _pretty);

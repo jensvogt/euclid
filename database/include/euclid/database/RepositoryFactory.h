@@ -167,9 +167,11 @@ namespace Euclid::Database {
     inline void WireModuleSocketLookup() {
         Core::Monitoring::MetricsPusher::SetModuleSocketLookup([](const std::string &moduleName) -> std::vector<std::string> {
             std::vector<std::string> sockets;
-            for (const auto &instance: RepositoryFactory::instance().emmRepository()->findAll()) {
-                if (instance.name != moduleName || instance.state != Entity::ModuleState::RUNNING) continue;
-                sockets.push_back(instance.socketPath);
+            for (const auto &module: RepositoryFactory::instance().emmRepository()->findAll()) {
+                if (module.name != moduleName) continue;
+                for (const auto &instance: module.instances) {
+                    if (instance.state == Entity::ModuleState::RUNNING) sockets.push_back(instance.socketPath);
+                }
             }
             return sockets;
         });

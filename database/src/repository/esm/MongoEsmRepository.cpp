@@ -10,7 +10,7 @@
 
 namespace Euclid::Database {
 
-    MongoEsmRepository::MongoEsmRepository() : _databaseName("euclid") {
+    MongoEsmRepository::MongoEsmRepository() {
         ensureIndexes();
     }
 

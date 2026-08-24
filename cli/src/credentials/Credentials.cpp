@@ -23,6 +23,7 @@ namespace Euclid::CLI {
                 {"region", entry.region},
                 {"accessKeyId", entry.accessKeyId},
                 {"secretAccessKey", entry.secretAccessKey},
+                {"isAdmin", entry.isAdmin},
         };
 
         std::ofstream out(path, std::ios::trunc);
@@ -54,6 +55,7 @@ namespace Euclid::CLI {
         entry.region = Core::GetStringValue(jv, "region");
         entry.accessKeyId = Core::GetStringValue(jv, "accessKeyId");
         entry.secretAccessKey = Core::GetStringValue(jv, "secretAccessKey");
+        entry.isAdmin = Core::GetBoolValue(jv, "isAdmin");
         return entry;
     }
 

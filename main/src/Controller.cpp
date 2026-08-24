@@ -14,7 +14,7 @@
 #include <euclid/core/Configuration.h>
 #include <euclid/core/LogStream.h>
 #include <euclid/database/Database.h>
-#include <euclid/database/repository/emm/MongoEmmRepository.h>
+#include <euclid/database/RepositoryFactory.h>
 #include <euclid/dto/emm/EmmMapper.h>
 #include <euclid/manager/Controller.h>
 #include <euclid/manager/ControllerPlatform.h>
@@ -92,7 +92,7 @@ namespace Euclid::main {
             boost::asio::io_context ioc;
             local::stream_protocol::socket sock(ioc);
             boost::system::error_code ec;
-            sock.connect(local::stream_protocol::endpoint(path), ec);
+            std::ignore = sock.connect(local::stream_protocol::endpoint(path), ec);
             if (!ec) return true;
 
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -106,6 +106,15 @@ namespace Euclid::main {
             return base.substr(0, dot) + "." + std::to_string(pid) + base.substr(dot);
         }
         return base + "." + std::to_string(pid);
+    }
+
+    // Persists svc's current state as its slot's entry in its module's live instances array
+    // (see database/include/euclid/database/entity/emm/Module.h), keyed by svc->instanceId so a
+    // restart (which gets a new pid) updates the same entry in place rather than appending a new
+    // one. Uses RepositoryFactory rather than a hardcoded backend so this respects
+    // euclid.database.backend (mongodb or memory) like every other repository access.
+    static void persistInstance(const std::shared_ptr<Dto::ModuleProcess> &svc) {
+        Database::RepositoryFactory::instance().emmRepository()->upsertInstance(Dto::EmmMapper::toModuleEntity(*svc), Dto::EmmMapper::toInstanceEntity(*svc));
     }
 
 #if defined(_WIN32)
@@ -145,7 +154,7 @@ namespace Euclid::main {
         if (waitForSocket(svc->instanceSocketPath, 5000)) {
             svc->state = Database::Entity::ModuleState::RUNNING;
             log_info << "Service ready, name: " << svc->config.name << ", pid: " << svc->pid << ", socket: " << svc->instanceSocketPath;
-            Database::MongoEmmRepository::instance().upsert(Dto::EmmMapper::toEntity(*svc));
+            persistInstance(svc);
             return true;
         }
 
@@ -161,7 +170,7 @@ namespace Euclid::main {
         svc->instanceSocketPath.clear();
         svc->state = Database::Entity::ModuleState::PENDING_RESTART;
         svc->lastCrashTime = std::chrono::steady_clock::now();
-        Database::MongoEmmRepository::instance().upsert(Dto::EmmMapper::toEntity(*svc));
+        persistInstance(svc);
         return false;
     }
 #else
@@ -221,7 +230,7 @@ namespace Euclid::main {
         if (waitForSocket(svc->instanceSocketPath, 5000)) {
             svc->state = Database::Entity::ModuleState::RUNNING;
             log_info << "Service ready, name: " << svc->config.name << ", pid: " << svc->pid << ", socket: " << svc->instanceSocketPath;
-            Database::MongoEmmRepository::instance().upsert(Dto::EmmMapper::toEntity(*svc));
+            persistInstance(svc);
             return true;
         }
 
@@ -233,7 +242,7 @@ namespace Euclid::main {
         svc->instanceSocketPath.clear();
         svc->state = Database::Entity::ModuleState::PENDING_RESTART;
         svc->lastCrashTime = std::chrono::steady_clock::now();
-        Database::MongoEmmRepository::instance().upsert(Dto::EmmMapper::toEntity(*svc));
+        persistInstance(svc);
         return false;
     }
 #endif
@@ -469,14 +478,17 @@ namespace Euclid::main {
 
                 const bool dbReachable = isDatabaseReachable();
                 if (dbReachable != _databaseWasReachable) {
-                    if (dbReachable) log_info << "Database reachable again, resuming spawn/restart";
-                    else log_error << "Database unreachable - pausing all instance spawn/restart until it recovers";
+                    if (dbReachable)
+                        log_info << "Database reachable again, resuming spawn/restart";
+                    else
+                        log_error << "Database unreachable - pausing all instance spawn/restart until it recovers";
                     _databaseWasReachable = dbReachable;
                 }
 
                 std::vector<std::shared_ptr<Dto::ModuleProcess> > toRestart;
                 std::vector<std::shared_ptr<Dto::ModuleProcess> > toSpawn;
                 std::vector<std::shared_ptr<Dto::ModuleProcess> > toStop;
+                std::vector<std::shared_ptr<Dto::ModuleProcess> > toPersistGivenUp;
                 if (dbReachable) {
                     std::lock_guard lock(_mutex);
 
@@ -487,6 +499,7 @@ namespace Euclid::main {
                             if (svc->config.maxRestarts != -1 && svc->restartCount >= svc->config.maxRestarts) {
                                 log_error << "Instance " << svc->config.name << " exceeded max restarts (" << svc->config.maxRestarts << "), giving up";
                                 svc->state = Database::Entity::ModuleState::STOPPED;
+                                toPersistGivenUp.push_back(svc);
                                 continue;
                             }
 
@@ -506,6 +519,11 @@ namespace Euclid::main {
 
                     evaluateScaling(toSpawn, toStop);
                 }
+
+                // Persisted outside the lock (like every other DB write here) so a slow/unreachable
+                // backend can't stall the watchdog's hold on _mutex, which acquireInstance() and
+                // every other public method also need.
+                for (auto &svc: toPersistGivenUp) persistInstance(svc);
 
                 for (auto &svc: toRestart) {
                     if (const bool ok = spawnInstance(svc); !ok) {
@@ -527,6 +545,13 @@ namespace Euclid::main {
                 for (auto &svc: toStop) {
                     log_info << "Scaling down " << svc->config.name << " (pid " << svc->pid << ", idle)";
                     stopInstance(svc);
+                    // Unlike an ordinary stop() (which leaves the slot in the pool, just marked
+                    // STOPPED, since it may still be restarted or is only stopping for a full
+                    // manager shutdown), this instance was already erased from group.instances by
+                    // evaluateScaling() above - it's permanently gone, not just idle - so its DB
+                    // entry should be too, keeping the instances array a live mirror of the pool
+                    // instead of accumulating scaled-down history forever.
+                    Database::RepositoryFactory::instance().emmRepository()->removeInstance(svc->config.name, svc->instanceId);
                 }
             }
         });
@@ -536,7 +561,7 @@ namespace Euclid::main {
         if (svc->state == Database::Entity::ModuleState::STOPPING || svc->state == Database::Entity::ModuleState::STOPPED) {
             svc->pid = -1;
             svc->state = Database::Entity::ModuleState::STOPPED;
-            Database::MongoEmmRepository::instance().upsert(Dto::EmmMapper::toEntity(*svc));
+            persistInstance(svc);
             return;
         }
 
@@ -546,7 +571,7 @@ namespace Euclid::main {
         svc->instanceSocketPath.clear();
         svc->state = Database::Entity::ModuleState::CRASHED;
         svc->lastCrashTime = std::chrono::steady_clock::now();
-        Database::MongoEmmRepository::instance().upsert(Dto::EmmMapper::toEntity(*svc));
+        persistInstance(svc);
         log_warning << "Service " << svc->config.name << " crashed (pid=" << exitedPid << ")";
 
         if (svc->config.autoRestart) scheduleRestart(svc);
@@ -634,7 +659,7 @@ namespace Euclid::main {
             Platform::ForceKill(svc->processHandle);
             if (!waitForExit(svc->pid, 2000)) {
                 log_error << "ERROR: Instance '" << svc->config.name << "' (pid " << svc->pid << ") could not be killed";
-                Database::MongoEmmRepository::instance().upsert(Dto::EmmMapper::toEntity(*svc));
+                persistInstance(svc);
                 return false;
             }
             log_info << "Instance '" << svc->config.name << "' (pid " << svc->pid << ") killed";
@@ -652,7 +677,7 @@ namespace Euclid::main {
             kill(svc->pid, SIGKILL);
             if (!waitForExit(svc->pid, 2000)) {
                 log_error << "ERROR: Instance '" << svc->config.name << "' (pid " << svc->pid << ") could not be killed";
-                Database::MongoEmmRepository::instance().upsert(Dto::EmmMapper::toEntity(*svc));
+                persistInstance(svc);
                 return false;
             }
             log_info << "Instance '" << svc->config.name << "' (pid " << svc->pid << ") killed";
@@ -665,7 +690,7 @@ namespace Euclid::main {
         svc->pid = -1;
         svc->instanceSocketPath.clear();
         svc->state = Database::Entity::ModuleState::STOPPED;
-        Database::MongoEmmRepository::instance().upsert(Dto::EmmMapper::toEntity(*svc));
+        persistInstance(svc);
         return true;
     }
 

@@ -47,6 +47,14 @@ namespace Euclid::CLI {
              * @brief SigV4 secret access key paired with accessKeyId.
              */
             std::string secretAccessKey;
+
+            /**
+             * @brief Whether this user has administrator privileges, as reported by the server
+             * on login. Lets admin-only commands (e.g. "emm") fail fast client-side instead of
+             * only after a round trip - the server enforces this independently regardless, since
+             * a locally-cached flag isn't a security boundary on its own.
+             */
+            bool isAdmin{false};
         };
 
         /**
