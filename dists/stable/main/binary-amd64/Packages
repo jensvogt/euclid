@@ -1,18 +1,18 @@
 Package: euclid
-Version: 1.0.27
+Version: 1.0.28
 License: GPL-3.0-or-later
 Vendor: none
 Architecture: amd64
 Maintainer: Jens Vogt <jens.vogt@opitz-consulting.com>
-Installed-Size: 102327
+Installed-Size: 102575
 Depends: systemd, libmagic1
 Homepage: http://example.com/no-uri-given
 Priority: optional
 Section: utils
-Filename: pool/main/e/euclid/euclid_1.0.27_amd64.deb
-Size: 32367268
-SHA256: cb98a894cc044f0499f22f8a46139db5d50247e6eb8614aa5c1e807551430032
-SHA1: 1382b7df215300c3b38ddb52ce9cfe8c9868938a
-MD5sum: 46a5ba1599698f84e76e645e490ef48d
+Filename: pool/main/e/euclid/euclid_1.0.28_amd64.deb
+Size: 32477304
+SHA256: 9d64093f86e4df7ee2fae174a8ffcbac06282fda63a92544ad5f7d32e9443da1
+SHA1: 05d752c3b6bedec63d893872e0427b8b2f8d7d43
+MD5sum: 0d400e529c82f10553b56096d04002b9
 Description: Euclid Cloud Services
 
