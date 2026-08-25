@@ -1,0 +1,65 @@
+.TH EUCLID-CLI-EAM-USER-GROUP-ADD-USER 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eam-user-group-add-user \- add a user to a Euclid user group
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B eam user-group-add-user
+.BR \-\-user\-group | \-g
+.I ERN
+.BR \-\-user | \-u
+.I ERN
+.SH DESCRIPTION
+Adds a user to a user group via the eam service's
+.I user-group-add-user
+action. The caller must be authenticated as an administrator (see
+.BR euclid-cli-eam-login (1)).
+.PP
+Both the group and the user are identified by their Euclid resource name
+(ERN), not by their bare name/user ID - see
+.BR euclid-cli-eam-list-user-groups (1)
+and
+.BR euclid-cli-eam-list-users (1)
+to look them up.
+.PP
+If the group is named
+.IR administrator ,
+adding a user to it grants that user administrator privileges - there is
+no separate per-user "is admin" flag.
+.SH OPTIONS
+.TP
+.BR \-g ", " \-\-user\-group " " \fIERN\fR
+ERN of the user group to add the user to. Required.
+.TP
+.BR \-u ", " \-\-user " " \fIERN\fR
+ERN of the user to add. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The user was added to the group.
+.TP
+.B 1
+Missing/invalid arguments, the request could not be sent, the caller is
+not an authenticated administrator, the group or user ERN does not exist,
+or the user is already a member of the group. If the failure was an
+expired or invalid session (\fIHTTP 401\fR), the stored credentials file
+is removed; run
+.B euclid-cli eam login
+again before retrying.
+.SH EXAMPLES
+Grant jdoe administrator privileges:
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eam user-group-add-user \e
+    --user-group ern:euclid:eam:eu-central-1:000000000000:userGroup:administrator \e
+    --user ern:euclid:eam:eu-central-1:000000000000:user:jdoe
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-eam-create-user-group (1),
+.BR euclid-cli-eam-user-group-remove-user (1),
+.BR euclid-cli-eam-list-user-groups (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

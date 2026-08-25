@@ -15,7 +15,8 @@ namespace Euclid::Database::Entity::EAM {
                 bsoncxx::builder::basic::kvp("region", region),
                 bsoncxx::builder::basic::kvp("description", description),
                 bsoncxx::builder::basic::kvp("userIds", userIdsArray),
-                bsoncxx::builder::basic::kvp("createdAt", createdAt));
+                bsoncxx::builder::basic::kvp("created", bsoncxx::types::b_date(created)),
+                bsoncxx::builder::basic::kvp("modified", bsoncxx::types::b_date(modified)));
     }
 
     UserGroup UserGroup::fromDocument(const std::optional<bsoncxx::document::view> &document) {
@@ -29,10 +30,10 @@ namespace Euclid::Database::Entity::EAM {
             else if (key == "accountId") group.accountId = std::string(field.get_string().value);
             else if (key == "region") group.region = std::string(field.get_string().value);
             else if (key == "description") group.description = std::string(field.get_string().value);
-            else if (key == "createdAt") group.createdAt = std::string(field.get_string().value);
             else if (key == "userIds") {
                 for (const auto &elem: field.get_array().value) group.userIds.emplace_back(elem.get_string().value);
-            }
+            } else if (key == "created") group.created = std::chrono::system_clock::time_point{field.get_date().value};
+            else if (key == "modified") group.modified = std::chrono::system_clock::time_point{field.get_date().value};
         }
         return group;
     }

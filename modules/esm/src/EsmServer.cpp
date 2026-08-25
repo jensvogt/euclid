@@ -101,7 +101,7 @@ namespace Euclid::ESM {
     // Each handler parses whatever fields it needs out of the JSON request body.
     // Return a fully formed HTTP response.
 
-    static response<string_body> handleCreateBucket(const request<string_body> &req) {
+    response<string_body> EsmServer::handleCreateBucket(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "create-bucket");
 
@@ -129,7 +129,7 @@ namespace Euclid::ESM {
         return EsmServer::JsonResponse(req, status::ok, response.toJson());
     }
 
-    static response<string_body> handleListBuckets(const request<string_body> &req) {
+    response<string_body> EsmServer::handleListBuckets(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-buckets");
 
@@ -151,7 +151,7 @@ namespace Euclid::ESM {
         return EsmServer::JsonResponse(req, status::ok, response.toJson());
     }
 
-    static response<string_body> handleGetBucketErn(const request<string_body> &req) {
+    response<string_body> EsmServer::handleGetBucketErn(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-bucket-ern");
 
@@ -175,7 +175,7 @@ namespace Euclid::ESM {
         return EsmServer::JsonResponse(req, status::ok, response.toJson());
     }
 
-    static response<string_body> handleGetBucketSize(const request<string_body> &req) {
+    response<string_body> EsmServer::handleGetBucketSize(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-bucket-size");
 
@@ -200,7 +200,7 @@ namespace Euclid::ESM {
         return EsmServer::JsonResponse(req, status::ok, response.toJson());
     }
 
-    static response<string_body> handleDeleteBucket(const request<string_body> &req) {
+    response<string_body> EsmServer::handleDeleteBucket(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-bucket");
 
@@ -232,7 +232,7 @@ namespace Euclid::ESM {
     // multipart parts or written in one shot (status here is "COMPLETED" rather than "UPLOADED",
     // since there's no post-processing left to do once this returns - content type/MD5 are already
     // known).
-    static response<string_body> handlePutObject(const request<string_body> &req) {
+    response<string_body> EsmServer::handlePutObject(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "put-object");
 
@@ -332,7 +332,7 @@ namespace Euclid::ESM {
     // will later copy each part into, keyed by an upload ID the caller carries for the lifetime of
     // the upload. Internal to the create-upload/upload-part/complete-upload workflow used by the
     // CLI/Java client, rather than a bucket-management action in its own right.
-    static response<string_body> handleCreateUpload(const request<string_body> &req) {
+    response<string_body> EsmServer::handleCreateUpload(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "create-upload");
 
@@ -409,7 +409,7 @@ namespace Euclid::ESM {
     // this action is never called by anything outside the CLI/Java client, so there's no external
     // consumer relying on a JSON schema here - skipping base64 (~33% smaller payload, no
     // encode/decode pass) is a straightforward win for large-file upload throughput.
-    static response<string_body> handleUploadPart(const request<string_body> &req) {
+    response<string_body> EsmServer::handleUploadPart(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "upload-part");
 
@@ -475,7 +475,7 @@ namespace Euclid::ESM {
     // bucket's storage storage, then discards the upload's scratch storage. Internal to the
     // create-upload/upload-part/complete-upload workflow; called by the CLI's "upload-file" action
     // once all parts have been uploaded.
-    static response<string_body> handleCompleteUpload(const request<string_body> &req) {
+    response<string_body> EsmServer::handleCompleteUpload(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "complete-upload");
 
@@ -662,7 +662,7 @@ namespace Euclid::ESM {
     // instead of this handler ever risking an unbounded response body.
     //
     // Like download-part, the response body is raw bytes ("application/octet-stream"), not JSON.
-    static response<string_body> handleGetObject(const request<string_body> &req) {
+    response<string_body> EsmServer::handleGetObject(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-object");
 
@@ -670,46 +670,46 @@ namespace Euclid::ESM {
 
         const auto bucketErn = std::string(req["x-euclid-bucket-ern"]);
         if (bucketErn.empty()) {
-            return EsmServer::ErrorResponse(req, status::bad_request, "Missing x-euclid-bucket-ern header");
+            return ErrorResponse(req, status::bad_request, "Missing x-euclid-bucket-ern header");
         }
         const auto key = std::string(req["x-euclid-key"]);
         if (key.empty()) {
-            return EsmServer::ErrorResponse(req, status::bad_request, "Missing x-euclid-key header");
+            return ErrorResponse(req, status::bad_request, "Missing x-euclid-key header");
         }
 
         long maxInlineSize = 0;
         try {
             maxInlineSize = std::stol(std::string(req["x-euclid-part-size"]));
         } catch (const std::exception &) {
-            return EsmServer::ErrorResponse(req, status::bad_request, "Missing or invalid x-euclid-part-size header");
+            return ErrorResponse(req, status::bad_request, "Missing or invalid x-euclid-part-size header");
         }
         if (maxInlineSize < 1) {
-            return EsmServer::ErrorResponse(req, status::bad_request, "x-euclid-part-size must be >= 1");
+            return ErrorResponse(req, status::bad_request, "x-euclid-part-size must be >= 1");
         }
 
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
         const auto object = repo->findObjectByBucketAndKey(bucketErn, key);
         if (!object.has_value()) {
-            return EsmServer::ErrorResponse(req, status::not_found, "Object not found, bucket: " + bucketErn + ", key: " + key);
+            return ErrorResponse(req, status::not_found, "Object not found, bucket: " + bucketErn + ", key: " + key);
         }
         if (object->status != Database::Entity::ESM::ObjectStatus::COMPLETED) {
-            return EsmServer::ErrorResponse(req, status::conflict, "Object is not available for download, status: " + Database::Entity::ESM::ObjectStatusToString(object->status));
+            return ErrorResponse(req, status::conflict, "Object is not available for download, status: " + Database::Entity::ESM::ObjectStatusToString(object->status));
         }
         if (object->size >= maxInlineSize) {
-            return EsmServer::ErrorResponse(req, status::payload_too_large, "Object is too large for a single-request download, size: " + std::to_string(object->size));
+            return ErrorResponse(req, status::payload_too_large, "Object is too large for a single-request download, size: " + std::to_string(object->size));
         }
 
         const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
         std::ifstream in(std::filesystem::path(dataDir) / object->internalName, std::ios::binary);
         if (!in.is_open()) {
-            return EsmServer::ErrorResponse(req, status::internal_server_error, "Could not open object file for download, bucket: " + bucketErn + ", key: " + key);
+            return ErrorResponse(req, status::internal_server_error, "Could not open object file for download, bucket: " + bucketErn + ", key: " + key);
         }
 
         std::ostringstream buffer;
         buffer << in.rdbuf();
         std::string data = buffer.str();
 
-        log_debug << "ESM get object, bucket: " << bucketErn << ", key: " << key << ", size: " << data.size();
+        log_info << "ESM get object, bucket: " << bucketErn << ", key: " << key << ", size: " << data.size();
 
         response<string_body> res{status::ok, req.version()};
         res.set(field::content_type, "application/octet-stream");
@@ -724,7 +724,7 @@ namespace Euclid::ESM {
     // completed object being downloaded and stages a meta file recording where download-part
     // should read bytes *from*, keyed by a download ID the caller carries for the lifetime of the
     // download.
-    static response<string_body> handleCreateDownload(const request<string_body> &req) {
+    response<string_body> EsmServer::handleCreateDownload(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "create-download");
 
@@ -792,7 +792,7 @@ namespace Euclid::ESM {
     // bytes from the request body, download-part *writes* raw bytes to the response body -
     // "application/octet-stream", not JSON - for the same reason upload-part skips base64: parts
     // are typically the bulk of a download's bytes.
-    static response<string_body> handleDownloadPart(const request<string_body> &req) {
+    response<string_body> EsmServer::handleDownloadPart(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "download-part");
 
@@ -800,32 +800,32 @@ namespace Euclid::ESM {
 
         const auto downloadId = std::string(req["x-euclid-download-id"]);
         if (downloadId.empty()) {
-            return EsmServer::ErrorResponse(req, status::bad_request, "Missing x-euclid-download-id header");
+            return ErrorResponse(req, status::bad_request, "Missing x-euclid-download-id header");
         }
 
         long partNumber = 0;
         try {
             partNumber = std::stol(std::string(req["x-euclid-part-number"]));
         } catch (const std::exception &) {
-            return EsmServer::ErrorResponse(req, status::bad_request, "Missing or invalid x-euclid-part-number header");
+            return ErrorResponse(req, status::bad_request, "Missing or invalid x-euclid-part-number header");
         }
         if (partNumber < 1) {
-            return EsmServer::ErrorResponse(req, status::bad_request, "x-euclid-part-number must be >= 1");
+            return ErrorResponse(req, status::bad_request, "x-euclid-part-number must be >= 1");
         }
 
         long partSize = 0;
         try {
             partSize = std::stol(std::string(req["x-euclid-part-size"]));
         } catch (const std::exception &) {
-            return EsmServer::ErrorResponse(req, status::bad_request, "Missing or invalid x-euclid-part-size header");
+            return ErrorResponse(req, status::bad_request, "Missing or invalid x-euclid-part-size header");
         }
         if (partSize < 1) {
-            return EsmServer::ErrorResponse(req, status::bad_request, "x-euclid-part-size must be >= 1");
+            return ErrorResponse(req, status::bad_request, "x-euclid-part-size must be >= 1");
         }
 
         const auto downloadDir = downloadDirFor(downloadId);
         if (!std::filesystem::exists(downloadDir / kDownloadMetaFile)) {
-            return EsmServer::ErrorResponse(req, status::not_found, "Download not found, id: " + downloadId);
+            return ErrorResponse(req, status::not_found, "Download not found, id: " + downloadId);
         }
 
         boost::json::value meta;
@@ -840,13 +840,13 @@ namespace Euclid::ESM {
 
         const auto offset = (partNumber - 1) * partSize;
         if (offset >= totalSize) {
-            return EsmServer::ErrorResponse(req, status::bad_request, "Part number beyond end of object, id: " + downloadId + ", part: " + std::to_string(partNumber));
+            return ErrorResponse(req, status::bad_request, "Part number beyond end of object, id: " + downloadId + ", part: " + std::to_string(partNumber));
         }
 
         const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
         std::ifstream in(std::filesystem::path(dataDir) / internalName, std::ios::binary);
         if (!in.is_open()) {
-            return EsmServer::ErrorResponse(req, status::internal_server_error, "Could not open object file for download, id: " + downloadId);
+            return ErrorResponse(req, status::internal_server_error, "Could not open object file for download, id: " + downloadId);
         }
         in.seekg(offset);
 
@@ -868,14 +868,14 @@ namespace Euclid::ESM {
     // Discards a completed (or abandoned) download's scratch meta storage. The mirror image of
     // handleCompleteUpload(), but far simpler - a download doesn't assemble or mutate anything, so
     // there's no post-processing step, just cleanup.
-    static response<string_body> handleCompleteDownload(const request<string_body> &req) {
+    response<string_body> EsmServer::handleCompleteDownload(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "complete-download");
 
         if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
-        if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
+        if (const auto err = ParseJsonBody(req, jv)) return *err;
 
         const auto request = Dto::ESM::CompleteDownloadRequest::fromJson(req.body());
         log_info << "ESM CompleteDownload, id: " << request.downloadId;
@@ -886,17 +886,17 @@ namespace Euclid::ESM {
         if (ec)
             log_warning << "Could not remove download storage, path: " << downloadDir.string() << ", error: " << ec.message();
 
-        return EsmServer::JsonResponse(req, status::ok);
+        return JsonResponse(req, status::ok);
     }
 
-    static response<string_body> handleListObjects(const request<string_body> &req) {
+    response<string_body> EsmServer::handleListObjects(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-objects");
 
         if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
-        if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
+        if (const auto err = ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::ESM::ListObjectsRequest>(jv);
         log_info << "ESM ListObjects, bucket: " << request.bucketErn << (!request.prefix.empty() ? ", prefix: " + request.prefix : "");
@@ -909,24 +909,24 @@ namespace Euclid::ESM {
         response.objects = Dto::ESM::EsmMapper::toDto(objects);
         response.total = repo->countObjects(request.bucketErn, request.prefix);
 
-        return EsmServer::JsonResponse(req, status::ok, response.toJson());
+        return JsonResponse(req, status::ok, response.toJson());
     }
 
-    static response<string_body> handleGetObjectCount(const request<string_body> &req) {
+    response<string_body> EsmServer::handleGetObjectCount(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-object-count");
 
         if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
-        if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
+        if (const auto err = ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::ESM::GetObjectCountRequest>(jv);
 
         const std::optional<Database::Entity::ESM::Bucket> bucket = Database::RepositoryFactory::instance().esmRepository()->findBucketByErn(request.ern);
 
         if (!bucket.has_value()) {
-            return EsmServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.ern);
+            return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.ern);
         }
         log_info << "ESM get object count, ern: " << request.ern << ", count: " << bucket->objects;
 
@@ -934,17 +934,17 @@ namespace Euclid::ESM {
         response.ern = bucket->ern;
         response.count = bucket->objects;
 
-        return EsmServer::JsonResponse(req, status::ok, response.toJson());
+        return JsonResponse(req, status::ok, response.toJson());
     }
 
-    static response<string_body> handleDeleteObject(const request<string_body> &req) {
+    response<string_body> EsmServer::handleDeleteObject(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-object");
 
         if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
-        if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
+        if (const auto err = ParseJsonBody(req, jv)) return *err;
 
         const auto request = Dto::ESM::DeleteObjectRequest::fromJson(req.body());
         log_info << "Storage DeleteObject, ern: " << request.ern;
@@ -969,21 +969,21 @@ namespace Euclid::ESM {
 
         repo->deleteObjectByErn(request.ern);
 
-        return EsmServer::JsonResponse(req, status::ok);
+        return JsonResponse(req, status::ok);
     }
 
     // Removes every object of a bucket, e.g. so the (now empty) bucket can be deleted. Reuses the
     // same per-object disk cleanup as handleDeleteObject() rather than calling it directly, since
     // looking the object back up by ERN for each one would be wasted work when listObjects() already
     // has it.
-    static response<string_body> handlePurgeBucket(const request<string_body> &req) {
+    response<string_body> EsmServer::handlePurgeBucket(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "purge-bucket");
 
         if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
-        if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
+        if (const auto err = ParseJsonBody(req, jv)) return *err;
 
         const auto request = Dto::ESM::PurgeBucketRequest::fromJson(req.body());
         log_info << "ESM PurgeBucket, ern: " << request.ern;
@@ -1005,7 +1005,7 @@ namespace Euclid::ESM {
         response.ern = request.ern;
         response.count = static_cast<long>(objects.size());
 
-        return EsmServer::JsonResponse(req, status::ok, response.toJson());
+        return JsonResponse(req, status::ok, response.toJson());
     }
 
     static response<string_body> handleAddBucketTag(const request<string_body> &req) {
@@ -1107,11 +1107,17 @@ namespace Euclid::ESM {
         return Command::Unknown;
     }
 
-    static response<string_body> dispatch(const request<string_body> &req) {
+    // ── EsmServer ────────────────────────────────────────────────────────────
+
+    EsmServer::EsmServer(std::string socketPath, const int threads) : HttpActionServer("ESM", std::move(socketPath), threads) {}
+
+    EsmServer::~EsmServer() = default;
+
+    response<string_body> EsmServer::Dispatch(const request<string_body> &req) {
 
         const auto action = std::string(req["x-euclid-action"]);
         if (action.empty()) {
-            return EsmServer::ErrorResponse(req, status::bad_request, "Missing x-euclid-action header");
+            return ErrorResponse(req, status::bad_request, "Missing x-euclid-action header");
         }
         log_debug << "ESM action=" << action;
 
@@ -1176,18 +1182,8 @@ namespace Euclid::ESM {
 
             case Command::Unknown:
             default:
-                return EsmServer::ErrorResponse(req, status::not_found, "Action not implemented: " + action);
+                return ErrorResponse(req, status::not_found, "Action not implemented: " + action);
         }
-    }
-
-    // ── EsmServer ────────────────────────────────────────────────────────────
-
-    EsmServer::EsmServer(std::string socketPath, const int threads) : HttpActionServer("ESM", std::move(socketPath), threads) {}
-
-    EsmServer::~EsmServer() = default;
-
-    response<string_body> EsmServer::Dispatch(const request<string_body> &req) {
-        return dispatch(req);
     }
 
 }// namespace Euclid::ESM

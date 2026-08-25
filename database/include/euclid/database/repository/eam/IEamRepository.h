@@ -5,11 +5,14 @@
 #pragma once
 
 // C++ includes
+#include <algorithm>
 #include <optional>
 #include <string>
 #include <vector>
 
 // Euclid includes
+#include <euclid/database/entity/eam/Account.h>
+#include <euclid/database/entity/eam/Namespace.h>
 #include <euclid/database/entity/eam/User.h>
 #include <euclid/database/entity/eam/UserGroup.h>
 
@@ -59,6 +62,15 @@ namespace Euclid::Database {
         virtual std::optional<Entity::EAM::User> findUserByEmail(const std::string &email) const = 0;
 
         /**
+         * @brief Searches for a user by its ERN.
+         *
+         * @param ern The ERN to search for.
+         * @return The matching user, or an empty optional if no match is found.
+         */
+        [[nodiscard]]
+        virtual std::optional<Entity::EAM::User> findUserByErn(const std::string &ern) const = 0;
+
+        /**
          * @brief Searches for the user owning a given access key ID.
          *
          * Used by SigV4 signature verification to look up the secret to check a signature
@@ -78,6 +90,15 @@ namespace Euclid::Database {
          */
         [[nodiscard]]
         virtual bool userExists(const std::string &userId) const = 0;
+
+        /**
+         * @brief Checks if a user with the specified ERN exists in the repository.
+         *
+         * @param ern The user ERN to check for existence.
+         * @return True if a user with the given ERN exists, otherwise false.
+         */
+        [[nodiscard]]
+        virtual bool userErnExists(const std::string &ern) const = 0;
 
         /**
          * @brief Retrieves the total count of users in the repository.
@@ -121,6 +142,33 @@ namespace Euclid::Database {
         virtual bool userGroupExists(const std::string &name) const = 0;
 
         /**
+         * @brief Checks if a group with the specified ERN exists in the repository.
+         *
+         * @param ern The group ERN to check for existence.
+         * @return True if a group with the given ERN exists, otherwise false.
+         */
+        [[nodiscard]]
+        virtual bool userGroupErnExists(const std::string &ern) const = 0;
+
+        /**
+         * @brief Searches for a user group by its name.
+         *
+         * @param name The user group name to search for.
+         * @return The matching user group, or an empty optional if no match is found.
+         */
+        [[nodiscard]]
+        virtual std::optional<Entity::EAM::UserGroup> findUserGroupByName(const std::string &name) const = 0;
+
+        /**
+         * @brief Searches for a user group by its ERN.
+         *
+         * @param ern The user group ERN to search for.
+         * @return The matching user group, or an empty optional if no match is found.
+         */
+        [[nodiscard]]
+        virtual std::optional<Entity::EAM::UserGroup> findUserGroupByErn(const std::string &ern) const = 0;
+
+        /**
          * @brief Retrieves the total count of user groups in the repository.
          *
          * @return The total number of user groups.
@@ -149,6 +197,177 @@ namespace Euclid::Database {
          */
         virtual void deleteUserGroup(const std::string &name) const = 0;
 
+        /**
+         * @brief Inserts a new account or updates an existing one in the repository.
+         *
+         * @param account The account to be inserted or updated in the repository.
+         */
+        virtual Entity::EAM::Account upsertAccount(Entity::EAM::Account &account) = 0;
+
+        /**
+         * @brief Checks if an account with the specified account ID exists in the repository.
+         *
+         * @param accountId The account ID to check for existence.
+         * @return True if an account with the given account ID exists, otherwise false.
+         */
+        [[nodiscard]]
+        virtual bool accountExists(const std::string &accountId) const = 0;
+
+        /**
+         * @brief Checks if an account with the specified ERN exists in the repository.
+         *
+         * @param ern The account ERN to check for existence.
+         * @return True if an account with the given ERN exists, otherwise false.
+         */
+        [[nodiscard]]
+        virtual bool accountErnExists(const std::string &ern) const = 0;
+
+        /**
+         * @brief Searches for an account by its account ID.
+         *
+         * @param accountId The account ID to search for.
+         * @return The matching account, or an empty optional if no match is found.
+         */
+        [[nodiscard]]
+        virtual std::optional<Entity::EAM::Account> findAccountByAccountId(const std::string &accountId) const = 0;
+
+        /**
+         * @brief Searches for an account by its ERN.
+         *
+         * @param ern The ERN to search for.
+         * @return The matching account, or an empty optional if no match is found.
+         */
+        [[nodiscard]]
+        virtual std::optional<Entity::EAM::Account> findAccountByErn(const std::string &ern) const = 0;
+
+        /**
+         * @brief Retrieves the total count of accounts in the repository.
+         *
+         * @return The total number of accounts.
+         */
+        [[nodiscard]]
+        virtual long countAccounts() const = 0;
+
+        /**
+         * @brief Retrieves a list of accounts
+         *
+         * Only accounts with the given prefix are returned. The response is also paged and sorted when the parameter are given.
+         *
+         * @param prefix only accounts whose accountId starts with this prefix are returned; empty matches all accounts
+         * @param pageSize maximum number of accounts to return; 0 or less means no limit
+         * @param pageIndex zero-based page index, applied when pageSize is set
+         * @param sortColumn field to sort by (e.g. "accountId", "name"); empty means unsorted
+         * @return matching, paged and sorted list of accounts
+         */
+        [[nodiscard]]
+        virtual std::vector<Entity::EAM::Account> listAccounts(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
+
+        /**
+         * @brief Removes an account by its account ID.
+         *
+         * @param accountId The account ID of the account to be removed.
+         */
+        virtual void deleteAccount(const std::string &accountId) const = 0;
+
+        /**
+         * @brief Inserts a new namespace or updates an existing one in the repository.
+         *
+         * @param ns The namespace to be inserted or updated in the repository.
+         */
+        virtual Entity::EAM::Namespace upsertNamespace(Entity::EAM::Namespace &ns) = 0;
+
+        /**
+         * @brief Checks if a namespace with the specified name exists under an account.
+         *
+         * @param accountId The account the namespace should belong to.
+         * @param name The namespace name to check for existence.
+         * @return True if a matching namespace exists, otherwise false.
+         */
+        [[nodiscard]]
+        virtual bool namespaceExists(const std::string &accountId, const std::string &name) const = 0;
+
+        /**
+         * @brief Checks if a namespace with the specified ERN exists in the repository.
+         *
+         * @param ern The namespace ERN to check for existence.
+         * @return True if a namespace with the given ERN exists, otherwise false.
+         */
+        [[nodiscard]]
+        virtual bool namespaceErnExists(const std::string &ern) const = 0;
+
+        /**
+         * @brief Searches for a namespace by its account ID and name.
+         *
+         * @param accountId The account the namespace belongs to.
+         * @param name The namespace name to search for.
+         * @return The matching namespace, or an empty optional if no match is found.
+         */
+        [[nodiscard]]
+        virtual std::optional<Entity::EAM::Namespace> findNamespaceByName(const std::string &accountId, const std::string &name) const = 0;
+
+        /**
+         * @brief Searches for a namespace by its ERN.
+         *
+         * @param ern The ERN to search for.
+         * @return The matching namespace, or an empty optional if no match is found.
+         */
+        [[nodiscard]]
+        virtual std::optional<Entity::EAM::Namespace> findNamespaceByErn(const std::string &ern) const = 0;
+
+        /**
+         * @brief Retrieves the total count of namespaces under an account.
+         *
+         * @param accountId The account to count namespaces for.
+         * @return The total number of namespaces under accountId.
+         */
+        [[nodiscard]]
+        virtual long countNamespaces(const std::string &accountId) const = 0;
+
+        /**
+         * @brief Retrieves a list of namespaces under an account.
+         *
+         * Only namespaces with the given prefix are returned. The response is also paged and sorted when the parameter are given.
+         *
+         * @param accountId only namespaces belonging to this account are returned
+         * @param prefix only namespaces whose name starts with this prefix are returned; empty matches all namespaces
+         * @param pageSize maximum number of namespaces to return; 0 or less means no limit
+         * @param pageIndex zero-based page index, applied when pageSize is set
+         * @param sortColumn field to sort by (e.g. "name"); empty means unsorted
+         * @return matching, paged and sorted list of namespaces
+         */
+        [[nodiscard]]
+        virtual std::vector<Entity::EAM::Namespace> listNamespaces(const std::string &accountId, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
+
+        /**
+         * @brief Removes a namespace by its account ID and name.
+         *
+         * @param accountId The account the namespace belongs to.
+         * @param name The name of the namespace to be removed.
+         */
+        virtual void deleteNamespace(const std::string &accountId, const std::string &name) const = 0;
+
     };
+
+    /**
+     * @brief Name of the EAM user group whose membership determines administrator privileges.
+     *
+     * Administrator status has no dedicated field on User - it's entirely derived from
+     * membership in this group (see IsEamAdmin()), granted/revoked the same way any other group
+     * membership is, via the user-group-add-user/user-group-remove-user actions.
+     */
+    constexpr auto kEamAdministratorGroupName = "administrator";
+
+    /**
+     * @brief Whether userId is an EAM administrator, i.e. a member of the group named
+     * kEamAdministratorGroupName.
+     *
+     * @param repo repository to look up the administrator group in
+     * @param userId user ID to check
+     * @return true if userId is a member of the administrator group
+     */
+    inline bool IsEamAdmin(const IEamRepository &repo, const std::string &userId) {
+        const auto group = repo.findUserGroupByName(kEamAdministratorGroupName);
+        return group.has_value() && std::ranges::contains(group->userIds, userId);
+    }
 
 }// namespace Euclid::Database

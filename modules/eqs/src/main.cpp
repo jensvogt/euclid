@@ -127,6 +127,8 @@ int main(const int argc, char *argv[]) {
     if (const int error = initializeDatabase(cfg); error != 0) return error;
     Euclid::Database::WireAccessKeyLookup();
     Euclid::Database::WireModuleSocketLookup();
+    Euclid::Database::WireScopeLookup();
+    Euclid::Database::WireGrantLookup();
 
     Euclid::Core::Monitoring::MetricsPusher metricsPusher("eqs");
     try {

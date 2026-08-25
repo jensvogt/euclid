@@ -40,8 +40,20 @@ namespace Euclid::Core {
             }
         }
 
+        HttpActionServer::ScopeLookup &scopeLookup() {
+            static HttpActionServer::ScopeLookup lookup;
+            return lookup;
+        }
+
+        HttpActionServer::GrantLookup &grantLookup() {
+            static HttpActionServer::GrantLookup lookup;
+            return lookup;
+        }
+
         // Empty return means "in scope"; otherwise the message to send back as the 403 body.
-        std::string CheckScope(const http::request<http::string_body> &req) {
+        // subject is the already-verified caller (from the JWT/SigV4 check just above this call),
+        // used for the per-user grant check once GrantLookup is wired.
+        std::string CheckScope(const http::request<http::string_body> &req, const std::optional<std::string> &subject) {
 
             const auto region = std::string(req["x-euclid-region"]);
             if (const auto configuredRegion = Configuration::instance().getOr<std::string>("euclid.region", ""); !configuredRegion.empty() && configuredRegion != region) {
@@ -49,13 +61,33 @@ namespace Euclid::Core {
             }
 
             const auto accountId = std::string(req["x-euclid-account-id"]);
-            if (const auto allowedAccountIds = ConfiguredList("euclid.account-id"); !allowedAccountIds.empty() && std::ranges::find(allowedAccountIds, accountId) == allowedAccountIds.end()) {
-                return "Account is not permitted";
+            const auto ns = std::string(req["x-euclid-namespace"]);
+
+            if (!accountId.empty()) {
+                if (scopeLookup()) {
+                    // DB is the source of truth once account/namespace management is wired in.
+                    if (!scopeLookup()(accountId, ns)) {
+                        return ns.empty() ? "Account is not permitted" : "Namespace is not permitted";
+                    }
+                } else {
+                    // Static-config fallback - the only path for modules with no database access
+                    // (e.g. ftp). Empty configured list = no restriction (back-compat on upgrade).
+                    if (const auto allowedAccountIds = ConfiguredList("euclid.account-ids"); !allowedAccountIds.empty() && std::ranges::find(allowedAccountIds, accountId) == allowedAccountIds.end()) {
+                        return "Account is not permitted";
+                    }
+                    if (const auto allowedNamespaces = ConfiguredList("euclid.namespaces"); !ns.empty() && !allowedNamespaces.empty() && std::ranges::find(allowedNamespaces, ns) == allowedNamespaces.end()) {
+                        return "Namespace is not permitted";
+                    }
+                }
             }
 
-            const auto ns = std::string(req["x-euclid-namespace"]);
-            if (const auto allowedNamespaces = ConfiguredList("euclid.namespaces"); !ns.empty() && !allowedNamespaces.empty() && std::ranges::find(allowedNamespaces, ns) == allowedNamespaces.end()) {
-                return "Namespace is not permitted";
+            // Per-user grant check - only enforced once GrantLookup is wired and the request
+            // actually names an account; account-agnostic actions (e.g. login, get-metrics)
+            // typically send no x-euclid-account-id and are exempt.
+            if (grantLookup() && !accountId.empty() && subject.has_value()) {
+                if (!grantLookup()(*subject, accountId, ns)) {
+                    return ns.empty() ? "Not authorized for this account" : "Not authorized for this account/namespace";
+                }
             }
 
             return {};
@@ -115,6 +147,14 @@ namespace Euclid::Core {
         accessKeyLookup() = std::move(lookup);
     }
 
+    void HttpActionServer::SetScopeLookup(ScopeLookup lookup) {
+        scopeLookup() = std::move(lookup);
+    }
+
+    void HttpActionServer::SetGrantLookup(GrantLookup lookup) {
+        grantLookup() = std::move(lookup);
+    }
+
     HttpActionServer::AuthResult HttpActionServer::Authenticate(const http::request<http::string_body> &req) {
 
         const auto header = std::string(req[http::field::authorization]);
@@ -148,7 +188,7 @@ namespace Euclid::Core {
             return {};
         }
 
-        if (auto denialReason = CheckScope(req); !denialReason.empty()) {
+        if (auto denialReason = CheckScope(req, subject); !denialReason.empty()) {
             return {.subject = std::nullopt, .denialReason = std::move(denialReason)};
         }
 

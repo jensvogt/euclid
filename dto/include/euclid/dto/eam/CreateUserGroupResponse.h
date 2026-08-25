@@ -15,7 +15,7 @@ namespace Euclid::Dto::EAM {
         /**
          * @brief The newly created group
          */
-        UserGroup group;
+        UserGroup userGroup;
 
         /**
          * @brief Serializes this request to a JSON string
@@ -29,14 +29,13 @@ namespace Euclid::Dto::EAM {
         friend CreateUserGroupResponse tag_invoke(boost::json::value_to_tag<CreateUserGroupResponse>, boost::json::value const &v) {
             CreateUserGroupResponse r;
             static_cast<BaseDto &>(r) = GetMetadata(v);
-            r.group = boost::json::value_to<UserGroup>(v.at("group"));
+            r.userGroup = boost::json::value_to<UserGroup>(v.at("userGroup"));
             return r;
         }
 
         friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, CreateUserGroupResponse const &obj) {
             jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
-                    {"group", boost::json::value_from(obj.group)},
+                    {"userGroup", boost::json::value_from(obj.userGroup)},
             };
         }
     };

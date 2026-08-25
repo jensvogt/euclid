@@ -90,6 +90,66 @@ namespace Euclid::ESM {
          */
         [[nodiscard]]
         response<string_body> Dispatch(const request<string_body> &req) override;
+
+    private:
+
+        // Per-action handlers, one per x-euclid-action value Dispatch() switches on. Each parses
+        // whatever fields it needs out of the JSON request body (or, for put-object/upload-part/
+        // download-part/get-object, headers plus a raw body) and returns a fully formed HTTP
+        // response. Grouped here as static methods (none need per-instance state - the actual
+        // state lives in Database::RepositoryFactory/Core::Configuration singletons) rather than
+        // free functions, so they're discoverable alongside the rest of EsmServer's interface.
+
+        [[nodiscard]]
+        static response<string_body> handleCreateBucket(const request<string_body> &req);
+
+        [[nodiscard]]
+        static response<string_body> handleListBuckets(const request<string_body> &req);
+
+        [[nodiscard]]
+        static response<string_body> handleGetBucketErn(const request<string_body> &req);
+
+        [[nodiscard]]
+        static response<string_body> handleGetBucketSize(const request<string_body> &req);
+
+        [[nodiscard]]
+        static response<string_body> handleDeleteBucket(const request<string_body> &req);
+
+        [[nodiscard]]
+        static response<string_body> handlePutObject(const request<string_body> &req);
+
+        [[nodiscard]]
+        static response<string_body> handleCreateUpload(const request<string_body> &req);
+
+        [[nodiscard]]
+        static response<string_body> handleUploadPart(const request<string_body> &req);
+
+        [[nodiscard]]
+        static response<string_body> handleCompleteUpload(const request<string_body> &req);
+
+        [[nodiscard]]
+        static response<string_body> handleGetObject(const request<string_body> &req);
+
+        [[nodiscard]]
+        static response<string_body> handleCreateDownload(const request<string_body> &req);
+
+        [[nodiscard]]
+        static response<string_body> handleDownloadPart(const request<string_body> &req);
+
+        [[nodiscard]]
+        static response<string_body> handleCompleteDownload(const request<string_body> &req);
+
+        [[nodiscard]]
+        static response<string_body> handleListObjects(const request<string_body> &req);
+
+        [[nodiscard]]
+        static response<string_body> handleGetObjectCount(const request<string_body> &req);
+
+        [[nodiscard]]
+        static response<string_body> handleDeleteObject(const request<string_body> &req);
+
+        [[nodiscard]]
+        static response<string_body> handlePurgeBucket(const request<string_body> &req);
     };
 
 }// namespace Euclid::ESM

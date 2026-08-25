@@ -1,6 +1,6 @@
 .TH EUCLID-CLI-EAM 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
 .SH NAME
-euclid-cli-eam \- manage Euclid user accounts (login, registration, listing, deletion)
+euclid-cli-eam \- manage Euclid users, groups, accounts, namespaces and access grants
 .SH SYNOPSIS
 .B euclid-cli
 [\fB\-\-endpoint\fR \fIURL\fR]
@@ -12,7 +12,9 @@ euclid-cli-eam \- manage Euclid user accounts (login, registration, listing, del
 The
 .B eam
 module talks to the Euclid gateway's eam service to authenticate and
-manage user accounts. Every
+manage the access-control hierarchy: accounts, the namespaces under them
+(e.g. \fIdevelopment\fR, \fIintegration\fR, \fIproduction\fR), users, user
+groups, and per-user namespace grants. Every
 .B eam
 command sends a single JSON request to the gateway
 (\fB\-\-endpoint\fR, default \fIhttp://localhost:5566\fR) and prints the
@@ -20,9 +22,11 @@ JSON response on success.
 .PP
 Most actions other than
 .B login
-require the caller to be authenticated as an administrator; see
+require the caller to be authenticated; see
 .B AUTHENTICATION
-below for how the session token is obtained and stored.
+below for how the session token is obtained and stored, and
+.B ADMINISTRATOR PRIVILEGES
+below for how the two levels of administrator access work.
 .SH ACTIONS
 .TP
 .B login
@@ -58,6 +62,94 @@ administrator privileges required. See
 Deletes one of the logged-in user's own access keys. Self-service; no
 administrator privileges required. See
 .BR euclid-cli-eam-delete-access-key (1).
+.TP
+.B create-user-group
+Creates a new, empty user group. Requires administrator privileges. See
+.BR euclid-cli-eam-create-user-group (1).
+.TP
+.B list-user-groups
+Lists user groups, optionally filtered by name prefix, paged and sorted.
+Requires administrator privileges. See
+.BR euclid-cli-eam-list-user-groups (1).
+.TP
+.B user-group-add-user
+Adds a user to a user group. Requires administrator privileges. See
+.BR euclid-cli-eam-user-group-add-user (1).
+.TP
+.B user-group-remove-user
+Removes a user from a user group. Requires administrator privileges. See
+.BR euclid-cli-eam-user-group-remove-user (1).
+.TP
+.B delete-user-group
+Deletes a user group by name. Requires administrator privileges. See
+.BR euclid-cli-eam-delete-user-group (1).
+.TP
+.B create-account
+Creates a new account, the top level of the access hierarchy. Requires
+global administrator privileges. See
+.BR euclid-cli-eam-create-account (1).
+.TP
+.B list-accounts
+Lists accounts, optionally filtered by account ID prefix, paged and
+sorted. Requires global administrator privileges. See
+.BR euclid-cli-eam-list-accounts (1).
+.TP
+.B delete-account
+Deletes an account by account ID. The account must have no remaining
+namespaces or user grants. Requires global administrator privileges. See
+.BR euclid-cli-eam-delete-account (1).
+.TP
+.B create-namespace
+Creates a new namespace under an account. Requires administrator
+privileges on that account. See
+.BR euclid-cli-eam-create-namespace (1).
+.TP
+.B list-namespaces
+Lists the namespaces under an account, optionally filtered by name
+prefix, paged and sorted. Requires administrator privileges on that
+account. See
+.BR euclid-cli-eam-list-namespaces (1).
+.TP
+.B delete-namespace
+Deletes a namespace under an account. The namespace must have no
+remaining user grants. Requires administrator privileges on that account.
+See
+.BR euclid-cli-eam-delete-namespace (1).
+.TP
+.B grant-namespace-access
+Grants a user access to a specific namespace within a specific account.
+Requires administrator privileges on that account. See
+.BR euclid-cli-eam-grant-namespace-access (1).
+.TP
+.B revoke-namespace-access
+Revokes a user's access to a specific namespace within a specific
+account. Requires administrator privileges on that account. See
+.BR euclid-cli-eam-revoke-namespace-access (1).
+.SH ADMINISTRATOR PRIVILEGES
+There is no per-user "is admin" field. Instead, two independent levels of
+administrator privilege exist:
+.TP
+.B Global administrator
+Membership in the user group named
+.IR administrator .
+A global administrator may manage every user, user group, account and
+namespace in the deployment. Grant or revoke it with
+.BR euclid-cli-eam-user-group-add-user (1)
+/
+.BR euclid-cli-eam-user-group-remove-user (1)
+on the
+.I administrator
+group.
+.TP
+.B Account-scoped administrator
+A per-user, per-account grant (separate from namespace access grants)
+that allows managing one account's namespaces and namespace-access grants
+without being a global administrator. Account creation and deletion
+themselves are always global-administrator-only.
+.PP
+Account-scoped administrator status cannot currently be granted through
+this CLI; it is set when the grant is created programmatically (e.g. the
+bootstrap account grant given to the default administrator user).
 .SH GLOBAL OPTIONS
 These options are given to
 .B euclid-cli
@@ -113,7 +205,8 @@ The action completed successfully.
 .B 1
 Argument parsing failed, the request could not be sent, or the server
 rejected it (invalid credentials, missing/expired session, insufficient
-privileges, invalid input, etc.). Details are printed to standard error.
+privileges, invalid input, an account/namespace still in use, etc.).
+Details are printed to standard error.
 .SH FILES
 .TP
 .I $HOME/.euclid/credentials
@@ -129,6 +222,7 @@ while the user store is empty), then log in:
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 eam register \e
+    --region eu-central-1 --account-id 000000000000 \e
     --user admin --email admin@example.com --password 'change-me'
 
 euclid-cli --endpoint http://localhost:5566 eam login \e
@@ -145,6 +239,23 @@ euclid-cli --endpoint http://localhost:5566 eam list-users
 euclid-cli --endpoint http://localhost:5566 eam delete-user --userId jdoe
 .fi
 .RE
+.PP
+Set up a new account with a development namespace, and grant a user
+access to it:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eam create-account \e
+    --account-id 123456789012 --name "Payments Team"
+
+euclid-cli --endpoint http://localhost:5566 eam create-namespace \e
+    --account-id 123456789012 --name development
+
+euclid-cli --endpoint http://localhost:5566 eam grant-namespace-access \e
+    --user ern:euclid:eam:eu-central-1:123456789012:user:jdoe \e
+    --account-id 123456789012 --namespace development
+.fi
+.RE
 .SH SEE ALSO
 .BR euclid-cli (1),
 .BR euclid-cli-eam-login (1),
@@ -153,6 +264,19 @@ euclid-cli --endpoint http://localhost:5566 eam delete-user --userId jdoe
 .BR euclid-cli-eam-delete-user (1),
 .BR euclid-cli-eam-create-access-key (1),
 .BR euclid-cli-eam-list-access-keys (1),
-.BR euclid-cli-eam-delete-access-key (1)
+.BR euclid-cli-eam-delete-access-key (1),
+.BR euclid-cli-eam-create-user-group (1),
+.BR euclid-cli-eam-list-user-groups (1),
+.BR euclid-cli-eam-user-group-add-user (1),
+.BR euclid-cli-eam-user-group-remove-user (1),
+.BR euclid-cli-eam-delete-user-group (1),
+.BR euclid-cli-eam-create-account (1),
+.BR euclid-cli-eam-list-accounts (1),
+.BR euclid-cli-eam-delete-account (1),
+.BR euclid-cli-eam-create-namespace (1),
+.BR euclid-cli-eam-list-namespaces (1),
+.BR euclid-cli-eam-delete-namespace (1),
+.BR euclid-cli-eam-grant-namespace-access (1),
+.BR euclid-cli-eam-revoke-namespace-access (1)
 .SH AUTHOR
 Jens Vogt <jens.vogt@opitz-consulting.com>
