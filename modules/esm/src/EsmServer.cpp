@@ -1,6 +1,9 @@
 // Euclid includes
 #include <EsmServer.h>
 
+#include "euclid/dto/esm/AddBucketTagRequest.h"
+#include "euclid/dto/esm/DeleteBucketTagRequest.h"
+
 #include <thread>
 
 namespace Euclid::ESM {
@@ -1005,6 +1008,52 @@ namespace Euclid::ESM {
         return EsmServer::JsonResponse(req, status::ok, response.toJson());
     }
 
+    static response<string_body> handleAddBucketTag(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "add-bucket-tag");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto [ern, key, value] = boost::json::value_to<Dto::ESM::AddBucketTagRequest>(jv);
+        log_info << "ESM AddBucketTag, ern: " << ern << ", key: " << key;
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        std::optional<Database::Entity::ESM::Bucket> bucket = repo->findBucketByErn(ern);
+        if (!bucket.has_value()) {
+            return EsmServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + ern);
+        }
+        bucket->tags[key] = value;
+        bucket = repo->upsertBucket(bucket.value());
+
+        return EsmServer::JsonResponse(req, status::ok);
+    }
+
+    static response<string_body> handleDeleteBucketTag(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-bucket-tag");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto [ern, key] = boost::json::value_to<Dto::ESM::DeleteBucketTagRequest>(jv);
+        log_info << "ESM DeleteBucketTag, ern: " << ern << ", key: " << key;
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        std::optional<Database::Entity::ESM::Bucket> bucket = repo->findBucketByErn(ern);
+        if (!bucket.has_value()) {
+            return EsmServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + ern);
+        }
+        bucket->tags.erase(key);
+        bucket = repo->upsertBucket(bucket.value());
+
+        return EsmServer::JsonResponse(req, status::ok);
+    }
+
     // ── Request dispatcher ───────────────────────────────────────────────────
 
     namespace {
@@ -1016,6 +1065,8 @@ namespace Euclid::ESM {
             ListBuckets,
             GetBucketErn,
             GetBucketSize,
+            AddBucketTag,
+            DeleteBucketTag,
             PutObject,
             CreateUpload,
             UploadPart,
@@ -1050,6 +1101,8 @@ namespace Euclid::ESM {
         if (action == "get-object-count") return Command::GetObjectCount;
         if (action == "delete-object") return Command::DeleteObject;
         if (action == "purge-bucket") return Command::PurgeBucket;
+        if (action == "add-bucket-tag") return Command::AddBucketTag;
+        if (action == "delete-bucket-tag") return Command::DeleteBucketTag;
         if (action == "get-metrics") return Command::GetMetrics;
         return Command::Unknown;
     }
@@ -1114,6 +1167,12 @@ namespace Euclid::ESM {
 
             case Command::PurgeBucket:
                 return handlePurgeBucket(req);
+
+            case Command::AddBucketTag:
+                return handleAddBucketTag(req);
+
+            case Command::DeleteBucketTag:
+                return handleDeleteBucketTag(req);
 
             case Command::Unknown:
             default:

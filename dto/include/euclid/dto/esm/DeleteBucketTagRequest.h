@@ -5,14 +5,11 @@
 #pragma once
 
 // Euclid includes
-#include "euclid/dto/esm/DeleteBucketTagRequest.h"
-
-
 #include <euclid/core/JsonUtils.h>
 
-namespace Euclid::Dto::EQS {
+namespace Euclid::Dto::ESM {
 
-    struct DeleteQueueTagRequest {
+    struct DeleteBucketTagRequest {
 
         /**
          * @brief Queue ERN
@@ -34,20 +31,20 @@ namespace Euclid::Dto::EQS {
         /**
          * @brief Deserializes this request from a JSON string
          */
-        [[nodiscard]] static DeleteQueueTagRequest fromJson(const std::string &json) {
-            return boost::json::value_to<DeleteQueueTagRequest>(Core::ParseJsonString(json));
+        [[nodiscard]] static DeleteBucketTagRequest fromJson(const std::string &json) {
+            return boost::json::value_to<DeleteBucketTagRequest>(Core::ParseJsonString(json));
         }
 
     private:
 
-        friend DeleteQueueTagRequest tag_invoke(boost::json::value_to_tag<DeleteQueueTagRequest>, boost::json::value const &v) {
-            DeleteQueueTagRequest r;
+        friend DeleteBucketTagRequest tag_invoke(boost::json::value_to_tag<DeleteBucketTagRequest>, boost::json::value const &v) {
+            DeleteBucketTagRequest r;
             r.ern = Core::GetStringValue(v, "ern");
             r.key = Core::GetStringValue(v, "key");
             return r;
         }
 
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, DeleteQueueTagRequest const &obj) {
+        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, DeleteBucketTagRequest const &obj) {
             jv = {
                     {"ern", obj.ern},
                     {"key", obj.key},

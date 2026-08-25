@@ -5,14 +5,11 @@
 #pragma once
 
 // Euclid includes
-#include "euclid/dto/esm/DeleteBucketTagRequest.h"
-
-
 #include <euclid/core/JsonUtils.h>
 
-namespace Euclid::Dto::EQS {
+namespace Euclid::Dto::ESM {
 
-    struct DeleteQueueTagRequest {
+    struct AddBucketTagRequest {
 
         /**
          * @brief Queue ERN
@@ -25,6 +22,11 @@ namespace Euclid::Dto::EQS {
         std::string key;
 
         /**
+         * @brief Value
+         */
+        std::string value;
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -34,23 +36,25 @@ namespace Euclid::Dto::EQS {
         /**
          * @brief Deserializes this request from a JSON string
          */
-        [[nodiscard]] static DeleteQueueTagRequest fromJson(const std::string &json) {
-            return boost::json::value_to<DeleteQueueTagRequest>(Core::ParseJsonString(json));
+        [[nodiscard]] static AddBucketTagRequest fromJson(const std::string &json) {
+            return boost::json::value_to<AddBucketTagRequest>(Core::ParseJsonString(json));
         }
 
     private:
 
-        friend DeleteQueueTagRequest tag_invoke(boost::json::value_to_tag<DeleteQueueTagRequest>, boost::json::value const &v) {
-            DeleteQueueTagRequest r;
+        friend AddBucketTagRequest tag_invoke(boost::json::value_to_tag<AddBucketTagRequest>, boost::json::value const &v) {
+            AddBucketTagRequest r;
             r.ern = Core::GetStringValue(v, "ern");
             r.key = Core::GetStringValue(v, "key");
+            r.value = Core::GetStringValue(v, "value");
             return r;
         }
 
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, DeleteQueueTagRequest const &obj) {
+        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, AddBucketTagRequest const &obj) {
             jv = {
                     {"ern", obj.ern},
                     {"key", obj.key},
+                    {"value", obj.value},
             };
         }
     };
