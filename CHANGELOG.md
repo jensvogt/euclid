@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.35](https://github.com/jensvogt/euclid/compare/1.0.34...v1.0.35) (2026-08-25)
+
+
+### Bug Fixes
+
+* add/set/delete queue and bucket tags ([966b4cc](https://github.com/jensvogt/euclid/commit/966b4cc7233e010fb0992972f8ff45dbdfb1c4a1))
+
 ## [1.0.34](https://github.com/jensvogt/euclid/compare/v1.0.33...v1.0.34) (2026-08-25)
 
 
