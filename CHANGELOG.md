@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.34](https://github.com/jensvogt/euclid/compare/v1.0.33...v1.0.34) (2026-08-25)
+
+
+### Bug Fixes
+
+* access management, scopes ([656c0f3](https://github.com/jensvogt/euclid/commit/656c0f3635fa66b911741ba09b74ff5951c97f1a))
+* graceful shutdown ([e1d8fb3](https://github.com/jensvogt/euclid/commit/e1d8fb35f68c7ae68699422bab00552b9bd2f06f))
+* macOS clock problems ([d5ff9bb](https://github.com/jensvogt/euclid/commit/d5ff9bb555447fd3d41315185e3fd1137af1ecde))
+
 ## [1.0.33](https://github.com/jensvogt/euclid/compare/1.0.32...v1.0.33) (2026-08-25)
 
 
