@@ -35,6 +35,12 @@ namespace Euclid::Database {
             accessKeyIdOpts.sparse(true);
             userCollection.create_index(make_document(kvp("accessKeys.accessKeyId", 1)), accessKeyIdOpts);
 
+            auto userGroupCollection = (*entry)[Database::instance().databaseName()][USER_GROUP_COLLECTION];
+
+            mongocxx::options::index groupNameOpts;
+            groupNameOpts.unique(true);
+            userGroupCollection.create_index(make_document(kvp("name", 1)), groupNameOpts);
+
         } catch (const std::exception &e) {
             log_error << "Ensure user indexes failed, error: " << e.what();
         }
@@ -186,4 +192,101 @@ namespace Euclid::Database {
             log_error << "Delete user failed, userId: " << userId << ", error: " << e.what();
         }
     }
+
+    Entity::EAM::UserGroup MongoEamRepository::upsertUserGroup(Entity::EAM::UserGroup &group) {
+
+        try {
+
+            const auto filter = make_document(kvp("name", group.name));
+            const auto update = make_document(kvp("$set", group.toDocument()));
+
+            mongocxx::options::find_one_and_update opts;
+            opts.upsert(true);
+            opts.return_document(mongocxx::options::return_document::k_after);
+
+            const auto entry = Database::instance().client();
+            auto userGroupCollection = (*entry)[Database::instance().databaseName()][USER_GROUP_COLLECTION];
+
+            if (auto result = userGroupCollection.find_one_and_update(filter.view(), update.view(), opts)) {
+                return Entity::EAM::UserGroup::fromDocument(result->view());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Upsert user group failed, error: " << e.what();
+        }
+        return group;
+    }
+
+    bool MongoEamRepository::userGroupExists(const std::string &name) const {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto userGroupCollection = (*entry)[Database::instance().databaseName()][USER_GROUP_COLLECTION];
+
+            const auto result = userGroupCollection.find_one(make_document(kvp("name", name)));
+            return result.has_value();
+
+        } catch (const std::exception &e) {
+            log_error << "User group exists failed, name: " << name << ", error: " << e.what();
+        }
+        return false;
+    }
+
+    long MongoEamRepository::countUserGroups() const {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto userCollection = (*entry)[Database::instance().databaseName()][USER_GROUP_COLLECTION];
+
+            return static_cast<long>(userCollection.count_documents({}));
+        } catch (const std::exception &e) {
+            log_error << "Count users failed, error: " << e.what();
+        }
+        return -1;
+    }
+
+    std::vector<Entity::EAM::UserGroup> MongoEamRepository::listUserGroups(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
+
+        std::vector<Entity::EAM::UserGroup> userGroups;
+        try {
+
+            const auto filter = prefix.empty() ? make_document() : make_document(kvp("name", make_document(kvp("$regex", "^" + prefix))));
+
+            mongocxx::options::find opts;
+            if (!sortColumn.empty()) {
+                opts.sort(make_document(kvp(sortColumn, 1)));
+            }
+            if (pageSize > 0) {
+                opts.limit(pageSize);
+                opts.skip(std::max<long>(pageIndex, 0) * pageSize);
+            }
+
+            const auto entry = Database::instance().client();
+            auto userGroupsCollection = (*entry)[Database::instance().databaseName()][USER_GROUP_COLLECTION];
+
+            for (auto cursor = userGroupsCollection.find(filter.view(), opts); auto doc: cursor) {
+                userGroups.push_back(Entity::EAM::UserGroup::fromDocument(doc));
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "List userGroups failed, error: " << e.what();
+        }
+        return userGroups;
+    }
+
+    void MongoEamRepository::deleteUserGroup(const std::string &name) const {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto userGroupCollection = (*entry)[Database::instance().databaseName()][USER_GROUP_COLLECTION];
+
+            const auto result = userGroupCollection.delete_many(make_document(kvp("name", name)));
+            log_debug << "User group deleted, count: " << result->deleted_count();
+
+        } catch (const std::exception &e) {
+            log_error << "Delete user group failed, name: " << name << ", error: " << e.what();
+        }
+    }
+
 }// namespace Euclid::Database

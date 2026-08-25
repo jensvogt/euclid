@@ -1,27 +1,30 @@
 #pragma once
 
 // C++ includes
+#include <iostream>
 #include <string>
 #include <vector>
-#include <iostream>
 
 // Boost includes
-#include <boost/program_options.hpp>
 #include <boost/json.hpp>
+#include <boost/program_options.hpp>
 
 // Euclid includes
+#include <euclid/cli/credentials/Credentials.h>
 #include <euclid/cli/help/CliHelp.h>
 #include <euclid/cli/http/HttpClient.h>
-#include <euclid/cli/credentials/Credentials.h>
+#include <euclid/dto/ListUserGroupsRequest.h>
 #include <euclid/dto/eam/CreateAccessKeyResponse.h>
+#include <euclid/dto/eam/CreateUserGroupRequest.h>
 #include <euclid/dto/eam/DeleteAccessKeyRequest.h>
+#include <euclid/dto/eam/DeleteUserGroupRequest.h>
 #include <euclid/dto/eam/DeleteUserRequest.h>
 #include <euclid/dto/eam/ListAccessKeysResponse.h>
 #include <euclid/dto/eam/ListUserRequest.h>
 #include <euclid/dto/eam/ListUserResponse.h>
+#include <euclid/dto/eam/LoginRequest.h>
 #include <euclid/dto/eam/LoginResponse.h>
 #include <euclid/dto/eam/RegisterRequest.h>
-#include <euclid/dto/eam/LoginRequest.h>
 
 namespace Euclid::CLI {
 
@@ -116,6 +119,17 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int deleteAccessKey(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Creates a new user group
+         *
+         * @param args action arguments
+         * @return
+         */
+        [[nodiscard]]
+        int createUserGroup(const std::vector<std::string> &args) const;
+        int listUserGroups(const std::vector<std::string> &args) const;
+        int deleteUserGroup(const std::vector<std::string> &args) const;
 
         /**
          * @brief Euclid endpoint

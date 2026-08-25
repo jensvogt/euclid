@@ -5,7 +5,6 @@
 #pragma once
 
 // C++ includes
-#include <string>
 #include <vector>
 
 // Euclid includes
@@ -17,7 +16,7 @@ namespace Euclid::Dto::EAM {
     struct ListUserResponse : BaseDto {
 
         /**
-         * @brief User ID prefix
+         * @brief Users
          */
         std::vector<User> users;
 
@@ -45,7 +44,6 @@ namespace Euclid::Dto::EAM {
 
         friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ListUserResponse const &obj) {
             jv = {
-                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
                     {"users", boost::json::value_from(obj.users)},
                     {"total", obj.total},
             };
