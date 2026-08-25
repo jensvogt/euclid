@@ -15,6 +15,21 @@ set(SOURCES src/EmmMapper.cpp
         include/euclid/dto/eam/CreateUserGroupResponse.h
         include/euclid/dto/eam/model/User.h
         include/euclid/dto/eam/model/UserGroup.h
+        include/euclid/dto/eam/model/Account.h
+        include/euclid/dto/eam/model/Namespace.h
+        include/euclid/dto/eam/model/AccountGrant.h
+        include/euclid/dto/eam/CreateAccountRequest.h
+        include/euclid/dto/eam/CreateAccountResponse.h
+        include/euclid/dto/eam/ListAccountsRequest.h
+        include/euclid/dto/eam/ListAccountsResponse.h
+        include/euclid/dto/eam/DeleteAccountRequest.h
+        include/euclid/dto/eam/CreateNamespaceRequest.h
+        include/euclid/dto/eam/CreateNamespaceResponse.h
+        include/euclid/dto/eam/ListNamespacesRequest.h
+        include/euclid/dto/eam/ListNamespacesResponse.h
+        include/euclid/dto/eam/DeleteNamespaceRequest.h
+        include/euclid/dto/eam/GrantNamespaceAccessRequest.h
+        include/euclid/dto/eam/RevokeNamespaceAccessRequest.h
         include/euclid/dto/eqs/CreateQueueRequest.h
         include/euclid/dto/eqs/CreateQueueResponse.h
         include/euclid/dto/eqs/model/Queue.h

@@ -41,7 +41,12 @@ namespace Euclid::Database::Entity::EAM {
         /**
          * @brief Creation timestamp, ISO8601.
          */
-        std::string createdAt;
+        std::string created;
+
+        /**
+         * @brief modification timestamp, ISO8601.
+         */
+        std::string modified;
     };
 
     /**
@@ -64,6 +69,37 @@ namespace Euclid::Database::Entity::EAM {
         std::string expiresAt;
     };
 
+    /**
+     * @brief Explicit grant of access to a specific account and, within it, a specific set of
+     * namespaces. A User can hold any number of these, one per account it has been granted
+     * access to - see Core::HttpActionServer::GrantLookup for how this is enforced.
+     */
+    struct AccountGrant {
+
+        /**
+         * @brief Account this grant applies to.
+         */
+        std::string accountId;
+
+        /**
+         * @brief Namespaces within accountId this user may access. An empty vector means no
+         * namespace has been granted yet (not "all namespaces").
+         */
+        std::vector<std::string> namespaces;
+
+        /**
+         * @brief Whether this user administers accountId itself (may manage its namespaces and
+         * other users' grants on it), independent of global administrator status (see
+         * Database::IsEamAdmin()).
+         */
+        bool isAdmin{false};
+
+        /**
+         * @brief Timestamp the grant was created, ISO8601.
+         */
+        std::string granted;
+    };
+
     struct User {
 
         /**
@@ -75,6 +111,12 @@ namespace Euclid::Database::Entity::EAM {
          * @brief User ID
          */
         std::string userId;
+
+        /**
+         * @brief Euclid resource name, e.g. "ern:euclid:eam:eu-central-1:<accountId>:user:<userId>"
+         * (see Core::createEamUserErn()).
+         */
+        std::string ern;
 
         /**
          * @brief Hashed user password, as produced by Core::PasswordUtils::Hash().
@@ -97,11 +139,6 @@ namespace Euclid::Database::Entity::EAM {
         std::string region;
 
         /**
-         * @brief Whether this user has administrator privileges (e.g. can register new users).
-         */
-        bool isAdmin{false};
-
-        /**
          * @brief Euclid-style access keys owned by this user, used for SigV4-signed service calls.
          */
         std::vector<AccessKey> accessKeys;
@@ -110,6 +147,24 @@ namespace Euclid::Database::Entity::EAM {
          * @brief Login sessions, one appended per successful login. Not pruned once expired.
          */
         std::vector<Session> sessions;
+
+        /**
+         * @brief Explicit per-(account, namespace) grants held by this user, in addition to
+         * accountId/region above (the user's home account). Empty means no additional accounts
+         * have been granted - a global administrator (see Database::IsEamAdmin()) bypasses this
+         * list entirely.
+         */
+        std::vector<AccountGrant> accountGrants;
+
+        /**
+         * @brief Creation timestamp, ISO8601.
+         */
+        std::chrono::system_clock::time_point created;
+
+        /**
+         * @brief Creation timestamp, ISO8601.
+         */
+        std::chrono::system_clock::time_point modified;
 
         /**
          * @brief Converts the entity to a MongoDB document

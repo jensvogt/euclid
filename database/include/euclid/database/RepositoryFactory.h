@@ -5,6 +5,7 @@
 #pragma once
 
 // C++ includes
+#include <algorithm>
 #include <memory>
 
 // Euclid includes
@@ -152,6 +153,49 @@ namespace Euclid::Database {
                 }
             }
             return std::nullopt;
+        });
+    }
+
+    /**
+     * @brief Registers the account/namespace scope lookup Core::HttpActionServer::Authenticate()
+     * needs, backed by RepositoryFactory::eamRepository().
+     *
+     * core can't depend on database (database depends on core), so this is the glue that closes
+     * the loop, same pattern as WireAccessKeyLookup() - call once per process, after
+     * RepositoryFactory::initialize(), in every executable whose HttpActionServer-derived server
+     * needs to validate x-euclid-account-id/x-euclid-namespace against the database instead of
+     * static config.
+     */
+    inline void WireScopeLookup() {
+        Core::HttpActionServer::SetScopeLookup([](const std::string &accountId, const std::string &ns) -> bool {
+            const auto repo = RepositoryFactory::instance().eamRepository();
+            if (!repo->accountExists(accountId)) return false;
+            return ns.empty() || repo->namespaceExists(accountId, ns);
+        });
+    }
+
+    /**
+     * @brief Registers the per-user grant lookup Core::HttpActionServer::Authenticate() needs,
+     * backed by RepositoryFactory::eamRepository().
+     *
+     * core can't depend on database (database depends on core), so this is the glue that closes
+     * the loop, same pattern as WireAccessKeyLookup() - call once per process, after
+     * RepositoryFactory::initialize(), in every executable whose HttpActionServer-derived server
+     * needs to enforce that the authenticated user actually has a grant for the account/namespace
+     * it's requesting.
+     */
+    inline void WireGrantLookup() {
+        Core::HttpActionServer::SetGrantLookup([](const std::string &userId, const std::string &accountId, const std::string &ns) -> bool {
+            const auto repo = RepositoryFactory::instance().eamRepository();
+            const auto user = repo->findUserByUserId(userId);
+            if (!user.has_value()) return false;
+            if (IsEamAdmin(*repo, userId)) return true;// global admin bypass
+            for (const auto &grant: user->accountGrants) {
+                if (grant.accountId != accountId) continue;
+                if (grant.isAdmin || ns.empty()) return true;// account-scoped admin, or account-only request
+                if (std::ranges::contains(grant.namespaces, ns)) return true;
+            }
+            return false;
         });
     }
 

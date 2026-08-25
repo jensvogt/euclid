@@ -119,7 +119,7 @@ namespace Euclid::Monitoring {
 
         const auto auth = authenticate(req);
         if (!auth.user.has_value()) return unauthorized(req, auth);
-        if (!auth.user->isAdmin) {
+        if (!Database::IsEamAdmin(*Database::RepositoryFactory::instance().eamRepository(), auth.user->userId)) {
             return EmoServer::ErrorResponse(req, status::forbidden, "Administrator privileges required");
         }
 

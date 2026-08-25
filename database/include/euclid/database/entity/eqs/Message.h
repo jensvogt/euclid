@@ -23,7 +23,7 @@ namespace Euclid::Database::Entity::EQS {
     using std::chrono::system_clock;
 
     /**
-     * @brief SQS message entity
+     * @brief EQS message entity
      *
      * @author jens.vogt\@opitz-consulting.com
      */
@@ -58,7 +58,7 @@ namespace Euclid::Database::Entity::EQS {
          * @brief Priority
          *
          * Used by receiveMessages() to favor higher priority messages over lower priority ones;
-         * see ISQSRepository::receiveMessages() for details. Defaults to MIDDLE.
+         * see IEqsRepository::receiveMessages() for details. Defaults to MIDDLE.
          */
         MessagePriority priority = MessagePriority::MIDDLE;
 

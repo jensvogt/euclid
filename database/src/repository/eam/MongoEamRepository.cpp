@@ -41,6 +41,20 @@ namespace Euclid::Database {
             groupNameOpts.unique(true);
             userGroupCollection.create_index(make_document(kvp("name", 1)), groupNameOpts);
 
+            auto accountCollection = (*entry)[Database::instance().databaseName()][ACCOUNT_COLLECTION];
+
+            mongocxx::options::index accountIdOpts;
+            accountIdOpts.unique(true);
+            accountCollection.create_index(make_document(kvp("accountId", 1)), accountIdOpts);
+
+            auto namespaceCollection = (*entry)[Database::instance().databaseName()][NAMESPACE_COLLECTION];
+
+            // Namespace names (e.g. "development") repeat across accounts - only the compound
+            // (accountId, name) pair is unique.
+            mongocxx::options::index namespaceOpts;
+            namespaceOpts.unique(true);
+            namespaceCollection.create_index(make_document(kvp("accountId", 1), kvp("name", 1)), namespaceOpts);
+
         } catch (const std::exception &e) {
             log_error << "Ensure user indexes failed, error: " << e.what();
         }
@@ -104,6 +118,23 @@ namespace Euclid::Database {
         return {};
     }
 
+    std::optional<Entity::EAM::User> MongoEamRepository::findUserByErn(const std::string &ern) const {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto userCollection = (*entry)[Database::instance().databaseName()][USER_COLLECTION];
+
+            if (auto result = userCollection.find_one(make_document(kvp("ern", ern)))) {
+                return Entity::EAM::User::fromDocument(result.value());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Get user by ERN failed, ern: " << ern << ", error: " << e.what();
+        }
+        return {};
+    }
+
     std::optional<Entity::EAM::User> MongoEamRepository::findUserByAccessKeyId(const std::string &accessKeyId) const {
 
         try {
@@ -133,6 +164,22 @@ namespace Euclid::Database {
 
         } catch (const std::exception &e) {
             log_error << "User exists failed, userId: " << userId << ", error: " << e.what();
+        }
+        return false;
+    }
+
+    bool MongoEamRepository::userErnExists(const std::string &ern) const {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto userCollection = (*entry)[Database::instance().databaseName()][USER_COLLECTION];
+
+            const auto result = userCollection.find_one(make_document(kvp("ern", ern)));
+            return result.has_value();
+
+        } catch (const std::exception &e) {
+            log_error << "User exists failed, ern: " << ern << ", error: " << e.what();
         }
         return false;
     }
@@ -233,6 +280,56 @@ namespace Euclid::Database {
         return false;
     }
 
+    bool MongoEamRepository::userGroupErnExists(const std::string &ern) const {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto userGroupCollection = (*entry)[Database::instance().databaseName()][USER_GROUP_COLLECTION];
+
+            const auto result = userGroupCollection.find_one(make_document(kvp("ern", ern)));
+            return result.has_value();
+
+        } catch (const std::exception &e) {
+            log_error << "User group exists failed, ern: " << ern << ", error: " << e.what();
+        }
+        return false;
+    }
+
+    std::optional<Entity::EAM::UserGroup> MongoEamRepository::findUserGroupByName(const std::string &name) const {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto userGroupCollection = (*entry)[Database::instance().databaseName()][USER_GROUP_COLLECTION];
+
+            if (auto result = userGroupCollection.find_one(make_document(kvp("name", name)))) {
+                return Entity::EAM::UserGroup::fromDocument(result.value());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Get user group by name failed, name: " << name << ", error: " << e.what();
+        }
+        return {};
+    }
+
+    std::optional<Entity::EAM::UserGroup> MongoEamRepository::findUserGroupByErn(const std::string &ern) const {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto userGroupCollection = (*entry)[Database::instance().databaseName()][USER_GROUP_COLLECTION];
+
+            if (auto result = userGroupCollection.find_one(make_document(kvp("ern", ern)))) {
+                return Entity::EAM::UserGroup::fromDocument(result.value());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Get user group by ern failed, ern: " << ern << ", error: " << e.what();
+        }
+        return {};
+    }
+
     long MongoEamRepository::countUserGroups() const {
 
         try {
@@ -286,6 +383,300 @@ namespace Euclid::Database {
 
         } catch (const std::exception &e) {
             log_error << "Delete user group failed, name: " << name << ", error: " << e.what();
+        }
+    }
+
+    Entity::EAM::Account MongoEamRepository::upsertAccount(Entity::EAM::Account &account) {
+
+        try {
+
+            const auto filter = make_document(kvp("accountId", account.accountId));
+            const auto update = make_document(kvp("$set", account.toDocument()));
+
+            mongocxx::options::find_one_and_update opts;
+            opts.upsert(true);
+            opts.return_document(mongocxx::options::return_document::k_after);
+
+            const auto entry = Database::instance().client();
+            auto accountCollection = (*entry)[Database::instance().databaseName()][ACCOUNT_COLLECTION];
+
+            if (auto result = accountCollection.find_one_and_update(filter.view(), update.view(), opts)) {
+                return Entity::EAM::Account::fromDocument(result->view());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Upsert account failed, error: " << e.what();
+        }
+        return account;
+    }
+
+    bool MongoEamRepository::accountExists(const std::string &accountId) const {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto accountCollection = (*entry)[Database::instance().databaseName()][ACCOUNT_COLLECTION];
+
+            const auto result = accountCollection.find_one(make_document(kvp("accountId", accountId)));
+            return result.has_value();
+
+        } catch (const std::exception &e) {
+            log_error << "Account exists failed, accountId: " << accountId << ", error: " << e.what();
+        }
+        return false;
+    }
+
+    bool MongoEamRepository::accountErnExists(const std::string &ern) const {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto accountCollection = (*entry)[Database::instance().databaseName()][ACCOUNT_COLLECTION];
+
+            const auto result = accountCollection.find_one(make_document(kvp("ern", ern)));
+            return result.has_value();
+
+        } catch (const std::exception &e) {
+            log_error << "Account exists failed, ern: " << ern << ", error: " << e.what();
+        }
+        return false;
+    }
+
+    std::optional<Entity::EAM::Account> MongoEamRepository::findAccountByAccountId(const std::string &accountId) const {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto accountCollection = (*entry)[Database::instance().databaseName()][ACCOUNT_COLLECTION];
+
+            if (auto result = accountCollection.find_one(make_document(kvp("accountId", accountId)))) {
+                return Entity::EAM::Account::fromDocument(result.value());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Get account by accountId failed, accountId: " << accountId << ", error: " << e.what();
+        }
+        return {};
+    }
+
+    std::optional<Entity::EAM::Account> MongoEamRepository::findAccountByErn(const std::string &ern) const {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto accountCollection = (*entry)[Database::instance().databaseName()][ACCOUNT_COLLECTION];
+
+            if (auto result = accountCollection.find_one(make_document(kvp("ern", ern)))) {
+                return Entity::EAM::Account::fromDocument(result.value());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Get account by ERN failed, ern: " << ern << ", error: " << e.what();
+        }
+        return {};
+    }
+
+    long MongoEamRepository::countAccounts() const {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto accountCollection = (*entry)[Database::instance().databaseName()][ACCOUNT_COLLECTION];
+
+            return static_cast<long>(accountCollection.count_documents({}));
+        } catch (const std::exception &e) {
+            log_error << "Count accounts failed, error: " << e.what();
+        }
+        return -1;
+    }
+
+    std::vector<Entity::EAM::Account> MongoEamRepository::listAccounts(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
+
+        std::vector<Entity::EAM::Account> accounts;
+        try {
+
+            const auto filter = prefix.empty() ? make_document() : make_document(kvp("accountId", make_document(kvp("$regex", "^" + prefix))));
+
+            mongocxx::options::find opts;
+            if (!sortColumn.empty()) {
+                opts.sort(make_document(kvp(sortColumn, 1)));
+            }
+            if (pageSize > 0) {
+                opts.limit(pageSize);
+                opts.skip(std::max<long>(pageIndex, 0) * pageSize);
+            }
+
+            const auto entry = Database::instance().client();
+            auto accountCollection = (*entry)[Database::instance().databaseName()][ACCOUNT_COLLECTION];
+
+            for (auto cursor = accountCollection.find(filter.view(), opts); auto doc: cursor) {
+                accounts.push_back(Entity::EAM::Account::fromDocument(doc));
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "List accounts failed, error: " << e.what();
+        }
+        return accounts;
+    }
+
+    void MongoEamRepository::deleteAccount(const std::string &accountId) const {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto accountCollection = (*entry)[Database::instance().databaseName()][ACCOUNT_COLLECTION];
+
+            const auto result = accountCollection.delete_many(make_document(kvp("accountId", accountId)));
+            log_debug << "Account deleted, count: " << result->deleted_count();
+
+        } catch (const std::exception &e) {
+            log_error << "Delete account failed, accountId: " << accountId << ", error: " << e.what();
+        }
+    }
+
+    Entity::EAM::Namespace MongoEamRepository::upsertNamespace(Entity::EAM::Namespace &ns) {
+
+        try {
+
+            const auto filter = make_document(kvp("accountId", ns.accountId), kvp("name", ns.name));
+            const auto update = make_document(kvp("$set", ns.toDocument()));
+
+            mongocxx::options::find_one_and_update opts;
+            opts.upsert(true);
+            opts.return_document(mongocxx::options::return_document::k_after);
+
+            const auto entry = Database::instance().client();
+            auto namespaceCollection = (*entry)[Database::instance().databaseName()][NAMESPACE_COLLECTION];
+
+            if (auto result = namespaceCollection.find_one_and_update(filter.view(), update.view(), opts)) {
+                return Entity::EAM::Namespace::fromDocument(result->view());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Upsert namespace failed, error: " << e.what();
+        }
+        return ns;
+    }
+
+    bool MongoEamRepository::namespaceExists(const std::string &accountId, const std::string &name) const {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto namespaceCollection = (*entry)[Database::instance().databaseName()][NAMESPACE_COLLECTION];
+
+            const auto result = namespaceCollection.find_one(make_document(kvp("accountId", accountId), kvp("name", name)));
+            return result.has_value();
+
+        } catch (const std::exception &e) {
+            log_error << "Namespace exists failed, accountId: " << accountId << ", name: " << name << ", error: " << e.what();
+        }
+        return false;
+    }
+
+    bool MongoEamRepository::namespaceErnExists(const std::string &ern) const {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto namespaceCollection = (*entry)[Database::instance().databaseName()][NAMESPACE_COLLECTION];
+
+            const auto result = namespaceCollection.find_one(make_document(kvp("ern", ern)));
+            return result.has_value();
+
+        } catch (const std::exception &e) {
+            log_error << "Namespace exists failed, ern: " << ern << ", error: " << e.what();
+        }
+        return false;
+    }
+
+    std::optional<Entity::EAM::Namespace> MongoEamRepository::findNamespaceByName(const std::string &accountId, const std::string &name) const {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto namespaceCollection = (*entry)[Database::instance().databaseName()][NAMESPACE_COLLECTION];
+
+            if (auto result = namespaceCollection.find_one(make_document(kvp("accountId", accountId), kvp("name", name)))) {
+                return Entity::EAM::Namespace::fromDocument(result.value());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Get namespace by name failed, accountId: " << accountId << ", name: " << name << ", error: " << e.what();
+        }
+        return {};
+    }
+
+    std::optional<Entity::EAM::Namespace> MongoEamRepository::findNamespaceByErn(const std::string &ern) const {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto namespaceCollection = (*entry)[Database::instance().databaseName()][NAMESPACE_COLLECTION];
+
+            if (auto result = namespaceCollection.find_one(make_document(kvp("ern", ern)))) {
+                return Entity::EAM::Namespace::fromDocument(result.value());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Get namespace by ern failed, ern: " << ern << ", error: " << e.what();
+        }
+        return {};
+    }
+
+    long MongoEamRepository::countNamespaces(const std::string &accountId) const {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto namespaceCollection = (*entry)[Database::instance().databaseName()][NAMESPACE_COLLECTION];
+
+            return static_cast<long>(namespaceCollection.count_documents(make_document(kvp("accountId", accountId))));
+        } catch (const std::exception &e) {
+            log_error << "Count namespaces failed, accountId: " << accountId << ", error: " << e.what();
+        }
+        return -1;
+    }
+
+    std::vector<Entity::EAM::Namespace> MongoEamRepository::listNamespaces(const std::string &accountId, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
+
+        std::vector<Entity::EAM::Namespace> namespaces;
+        try {
+
+            auto filter = prefix.empty()
+                    ? make_document(kvp("accountId", accountId))
+                    : make_document(kvp("accountId", accountId), kvp("name", make_document(kvp("$regex", "^" + prefix))));
+
+            mongocxx::options::find opts;
+            if (!sortColumn.empty()) {
+                opts.sort(make_document(kvp(sortColumn, 1)));
+            }
+            if (pageSize > 0) {
+                opts.limit(pageSize);
+                opts.skip(std::max<long>(pageIndex, 0) * pageSize);
+            }
+
+            const auto entry = Database::instance().client();
+            auto namespaceCollection = (*entry)[Database::instance().databaseName()][NAMESPACE_COLLECTION];
+
+            for (auto cursor = namespaceCollection.find(filter.view(), opts); auto doc: cursor) {
+                namespaces.push_back(Entity::EAM::Namespace::fromDocument(doc));
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "List namespaces failed, accountId: " << accountId << ", error: " << e.what();
+        }
+        return namespaces;
+    }
+
+    void MongoEamRepository::deleteNamespace(const std::string &accountId, const std::string &name) const {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto namespaceCollection = (*entry)[Database::instance().databaseName()][NAMESPACE_COLLECTION];
+
+            const auto result = namespaceCollection.delete_many(make_document(kvp("accountId", accountId), kvp("name", name)));
+            log_debug << "Namespace deleted, count: " << result->deleted_count();
+
+        } catch (const std::exception &e) {
+            log_error << "Delete namespace failed, accountId: " << accountId << ", name: " << name << ", error: " << e.what();
         }
     }
 
