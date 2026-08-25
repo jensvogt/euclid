@@ -26,7 +26,7 @@ namespace Euclid::ESM {
 
         // Fallback for "euclid.modules.storage.data-dir", matching the default in dist/etc/euclid*.json.
 #ifdef _WIN32
-        constexpr auto kDefaultDataDir = "C:\\Program Files\\euclid\\data\\storage";
+        constexpr auto kDefaultDataDir = R"(C:\Program Files\euclid\data\esm)";
 #else
         constexpr auto kDefaultDataDir = "/usr/local/euclid/data/storage";
 #endif
