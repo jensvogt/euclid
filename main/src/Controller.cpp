@@ -19,7 +19,7 @@
 #include <euclid/manager/Controller.h>
 #include <euclid/manager/ControllerPlatform.h>
 
-// ControllerPlatform.h pulls in <sys/wait.h>/<csignal>/<unistd.h>/... on POSIX, and
+// ControllerPlatform.h pulls in <sys/wait.h>/<csignal>/<unistd.h>/ on POSIX, and
 // <windows.h>/<process.h>/<io.h> on Windows - so the rest of this file only needs to
 // branch on _WIN32 for the handful of calls (fork/exec vs CreateProcess, kill vs
 // TerminateProcess, waitpid vs GetExitCodeProcess) that don't have a shared name.
@@ -80,11 +80,11 @@ namespace Euclid::main {
 #endif
     }
 
+    // Goes through boost::asio rather than raw BSD sockets so this works unchanged on
+    // Windows (which only gained AF_UNIX support in Windows 10 1803+, via a different
+    // header/API surface than POSIX) - boost::asio::local already abstracts that, and
+    // UnixSocketServer's accept side uses the same protocol type.
     bool waitForSocket(const std::string &path, const int timeoutMs) {
-        // Goes through boost::asio rather than raw BSD sockets so this works unchanged on
-        // Windows (which only gained AF_UNIX support in Windows 10 1803+, via a different
-        // header/API surface than POSIX) - boost::asio::local already abstracts that, and
-        // UnixSocketServer's accept side uses the same protocol type.
         namespace local = boost::asio::local;
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
 

@@ -46,6 +46,7 @@ namespace Euclid::main {
      */
     class ServiceController {
     public:
+
         /**
          * @brief Stops the watchdog thread so this object can be destroyed safely.
          *
@@ -237,6 +238,7 @@ namespace Euclid::main {
         void restartAll();
 
     private:
+
         /**
          * @brief One module's pool: its spawn template config plus its live instances.
          */
@@ -350,7 +352,7 @@ namespace Euclid::main {
          *
          * @param svc The instance whose process has exited.
          */
-        void handleExitedInstance(const std::shared_ptr<Dto::ModuleProcess> &svc);
+        static void handleExitedInstance(const std::shared_ptr<Dto::ModuleProcess> &svc);
 
 #if defined(_WIN32)
         /**
@@ -400,4 +402,4 @@ namespace Euclid::main {
                              std::vector<std::shared_ptr<Dto::ModuleProcess> > &toStop);
     };
 
-} // namespace Euclid::main
+}// namespace Euclid::main
