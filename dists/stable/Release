@@ -2,19 +2,19 @@ Origin: Euclid
 Label: Euclid APT Repository
 Suite: stable
 Codename: stable
-Date: Mon, 24 Aug 2026 22:05:15 UTC
+Date: Tue, 25 Aug 2026 15:03:31 UTC
 Architectures: amd64
 Components: main
 Description: APT repository for Euclid - Cloud Services
 MD5Sum:
- ffee7cadee1950872690adbda05c2a3e 538 main/binary-amd64/Packages
- 816d8a0c0c3b8756d3d3410d6e95c090 411 main/binary-amd64/Packages.gz
+ 1e4d1a64407c500a3133a9474b6d1089 538 main/binary-amd64/Packages
+ b720b6710297ad8a1b85948370fec28c 410 main/binary-amd64/Packages.gz
  bfcc1390e0c267490f124a866b8e0e16 160 main/binary-amd64/Release
 SHA1:
- 1183d10b1d5a0b736b3b63b0c73fc4148b72ac57 538 main/binary-amd64/Packages
- 094b93bc4e032166b3612a109532f3d4fd01512d 411 main/binary-amd64/Packages.gz
+ b0dd402d289b2053159195b0b884149e4a13d5c2 538 main/binary-amd64/Packages
+ 05545115a8a666ad3bb5f6622dba327a3ff2830d 410 main/binary-amd64/Packages.gz
  7304f35259e8511c9af36b51ec3fde4a2cffdb40 160 main/binary-amd64/Release
 SHA256:
- 377f5e699e7df357e63d452b707ba22a076b3ad04414c791ee5cbd12460432fe 538 main/binary-amd64/Packages
- 33cf077a85a57b0d56473b59e8e463a7ef010e3737a61a9cdf1029629095d771 411 main/binary-amd64/Packages.gz
+ d6f1549af95bf0364a349821f00074de6da7abd3192f4675e6677ec517b80b18 538 main/binary-amd64/Packages
+ 97cef3baf1cc8fb9e63f06bc4c6653122408a3a2a917f1768d539d5e4590d328 410 main/binary-amd64/Packages.gz
  b433d6184003253f515285d0bda99ca8526c2ae910e4929a068178ded64d97d6 160 main/binary-amd64/Release
