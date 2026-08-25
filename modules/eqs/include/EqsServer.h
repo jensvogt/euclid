@@ -25,6 +25,7 @@
 #include <euclid/dto/eqs/CreateQueueResponse.h>
 #include <euclid/dto/eqs/DeleteMessageRequest.h>
 #include <euclid/dto/eqs/DeleteQueueRequest.h>
+#include <euclid/dto/eqs/DeleteQueueTagRequest.h>
 #include <euclid/dto/eqs/EqsMapper.h>
 #include <euclid/dto/eqs/GetMessageAttributeRequest.h>
 #include <euclid/dto/eqs/GetMessageAttributeResponse.h>
@@ -52,7 +53,7 @@ namespace Euclid::EQS {
     using namespace boost::beast::http;
 
     /**
-     * @brief SQS service server listening on a Unix domain socket.
+     * @brief EQS service server listening on a Unix domain socket.
      *
      * Receives HTTP requests forwarded by the gateway and dispatches them
      * to per-action handler methods.

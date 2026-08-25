@@ -57,7 +57,7 @@ static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
         po::store(po::command_line_parser(argc, argv).options(all).run(), vm);
 
         if (vm.contains("help")) {
-            std::cout << "EQS v" << APP_VERSION << " - SQS service process\n\n" << all << "\n";
+            std::cout << "EQS v" << APP_VERSION << " - ENS service process\n\n" << all << "\n";
             return std::nullopt;
         }
 
