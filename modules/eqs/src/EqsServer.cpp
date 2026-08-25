@@ -1,6 +1,8 @@
 // Euclid includes
 #include <EqsServer.h>
 
+#include "euclid/dto/eqs/DeleteQueueTagRequest.h"
+
 namespace Euclid::EQS {
 
     namespace beast = boost::beast;
@@ -484,7 +486,7 @@ namespace Euclid::EQS {
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
 
-        const auto [ern, key, value] = boost::json::value_to<Dto::EQS::AddQueueTagRequest>(jv);
+        const auto [ern, key] = boost::json::value_to<Dto::EQS::DeleteQueueTagRequest>(jv);
         log_info << "EQS DeleteQueueTag, ern: " << ern << ", key: " << key;
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
@@ -613,7 +615,7 @@ namespace Euclid::EQS {
             case Command::DeleteQueueTag:
                 return handleDeleteQueueTag(req);
 
-                case Command::GetMetrics:
+            case Command::GetMetrics:
                 return EqsServer::MetricsResponse(req);
 
             case Command::Unknown:

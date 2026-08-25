@@ -9,8 +9,9 @@ namespace Euclid::Dto::ESM {
         dto.owner = entity.owner;
         dto.name = entity.name;
         dto.ern = entity.ern;
-        dto.size = entity.size;
-        dto.objects = entity.objects;
+        dto.size = static_cast<long>(entity.size);
+        dto.objects = static_cast<long>(entity.objects);
+        dto.tags = entity.tags;
         dto.created = entity.created;
         dto.modified = entity.modified;
         return dto;
