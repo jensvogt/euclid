@@ -30,29 +30,13 @@ namespace Euclid::CLI {
 
     int EnsCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
-            return PrintModuleHelp("eqs", {
-                                           {"create-queue", "Create a new queue"},
-                                           {"list-queues", "List queues"},
-                                           {"list-messages", "List a queue's messages without receiving them"},
-                                           {"get-queue-ern", "Resolve a queue's ERN by name"},
-                                           {"get-message-count", "Returns the message counters"},
-                                           {"purge-queue", "Delete all messages from a queue"},
-                                           {"purge-all-queues", "Delete all messages from every queue in a region/account"},
-                                           {"delete-queue", "Delete a queue"},
-                                           {"send-message", "Send a message to a queue"},
-                                           {"receive-messages", "Send a message to a queue"},
-                                           {"set-visibility", "Send a messages visibility"},
-                                           {"get-message-attribute", "Return a message attribute by name"},
-                                           {"get-queue-metadata", "Return the metadata for a queue"},
-                                           {"get-message-metadata", "Return the metadata for a message"},
-                                           {"add-queue-tag", "Adds a tag to queue"},
-                                           {"set-queue-tag", "Sets the value of an existing queue tag"},
-                                           {"delete-queue-tag", "Deletes a tag from the queue"},
+            return PrintModuleHelp("ens", {
+                                           {"create-topic", "Create a new topic"},
                                    });
         }
-        // if (action == "create-queue") {
-        //     return createQueue(args);
-        // }
+        if (action == "create-topic") {
+            return createTopic(args);
+        }
         // if (action == "list-queues") {
         //     return listQueues(args);
         // }
@@ -106,13 +90,14 @@ namespace Euclid::CLI {
     }
 
     int EnsCli::createTopic(const std::vector<std::string> &args) const {
-        po::options_description desc("create queue options");
-        desc.add_options()("name,n", po::value<std::string>()->required(), "name")("visibility,v", po::value<long>()->default_value(30), "visibility in seconds")("max-retries,m", po::value<long>()->default_value(3), "maximal number of retries")("max-length,l", po::value<long>()->default_value(1024 * 1024), "maximal message length")("dlq-name,d", po::value<std::string>(), "name of the dead letter queue")("delay,e", po::value<long>()->default_value(0), "message delay");
+        po::options_description desc("create topic options");
+        desc.add_options()
+                ("name,n", po::value<std::string>()->required(), "name")
+                ("max-length,l", po::value<long>()->default_value(1024 * 1024), "maximal message length");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "create-queue", "--name <name> [--visibility <seconds>] [--max-retries <value>] [--max-length <value>] [dlq-name <name>] [--delay <seconds>]",
-                                   "Creates a new SQS queue with the given name, max retries, max message length, dead letter queue ARN, and visibility timeout. The dead letter queue name is optional; "
-                                   "visibility defaults to 30 seconds, max retries defaults to 3, delay to 0, and max message length defaults to 1MB.",
+            return PrintActionHelp("ens", "create-topic", "--name <name> [--max-length <value>]",
+                                   "Creates a new ENS topic with the given name, max message length. Max message length defaults to 1MB.",
                                    desc);
         }
 
@@ -128,21 +113,13 @@ namespace Euclid::CLI {
 
         Dto::EQS::CreateQueueRequest request;
         request.name = vm["name"].as<std::string>();
-        request.visibility = vm["visibility"].as<long>();
-        request.maxRetries = vm["max-retries"].as<long>();
         request.maxMessageLength = vm["max-length"].as<long>();
-        if (vm.contains("dlq-name")) {
-            request.dlqName = vm["dlq-name"].as<std::string>();
-        }
-        if (vm.contains("delay")) {
-            request.delay = vm["delay"].as<long>();
-        }
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("eqs", "create-queue", boost::json::value_from(request));
+            const HttpResponse response = client.Post("end", "create-topic", boost::json::value_from(request));
             if (!response.IsSuccess()) {
-                std::cerr << "error: create-queue failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                std::cerr << "error: create-topic failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);
