@@ -43,6 +43,7 @@
 #include <euclid/dto/esm/ListObjectsRequest.h>
 #include <euclid/dto/esm/ListObjectsResponse.h>
 #include <euclid/dto/esm/PurgeBucketRequest.h>
+#include <euclid/dto/esm/SetBucketTagRequest.h>
 
 // Fallbacks used when euclid.modules.storage.part-size/concurrency aren't set in the loaded
 // configuration file (see main.cpp's --config) - so upload-file/download-file still have sane
@@ -212,7 +213,11 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int purgeBucket(const std::vector<std::string> &args) const;
+
         int addBucketTag(const std::vector<std::string> &args) const;
+
+        int setBucketTag(const std::vector<std::string> &args) const;
+
         int deleteBucketTag(const std::vector<std::string> &args) const;
 
         /**

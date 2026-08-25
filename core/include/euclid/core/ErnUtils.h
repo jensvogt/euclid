@@ -18,51 +18,7 @@ namespace Euclid::Core {
      */
     inline std::string createErn(const std::string &service, const std::string &accountId, const std::string &resourceId) {
         const auto region = Configuration::instance().getOr<std::string>("euclid.region", "eu-central-1");
-        return "ern:euclid:" + service + ":" + region + ":" + accountId + ":" + resourceId;
-    }
-
-    /**
-     * @brief Creates a EQS queue ERN
-     *
-     * @param accountId account ID
-     * @param name resource name
-     * @return resource ERN
-     */
-    inline std::string createEqsQueueErn(const std::string &accountId, const std::string &name) {
-        return createErn("eqs", accountId, "queue:" + name);
-    }
-
-    /**
-     * @brief Creates a EQS message ERN
-     *
-     * @param accountId account ID
-     * @param messageId message ID
-     * @return resource ERN
-     */
-    inline std::string createEqsMessageErn(const std::string &accountId, const std::string &messageId) {
-        return createErn("eqs", accountId, "message:" + messageId);
-    }
-
-    /**
-     * @brief Creates a ESM bucket ERN
-     *
-     * @param accountId account ID
-     * @param name resource name
-     * @return resource ERN
-     */
-    inline std::string createEsmBucketErn(const std::string &accountId, const std::string &name) {
-        return createErn("esm", accountId, "bucket:" + name);
-    }
-
-    /**
-     * @brief Creates a ESM object ERN
-     *
-     * @param accountId account ID
-     * @param name resource name
-     * @return resource ERN
-     */
-    inline std::string createEsmObjectErn(const std::string &accountId, const std::string &name) {
-        return createErn("esm", accountId, "object:" + name);
+        return "ern:" + service + ":" + region + ":" + accountId + ":" + resourceId;
     }
 
     /**
@@ -106,6 +62,72 @@ namespace Euclid::Core {
      */
     inline std::string createEamNamespaceErn(const std::string &accountId, const std::string &name) {
         return createErn("eam", accountId, "namespace:" + name);
+    }
+
+    /**
+     * @brief Creates a EQS queue ERN
+     *
+     * @param accountId account ID
+     * @param name resource name
+     * @return resource ERN
+     */
+    inline std::string createEqsQueueErn(const std::string &accountId, const std::string &name) {
+        return createErn("eqs", accountId, "queue:" + name);
+    }
+
+    /**
+     * @brief Creates a EQS message ERN
+     *
+     * @param accountId account ID
+     * @param messageId message ID
+     * @return resource ERN
+     */
+    inline std::string createEqsMessageErn(const std::string &accountId, const std::string &messageId) {
+        return createErn("eqs", accountId, "message:" + messageId);
+    }
+
+    /**
+     * @brief Creates a ENS topic ERN
+     *
+     * @param accountId account ID
+     * @param name resource name
+     * @return resource ERN
+     */
+    inline std::string createEnsTopicErn(const std::string &accountId, const std::string &name) {
+        return createErn("ens", accountId, "queue:" + name);
+    }
+
+    /**
+     * @brief Creates a ENS message ERN
+     *
+     * @param accountId account ID
+     * @param messageId message ID
+     * @return resource ERN
+     */
+    inline std::string createEnsMessageErn(const std::string &accountId, const std::string &messageId) {
+        return createErn("ens", accountId, "message:" + messageId);
+    }
+
+    /**
+     * @brief Creates a ESM bucket ERN
+     *
+     * @param accountId account ID
+     * @param name resource name
+     * @return resource ERN
+     */
+    inline std::string createEsmBucketErn(const std::string &accountId, const std::string &name) {
+        return createErn("esm", accountId, "bucket:" + name);
+    }
+
+    /**
+     * @brief Creates a ESM object ERN
+     *
+     * @param accountId account ID
+     * @param name resource name
+     * @return resource ERN
+     */
+    inline std::string createEsmObjectErn(const std::string &accountId, const std::string &name) {
+        return createErn("esm", accountId, "object:" + name);
     }
 
     /**

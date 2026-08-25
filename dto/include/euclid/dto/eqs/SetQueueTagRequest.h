@@ -7,14 +7,14 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 
-namespace Euclid::Dto::ESM {
+namespace Euclid::Dto::EQS {
 
-    struct AddBucketTagRequest {
+    struct SetQueueTagRequest {
 
         /**
          * @brief Queue ERN
          */
-        std::string bucketErn;
+        std::string queueErn;
 
         /**
          * @brief Key
@@ -36,23 +36,23 @@ namespace Euclid::Dto::ESM {
         /**
          * @brief Deserializes this request from a JSON string
          */
-        [[nodiscard]] static AddBucketTagRequest fromJson(const std::string &json) {
-            return boost::json::value_to<AddBucketTagRequest>(Core::ParseJsonString(json));
+        [[nodiscard]] static SetQueueTagRequest fromJson(const std::string &json) {
+            return boost::json::value_to<SetQueueTagRequest>(Core::ParseJsonString(json));
         }
 
     private:
 
-        friend AddBucketTagRequest tag_invoke(boost::json::value_to_tag<AddBucketTagRequest>, boost::json::value const &v) {
-            AddBucketTagRequest r;
-            r.bucketErn = Core::GetStringValue(v, "ern");
+        friend SetQueueTagRequest tag_invoke(boost::json::value_to_tag<SetQueueTagRequest>, boost::json::value const &v) {
+            SetQueueTagRequest r;
+            r.queueErn = Core::GetStringValue(v, "ern");
             r.key = Core::GetStringValue(v, "key");
             r.value = Core::GetStringValue(v, "value");
             return r;
         }
 
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, AddBucketTagRequest const &obj) {
+        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, SetQueueTagRequest const &obj) {
             jv = {
-                    {"ern", obj.bucketErn},
+                    {"ern", obj.queueErn},
                     {"key", obj.key},
                     {"value", obj.value},
             };

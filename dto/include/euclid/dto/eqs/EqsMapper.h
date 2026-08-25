@@ -74,7 +74,7 @@ namespace Euclid::Dto::EQS {
          * @param dto source Variant DTO
          * @return Variant entity ready for persistence
          */
-        static Database::Entity::EQS::Variant toEntity(const Variant &dto);
+        static Database::Entity::COM::Variant toEntity(const Variant &dto);
 
         /**
          * @brief Maps a message attribute entity to a message attribute DTO.
@@ -82,7 +82,7 @@ namespace Euclid::Dto::EQS {
          * @param entity source Variant entity from the database
          * @return Variant DTO
          */
-        static Variant toDto(const Database::Entity::EQS::Variant &entity);
+        static Variant toDto(const Database::Entity::COM::Variant &entity);
     };
 
 }// namespace Euclid::Dto::EQS

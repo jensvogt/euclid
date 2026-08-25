@@ -134,7 +134,7 @@ namespace Euclid::Database {
             //_messageStore[message.name] = message;
         }
 
-        Entity::EQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::EQS::Variant> &attributes, const Entity::EQS::MessagePriority priority) override {
+        Entity::EQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes, const Entity::EQS::MessagePriority priority) override {
             std::lock_guard lock(_mutex);
 
             Entity::EQS::Message message;

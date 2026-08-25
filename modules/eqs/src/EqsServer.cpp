@@ -199,7 +199,7 @@ namespace Euclid::EQS {
 
         const std::string messageId = Core::UuidUtils::CreateRandomUuid();
         const std::string ern = Core::createEqsMessageErn(auth.user.value().accountId, messageId);
-        std::map<std::string, Database::Entity::EQS::Variant> attributes;
+        std::map<std::string, Database::Entity::COM::Variant> attributes;
         for (const auto &[key, variant]: request.attributes) {
             attributes[key] = Dto::EQS::EqsMapper::toEntity(variant);
         }
@@ -224,16 +224,16 @@ namespace Euclid::EQS {
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::EQS::ReceiveMessagesRequest>(jv);
-        log_info << "SQS ReceiveMessages ern: " << request.ern;
+        log_info << "SQS ReceiveMessages ern: " << request.queueErn;
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
-        std::vector<Database::Entity::EQS::Message> messages = repo->receiveMessages(request.ern, request.maxCount, request.waitTime);
+        std::vector<Database::Entity::EQS::Message> messages = repo->receiveMessages(request.queueErn, request.maxCount, request.waitTime);
 
         Dto::EQS::ReceiveMessagesResponse response;
         response.messages = Dto::EQS::EqsMapper::toDto(messages);
-        response.total = repo->countMessages(request.ern);
+        response.total = repo->countMessages(request.queueErn);
 
-        log_info << "SQS ReceiveMessages ern: " << request.ern << ", count: " << response.messages.size() << ", total: " << response.total;
+        log_info << "SQS ReceiveMessages ern: " << request.queueErn << ", count: " << response.messages.size() << ", total: " << response.total;
 
         return EqsServer::JsonResponse(req, status::ok, response.toJson());
     }
@@ -266,7 +266,7 @@ namespace Euclid::EQS {
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::EQS::PurgeQueueRequest>(jv);
-        log_info << "SQS PurgeQueue ern: " << request.ern;
+        log_info << "EQS PurgeQueue ern: " << request.ern;
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
         repo->purgeQueue(request.ern);
@@ -284,7 +284,7 @@ namespace Euclid::EQS {
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::EQS::PurgeAllQueuesRequest>(jv);
-        log_info << "SQS PurgeAllQueues";
+        log_info << "EQS PurgeAllQueues";
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
         repo->purgeAllQueues(request.region, request.accountId);
@@ -302,16 +302,16 @@ namespace Euclid::EQS {
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::EQS::GetMessageCountRequest>(jv);
-        log_info << "SQS GetMessageCount, ern: " << request.ern;
+        log_info << "EQS GetMessageCount, ern: " << request.queueErn;
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
-        const std::optional<Database::Entity::EQS::Queue> queue = repo->findQueueByErn(request.ern);
+        const std::optional<Database::Entity::EQS::Queue> queue = repo->findQueueByErn(request.queueErn);
         if (!queue.has_value()) {
-            return EqsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + request.ern);
+            return EqsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + request.queueErn);
         }
 
         Dto::EQS::GetMessageCountResponse response;
-        response.ern = request.ern;
+        response.ern = request.queueErn;
         response.available = queue->available;
         response.delayed = queue->delayed;
         response.invisible = queue->invisible;
@@ -329,7 +329,7 @@ namespace Euclid::EQS {
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::EQS::GetQueueMetadataRequest>(jv);
-        log_info << "SQS GetQueueMetadata, ern: " << request.ern;
+        log_info << "EQS GetQueueMetadata, ern: " << request.ern;
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
         const std::optional<Database::Entity::EQS::Queue> queue = repo->findQueueByErn(request.ern);
@@ -341,7 +341,7 @@ namespace Euclid::EQS {
         response.region = queue->region;
         response.accountId = Core::accountIdFromErn(queue->ern);
         response.owner = queue->owner;
-        // Queues aren't namespace-scoped yet (no such field on Database::Entity::SQS::Queue), so
+        // Queues aren't namespace-scoped yet (no such field on Database::Entity::EQS::Queue), so
         // this is always empty for now rather than reporting something fabricated.
         response.nameSpace = "";
         response.name = queue->name;
@@ -363,7 +363,7 @@ namespace Euclid::EQS {
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::EQS::GetMessageAttributeRequest>(jv);
-        log_info << "SQS GetMessageAttribute, messageId: " << request.messageId << ", name: " << request.name;
+        log_info << "EQS GetMessageAttribute, messageId: " << request.messageId << ", name: " << request.name;
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
         const std::optional<Database::Entity::EQS::Message> message = repo->findMessageByName(request.messageId);
@@ -394,7 +394,7 @@ namespace Euclid::EQS {
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::EQS::GetMessageMetadataRequest>(jv);
-        log_info << "SQS GetMessageMetadata, messageId: " << request.messageId;
+        log_info << "EQS GetMessageMetadata, messageId: " << request.messageId;
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
         const std::optional<Database::Entity::EQS::Message> message = repo->findMessageByName(request.messageId);
@@ -428,7 +428,7 @@ namespace Euclid::EQS {
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
 
-        log_info << "SQS GetQueueAttributes url=" << Core::GetStringValue(jv, "QueueUrl");
+        log_info << "EQS GetQueueAttributes url=" << Core::GetStringValue(jv, "QueueUrl");
 
         const boost::json::object body{
                 {"Attributes", boost::json::object{}},
@@ -446,7 +446,7 @@ namespace Euclid::EQS {
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
 
-        log_info << "SQS SetQueueAttributes url=" << Core::GetStringValue(jv, "QueueUrl");
+        log_info << "EQS SetQueueAttributes url=" << Core::GetStringValue(jv, "QueueUrl");
 
         const boost::json::object body{
                 {"ResponseMetadata", boost::json::object{{"RequestId", EqsServer::RequestId()}}}
@@ -470,6 +470,32 @@ namespace Euclid::EQS {
         std::optional<Database::Entity::EQS::Queue> queue = repo->findQueueByErn(ern);
         if (!queue.has_value()) {
             return EqsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + ern);
+        }
+        queue->tags[key] = value;
+        queue = repo->upsertQueue(queue.value());
+
+        return EqsServer::JsonResponse(req, status::ok);
+    }
+
+    static response<string_body> handleSetQueueTag(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-queue-tag");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto [ern, key, value] = boost::json::value_to<Dto::EQS::AddQueueTagRequest>(jv);
+        log_info << "EQS SetQueueTag, ern: " << ern << ", key: " << key;
+
+        const auto repo = Database::RepositoryFactory::instance().eqsRepository();
+        std::optional<Database::Entity::EQS::Queue> queue = repo->findQueueByErn(ern);
+        if (!queue.has_value()) {
+            return EqsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + ern);
+        }
+        if (!queue.value().tags.contains(key)) {
+            return EqsServer::ErrorResponse(req, status::not_found, "Tag not found, key: " + key);
         }
         queue->tags[key] = value;
         queue = repo->upsertQueue(queue.value());
@@ -523,6 +549,7 @@ namespace Euclid::EQS {
             GetMetadata,
             AddMetadata,
             AddQueueTag,
+            SetQueueTag,
             DeleteQueueTag,
             GetMetrics
         };
@@ -546,6 +573,7 @@ namespace Euclid::EQS {
         if (action == "get-metadata") return Command::GetMetadata;
         if (action == "add-metadata") return Command::AddMetadata;
         if (action == "add-queue-tag") return Command::AddQueueTag;
+        if (action == "set-queue-tag") return Command::SetQueueTag;
         if (action == "delete-queue-tag") return Command::DeleteQueueTag;
         if (action == "get-metrics") return Command::GetMetrics;
         return Command::Unknown;
@@ -611,6 +639,9 @@ namespace Euclid::EQS {
 
             case Command::AddQueueTag:
                 return handleAddQueueTag(req);
+
+            case Command::SetQueueTag:
+                return handleSetQueueTag(req);
 
             case Command::DeleteQueueTag:
                 return handleDeleteQueueTag(req);

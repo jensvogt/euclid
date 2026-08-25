@@ -14,7 +14,7 @@ namespace Euclid::Dto::EQS {
         /**
          * @brief Queue ERN
          */
-        std::string ern{};
+        std::string queueErn{};
 
         /**
          * @brief Maximal message count
@@ -45,7 +45,7 @@ namespace Euclid::Dto::EQS {
 
         friend ReceiveMessagesRequest tag_invoke(boost::json::value_to_tag<ReceiveMessagesRequest>, boost::json::value const &v) {
             ReceiveMessagesRequest r;
-            r.ern = Core::GetStringValue(v, "ern");
+            r.queueErn = Core::GetStringValue(v, "ern");
             r.maxCount = Core::GetLongValue(v, "maxCount");
             r.waitTime = Core::GetLongValue(v, "waitTime");
             return r;
@@ -53,7 +53,7 @@ namespace Euclid::Dto::EQS {
 
         friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ReceiveMessagesRequest const &obj) {
             jv = {
-                    {"ern", obj.ern},
+                    {"ern", obj.queueErn},
                     {"maxCount", obj.maxCount},
                     {"waitTime", obj.waitTime},
             };

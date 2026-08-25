@@ -11,10 +11,10 @@
 #include <vector>
 
 // Euclid includes
+#include <euclid/database/entity/com/Variant.h>
 #include <euclid/database/entity/eqs/Message.h>
 #include <euclid/database/entity/eqs/MessagePriority.h>
 #include <euclid/database/entity/eqs/Queue.h>
-#include <euclid/database/entity/eqs/Variant.h>
 
 namespace Euclid::Database {
 
@@ -155,7 +155,7 @@ namespace Euclid::Database {
          * @param priority message priority; defaults to MIDDLE.
          * @return the newly created message entity.
          */
-        virtual Entity::EQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::EQS::Variant> &attributes, Entity::EQS::MessagePriority priority = Entity::EQS::MessagePriority::MIDDLE) = 0;
+        virtual Entity::EQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes, Entity::EQS::MessagePriority priority = Entity::EQS::MessagePriority::MIDDLE) = 0;
 
         /**
          * @brief Receives up to maxCount available messages from a queue.
