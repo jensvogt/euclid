@@ -414,8 +414,8 @@ namespace Euclid::Database {
         }
     }
 
-    Entity::EQS::Message MongoEqsRepository::sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::EQS::Variant> &attributes,
-                                                               const Entity::EQS::MessagePriority priority) {
+    Entity::EQS::Message MongoEqsRepository::sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes,
+                                                         const Entity::EQS::MessagePriority priority) {
 
         Entity::EQS::Message message;
         message.ern = ern;

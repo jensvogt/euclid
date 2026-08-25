@@ -34,6 +34,7 @@
 #include <euclid/dto/eqs/ReceiveMessagesRequest.h>
 #include <euclid/dto/eqs/SendMessageRequest.h>
 #include <euclid/dto/eqs/SetMessageVisibilityRequest.h>
+#include <euclid/dto/eqs/SetQueueTagRequest.h>
 
 namespace Euclid::CLI {
 
@@ -203,6 +204,9 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int addQueueTag(const std::vector<std::string> &args) const;
+
+        int setQueueTag(const std::vector<std::string> &args) const;
+
         int deleteQueueTag(const std::vector<std::string> &args) const;
 
         /**

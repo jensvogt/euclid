@@ -73,6 +73,7 @@ namespace Euclid::CLI {
                                            {"list-objects", "List objects"},
                                            {"get-object-count", "Return the number of objects in a bucket"},
                                            {"add-bucket-tag", "Adds a tag to a bucket"},
+                                           {"set-bucket-tag", "Sets the value of an existing bucket tag"},
                                            {"delete-bucket-tag", "Deletes a tag from a bucket"},
                                            {"delete-object", "Deletes an object by ERN"},
                                    });
@@ -118,6 +119,9 @@ namespace Euclid::CLI {
         }
         if (action == "add-bucket-tag") {
             return addBucketTag(args);
+        }
+        if (action == "set-bucket-tag") {
+            return setBucketTag(args);
         }
         if (action == "delete-bucket-tag") {
             return deleteBucketTag(args);
@@ -883,14 +887,14 @@ namespace Euclid::CLI {
     int EsmCli::downloadFile(const std::vector<std::string> &args) const {
         po::options_description desc("download file options");
         desc.add_options()
-                ("bucket-ern,b", po::value<std::string>()->required(), "ERN of the source bucket")
+                ("bucket,b", po::value<std::string>()->required(), "ERN of the source bucket")
                 ("key,k", po::value<std::string>()->required(), "key (path) of the object within the bucket")
                 ("file,f", po::value<std::string>()->required(), "local destination file")
                 ("part-size,s", po::value<long>()->default_value(DefaultPartSize()), "part size in bytes")
                 ("concurrency,j", po::value<int>()->default_value(DefaultConcurrency()), "number of parts to download in parallel");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "download-file", "--bucket-ern <ern> --key <key> --file <path> [--part-size <bytes>] [--concurrency <n>]",
+            return PrintActionHelp("esm", "download-file", "--bucket <ern> --key <key> --file <path> [--part-size <bytes>] [--concurrency <n>]",
                                    "Downloads an object from a bucket to a local file. Objects smaller than --part-size are fetched in a "
                                    "single request; larger objects are transparently split into parts for a multipart download, downloading "
                                    "up to <concurrency> parts at a time in background threads.",
@@ -906,7 +910,7 @@ namespace Euclid::CLI {
             return 1;
         }
 
-        const auto bucketErn = vm["bucket-ern"].as<std::string>();
+        const auto bucketErn = vm["bucket"].as<std::string>();
         const auto key = vm["key"].as<std::string>();
         const auto filePath = vm["file"].as<std::string>();
         const auto partSize = vm["part-size"].as<long>();
@@ -952,7 +956,7 @@ namespace Euclid::CLI {
     int EsmCli::downloadBucket(const std::vector<std::string> &args) const {
         po::options_description desc("download bucket options");
         desc.add_options()
-                ("bucket-ern,b", po::value<std::string>()->required(), "ERN of the source bucket")
+                ("bucket,b", po::value<std::string>()->required(), "ERN of the source bucket")
                 ("dir,d", po::value<std::string>()->required(), "local directory to download into")
                 ("prefix,p", po::value<std::string>()->default_value(""), "object key prefix filter")
                 ("recursive,r", po::bool_switch()->default_value(false), "recurse through all matching keys, not just direct descendants")
@@ -981,13 +985,13 @@ namespace Euclid::CLI {
             return 1;
         }
 
-        const auto bucketErn = vm["bucket-ern"].as<std::string>();
+        const auto bucketErn = vm["bucket"].as<std::string>();
         const auto dirPath = vm["dir"].as<std::string>();
         const auto prefix = vm["prefix"].as<std::string>();
         const bool recursive = vm["recursive"].as<bool>();
         const auto partSize = vm["part-size"].as<long>();
         const auto concurrency = std::max(1, vm["concurrency"].as<int>());
-        const bool wantZip = vm.count("zip") > 0;
+        const bool wantZip = vm.contains("zip");
         const auto zipPath = wantZip ? vm["zip"].as<std::string>() : std::string();
 
         const auto objects = listAllObjects(bucketErn, prefix);
@@ -1080,15 +1084,15 @@ namespace Euclid::CLI {
         }
 
         Dto::ESM::ListObjectsRequest request;
+        request.pageSize = vm["pageSize"].as<long>();
+        request.pageIndex = vm["pageIndex"].as<long>();
+        request.sortColumn = vm["sortColumn"].as<std::string>();
         if (vm.contains("bucket")) {
             request.bucketErn = vm["bucket"].as<std::string>();
         }
         if (vm.contains("prefix")) {
             request.prefix = vm["prefix"].as<std::string>();
         }
-        request.pageSize = vm["pageSize"].as<long>();
-        request.pageIndex = vm["pageIndex"].as<long>();
-        request.sortColumn = vm["sortColumn"].as<std::string>();
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
@@ -1128,7 +1132,7 @@ namespace Euclid::CLI {
         }
 
         Dto::ESM::GetObjectCountRequest request;
-        request.ern = vm["bucket"].as<std::string>();
+        request.bucketErn = vm["bucket"].as<std::string>();
         if (vm.contains("prefix")) {
             request.prefix = vm["prefix"].as<std::string>();
         }
@@ -1206,7 +1210,7 @@ namespace Euclid::CLI {
         }
 
         Dto::ESM::PurgeBucketRequest request;
-        request.ern = vm["bucket"].as<std::string>();
+        request.bucketErn = vm["bucket"].as<std::string>();
         if (vm.contains("prefix")) {
             request.prefix = vm["prefix"].as<std::string>();
         }
@@ -1229,13 +1233,14 @@ namespace Euclid::CLI {
     int EsmCli::addBucketTag(const std::vector<std::string> &args) const {
         po::options_description desc("add bucket tag options");
         desc.add_options()
-        ("bucket,b", po::value<std::string>()->required(), "bucket ERN")
-        ("key,k", po::value<std::string>()->required(), "tag key")
-        ("value,v", po::value<std::string>()->required(), "tag value");
+                ("bucket,b", po::value<std::string>()->required(), "bucket ERN")
+                ("key,k", po::value<std::string>()->required(), "tag key")
+                ("value,v", po::value<std::string>()->required(), "tag value");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("esm", "add-bucket-tag", "--bucket <bucket ERN> --key <value> --value <value>",
-                                   "Adds a tag to a bucket.",
+                                   "Adds a tag to a bucket. If the bucket tag exists already the tag value will be set, otherwise "
+                                   "the value will be updated.",
                                    desc);
         }
 
@@ -1245,12 +1250,12 @@ namespace Euclid::CLI {
             po::notify(vm);
         } catch (const po::error &ex) {
             std::cerr << "error: " << ex.what() << "\n\n"
-                      << desc << std::endl;
+                    << desc << std::endl;
             return 1;
         }
 
         Dto::ESM::AddBucketTagRequest request;
-        request.ern = vm["bucket"].as<std::string>();
+        request.bucketErn = vm["bucket"].as<std::string>();
         request.key = vm["key"].as<std::string>();
         request.value = vm["value"].as<std::string>();
 
@@ -1267,11 +1272,52 @@ namespace Euclid::CLI {
         }
     }
 
+    int EsmCli::setBucketTag(const std::vector<std::string> &args) const {
+        po::options_description desc("set bucket tag options");
+        desc.add_options()
+                ("bucket,b", po::value<std::string>()->required(), "bucket ERN")
+                ("key,k", po::value<std::string>()->required(), "tag key")
+                ("value,v", po::value<std::string>()->required(), "tag value");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", "set-bucket-tag", "--bucket <bucket ERN> --key <value> --value <value>",
+                                   "Sets a value for an existing bucket tag. The bucket tag must be existing already.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n"
+                    << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ESM::SetBucketTagRequest request;
+        request.bucketErn = vm["bucket"].as<std::string>();
+        request.key = vm["key"].as<std::string>();
+        request.value = vm["value"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            if (const HttpResponse response = client.Post("esm", "set-bucket-tag", boost::json::value_from(request)); !response.IsSuccess()) {
+                std::cerr << "error: set-bucket-tag failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
     int EsmCli::deleteBucketTag(const std::vector<std::string> &args) const {
         po::options_description desc("delete bucket tag options");
         desc.add_options()
-        ("bucket,q", po::value<std::string>()->required(), "bucket ERN")
-        ("key,k", po::value<std::string>()->required(), "tag key");
+                ("bucket,q", po::value<std::string>()->required(), "bucket ERN")
+                ("key,k", po::value<std::string>()->required(), "tag key");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eqs", "delete-bucket-tag", "--bucket <bucket ERN> --key <value>",
@@ -1285,12 +1331,12 @@ namespace Euclid::CLI {
             po::notify(vm);
         } catch (const po::error &ex) {
             std::cerr << "error: " << ex.what() << "\n\n"
-                      << desc << std::endl;
+                    << desc << std::endl;
             return 1;
         }
 
         Dto::ESM::DeleteBucketTagRequest request;
-        request.ern = vm["bucket"].as<std::string>();
+        request.queueErn = vm["bucket"].as<std::string>();
         request.key = vm["key"].as<std::string>();
 
         try {

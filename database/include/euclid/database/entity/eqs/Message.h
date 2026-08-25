@@ -14,9 +14,9 @@
 #include <bsoncxx/document/value.hpp>
 
 // Euclid includes
+#include <euclid/database/entity/com/Variant.h>
 #include <euclid/database/entity/eqs/MessagePriority.h>
 #include <euclid/database/entity/eqs/MessageStatus.h>
-#include <euclid/database/entity/eqs/Variant.h>
 
 namespace Euclid::Database::Entity::EQS {
 
@@ -123,7 +123,7 @@ namespace Euclid::Database::Entity::EQS {
          *
          * These are the user-contributed message attributes.
          */
-        std::map<std::string, Variant> attributes;
+        std::map<std::string, COM::Variant> attributes;
 
         /**
          * @brief MD5 sum of the message attributes.
@@ -170,7 +170,7 @@ namespace Euclid::Database::Entity::EQS {
          * @return MD5 sum, as a hex string.
          */
         [[nodiscard]]
-        static std::string ComputeAttributesMd5(const std::map<std::string, Variant> &attributes);
+        static std::string ComputeAttributesMd5(const std::map<std::string, COM::Variant> &attributes);
     };
 
 }// namespace Euclid::Database::Entity::SQS

@@ -14,7 +14,7 @@ namespace Euclid::Dto::ESM {
         /**
          * @brief Queue ERN
          */
-        std::string ern;
+        std::string bucketErn;
 
         /**
          * @brief Key
@@ -44,7 +44,7 @@ namespace Euclid::Dto::ESM {
 
         friend AddBucketTagRequest tag_invoke(boost::json::value_to_tag<AddBucketTagRequest>, boost::json::value const &v) {
             AddBucketTagRequest r;
-            r.ern = Core::GetStringValue(v, "ern");
+            r.bucketErn = Core::GetStringValue(v, "ern");
             r.key = Core::GetStringValue(v, "key");
             r.value = Core::GetStringValue(v, "value");
             return r;
@@ -52,7 +52,7 @@ namespace Euclid::Dto::ESM {
 
         friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, AddBucketTagRequest const &obj) {
             jv = {
-                    {"ern", obj.ern},
+                    {"ern", obj.bucketErn},
                     {"key", obj.key},
                     {"value", obj.value},
             };
