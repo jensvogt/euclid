@@ -1,0 +1,69 @@
+.TH EUCLID-CLI-EAM-LIST-NAMESPACES 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eam-list-namespaces \- list namespaces under an account
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B eam list-namespaces
+.BR \-\-account\-id | \-a
+.I ACCOUNTID
+[\fB\-\-prefix\fR \fIPREFIX\fR]
+[\fB\-\-pageSize\fR \fIN\fR]
+[\fB\-\-pageIndex\fR \fIN\fR]
+[\fB\-\-sortColumn\fR \fICOLUMN\fR]
+.SH DESCRIPTION
+Lists the namespaces under an account via the eam service's
+.I list-namespaces
+action.
+.PP
+The caller must be a global administrator, or hold account-scoped
+administrator privileges on \fIACCOUNTID\fR (see
+.BR euclid-cli-eam-grant-namespace-access (1)).
+.PP
+The JSON response, containing the matching namespaces and the total
+namespace count for the account, is printed to standard output.
+.SH OPTIONS
+.TP
+.BR \-a ", " \-\-account\-id " " \fIACCOUNTID\fR
+Only return namespaces belonging to this account. Required.
+.TP
+.BR \-p ", " \-\-prefix " " \fIPREFIX\fR
+Only return namespaces whose name starts with \fIPREFIX\fR. If omitted,
+all namespaces under the account match.
+.TP
+.BR \-s ", " \-\-pageSize " " \fIN\fR
+Maximum number of namespaces to return. \fI0\fR or less (the default,
+\fI\-1\fR) means no limit.
+.TP
+.BR \-i ", " \-\-pageIndex " " \fIN\fR
+Zero-based page index, applied when \fB\-\-pageSize\fR is set. Defaults to
+\fI\-1\fR (meaningless while paging is off).
+.TP
+.BR \-c ", " \-\-sortColumn " " \fICOLUMN\fR
+Field to sort by: \fIname\fR (default) or \fIdescription\fR.
+.SH EXIT STATUS
+.TP
+.B 0
+The listing was retrieved.
+.TP
+.B 1
+Invalid arguments, the request could not be sent, or the caller lacks
+administrator privileges on the account. If the failure was an expired or
+invalid session (\fIHTTP 401\fR), the stored credentials file is removed;
+run
+.B euclid-cli eam login
+again before retrying.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eam list-namespaces \e
+    --account-id 123456789012
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-eam-create-namespace (1),
+.BR euclid-cli-eam-delete-namespace (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

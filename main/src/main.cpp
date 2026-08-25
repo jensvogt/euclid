@@ -369,6 +369,8 @@ static int RunManager(const CliOptions &opts, [[maybe_unused]] const bool report
     // ── Initialize Database ─────────────────────────────
     if (const int error = initializeDatabase(cfg); error != 0) return error;
     Euclid::Database::WireAccessKeyLookup();
+    Euclid::Database::WireScopeLookup();
+    Euclid::Database::WireGrantLookup();
 
     // Module records track this manager's own child processes, so anything left over from a
     // previous run is stale (those pids/sockets no longer exist) - start from a clean slate.

@@ -1,0 +1,77 @@
+.TH EUCLID-CLI-EAM-GRANT-NAMESPACE-ACCESS 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eam-grant-namespace-access \- grant a user access to a namespace within an account
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B eam grant-namespace-access
+.BR \-\-user | \-u
+.I ERN
+.BR \-\-account\-id | \-a
+.I ACCOUNTID
+.BR \-\-namespace | \-s
+.I NAME
+.SH DESCRIPTION
+Grants a user explicit access to one namespace within one account via the
+eam service's
+.I grant-namespace-access
+action.
+.PP
+The caller must be a global administrator, or already hold account-scoped
+administrator privileges on \fIACCOUNTID\fR.
+.PP
+Access is granted per (account, namespace) pair, not per account: a user
+may hold grants across several accounts, and within each account, only
+for the specific namespaces it has been explicitly granted - granting
+\fIdevelopment\fR does not implicitly grant \fIproduction\fR. Both
+\fIACCOUNTID\fR and the namespace named by \fB\-\-namespace\fR must
+already exist (see
+.BR euclid-cli-eam-create-account (1)
+and
+.BR euclid-cli-eam-create-namespace (1)).
+.PP
+This is unrelated to global administrator status, which is instead
+membership in the
+.I administrator
+user group (see
+.BR euclid-cli-eam-user-group-add-user (1)).
+A global administrator already bypasses every grant check.
+.SH OPTIONS
+.TP
+.BR \-u ", " \-\-user " " \fIERN\fR
+ERN of the user to grant access to. Required.
+.TP
+.BR \-a ", " \-\-account\-id " " \fIACCOUNTID\fR
+Account the namespace belongs to. Required.
+.TP
+.BR \-s ", " \-\-namespace " " \fINAME\fR
+Namespace within \fIACCOUNTID\fR to grant access to. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The grant was created.
+.TP
+.B 1
+Missing/invalid arguments, the request could not be sent, the caller
+lacks administrator privileges on the account, the namespace or user does
+not exist, or the user already holds this grant. If the failure was an
+expired or invalid session (\fIHTTP 401\fR), the stored credentials file
+is removed; run
+.B euclid-cli eam login
+again before retrying.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eam grant-namespace-access \e
+    --user ern:euclid:eam:eu-central-1:123456789012:user:jdoe \e
+    --account-id 123456789012 --namespace development
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-eam-revoke-namespace-access (1),
+.BR euclid-cli-eam-create-namespace (1),
+.BR euclid-cli-eam-create-account (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

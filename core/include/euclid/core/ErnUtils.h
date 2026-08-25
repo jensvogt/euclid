@@ -88,6 +88,27 @@ namespace Euclid::Core {
     }
 
     /**
+     * @brief Creates an EAM account ERN
+     *
+     * @param accountId account ID
+     * @return resource ERN
+     */
+    inline std::string createEamAccountErn(const std::string &accountId) {
+        return createErn("eam", accountId, "account:" + accountId);
+    }
+
+    /**
+     * @brief Creates an EAM namespace ERN
+     *
+     * @param accountId account ID
+     * @param name namespace name
+     * @return resource ERN
+     */
+    inline std::string createEamNamespaceErn(const std::string &accountId, const std::string &name) {
+        return createErn("eam", accountId, "namespace:" + name);
+    }
+
+    /**
      * @brief Extracts the account ID from an ERN, i.e. the fifth colon-separated field of
      * "ern:euclid:{service}:{region}:{accountId}:{resourceType}:{resourceId}".
      *

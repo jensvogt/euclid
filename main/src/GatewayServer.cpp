@@ -145,11 +145,11 @@ namespace Euclid::main {
     // anywhere.
     //
     // Every emm action is administrator-only (it exposes every module's live process pool -
-    // pids, sockets, restart history), so this re-checks the caller's isAdmin flag itself
-    // instead of trusting the CLI's own client-side check, which is a UX nicety only and not a
-    // security boundary (nothing stops a modified/older client, or a direct SigV4-signed curl,
-    // from skipping it). subject is the already-authenticated caller from route() - always set,
-    // since "emm" is never in isPublicAction's allowlist.
+    // pids, sockets, restart history), so this re-checks the caller's administrator-group
+    // membership itself instead of trusting the CLI's own client-side check, which is a UX
+    // nicety only and not a security boundary (nothing stops a modified/older client, or a
+    // direct SigV4-signed curl, from skipping it). subject is the already-authenticated caller
+    // from route() - always set, since "emm" is never in isPublicAction's allowlist.
     static http::response<http::string_body> handleEmmRequest(const http::request<http::string_body> &req, const std::string &subject) {
         auto jsonResponse = [&](const http::status status, std::string body) {
             http::response<http::string_body> r{status, req.version()};
@@ -163,8 +163,9 @@ namespace Euclid::main {
             return jsonResponse(status, boost::json::serialize(boost::json::object{{"error", msg}}));
         };
 
-        const auto caller = Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(subject);
-        if (!caller.has_value() || !caller->isAdmin) {
+        const auto repo = Database::RepositoryFactory::instance().eamRepository();
+        const auto caller = repo->findUserByUserId(subject);
+        if (!caller.has_value() || !Database::IsEamAdmin(*repo, caller->userId)) {
             return err(http::status::forbidden, "administrator privileges required");
         }
 

@@ -35,7 +35,17 @@ namespace Euclid::CLI {
                                            {"delete-access-key", "Delete one of your access keys"},
                                            {"create-user-group", "Create a new user group"},
                                            {"list-user-groups", "List user groups"},
+                                           {"user-group-add-user", "Add an user to an user group"},
+                                           {"user-group-remove-user", "Removes an user to an user group"},
                                            {"delete-user-group", "Delete an existing user group"},
+                                           {"create-account", "Create a new account"},
+                                           {"list-accounts", "List accounts"},
+                                           {"delete-account", "Delete an existing account"},
+                                           {"create-namespace", "Create a new namespace under an account"},
+                                           {"list-namespaces", "List namespaces under an account"},
+                                           {"delete-namespace", "Delete an existing namespace"},
+                                           {"grant-namespace-access", "Grant a user access to a namespace within an account"},
+                                           {"revoke-namespace-access", "Revoke a user's access to a namespace within an account"},
                                    });
         }
         if (action == "login") {
@@ -65,8 +75,38 @@ namespace Euclid::CLI {
         if (action == "list-user-groups") {
             return listUserGroups(args);
         }
+        if (action == "user-group-add-user") {
+            return addUserToUserGroup(args);
+        }
+        if (action == "user-group-remove-user") {
+            return removeUserFromUserGroup(args);
+        }
         if (action == "delete-user-group") {
             return deleteUserGroup(args);
+        }
+        if (action == "create-account") {
+            return createAccount(args);
+        }
+        if (action == "list-accounts") {
+            return listAccounts(args);
+        }
+        if (action == "delete-account") {
+            return deleteAccount(args);
+        }
+        if (action == "create-namespace") {
+            return createNamespace(args);
+        }
+        if (action == "list-namespaces") {
+            return listNamespaces(args);
+        }
+        if (action == "delete-namespace") {
+            return deleteNamespace(args);
+        }
+        if (action == "grant-namespace-access") {
+            return grantNamespaceAccess(args);
+        }
+        if (action == "revoke-namespace-access") {
+            return revokeNamespaceAccess(args);
         }
         std::cerr << "error: unknown eam action '" << action << "'\n";
         return 1;
@@ -427,12 +467,12 @@ namespace Euclid::CLI {
         }
 
         Dto::EAM::ListUserGroupsRequest request;
-        if (vm.contains("prefix")) {
-            request.prefix = vm["prefix"].as<std::string>();
-        }
         request.pageSize = vm["pageSize"].as<long>();
         request.pageIndex = vm["pageIndex"].as<long>();
         request.sortColumn = vm["sortColumn"].as<std::string>();
+        if (vm.contains("prefix")) {
+            request.prefix = vm["prefix"].as<std::string>();
+        }
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
@@ -444,6 +484,86 @@ namespace Euclid::CLI {
             }
 
             Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::addUserToUserGroup(const std::vector<std::string> &args) const {
+        po::options_description desc("eam add user to user group options");
+        desc.add_options()
+                ("user-group,g", po::value<std::string>()->required(), "user group ERN")
+                ("user,u", po::value<std::string>()->required(), "user ERN");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "user-group-add-user", "--user-group <ERN> --user <ERN>",
+                                   "Adds a user to a user group. User group ERN and user ERN are required.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EAM::UserGroupAddUserRequest request;
+        request.user = vm["user"].as<std::string>();
+        request.userGroup = vm["user-group"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eam", "user-group-add-user", boost::json::value_from(request));
+
+            if (!response.IsSuccess()) {
+                reportFailure("user-group-add-user", response);
+                return 1;
+            }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::removeUserFromUserGroup(const std::vector<std::string> &args) const {
+        po::options_description desc("eam remove user from a user group options");
+        desc.add_options()
+                ("user-group,g", po::value<std::string>()->required(), "user group ERN")
+                ("user,u", po::value<std::string>()->required(), "user ERN");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "user-group-remove-user", "--user-group <ERN> --user <ERN>",
+                                   "Removes a user from a user group. User group ERN and user ERN are required.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EAM::UserGroupRemoveUserRequest request;
+        request.user = vm["user"].as<std::string>();
+        request.userGroup = vm["user-group"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eam", "user-group-remove-user", boost::json::value_from(request));
+
+            if (!response.IsSuccess()) {
+                reportFailure("user-group-remove-user", response);
+                return 1;
+            }
             return 0;
         } catch (const std::exception &ex) {
             std::cerr << "error: " << ex.what() << std::endl;
@@ -479,6 +599,356 @@ namespace Euclid::CLI {
 
             if (const HttpResponse response = client.Post("eam", "delete-user-group", boost::json::value_from(request)); !response.IsSuccess()) {
                 reportFailure("delete-user-group", response);
+                return 1;
+            }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::createAccount(const std::vector<std::string> &args) const {
+        po::options_description desc("eam create account options");
+        desc.add_options()
+                ("account-id,a", po::value<std::string>()->required(), "account ID")
+                ("name,n", po::value<std::string>()->required(), "account name")
+                ("description,d", po::value<std::string>()->default_value(""), "account description");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "create-account", "--account-id <accountId> --name <name> [--description <description>]",
+                                   "Creates a new account. Requires administrator privileges.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EAM::CreateAccountRequest request;
+        request.accountId = vm["account-id"].as<std::string>();
+        request.name = vm["name"].as<std::string>();
+        request.description = vm["description"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eam", "create-account", boost::json::value_from(request));
+
+            if (!response.IsSuccess()) {
+                reportFailure("create-account", response);
+                return 1;
+            }
+
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::listAccounts(const std::vector<std::string> &args) const {
+        po::options_description desc("eam list accounts");
+        desc.add_options()
+                ("prefix,p", po::value<std::string>(), "account ID prefix")
+                ("pageSize,s", po::value<long>()->default_value(-1), "page size")
+                ("pageIndex,i", po::value<long>()->default_value(-1), "page index")
+                ("sortColumn,c", po::value<std::string>()->default_value("accountId"), "sort column");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "list-accounts", "[--prefix <prefix>] [--pageSize <n>] [--pageIndex <n>] [--sortColumn <column>]",
+                                   "Lists accounts, optionally filtered by accountId prefix and paginated.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EAM::ListAccountsRequest request;
+        request.pageSize = vm["pageSize"].as<long>();
+        request.pageIndex = vm["pageIndex"].as<long>();
+        request.sortColumn = vm["sortColumn"].as<std::string>();
+        if (vm.contains("prefix")) {
+            request.prefix = vm["prefix"].as<std::string>();
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eam", "list-accounts", boost::json::value_from(request));
+
+            if (!response.IsSuccess()) {
+                reportFailure("list-accounts", response);
+                return 1;
+            }
+
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::deleteAccount(const std::vector<std::string> &args) const {
+        po::options_description desc("eam delete account options");
+        desc.add_options()
+                ("account-id,a", po::value<std::string>()->required(), "account ID");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "delete-account", "--account-id <accountId>",
+                                   "Deletes an existing account. Requires administrator privileges, and the "
+                                   "account must have no remaining namespaces or user grants.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EAM::DeleteAccountRequest request;
+        request.accountId = vm["account-id"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+
+            if (const HttpResponse response = client.Post("eam", "delete-account", boost::json::value_from(request)); !response.IsSuccess()) {
+                reportFailure("delete-account", response);
+                return 1;
+            }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::createNamespace(const std::vector<std::string> &args) const {
+        po::options_description desc("eam create namespace options");
+        desc.add_options()
+                ("account-id,a", po::value<std::string>()->required(), "account ID")
+                ("name,n", po::value<std::string>()->required(), "namespace name")
+                ("description,d", po::value<std::string>()->default_value(""), "namespace description");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "create-namespace", "--account-id <accountId> --name <name> [--description <description>]",
+                                   "Creates a new namespace under an account. Requires administrator privileges "
+                                   "on that account.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EAM::CreateNamespaceRequest request;
+        request.accountId = vm["account-id"].as<std::string>();
+        request.name = vm["name"].as<std::string>();
+        request.description = vm["description"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eam", "create-namespace", boost::json::value_from(request));
+
+            if (!response.IsSuccess()) {
+                reportFailure("create-namespace", response);
+                return 1;
+            }
+
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::listNamespaces(const std::vector<std::string> &args) const {
+        po::options_description desc("eam list namespaces");
+        desc.add_options()
+                ("account-id,a", po::value<std::string>()->required(), "account ID")
+                ("prefix,p", po::value<std::string>(), "namespace name prefix")
+                ("pageSize,s", po::value<long>()->default_value(-1), "page size")
+                ("pageIndex,i", po::value<long>()->default_value(-1), "page index")
+                ("sortColumn,c", po::value<std::string>()->default_value("name"), "sort column");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "list-namespaces", "--account-id <accountId> [--prefix <prefix>] [--pageSize <n>] [--pageIndex <n>] [--sortColumn <column>]",
+                                   "Lists namespaces under an account, optionally filtered by name prefix and paginated.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EAM::ListNamespacesRequest request;
+        request.accountId = vm["account-id"].as<std::string>();
+        request.pageSize = vm["pageSize"].as<long>();
+        request.pageIndex = vm["pageIndex"].as<long>();
+        request.sortColumn = vm["sortColumn"].as<std::string>();
+        if (vm.contains("prefix")) {
+            request.prefix = vm["prefix"].as<std::string>();
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eam", "list-namespaces", boost::json::value_from(request));
+
+            if (!response.IsSuccess()) {
+                reportFailure("list-namespaces", response);
+                return 1;
+            }
+
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::deleteNamespace(const std::vector<std::string> &args) const {
+        po::options_description desc("eam delete namespace options");
+        desc.add_options()
+                ("account-id,a", po::value<std::string>()->required(), "account ID")
+                ("name,n", po::value<std::string>()->required(), "namespace name");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "delete-namespace", "--account-id <accountId> --name <name>",
+                                   "Deletes an existing namespace. Requires administrator privileges on the "
+                                   "account, and the namespace must have no remaining user grants.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EAM::DeleteNamespaceRequest request;
+        request.accountId = vm["account-id"].as<std::string>();
+        request.name = vm["name"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+
+            if (const HttpResponse response = client.Post("eam", "delete-namespace", boost::json::value_from(request)); !response.IsSuccess()) {
+                reportFailure("delete-namespace", response);
+                return 1;
+            }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::grantNamespaceAccess(const std::vector<std::string> &args) const {
+        po::options_description desc("eam grant namespace access options");
+        desc.add_options()
+                ("user,u", po::value<std::string>()->required(), "user ERN")
+                ("account-id,a", po::value<std::string>()->required(), "account ID")
+                ("namespace,s", po::value<std::string>()->required(), "namespace name");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "grant-namespace-access", "--user <ERN> --account-id <accountId> --namespace <name>",
+                                   "Grants a user access to a namespace within an account. Requires "
+                                   "administrator privileges on that account.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EAM::GrantNamespaceAccessRequest request;
+        request.user = vm["user"].as<std::string>();
+        request.accountId = vm["account-id"].as<std::string>();
+        request.ns = vm["namespace"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+
+            if (const HttpResponse response = client.Post("eam", "grant-namespace-access", boost::json::value_from(request)); !response.IsSuccess()) {
+                reportFailure("grant-namespace-access", response);
+                return 1;
+            }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::revokeNamespaceAccess(const std::vector<std::string> &args) const {
+        po::options_description desc("eam revoke namespace access options");
+        desc.add_options()
+                ("user,u", po::value<std::string>()->required(), "user ERN")
+                ("account-id,a", po::value<std::string>()->required(), "account ID")
+                ("namespace,s", po::value<std::string>()->required(), "namespace name");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "revoke-namespace-access", "--user <ERN> --account-id <accountId> --namespace <name>",
+                                   "Revokes a user's access to a namespace within an account. Requires "
+                                   "administrator privileges on that account.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EAM::RevokeNamespaceAccessRequest request;
+        request.user = vm["user"].as<std::string>();
+        request.accountId = vm["account-id"].as<std::string>();
+        request.ns = vm["namespace"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eam", "revoke-namespace-access", boost::json::value_from(request));
+
+            if (!response.IsSuccess()) {
+                reportFailure("revoke-namespace-access", response);
                 return 1;
             }
             return 0;

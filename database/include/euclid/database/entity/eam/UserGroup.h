@@ -57,7 +57,12 @@ namespace Euclid::Database::Entity::EAM {
         /**
          * @brief Creation timestamp, ISO8601.
          */
-        std::string createdAt;
+        std::chrono::system_clock::time_point created;
+
+        /**
+         * @brief Creation timestamp, ISO8601.
+         */
+        std::chrono::system_clock::time_point modified;
 
         /**
          * @brief Converts the entity to a MongoDB document

@@ -5,6 +5,10 @@ euclid-cli-eam-register \- create a new Euclid user account
 .B euclid-cli
 [\fB\-\-endpoint\fR \fIURL\fR]
 .B eam register
+.BR \-\-region | \-r
+.I REGION
+.BR \-\-account\-id | \-a
+.I ACCOUNTID
 .BR \-\-user | \-u
 .I USERID
 .BR \-\-email | \-e
@@ -21,11 +25,26 @@ The caller must be authenticated as an administrator (see
 .B except
 when the server's user store is completely empty: the very first account
 ever registered is allowed through unauthenticated and is automatically
-promoted to administrator, so there is always a way to bootstrap the first
-account on a fresh server.
+added to the
+.I administrator
+user group, so there is always a way to bootstrap the first account on a
+fresh server.
+.PP
+A newly registered user is never an administrator otherwise - administrator
+status is membership in the
+.I administrator
+user group, not a per-user flag, so grant it afterwards with
+.BR euclid-cli-eam-user-group-add-user (1)
+if needed.
 .PP
 The created user's JSON representation is printed to standard output.
 .SH OPTIONS
+.TP
+.BR \-r ", " \-\-region " " \fIREGION\fR
+Region the new user is registered in. Required.
+.TP
+.BR \-a ", " \-\-account\-id " " \fIACCOUNTID\fR
+Account the new user belongs to. Required.
 .TP
 .BR \-u ", " \-\-user " " \fIUSERID\fR
 User ID for the new account. Required.
@@ -53,6 +72,7 @@ Bootstrap the first account on an empty server (no login required):
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 eam register \e
+    --region eu-central-1 --account-id 000000000000 \e
     --user admin --email admin@example.com --password 'change-me'
 .fi
 .RE
@@ -64,6 +84,7 @@ euclid-cli --endpoint http://localhost:5566 eam login \e
     --user admin --password 'change-me'
 
 euclid-cli --endpoint http://localhost:5566 eam register \e
+    --region eu-central-1 --account-id 000000000000 \e
     --user jdoe --email jdoe@example.com --password 'hunter2'
 .fi
 .RE
@@ -71,6 +92,7 @@ euclid-cli --endpoint http://localhost:5566 eam register \e
 .BR euclid-cli-eam (1),
 .BR euclid-cli-eam-login (1),
 .BR euclid-cli-eam-list-users (1),
-.BR euclid-cli-eam-delete-user (1)
+.BR euclid-cli-eam-delete-user (1),
+.BR euclid-cli-eam-user-group-add-user (1)
 .SH AUTHOR
 Jens Vogt <jens.vogt@opitz-consulting.com>

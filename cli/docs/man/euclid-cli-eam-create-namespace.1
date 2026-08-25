@@ -1,0 +1,71 @@
+.TH EUCLID-CLI-EAM-CREATE-NAMESPACE 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eam-create-namespace \- create a new namespace under an account
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B eam create-namespace
+.BR \-\-account\-id | \-a
+.I ACCOUNTID
+.BR \-\-name | \-n
+.I NAME
+[\fB\-\-description\fR|\fB\-d\fR \fIDESCRIPTION\fR]
+.SH DESCRIPTION
+Creates a new namespace under an account (e.g. \fIdevelopment\fR,
+\fIintegration\fR, \fIproduction\fR) via the eam service's
+.I create-namespace
+action.
+.PP
+The caller must be a global administrator, or hold account-scoped
+administrator privileges on \fIACCOUNTID\fR (see
+.BR euclid-cli-eam-grant-namespace-access (1)
+for how an account-scoped administrator grant is created).
+.PP
+The account identified by \fIACCOUNTID\fR must already exist (see
+.BR euclid-cli-eam-create-account (1)).
+Namespace names only need to be unique within their account - two
+different accounts may each have their own \fIproduction\fR namespace.
+.PP
+The created namespace's JSON representation is printed to standard
+output.
+.SH OPTIONS
+.TP
+.BR \-a ", " \-\-account\-id " " \fIACCOUNTID\fR
+Account the namespace belongs to. Required.
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+Namespace name, unique within \fIACCOUNTID\fR. Required.
+.TP
+.BR \-d ", " \-\-description " " \fIDESCRIPTION\fR
+Free-text description of the namespace's purpose. Defaults to an empty
+string.
+.SH EXIT STATUS
+.TP
+.B 0
+The namespace was created.
+.TP
+.B 1
+Missing/invalid arguments, the request could not be sent, the caller
+lacks administrator privileges on the account, the account does not
+exist, or a namespace with that name already exists under the account. If
+the failure was an expired or invalid session (\fIHTTP 401\fR), the
+stored credentials file is removed; run
+.B euclid-cli eam login
+again before retrying.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eam create-namespace \e
+    --account-id 123456789012 --name production \e
+    --description "Production workloads"
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-eam-create-account (1),
+.BR euclid-cli-eam-list-namespaces (1),
+.BR euclid-cli-eam-delete-namespace (1),
+.BR euclid-cli-eam-grant-namespace-access (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

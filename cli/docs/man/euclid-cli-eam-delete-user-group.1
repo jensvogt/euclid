@@ -1,0 +1,51 @@
+.TH EUCLID-CLI-EAM-DELETE-USER-GROUP 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eam-delete-user-group \- delete a Euclid user group
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B eam delete-user-group
+.BR \-\-name | \-n
+.I NAME
+.SH DESCRIPTION
+Deletes the user group identified by \fINAME\fR via the eam service's
+.I delete-user-group
+action. The caller must be authenticated as an administrator (see
+.BR euclid-cli-eam-login (1)).
+.PP
+Deleting the
+.I administrator
+group removes administrator privileges from every one of its members -
+make sure another administrator group/mechanism exists first, since
+.B euclid-cli-eam-register (1)\'s
+bootstrap exception only applies while the user store is completely
+empty.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+Name of the group to delete. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The group was deleted.
+.TP
+.B 1
+Missing/invalid arguments, the request could not be sent, the caller is
+not an authenticated administrator, or no group with that name exists. If
+the failure was an expired or invalid session (\fIHTTP 401\fR), the
+stored credentials file is removed; run
+.B euclid-cli eam login
+again before retrying.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eam delete-user-group --name developers
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-eam-create-user-group (1),
+.BR euclid-cli-eam-list-user-groups (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
