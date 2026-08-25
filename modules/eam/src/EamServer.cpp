@@ -380,7 +380,7 @@ namespace Euclid::EAM {
         group.description = request.description;
         group.accountId = auth.user->accountId;
         group.region = auth.user->region;
-        group.ern = Core::createAccessUserGroupErn(auth.user->accountId, request.name);
+        group.ern = Core::createEamUserGroupErn(auth.user->accountId, request.name);
         group.createdAt = Core::DateTimeUtils::ToISO8601(Core::DateTimeUtils::UtcDateTimeNow());
 
         const auto saved = repo->upsertUserGroup(group);
