@@ -72,6 +72,8 @@ namespace Euclid::CLI {
                                            {"download-bucket", "Download a bucket's objects to a local directory"},
                                            {"list-objects", "List objects"},
                                            {"get-object-count", "Return the number of objects in a bucket"},
+                                           {"add-bucket-tag", "Adds a tag to a bucket"},
+                                           {"delete-bucket-tag", "Deletes a tag from a bucket"},
                                            {"delete-object", "Deletes an object by ERN"},
                                    });
         }
@@ -113,6 +115,12 @@ namespace Euclid::CLI {
         }
         if (action == "purge-bucket") {
             return purgeBucket(args);
+        }
+        if (action == "add-bucket-tag") {
+            return addBucketTag(args);
+        }
+        if (action == "delete-bucket-tag") {
+            return deleteBucketTag(args);
         }
         std::cerr << "error: unknown ESM action '" << action << "'\n";
         return 1;
@@ -1200,4 +1208,83 @@ namespace Euclid::CLI {
         }
     }
 
+    int EsmCli::addBucketTag(const std::vector<std::string> &args) const {
+        po::options_description desc("add bucket tag options");
+        desc.add_options()
+        ("bucket,b", po::value<std::string>()->required(), "bucket ERN")
+        ("key,k", po::value<std::string>()->required(), "tag key")
+        ("value,v", po::value<std::string>()->required(), "tag value");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", "add-bucket-tag", "--bucket <bucket ERN> --key <value> --value <value>",
+                                   "Adds a tag to a bucket.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n"
+                      << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ESM::AddBucketTagRequest request;
+        request.ern = vm["bucket"].as<std::string>();
+        request.key = vm["key"].as<std::string>();
+        request.value = vm["value"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            if (const HttpResponse response = client.Post("esm", "add-bucket-tag", boost::json::value_from(request)); !response.IsSuccess()) {
+                std::cerr << "error: add-bucket-tag failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EsmCli::deleteBucketTag(const std::vector<std::string> &args) const {
+        po::options_description desc("delete bucket tag options");
+        desc.add_options()
+        ("bucket,q", po::value<std::string>()->required(), "bucket ERN")
+        ("key,k", po::value<std::string>()->required(), "tag key");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eqs", "delete-bucket-tag", "--bucket <bucket ERN> --key <value>",
+                                   "Deletes a tag from a bucket.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n"
+                      << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ESM::DeleteBucketTagRequest request;
+        request.ern = vm["bucket"].as<std::string>();
+        request.key = vm["key"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            if (const HttpResponse response = client.Post("esm", "delete-bucket-tag", boost::json::value_from(request)); !response.IsSuccess()) {
+                std::cerr << "error: delete-bucket-tag failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
 }

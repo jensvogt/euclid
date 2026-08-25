@@ -44,6 +44,11 @@ namespace Euclid::Dto::ESM {
         long objects{};
 
         /**
+         * @brief Queue tags
+         */
+        std::map<std::string, std::string> tags;
+
+        /**
          * @brief Creation date
          */
         system_clock::time_point created;
@@ -78,6 +83,7 @@ namespace Euclid::Dto::ESM {
             r.ern = Core::GetStringValue(v, "ern");
             r.size = Core::GetLongValue(v, "size");
             r.objects = Core::GetLongValue(v, "objects");
+            r.tags = Core::GetMapFromObject<std::string, std::string>(v, "tags");
             r.created = Core::GetDatetimeValue(v, "created");
             r.modified = Core::GetDatetimeValue(v, "modified");
             return r;
@@ -91,6 +97,7 @@ namespace Euclid::Dto::ESM {
                     {"ern", obj.ern},
                     {"size", obj.size},
                     {"objects", obj.objects},
+                    {"tags", boost::json::value_from(obj.tags)},
                     {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
             };

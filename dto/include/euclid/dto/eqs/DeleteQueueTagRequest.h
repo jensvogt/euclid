@@ -5,6 +5,9 @@
 #pragma once
 
 // Euclid includes
+#include "euclid/dto/esm/DeleteBucketTagRequest.h"
+
+
 #include <euclid/core/JsonUtils.h>
 
 namespace Euclid::Dto::EQS {

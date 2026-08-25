@@ -727,7 +727,7 @@ namespace Euclid::CLI {
             return 1;
         }
 
-        Dto::EQS::DeleteQueueTagRequest request;
+        Dto::ESM::DeleteBucketTagRequest request;
         request.ern = vm["queue"].as<std::string>();
         request.key = vm["key"].as<std::string>();
 

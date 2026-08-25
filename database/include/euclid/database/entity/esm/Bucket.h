@@ -6,12 +6,13 @@
 
 // C++ includes
 #include <chrono>
+#include <map>
 #include <optional>
 #include <string>
 
 // MongoDB includes
-#include <bsoncxx/document/value-fwd.hpp>
 #include <bsoncxx/builder/basic/document.hpp>
+#include <bsoncxx/document/value-fwd.hpp>
 
 // Euclid includes
 
@@ -52,14 +53,19 @@ namespace Euclid::Database::Entity::ESM {
         std::string ern;
 
         /**
+         * @brief Queue tags
+         */
+        std::map<std::string, std::string> tags;
+
+        /**
          * @brief Bucket size in bytes
          */
-        long size{};
+        int64_t size{};
 
         /**
          * @brief Number of objects
          */
-        long objects{};
+        int64_t objects{};
 
         /**
          * @brief Creation date
