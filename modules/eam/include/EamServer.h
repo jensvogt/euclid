@@ -12,12 +12,15 @@
 #include <euclid/core/Configuration.h>
 #include <euclid/core/CryptoUtils.h>
 #include <euclid/core/DateTimeUtils.h>
+#include <euclid/core/ErnUtils.h>
 #include <euclid/core/HttpActionServer.h>
 #include <euclid/core/JwtUtils.h>
 #include <euclid/core/LogStream.h>
 #include <euclid/core/PasswordUtils.h>
 #include <euclid/database/RepositoryFactory.h>
 #include <euclid/dto/eam/CreateAccessKeyResponse.h>
+#include <euclid/dto/eam/CreateUserGroupRequest.h>
+#include <euclid/dto/eam/CreateUserGroupResponse.h>
 #include <euclid/dto/eam/DeleteAccessKeyRequest.h>
 #include <euclid/dto/eam/DeleteUserRequest.h>
 #include <euclid/dto/eam/EamMapper.h>

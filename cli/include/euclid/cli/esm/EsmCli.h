@@ -25,6 +25,8 @@
 #include <euclid/core/JsonUtils.h>
 #include <euclid/core/ZipUtils.h>
 #include <euclid/dto/eqs/CreateQueueRequest.h>
+#include <euclid/dto/eqs/DeleteQueueTagRequest.h>
+#include <euclid/dto/esm/AddBucketTagRequest.h>
 #include <euclid/dto/esm/CompleteDownloadRequest.h>
 #include <euclid/dto/esm/CompleteUploadRequest.h>
 #include <euclid/dto/esm/CreateBucketRequest.h>
@@ -44,10 +46,9 @@
 
 // Fallbacks used when euclid.modules.storage.part-size/concurrency aren't set in the loaded
 // configuration file (see main.cpp's --config) - so upload-file/download-file still have sane
-// defaults when running against a bare install with no config, or none of these keys set. 5MB
-// matches S3's own multipart minimum part size (every part but the last must be at least 5MB
-// there), which also keeps the default part count - and thus HTTP request overhead - reasonable
-// for large files without ballooning per-part memory usage.
+// defaults when running against a bare install with no config, or none of these keys set.
+// Every part but the last must be at least 5MB, which also keeps the default part count - and
+// thus HTTP request overhead - reasonable for large files without ballooning per-part memory usage.
 #define DEFAULT_PART_SIZE (5 * 1024 * 1024)
 #define DEFAULT_CONCURRENCY 4
 
@@ -211,6 +212,8 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int purgeBucket(const std::vector<std::string> &args) const;
+        int addBucketTag(const std::vector<std::string> &args) const;
+        int deleteBucketTag(const std::vector<std::string> &args) const;
 
         /**
          * @brief Uploads one local file to one bucket/key - the per-file logic shared by

@@ -104,7 +104,7 @@ namespace Euclid::Dto::EQS {
             r.status = Core::GetStringValue(v, "status");
             r.priority = Core::GetStringValue(v, "priority");
             r.body = Core::GetStringValue(v, "body");
-            r.md5Body = Core::GetStringValue(v, "md5sum");
+            r.md5Body = Core::GetStringValue(v, "md5Body");
             r.receiptHandle = Core::GetStringValue(v, "receiptHandle");
             r.attributes = Core::GetMapFromObject<std::string, Variant>(v, "attributes");
             r.md5Attributes = Core::GetStringValue(v, "md5Attributes");
@@ -122,7 +122,7 @@ namespace Euclid::Dto::EQS {
                     {"status", obj.status},
                     {"priority", obj.priority},
                     {"body", obj.body},
-                    {"md5sum", obj.md5Body},
+                    {"md5Body", obj.md5Body},
                     {"receiptHandle", obj.receiptHandle},
                     {"attributes", boost::json::value_from(obj.attributes)},
                     {"md5Attributes", obj.md5Attributes},

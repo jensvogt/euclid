@@ -1,6 +1,8 @@
 // Euclid includes
 #include <EqsServer.h>
 
+#include "euclid/dto/eqs/DeleteQueueTagRequest.h"
+
 namespace Euclid::EQS {
 
     namespace beast = boost::beast;
@@ -64,7 +66,7 @@ namespace Euclid::EQS {
         if (!request.dlqName.empty()) {
             Database::Entity::EQS::Queue dlQueue;
             dlQueue.name = request.dlqName;
-            dlQueue.ern = Core::createSqsQueueErn(auth.user->accountId, request.dlqName);
+            dlQueue.ern = Core::createEqsQueueErn(auth.user->accountId, request.dlqName);
             dlQueue.visibility = request.visibility;
             dlQueue.maxMessageLength = request.maxMessageLength;
             dlQueue.maxReceiveCount = request.maxRetries;
@@ -77,7 +79,7 @@ namespace Euclid::EQS {
 
         Database::Entity::EQS::Queue queue;
         queue.name = request.name;
-        queue.ern = Core::createSqsQueueErn(auth.user->accountId, request.name);
+        queue.ern = Core::createEqsQueueErn(auth.user->accountId, request.name);
         queue.visibility = request.visibility;
         queue.maxMessageLength = request.maxMessageLength;
         queue.maxReceiveCount = request.maxRetries;
@@ -196,7 +198,7 @@ namespace Euclid::EQS {
         log_info << "SQS SendMessage queueErn: " << request.queueErn;
 
         const std::string messageId = Core::UuidUtils::CreateRandomUuid();
-        const std::string ern = Core::createSqsMessageErn(auth.user.value().accountId, messageId);
+        const std::string ern = Core::createEqsMessageErn(auth.user.value().accountId, messageId);
         std::map<std::string, Database::Entity::EQS::Variant> attributes;
         for (const auto &[key, variant]: request.attributes) {
             attributes[key] = Dto::EQS::EqsMapper::toEntity(variant);
@@ -452,10 +454,56 @@ namespace Euclid::EQS {
         return EqsServer::JsonResponse(req, status::ok, boost::json::serialize(body));
     }
 
+    static response<string_body> handleAddQueueTag(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "add-queue-tag");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto [ern, key, value] = boost::json::value_to<Dto::EQS::AddQueueTagRequest>(jv);
+        log_info << "EQS AddQueueTag, ern: " << ern << ", key: " << key;
+
+        const auto repo = Database::RepositoryFactory::instance().eqsRepository();
+        std::optional<Database::Entity::EQS::Queue> queue = repo->findQueueByErn(ern);
+        if (!queue.has_value()) {
+            return EqsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + ern);
+        }
+        queue->tags[key] = value;
+        queue = repo->upsertQueue(queue.value());
+
+        return EqsServer::JsonResponse(req, status::ok);
+    }
+
+    static response<string_body> handleDeleteQueueTag(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-queue-tag");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto [ern, key] = boost::json::value_to<Dto::EQS::DeleteQueueTagRequest>(jv);
+        log_info << "EQS DeleteQueueTag, ern: " << ern << ", key: " << key;
+
+        const auto repo = Database::RepositoryFactory::instance().eqsRepository();
+        std::optional<Database::Entity::EQS::Queue> queue = repo->findQueueByErn(ern);
+        if (!queue.has_value()) {
+            return EqsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + ern);
+        }
+        queue->tags.erase(key);
+        queue = repo->upsertQueue(queue.value());
+
+        return EqsServer::JsonResponse(req, status::ok);
+    }
+
     // ── Request dispatcher ───────────────────────────────────────────────────
 
     namespace {
-        // Commands the SQS service accepts via the "x-euclid-action" header.
+        // Commands the EQS service accepts via the "x-euclid-action" header.
         enum class Command {
             Unknown,
             CreateQueue,
@@ -474,6 +522,8 @@ namespace Euclid::EQS {
             PurgeAllQueues,
             GetMetadata,
             AddMetadata,
+            AddQueueTag,
+            DeleteQueueTag,
             GetMetrics
         };
     }
@@ -495,6 +545,8 @@ namespace Euclid::EQS {
         if (action == "get-message-metadata") return Command::GetMessageMetadata;
         if (action == "get-metadata") return Command::GetMetadata;
         if (action == "add-metadata") return Command::AddMetadata;
+        if (action == "add-queue-tag") return Command::AddQueueTag;
+        if (action == "delete-queue-tag") return Command::DeleteQueueTag;
         if (action == "get-metrics") return Command::GetMetrics;
         return Command::Unknown;
     }
@@ -505,7 +557,7 @@ namespace Euclid::EQS {
         if (action.empty()) {
             return EqsServer::ErrorResponse(req, status::bad_request, "Missing x-euclid-action header");
         }
-        log_debug << "SQS action=" << action;
+        log_debug << "EQS action=" << action;
 
         switch (commandFromString(action)) {
 
@@ -557,11 +609,18 @@ namespace Euclid::EQS {
             case Command::GetMessageMetadata:
                 return handleGetMessageMetadata(req);
 
+            case Command::AddQueueTag:
+                return handleAddQueueTag(req);
+
+            case Command::DeleteQueueTag:
+                return handleDeleteQueueTag(req);
+
             case Command::GetMetrics:
                 return EqsServer::MetricsResponse(req);
 
             case Command::Unknown:
             default:
+                log_warning << "Unknown action: " << action;
                 return EqsServer::ErrorResponse(req, status::not_found, "Action not implemented: " + action);
         }
     }

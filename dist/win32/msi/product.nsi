@@ -148,6 +148,7 @@ Section "Main Application" SecMain
   File "${BUILDDIR}\bin\euclid-eqs.exe"
   File "${BUILDDIR}\bin\euclid-esm.exe"
   File "${BUILDDIR}\bin\euclid-emo.exe"
+  File "${BUILDDIR}\bin\euclid-ftp.exe"
 
   SetOutPath "$INSTDIR\etc"
   File "/oname=euclid.json" "${SRCDIR}\dist\win32\euclid.json"
@@ -168,6 +169,7 @@ Section "Main Application" SecMain
   CreateDirectory "$INSTDIR\data\eam"
   CreateDirectory "$INSTDIR\data\eqm"
   CreateDirectory "$INSTDIR\data\esm"
+  CreateDirectory "$INSTDIR\data\ftp"
   CreateDirectory "$INSTDIR\frontend"
 
   ; Copy frontend recursively, if it was built (see release.yml - skipped when the
@@ -206,9 +208,13 @@ Section "Windows Service" SecService
 
   ; Install service (euclid-mgr spawns euclid-eam/euclid-eqs/euclid-esm/euclid-emo as
   ; subprocesses, resolved via PATH, so $INSTDIR\bin is added to the service's PATH)
-  SimpleSC::InstallService "euclid" "Euclid" 16 2 \
+  SimpleSC::InstallService "euclid" "Euclid Cloud Services" 16 2 \
     `"$INSTDIR\bin\euclid-mgr.exe" --config "$INSTDIR\etc\euclid.json"` "" "" ""
   SimpleSC::SetServiceDescription "euclid" "Euclid Cloud Services"
+
+  ; SimpleSC::InstallService's display-name parameter is unreliable in practice - observed
+  ; leaving DISPLAY_NAME defaulted to the service key ("euclid") instead of "Euclid" even
+  ; though it's passed correctly above. Force it explicitly as a guaranteed fallback.
 
   ; Start service
   SimpleSC::StartService "euclid" "" 30
@@ -236,6 +242,7 @@ Section "Uninstall"
   Delete "$INSTDIR\bin\euclid-eqs.exe"
   Delete "$INSTDIR\bin\euclid-emo.exe"
   Delete "$INSTDIR\bin\euclid-esm.exe"
+  Delete "$INSTDIR\bin\euclid-ftp.exe"
   Delete "$INSTDIR\etc\euclid.json"
   Delete "$INSTDIR\etc\magic.mgc"
   Delete "$INSTDIR\etc\ssh_host_key"

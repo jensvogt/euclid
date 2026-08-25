@@ -4,9 +4,6 @@
 
 #pragma once
 
-// C++ includes
-#include <string>
-
 // Euclid includes
 #include <euclid/core/Configuration.h>
 
@@ -17,7 +14,7 @@ namespace Euclid::Core {
      *
      * @param service module name
      * @param accountId account ID
-     * @param resourceId resourceId
+     * @param resourceId resource ID
      */
     inline std::string createErn(const std::string &service, const std::string &accountId, const std::string &resourceId) {
         const auto region = Configuration::instance().getOr<std::string>("euclid.region", "eu-central-1");
@@ -25,69 +22,69 @@ namespace Euclid::Core {
     }
 
     /**
-     * @brief Creates a SQS ERN
+     * @brief Creates a EQS queue ERN
      *
      * @param accountId account ID
      * @param name resource name
      * @return resource ERN
      */
-    inline std::string createSqsQueueErn(const std::string &accountId, const std::string &name) {
-        return createErn("queues", accountId, "queue:" + name);
+    inline std::string createEqsQueueErn(const std::string &accountId, const std::string &name) {
+        return createErn("eqs", accountId, "queue:" + name);
     }
 
     /**
-     * @brief Creates a SQS ERN
+     * @brief Creates a EQS message ERN
      *
      * @param accountId account ID
      * @param messageId message ID
      * @return resource ERN
      */
-    inline std::string createSqsMessageErn(const std::string &accountId, const std::string &messageId) {
-        return createErn("queues", accountId, "message:" + messageId);
+    inline std::string createEqsMessageErn(const std::string &accountId, const std::string &messageId) {
+        return createErn("eqs", accountId, "message:" + messageId);
     }
 
     /**
-     * @brief Creates a storage bucket ERN
+     * @brief Creates a ESM bucket ERN
      *
      * @param accountId account ID
      * @param name resource name
      * @return resource ERN
      */
-    inline std::string createStorageBucketErn(const std::string &accountId, const std::string &name) {
-        return createErn("storage", accountId, "bucket:" + name);
+    inline std::string createEsmBucketErn(const std::string &accountId, const std::string &name) {
+        return createErn("esm", accountId, "bucket:" + name);
     }
 
     /**
-     * @brief Creates a storage object ERN
+     * @brief Creates a ESM object ERN
      *
      * @param accountId account ID
      * @param name resource name
      * @return resource ERN
      */
-    inline std::string createStorageObjectErn(const std::string &accountId, const std::string &name) {
-        return createErn("storage", accountId, "object:" + name);
+    inline std::string createEsmObjectErn(const std::string &accountId, const std::string &name) {
+        return createErn("esm", accountId, "object:" + name);
     }
 
     /**
-     * @brief Creates an access user ERN
+     * @brief Creates an EAM user ERN
      *
      * @param accountId account ID
      * @param name resource name
      * @return resource ERN
      */
-    inline std::string createAccessUserErn(const std::string &accountId, const std::string &name) {
-        return createErn("access", accountId, "user:" + name);
+    inline std::string createEamUserErn(const std::string &accountId, const std::string &name) {
+        return createErn("eam", accountId, "user:" + name);
     }
 
     /**
-     * @brief Creates an access user ERN
+     * @brief Creates an EAM user group ERN
      *
-     * @param name resource name
      * @param accountId account ID
+     * @param name resource name
      * @return resource ERN
      */
-    inline std::string createAccessUserGroupErn(const std::string &accountId, const std::string &name) {
-        return createErn("access", accountId, "usergroup:" + name);
+    inline std::string createEamUserGroupErn(const std::string &accountId, const std::string &name) {
+        return createErn("eam", accountId, "userGroup:" + name);
     }
 
     /**
