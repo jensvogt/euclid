@@ -26,7 +26,12 @@ namespace Euclid::FTP {
         }
 
         std::tm ToUtcTm(const std::filesystem::file_time_type &ftime) {
-            const auto sctp = std::chrono::clock_cast<std::chrono::system_clock>(ftime);
+            // std::chrono::clock_cast() (and file_clock's own to_sys()/from_sys()) would be the
+            // "correct" C++20 way to do this, but Apple's libc++ doesn't implement either as of
+            // this writing - diffing against each clock's own now() is the portable workaround
+            // that's worked everywhere (libstdc++, MSVC STL, libc++) since long before C++20.
+            const auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+                    ftime - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
             const std::time_t tt = std::chrono::system_clock::to_time_t(sctp);
             std::tm tmBuf{};
 #ifdef _WIN32

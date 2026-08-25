@@ -79,8 +79,8 @@ namespace Euclid::Core {
     /**
      * @brief Creates an EAM user group ERN
      *
-     * @param name resource name
      * @param accountId account ID
+     * @param name resource name
      * @return resource ERN
      */
     inline std::string createEamUserGroupErn(const std::string &accountId, const std::string &name) {
