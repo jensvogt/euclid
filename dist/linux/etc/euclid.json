@@ -116,6 +116,25 @@
         "minInstances": 1,
         "maxInstances": 1
       },
+      "ftp": {
+        "active": true,
+        "name": "ftp",
+        "socketPath": "/var/run/euclid/euclid-ftp.sock",
+        "executable": "/usr/local/euclid/bin/euclid-ftp",
+        "data-dir": "/usr/local/euclid/data/ftp",
+        "address": "0.0.0.0",
+        "port": 2121,
+        "pasv-min": 6000,
+        "pasv-max": 6100,
+        "minInstances": 1,
+        "maxInstances": 1,
+        "users": {
+          "ftpuser": {
+            "password": "change-me",
+            "home": "ftpuser"
+          }
+        }
+      },
       "lambda": {
         "active": false,
         "backup": {

@@ -111,6 +111,25 @@
         "minInstances": 1,
         "maxInstances": 1
       },
+      "ftp": {
+        "active": true,
+        "name": "ftp",
+        "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-ftp.sock",
+        "executable": "C:\\Program Files\\euclid\\bin\\euclid-ftp",
+        "data-dir": "C:\\Program Files\\euclid\\data\\ftp",
+        "address": "0.0.0.0",
+        "port": 2121,
+        "pasv-min": 6000,
+        "pasv-max": 6100,
+        "minInstances": 1,
+        "maxInstances": 1,
+        "users": {
+          "ftpuser": {
+            "password": "change-me",
+            "home": "ftpuser"
+          }
+        }
+      },
       "lambda": {
         "active": true,
         "backup": {
