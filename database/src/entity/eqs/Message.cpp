@@ -73,7 +73,7 @@ namespace Euclid::Database::Entity::EQS {
             else if (key == "modified") modified = system_clock::time_point{field.get_date().value};
             else if (key == "attributes") {
                 for (const auto &attr: field.get_document().view()) {
-                    Variant variant;
+                    COM::Variant variant;
                     variant.FromDocument(attr.get_document().view());
                     attributes[std::string(attr.key())] = std::move(variant);
                 }
@@ -81,7 +81,7 @@ namespace Euclid::Database::Entity::EQS {
         }
     }
 
-    std::string Message::ComputeAttributesMd5(const std::map<std::string, Variant> &attributes) {
+    std::string Message::ComputeAttributesMd5(const std::map<std::string, COM::Variant> &attributes) {
         bsoncxx::builder::basic::document attrsDoc;
         for (const auto &[k, v]: attributes) {
             attrsDoc.append(bsoncxx::builder::basic::kvp(k, v.ToDocument()));

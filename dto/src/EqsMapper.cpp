@@ -2,11 +2,11 @@
 
 namespace Euclid::Dto::EQS {
 
-    Database::Entity::EQS::Variant EqsMapper::toEntity(const Variant &dto) {
-        Database::Entity::EQS::Variant entityVariant;
+    Database::Entity::COM::Variant EqsMapper::toEntity(const Variant &dto) {
+        Database::Entity::COM::Variant entityVariant;
         std::visit([&entityVariant]<typename T>(const T &val) {
             if constexpr (std::is_same_v<T, Binary>) {
-                entityVariant.value = Database::Entity::EQS::Binary(val.begin(), val.end());
+                entityVariant.value = Database::Entity::COM::Binary(val.begin(), val.end());
             } else {
                 entityVariant.value = val;
             }
@@ -14,10 +14,10 @@ namespace Euclid::Dto::EQS {
         return entityVariant;
     }
 
-    Variant EqsMapper::toDto(const Database::Entity::EQS::Variant &entity) {
+    Variant EqsMapper::toDto(const Database::Entity::COM::Variant &entity) {
         Variant variant;
         std::visit([&variant]<typename T>(const T &val) {
-            if constexpr (std::is_same_v<T, Database::Entity::EQS::Binary>) {
+            if constexpr (std::is_same_v<T, Database::Entity::COM::Binary>) {
                 variant.value = Binary(val.begin(), val.end());
             } else {
                 variant.value = val;
