@@ -16,9 +16,11 @@
 #include <euclid/cli/help/CliHelp.h>
 #include <euclid/cli/http/HttpClient.h>
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/eqs/AddQueueTagRequest.h>
 #include <euclid/dto/eqs/CreateQueueRequest.h>
 #include <euclid/dto/eqs/CreateQueueResponse.h>
 #include <euclid/dto/eqs/DeleteQueueRequest.h>
+#include <euclid/dto/eqs/DeleteQueueTagRequest.h>
 #include <euclid/dto/eqs/GetMessageAttributeRequest.h>
 #include <euclid/dto/eqs/GetMessageCountRequest.h>
 #include <euclid/dto/eqs/GetMessageMetadataRequest.h>
@@ -192,6 +194,16 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int getMessageMetadata(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Adds a tag to the queue
+         *
+         * @param args action arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int addQueueTag(const std::vector<std::string> &args) const;
+        int deleteQueueTag(const std::vector<std::string> &args) const;
 
         /**
          * @brief Euclid endpoint

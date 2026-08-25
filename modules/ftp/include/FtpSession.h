@@ -1,16 +1,29 @@
 #pragma once
 
 // C++ includes
+#include <algorithm>
+#include <array>
+#include <cctype>
+#include <chrono>
+#include <ctime>
 #include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <optional>
+#include <sstream>
 #include <string>
 
 // Boost includes
+#include <boost/asio/connect.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/read.hpp>
+#include <boost/asio/read_until.hpp>
 #include <boost/asio/streambuf.hpp>
+#include <boost/asio/write.hpp>
 
 // Euclid includes
 #include <FtpServer.h>
+#include <euclid/core/LogStream.h>
 
 namespace Euclid::FTP {
 

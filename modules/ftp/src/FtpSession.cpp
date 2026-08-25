@@ -1,24 +1,5 @@
 #include <FtpSession.h>
 
-// C++ includes
-#include <algorithm>
-#include <array>
-#include <cctype>
-#include <chrono>
-#include <ctime>
-#include <fstream>
-#include <iomanip>
-#include <sstream>
-
-// Boost includes
-#include <boost/asio/connect.hpp>
-#include <boost/asio/read.hpp>
-#include <boost/asio/read_until.hpp>
-#include <boost/asio/write.hpp>
-
-// Euclid includes
-#include <euclid/core/LogStream.h>
-
 namespace Euclid::FTP {
 
     namespace asio = boost::asio;
@@ -34,7 +15,7 @@ namespace Euclid::FTP {
         }
 
         std::string ToUpper(std::string s) {
-            std::transform(s.begin(), s.end(), s.begin(), [](const unsigned char c) { return static_cast<char>(std::toupper(c)); });
+            std::ranges::transform(s, s.begin(), [](const unsigned char c) { return static_cast<char>(std::toupper(c)); });
             return s;
         }
 
@@ -108,7 +89,7 @@ namespace Euclid::FTP {
             log_debug << "FTP session for '" << (_username.empty() ? "<anonymous>" : _username) << "' ended: " << ex.what();
         }
         boost::system::error_code ec;
-        _control.close(ec);
+        std::ignore=_control.close(ec);
     }
 
     void FtpSession::sendReply(const std::string &line) {
@@ -224,8 +205,7 @@ namespace Euclid::FTP {
     }
 
     void FtpSession::cmdType(const std::string &arg) {
-        const std::string mode = ToUpper(Trim(arg));
-        if (mode == "A") {
+        if (const std::string mode = ToUpper(Trim(arg)); mode == "A") {
             _binaryType = false;
             sendReply(200, "Type set to A");
         } else if (mode == "I") {
@@ -241,13 +221,12 @@ namespace Euclid::FTP {
     }
 
     void FtpSession::cmdCwd(const std::string &arg) {
-        const auto resolved = resolve(arg);
-        std::error_code fsEc;
-        if (!std::filesystem::is_directory(resolved.physicalPath, fsEc)) {
+        const auto [virtualPath, physicalPath] = resolve(arg);
+        if (std::error_code fsEc; !std::filesystem::is_directory(physicalPath, fsEc)) {
             sendReply(550, "No such directory");
             return;
         }
-        _cwd = resolved.virtualPath;
+        _cwd = virtualPath;
         sendReply(250, "Directory changed to " + _cwd);
     }
 
@@ -261,17 +240,17 @@ namespace Euclid::FTP {
             return;
         }
 
-        const auto resolved = resolve(arg);
+        const auto [virtualPath, physicalPath] = resolve(arg);
         std::error_code fsEc;
-        if (std::filesystem::exists(resolved.physicalPath, fsEc)) {
+        if (std::filesystem::exists(physicalPath, fsEc)) {
             sendReply(550, "Directory already exists");
             return;
         }
 
         // Single-level create, like STOR's parent-must-already-exist behavior: MKD is not
         // expected to create intermediate directories on the client's behalf.
-        if (std::filesystem::create_directory(resolved.physicalPath, fsEc)) {
-            sendReply("257 \"" + resolved.virtualPath + "\" directory created");
+        if (std::filesystem::create_directory(physicalPath, fsEc)) {
+            sendReply("257 \"" + virtualPath + "\" directory created");
         } else {
             sendReply(550, "Could not create directory: " + fsEc.message());
         }
@@ -283,26 +262,26 @@ namespace Euclid::FTP {
             return;
         }
 
-        const auto resolved = resolve(arg);
+        const auto [virtualPath, physicalPath] = resolve(arg);
         std::error_code fsEc;
-        if (!std::filesystem::is_directory(resolved.physicalPath, fsEc)) {
+        if (!std::filesystem::is_directory(physicalPath, fsEc)) {
             sendReply(550, "No such directory");
             return;
         }
 
         // Refuse to remove the user's own home root - RMD is meant to remove a
         // subdirectory, not strand the session with no valid home directory underneath it.
-        if (std::filesystem::equivalent(resolved.physicalPath, _homeDir, fsEc)) {
+        if (std::filesystem::equivalent(physicalPath, _homeDir, fsEc)) {
             sendReply(550, "Cannot remove home directory");
             return;
         }
 
-        if (!std::filesystem::is_empty(resolved.physicalPath, fsEc)) {
+        if (!std::filesystem::is_empty(physicalPath, fsEc)) {
             sendReply(550, "Directory not empty");
             return;
         }
 
-        if (std::filesystem::remove(resolved.physicalPath, fsEc)) {
+        if (std::filesystem::remove(physicalPath, fsEc)) {
             sendReply(250, "Directory removed");
         } else {
             sendReply(550, "Could not remove directory: " + fsEc.message());
@@ -317,10 +296,10 @@ namespace Euclid::FTP {
             boost::system::error_code ec;
             tcp::acceptor acceptor(_control.get_executor());
             const tcp::endpoint endpoint(tcp::v4(), port);
-            acceptor.open(endpoint.protocol(), ec);
-            if (!ec) acceptor.set_option(tcp::acceptor::reuse_address(true), ec);
-            if (!ec) acceptor.bind(endpoint, ec);
-            if (!ec) acceptor.listen(1, ec);
+            std::ignore=acceptor.open(endpoint.protocol(), ec);
+            if (!ec) std::ignore=acceptor.set_option(tcp::acceptor::reuse_address(true), ec);
+            if (!ec) std::ignore=acceptor.bind(endpoint, ec);
+            if (!ec) std::ignore=acceptor.listen(1, ec);
             if (!ec) {
                 _pasvAcceptor = std::move(acceptor);
                 break;
@@ -366,7 +345,7 @@ namespace Euclid::FTP {
             }
         }
 
-        if (parts.size() != 6 || std::any_of(parts.begin(), parts.end(), [](const int v) { return v < 0 || v > 255; })) {
+        if (parts.size() != 6 || std::ranges::any_of(parts, [](const int v) { return v < 0 || v > 255; })) {
             sendReply(501, "Syntax error in PORT command");
             return;
         }
@@ -384,7 +363,7 @@ namespace Euclid::FTP {
 
         if (_pasvAcceptor) {
             tcp::socket socket(_control.get_executor());
-            _pasvAcceptor->accept(socket, ec);
+            std::ignore=_pasvAcceptor->accept(socket, ec);
             _pasvAcceptor.reset();
             if (ec) {
                 sendReply(425, "Failed to establish passive data connection");
@@ -397,7 +376,7 @@ namespace Euclid::FTP {
             tcp::socket socket(_control.get_executor());
             const auto [address, port] = *_portTarget;
             _portTarget.reset();
-            socket.connect(tcp::endpoint(asio::ip::make_address(address, ec), port), ec);
+            std::ignore=socket.connect(tcp::endpoint(asio::ip::make_address(address, ec), port), ec);
             if (ec) {
                 sendReply(425, "Failed to establish active data connection: " + ec.message());
                 return std::nullopt;
@@ -410,9 +389,9 @@ namespace Euclid::FTP {
     }
 
     void FtpSession::cmdList(const std::string &arg) {
-        const auto resolved = resolve(arg);
+        const auto [virtualPath, physicalPath] = resolve(arg);
         std::error_code fsEc;
-        if (!std::filesystem::exists(resolved.physicalPath, fsEc)) {
+        if (!std::filesystem::exists(physicalPath, fsEc)) {
             sendReply(450, "No such file or directory");
             return;
         }
@@ -422,38 +401,38 @@ namespace Euclid::FTP {
         if (!data) return;
 
         std::ostringstream out;
-        if (std::filesystem::is_directory(resolved.physicalPath, fsEc)) {
-            for (const auto &entry: std::filesystem::directory_iterator(resolved.physicalPath, fsEc)) {
+        if (std::filesystem::is_directory(physicalPath, fsEc)) {
+            for (const auto &entry: std::filesystem::directory_iterator(physicalPath, fsEc)) {
                 out << BuildListLine(entry.path(), entry.path().filename().string()) << "\r\n";
             }
         } else {
-            out << BuildListLine(resolved.physicalPath, resolved.physicalPath.filename().string()) << "\r\n";
+            out << BuildListLine(physicalPath, physicalPath.filename().string()) << "\r\n";
         }
 
         boost::system::error_code ec;
         asio::write(*data, asio::buffer(out.str()), ec);
-        data->shutdown(tcp::socket::shutdown_both, ec);
-        data->close(ec);
+        std::ignore=data->shutdown(tcp::socket::shutdown_both, ec);
+        std::ignore=data->close(ec);
 
         sendReply(226, "Transfer complete");
     }
 
     void FtpSession::cmdRetr(const std::string &arg) {
-        const auto resolved = resolve(arg);
+        const auto [virtualPath, physicalPath] = resolve(arg);
         std::error_code fsEc;
-        if (!std::filesystem::is_regular_file(resolved.physicalPath, fsEc)) {
+        if (!std::filesystem::is_regular_file(physicalPath, fsEc)) {
             sendReply(550, "File not found");
             return;
         }
 
-        std::ifstream in(resolved.physicalPath, std::ios::binary);
+        std::ifstream in(physicalPath, std::ios::binary);
         if (!in.is_open()) {
             sendReply(550, "Could not open file");
             return;
         }
 
-        const auto size = std::filesystem::file_size(resolved.physicalPath, fsEc);
-        sendReply(150, "Opening BINARY mode data connection for " + resolved.physicalPath.filename().string() + " (" + std::to_string(size) + " bytes)");
+        const auto size = std::filesystem::file_size(physicalPath, fsEc);
+        sendReply(150, "Opening BINARY mode data connection for " + physicalPath.filename().string() + " (" + std::to_string(size) + " bytes)");
 
         auto data = openDataConnection();
         if (!data) return;
@@ -468,8 +447,8 @@ namespace Euclid::FTP {
             if (ec) break;
         }
 
-        data->shutdown(tcp::socket::shutdown_both, ec);
-        data->close(ec);
+        std::ignore=data->shutdown(tcp::socket::shutdown_both, ec);
+        std::ignore=data->close(ec);
 
         if (in.bad()) {
             sendReply(451, "Local error reading file");
@@ -479,14 +458,13 @@ namespace Euclid::FTP {
     }
 
     void FtpSession::cmdStor(const std::string &arg) {
-        const auto resolved = resolve(arg);
-        std::error_code fsEc;
-        if (!std::filesystem::is_directory(resolved.physicalPath.parent_path(), fsEc)) {
+        const auto [virtualPath, physicalPath] = resolve(arg);
+        if (std::error_code fsEc; !std::filesystem::is_directory(physicalPath.parent_path(), fsEc)) {
             sendReply(550, "Destination directory does not exist");
             return;
         }
 
-        std::ofstream out(resolved.physicalPath, std::ios::binary | std::ios::trunc);
+        std::ofstream out(physicalPath, std::ios::binary | std::ios::trunc);
         if (!out.is_open()) {
             sendReply(550, "Could not create file");
             return;
@@ -510,7 +488,7 @@ namespace Euclid::FTP {
 
         out.close();
         boost::system::error_code closeEc;
-        data->close(closeEc);
+        std::ignore=data->close(closeEc);
 
         if (ec) {
             sendReply(426, "Connection closed; transfer aborted");
@@ -520,13 +498,13 @@ namespace Euclid::FTP {
     }
 
     void FtpSession::cmdDele(const std::string &arg) {
-        const auto resolved = resolve(arg);
+        const auto [virtualPath, physicalPath] = resolve(arg);
         std::error_code fsEc;
-        if (!std::filesystem::is_regular_file(resolved.physicalPath, fsEc)) {
+        if (!std::filesystem::is_regular_file(physicalPath, fsEc)) {
             sendReply(550, "File not found");
             return;
         }
-        if (std::filesystem::remove(resolved.physicalPath, fsEc)) {
+        if (std::filesystem::remove(physicalPath, fsEc)) {
             sendReply(250, "Delete successful");
         } else {
             sendReply(550, "Delete failed: " + fsEc.message());
@@ -534,13 +512,13 @@ namespace Euclid::FTP {
     }
 
     void FtpSession::cmdSize(const std::string &arg) {
-        const auto resolved = resolve(arg);
+        const auto [virtualPath, physicalPath] = resolve(arg);
         std::error_code fsEc;
-        if (!std::filesystem::is_regular_file(resolved.physicalPath, fsEc)) {
+        if (!std::filesystem::is_regular_file(physicalPath, fsEc)) {
             sendReply(550, "Could not get file size");
             return;
         }
-        const auto size = std::filesystem::file_size(resolved.physicalPath, fsEc);
+        const auto size = std::filesystem::file_size(physicalPath, fsEc);
         if (fsEc) {
             sendReply(550, "Could not get file size");
             return;
@@ -549,13 +527,13 @@ namespace Euclid::FTP {
     }
 
     void FtpSession::cmdMdtm(const std::string &arg) {
-        const auto resolved = resolve(arg);
+        const auto [virtualPath, physicalPath] = resolve(arg);
         std::error_code fsEc;
-        if (!std::filesystem::exists(resolved.physicalPath, fsEc)) {
+        if (!std::filesystem::exists(physicalPath, fsEc)) {
             sendReply(550, "Could not get modification time");
             return;
         }
-        const auto ftime = std::filesystem::last_write_time(resolved.physicalPath, fsEc);
+        const auto ftime = std::filesystem::last_write_time(physicalPath, fsEc);
         if (fsEc) {
             sendReply(550, "Could not get modification time");
             return;
@@ -594,7 +572,7 @@ namespace Euclid::FTP {
         std::filesystem::path physical = _homeDir;
         for (std::size_t i = 0; i < parts.size(); ++i) {
             virtualPath += parts[i];
-            if (i + 1 < parts.size()) virtualPath += "/";
+            if (i + 1 < parts.size()) virtualPath += '/';
             physical /= parts[i];
         }
 
