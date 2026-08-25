@@ -21,4 +21,21 @@ namespace Euclid::Dto::EAM {
         return dtos;
     }
 
+    UserGroup EamMapper::toDto(const Database::Entity::EAM::UserGroup &entity) {
+        UserGroup dto;
+        dto.name = entity.name;
+        dto.description = entity.description;
+        dto.accountId = entity.accountId;
+        dto.region = entity.region;
+        return dto;
+    }
+
+    std::vector<UserGroup> EamMapper::toDto(const std::vector<Database::Entity::EAM::UserGroup> &entities) {
+        std::vector<UserGroup> dtos;
+        dtos.reserve(entities.size());
+        for (const auto &entity: entities) {
+            dtos.push_back(toDto(entity));
+        }
+        return dtos;
+    }
 }// namespace Euclid::Dto::EAM
