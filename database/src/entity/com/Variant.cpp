@@ -2,16 +2,9 @@
 // Created by vogje01 on 8/16/26.
 //
 
-#include <euclid/database/entity/eqs/Variant.h>
+#include <euclid/database/entity/com/Variant.h>
 
-// MongoDB includes
-#include <bsoncxx/builder/basic/document.hpp>
-#include <bsoncxx/builder/basic/kvp.hpp>
-#include <bsoncxx/document/value.hpp>
-#include <bsoncxx/document/view.hpp>
-#include <bsoncxx/types.hpp>
-
-namespace Euclid::Database::Entity::EQS {
+namespace Euclid::Database::Entity::COM {
 
     bsoncxx::document::value Variant::ToDocument() const {
         bsoncxx::builder::basic::document doc;

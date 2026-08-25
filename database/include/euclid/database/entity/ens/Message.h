@@ -10,20 +10,20 @@
 #include <string>
 
 // MongoDB includes
+#include <bsoncxx/json.hpp>
 #include <bsoncxx/builder/basic/document.hpp>
 #include <bsoncxx/document/value.hpp>
 
 // Euclid includes
+#include <euclid/core/CryptoUtils.h>
 #include <euclid/database/entity/com/Variant.h>
-#include <euclid/database/entity/eqs/MessagePriority.h>
-#include <euclid/database/entity/eqs/MessageStatus.h>
 
-namespace Euclid::Database::Entity::EQS {
+namespace Euclid::Database::Entity::ENS {
 
     using std::chrono::system_clock;
 
     /**
-     * @brief EQS message entity
+     * @brief ENS message entity
      *
      * @author jens.vogt\@opitz-consulting.com
      */
@@ -50,49 +50,9 @@ namespace Euclid::Database::Entity::EQS {
         std::string body;
 
         /**
-         * @brief Status
-         */
-        MessageStatus status = MessageStatus::AVAILABLE;
-
-        /**
-         * @brief Priority
-         *
-         * Used by receiveMessages() to favor higher priority messages over lower priority ones;
-         * see IEqsRepository::receiveMessages() for details. Defaults to MIDDLE.
-         */
-        MessagePriority priority = MessagePriority::MIDDLE;
-
-        /**
-         * @brief Last send datetime
-         */
-        system_clock::time_point reset;
-
-        /**
-         * @brief Point in time at which a DELAYED message becomes AVAILABLE.
-         *
-         * Set at send time to now()+queue.delay when the owning queue has a delay configured.
-         * Ignored once the message is no longer in status DELAYED.
-         */
-        system_clock::time_point delayUntil;
-
-        /**
-         * @brief Number of times this message has been received (ApproximateReceiveCount).
-         *
-         * Incremented every time the message is handed out by receiveMessages(). Once it exceeds
-         * the owning queue's maxReceiveCount, the message is moved to the queue's dead letter
-         * queue (if one is configured) instead of being redelivered.
-         */
-        long receivedCount{};
-
-        /**
          * @brief Message size in bytes
          */
         long size{};
-
-        /**
-         * @brief Visibility timeout in seconds
-         */
-        long visibilityTimeout = 30;
 
         /**
          * @brief Timestamp of the last time this message was claimed by receiveMessages().

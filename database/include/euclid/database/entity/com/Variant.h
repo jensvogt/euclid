@@ -14,10 +14,15 @@
 #include <vector>
 
 // MongoDB includes
+#include <bsoncxx/types.hpp>
+#include <bsoncxx/builder/basic/document.hpp>
+#include <bsoncxx/builder/basic/kvp.hpp>
 #include <bsoncxx/document/value-fwd.hpp>
+#include <bsoncxx/document/value.hpp>
 #include <bsoncxx/document/view-fwd.hpp>
+#include <bsoncxx/document/view.hpp>
 
-namespace Euclid::Database::Entity::EQS {
+namespace Euclid::Database::Entity::COM {
 
     /**
      * @brief Raw binary payload for a message attribute.

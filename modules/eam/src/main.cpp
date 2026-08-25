@@ -122,6 +122,34 @@ static void ensureDefaultObjects(const Euclid::Core::Configuration &cfg) {
             }
         }
 
+        // Seed an Account/Namespace for the configured accountId so the DB-backed ScopeLookup
+        // (see Database::WireScopeLookup) doesn't lock every account-scoped request out of a
+        // fresh/upgraded deployment before an operator has created any accounts by hand.
+        if (!accountId.empty() && !repo->accountExists(accountId)) {
+            Euclid::Database::Entity::EAM::Account account;
+            account.accountId = accountId;
+            account.name = "Boostrap Account";
+            account.ern = Euclid::Core::createEamAccountErn(accountId);
+            account.description = "Bootstrapped from euclid.account-ids";
+            account.created = account.modified = std::chrono::system_clock::now();
+            repo->upsertAccount(account);
+        }
+
+        const std::vector<std::string> namespaces = cfg.has("euclid.namespaces") ? cfg.getArray<std::string>("euclid.namespaces") : std::vector<std::string>{};
+
+        if (!accountId.empty()) {
+            for (const auto &ns: namespaces) {
+                if (repo->namespaceExists(accountId, ns)) continue;
+                Euclid::Database::Entity::EAM::Namespace nsEntity;
+                nsEntity.accountId = accountId;
+                nsEntity.name = ns;
+                nsEntity.ern = Euclid::Core::createEamNamespaceErn(accountId, ns);
+                nsEntity.description = "Bootstrapped from euclid.namespaces";
+                nsEntity.created = nsEntity.modified = std::chrono::system_clock::now();
+                repo->upsertNamespace(nsEntity);
+            }
+        }
+
         if (!repo->userExists(kDefaultAdminUserId)) {
             constexpr auto kDefaultAdminPassword = "admin";
 
@@ -149,61 +177,12 @@ static void ensureDefaultObjects(const Euclid::Core::Configuration &cfg) {
             userGroup.userIds.push_back(user.userId);
             userGroup.accountId = accountId;
             userGroup.region = cfg.getOr<std::string>("euclid.region", "eu-central-1");
+            userGroup.userIds.push_back(user.userId);
             userGroup.created = std::chrono::system_clock::now();
             userGroup.modified = std::chrono::system_clock::now();
             userGroup = repo->upsertUserGroup(userGroup);
 
             log_warning << "No admin user group was configured; created default admin user group (name: '" << kDefaultAdminUserId << ", region: '" << cfg.getOr<std::string>("euclid.region", "") << "', accountId: '" << accountId << "')";
-        }
-
-        if (!repo->userExists(kDefaultAdminUserId)) {
-            constexpr auto kDefaultAdminPassword = "admin";
-
-            // Get admin user group
-            Euclid::Database::Entity::EAM::UserGroup userGroup = repo->findUserGroupByName(kDefaultAdminUserGroup).value();
-
-            // Create user
-            Euclid::Database::Entity::EAM::User user;
-            user.ern = Euclid::Core::createEamUserErn(accountId, kDefaultAdminUserId);
-            user.userId = kDefaultAdminUserId;
-            user.password = Euclid::Core::PasswordUtils::Hash(kDefaultAdminPassword);
-            user.region = cfg.getOr<std::string>("euclid.region", "");
-            user.accountId = accountId;
-            user.email = "admin@example.com";
-            user = repo->upsertUser(user);
-
-            // Add it to the admin group
-            userGroup.userIds.push_back(user.userId);
-            userGroup = repo->upsertUserGroup(userGroup);
-            log_warning << "No admin user was configured; created default admin user (userId: '" << kDefaultAdminUserId << "', password: '" << kDefaultAdminPassword << "', region: '" << user.region << "', accountId: '" << user.accountId << "') - log in and change the password immediately";
-        }
-
-        // Seed an Account/Namespace for the configured accountId so the DB-backed ScopeLookup
-        // (see Database::WireScopeLookup) doesn't lock every account-scoped request out of a
-        // fresh/upgraded deployment before an operator has created any accounts by hand.
-        if (!accountId.empty() && !repo->accountExists(accountId)) {
-            Euclid::Database::Entity::EAM::Account account;
-            account.accountId = accountId;
-            account.name = accountId;
-            account.ern = Euclid::Core::createEamAccountErn(accountId);
-            account.description = "Bootstrapped from euclid.account-ids";
-            account.created = account.modified = std::chrono::system_clock::now();
-            repo->upsertAccount(account);
-        }
-
-        const std::vector<std::string> namespaces = cfg.has("euclid.namespaces") ? cfg.getArray<std::string>("euclid.namespaces") : std::vector<std::string>{};
-
-        if (!accountId.empty()) {
-            for (const auto &ns: namespaces) {
-                if (repo->namespaceExists(accountId, ns)) continue;
-                Euclid::Database::Entity::EAM::Namespace nsEntity;
-                nsEntity.accountId = accountId;
-                nsEntity.name = ns;
-                nsEntity.ern = Euclid::Core::createEamNamespaceErn(accountId, ns);
-                nsEntity.description = "Bootstrapped from euclid.namespaces";
-                nsEntity.created = nsEntity.modified = std::chrono::system_clock::now();
-                repo->upsertNamespace(nsEntity);
-            }
         }
 
         // Grant the bootstrap admin an explicit record too - membership in the administrator
@@ -212,16 +191,13 @@ static void ensureDefaultObjects(const Euclid::Core::Configuration &cfg) {
         // is represented.
         if (auto adminUser = repo->findUserByUserId(kDefaultAdminUserId); adminUser.has_value() && !accountId.empty()) {
             if (!std::ranges::any_of(adminUser->accountGrants, [&](const auto &g) { return g.accountId == accountId; })) {
-                adminUser->accountGrants.push_back({.accountId = accountId,
-                                                     .namespaces = namespaces,
-                                                     .isAdmin = true,
-                                                     .granted = Euclid::Core::DateTimeUtils::ToISO8601(std::chrono::system_clock::now())});
+                adminUser->accountGrants.push_back({.accountId = accountId, .namespaces = namespaces, .isAdmin = true, .granted = Euclid::Core::DateTimeUtils::ToISO8601(std::chrono::system_clock::now())});
                 repo->upsertUser(*adminUser);
             }
         }
 
     } catch (const std::exception &e) {
-        log_error << "Failed to ensure default admin user: " << e.what();
+        log_error << "Failed to ensure default objects: " << e.what();
     }
 }
 

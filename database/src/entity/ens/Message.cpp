@@ -2,15 +2,9 @@
 // Created by vogje01 on 01/06/2023.
 //
 
-#include <euclid/database/entity/eqs/Message.h>
+#include <euclid/database/entity/ens/Message.h>
 
-// MongoDB includes
-#include <bsoncxx/json.hpp>
-
-// Euclid includes
-#include <euclid/core/CryptoUtils.h>
-
-namespace Euclid::Database::Entity::EQS {
+namespace Euclid::Database::Entity::ENS {
 
     namespace {
         long getBsonInt(const bsoncxx::document::element &field) {
@@ -31,18 +25,12 @@ namespace Euclid::Database::Entity::EQS {
                 bsoncxx::builder::basic::kvp("ern", ern),
                 bsoncxx::builder::basic::kvp("queueErn", queueErn),
                 bsoncxx::builder::basic::kvp("body", body),
-                bsoncxx::builder::basic::kvp("status", MessageStatusToString(status)),
-                bsoncxx::builder::basic::kvp("priority", MessagePriorityToString(priority)),
-                bsoncxx::builder::basic::kvp("receivedCount", static_cast<int32_t>(receivedCount)),
                 bsoncxx::builder::basic::kvp("size", static_cast<int64_t>(size)),
-                bsoncxx::builder::basic::kvp("visibilityTimeout", static_cast<int32_t>(visibilityTimeout)),
                 bsoncxx::builder::basic::kvp("messageId", messageId),
                 bsoncxx::builder::basic::kvp("receiptHandle", receiptHandle),
                 bsoncxx::builder::basic::kvp("md5Body", md5Body),
                 bsoncxx::builder::basic::kvp("md5Attributes", md5Attributes),
                 bsoncxx::builder::basic::kvp("contentType", contentType),
-                bsoncxx::builder::basic::kvp("reset", bsoncxx::types::b_date(reset)),
-                bsoncxx::builder::basic::kvp("delayUntil", bsoncxx::types::b_date(delayUntil)),
                 bsoncxx::builder::basic::kvp("lastReceived", bsoncxx::types::b_date(lastReceived)),
                 bsoncxx::builder::basic::kvp("attributes", attrsDoc.extract()),
                 bsoncxx::builder::basic::kvp("created", bsoncxx::types::b_date(created)),
@@ -56,18 +44,12 @@ namespace Euclid::Database::Entity::EQS {
             else if (key == "ern") ern = std::string(field.get_string().value);
             else if (key == "queueErn") queueErn = std::string(field.get_string().value);
             else if (key == "body") body = std::string(field.get_string().value);
-            else if (key == "status") status = MessageStatusFromString(std::string(field.get_string().value));
-            else if (key == "priority") priority = MessagePriorityFromString(std::string(field.get_string().value));
-            else if (key == "receivedCount") receivedCount = getBsonInt(field);
             else if (key == "size") size = getBsonInt(field);
-            else if (key == "visibilityTimeout") visibilityTimeout = static_cast<int>(getBsonInt(field));
             else if (key == "messageId") messageId = std::string(field.get_string().value);
             else if (key == "receiptHandle") receiptHandle = std::string(field.get_string().value);
             else if (key == "md5Body") md5Body = std::string(field.get_string().value);
             else if (key == "md5Attributes") md5Attributes = std::string(field.get_string().value);
             else if (key == "contentType") contentType = std::string(field.get_string().value);
-            else if (key == "reset") reset = system_clock::time_point{field.get_date().value};
-            else if (key == "delayUntil") delayUntil = system_clock::time_point{field.get_date().value};
             else if (key == "lastReceived") lastReceived = system_clock::time_point{field.get_date().value};
             else if (key == "created") created = system_clock::time_point{field.get_date().value};
             else if (key == "modified") modified = system_clock::time_point{field.get_date().value};
