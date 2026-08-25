@@ -20,47 +20,20 @@
 #include <euclid/database/entity/eam/User.h>
 #include <euclid/database/entity/eqs/Queue.h>
 #include <euclid/dto/BaseDto.h>
-#include <euclid/dto/eqs/AddQueueTagRequest.h>
-#include <euclid/dto/eqs/CreateQueueRequest.h>
-#include <euclid/dto/eqs/CreateQueueResponse.h>
-#include <euclid/dto/eqs/DeleteMessageRequest.h>
-#include <euclid/dto/eqs/DeleteQueueRequest.h>
-#include <euclid/dto/eqs/DeleteQueueTagRequest.h>
-#include <euclid/dto/eqs/EqsMapper.h>
-#include <euclid/dto/eqs/GetMessageAttributeRequest.h>
-#include <euclid/dto/eqs/GetMessageAttributeResponse.h>
-#include <euclid/dto/eqs/GetMessageCountRequest.h>
-#include <euclid/dto/eqs/GetMessageCountResponse.h>
-#include <euclid/dto/eqs/GetMessageMetadataRequest.h>
-#include <euclid/dto/eqs/GetMessageMetadataResponse.h>
-#include <euclid/dto/eqs/GetQueueErnRequest.h>
-#include <euclid/dto/eqs/GetQueueErnResponse.h>
-#include <euclid/dto/eqs/GetQueueMetadataRequest.h>
-#include <euclid/dto/eqs/GetQueueMetadataResponse.h>
-#include <euclid/dto/eqs/ListMessagesRequest.h>
-#include <euclid/dto/eqs/ListMessagesResponse.h>
-#include <euclid/dto/eqs/ListQueueRequest.h>
-#include <euclid/dto/eqs/ListQueueResponse.h>
-#include <euclid/dto/eqs/PurgeAllQueuesRequest.h>
-#include <euclid/dto/eqs/PurgeQueueRequest.h>
-#include <euclid/dto/eqs/ReceiveMessagesRequest.h>
-#include <euclid/dto/eqs/ReceiveMessagesResponse.h>
-#include <euclid/dto/eqs/SendMessageRequest.h>
-#include <euclid/dto/eqs/SendMessageResponse.h>
 
-namespace Euclid::EQS {
+namespace Euclid::ENS {
 
     using namespace boost::beast::http;
 
     /**
-     * @brief EQS service server listening on a Unix domain socket.
+     * @brief ENS service server listening on a Unix domain socket.
      *
      * Receives HTTP requests forwarded by the gateway and dispatches them
      * to per-action handler methods.
      *
      * @author jens.vogt\@opitz-consulting.com
      */
-    class EqsServer final : public Core::HttpActionServer {
+    class EnsServer final : public Core::HttpActionServer {
     public:
 
         /**
@@ -72,12 +45,12 @@ namespace Euclid::EQS {
          * @param socketPath Unix domain socket path to listen on.
          * @param threads    Number of io_context worker threads.
          */
-        explicit EqsServer(std::string socketPath, int threads = 2);
+        explicit EnsServer(std::string socketPath, int threads = 2);
 
         /**
          * @brief Cancels the background visibility timeout task.
          */
-        ~EqsServer() override;
+        ~EnsServer() override;
 
     protected:
 

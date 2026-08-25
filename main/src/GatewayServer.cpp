@@ -48,7 +48,7 @@ namespace Euclid::main {
     // Detection order:
     //   1. x-euclid-target — "DynamoDB_20120810.PutItem" → "dynamodb"
     //   2. Authorization   — SigV4 credential scope: "<key>/<date>/<region>/<svc>/aws4_request"
-    static std::string detectAwsService(const http::request<http::string_body> &req) {
+    static std::string detectEuclidService(const http::request<http::string_body> &req) {
         static const std::unordered_set<std::string> kModules{
                 "eam", "esm", "eqs", "ens", "emm"
         };
@@ -245,7 +245,7 @@ namespace Euclid::main {
         // around Dispatch() for individual module processes.
         try {
             // ── Euclid service dispatch ─────────────────────────────────────────
-            if (const auto service = detectAwsService(req); !service.empty()) {
+            if (const auto service = detectEuclidService(req); !service.empty()) {
                 const auto action = std::string(req["x-euclid-action"]);
                 std::optional<std::string> subject;
                 if (!isPublicAction(service, action)) {

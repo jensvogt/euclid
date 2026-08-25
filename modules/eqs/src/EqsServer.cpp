@@ -1,8 +1,6 @@
 // Euclid includes
 #include <EqsServer.h>
 
-#include "euclid/dto/eqs/DeleteQueueTagRequest.h"
-
 namespace Euclid::EQS {
 
     namespace beast = boost::beast;
