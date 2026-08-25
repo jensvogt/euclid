@@ -8,16 +8,17 @@ namespace Euclid::Database::Entity::ESM {
 
     bsoncxx::document::value Bucket::toDocument() const {
 
-        // bsoncxx::builder::basic::document tagsDoc;
-        // for (const auto &[k, v]: tags) {
-        //     tagsDoc.append(bsoncxx::builder::basic::kvp(k, v));
-        // }
+        bsoncxx::builder::basic::document tagsDoc;
+        for (const auto &[k, v]: tags) {
+            tagsDoc.append(bsoncxx::builder::basic::kvp(k, v));
+        }
 
         return bsoncxx::builder::basic::make_document(
                 bsoncxx::builder::basic::kvp("region", region),
                 bsoncxx::builder::basic::kvp("owner", owner),
                 bsoncxx::builder::basic::kvp("name", name),
                 bsoncxx::builder::basic::kvp("ern", ern),
+                bsoncxx::builder::basic::kvp("tags", tagsDoc),
                 bsoncxx::builder::basic::kvp("size", static_cast<int64_t>(size)),
                 bsoncxx::builder::basic::kvp("objects", static_cast<int64_t>(objects)));
     }
@@ -36,7 +37,11 @@ namespace Euclid::Database::Entity::ESM {
             else if (key == "objects") bucket.objects = field.get_int64().value;
             else if (key == "created") bucket.created = system_clock::time_point{field.get_date().value};
             else if (key == "modified") bucket.modified = system_clock::time_point{field.get_date().value};
-        }
+            else if (key == "tags") {
+                for (const auto &tag: field.get_document().view()) {
+                    bucket.tags[std::string(tag.key())] = std::string(tag.get_string().value);
+                }
+            }        }
         return bucket;
     }
 

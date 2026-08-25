@@ -1,5 +1,9 @@
 #pragma once
 
+#ifdef _WIN32
+#undef SendMessageA
+#endif
+
 // Boost includes
 #include <boost/json.hpp>
 #include <boost/beast/http.hpp>
@@ -16,6 +20,7 @@
 #include <euclid/database/entity/eam/User.h>
 #include <euclid/database/entity/eqs/Queue.h>
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/eqs/AddQueueTagRequest.h>
 #include <euclid/dto/eqs/CreateQueueRequest.h>
 #include <euclid/dto/eqs/CreateQueueResponse.h>
 #include <euclid/dto/eqs/DeleteMessageRequest.h>

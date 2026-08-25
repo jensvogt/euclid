@@ -1,5 +1,70 @@
 # Changelog
 
+## [1.0.33](https://github.com/jensvogt/euclid/compare/1.0.32...v1.0.33) (2026-08-25)
+
+
+### Bug Fixes
+
+* add / remove EAM user groups ([e075fab](https://github.com/jensvogt/euclid/commit/e075fab637ba732ac89920e2394e6ae191abc6c6))
+* add / remove EAM user groups ([f42f7f1](https://github.com/jensvogt/euclid/commit/f42f7f14f62a8c97ca64dd50625984a8f95c3f37))
+* add / remove EQS queue tags ([5a028c9](https://github.com/jensvogt/euclid/commit/5a028c9b024e1e4d0b43c10c646e100b4e3afe3c))
+* add / remove ESM bucket tags ([d073c3d](https://github.com/jensvogt/euclid/commit/d073c3d36abded153ef454ff42ab96d69edf938a))
+* add FTP server module ([6ff119d](https://github.com/jensvogt/euclid/commit/6ff119df80cfde0f386af433789bc9ccb7b8d491))
+* add FTP server module ([2e3eeb7](https://github.com/jensvogt/euclid/commit/2e3eeb715e9f0ada2cc0eaf9e82d0493108f6a33))
+
+## [1.0.32](https://github.com/jensvogt/euclid/compare/v1.0.31...v1.0.32) (2026-08-24)
+
+
+### Bug Fixes
+
+* graceful shutdown ([9b921f0](https://github.com/jensvogt/euclid/commit/9b921f0c89d922faba486c2317303bfb52dbf8eb))
+
+## [1.0.31](https://github.com/jensvogt/euclid/compare/1.0.30...v1.0.31) (2026-08-24)
+
+
+### Bug Fixes
+
+* download-bucket ([0751013](https://github.com/jensvogt/euclid/commit/075101314ae3d0ad0de478b556f5281ed532800a))
+* get object count command ([311f1b2](https://github.com/jensvogt/euclid/commit/311f1b2647782a5fcd330bd1f0103b0af9141c24))
+
+## [1.0.30](https://github.com/jensvogt/euclid/compare/1.0.29...v1.0.30) (2026-08-24)
+
+
+### Bug Fixes
+
+* purge bucket man pages ([6917f64](https://github.com/jensvogt/euclid/commit/6917f64216084445bfa271ca7fe2023bc57e17a2))
+* purge bucket with object key prefix ([b06a2fc](https://github.com/jensvogt/euclid/commit/b06a2fc941f0e3e6502657d78adb013397d4ef83))
+
+## [1.0.29](https://github.com/jensvogt/euclid/compare/1.0.28...v1.0.29) (2026-08-24)
+
+
+### Bug Fixes
+
+* more man pages, fix command line options ([ae17512](https://github.com/jensvogt/euclid/commit/ae175126efb9269907f4b894838c9d4160442eb2))
+
+## [1.0.28](https://github.com/jensvogt/euclid/compare/1.0.27...v1.0.28) (2026-08-24)
+
+
+### Bug Fixes
+
+* upload/download performance ([91c877a](https://github.com/jensvogt/euclid/commit/91c877a65531a144c7079cf3e4a5148afed38c8d))
+
+## [1.0.27](https://github.com/jensvogt/euclid/compare/1.0.26...v1.0.27) (2026-08-24)
+
+
+### Bug Fixes
+
+* upload/download performance ([ae03051](https://github.com/jensvogt/euclid/commit/ae03051ea769546a9fc2bb2addf5cf2a98209ee3))
+
+## [1.0.26](https://github.com/jensvogt/euclid/compare/1.0.25...v1.0.26) (2026-08-24)
+
+
+### Bug Fixes
+
+* dockerfile and euclid modules names ([c71cf7c](https://github.com/jensvogt/euclid/commit/c71cf7c84bc6cf9fa3a19bf1fe29e32a4db4e6d6))
+* ESM purge bucket ([39450ff](https://github.com/jensvogt/euclid/commit/39450ff3ae8efc1cec78730f860d66565460fe75))
+* ESM purge bucket ([7f2677f](https://github.com/jensvogt/euclid/commit/7f2677ff95e9abe6aad5641a8937b7a0d74761b0))
+
 ## [1.0.25](https://github.com/jensvogt/euclid/compare/1.0.24...v1.0.25) (2026-08-24)
 
 
