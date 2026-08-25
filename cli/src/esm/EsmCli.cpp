@@ -912,10 +912,10 @@ namespace Euclid::CLI {
     }
 
     std::optional<std::vector<Dto::ESM::Object> > EsmCli::listAllObjects(const std::string &bucketErn, const std::string &prefix) const {
-        constexpr long kPageSize = 1000;
         std::vector<Dto::ESM::Object> objects;
 
         for (long pageIndex = 0;; ++pageIndex) {
+            constexpr long kPageSize = 1000;
             Dto::ESM::ListObjectsRequest request;
             request.bucketErn = bucketErn;
             request.prefix = prefix;
@@ -949,15 +949,18 @@ namespace Euclid::CLI {
                 ("prefix,p", po::value<std::string>()->default_value(""), "object key prefix filter")
                 ("recursive,r", po::bool_switch()->default_value(false), "recurse through all matching keys, not just direct descendants")
                 ("part-size,s", po::value<long>()->default_value(DefaultPartSize()), "part size in bytes")
-                ("concurrency,j", po::value<int>()->default_value(DefaultConcurrency()), "number of parts to download in parallel, per file");
+                ("concurrency,j", po::value<int>()->default_value(DefaultConcurrency()), "number of parts to download in parallel, per file")
+                ("zip,z", po::value<std::string>(), "also pack --dir's contents into a ZIP archive at this path once downloaded");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "download-bucket", "--bucket-ern <ern> --dir <path> [--prefix <prefix>] [--recursive] [--part-size <bytes>] [--concurrency <n>]",
+            return PrintActionHelp("esm", "download-bucket", "--bucket-ern <ern> --dir <path> [--prefix <prefix>] [--recursive] [--part-size <bytes>] [--concurrency <n>] [--zip <path>]",
                                    "Downloads objects from a bucket to a local directory, one file per object. Without --recursive, only "
                                    "an object's direct descendants are downloaded - keys matching --prefix with no further '/' after it; "
                                    "with --recursive, every key matching --prefix is downloaded, however deeply nested. Each local file's "
                                    "path is --dir followed by the object's key with --prefix stripped off the front. Each object uses the "
-                                   "same get-object/multipart logic as download-file, chosen by its own size relative to --part-size.",
+                                   "same get-object/multipart logic as download-file, chosen by its own size relative to --part-size. If "
+                                   "--zip is given, --dir's contents are additionally packed into a ZIP archive at that path once every "
+                                   "object has been downloaded; the files downloaded under --dir are left in place.",
                                    desc);
         }
 
@@ -976,6 +979,8 @@ namespace Euclid::CLI {
         const bool recursive = vm["recursive"].as<bool>();
         const auto partSize = vm["part-size"].as<long>();
         const auto concurrency = std::max(1, vm["concurrency"].as<int>());
+        const bool wantZip = vm.count("zip") > 0;
+        const auto zipPath = wantZip ? vm["zip"].as<std::string>() : std::string();
 
         const auto objects = listAllObjects(bucketErn, prefix);
         if (!objects) return 1;
@@ -986,8 +991,7 @@ namespace Euclid::CLI {
         // parent directories.
         std::vector<const Dto::ESM::Object *> matched;
         for (const auto &object: *objects) {
-            const std::string remainder = object.key.size() >= prefix.size() ? object.key.substr(prefix.size()) : object.key;
-            if (!recursive && remainder.find('/') != std::string::npos) continue;
+            if (const std::string remainder = object.key.size() >= prefix.size() ? object.key.substr(prefix.size()) : object.key; !recursive && remainder.find('/') != std::string::npos) continue;
             matched.push_back(&object);
         }
 
@@ -1025,7 +1029,21 @@ namespace Euclid::CLI {
             results.push_back(boost::json::object{{"key", object->key}, {"file", filePath->string()}, {"result", downloadResult}});
         }
 
-        Core::WriteJson(std::cout, results, _pretty);
+        if (wantZip) {
+            try {
+                Core::ZipUtils::Zip(dirPath, zipPath);
+            } catch (const std::exception &ex) {
+                std::cerr << "error: could not create zip file '" << zipPath << "': " << ex.what() << "\n";
+                ok = false;
+            }
+
+            boost::json::object out;
+            out["objects"] = results;
+            out["zip"] = zipPath;
+            Core::WriteJson(std::cout, out, _pretty);
+        } else {
+            Core::WriteJson(std::cout, results, _pretty);
+        }
         return ok ? 0 : 1;
     }
 

@@ -11,6 +11,7 @@ euclid-cli-esm-download-bucket \- download a bucket's objects to a local directo
 [\fB\-\-recursive\fR|\fB\-r\fR]
 [\fB\-\-part\-size\fR|\fB\-s\fR \fIBYTES\fR]
 [\fB\-\-concurrency\fR|\fB\-j\fR \fIN\fR]
+[\fB\-\-zip\fR|\fB\-z\fR \fIPATH\fR]
 .SH DESCRIPTION
 Downloads objects from a bucket to a local directory, one file per
 object. This is the batch counterpart to
@@ -73,6 +74,16 @@ parts still run in parallel, same as
 Processing continues after a single object fails, so one bad object
 doesn't block the rest; the command's own exit status reflects whether
 every object succeeded.
+.PP
+If
+.B \-\-zip
+is given, once every object has been downloaded,
+.BR \-\-dir 's
+contents are additionally packed into a single ZIP archive at that
+path; the individual files downloaded under
+.B \-\-dir
+are left in place, so both the loose files and the archive are
+available afterwards.
 .SH OPTIONS
 .TP
 .BR \-b ", " \-\-bucket\-ern " " \fIERN\fR
@@ -108,29 +119,44 @@ Number of parts to download in parallel, for any object that goes the
 multipart route. Defaults to \fI4\fR, or the value of
 \fIeuclid.modules.storage.concurrency\fR in the loaded configuration
 file if set; values less than \fI1\fR are treated as \fI1\fR.
+.TP
+.BR \-z ", " \-\-zip " " \fIPATH\fR
+If given, pack \fB\-\-dir\fR's contents into a single ZIP archive at
+this local path once every object has been downloaded. Optional; by
+default no archive is created.
 .SH EXIT STATUS
 .TP
 .B 0
 Every matching object was downloaded (a bucket/prefix combination with
 no matching objects is not an error - a warning is printed to standard
-error, and an empty JSON array is printed); a JSON array is printed,
-one entry per object
+error, and an empty JSON array is printed) and, if \fB\-\-zip\fR was
+given, the archive was written successfully.
+.IP
+Without \fB\-\-zip\fR, a JSON array is printed, one entry per object
 .RI ( "{key, file, result}" ),
 where
 .I result
 is that object's downloaded file summary (the same shape
 .BR euclid-cli-esm-download-file (1)
-prints for a single object).
+prints for a single object). With \fB\-\-zip\fR, a JSON object is
+printed instead
+.RI ( "{objects, zip}" ),
+where
+.I objects
+is that same array and
+.I zip
+is the archive's path.
 .TP
 .B 1
-Missing/invalid arguments, \fB\-\-dir\fR could not be created, or one
-or more objects failed to download; the printed JSON array still
-contains one entry per object, with
+Missing/invalid arguments, \fB\-\-dir\fR could not be created, one or
+more objects failed to download, or (with \fB\-\-zip\fR) the archive
+could not be written; the printed JSON still contains one entry per
+object, with
 .RI ( "{key, file, error: true}" )
 in place of
 .I result
-for each one that failed. Per-object errors are also printed to
-standard error as they happen.
+for each one that failed. Per-object errors, and any ZIP write error,
+are also printed to standard error as they happen.
 .SH EXAMPLES
 Download only the direct contents of a bucket under a prefix:
 .RS
@@ -149,6 +175,16 @@ euclid-cli --endpoint http://localhost:5566 esm download-bucket \e
     --bucket-ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports \e
     --dir ./archive --prefix archive/ --recursive \e
     --part-size 8388608 --concurrency 8
+.fi
+.RE
+.PP
+Download a prefix's tree and also pack it into a single archive:
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm download-bucket \e
+    --bucket-ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports \e
+    --dir ./archive --prefix archive/ --recursive \e
+    --zip ./archive.zip
 .fi
 .RE
 .SH SEE ALSO
