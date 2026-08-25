@@ -6,7 +6,7 @@ set(SOURCES src/Database.cpp src/entity/com/Variant.cpp src/entity/emm/Module.cp
         src/entity/eam/Account.cpp src/entity/eam/Namespace.cpp src/repository/eam/MongoEamRepository.cpp
         src/entity/emo/MonitoringData.cpp src/repository/emo/MongoEmoRepository.cpp src/entity/esm/Bucket.cpp
         src/entity/esm/Object.cpp src/repository/esm/MongoEsmRepository.cpp src/entity/ens/Message.cpp
-        src/entity/ens/Topic.cpp)
+        src/entity/ens/Topic.cpp src/repository/ens/MongoEnsRepository.cpp)
 
 add_library(${LIBRARY} STATIC ${SOURCES})
 target_include_directories(${LIBRARY} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/../core/include)

@@ -76,10 +76,6 @@
           "cron": "0 0 0 * * ?",
           "count": 5
         },
-        "monitoring-period": 300,
-        "reset-period": 30,
-        "counter-period": 30,
-        "receive-poll": 1000,
         "priority-weights": {
           "high": 4,
           "middle": 2,
@@ -98,10 +94,8 @@
           "cron": "0 0 0 * * ?",
           "count": 5
         },
-        "timeout": 14,
-        "monitoring-period": 300,
-        "delete-period": 300,
-        "counter-period": 10
+        "minInstances": 1,
+        "maxInstances": 4
       },
       "emo": {
         "active": true,
