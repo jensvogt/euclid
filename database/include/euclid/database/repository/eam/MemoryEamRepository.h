@@ -12,6 +12,7 @@
 // Euclid includes
 #include <euclid/core/UuidUtils.h>
 #include <euclid/database/entity/eam/User.h>
+#include <euclid/database/entity/eam/UserGroup.h>
 #include <euclid/database/repository/eam/IEamRepository.h>
 
 namespace Euclid::Database {
@@ -103,10 +104,61 @@ namespace Euclid::Database {
             return users;
         }
 
+        Entity::EAM::UserGroup upsertUserGroup(Entity::EAM::UserGroup &group) override {
+            std::lock_guard lock(_mutex);
+            if (group.oid.empty()) group.oid = Core::UuidUtils::CreateRandomUuid();
+            _groupStore[group.name] = group;
+            return group;
+        }
+
+        bool userGroupExists(const std::string &name) const override {
+            std::lock_guard lock(_mutex);
+            return _groupStore.contains(name);
+        }
+
+        long countUserGroups() const override {
+            std::lock_guard lock(_mutex);
+            return static_cast<long>(_groupStore.size());
+        }
+
+        std::vector<Entity::EAM::UserGroup> listUserGroups(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const override {
+            std::lock_guard lock(_mutex);
+
+            std::vector<Entity::EAM::UserGroup> userGroups;
+            for (const auto &userGroup: _groupStore | std::views::values) {
+                if (prefix.empty() || userGroup.name.starts_with(prefix)) userGroups.push_back(userGroup);
+            }
+
+            std::ranges::sort(userGroups, [&sortColumn](const Entity::EAM::UserGroup &a, const Entity::EAM::UserGroup &b) {
+                if (sortColumn == "name") return a.name < b.name;
+                if (sortColumn == "description") return a.description < b.description;
+                return a.name < b.name;
+            });
+
+            if (pageSize > 0) {
+                const auto offset = std::min<std::size_t>(static_cast<std::size_t>(std::max<long>(pageIndex, 0)) * pageSize, userGroups.size());
+                const auto count = std::min<std::size_t>(static_cast<std::size_t>(pageSize), userGroups.size() - offset);
+                userGroups = std::vector(userGroups.begin() + static_cast<std::ptrdiff_t>(offset), userGroups.begin() + static_cast<std::ptrdiff_t>(offset + count));
+            }
+
+            return userGroups;
+        }
+
+        /**
+         * @brief Removes a user group by its name.
+         *
+         * @param name The name of the group to be removed.
+         */
+        void deleteUserGroup(const std::string &name) const override {
+            std::lock_guard lock(_mutex);
+            _groupStore.erase(name);
+        }
+
     private:
 
         mutable std::mutex _mutex;
         mutable std::unordered_map<std::string, Entity::EAM::User> _userStore;
+        mutable std::unordered_map<std::string, Entity::EAM::UserGroup> _groupStore;
     };
 
 }// namespace Euclid::Database

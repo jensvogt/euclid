@@ -33,6 +33,9 @@ namespace Euclid::CLI {
                                            {"create-access-key", "Create a SigV4 access key and store it locally"},
                                            {"list-access-keys", "List your access keys"},
                                            {"delete-access-key", "Delete one of your access keys"},
+                                           {"create-user-group", "Create a new user group"},
+                                           {"list-user-groups", "List user groups"},
+                                           {"delete-user-group", "Delete an existing user group"},
                                    });
         }
         if (action == "login") {
@@ -55,6 +58,15 @@ namespace Euclid::CLI {
         }
         if (action == "delete-access-key") {
             return deleteAccessKey(args);
+        }
+        if (action == "create-user-group") {
+            return createUserGroup(args);
+        }
+        if (action == "list-user-groups") {
+            return listUserGroups(args);
+        }
+        if (action == "delete-user-group") {
+            return deleteUserGroup(args);
         }
         std::cerr << "error: unknown eam action '" << action << "'\n";
         return 1;
@@ -348,4 +360,132 @@ namespace Euclid::CLI {
             return 1;
         }
     }
+
+    int EamCli::createUserGroup(const std::vector<std::string> &args) const {
+        po::options_description desc("eam create user group options");
+        desc.add_options()
+                ("name,n", po::value<std::string>()->required(), "group name")
+                ("description,d", po::value<std::string>()->default_value(""), "group description");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "create-user-group", "--name <name> [--description <description>]",
+                                   "Creates a new, empty user group. Requires administrator privileges.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EAM::CreateUserGroupRequest request;
+        request.name = vm["name"].as<std::string>();
+        request.description = vm["description"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eam", "create-user-group", boost::json::value_from(request));
+
+            if (!response.IsSuccess()) {
+                reportFailure("create-user-group", response);
+                return 1;
+            }
+
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::listUserGroups(const std::vector<std::string> &args) const {
+        po::options_description desc("eam list user groups");
+        desc.add_options()
+                ("prefix,p", po::value<std::string>(), "user group name prefix")
+                ("pageSize,s", po::value<long>()->default_value(-1), "page size")
+                ("pageIndex,i", po::value<long>()->default_value(-1), "page index")
+                ("sortColumn,c", po::value<std::string>()->default_value("name"), "sort column");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "list-user-groups", "[--prefix <prefix>] [--pageSize <n>] [--pageIndex <n>] [--sortColumn <column>]",
+                                   "Lists user groups, optionally filtered by name prefix and paginated.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EAM::ListUserGroupsRequest request;
+        if (vm.contains("prefix")) {
+            request.prefix = vm["prefix"].as<std::string>();
+        }
+        request.pageSize = vm["pageSize"].as<long>();
+        request.pageIndex = vm["pageIndex"].as<long>();
+        request.sortColumn = vm["sortColumn"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eam", "list-user-groups", boost::json::value_from(request));
+
+            if (!response.IsSuccess()) {
+                reportFailure("list-user-groups", response);
+                return 1;
+            }
+
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::deleteUserGroup(const std::vector<std::string> &args) const {
+        po::options_description desc("eam delete user group options");
+        desc.add_options()
+                ("name,n", po::value<std::string>()->required(), "group name");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "delete-user-group", "--name <name>",
+                                   "Deletes an existing user group. Requires administrator privileges.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EAM::DeleteUserGroupRequest request;
+        request.name = vm["name"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+
+            if (const HttpResponse response = client.Post("eam", "delete-user-group", boost::json::value_from(request)); !response.IsSuccess()) {
+                reportFailure("delete-user-group", response);
+                return 1;
+            }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
 }

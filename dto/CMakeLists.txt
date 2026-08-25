@@ -11,7 +11,10 @@ set(SOURCES src/EmmMapper.cpp
         include/euclid/dto/eam/LoginResponse.h
         include/euclid/dto/eam/RegisterRequest.h
         include/euclid/dto/eam/RegisterResponse.h
+        include/euclid/dto/eam/CreateUserGroupRequest.h
+        include/euclid/dto/eam/CreateUserGroupResponse.h
         include/euclid/dto/eam/model/User.h
+        include/euclid/dto/eam/model/UserGroup.h
         include/euclid/dto/eqs/CreateQueueRequest.h
         include/euclid/dto/eqs/CreateQueueResponse.h
         include/euclid/dto/eqs/model/Queue.h

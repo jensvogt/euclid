@@ -7,6 +7,10 @@
 #include <euclid/core/monitoring/MonitoringTimer.h>
 #include <EamServer.h>
 
+#include "euclid/dto/ListUserGroupsRequest.h"
+#include "euclid/dto/eam/DeleteUserGroupRequest.h"
+#include "euclid/dto/eam/ListUserGroupsResponse.h"
+
 namespace Euclid::EAM {
 
     namespace beast = boost::beast;
@@ -342,6 +346,116 @@ namespace Euclid::EAM {
         return EamServer::JsonResponse(req, status::ok);
     }
 
+    // Creates a new user group. Requires the caller to be an authenticated administrator -
+    // unlike handleRegister() there's no bootstrap exception, since there's always at least one
+    // administrator by the time anyone would want to create a group. Groups start out empty;
+    // membership is managed separately from creation.
+    static response<string_body> handleCreateUserGroup(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "create-user-group");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) {
+            return unauthorized(req, auth);
+        }
+        if (!auth.user->isAdmin) {
+            return EamServer::ErrorResponse(req, status::forbidden, "Administrator privileges required");
+        }
+
+        boost::json::value jv;
+        if (const auto err = EamServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EAM::CreateUserGroupRequest>(jv);
+        if (request.name.empty()) {
+            return EamServer::ErrorResponse(req, status::bad_request, "name is required");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().eamRepository();
+        if (repo->userGroupExists(request.name)) {
+            return EamServer::ErrorResponse(req, status::conflict, "User group already exists");
+        }
+
+        Database::Entity::EAM::UserGroup group;
+        group.name = request.name;
+        group.description = request.description;
+        group.accountId = auth.user->accountId;
+        group.region = auth.user->region;
+        group.ern = Core::createAccessUserGroupErn(auth.user->accountId, request.name);
+        group.createdAt = Core::DateTimeUtils::ToISO8601(Core::DateTimeUtils::UtcDateTimeNow());
+
+        const auto saved = repo->upsertUserGroup(group);
+        log_info << "User group created, name: " << saved.name << ", accountId: " << saved.accountId;
+
+        Dto::EAM::CreateUserGroupResponse response;
+        response.group.name = saved.name;
+        response.group.ern = saved.ern;
+        response.group.accountId = saved.accountId;
+        response.group.region = saved.region;
+        response.group.description = saved.description;
+        response.group.userIds = saved.userIds;
+        response.group.createdAt = saved.createdAt;
+        return EamServer::JsonResponse(req, status::created, response.toJson());
+    }
+
+    static response<string_body> handleListUserGroups(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-user-groups");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) {
+            return unauthorized(req, auth);
+        }
+        if (!auth.user->isAdmin) {
+            return EamServer::ErrorResponse(req, status::forbidden, "Administrator privileges required");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().eamRepository();
+
+        boost::json::value jv;
+        if (const auto err = EamServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EAM::ListUserGroupsRequest>(jv);
+
+        const std::vector<Database::Entity::EAM::UserGroup> userGroups = repo->listUserGroups(request.prefix, request.pageSize, request.pageIndex, request.sortColumn);
+        log_info << "EAM ListUserGroups" << (!request.prefix.empty() ? ", prefix: " + request.prefix : "");
+
+        Dto::EAM::ListUserGroupsResponse response;
+        response.userGroups = Dto::EAM::EamMapper::toDto(userGroups);
+        response.total = repo->countUserGroups();
+        return EamServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::value_from(response)));
+    }
+
+    static response<string_body> handleDeleteUserGroup(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-user-group");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) {
+            return unauthorized(req, auth);
+        }
+        if (!auth.user->isAdmin) {
+            return EamServer::ErrorResponse(req, status::forbidden, "Administrator privileges required");
+        }
+
+        boost::json::value jv;
+        if (const auto err = EamServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EAM::DeleteUserGroupRequest>(jv);
+        if (request.name.empty()) {
+            return EamServer::ErrorResponse(req, status::bad_request, "name is required");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().eamRepository();
+        if (!repo->userGroupExists(request.name)) {
+            return EamServer::ErrorResponse(req, status::conflict, "User group does not exist");
+        }
+
+        repo->deleteUserGroup(request.name);
+        log_info << "User group deleted, name: " << request.name;
+
+        return EamServer::JsonResponse(req, status::ok);
+    }
+
     // ── Request dispatcher ───────────────────────────────────────────────────
 
     namespace {
@@ -355,6 +469,9 @@ namespace Euclid::EAM {
             CreateAccessKey,
             ListAccessKeys,
             DeleteAccessKey,
+            CreateUserGroup,
+            ListUserGroups,
+            DeleteUserGroup,
             GetMetrics
         };
     }
@@ -367,6 +484,9 @@ namespace Euclid::EAM {
         if (action == "create-access-key") return Action::CreateAccessKey;
         if (action == "list-access-keys") return Action::ListAccessKeys;
         if (action == "delete-access-key") return Action::DeleteAccessKey;
+        if (action == "create-user-group") return Action::CreateUserGroup;
+        if (action == "list-user-groups") return Action::ListUserGroups;
+        if (action == "delete-user-group") return Action::DeleteUserGroup;
         if (action == "get-metrics") return Action::GetMetrics;
         return Action::Unknown;
     }
@@ -377,7 +497,7 @@ namespace Euclid::EAM {
         if (action.empty()) {
             return EamServer::ErrorResponse(req, status::bad_request, "Missing x-euclid-action header");
         }
-        log_debug << "Access action=" << action;
+        log_debug << "EAM action=" << action;
 
         switch (actionFromString(action)) {
 
@@ -401,6 +521,15 @@ namespace Euclid::EAM {
 
             case Action::DeleteAccessKey:
                 return handleDeleteAccessKey(req);
+
+            case Action::CreateUserGroup:
+                return handleCreateUserGroup(req);
+
+            case Action::ListUserGroups:
+                return handleListUserGroups(req);
+
+            case Action::DeleteUserGroup:
+                return handleDeleteUserGroup(req);
 
             case Action::GetMetrics:
                 return EamServer::MetricsResponse(req);
