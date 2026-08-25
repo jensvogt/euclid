@@ -131,6 +131,54 @@ namespace Euclid::Core {
         static void SetAccessKeyLookup(AccessKeyLookup lookup);
 
         /**
+         * @brief Callback CheckScope (inside Authenticate()) uses to verify an account/namespace
+         * exists, once account/namespace management has a database behind it.
+         *
+         * @param accountId account to check
+         * @param ns namespace to check within accountId, or empty to check the account only
+         * @return true if in scope (exists), false to deny the request
+         */
+        using ScopeLookup = std::function<bool(const std::string &accountId, const std::string &ns)>;
+
+        /**
+         * @brief Registers the scope lookup Authenticate() uses to validate
+         * x-euclid-account-id/x-euclid-namespace against the database instead of the static
+         * euclid.account-ids/euclid.namespaces config lists.
+         *
+         * core doesn't depend on database (database depends on core), so - same pattern as
+         * SetAccessKeyLookup() - each process wires in its own Database::RepositoryFactory-backed
+         * lookup at startup. Until this is called, scope is checked against static config only
+         * (see ConfiguredList in HttpActionServer.cpp), which is what keeps modules with no
+         * database access (e.g. ftp) working unchanged.
+         *
+         * @param lookup resolves whether accountId/ns exist.
+         */
+        static void SetScopeLookup(ScopeLookup lookup);
+
+        /**
+         * @brief Callback CheckScope (inside Authenticate()) uses to verify the authenticated
+         * subject is actually granted access to the requested account/namespace.
+         *
+         * @param userId authenticated subject (already resolved from a JWT or SigV4 signature)
+         * @param accountId account being accessed
+         * @param ns namespace being accessed, or empty for an account-level-only request
+         * @return true if authorized (e.g. a global/account admin, or a matching grant), false to deny
+         */
+        using GrantLookup = std::function<bool(const std::string &userId, const std::string &accountId, const std::string &ns)>;
+
+        /**
+         * @brief Registers the grant lookup Authenticate() uses to enforce per-user
+         * account/namespace grants.
+         *
+         * Only enforced once wired, and only for requests that carry a non-empty
+         * x-euclid-account-id - deployments/modules that never call this (e.g. ftp) are
+         * unaffected, same backward-compatibility contract as SetScopeLookup().
+         *
+         * @param lookup resolves whether userId is authorized for accountId/ns.
+         */
+        static void SetGrantLookup(GrantLookup lookup);
+
+        /**
          * @brief Builds the error response for a failed Authenticate() call: 403 with
          * denialReason if the token verified but the request was out of scope, otherwise 401
          * worded according to whether the token was expired or simply missing/invalid.

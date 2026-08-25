@@ -108,21 +108,12 @@ static int initializeDatabase(const Euclid::Core::Configuration &cfg) {
 // handleRegister()'s bootstrap path (which promotes the first *registered* user to admin) by
 // covering the case where nobody has registered anyone yet - e.g. a fresh install nobody has
 // touched. Non-fatal: a failure here shouldn't stop the service from starting.
-static void ensureDefaultAdminUser(const Euclid::Core::Configuration &cfg) {
+static void ensureDefaultObjects(const Euclid::Core::Configuration &cfg) {
 
     try {
-        constexpr auto kDefaultAdminPassword = "admin";
         constexpr auto kDefaultAdminUserId = "admin";
+        constexpr auto kDefaultAdminUserGroup = Euclid::Database::kEamAdministratorGroupName;
         const auto repo = Euclid::Database::RepositoryFactory::instance().eamRepository();
-
-        if (const auto users = repo->listUsers("", 0, 0, ""); std::ranges::any_of(users, [](const auto &user) { return user.isAdmin; })) {
-            return;
-        }
-
-        if (repo->userExists(kDefaultAdminUserId)) {
-            log_warning << "No admin user configured, and a non-admin user named '" << kDefaultAdminUserId << "' already exists; skipping default admin creation";
-            return;
-        }
 
         std::string accountId;
         if (cfg.has("euclid.account-ids")) {
@@ -131,16 +122,103 @@ static void ensureDefaultAdminUser(const Euclid::Core::Configuration &cfg) {
             }
         }
 
-        Euclid::Database::Entity::EAM::User user;
-        user.userId = kDefaultAdminUserId;
-        user.password = Euclid::Core::PasswordUtils::Hash(kDefaultAdminPassword);
-        user.isAdmin = true;
-        user.region = cfg.getOr<std::string>("euclid.region", "");
-        user.accountId = accountId;
-        user.email = "admin@example.com";
-        repo->upsertUser(user);
+        if (!repo->userExists(kDefaultAdminUserId)) {
+            constexpr auto kDefaultAdminPassword = "admin";
 
-        log_warning << "No admin user was configured; created default admin user (userId: '" << kDefaultAdminUserId << "', password: '" << kDefaultAdminPassword << "', region: '" << user.region << "', accountId: '" << user.accountId << "') - log in and change the password immediately";
+            // Create user
+            Euclid::Database::Entity::EAM::User user;
+            user.ern = Euclid::Core::createEamUserErn(accountId, kDefaultAdminUserId);
+            user.userId = kDefaultAdminUserId;
+            user.password = Euclid::Core::PasswordUtils::Hash(kDefaultAdminPassword);
+            user.region = cfg.getOr<std::string>("euclid.region", "eu-central-1");
+            user.accountId = accountId;
+            user.email = "admin@example.com";
+            user.created = std::chrono::system_clock::now();
+            user.modified = std::chrono::system_clock::now();
+            user = repo->upsertUser(user);
+        }
+
+        if (!repo->userGroupExists(kDefaultAdminUserGroup)) {
+
+            Euclid::Database::Entity::EAM::User user = repo->findUserByUserId(kDefaultAdminUserId).value();
+
+            Euclid::Database::Entity::EAM::UserGroup userGroup;
+            userGroup.ern = Euclid::Core::createEamUserGroupErn(accountId, kDefaultAdminUserId);
+            userGroup.name = kDefaultAdminUserGroup;
+            userGroup.description = "Euclid default administrators group";
+            userGroup.userIds.push_back(user.userId);
+            userGroup.accountId = accountId;
+            userGroup.region = cfg.getOr<std::string>("euclid.region", "eu-central-1");
+            userGroup.created = std::chrono::system_clock::now();
+            userGroup.modified = std::chrono::system_clock::now();
+            userGroup = repo->upsertUserGroup(userGroup);
+
+            log_warning << "No admin user group was configured; created default admin user group (name: '" << kDefaultAdminUserId << ", region: '" << cfg.getOr<std::string>("euclid.region", "") << "', accountId: '" << accountId << "')";
+        }
+
+        if (!repo->userExists(kDefaultAdminUserId)) {
+            constexpr auto kDefaultAdminPassword = "admin";
+
+            // Get admin user group
+            Euclid::Database::Entity::EAM::UserGroup userGroup = repo->findUserGroupByName(kDefaultAdminUserGroup).value();
+
+            // Create user
+            Euclid::Database::Entity::EAM::User user;
+            user.ern = Euclid::Core::createEamUserErn(accountId, kDefaultAdminUserId);
+            user.userId = kDefaultAdminUserId;
+            user.password = Euclid::Core::PasswordUtils::Hash(kDefaultAdminPassword);
+            user.region = cfg.getOr<std::string>("euclid.region", "");
+            user.accountId = accountId;
+            user.email = "admin@example.com";
+            user = repo->upsertUser(user);
+
+            // Add it to the admin group
+            userGroup.userIds.push_back(user.userId);
+            userGroup = repo->upsertUserGroup(userGroup);
+            log_warning << "No admin user was configured; created default admin user (userId: '" << kDefaultAdminUserId << "', password: '" << kDefaultAdminPassword << "', region: '" << user.region << "', accountId: '" << user.accountId << "') - log in and change the password immediately";
+        }
+
+        // Seed an Account/Namespace for the configured accountId so the DB-backed ScopeLookup
+        // (see Database::WireScopeLookup) doesn't lock every account-scoped request out of a
+        // fresh/upgraded deployment before an operator has created any accounts by hand.
+        if (!accountId.empty() && !repo->accountExists(accountId)) {
+            Euclid::Database::Entity::EAM::Account account;
+            account.accountId = accountId;
+            account.name = accountId;
+            account.ern = Euclid::Core::createEamAccountErn(accountId);
+            account.description = "Bootstrapped from euclid.account-ids";
+            account.created = account.modified = std::chrono::system_clock::now();
+            repo->upsertAccount(account);
+        }
+
+        const std::vector<std::string> namespaces = cfg.has("euclid.namespaces") ? cfg.getArray<std::string>("euclid.namespaces") : std::vector<std::string>{};
+
+        if (!accountId.empty()) {
+            for (const auto &ns: namespaces) {
+                if (repo->namespaceExists(accountId, ns)) continue;
+                Euclid::Database::Entity::EAM::Namespace nsEntity;
+                nsEntity.accountId = accountId;
+                nsEntity.name = ns;
+                nsEntity.ern = Euclid::Core::createEamNamespaceErn(accountId, ns);
+                nsEntity.description = "Bootstrapped from euclid.namespaces";
+                nsEntity.created = nsEntity.modified = std::chrono::system_clock::now();
+                repo->upsertNamespace(nsEntity);
+            }
+        }
+
+        // Grant the bootstrap admin an explicit record too - membership in the administrator
+        // group (granted above) already bypasses WireGrantLookup's per-user check globally, but
+        // this keeps accountGrants inspectable and consistent with how every other user's access
+        // is represented.
+        if (auto adminUser = repo->findUserByUserId(kDefaultAdminUserId); adminUser.has_value() && !accountId.empty()) {
+            if (!std::ranges::any_of(adminUser->accountGrants, [&](const auto &g) { return g.accountId == accountId; })) {
+                adminUser->accountGrants.push_back({.accountId = accountId,
+                                                     .namespaces = namespaces,
+                                                     .isAdmin = true,
+                                                     .granted = Euclid::Core::DateTimeUtils::ToISO8601(std::chrono::system_clock::now())});
+                repo->upsertUser(*adminUser);
+            }
+        }
 
     } catch (const std::exception &e) {
         log_error << "Failed to ensure default admin user: " << e.what();
@@ -166,6 +244,7 @@ int main(const int argc, char *argv[]) {
     cfg.set<bool>("euclid.logging.console-active", cliOpts->consoleLog);
     cfg.set<bool>("euclid.logging.file-active", cliOpts->fileLog);
 
+    // ── Initialize logging ──────────────────────────────
     Euclid::Core::LogStream::Initialize();
     Euclid::Core::LogStream::SetSeverity(cfg.getOr<std::string>("euclid.logging.level", cliOpts->logLevel));
 
@@ -176,9 +255,11 @@ int main(const int argc, char *argv[]) {
     if (const int error = initializeDatabase(cfg); error != 0) return error;
     Euclid::Database::WireAccessKeyLookup();
     Euclid::Database::WireModuleSocketLookup();
+    Euclid::Database::WireScopeLookup();
+    Euclid::Database::WireGrantLookup();
 
-    // ── Ensure there's always an administrator to log in with ──
-    ensureDefaultAdminUser(cfg);
+    // ── Ensure that some default objects exist ──────────
+    ensureDefaultObjects(cfg);
 
     Euclid::Core::Monitoring::MetricsPusher metricsPusher("eam");
     try {

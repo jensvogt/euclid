@@ -46,9 +46,14 @@ namespace Euclid::Dto {
         std::vector<std::string> userIds;
 
         /**
-         * @brief Creation timestamp, ISO8601
+         * @brief Creation timestamp
          */
-        std::string createdAt;
+        std::chrono::system_clock::time_point created;
+
+        /**
+         * @brief Modification timestamp
+         */
+        std::chrono::system_clock::time_point modified;
 
     private:
 
@@ -60,7 +65,8 @@ namespace Euclid::Dto {
             r.region = Core::GetStringValue(v, "region");
             r.description = Core::GetStringValue(v, "description");
             r.userIds = Core::GetStringArrayValue(v, "userIds");
-            r.createdAt = Core::GetStringValue(v, "createdAt");
+            r.created = Core::GetDatetimeValue(v, "created");
+            r.modified = Core::GetDatetimeValue(v, "modified");
             return r;
         }
 
@@ -72,7 +78,8 @@ namespace Euclid::Dto {
                     {"region", obj.region},
                     {"description", obj.description},
                     {"userIds", boost::json::value_from(obj.userIds)},
-                    {"createdAt", obj.createdAt},
+                    {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
+                    {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
             };
         }
     };

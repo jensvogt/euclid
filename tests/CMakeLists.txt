@@ -6,3 +6,12 @@ set_target_properties(${BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 target_link_libraries(${BINARY} PRIVATE euclidcore Boost::unit_test_framework)
 
 add_test(NAME ${BINARY} COMMAND ${BINARY})
+
+set(SCOPE_BINARY euclid-http-action-server-scope-tests)
+
+add_executable(${SCOPE_BINARY} HttpActionServerScopeTest.cpp)
+set_target_properties(${SCOPE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${SCOPE_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${SCOPE_BINARY} COMMAND ${SCOPE_BINARY})

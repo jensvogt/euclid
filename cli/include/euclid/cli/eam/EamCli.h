@@ -13,18 +13,28 @@
 #include <euclid/cli/credentials/Credentials.h>
 #include <euclid/cli/help/CliHelp.h>
 #include <euclid/cli/http/HttpClient.h>
-#include <euclid/dto/ListUserGroupsRequest.h>
 #include <euclid/dto/eam/CreateAccessKeyResponse.h>
+#include <euclid/dto/eam/CreateAccountRequest.h>
+#include <euclid/dto/eam/CreateNamespaceRequest.h>
 #include <euclid/dto/eam/CreateUserGroupRequest.h>
 #include <euclid/dto/eam/DeleteAccessKeyRequest.h>
+#include <euclid/dto/eam/DeleteAccountRequest.h>
+#include <euclid/dto/eam/DeleteNamespaceRequest.h>
 #include <euclid/dto/eam/DeleteUserGroupRequest.h>
 #include <euclid/dto/eam/DeleteUserRequest.h>
+#include <euclid/dto/eam/GrantNamespaceAccessRequest.h>
 #include <euclid/dto/eam/ListAccessKeysResponse.h>
+#include <euclid/dto/eam/ListAccountsRequest.h>
+#include <euclid/dto/eam/ListNamespacesRequest.h>
+#include <euclid/dto/eam/ListUserGroupsRequest.h>
 #include <euclid/dto/eam/ListUserRequest.h>
 #include <euclid/dto/eam/ListUserResponse.h>
 #include <euclid/dto/eam/LoginRequest.h>
 #include <euclid/dto/eam/LoginResponse.h>
 #include <euclid/dto/eam/RegisterRequest.h>
+#include <euclid/dto/eam/RevokeNamespaceAccessRequest.h>
+#include <euclid/dto/eam/UserGroupAddUserRequest.h>
+#include <euclid/dto/eam/UserGroupRemoveUserRequest.h>
 
 namespace Euclid::CLI {
 
@@ -128,8 +138,86 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int createUserGroup(const std::vector<std::string> &args) const;
+
         int listUserGroups(const std::vector<std::string> &args) const;
+
+        int addUserToUserGroup(const std::vector<std::string> &args) const;
+
+        int removeUserFromUserGroup(const std::vector<std::string> &args) const;
+
         int deleteUserGroup(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Creates a new account
+         *
+         * @param args action arguments
+         * @return
+         */
+        [[nodiscard]]
+        int createAccount(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Lists accounts
+         *
+         * @param args action arguments
+         * @return
+         */
+        [[nodiscard]]
+        int listAccounts(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Deletes an existing account
+         *
+         * @param args action arguments
+         * @return
+         */
+        [[nodiscard]]
+        int deleteAccount(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Creates a new namespace under an account
+         *
+         * @param args action arguments
+         * @return
+         */
+        [[nodiscard]]
+        int createNamespace(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Lists namespaces under an account
+         *
+         * @param args action arguments
+         * @return
+         */
+        [[nodiscard]]
+        int listNamespaces(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Deletes an existing namespace
+         *
+         * @param args action arguments
+         * @return
+         */
+        [[nodiscard]]
+        int deleteNamespace(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Grants a user access to a namespace within an account
+         *
+         * @param args action arguments
+         * @return
+         */
+        [[nodiscard]]
+        int grantNamespaceAccess(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Revokes a user's access to a namespace within an account
+         *
+         * @param args action arguments
+         * @return
+         */
+        [[nodiscard]]
+        int revokeNamespaceAccess(const std::vector<std::string> &args) const;
 
         /**
          * @brief Euclid endpoint

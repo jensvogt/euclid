@@ -1,0 +1,66 @@
+.TH EUCLID-CLI-EAM-CREATE-ACCOUNT 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eam-create-account \- create a new Euclid account
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B eam create-account
+.BR \-\-account\-id | \-a
+.I ACCOUNTID
+.BR \-\-name | \-n
+.I NAME
+[\fB\-\-description\fR|\fB\-d\fR \fIDESCRIPTION\fR]
+.SH DESCRIPTION
+Creates a new account via the eam service's
+.I create-account
+action. The caller must be authenticated as a global administrator (see
+.BR euclid-cli-eam-login (1)) -
+unlike namespace and grant management, account creation is not delegable
+to an account-scoped administrator.
+.PP
+An account is the top level of Euclid's access hierarchy: it owns a set of
+namespaces (see
+.BR euclid-cli-eam-create-namespace (1)),
+and users are granted access to specific (account, namespace) pairs (see
+.BR euclid-cli-eam-grant-namespace-access (1)).
+.PP
+The created account's JSON representation is printed to standard output.
+.SH OPTIONS
+.TP
+.BR \-a ", " \-\-account\-id " " \fIACCOUNTID\fR
+Account ID, unique across the deployment. Required.
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+Human-readable account name. Required.
+.TP
+.BR \-d ", " \-\-description " " \fIDESCRIPTION\fR
+Free-text description of the account's purpose. Defaults to an empty
+string.
+.SH EXIT STATUS
+.TP
+.B 0
+The account was created.
+.TP
+.B 1
+Missing/invalid arguments, the request could not be sent, the caller is
+not an authenticated global administrator, or an account with that
+account ID already exists. If the failure was an expired or invalid
+session (\fIHTTP 401\fR), the stored credentials file is removed; run
+.B euclid-cli eam login
+again before retrying.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eam create-account \e
+    --account-id 123456789012 --name "Payments Team" \e
+    --description "Payments platform account"
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-eam-list-accounts (1),
+.BR euclid-cli-eam-delete-account (1),
+.BR euclid-cli-eam-create-namespace (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

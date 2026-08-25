@@ -1,0 +1,52 @@
+.TH EUCLID-CLI-EAM-DELETE-ACCOUNT 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eam-delete-account \- delete a Euclid account
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B eam delete-account
+.BR \-\-account\-id | \-a
+.I ACCOUNTID
+.SH DESCRIPTION
+Deletes the account identified by \fIACCOUNTID\fR via the eam service's
+.I delete-account
+action. The caller must be authenticated as a global administrator (see
+.BR euclid-cli-eam-login (1)).
+.PP
+The account must first have every one of its namespaces deleted (see
+.BR euclid-cli-eam-delete-namespace (1))
+and every user grant referencing it revoked (see
+.BR euclid-cli-eam-revoke-namespace-access (1)) -
+the server rejects the request with \fIHTTP 409\fR otherwise.
+.SH OPTIONS
+.TP
+.BR \-a ", " \-\-account\-id " " \fIACCOUNTID\fR
+Account ID of the account to delete. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The account was deleted.
+.TP
+.B 1
+Missing/invalid arguments, the request could not be sent, the caller is
+not an authenticated global administrator, no account with that ID
+exists, or the account still has namespaces or user grants (\fIHTTP
+409\fR). If the failure was an expired or invalid session (\fIHTTP
+401\fR), the stored credentials file is removed; run
+.B euclid-cli eam login
+again before retrying.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eam delete-account \e
+    --account-id 123456789012
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-eam-create-account (1),
+.BR euclid-cli-eam-list-accounts (1),
+.BR euclid-cli-eam-delete-namespace (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

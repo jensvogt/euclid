@@ -23,6 +23,7 @@
 #include <euclid/cli/http/HttpClient.h>
 #include <euclid/core/Configuration.h>
 #include <euclid/core/JsonUtils.h>
+#include <euclid/core/ZipUtils.h>
 #include <euclid/dto/eqs/CreateQueueRequest.h>
 #include <euclid/dto/eqs/DeleteQueueTagRequest.h>
 #include <euclid/dto/esm/AddBucketTagRequest.h>
@@ -173,10 +174,12 @@ namespace Euclid::CLI {
          * descendants are downloaded (keys with no further '/' after the prefix); with it, every
          * key matching the prefix is downloaded, however deeply nested. Each object is downloaded
          * via downloadOneFile(), the same get-object/multipart logic downloadFile() uses for its
-         * single --key.
+         * single --key. If --zip is given, --dir's contents are additionally packed into a single
+         * ZIP archive at that path via Core::ZipUtils::Zip(), once every object has been
+         * downloaded; the downloaded files themselves are left in place under --dir.
          *
          * @param args command line arguments
-         * @return ok (0 only if every matching object downloaded successfully)
+         * @return ok (0 only if every matching object downloaded successfully and, if requested, the zip was written)
          */
         [[nodiscard]]
         int downloadBucket(const std::vector<std::string> &args) const;
