@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.0.33](https://github.com/jensvogt/euclid/compare/1.0.32...v1.0.33) (2026-08-25)
+
+
+### Bug Fixes
+
+* add / remove EAM user groups ([e075fab](https://github.com/jensvogt/euclid/commit/e075fab637ba732ac89920e2394e6ae191abc6c6))
+* add / remove EAM user groups ([f42f7f1](https://github.com/jensvogt/euclid/commit/f42f7f14f62a8c97ca64dd50625984a8f95c3f37))
+* add / remove EQS queue tags ([5a028c9](https://github.com/jensvogt/euclid/commit/5a028c9b024e1e4d0b43c10c646e100b4e3afe3c))
+* add / remove ESM bucket tags ([d073c3d](https://github.com/jensvogt/euclid/commit/d073c3d36abded153ef454ff42ab96d69edf938a))
+* add FTP server module ([6ff119d](https://github.com/jensvogt/euclid/commit/6ff119df80cfde0f386af433789bc9ccb7b8d491))
+* add FTP server module ([2e3eeb7](https://github.com/jensvogt/euclid/commit/2e3eeb715e9f0ada2cc0eaf9e82d0493108f6a33))
+
 ## [1.0.32](https://github.com/jensvogt/euclid/compare/v1.0.31...v1.0.32) (2026-08-24)
 
 
