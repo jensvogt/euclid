@@ -115,7 +115,7 @@ namespace Euclid::ESM {
 
         Database::Entity::ESM::Bucket bucket;
         bucket.name = request.name;
-        bucket.ern = Core::createStorageBucketErn(auth.user->accountId, request.name);
+        bucket.ern = Core::createEsmBucketErn(auth.user->accountId, request.name);
         bucket.region = auth.user->region;
         bucket.owner = auth.user->userId;
 
@@ -260,7 +260,7 @@ namespace Euclid::ESM {
         // it replaces cleaned up below), same as complete-upload's existingObject.
         const auto existingObject = repo->findObjectByBucketAndKey(bucketErn, key);
         const auto internalName = Core::UuidUtils::CreateRandomUuid();
-        const auto ern = Core::createStorageObjectErn(auth.user->accountId, bucket->name + "/" + key);
+        const auto ern = Core::createEsmObjectErn(auth.user->accountId, bucket->name + "/" + key);
 
         const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
         std::error_code ec;
@@ -530,7 +530,7 @@ namespace Euclid::ESM {
         // resolve objects by key.
         const auto existingObject = repo->findObjectByBucketAndKey(bucketErn, key);
         const auto internalName = Core::UuidUtils::CreateRandomUuid();
-        const auto ern = Core::createStorageObjectErn(auth.user->accountId, bucket->name + "/" + key);
+        const auto ern = Core::createEsmObjectErn(auth.user->accountId, bucket->name + "/" + key);
 
         // Cheap (stat-only, no reads) so it can be reported in the response below without waiting
         // for the background pass to actually assemble the file.

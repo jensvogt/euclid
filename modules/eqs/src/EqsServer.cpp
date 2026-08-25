@@ -66,7 +66,7 @@ namespace Euclid::EQS {
         if (!request.dlqName.empty()) {
             Database::Entity::EQS::Queue dlQueue;
             dlQueue.name = request.dlqName;
-            dlQueue.ern = Core::createSqsQueueErn(auth.user->accountId, request.dlqName);
+            dlQueue.ern = Core::createEqsQueueErn(auth.user->accountId, request.dlqName);
             dlQueue.visibility = request.visibility;
             dlQueue.maxMessageLength = request.maxMessageLength;
             dlQueue.maxReceiveCount = request.maxRetries;
@@ -79,7 +79,7 @@ namespace Euclid::EQS {
 
         Database::Entity::EQS::Queue queue;
         queue.name = request.name;
-        queue.ern = Core::createSqsQueueErn(auth.user->accountId, request.name);
+        queue.ern = Core::createEqsQueueErn(auth.user->accountId, request.name);
         queue.visibility = request.visibility;
         queue.maxMessageLength = request.maxMessageLength;
         queue.maxReceiveCount = request.maxRetries;
@@ -198,7 +198,7 @@ namespace Euclid::EQS {
         log_info << "SQS SendMessage queueErn: " << request.queueErn;
 
         const std::string messageId = Core::UuidUtils::CreateRandomUuid();
-        const std::string ern = Core::createSqsMessageErn(auth.user.value().accountId, messageId);
+        const std::string ern = Core::createEqsMessageErn(auth.user.value().accountId, messageId);
         std::map<std::string, Database::Entity::EQS::Variant> attributes;
         for (const auto &[key, variant]: request.attributes) {
             attributes[key] = Dto::EQS::EqsMapper::toEntity(variant);
