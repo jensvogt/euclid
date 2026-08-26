@@ -84,20 +84,20 @@ namespace Euclid::Database {
         //     return std::nullopt;
         // }
         //
-        // std::optional<Entity::EQS::Queue> findQueueByErn(const std::string &ern) const override {
-        //     std::lock_guard lock(_mutex);
-        //     for (const auto &m: _queueStore | std::views::values) {
-        //         if (m.ern == ern) return m;
-        //     }
-        //     return std::nullopt;
-        // }
-        //
+        std::optional<Entity::ENS::Topic> findTopicByErn(const std::string &ern) const override {
+            std::lock_guard lock(_mutex);
+            for (const auto &m: _topicStore | std::views::values) {
+                if (m.ern == ern) return m;
+            }
+            return std::nullopt;
+        }
+
         std::vector<Entity::ENS::Topic> listTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const override {
             std::lock_guard lock(_mutex);
             std::vector<Entity::ENS::Topic> result;
             for (const auto &m: _topicStore | std::views::values) {
                 if (m.accountId != accountId) continue;
-                if (!namespaceName.empty() && m.namespaceName != namespaceName) continue;
+                if (!namespaceName.empty() && m.nameSpace != namespaceName) continue;
                 if (prefix.empty() || m.name.starts_with(prefix)) {
                     result.push_back(m);
                 }
@@ -126,7 +126,7 @@ namespace Euclid::Database {
         long countTopics(const std::string &accountId, const std::string &namespaceName) const override {
             std::lock_guard lock(_mutex);
             return std::ranges::count_if(_topicStore | std::views::values, [&](const auto &m) {
-                return m.accountId == accountId && (namespaceName.empty() || m.namespaceName == namespaceName);
+                return m.accountId == accountId && (namespaceName.empty() || m.nameSpace == namespaceName);
             });
         }
 

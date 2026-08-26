@@ -29,7 +29,7 @@ namespace Euclid::Database::Entity::EQS {
         return bsoncxx::builder::basic::make_document(
                 bsoncxx::builder::basic::kvp("region", region),
                 bsoncxx::builder::basic::kvp("accountId", accountId),
-                bsoncxx::builder::basic::kvp("namespace", namespaceName),
+                bsoncxx::builder::basic::kvp("namespace", nameSpace),
                 bsoncxx::builder::basic::kvp("owner", owner),
                 bsoncxx::builder::basic::kvp("name", name),
                 bsoncxx::builder::basic::kvp("ern", ern),
@@ -54,7 +54,7 @@ namespace Euclid::Database::Entity::EQS {
             if (const auto key = field.key(); key == "_id") queue.oid = field.get_oid().value.to_string();
             else if (key == "region") queue.region = std::string(field.get_string().value);
             else if (key == "accountId") queue.accountId = std::string(field.get_string().value);
-            else if (key == "namespace") queue.namespaceName = std::string(field.get_string().value);
+            else if (key == "namespace") queue.nameSpace = std::string(field.get_string().value);
             else if (key == "owner") queue.owner = std::string(field.get_string().value);
             else if (key == "name") queue.name = std::string(field.get_string().value);
             else if (key == "ern") queue.ern = std::string(field.get_string().value);
