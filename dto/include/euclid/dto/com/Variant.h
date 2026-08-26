@@ -139,7 +139,7 @@ namespace Euclid::Dto::COM {
             const std::string type = Core::GetStringValue(v, "type");
             const boost::json::value &val = v.at("value");
             if (type == "int") r.value = static_cast<int>(val.as_int64());
-            else if (type == "long") r.value = val.as_int64();
+            else if (type == "long") r.value = static_cast<long>(val.as_int64());
             else if (type == "double") r.value = val.as_double();
             else if (type == "float") r.value = static_cast<float>(val.as_double());
             else if (type == "bool") r.value = val.as_bool();

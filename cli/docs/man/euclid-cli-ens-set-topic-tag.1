@@ -1,0 +1,55 @@
+.TH EUCLID-CLI-ENS-SET-TOPIC-TAG 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ens-set-topic-tag \- set the value of an existing topic tag
+.SH SYNOPSIS
+.B euclid-cli ens set-topic-tag
+.BR \-\-topic | \-t
+.I ERN
+.BR \-\-key | \-k
+.I KEY
+.BR \-\-value | \-v
+.I VALUE
+.SH DESCRIPTION
+Sets the value of an existing tag on a topic identified by its Euclid
+resource name (ERN). The tag must already exist (see
+.BR euclid-cli-ens-add-topic-tag (1)),
+otherwise an error is returned.
+.PP
+.B Not yet implemented server-side in this release:
+the ens service does not currently route this action to a handler, so
+this command returns
+.I "HTTP 404"
+("Action not implemented: set-topic-tag") regardless of arguments.
+.SH OPTIONS
+.TP
+.BR \-t ", " \-\-topic " " \fIERN\fR
+Euclid resource name of the topic whose tag is being updated. Required.
+.TP
+.BR \-k ", " \-\-key " " \fIKEY\fR
+Key of the tag to update. Required.
+.TP
+.BR \-v ", " \-\-value " " \fIVALUE\fR
+New tag value. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The tag was updated. No output is printed.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, no topic
+with that ERN exists, no tag with that key exists, or (currently,
+always) the action is not yet implemented server-side.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ens set-topic-tag \e
+    --topic ern:ens:eu-central-1:000000000000:topic:order-events \e
+    --key team --value platform
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ens (1),
+.BR euclid-cli-ens-add-topic-tag (1),
+.BR euclid-cli-ens-delete-topic-tag (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
