@@ -117,12 +117,11 @@ namespace Euclid::Database {
             return result;
         }
 
-        //
-        // bool queueExists(const std::string &name) const override {
-        //     std::lock_guard lock(_mutex);
-        //     return _queueStore.contains(name);
-        // }
-        //
+        bool topicExists(const std::string &name) const override {
+            std::lock_guard lock(_mutex);
+            return _topicStore.contains(name);
+        }
+
         long countTopics(const std::string &accountId, const std::string &namespaceName) const override {
             std::lock_guard lock(_mutex);
             return std::ranges::count_if(_topicStore | std::views::values, [&](const auto &m) {
@@ -130,17 +129,10 @@ namespace Euclid::Database {
             });
         }
 
-        //
-        // void clearQueues() override {
-        //     std::lock_guard lock(_mutex);
-        //     _queueStore.clear();
-        // }
-        //
-        // void upsertMessage(const Entity::EQS::Message &message) override {
-        //     std::lock_guard lock(_mutex);
-        //     // TODO: fix me
-        //     //_messageStore[message.name] = message;
-        // }
+        void upsertMessage(const Entity::ENS::Message &message) override {
+            std::lock_guard lock(_mutex);
+            _messageStore[message.messageId] = message;
+        }
 
         Entity::ENS::Message publishMessage(const std::string &messageId, const std::string &ern, const std::string &topicErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes) override {
             std::lock_guard lock(_mutex);
@@ -328,21 +320,14 @@ namespace Euclid::Database {
             });
         }
 
-        //
-        // std::optional<Entity::EQS::Message> findMessageByName(const std::string &name) const override {
-        //     std::lock_guard lock(_mutex);
-        //     const auto it = _messageStore.find(name);
-        //     if (it == _messageStore.end()) return std::nullopt;
-        //     return it->second;
-        // }
-        //
-        // std::optional<Entity::EQS::Message> findMessageById(const std::string &id) const override {
-        //     std::lock_guard lock(_mutex);
-        //     for (const auto &m: _messageStore | std::views::values) {
-        //         if (m.oid == id) return m;
-        //     }
-        //     return std::nullopt;
-        // }
+        std::optional<Entity::ENS::Message> findMessageById(const std::string &messageId) const override {
+            std::lock_guard lock(_mutex);
+            for (const auto &m: _messageStore | std::views::values) {
+                if (m.messageId == messageId) return m;
+            }
+            return std::nullopt;
+        }
+
         //
         // std::vector<Entity::EQS::Message> findAllMessages() const override {
         //     std::lock_guard lock(_mutex);

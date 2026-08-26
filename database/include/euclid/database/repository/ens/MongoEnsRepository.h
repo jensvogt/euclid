@@ -104,8 +104,8 @@ namespace Euclid::Database {
          * @param name module name check existence
          * @return true if module exists
          */
-        // [[nodiscard]]
-        // bool topicExists(const std::string &name) const override;
+        [[nodiscard]]
+        bool topicExists(const std::string &name) const override;
 
         /**
          * @brief Get the total number of modules
@@ -127,7 +127,7 @@ namespace Euclid::Database {
          *
          * @param message message entity
          */
-        // void upsertMessage(const Entity::EQS::Message &message) override;
+        void upsertMessage(const Entity::ENS::Message &message) override;
 
         /**
          * @brief Publish a message to a topic
@@ -186,11 +186,11 @@ namespace Euclid::Database {
         /**
          * @brief Find by message ID
          *
-         * @param oid message OID
+         * @param messageId message OID
          * @return optional message
          */
-        // [[nodiscard]]
-        // std::optional<Entity::EQS::Message> findMessageById(const std::string &oid) const override;
+        [[nodiscard]]
+        std::optional<Entity::ENS::Message> findMessageById(const std::string &messageId) const override;
 
         /**
          * @brief Find all messages

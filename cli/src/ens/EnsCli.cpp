@@ -42,6 +42,8 @@ namespace Euclid::CLI {
                                            {"purge-all-topic", "Purge all topics by deleting all messages"},
                                            {"publish-message", "Publish a message to a topic"},
                                            {"get-message-count", "Returns the number of messages in a topic"},
+                                           {"get-message-attribute", "Returns a message attribute"},
+                                           {"set-message-attribute", "Sets the value of a message attribute"},
                                            {"delete-topic", "Delete an existing topic"},
                                            {"list-messages", "List available messages"},
                                    });
@@ -85,9 +87,12 @@ namespace Euclid::CLI {
         if (action == "get-message-count") {
             return getMessageCount(args);
         }
-        // if (action == "get-message-attribute") {
-        //     return getMessageAttribute(args);
-        // }
+        if (action == "get-message-attribute") {
+            return getMessageAttribute(args);
+        }
+        if (action == "set-message-attribute") {
+            return setMessageAttribute(args);
+        }
         // if (action == "get-message-metadata") {
         //     return getMessageMetadata(args);
         // }
@@ -511,47 +516,93 @@ namespace Euclid::CLI {
         }
     }
 
-    //
-    // int EqsCli::getMessageAttribute(const std::vector<std::string> &args) const {
-    //     po::options_description desc("returns a message attribute by name");
-    //     desc.add_options()
-    //             ("message-id,m", po::value<std::string>()->required(), "message ID")
-    //             ("name,n", po::value<std::string>()->required(), "attribute name");
-    //
-    //     if (IsHelpRequest(args)) {
-    //         return PrintActionHelp("eqs", "get-message-attribute", "--message-id <messageId> --name <name>",
-    //                                "Returns a single message attribute by name.",
-    //                                desc);
-    //     }
-    //
-    //     po::variables_map vm;
-    //     try {
-    //         po::store(po::command_line_parser(args).options(desc).run(), vm);
-    //         po::notify(vm);
-    //     } catch (const po::error &ex) {
-    //         std::cerr << "error: " << ex.what() << "\n\n"
-    //                 << desc << std::endl;
-    //         return 1;
-    //     }
-    //
-    //     Dto::EQS::GetMessageAttributeRequest request;
-    //     request.messageId = vm["message-id"].as<std::string>();
-    //     request.name = vm["name"].as<std::string>();
-    //
-    //     try {
-    //         const HttpClient client(_endpoint, _authentication, _caCertPath);
-    //         const HttpResponse response = client.Post("eqs", "get-message-attribute", boost::json::value_from(request));
-    //         if (!response.IsSuccess()) {
-    //             std::cerr << "error: get-message-attribute failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
-    //             return 1;
-    //         }
-    //         Core::WriteJson(std::cout, response.body, _pretty);
-    //         return 0;
-    //     } catch (const std::exception &ex) {
-    //         std::cerr << "error: " << ex.what() << std::endl;
-    //         return 1;
-    //     }
-    // }
+    int EnsCli::getMessageAttribute(const std::vector<std::string> &args) const {
+        po::options_description desc("returns a message attribute by name");
+        desc.add_options()
+                ("message-id,m", po::value<std::string>()->required(), "message ID")
+                ("key,k", po::value<std::string>()->required(), "attribute key");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ens", "get-message-attribute", "--message-id <messageId> --key <key>",
+                                   "Returns a single message attribute by key.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n"
+                    << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ENS::GetMessageAttributeRequest request;
+        request.messageId = vm["message-id"].as<std::string>();
+        request.key = vm["key"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ens", "get-message-attribute", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: get-message-attribute failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EnsCli::setMessageAttribute(const std::vector<std::string> &args) const {
+        po::options_description desc("sets the value of a message attribute");
+        desc.add_options()
+                ("message-id,m", po::value<std::string>()->required(), "message ID")
+                ("key,k", po::value<std::string>()->required(), "attribute key")
+                ("value,v", po::value<std::string>()->required(), "attribute value")
+                ("type,t", po::value<std::string>(), "attribute type");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ens", "set-message-attribute", "--message-id <messageId> --key <key> --value <value>",
+                                   "Sets the value of a single message attribute. If the attributes does not exist yet, it will be created; "
+                                   "if it exists already the value will be set. The type can be one of int, long, double, float, bool, string, binary. "
+                                   "The type defaults to string.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n"
+                    << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ENS::SetMessageAttributeRequest request;
+        request.messageId = vm["message-id"].as<std::string>();
+        request.key = vm["key"].as<std::string>();
+        request.value = optionToVariant(vm["value"].as<std::string>(), vm["type"].empty() ? "string" : vm["type"].as<std::string>());
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ens", "set-message-attribute", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: set-message-attribute failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
     //
     // int EqsCli::getMessageMetadata(const std::vector<std::string> &args) const {
     //     po::options_description desc("get message metadata options");
