@@ -12,7 +12,8 @@ euclid-cli-ens \- manage Euclid SNS-compatible notification topics and messages
 The
 .B ens
 module talks to the Euclid gateway's ens service to create and manage
-SNS-compatible notification topics and publish messages to them. Every
+SNS-compatible notification topics, publish messages to them, and tag
+topics. Every
 .B ens
 command sends a single JSON request to the gateway
 (\fB\-\-endpoint\fR, default \fIhttps://localhost:5566\fR) and prints the
@@ -24,7 +25,11 @@ commands require the caller to be authenticated; see
 .B AUTHENTICATION
 below for how the session used to sign these requests is obtained. There
 is no administrator requirement - any authenticated user may create,
-list, resolve, publish to, purge and delete topics.
+list, resolve, publish to, tag, purge and delete topics.
+.PP
+Some actions are still client-side only in this release - see the
+.B STATUS
+column below and each action's own man page for details.
 .SH ACTIONS
 .TP
 .B create-topic
@@ -39,6 +44,13 @@ Lists topics, optionally filtered by name prefix, paged and sorted. See
 Resolves a topic's Euclid resource name (ERN) by its name. See
 .BR euclid-cli-ens-get-topic-ern (1).
 .TP
+.B get-topic-metadata
+Shows a topic's metadata (region, account, owner, namespace, size,
+message counts).
+.B Not yet wired to a server handler in this release.
+See
+.BR euclid-cli-ens-get-topic-metadata (1).
+.TP
 .B publish-message
 Publishes a message, with optional attributes, to a topic. See
 .BR euclid-cli-ens-publish-message (1).
@@ -46,6 +58,28 @@ Publishes a message, with optional attributes, to a topic. See
 .B list-messages
 Lists a topic's messages without changing their status. See
 .BR euclid-cli-ens-list-messages (1).
+.TP
+.B get-message-count
+Returns a topic's message counters (available, send, resend). See
+.BR euclid-cli-ens-get-message-count (1).
+.TP
+.B add-topic-tag
+Adds a tag to a topic.
+.B Not yet wired to a server handler in this release.
+See
+.BR euclid-cli-ens-add-topic-tag (1).
+.TP
+.B set-topic-tag
+Sets the value of an existing topic tag.
+.B Not yet wired to a server handler in this release.
+See
+.BR euclid-cli-ens-set-topic-tag (1).
+.TP
+.B delete-topic-tag
+Deletes a tag from a topic.
+.B Not yet wired to a server handler in this release.
+See
+.BR euclid-cli-ens-delete-topic-tag (1).
 .TP
 .B purge-topic
 Deletes all messages from a single topic. See
@@ -125,7 +159,7 @@ The action completed successfully.
 .B 1
 Argument parsing failed, the request could not be sent, or the server
 rejected it (missing/expired session, invalid input, topic not found,
-etc.). Details are printed to standard error.
+action not implemented, etc.). Details are printed to standard error.
 .SH FILES
 .TP
 .I $HOME/.euclid/credentials
@@ -171,8 +205,13 @@ euclid-cli --endpoint http://localhost:5566 ens delete-topic \e
 .BR euclid-cli-ens-create-topic (1),
 .BR euclid-cli-ens-list-topics (1),
 .BR euclid-cli-ens-get-topic-ern (1),
+.BR euclid-cli-ens-get-topic-metadata (1),
 .BR euclid-cli-ens-publish-message (1),
 .BR euclid-cli-ens-list-messages (1),
+.BR euclid-cli-ens-get-message-count (1),
+.BR euclid-cli-ens-add-topic-tag (1),
+.BR euclid-cli-ens-set-topic-tag (1),
+.BR euclid-cli-ens-delete-topic-tag (1),
 .BR euclid-cli-ens-purge-topic (1),
 .BR euclid-cli-ens-purge-all-topic (1),
 .BR euclid-cli-ens-delete-topic (1)

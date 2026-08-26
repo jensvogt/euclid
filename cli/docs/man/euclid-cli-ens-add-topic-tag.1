@@ -1,0 +1,53 @@
+.TH EUCLID-CLI-ENS-ADD-TOPIC-TAG 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ens-add-topic-tag \- add a tag to a topic
+.SH SYNOPSIS
+.B euclid-cli ens add-topic-tag
+.BR \-\-topic | \-t
+.I ERN
+.BR \-\-key | \-k
+.I KEY
+.BR \-\-value | \-v
+.I VALUE
+.SH DESCRIPTION
+Adds a tag (a key/value pair) to a topic identified by its Euclid
+resource name (ERN).
+.PP
+.B Not yet implemented server-side in this release:
+the ens service does not currently route this action to a handler, so
+this command returns
+.I "HTTP 404"
+("Action not implemented: add-topic-tag") regardless of arguments.
+.SH OPTIONS
+.TP
+.BR \-t ", " \-\-topic " " \fIERN\fR
+Euclid resource name of the topic to tag. Required.
+.TP
+.BR \-k ", " \-\-key " " \fIKEY\fR
+Tag key. Required.
+.TP
+.BR \-v ", " \-\-value " " \fIVALUE\fR
+Tag value. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The tag was added. No output is printed.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, no topic
+with that ERN exists, or (currently, always) the action is not yet
+implemented server-side.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ens add-topic-tag \e
+    --topic ern:ens:eu-central-1:000000000000:topic:order-events \e
+    --key team --value payments
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ens (1),
+.BR euclid-cli-ens-set-topic-tag (1),
+.BR euclid-cli-ens-delete-topic-tag (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

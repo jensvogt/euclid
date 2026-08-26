@@ -35,6 +35,9 @@ namespace Euclid::CLI {
                                            {"list-topics", "List all available topics"},
                                            {"get-topic-ern", "Returns the ERN for a topic"},
                                            {"get-topic-metadata", "Returns the metadata of a topics"},
+                                           {"add-topic-tag", "Adds a tag to the topic"},
+                                           {"set-topic-tag", "Sets the value of an existing topic tag"},
+                                           {"delete-topic-tag", "Delete an existing topic tag"},
                                            {"purge-topic", "Purge a topic by deleting all messages"},
                                            {"purge-all-topic", "Purge all topics by deleting all messages"},
                                            {"publish-message", "Publish a message to a topic"},
@@ -64,6 +67,15 @@ namespace Euclid::CLI {
         if (action == "purge-all-topic") {
             return purgeAllTopic(args);
         }
+        if (action == "add-topic-tag") {
+            return addTopicTag(args);
+        }
+        if (action == "set-topic-tag") {
+            return setTopicTag(args);
+        }
+        if (action == "delete-topic-tag") {
+            return deleteTopicTag(args);
+        }
         if (action == "delete-topic") {
             return deleteTopic(args);
         }
@@ -78,15 +90,6 @@ namespace Euclid::CLI {
         // }
         // if (action == "get-message-metadata") {
         //     return getMessageMetadata(args);
-        // }
-        // if (action == "add-queue-tag") {
-        //     return addQueueTag(args);
-        // }
-        // if (action == "set-queue-tag") {
-        //     return setQueueTag(args);
-        // }
-        // if (action == "delete-queue-tag") {
-        //     return deleteQueueTag(args);
         // }
         std::cerr << "error: unknown ENS action '" << action << "'\n";
         return 1;
@@ -588,125 +591,125 @@ namespace Euclid::CLI {
     //         return 1;
     //     }
     // }
-    //
-    // int EqsCli::addQueueTag(const std::vector<std::string> &args) const {
-    //     po::options_description desc("add queue tag options");
-    //     desc.add_options()
-    //             ("queue,q", po::value<std::string>()->required(), "queue ERN")
-    //             ("key,k", po::value<std::string>()->required(), "tag key")
-    //             ("value,v", po::value<std::string>()->required(), "tag value");
-    //
-    //     if (IsHelpRequest(args)) {
-    //         return PrintActionHelp("eqs", "add-queue-tag", "--queue <queue ERN> --key <value> --value <value>",
-    //                                "Adds a tag to a queue.",
-    //                                desc);
-    //     }
-    //
-    //     po::variables_map vm;
-    //     try {
-    //         po::store(po::command_line_parser(args).options(desc).run(), vm);
-    //         po::notify(vm);
-    //     } catch (const po::error &ex) {
-    //         std::cerr << "error: " << ex.what() << "\n\n"
-    //                 << desc << std::endl;
-    //         return 1;
-    //     }
-    //
-    //     Dto::EQS::AddQueueTagRequest request;
-    //     request.queueErn = vm["queue"].as<std::string>();
-    //     request.key = vm["key"].as<std::string>();
-    //     request.value = vm["value"].as<std::string>();
-    //
-    //     try {
-    //         const HttpClient client(_endpoint, _authentication, _caCertPath);
-    //         if (const HttpResponse response = client.Post("eqs", "add-queue-tag", boost::json::value_from(request)); !response.IsSuccess()) {
-    //             std::cerr << "error: add-queue-tag failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
-    //             return 1;
-    //         }
-    //         return 0;
-    //     } catch (const std::exception &ex) {
-    //         std::cerr << "error: " << ex.what() << std::endl;
-    //         return 1;
-    //     }
-    // }
-    //
-    // int EqsCli::setQueueTag(const std::vector<std::string> &args) const {
-    //     po::options_description desc("set queue tag options");
-    //     desc.add_options()
-    //             ("queue,q", po::value<std::string>()->required(), "queue ERN")
-    //             ("key,k", po::value<std::string>()->required(), "tag key")
-    //             ("value,v", po::value<std::string>()->required(), "tag value");
-    //
-    //     if (IsHelpRequest(args)) {
-    //         return PrintActionHelp("eqs", "set-queue-tag", "--queue <ern> --key <value> --value <value>",
-    //                                "Sets the value of a queue tag. The queue tag must exist already, otherwise an error is returned.",
-    //                                desc);
-    //     }
-    //
-    //     po::variables_map vm;
-    //     try {
-    //         po::store(po::command_line_parser(args).options(desc).run(), vm);
-    //         po::notify(vm);
-    //     } catch (const po::error &ex) {
-    //         std::cerr << "error: " << ex.what() << "\n\n"
-    //                 << desc << std::endl;
-    //         return 1;
-    //     }
-    //
-    //     Dto::EQS::SetQueueTagRequest request;
-    //     request.queueErn = vm["queue"].as<std::string>();
-    //     request.key = vm["key"].as<std::string>();
-    //     request.value = vm["value"].as<std::string>();
-    //
-    //     try {
-    //         const HttpClient client(_endpoint, _authentication, _caCertPath);
-    //         if (const HttpResponse response = client.Post("eqs", "set-queue-tag", boost::json::value_from(request)); !response.IsSuccess()) {
-    //             std::cerr << "error: set-queue-tag failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
-    //             return 1;
-    //         }
-    //         return 0;
-    //     } catch (const std::exception &ex) {
-    //         std::cerr << "error: " << ex.what() << std::endl;
-    //         return 1;
-    //     }
-    // }
-    //
-    // int EqsCli::deleteQueueTag(const std::vector<std::string> &args) const {
-    //     po::options_description desc("delete queue tag options");
-    //     desc.add_options()
-    //             ("queue,q", po::value<std::string>()->required(), "queue ERN")
-    //             ("key,k", po::value<std::string>()->required(), "tag key");
-    //
-    //     if (IsHelpRequest(args)) {
-    //         return PrintActionHelp("eqs", "delete-queue-tag", "--queue <queue ERN> --key <value>",
-    //                                "Deletes a tag from a queue.",
-    //                                desc);
-    //     }
-    //
-    //     po::variables_map vm;
-    //     try {
-    //         po::store(po::command_line_parser(args).options(desc).run(), vm);
-    //         po::notify(vm);
-    //     } catch (const po::error &ex) {
-    //         std::cerr << "error: " << ex.what() << "\n\n"
-    //                 << desc << std::endl;
-    //         return 1;
-    //     }
-    //
-    //     Dto::ESM::DeleteBucketTagRequest request;
-    //     request.queueErn = vm["queue"].as<std::string>();
-    //     request.key = vm["key"].as<std::string>();
-    //
-    //     try {
-    //         const HttpClient client(_endpoint, _authentication, _caCertPath);
-    //         if (const HttpResponse response = client.Post("eqs", "delete-queue-tag", boost::json::value_from(request)); !response.IsSuccess()) {
-    //             std::cerr << "error: delete-queue-tag failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
-    //             return 1;
-    //         }
-    //         return 0;
-    //     } catch (const std::exception &ex) {
-    //         std::cerr << "error: " << ex.what() << std::endl;
-    //         return 1;
-    //     }
-    // }
+
+    int EnsCli::addTopicTag(const std::vector<std::string> &args) const {
+        po::options_description desc("add topic tag options");
+        desc.add_options()
+                ("topic,t", po::value<std::string>()->required(), "topic ERN")
+                ("key,k", po::value<std::string>()->required(), "tag key")
+                ("value,v", po::value<std::string>()->required(), "tag value");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ens", "add-topic-tag", "--topic <topic ERN> --key <value> --value <value>",
+                                   "Adds a tag to a topic.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n"
+                    << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ENS::AddTopicTagRequest request;
+        request.ern = vm["topic"].as<std::string>();
+        request.key = vm["key"].as<std::string>();
+        request.value = vm["value"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            if (const HttpResponse response = client.Post("ens", "add-topic-tag", boost::json::value_from(request)); !response.IsSuccess()) {
+                std::cerr << "error: add-topic-tag failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EnsCli::setTopicTag(const std::vector<std::string> &args) const {
+        po::options_description desc("set topic tag options");
+        desc.add_options()
+                ("topic,t", po::value<std::string>()->required(), "topic ERN")
+                ("key,k", po::value<std::string>()->required(), "tag key")
+                ("value,v", po::value<std::string>()->required(), "tag value");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ens", "set-topic-tag", "--topic <ern> --key <value> --value <value>",
+                                   "Sets the value of a topic tag. The topic tag must exist already, otherwise an error is returned.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n"
+                    << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ENS::SetTopicTagRequest request;
+        request.ern = vm["topic"].as<std::string>();
+        request.key = vm["key"].as<std::string>();
+        request.value = vm["value"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            if (const HttpResponse response = client.Post("ens", "set-topic-tag", boost::json::value_from(request)); !response.IsSuccess()) {
+                std::cerr << "error: set-topic-tag failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EnsCli::deleteTopicTag(const std::vector<std::string> &args) const {
+        po::options_description desc("delete topic tag options");
+        desc.add_options()
+                ("topic,t", po::value<std::string>()->required(), "topic ERN")
+                ("key,k", po::value<std::string>()->required(), "tag key");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ens", "delete-topic-tag", "--topic <topic ERN> --key <value>",
+                                   "Deletes a tag from a topic.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n"
+                    << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ENS::DeleteTopicTagRequest request;
+        request.ern = vm["topic"].as<std::string>();
+        request.key = vm["key"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            if (const HttpResponse response = client.Post("eqs", "delete-queue-tag", boost::json::value_from(request)); !response.IsSuccess()) {
+                std::cerr << "error: delete-queue-tag failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
 }// namespace Euclid::CLI
