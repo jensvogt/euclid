@@ -12,6 +12,7 @@
 #include <boost/program_options.hpp>
 
 // Euclid includes
+#include <euclid/cli/BaseCli.h>
 #include <euclid/cli/credentials/Credentials.h>
 #include <euclid/cli/help/CliHelp.h>
 #include <euclid/cli/http/HttpClient.h>
@@ -43,7 +44,7 @@ namespace Euclid::CLI {
      *
      * @author jens.vogt\@opitz-consulting.com
      */
-    class EqsCli {
+    class EqsCli final : BaseCli {
 
     public:
 

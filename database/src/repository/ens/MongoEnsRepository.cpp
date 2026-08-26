@@ -14,9 +14,6 @@
 #include <euclid/core/UuidUtils.h>
 #include <euclid/database/repository/ens/MongoEnsRepository.h>
 
-#include "euclid/database/entity/eqs/Queue.h"
-#include "euclid/database/repository/eqs/MongoEqsRepository.h"
-
 namespace Euclid::Database {
 
     MongoEnsRepository::MongoEnsRepository() {
@@ -59,30 +56,30 @@ namespace Euclid::Database {
         }
     }
 
+    bool MongoEnsRepository::topicExists(const std::string &name) const {
+
+        try {
+
+            document query{};
+            if (!name.empty()) {
+                query.append(kvp("name", name));
+            }
+
+            const auto entry = Database::instance().client();
+            auto topicCollection = (*entry)[Database::instance().databaseName()][TOPIC_COLLECTION];
+
+            const auto result = topicCollection.find_one(query.extract());
+            log_trace << "Topic exists, name: " << name << ", exists: " << std::boolalpha << result.has_value();
+            return result.has_value();
+
+        } catch (const std::exception &e) {
+            log_error << "Topic exists failed, name: " << ", error: " << e.what();
+        }
+        return false;
+    }
+
     //
-    // bool MongoEnsRepository::queueExists(const std::string &name) const {
-    //
-    //     try {
-    //
-    //         document query{};
-    //         if (!name.empty()) {
-    //             query.append(kvp("name", name));
-    //         }
-    //
-    //         const auto entry = Database::instance().client();
-    //         auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
-    //
-    //         const auto result = queueCollection.find_one(query.extract());
-    //         log_trace << "Sqs exists, name: " << name << ", exists: " << std::boolalpha << result.has_value();
-    //         return result.has_value();
-    //
-    //     } catch (const std::exception &e) {
-    //         log_error << "Sqs exists failed, name: " << ", error: " << e.what();
-    //     }
-    //     return false;
-    // }
-    //
-    // std::optional<Entity::EQS::Queue> MongoEqsRepository::findQueueById(const std::string &oid) const {
+    // std::optional<Entity::EQS::Queue> MongoEnsRepository::findQueueById(const std::string &oid) const {
     //
     //     try {
     //
@@ -234,7 +231,7 @@ namespace Euclid::Database {
     }
 
     //
-    // void MongoEqsRepository::removeQueueByName(const std::string &name) {
+    // void MongoEnsRepository::removeQueueByName(const std::string &name) {
     //
     //     try {
     //         const auto entry = Database::instance().client();
@@ -286,7 +283,7 @@ namespace Euclid::Database {
     }
 
     //
-    // void MongoEqsRepository::clearQueues() {
+    // void MongoEnsRepository::clearQueues() {
     //
     //     try {
     //         const auto entry = Database::instance().client();
@@ -300,7 +297,7 @@ namespace Euclid::Database {
     //     }
     // }
     //
-    // bool MongoEqsRepository::messageExists(const std::string &messageId) const {
+    // bool MongoEnsRepository::messageExists(const std::string &messageId) const {
     //
     //     try {
     //         const auto query = make_document(
@@ -315,27 +312,27 @@ namespace Euclid::Database {
     //     }
     //     return false;
     // }
+
+    std::optional<Entity::ENS::Message> MongoEnsRepository::findMessageById(const std::string &messageId) const {
+
+        try {
+            const auto query = make_document(kvp("messageId", messageId));
+            const auto entry = Database::instance().client();
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            if (auto mResult = messageCollection.find_one(query.view())) {
+                Entity::ENS::Message message;
+                message.FromDocument(mResult->view());
+                return message;
+            }
+        } catch (const std::exception &e) {
+            log_error << "Get message by ID failed, error: " << e.what();
+        }
+        return {};
+    }
+
     //
-    // std::optional<Entity::EQS::Message> MongoEqsRepository::findMessageById(const std::string &oid) const {
-    //
-    //     try {
-    //         const auto query = make_document(
-    //                 kvp("_id", oid));
-    //         const auto entry = Database::instance().client();
-    //         auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
-    //
-    //         if (auto mResult = messageCollection.find_one(query.view())) {
-    //             Entity::EQS::Message message;
-    //             message.FromDocument(mResult->view());
-    //             return message;
-    //         }
-    //     } catch (const std::exception &e) {
-    //         log_error << "Get message by ID failed, error: " << e.what();
-    //     }
-    //     return {};
-    // }
-    //
-    // std::optional<Entity::EQS::Message> MongoEqsRepository::findMessageByName(const std::string &messageId) const {
+    // std::optional<Entity::EQS::Message> MongoEnsRepository::findMessageByName(const std::string &messageId) const {
     //
     //     try {
     //         const auto query = make_document(
@@ -354,7 +351,7 @@ namespace Euclid::Database {
     //     return {};
     // }
     //
-    // std::vector<Entity::EQS::Message> MongoEqsRepository::findAllMessages() const {
+    // std::vector<Entity::EQS::Message> MongoEnsRepository::findAllMessages() const {
     //
     //     try {
     //         std::vector<Entity::EQS::Message> messages;
@@ -403,34 +400,29 @@ namespace Euclid::Database {
         return messages;
     }
 
-    //
-    // void MongoEqsRepository::upsertMessage(const Entity::EQS::Message &message) {
-    //
-    //     try {
-    //         const auto filter = make_document(
-    //                 kvp("messageId", message.messageId));
-    //         const auto update = make_document(
-    //                 kvp("$set", message.ToDocument()),
-    //                 kvp("$setOnInsert", make_document(
-    //                             kvp("created", bsoncxx::types::b_date{
-    //                                         std::chrono::duration_cast<std::chrono::milliseconds>(
-    //                                                 message.created.time_since_epoch())
-    //                                 }))),
-    //                 kvp("$currentDate", make_document(
-    //                             kvp("modified", true))));
-    //
-    //         mongocxx::options::update opts;
-    //         opts.upsert(true);
-    //
-    //         const auto entry = Database::instance().client();
-    //         auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
-    //
-    //         messageCollection.update_one(filter.view(), update.view(), opts);
-    //
-    //     } catch (const std::exception &e) {
-    //         log_error << "Upsert message failed, error: " << e.what();
-    //     }
-    // }
+    void MongoEnsRepository::upsertMessage(const Entity::ENS::Message &message) {
+
+        try {
+            const auto filter = make_document(kvp("messageId", message.messageId));
+            const auto update = make_document(
+                    kvp("$set", message.ToDocument()),
+                    kvp("$setOnInsert", make_document(
+                                kvp("created", bsoncxx::types::b_date{std::chrono::duration_cast<std::chrono::milliseconds>(message.created.time_since_epoch())}))),
+                    kvp("$currentDate", make_document(
+                                kvp("modified", true))));
+
+            mongocxx::options::update opts;
+            opts.upsert(true);
+
+            const auto entry = Database::instance().client();
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            messageCollection.update_one(filter.view(), update.view(), opts);
+
+        } catch (const std::exception &e) {
+            log_error << "Upsert message failed, error: " << e.what();
+        }
+    }
 
     Entity::ENS::Message MongoEnsRepository::publishMessage(const std::string &messageId, const std::string &ern, const std::string &topicErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes) {
 
@@ -476,7 +468,7 @@ namespace Euclid::Database {
     }
 
     //
-    // std::vector<Entity::EQS::Message> MongoEqsRepository::receiveMessages(const std::string &queueErn, const long maxCount, const long waitTime) {
+    // std::vector<Entity::EQS::Message> MongoEnsRepository::receiveMessages(const std::string &queueErn, const long maxCount, const long waitTime) {
     //
     //     std::vector<Entity::EQS::Message> result;
     //     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(waitTime);
@@ -604,7 +596,7 @@ namespace Euclid::Database {
     //     return result;
     // }
     //
-    // void MongoEqsRepository::deleteMessage(const std::string &receiptHandle) {
+    // void MongoEnsRepository::deleteMessage(const std::string &receiptHandle) {
     //
     //     try {
     //         const auto filter = make_document(
@@ -667,12 +659,7 @@ namespace Euclid::Database {
     void MongoEnsRepository::purgeAllTopics(const std::string &region, const std::string &accountId, const std::string &nameSpace) {
 
         try {
-            std::string marker;
-            if (nameSpace.empty()) {
-                marker = ":" + region + ":" + accountId + ":";
-            } else {
-                marker = ":" + region + ":" + accountId + ":" + nameSpace + ":";
-            }
+            const std::string marker = nameSpace.empty() ? ":" + region + ":" + accountId + ":" : ":" + region + ":" + accountId + ":" + nameSpace + ":";
 
             const auto entry = Database::instance().client();
             auto topicCollection = (*entry)[Database::instance().databaseName()][TOPIC_COLLECTION];
@@ -681,7 +668,7 @@ namespace Euclid::Database {
             array ernArray;
             long topicCount = 0;
             for (auto queueCursor = topicCollection.find({}); auto queue: queueCursor) {
-                if (const auto entity = Entity::EQS::Queue::fromDocument(queue); entity.ern.find(marker) != std::string::npos) {
+                if (const auto entity = Entity::ENS::Topic::fromDocument(queue); entity.ern.find(marker) != std::string::npos) {
                     ernArray.append(entity.ern);
                     ++topicCount;
                 }
@@ -704,7 +691,10 @@ namespace Euclid::Database {
                     kvp("$currentDate", make_document(
                                 kvp("modified", true))));
             topicCollection.update_many(queueFilter.view(), update.view());
-        } catch (const std::exception &e) {
+        } catch
+        (
+            const std::exception &e
+        ) {
             log_error << "Purge all topics failed, region: " << region << ", accountId: " << accountId << ", error: " << e.what();
         }
     }
@@ -737,7 +727,7 @@ namespace Euclid::Database {
     }
 
     //
-    // void MongoEqsRepository::clearMessages() {
+    // void MongoEnsRepository::clearMessages() {
     //
     //     try {
     //         const auto entry = Database::instance().client();
@@ -750,7 +740,7 @@ namespace Euclid::Database {
     //     }
     // }
     //
-    // long MongoEqsRepository::resetExpiredMessages() {
+    // long MongoEnsRepository::resetExpiredMessages() {
     //
     //     long resetCount = 0;
     //     try {
