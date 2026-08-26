@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.39](https://github.com/jensvogt/euclid/compare/1.0.38...v1.0.39) (2026-08-26)
+
+
+### Bug Fixes
+
+* EQS get/set message attributes ([02e5b73](https://github.com/jensvogt/euclid/commit/02e5b73acae4b863aee50b6faf90ceaf28c426be))
+* insert BaseCli.h ([1a55b2c](https://github.com/jensvogt/euclid/commit/1a55b2cc1058b5e4533fc455e9ec952e3453eb58))
+
 ## [1.0.38](https://github.com/jensvogt/euclid/compare/v1.0.37...v1.0.38) (2026-08-26)
 
 
