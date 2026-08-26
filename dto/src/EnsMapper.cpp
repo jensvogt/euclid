@@ -32,7 +32,6 @@ namespace Euclid::Dto::ENS {
 
     Topic EnsMapper::toDto(const Database::Entity::ENS::Topic &entity) {
         Topic dto;
-        dto.region = entity.region;
         dto.name = entity.name;
         dto.owner = entity.owner;
         dto.ern = entity.ern;
@@ -56,7 +55,6 @@ namespace Euclid::Dto::ENS {
 
     Database::Entity::ENS::Topic EnsMapper::toEntity(const Topic &dto) {
         Database::Entity::ENS::Topic entity;
-        entity.region = dto.region;
         entity.name = dto.name;
         entity.owner = dto.owner;
         entity.ern = dto.ern;

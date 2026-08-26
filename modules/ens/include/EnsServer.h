@@ -21,10 +21,14 @@
 #include <euclid/database/entity/ens/Topic.h>
 #include <euclid/database/entity/eqs/Queue.h>
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/ens/AddTopicTagRequest.h>
 #include <euclid/dto/ens/CreateTopicRequest.h>
 #include <euclid/dto/ens/CreateTopicResponse.h>
 #include <euclid/dto/ens/DeleteTopicRequest.h>
+#include <euclid/dto/ens/DeleteTopicTagRequest.h>
 #include <euclid/dto/ens/EnsMapper.h>
+#include <euclid/dto/ens/GetMessageAttributeRequest.h>
+#include <euclid/dto/ens/GetMessageAttributeResponse.h>
 #include <euclid/dto/ens/GetMessageCountRequest.h>
 #include <euclid/dto/ens/GetMessageCountResponse.h>
 #include <euclid/dto/ens/GetTopicErnRequest.h>
@@ -39,6 +43,7 @@
 #include <euclid/dto/ens/PublishMessageResponse.h>
 #include <euclid/dto/ens/PurgeAllTopicsRequest.h>
 #include <euclid/dto/ens/PurgeTopicRequest.h>
+#include <euclid/dto/ens/SetMessageAttributeRequest.h>
 
 namespace Euclid::ENS {
 
