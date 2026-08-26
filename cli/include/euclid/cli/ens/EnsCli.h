@@ -18,9 +18,11 @@
 #include <euclid/cli/http/HttpClient.h>
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/com/Variant.h>
+#include <euclid/dto/ens/AddTopicTagRequest.h>
 #include <euclid/dto/ens/CreateTopicRequest.h>
 #include <euclid/dto/ens/CreateTopicResponse.h>
 #include <euclid/dto/ens/DeleteTopicRequest.h>
+#include <euclid/dto/ens/DeleteTopicTagRequest.h>
 #include <euclid/dto/ens/GetMessageCountRequest.h>
 #include <euclid/dto/ens/GetTopicErnRequest.h>
 #include <euclid/dto/ens/GetTopicMetadataRequest.h>
@@ -29,6 +31,7 @@
 #include <euclid/dto/ens/PublishMessageRequest.h>
 #include <euclid/dto/ens/PurgeAllTopicsRequest.h>
 #include <euclid/dto/ens/PurgeTopicRequest.h>
+#include <euclid/dto/ens/SetQueueTagRequest.h>
 
 namespace Euclid::CLI {
 
@@ -164,7 +167,7 @@ namespace Euclid::CLI {
         // int getMessageAttribute(const std::vector<std::string> &args) const;
 
         /**
-         * @brief Returns a message's metadata, i.e. queueErn, size, status, etc.
+         * @brief Returns a message's metadata, i.e. topicErn, size, status, etc.
          *
          * @param args action arguments
          * @return ok
@@ -173,18 +176,32 @@ namespace Euclid::CLI {
         // int getMessageMetadata(const std::vector<std::string> &args) const;
 
         /**
-         * @brief Adds a tag to the queue
+         * @brief Adds a tag to the topic
          *
          * @param args action arguments
          * @return ok
          */
-        // [[nodiscard]]
-        // int addQueueTag(const std::vector<std::string> &args) const;
+        [[nodiscard]]
+        int addTopicTag(const std::vector<std::string> &args) const;
 
-        // int setQueueTag(const std::vector<std::string> &args) const;
-        //
-        // int deleteQueueTag(const std::vector<std::string> &args) const;
-        //
+        /**
+         * @brief Sets the value f existing topic tag
+         *
+         * @param args action arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int setTopicTag(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Deketes a topic tag
+         *
+         * @param args action arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int deleteTopicTag(const std::vector<std::string> &args) const;
+
         /**
          * @brief Euclid endpoint
          */
