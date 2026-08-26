@@ -10,7 +10,7 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
-#include <euclid/dto/eqs/model/Variant.h>
+#include <euclid/dto/com/Variant.h>
 
 namespace Euclid::Dto::EQS {
 
@@ -29,7 +29,7 @@ namespace Euclid::Dto::EQS {
         /**
          * @brief Message attributes
          */
-        std::map<std::string, Variant> attributes{};
+        std::map<std::string, COM::Variant> attributes{};
 
         /**
          * @brief Message priority, i.e. "LOW", "MIDDLE" or "HIGH". Defaults to "MIDDLE".
@@ -57,7 +57,7 @@ namespace Euclid::Dto::EQS {
             SendMessageRequest r;
             r.queueErn = Core::GetStringValue(v, "ern");
             r.body = Core::GetStringValue(v, "body");
-            r.attributes = Core::GetMapFromObject<std::string, Variant>(v, "attributes");
+            r.attributes = Core::GetMapFromObject<std::string, COM::Variant>(v, "attributes");
             r.priority = Core::GetStringValue(v, "priority");
             if (r.priority.empty()) r.priority = "MIDDLE";
             return r;

@@ -27,8 +27,13 @@
 #include <euclid/dto/ens/EnsMapper.h>
 #include <euclid/dto/ens/GetTopicErnRequest.h>
 #include <euclid/dto/ens/GetTopicErnResponse.h>
+#include <euclid/dto/ens/ListMessagesRequest.h>
+#include <euclid/dto/ens/ListMessagesResponse.h>
 #include <euclid/dto/ens/ListTopicsRequest.h>
 #include <euclid/dto/ens/ListTopicsResponse.h>
+#include <euclid/dto/ens/PublishMessageRequest.h>
+#include <euclid/dto/ens/PublishMessageResponse.h>
+#include <euclid/dto/ens/PurgeTopicRequest.h>
 
 namespace Euclid::ENS {
 

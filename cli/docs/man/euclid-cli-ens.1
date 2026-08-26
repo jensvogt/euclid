@@ -1,6 +1,6 @@
 .TH EUCLID-CLI-ENS 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
 .SH NAME
-euclid-cli-ens \- manage Euclid SNS-compatible notification topics
+euclid-cli-ens \- manage Euclid SNS-compatible notification topics and messages
 .SH SYNOPSIS
 .B euclid-cli
 [\fB\-\-endpoint\fR \fIURL\fR]
@@ -12,7 +12,7 @@ euclid-cli-ens \- manage Euclid SNS-compatible notification topics
 The
 .B ens
 module talks to the Euclid gateway's ens service to create and manage
-SNS-compatible notification topics. Every
+SNS-compatible notification topics and publish messages to them. Every
 .B ens
 command sends a single JSON request to the gateway
 (\fB\-\-endpoint\fR, default \fIhttps://localhost:5566\fR) and prints the
@@ -24,7 +24,7 @@ commands require the caller to be authenticated; see
 .B AUTHENTICATION
 below for how the session used to sign these requests is obtained. There
 is no administrator requirement - any authenticated user may create,
-list, resolve and delete topics.
+list, resolve, publish to, purge and delete topics.
 .SH ACTIONS
 .TP
 .B create-topic
@@ -38,6 +38,23 @@ Lists topics, optionally filtered by name prefix, paged and sorted. See
 .B get-topic-ern
 Resolves a topic's Euclid resource name (ERN) by its name. See
 .BR euclid-cli-ens-get-topic-ern (1).
+.TP
+.B publish-message
+Publishes a message, with optional attributes, to a topic. See
+.BR euclid-cli-ens-publish-message (1).
+.TP
+.B list-messages
+Lists a topic's messages without changing their status. See
+.BR euclid-cli-ens-list-messages (1).
+.TP
+.B purge-topic
+Deletes all messages from a single topic. See
+.BR euclid-cli-ens-purge-topic (1).
+.TP
+.B purge-all-topic
+Deletes all messages from every topic in a region/account (optionally
+one namespace). See
+.BR euclid-cli-ens-purge-all-topic (1).
 .TP
 .B delete-topic
 Deletes a topic by its ERN. See
@@ -119,7 +136,7 @@ and read by every
 .B ens
 action.
 .SH EXAMPLES
-Create a topic and resolve its ERN:
+Create a topic, resolve its ERN, and publish a message to it:
 .PP
 .RS
 .nf
@@ -128,14 +145,21 @@ euclid-cli --endpoint http://localhost:5566 ens create-topic \e
 
 euclid-cli --endpoint http://localhost:5566 ens get-topic-ern \e
     --name order-events
+
+euclid-cli --endpoint http://localhost:5566 ens publish-message \e
+    --topic ern:ens:eu-central-1:000000000000:topic:order-events \e
+    --body '{"orderId": "42", "status": "shipped"}'
 .fi
 .RE
 .PP
-List every topic, then delete one:
+List every topic, inspect one topic's messages, then delete the topic:
 .PP
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 ens list-topics
+
+euclid-cli --endpoint http://localhost:5566 ens list-messages \e
+    --topic ern:ens:eu-central-1:000000000000:topic:order-events
 
 euclid-cli --endpoint http://localhost:5566 ens delete-topic \e
     --topic ern:ens:eu-central-1:000000000000:topic:order-events
@@ -147,6 +171,10 @@ euclid-cli --endpoint http://localhost:5566 ens delete-topic \e
 .BR euclid-cli-ens-create-topic (1),
 .BR euclid-cli-ens-list-topics (1),
 .BR euclid-cli-ens-get-topic-ern (1),
+.BR euclid-cli-ens-publish-message (1),
+.BR euclid-cli-ens-list-messages (1),
+.BR euclid-cli-ens-purge-topic (1),
+.BR euclid-cli-ens-purge-all-topic (1),
 .BR euclid-cli-ens-delete-topic (1)
 .SH AUTHOR
 Jens Vogt <jens.vogt@opitz-consulting.com>

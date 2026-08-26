@@ -147,64 +147,42 @@ namespace Euclid::Database {
         // virtual void upsertMessage(const Entity::EQS::Message &message) = 0;
 
         /**
-         * @brief Sends a message to a queue.
+         * @brief Publish a message to a topic.
          *
-         * Builds a new message entity for the queue identified by its ERN, assigns it
+         * Builds a new message entity for the topic identified by its ERN, assigns it
          * a message ID, persists it in the repository, and returns the persisted entity.
          *
          * @param messageId message ID
          * @param ern ERN of the message
-         * @param queueErn ERN of the queue the message is sent to.
+         * @param topicErn ERN of the topic the message is sent to.
          * @param body message body.
          * @param attributes message attributes.
-         * @param priority message priority; defaults to MIDDLE.
          * @return the newly created message entity.
          */
-        // virtual Entity::EQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes, Entity::EQS::MessagePriority priority = Entity::EQS::MessagePriority::MIDDLE) = 0;
+        virtual Entity::ENS::Message publishMessage(const std::string &messageId, const std::string &ern, const std::string &topicErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes) = 0;
 
         /**
-         * @brief Receives up to maxCount available messages from a queue.
+         * @brief Deletes ENS topic messages from the repository.
          *
-         * Available messages are claimed and moved to status "busy" (in-flight) before being
-         * returned, so that concurrent receivers don't get the same message. If no messages are
-         * immediately available and waitTime is greater than zero, the repository is polled
-         * repeatedly (long polling) until either a message becomes available or waitTime seconds
-         * have elapsed, whichever comes first.
-         *
-         * The maxCount slots are apportioned across the three priority tiers (HIGH/MIDDLE/LOW)
-         * proportionally to the configurable weights returned by
-         * Entity::EQS::LoadPriorityWeights() - see ComputeReceiveCounts() - so that with the
-         * default weights, most of a batch is HIGH priority, fewer are MIDDLE, and fewer still are
-         * LOW, while still filling up to maxCount whenever enough messages of any priority exist.
-         *
-         * @param queueErn ERN of the queue to receive messages from.
-         * @param maxCount maximal number of messages to return.
-         * @param waitTime maximal number of seconds to wait for messages to become available.
-         * @return up to maxCount messages; empty if none became available within waitTime.
+         * @param topicErn The topic ERN of the messages to delete.
          */
-        // virtual std::vector<Entity::EQS::Message> receiveMessages(const std::string &queueErn, long maxCount, long waitTime) = 0;
+        // virtual void deleteMessages(const std::string &topicErn) = 0;
 
         /**
-         * @brief Deletes a message from the repository.
+         * @brief Deletes all messages of a topic.
          *
-         * @param receiptHandle The receipt handle of the message to delete.
+         * @param topicErn The Euclid resource name (ERN) of the topic whose messages are to be purged.
          */
-        // virtual void deleteMessage(const std::string &receiptHandle) = 0;
+        virtual void purgeTopic(const std::string &topicErn) = 0;
 
         /**
-         * @brief Deletes all messages of a queue.
+         * @brief Deletes all messages of every topics in a region/account/nameSpace.
          *
-         * @param queueErn The Euclid resource name (ERN) of the queue whose messages are to be purged.
+         * @param region region of the topics to purge.
+         * @param accountId account ID of the topics to purge.
+         * @param nameSpace name space of the topics to purge.
          */
-        // virtual void purgeQueue(const std::string &queueErn) = 0;
-
-        /**
-         * @brief Deletes all messages of every queue in a region/account.
-         *
-         * @param region region of the queues to purge.
-         * @param accountId account ID of the queues to purge.
-         */
-        // virtual void purgeAllQueues(const std::string &region, const std::string &accountId) = 0;
+        virtual void purgeAllTopics(const std::string &region, const std::string &accountId, const std::string &nameSpace) = 0;
 
         /**
          * @brief Searches for a message by its name.
@@ -237,18 +215,18 @@ namespace Euclid::Database {
         // virtual std::vector<Entity::EQS::Message> findAllMessages() const = 0;
 
         /**
-         * @brief Lists the messages of a queue, without receiving them (i.e. without changing
+         * @brief Lists the messages of a topic, without receiving them (i.e. without changing
          * their status or visibility), paginated and sorted.
          *
-         * @param queueErn ERN of the queue whose messages are listed.
+         * @param topicErn ERN of the topic whose messages are listed.
          * @param pageSize maximum number of messages to return, or <= 0 for no limit.
          * @param pageIndex zero-based page index, combined with pageSize to compute the offset.
          * @param sortColumn message field to sort ascending by, e.g. "created", "size",
          * "messageId"; unrecognized/empty leaves the order unspecified.
          * @return the requested page of messages.
          */
-        // [[nodiscard]]
-        // virtual std::vector<Entity::EQS::Message> listMessages(const std::string &queueErn, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
+        [[nodiscard]]
+        virtual std::vector<Entity::ENS::Message> listMessages(const std::string &topicErn, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
 
         /**
          * @brief Checks if a message with the specified name exists in the repository.
@@ -264,17 +242,17 @@ namespace Euclid::Database {
          *
          * @return The total number of messages as a long integer.
          */
-        // [[nodiscard]]
-        // virtual long countMessages() const = 0;
+        [[nodiscard]]
+        virtual long countMessages() const = 0;
 
         /**
-         * @brief Retrieves the total count of messages of a queue.
+         * @brief Retrieves the total count of messages of a topic.
          *
-         * @param queueErn The Euclid resource name (ERN) of the queue whose messages are to be counted.
-         * @return The total number of messages of the queue as a long integer.
+         * @param topicErn The Euclid resource name (ERN) of the topic whose messages are to be counted.
+         * @return The total number of messages of the topic as a long integer.
          */
-        // [[nodiscard]]
-        // virtual long countMessages(const std::string &queueErn) const = 0;
+        [[nodiscard]]
+        virtual long countMessages(const std::string &topicErn) const = 0;
 
         /**
          * @brief Removes all entries from the message repository, leaving it in an empty state.
