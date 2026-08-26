@@ -1,0 +1,44 @@
+.TH EUCLID-CLI-ENS-GET-MESSAGE-ATTRIBUTE 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ens-get-message-attribute \- return a message attribute by key
+.SH SYNOPSIS
+.B euclid-cli ens get-message-attribute
+.BR \-\-message\-id | \-m
+.I MESSAGE-ID
+.BR \-\-key | \-k
+.I KEY
+.SH DESCRIPTION
+Returns a single message attribute by key, as set via
+.BR \-\-attributes
+on
+.BR euclid-cli-ens-publish-message (1)
+or via
+.BR euclid-cli-ens-set-message-attribute (1).
+.SH OPTIONS
+.TP
+.BR \-m ", " \-\-message\-id " " \fIMESSAGE-ID\fR
+ID of the message to query. Required.
+.TP
+.BR \-k ", " \-\-key " " \fIKEY\fR
+Key of the attribute to return. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The attribute's type and value are printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, no message
+with that ID exists, or the message has no attribute with that key.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ens get-message-attribute \e
+    --message-id 6f1b1e2e-... --key orderId
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ens (1),
+.BR euclid-cli-ens-publish-message (1),
+.BR euclid-cli-ens-set-message-attribute (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

@@ -44,9 +44,7 @@ namespace Euclid::Database::Entity::EQS {
                 bsoncxx::builder::basic::kvp("reset", bsoncxx::types::b_date(reset)),
                 bsoncxx::builder::basic::kvp("delayUntil", bsoncxx::types::b_date(delayUntil)),
                 bsoncxx::builder::basic::kvp("lastReceived", bsoncxx::types::b_date(lastReceived)),
-                bsoncxx::builder::basic::kvp("attributes", attrsDoc.extract()),
-                bsoncxx::builder::basic::kvp("created", bsoncxx::types::b_date(created)),
-                bsoncxx::builder::basic::kvp("modified", bsoncxx::types::b_date(modified)));
+                bsoncxx::builder::basic::kvp("attributes", attrsDoc.extract()));
     }
 
     void Message::FromDocument(const std::optional<bsoncxx::document::view> &document) {

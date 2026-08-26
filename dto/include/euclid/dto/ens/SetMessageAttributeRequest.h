@@ -47,7 +47,7 @@ namespace Euclid::Dto::ENS {
             SetMessageAttributeRequest r;
             r.messageId = Core::GetStringValue(v, "messageId");
             r.key = Core::GetStringValue(v, "key");
-            r.value = boost::json::value_to<COM::Variant>(v, "value");
+            r.value = boost::json::value_to<COM::Variant>(v.at("value"));
             return r;
         }
 

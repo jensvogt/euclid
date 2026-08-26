@@ -1,6 +1,8 @@
 // Euclid includes
 #include <EqsServer.h>
 
+#include "euclid/dto/eqs/SetMessageAttributeRequest.h"
+
 namespace Euclid::EQS {
 
     namespace beast = boost::beast;
@@ -389,6 +391,36 @@ namespace Euclid::EQS {
         return EqsServer::JsonResponse(req, status::ok, response.toJson());
     }
 
+    static response<string_body> handleSetMessageAttribute(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-message-attribute");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EQS::SetMessageAttributeRequest>(jv);
+        log_info << "EQS SetMessageAttribute, messageId: " << request.messageId << ", key: " << request.key;
+
+        const auto repo = Database::RepositoryFactory::instance().eqsRepository();
+        std::optional<Database::Entity::EQS::Message> message = repo->findMessageByName(request.messageId);
+        if (!message.has_value()) {
+            return EqsServer::ErrorResponse(req, status::not_found, "Message not found, messageId: " + request.messageId);
+        }
+
+        // Set attribute and update in database
+        message->attributes[request.key] = Dto::EQS::EqsMapper::toEntity(request.value);
+        repo->upsertMessage(message.value());
+
+        Dto::EQS::GetMessageAttributeResponse response;
+        response.messageId = request.messageId;
+        response.name = request.key;
+        response.value = Dto::EQS::EqsMapper::toDto(message->attributes[request.key]);
+
+        return EqsServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
     static response<string_body> handleGetMessageMetadata(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-message-metadata");
@@ -543,6 +575,7 @@ namespace Euclid::EQS {
             GetMessageCount,
             GetQueueMetadata,
             GetMessageAttribute,
+            SetMessageAttribute,
             GetMessageMetadata,
             ListQueues,
             ListMessages,
@@ -574,6 +607,7 @@ namespace Euclid::EQS {
         if (action == "get-message-count") return Command::GetMessageCount;
         if (action == "get-queue-metadata") return Command::GetQueueMetadata;
         if (action == "get-message-attribute") return Command::GetMessageAttribute;
+        if (action == "set-message-attribute") return Command::SetMessageAttribute;
         if (action == "get-message-metadata") return Command::GetMessageMetadata;
         if (action == "get-metadata") return Command::GetMetadata;
         if (action == "add-metadata") return Command::AddMetadata;
@@ -638,6 +672,9 @@ namespace Euclid::EQS {
 
             case Command::GetMessageAttribute:
                 return handleGetMessageAttribute(req);
+
+            case Command::SetMessageAttribute:
+                return handleSetMessageAttribute(req);
 
             case Command::GetMessageMetadata:
                 return handleGetMessageMetadata(req);

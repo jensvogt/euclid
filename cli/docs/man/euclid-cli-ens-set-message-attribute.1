@@ -1,0 +1,58 @@
+.TH EUCLID-CLI-ENS-SET-MESSAGE-ATTRIBUTE 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ens-set-message-attribute \- set the value of a message attribute
+.SH SYNOPSIS
+.B euclid-cli ens set-message-attribute
+.BR \-\-message\-id | \-m
+.I MESSAGE-ID
+.BR \-\-key | \-k
+.I KEY
+.BR \-\-value | \-v
+.I VALUE
+[\fB\-\-type\fR|\fB\-t\fR \fITYPE\fR]
+.SH DESCRIPTION
+Sets the value of a single message attribute. If the attribute does not
+exist yet, it is created; if it exists already, its value is replaced.
+.PP
+Use
+.BR euclid-cli-ens-get-message-attribute (1)
+to read it back.
+.SH OPTIONS
+.TP
+.BR \-m ", " \-\-message\-id " " \fIMESSAGE-ID\fR
+ID of the message to update. Required.
+.TP
+.BR \-k ", " \-\-key " " \fIKEY\fR
+Key of the attribute to set. Required.
+.TP
+.BR \-v ", " \-\-value " " \fIVALUE\fR
+New value of the attribute, given as a string and converted according to
+.BR \-\-type .
+Required.
+.TP
+.BR \-t ", " \-\-type " " \fITYPE\fR
+Type to store the value as: one of \fIint\fR, \fIlong\fR, \fIdouble\fR,
+\fIfloat\fR, \fIbool\fR, \fIstring\fR, \fIbinary\fR. Defaults to
+\fIstring\fR.
+.SH EXIT STATUS
+.TP
+.B 0
+The attribute was set; its type and value are printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the value could not be converted to the
+requested type, the server could not be reached, or no message with that
+ID exists.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ens set-message-attribute \e
+    --message-id 6f1b1e2e-... --key orderId --value 42 --type int
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ens (1),
+.BR euclid-cli-ens-publish-message (1),
+.BR euclid-cli-ens-get-message-attribute (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

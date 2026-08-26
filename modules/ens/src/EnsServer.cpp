@@ -581,13 +581,13 @@ namespace Euclid::ENS {
         if (action == "get-message-count") return Command::GetMessageCount;
         if (action == "get-message-attribute") return Command::GetMessageAttribute;
         if (action == "set-message-attribute") return Command::SetMessageAttribute;
+        if (action == "get-topic-metadata") return Command::GetMetadata;
         // if (action == "delete-message") return Command::DeleteMessage;
         // if (action == "purge-queue") return Command::PurgeQueue;
         // if (action == "purge-all-queues") return Command::PurgeAllQueues;
         // if (action == "get-message-count") return Command::GetMessageCount;
         // if (action == "get-queue-metadata") return Command::GetQueueMetadata;
         // if (action == "get-message-metadata") return Command::GetMessageMetadata;
-        // if (action == "get-metadata") return Command::GetMetadata;
         // if (action == "add-metadata") return Command::AddMetadata;
         // if (action == "add-queue-tag") return Command::AddQueueTag;
         // if (action == "set-queue-tag") return Command::SetQueueTag;

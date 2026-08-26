@@ -46,9 +46,7 @@ Resolves a topic's Euclid resource name (ERN) by its name. See
 .TP
 .B get-topic-metadata
 Shows a topic's metadata (region, account, owner, namespace, size,
-message counts).
-.B Not yet wired to a server handler in this release.
-See
+message counts). See
 .BR euclid-cli-ens-get-topic-metadata (1).
 .TP
 .B publish-message
@@ -62,6 +60,15 @@ Lists a topic's messages without changing their status. See
 .B get-message-count
 Returns a topic's message counters (available, send, resend). See
 .BR euclid-cli-ens-get-message-count (1).
+.TP
+.B get-message-attribute
+Returns a single message attribute by key. See
+.BR euclid-cli-ens-get-message-attribute (1).
+.TP
+.B set-message-attribute
+Sets the value of a single message attribute, creating it if it doesn't
+exist yet. See
+.BR euclid-cli-ens-set-message-attribute (1).
 .TP
 .B add-topic-tag
 Adds a tag to a topic.
@@ -209,6 +216,8 @@ euclid-cli --endpoint http://localhost:5566 ens delete-topic \e
 .BR euclid-cli-ens-publish-message (1),
 .BR euclid-cli-ens-list-messages (1),
 .BR euclid-cli-ens-get-message-count (1),
+.BR euclid-cli-ens-get-message-attribute (1),
+.BR euclid-cli-ens-set-message-attribute (1),
 .BR euclid-cli-ens-add-topic-tag (1),
 .BR euclid-cli-ens-set-topic-tag (1),
 .BR euclid-cli-ens-delete-topic-tag (1),

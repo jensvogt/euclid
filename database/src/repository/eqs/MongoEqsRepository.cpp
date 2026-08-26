@@ -202,11 +202,12 @@ namespace Euclid::Database {
             if (auto result = queueCollection.find_one_and_update(filter.view(), update.view(), opts)) {
                 return Entity::EQS::Queue::fromDocument(result->view());
             }
+            throw std::runtime_error("upsert returned no document, name: " + queue.name);
 
         } catch (const std::exception &e) {
             log_error << "Upsert EQS queue failed, error: " << e.what();
+            throw;
         }
-        return queue;
     }
 
     long MongoEqsRepository::countQueues(const std::string &accountId, const std::string &namespaceName) const {
@@ -404,8 +405,7 @@ namespace Euclid::Database {
     void MongoEqsRepository::upsertMessage(const Entity::EQS::Message &message) {
 
         try {
-            const auto filter = make_document(
-                    kvp("messageId", message.messageId));
+            const auto filter = make_document(kvp("messageId", message.messageId));
             const auto update = make_document(
                     kvp("$set", message.ToDocument()),
                     kvp("$setOnInsert", make_document(
@@ -413,8 +413,7 @@ namespace Euclid::Database {
                                             std::chrono::duration_cast<std::chrono::milliseconds>(
                                                     message.created.time_since_epoch())
                                     }))),
-                    kvp("$currentDate", make_document(
-                                kvp("modified", true))));
+                    kvp("$currentDate", make_document(kvp("modified", true))));
 
             mongocxx::options::update opts;
             opts.upsert(true);
