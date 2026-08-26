@@ -79,6 +79,8 @@ namespace Euclid::Database {
         /**
          * @brief Finds and retrieves all buckets, optionally filtered, paged and sorted.
          *
+         * @param accountId only buckets belonging to this account are returned
+         * @param namespaceName only buckets in this namespace are returned; empty means don't filter by namespace
          * @param prefix only buckets whose name starts with this prefix are returned; empty matches all buckets
          * @param pageSize maximum number of buckets to return; 0 or less means no limit
          * @param pageIndex zero-based page index, applied when pageSize is set
@@ -86,7 +88,7 @@ namespace Euclid::Database {
          * @return matching, paged and sorted list of buckets
          */
         [[nodiscard]]
-        virtual std::vector<Entity::ESM::Bucket> listBuckets(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
+        virtual std::vector<Entity::ESM::Bucket> listBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
 
         /**
          * @brief Checks if a bucket with the specified name exists in the repository.
@@ -100,10 +102,12 @@ namespace Euclid::Database {
         /**
          * @brief Retrieves the total count of buckets in the repository.
          *
+         * @param accountId only buckets belonging to this account are counted
+         * @param namespaceName only buckets in this namespace are counted; empty means don't filter by namespace
          * @return The total number of buckets as a long integer.
          */
         [[nodiscard]]
-        virtual long countBuckets() const = 0;
+        virtual long countBuckets(const std::string &accountId, const std::string &namespaceName) const = 0;
 
         /**
          * @brief Removes all entries from the bucket repository, leaving it in an empty state.

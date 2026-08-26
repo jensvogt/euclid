@@ -8,19 +8,19 @@
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/BaseDto.h>
 
-namespace Euclid::Dto::EQS {
+namespace Euclid::Dto::ENS {
 
-    struct GetQueueErnResponse : BaseDto {
-
-        /**
-         * @brief Queue name
-         */
-        std::string name{};
+    struct CreateTopicResponse {
 
         /**
-         * @brief Queue ERN
+         * @brief Name of the queue
          */
-        std::string ern{};
+        std::string name;
+
+        /**
+         * @brief Euclid resource name
+         */
+        std::string ern;
 
         /**
          * @brief Serializes this request to a JSON string
@@ -31,19 +31,18 @@ namespace Euclid::Dto::EQS {
 
     private:
 
-        friend GetQueueErnResponse tag_invoke(boost::json::value_to_tag<GetQueueErnResponse>, boost::json::value const &v) {
-            GetQueueErnResponse r;
+        friend CreateTopicResponse tag_invoke(boost::json::value_to_tag<CreateTopicResponse>, boost::json::value const &v) {
+            CreateTopicResponse r;
             r.name = Core::GetStringValue(v, "name");
             r.ern = Core::GetStringValue(v, "ern");
             return r;
         }
 
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetQueueErnResponse const &obj) {
+        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, CreateTopicResponse const &obj) {
             jv = {
                     {"name", obj.name},
                     {"ern", obj.ern},
             };
         }
     };
-
 }

@@ -18,8 +18,17 @@
 #include <euclid/core/monitoring/MonitoringTimer.h>
 #include <euclid/database/RepositoryFactory.h>
 #include <euclid/database/entity/eam/User.h>
+#include <euclid/database/entity/ens/Topic.h>
 #include <euclid/database/entity/eqs/Queue.h>
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/ens/CreateTopicRequest.h>
+#include <euclid/dto/ens/CreateTopicResponse.h>
+#include <euclid/dto/ens/DeleteTopicRequest.h>
+#include <euclid/dto/ens/EnsMapper.h>
+#include <euclid/dto/ens/GetTopicErnRequest.h>
+#include <euclid/dto/ens/GetTopicErnResponse.h>
+#include <euclid/dto/ens/ListTopicsRequest.h>
+#include <euclid/dto/ens/ListTopicsResponse.h>
 
 namespace Euclid::ENS {
 

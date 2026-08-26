@@ -60,19 +60,21 @@ namespace Euclid::Database {
         //     });
         // }
         //
-        // void deleteQueueByErn(const std::string &ern) override {
-        //     std::lock_guard lock(_mutex);
-        //     std::erase_if(_queueStore, [&ern](const auto &kv) {
-        //         return kv.second.ern == ern;
-        //     });
-        // }
-        //
-        // std::optional<Entity::EQS::Queue> findQueueByName(const std::string &name) const override {
-        //     std::lock_guard lock(_mutex);
-        //     const auto it = _queueStore.find(name);
-        //     if (it == _queueStore.end()) return std::nullopt;
-        //     return it->second;
-        // }
+        void deleteTopicByErn(const std::string &ern) override {
+            std::lock_guard lock(_mutex);
+            std::erase_if(_topicStore, [&ern](const auto &kv) {
+                return kv.second.ern == ern;
+            });
+        }
+
+
+        std::optional<Entity::ENS::Topic> findTopicByName(const std::string &name) const override {
+            std::lock_guard lock(_mutex);
+            const auto it = _topicStore.find(name);
+            if (it == _topicStore.end()) return std::nullopt;
+            return it->second;
+        }
+
         //
         // std::optional<Entity::EQS::Queue> findQueueById(const std::string &id) const override {
         //     std::lock_guard lock(_mutex);
@@ -90,38 +92,44 @@ namespace Euclid::Database {
         //     return std::nullopt;
         // }
         //
-        // std::vector<Entity::EQS::Queue> listQueues(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const override {
-        //     std::lock_guard lock(_mutex);
-        //     std::vector<Entity::EQS::Queue> result;
-        //     for (const auto &m: _queueStore | std::views::values) {
-        //         if (prefix.empty() || m.name.starts_with(prefix)) {
-        //             result.push_back(m);
-        //         }
-        //     }
-        //
-        //     if (sortColumn == "name") {
-        //         std::ranges::sort(result, {}, &Entity::EQS::Queue::name);
-        //     } else if (sortColumn == "ern") {
-        //         std::ranges::sort(result, {}, &Entity::EQS::Queue::ern);
-        //     }
-        //
-        //     if (pageSize > 0) {
-        //         const auto offset = std::min<size_t>(std::max<long>(pageIndex, 0) * pageSize, result.size());
-        //         const auto end = std::min<size_t>(offset + pageSize, result.size());
-        //         result = std::vector(result.begin() + static_cast<long>(offset), result.begin() + static_cast<long>(end));
-        //     }
-        //     return result;
-        // }
+        std::vector<Entity::ENS::Topic> listTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const override {
+            std::lock_guard lock(_mutex);
+            std::vector<Entity::ENS::Topic> result;
+            for (const auto &m: _topicStore | std::views::values) {
+                if (m.accountId != accountId) continue;
+                if (!namespaceName.empty() && m.namespaceName != namespaceName) continue;
+                if (prefix.empty() || m.name.starts_with(prefix)) {
+                    result.push_back(m);
+                }
+            }
+
+            if (sortColumn == "name") {
+                std::ranges::sort(result, {}, &Entity::ENS::Topic::name);
+            } else if (sortColumn == "ern") {
+                std::ranges::sort(result, {}, &Entity::ENS::Topic::ern);
+            }
+
+            if (pageSize > 0) {
+                const auto offset = std::min<size_t>(std::max<long>(pageIndex, 0) * pageSize, result.size());
+                const auto end = std::min<size_t>(offset + pageSize, result.size());
+                result = std::vector(result.begin() + static_cast<long>(offset), result.begin() + static_cast<long>(end));
+            }
+            return result;
+        }
+
         //
         // bool queueExists(const std::string &name) const override {
         //     std::lock_guard lock(_mutex);
         //     return _queueStore.contains(name);
         // }
         //
-        // long countQueues() const override {
-        //     std::lock_guard lock(_mutex);
-        //     return static_cast<long>(_queueStore.size());
-        // }
+        long countTopics(const std::string &accountId, const std::string &namespaceName) const override {
+            std::lock_guard lock(_mutex);
+            return std::ranges::count_if(_topicStore | std::views::values, [&](const auto &m) {
+                return m.accountId == accountId && (namespaceName.empty() || m.namespaceName == namespaceName);
+            });
+        }
+
         //
         // void clearQueues() override {
         //     std::lock_guard lock(_mutex);

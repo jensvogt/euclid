@@ -48,116 +48,105 @@ namespace Euclid::ENS {
     // Each handler parses whatever fields it needs out of the JSON request body.
     // Return a fully formed HTTP response.
 
-    // static response<string_body> handleCreateQueue(const request<string_body> &req) {
-    //
-    //     Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "create-queue");
-    //
-    //     const auto auth = authenticate(req);
-    //     if (!auth.user.has_value()) return unauthorized(req, auth);
-    //
-    //     boost::json::value jv;
-    //     if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
-    //
-    //     const auto request = boost::json::value_to<Dto::ENS::CreateQueueRequest>(jv);
-    //
-    //     Database::Entity::ENS::Queue dlqSaved;
-    //     if (!request.dlqName.empty()) {
-    //         Database::Entity::ENS::Queue dlQueue;
-    //         dlQueue.name = request.dlqName;
-    //         dlQueue.ern = Core::createEnsQueueErn(auth.user->accountId, request.dlqName);
-    //         dlQueue.visibility = request.visibility;
-    //         dlQueue.maxMessageLength = request.maxMessageLength;
-    //         dlQueue.maxReceiveCount = request.maxRetries;
-    //         dlQueue.region = auth.user->region;
-    //         dlQueue.owner = auth.user->userId;
-    //         dlQueue.delay = request.delay;
-    //
-    //         dlqSaved = Database::RepositoryFactory::instance().ensRepository()->upsertQueue(dlQueue);
-    //     }
-    //
-    //     Database::Entity::ENS::Queue queue;
-    //     queue.name = request.name;
-    //     queue.ern = Core::createEnsQueueErn(auth.user->accountId, request.name);
-    //     queue.visibility = request.visibility;
-    //     queue.maxMessageLength = request.maxMessageLength;
-    //     queue.maxReceiveCount = request.maxRetries;
-    //     queue.region = auth.user->region;
-    //     queue.owner = auth.user->userId;
-    //     queue.deadLetterQueueErn = dlqSaved.ern;
-    //     queue.delay = request.delay;
-    //
-    //     const auto saved = Database::RepositoryFactory::instance().ensRepository()->upsertQueue(queue);
-    //
-    //     Dto::ENS::CreateQueueResponse response;
-    //     response.name = saved.name;
-    //     response.ern = saved.ern;
-    //     return EnsServer::JsonResponse(req, status::ok, response.toJson());
-    // }
-    //
-    // static response<string_body> handleDeleteQueue(const request<string_body> &req) {
-    //
-    //     Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-queue");
-    //
-    //     if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
-    //
-    //     boost::json::value jv;
-    //     if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
-    //
-    //     const auto request = Dto::ENS::DeleteQueueRequest::fromJson(req.body());
-    //     log_info << "SQS DeleteQueue, ern: " << request.ern;
-    //
-    //     Database::RepositoryFactory::instance().ensRepository()->deleteQueueByErn(request.ern);
-    //
-    //     return EnsServer::JsonResponse(req, status::ok);
-    // }
-    //
-    // static response<string_body> handleGetQueueErn(const request<string_body> &req) {
-    //
-    //     Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-queue-ern");
-    //
-    //     if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
-    //
-    //     boost::json::value jv;
-    //     if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
-    //
-    //     const auto request = boost::json::value_to<Dto::ENS::GetQueueErnRequest>(jv);
-    //     log_info << "SQS GetQueueErn, name: " << request.name;
-    //
-    //     const std::optional<Database::Entity::ENS::Queue> queue = Database::RepositoryFactory::instance().ensRepository()->findQueueByName(request.name);
-    //     log_debug << "Got SQS queue, name: " << request.name << ", ern: " << (queue.has_value() ? queue->ern : "(none)");
-    //
-    //     if (!queue.has_value()) {
-    //         return EnsServer::ErrorResponse(req, status::not_found, "Queue not found, name: " + request.name);
-    //     }
-    //
-    //     Dto::ENS::GetQueueErnResponse response;
-    //     response.ern = queue->ern;
-    //
-    //     return EnsServer::JsonResponse(req, status::ok, response.toJson());
-    // }
-    //
-    // static response<string_body> handleListQueues(const request<string_body> &req) {
-    //
-    //     Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-queues");
-    //
-    //     if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
-    //
-    //     boost::json::value jv;
-    //     if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
-    //
-    //     const auto request = boost::json::value_to<Dto::ENS::ListQueueRequest>(jv);
-    //     log_info << "SQS ListQueues" << (!request.prefix.empty() ? ", prefix: " + request.prefix : "");
-    //
-    //     const auto repo = Database::RepositoryFactory::instance().ensRepository();
-    //     const std::vector<Database::Entity::ENS::Queue> queues = repo->listQueues(request.prefix, request.pageSize, request.pageIndex, request.sortColumn);
-    //     log_info << "Got queue list, count: " << queues.size();
-    //
-    //     Dto::ENS::ListQueueResponse response;
-    //     response.queues = Dto::ENS::EnsMapper::toDto(queues);
-    //     response.total = repo->countQueues();
-    //
-    //     return EnsServer::JsonResponse(req, status::ok, response.toJson());
-    // }
+    static response<string_body> handleCreateTopic(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "create-topic");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ENS::CreateTopicRequest>(jv);
+        const auto ns = std::string(req["x-euclid-namespace"]);
+
+        Database::Entity::ENS::Topic topic;
+        topic.accountId = auth.user->accountId;
+        topic.namespaceName = ns;
+        topic.name = request.name;
+        topic.ern = Core::createEnsTopicErn(auth.user->accountId, request.name);
+        topic.maxMessageLength = request.maxMessageLength;
+        topic.region = auth.user->region;
+        topic.owner = auth.user->userId;
+
+        const auto saved = Database::RepositoryFactory::instance().ensRepository()->upsertTopic(topic);
+
+        Dto::ENS::CreateTopicResponse response;
+        response.name = saved.name;
+        response.ern = saved.ern;
+        return EnsServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    static response<string_body> handleDeleteTopic(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-topic");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = Dto::ENS::DeleteTopicRequest::fromJson(req.body());
+        log_info << "ENS DeleteTopic, ern: " << request.ern;
+
+        Database::RepositoryFactory::instance().ensRepository()->deleteTopicByErn(request.ern);
+
+        return EnsServer::JsonResponse(req, status::ok);
+    }
+
+
+    static response<string_body> handleGetTopicErn(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-topic-ern");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ENS::GetTopicErnRequest>(jv);
+        log_info << "ENS GetTopicErn, name: " << request.name;
+
+        const std::optional<Database::Entity::ENS::Topic> topic = Database::RepositoryFactory::instance().ensRepository()->findTopicByName(request.name);
+        log_debug << "Got ENS topic ern, name: " << request.name << ", ern: " << (topic.has_value() ? topic->ern : "(none)");
+
+        if (!topic.has_value()) {
+            return EnsServer::ErrorResponse(req, status::not_found, "Topic not found, name: " + request.name);
+        }
+
+        Dto::ENS::GetTopicErnResponse response;
+        response.name = topic->name;
+        response.ern = topic->ern;
+
+        return EnsServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    static response<string_body> handleListTopics(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-topics");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ENS::ListTopicsRequest>(jv);
+        log_info << "ENS ListTopics" << (!request.prefix.empty() ? ", prefix: " + request.prefix : "");
+
+        const auto ns = std::string(req["x-euclid-namespace"]);
+        const auto repo = Database::RepositoryFactory::instance().ensRepository();
+        const std::vector<Database::Entity::ENS::Topic> topics = repo->listTopics(auth.user->accountId, ns, request.prefix, request.pageSize, request.pageIndex, request.sortColumn);
+        log_info << "ENS ListTopics count, count: " << topics.size();
+
+        Dto::ENS::ListTopicsResponse response;
+        response.topics = Dto::ENS::EnsMapper::toDto(topics);
+        response.total = repo->countTopics(auth.user->accountId, ns);
+
+        return EnsServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
     //
     // static response<string_body> handleListMessages(const request<string_body> &req) {
     //
@@ -169,7 +158,7 @@ namespace Euclid::ENS {
     //     if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
     //
     //     const auto request = boost::json::value_to<Dto::ENS::ListMessagesRequest>(jv);
-    //     log_info << "SQS ListMessages, queueErn: " << request.queueErn;
+    //     log_info << "ENS ListMessages, queueErn: " << request.queueErn;
     //
     //     const auto repo = Database::RepositoryFactory::instance().ensRepository();
     //     const std::vector<Database::Entity::ENS::Message> messages = repo->listMessages(request.queueErn, request.pageSize, request.pageIndex, request.sortColumn);
@@ -193,7 +182,7 @@ namespace Euclid::ENS {
     //     if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
     //
     //     const auto request = boost::json::value_to<Dto::ENS::SendMessageRequest>(jv);
-    //     log_info << "SQS SendMessage queueErn: " << request.queueErn;
+    //     log_info << "ENS SendMessage queueErn: " << request.queueErn;
     //
     //     const std::string messageId = Core::UuidUtils::CreateRandomUuid();
     //     const std::string ern = Core::createEnsMessageErn(auth.user.value().accountId, messageId);
@@ -222,7 +211,7 @@ namespace Euclid::ENS {
     //     if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
     //
     //     const auto request = boost::json::value_to<Dto::ENS::ReceiveMessagesRequest>(jv);
-    //     log_info << "SQS ReceiveMessages ern: " << request.queueErn;
+    //     log_info << "ENS ReceiveMessages ern: " << request.queueErn;
     //
     //     const auto repo = Database::RepositoryFactory::instance().ensRepository();
     //     std::vector<Database::Entity::ENS::Message> messages = repo->receiveMessages(request.queueErn, request.maxCount, request.waitTime);
@@ -231,7 +220,7 @@ namespace Euclid::ENS {
     //     response.messages = Dto::ENS::EnsMapper::toDto(messages);
     //     response.total = repo->countMessages(request.queueErn);
     //
-    //     log_info << "SQS ReceiveMessages ern: " << request.queueErn << ", count: " << response.messages.size() << ", total: " << response.total;
+    //     log_info << "ENS ReceiveMessages ern: " << request.queueErn << ", count: " << response.messages.size() << ", total: " << response.total;
     //
     //     return EnsServer::JsonResponse(req, status::ok, response.toJson());
     // }
@@ -246,7 +235,7 @@ namespace Euclid::ENS {
     //     if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
     //
     //     const auto request = boost::json::value_to<Dto::ENS::DeleteMessageRequest>(jv);
-    //     log_info << "SQS DeleteMessage receiptHandle: " << request.receiptHandle;
+    //     log_info << "ENS DeleteMessage receiptHandle: " << request.receiptHandle;
     //
     //     const auto repo = Database::RepositoryFactory::instance().ensRepository();
     //     repo->deleteMessage(request.receiptHandle);
@@ -530,14 +519,14 @@ namespace Euclid::ENS {
         // Commands the ENS service accepts via the "x-euclid-action" header.
         enum class Command {
             Unknown,
-            CreateQueue,
-            DeleteQueue,
-            GetQueueErn,
+            CreateTopic,
+            DeleteTopic,
+            GetTopicErn,
             GetMessageCount,
             GetQueueMetadata,
             GetMessageAttribute,
             GetMessageMetadata,
-            ListQueues,
+            ListTopics,
             ListMessages,
             SendMessage,
             ReceiveMessages,
@@ -554,26 +543,26 @@ namespace Euclid::ENS {
     }
 
     static Command commandFromString(const std::string &action) {
-        if (action == "create-queue") return Command::CreateQueue;
-        if (action == "delete-queue") return Command::DeleteQueue;
-        if (action == "get-queue-ern") return Command::GetQueueErn;
-        if (action == "list-queues") return Command::ListQueues;
-        if (action == "list-messages") return Command::ListMessages;
-        if (action == "send-message") return Command::SendMessage;
-        if (action == "receive-messages") return Command::ReceiveMessages;
-        if (action == "delete-message") return Command::DeleteMessage;
-        if (action == "purge-queue") return Command::PurgeQueue;
-        if (action == "purge-all-queues") return Command::PurgeAllQueues;
-        if (action == "get-message-count") return Command::GetMessageCount;
-        if (action == "get-queue-metadata") return Command::GetQueueMetadata;
-        if (action == "get-message-attribute") return Command::GetMessageAttribute;
-        if (action == "get-message-metadata") return Command::GetMessageMetadata;
-        if (action == "get-metadata") return Command::GetMetadata;
-        if (action == "add-metadata") return Command::AddMetadata;
-        if (action == "add-queue-tag") return Command::AddQueueTag;
-        if (action == "set-queue-tag") return Command::SetQueueTag;
-        if (action == "delete-queue-tag") return Command::DeleteQueueTag;
-        if (action == "get-metrics") return Command::GetMetrics;
+        if (action == "create-topic") return Command::CreateTopic;
+        if (action == "delete-topic") return Command::DeleteTopic;
+        if (action == "get-topic-ern") return Command::GetTopicErn;
+        if (action == "list-topics") return Command::ListTopics;
+        // if (action == "list-messages") return Command::ListMessages;
+        // if (action == "send-message") return Command::SendMessage;
+        // if (action == "receive-messages") return Command::ReceiveMessages;
+        // if (action == "delete-message") return Command::DeleteMessage;
+        // if (action == "purge-queue") return Command::PurgeQueue;
+        // if (action == "purge-all-queues") return Command::PurgeAllQueues;
+        // if (action == "get-message-count") return Command::GetMessageCount;
+        // if (action == "get-queue-metadata") return Command::GetQueueMetadata;
+        // if (action == "get-message-attribute") return Command::GetMessageAttribute;
+        // if (action == "get-message-metadata") return Command::GetMessageMetadata;
+        // if (action == "get-metadata") return Command::GetMetadata;
+        // if (action == "add-metadata") return Command::AddMetadata;
+        // if (action == "add-queue-tag") return Command::AddQueueTag;
+        // if (action == "set-queue-tag") return Command::SetQueueTag;
+        // if (action == "delete-queue-tag") return Command::DeleteQueueTag;
+        // if (action == "get-metrics") return Command::GetMetrics;
         return Command::Unknown;
     }
 
@@ -586,19 +575,19 @@ namespace Euclid::ENS {
         log_debug << "ENS action=" << action;
 
         switch (commandFromString(action)) {
-            //
-            // case Command::CreateQueue:
-            //     return handleCreateQueue(req);
-            //
-            // case Command::DeleteQueue:
-            //     return handleDeleteQueue(req);
-            //
-            // case Command::GetQueueErn:
-            //     return handleGetQueueErn(req);
-            //
-            // case Command::ListQueues:
-            //     return handleListQueues(req);
-            //
+
+            case Command::CreateTopic:
+                return handleCreateTopic(req);
+
+            case Command::DeleteTopic:
+                return handleDeleteTopic(req);
+
+            case Command::GetTopicErn:
+                return handleGetTopicErn(req);
+
+            case Command::ListTopics:
+                return handleListTopics(req);
+
             // case Command::ListMessages:
             //     return handleListMessages(req);
             //
