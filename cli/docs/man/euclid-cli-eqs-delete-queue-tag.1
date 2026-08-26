@@ -1,0 +1,40 @@
+.TH EUCLID-CLI-EQS-DELETE-QUEUE-TAG 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eqs-delete-queue-tag \- delete a tag from a queue
+.SH SYNOPSIS
+.B euclid-cli eqs delete-queue-tag
+.BR \-\-queue | \-q
+.I ERN
+.BR \-\-key | \-k
+.I KEY
+.SH DESCRIPTION
+Deletes a tag from a queue identified by its Euclid resource name (ERN).
+Deleting a key that has no matching tag is not an error.
+.SH OPTIONS
+.TP
+.BR \-q ", " \-\-queue " " \fIERN\fR
+Euclid resource name of the queue. Required.
+.TP
+.BR \-k ", " \-\-key " " \fIKEY\fR
+Key of the tag to delete. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The tag was deleted (or was already absent). No output is printed.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or no queue
+with that ERN exists.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eqs delete-queue-tag \e
+    --queue ern:eqs:eu-central-1:000000000000:queue:orders --key team
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eqs (1),
+.BR euclid-cli-eqs-add-queue-tag (1),
+.BR euclid-cli-eqs-set-queue-tag (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

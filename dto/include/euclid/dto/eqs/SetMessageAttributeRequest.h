@@ -6,8 +6,9 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/com/Variant.h>
 
-namespace Euclid::Dto::ENS {
+namespace Euclid::Dto::EQS {
 
     struct SetMessageAttributeRequest {
 
