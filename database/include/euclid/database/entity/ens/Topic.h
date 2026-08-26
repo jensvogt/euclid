@@ -15,6 +15,7 @@
 #include <bsoncxx/builder/basic/document.hpp>
 
 // Euclid includes
+#include <euclid/database/entity/BaseEntity.h>
 #include <euclid/database/entity/ens/TopicAttribute.h>
 
 namespace Euclid::Database::Entity::ENS {
@@ -26,12 +27,7 @@ namespace Euclid::Database::Entity::ENS {
      *
      * @author jens.vogt\@opitz-consulting.com
      */
-    struct Topic final {
-
-        /**
-         * @brief Region
-         */
-        std::string region;
+    struct Topic final : BaseEntity {
 
         /**
          * @brief Owner

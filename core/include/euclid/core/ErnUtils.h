@@ -94,7 +94,7 @@ namespace Euclid::Core {
      * @return resource ERN
      */
     inline std::string createEnsTopicErn(const std::string &accountId, const std::string &name) {
-        return createErn("ens", accountId, "queue:" + name);
+        return createErn("ens", accountId, "topic:" + name);
     }
 
     /**

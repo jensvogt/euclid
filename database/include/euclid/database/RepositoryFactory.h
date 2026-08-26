@@ -17,15 +17,18 @@
 #include <euclid/database/repository/emm/IEmmRepository.h>
 #include <euclid/database/repository/emm/MemoryEmmRepository.h>
 #include <euclid/database/repository/emm/MongoEmmRepository.h>
+#include <euclid/database/repository/emo/IEmoRepository.h>
+#include <euclid/database/repository/emo/MemoryEmoRepository.h>
+#include <euclid/database/repository/emo/MongoEmoRepository.h>
+#include <euclid/database/repository/ens/IEnsRepository.h>
+#include <euclid/database/repository/ens/MemoryEnsRepository.h>
+#include <euclid/database/repository/ens/MongoEnsRepository.h>
 #include <euclid/database/repository/eqs/IEqsRepository.h>
 #include <euclid/database/repository/eqs/MemoryEqsRepository.h>
 #include <euclid/database/repository/eqs/MongoEqsRepository.h>
 #include <euclid/database/repository/esm/IEsmRepository.h>
 #include <euclid/database/repository/esm/MemoryEsmRepository.h>
 #include <euclid/database/repository/esm/MongoEsmRepository.h>
-#include <euclid/database/repository/emo/IEmoRepository.h>
-#include <euclid/database/repository/emo/MemoryEmoRepository.h>
-#include <euclid/database/repository/emo/MongoEmoRepository.h>
 
 namespace Euclid::Database {
 
@@ -53,6 +56,12 @@ namespace Euclid::Database {
         [[nodiscard]]
         std::shared_ptr<IEqsRepository> eqsRepository() const {
             static auto repo = createEqsRepository();
+            return repo;
+        }
+
+        [[nodiscard]]
+        std::shared_ptr<IEnsRepository> ensRepository() const {
+            static auto repo = createEnsRepository();
             return repo;
         }
 
@@ -98,6 +107,17 @@ namespace Euclid::Database {
                     return std::make_shared<MemoryEqsRepository>();
             }
             return std::make_shared<MemoryEqsRepository>();
+        }
+
+        [[nodiscard]]
+        std::shared_ptr<IEnsRepository> createEnsRepository() const {
+            switch (_backend) {
+                case BackendType::MONGODB:
+                    return std::make_shared<MongoEnsRepository>();
+                case BackendType::MEMORY:
+                    return std::make_shared<MemoryEnsRepository>();
+            }
+            return std::make_shared<MemoryEnsRepository>();
         }
 
         [[nodiscard]]

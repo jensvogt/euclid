@@ -90,10 +90,12 @@ namespace Euclid::Database {
             return std::nullopt;
         }
 
-        std::vector<Entity::EQS::Queue> listQueues(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const override {
+        std::vector<Entity::EQS::Queue> listQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const override {
             std::lock_guard lock(_mutex);
             std::vector<Entity::EQS::Queue> result;
             for (const auto &m: _queueStore | std::views::values) {
+                if (m.accountId != accountId) continue;
+                if (!namespaceName.empty() && m.namespaceName != namespaceName) continue;
                 if (prefix.empty() || m.name.starts_with(prefix)) {
                     result.push_back(m);
                 }
@@ -118,9 +120,11 @@ namespace Euclid::Database {
             return _queueStore.contains(name);
         }
 
-        long countQueues() const override {
+        long countQueues(const std::string &accountId, const std::string &namespaceName) const override {
             std::lock_guard lock(_mutex);
-            return static_cast<long>(_queueStore.size());
+            return std::ranges::count_if(_queueStore | std::views::values, [&](const auto &m) {
+                return m.accountId == accountId && (namespaceName.empty() || m.namespaceName == namespaceName);
+            });
         }
 
         void clearQueues() override {
@@ -311,11 +315,12 @@ namespace Euclid::Database {
 
         void purgeAllQueues(const std::string &region, const std::string &accountId) override {
             std::lock_guard lock(_mutex);
-            const std::string marker = ":" + region + ":" + accountId + ":";
 
+            // Filters on the entity's own region/accountId fields now that they exist, rather
+            // than the previous substring-match-on-ERN workaround.
             std::set<std::string> ernsToPurge;
             for (auto &queue: _queueStore | std::views::values) {
-                if (queue.ern.find(marker) == std::string::npos) {
+                if (queue.region != region || queue.accountId != accountId) {
                     continue;
                 }
                 ernsToPurge.insert(queue.ern);

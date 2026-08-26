@@ -121,10 +121,12 @@ namespace Euclid::Database {
          * @param sortColumn field to sort by (e.g. "name", "ern"); empty means unsorted
          * @return list of matching bucket entities.
          */
-        std::vector<Entity::ESM::Bucket> listBuckets(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const override {
+        std::vector<Entity::ESM::Bucket> listBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const override {
             std::lock_guard lock(_mutex);
             std::vector<Entity::ESM::Bucket> result;
             for (const auto &b: _bucketStore | std::views::values) {
+                if (b.accountId != accountId) continue;
+                if (!namespaceName.empty() && b.namespaceName != namespaceName) continue;
                 if (prefix.empty() || b.name.starts_with(prefix)) {
                     result.push_back(b);
                 }
@@ -162,9 +164,11 @@ namespace Euclid::Database {
          *
          * @return total number of buckets
          */
-        long countBuckets() const override {
+        long countBuckets(const std::string &accountId, const std::string &namespaceName) const override {
             std::lock_guard lock(_mutex);
-            return static_cast<long>(_bucketStore.size());
+            return static_cast<long>(std::ranges::count_if(_bucketStore | std::views::values, [&](const auto &b) {
+                return b.accountId == accountId && (namespaceName.empty() || b.namespaceName == namespaceName);
+            }));
         }
 
         /**

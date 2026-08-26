@@ -117,6 +117,8 @@ namespace Euclid::ESM {
         bucket.name = request.name;
         bucket.ern = Core::createEsmBucketErn(auth.user->accountId, request.name);
         bucket.region = auth.user->region;
+        bucket.accountId = auth.user->accountId;
+        bucket.namespaceName = std::string(req["x-euclid-namespace"]);
         bucket.owner = auth.user->userId;
 
         const auto saved = Database::RepositoryFactory::instance().esmRepository()->upsertBucket(bucket);
@@ -133,20 +135,22 @@ namespace Euclid::ESM {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-buckets");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::ESM::ListBucketsRequest>(jv);
+        const auto ns = std::string(req["x-euclid-namespace"]);
 
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
-        const std::vector<Database::Entity::ESM::Bucket> buckets = repo->listBuckets(request.prefix, request.pageSize, request.pageIndex, request.sortColumn);
+        const std::vector<Database::Entity::ESM::Bucket> buckets = repo->listBuckets(auth.user->accountId, ns, request.prefix, request.pageSize, request.pageIndex, request.sortColumn);
         log_info << "ESM bucket list, count: " << buckets.size();
 
         Dto::ESM::ListBucketsResponse response;
         response.buckets = Dto::ESM::EsmMapper::toDto(buckets);
-        response.total = repo->countBuckets();
+        response.total = repo->countBuckets(auth.user->accountId, ns);
 
         return EsmServer::JsonResponse(req, status::ok, response.toJson());
     }
@@ -293,6 +297,8 @@ namespace Euclid::ESM {
         object.ern = ern;
         object.owner = auth.user->userId;
         object.region = auth.user->region;
+        object.accountId = auth.user->accountId;
+        object.namespaceName = std::string(req["x-euclid-namespace"]);
         object.size = static_cast<long>(data.size());
         object.status = Database::Entity::ESM::ObjectStatus::COMPLETED;
         object.contentType = contentType;
@@ -363,6 +369,8 @@ namespace Euclid::ESM {
         object.key = request.key;
         object.owner = auth.user->userId;
         object.region = auth.user->region;
+        object.accountId = auth.user->accountId;
+        object.namespaceName = std::string(req["x-euclid-namespace"]);
         object.status = Database::Entity::ESM::ObjectStatus::CREATED;
         repo->upsertObject(object);
 
@@ -553,6 +561,8 @@ namespace Euclid::ESM {
         const std::filesystem::path destPath = std::filesystem::path(dataDir) / internalName;
         const auto owner = auth.user->userId;
         const auto region = auth.user->region;
+        const auto accountId = auth.user->accountId;
+        const auto ns = std::string(req["x-euclid-namespace"]);
 
         // Detached rather than joined: Dispatch() must return promptly so the gateway worker
         // thread handling this request isn't tied up for as long as a multi-GB file takes to
@@ -562,7 +572,7 @@ namespace Euclid::ESM {
         // detached thread's entry function calls std::terminate() and takes down the entire
         // process, unlike an exception in a normal request handler which route()/Dispatch() would
         // otherwise catch.
-        std::thread([repo, uploadDir, parts, dataDir, destPath, internalName, ern, bucketErn, key, owner, region, existingObject, uploadId = request.uploadId] {
+        std::thread([repo, uploadDir, parts, dataDir, destPath, internalName, ern, bucketErn, key, owner, region, accountId, ns, existingObject, uploadId = request.uploadId] {
             try {
                 std::error_code ec;
                 std::filesystem::create_directories(dataDir, ec);
@@ -602,6 +612,8 @@ namespace Euclid::ESM {
                 object.ern = ern;
                 object.owner = owner;
                 object.region = region;
+                object.accountId = accountId;
+                object.namespaceName = ns;
                 object.size = static_cast<long>(assembledSize);
                 object.status = Database::Entity::ESM::ObjectStatus::COMPLETED;
                 object.contentType = contentType;
@@ -893,7 +905,8 @@ namespace Euclid::ESM {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-objects");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = ParseJsonBody(req, jv)) return *err;
@@ -902,6 +915,17 @@ namespace Euclid::ESM {
         log_info << "ESM ListObjects, bucket: " << request.bucketErn << (!request.prefix.empty() ? ", prefix: " + request.prefix : "");
 
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
+
+        // A syntactically valid bucketErn from another account must not leak that bucket's
+        // object listing - verify the bucket actually belongs to the caller's account first.
+        const auto bucket = repo->findBucketByErn(request.bucketErn);
+        if (!bucket.has_value()) {
+            return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.bucketErn);
+        }
+        if (bucket->accountId != auth.user->accountId) {
+            return ErrorResponse(req, status::forbidden, "Bucket does not belong to the caller's account");
+        }
+
         const std::vector<Database::Entity::ESM::Object> objects = repo->listObjects(request.bucketErn, request.prefix, request.pageSize, request.pageIndex, request.sortColumn);
         log_info << "ESM got object list, bucket: " << request.bucketErn << ", count: " << objects.size();
 
