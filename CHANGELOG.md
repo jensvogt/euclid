@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.38](https://github.com/jensvogt/euclid/compare/v1.0.37...v1.0.38) (2026-08-26)
+
+
+### Bug Fixes
+
+* windows build, updated man pages ([73c4a4b](https://github.com/jensvogt/euclid/commit/73c4a4b3e7d9a6bfeac538e43482047294a470f9))
+
 ## [1.0.37](https://github.com/jensvogt/euclid/compare/1.0.36...v1.0.37) (2026-08-26)
 
 
