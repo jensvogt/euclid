@@ -70,6 +70,16 @@ namespace Euclid::Database::Entity::ENS {
         long available{};
 
         /**
+         * @brief Total number of messages send
+         */
+        long send{};
+
+        /**
+         * @brief Total number of messages resend
+         */
+        long resend{};
+
+        /**
          * @brief Maximal message length in bytes
          */
         long maxMessageLength = 1024 * 1024;

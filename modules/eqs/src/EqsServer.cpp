@@ -65,7 +65,7 @@ namespace Euclid::EQS {
         if (!request.dlqName.empty()) {
             Database::Entity::EQS::Queue dlQueue;
             dlQueue.accountId = auth.user->accountId;
-            dlQueue.namespaceName = ns;
+            dlQueue.nameSpace = ns;
             dlQueue.name = request.dlqName;
             dlQueue.ern = Core::createEqsQueueErn(auth.user->accountId, request.dlqName);
             dlQueue.visibility = request.visibility;
@@ -80,7 +80,7 @@ namespace Euclid::EQS {
 
         Database::Entity::EQS::Queue queue;
         queue.accountId = auth.user->accountId;
-        queue.namespaceName = ns;
+        queue.nameSpace = ns;
         queue.name = request.name;
         queue.ern = Core::createEqsQueueErn(auth.user->accountId, request.name);
         queue.visibility = request.visibility;

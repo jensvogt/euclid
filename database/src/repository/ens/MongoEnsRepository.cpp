@@ -119,23 +119,22 @@ namespace Euclid::Database {
         return {};
     }
 
-    //
-    // std::optional<Entity::EQS::Queue> MongoEqsRepository::findQueueByErn(const std::string &ern) const {
-    //
-    //     try {
-    //
-    //         const auto entry = Database::instance().client();
-    //         auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
-    //
-    //         if (auto mResult = queueCollection.find_one(make_document(kvp("ern", ern)))) {
-    //             return Entity::EQS::Queue::fromDocument(mResult.value());
-    //         }
-    //
-    //     } catch (const std::exception &e) {
-    //         log_error << "Get queues by ERN failed, ern: " << ern << " error: " << e.what();
-    //     }
-    //     return {};
-    // }
+    std::optional<Entity::ENS::Topic> MongoEnsRepository::findTopicByErn(const std::string &ern) const {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto topicCollection = (*entry)[Database::instance().databaseName()][TOPIC_COLLECTION];
+
+            if (auto mResult = topicCollection.find_one(make_document(kvp("ern", ern)))) {
+                return Entity::ENS::Topic::fromDocument(mResult.value());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Get topic by ERN failed, ern: " << ern << " error: " << e.what();
+        }
+        return {};
+    }
 
     std::vector<Entity::ENS::Topic> MongoEnsRepository::listTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
 

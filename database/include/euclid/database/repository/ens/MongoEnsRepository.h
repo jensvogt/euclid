@@ -82,8 +82,8 @@ namespace Euclid::Database {
          * @param ern topic ERN
          * @return optional topic
          */
-        // [[nodiscard]]
-        // std::optional<Entity::EQS::Topic> findTopicByErn(const std::string &ern) const override;
+        [[nodiscard]]
+        std::optional<Entity::ENS::Topic> findTopicByErn(const std::string &ern) const override;
 
         /**
          * @brief Find all topics

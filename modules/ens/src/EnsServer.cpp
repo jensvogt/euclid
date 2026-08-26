@@ -1,8 +1,6 @@
 // Euclid includes
 #include <EnsServer.h>
 
-#include "euclid/dto/ens/PurgeAllTopicsRequest.h"
-
 namespace Euclid::ENS {
 
     namespace beast = boost::beast;
@@ -56,7 +54,7 @@ namespace Euclid::ENS {
 
         Database::Entity::ENS::Topic topic;
         topic.accountId = auth.user->accountId;
-        topic.namespaceName = ns;
+        topic.nameSpace = ns;
         topic.name = request.name;
         topic.ern = Core::createEnsTopicErn(auth.user->accountId, request.name);
         topic.maxMessageLength = request.maxMessageLength;
@@ -272,67 +270,62 @@ namespace Euclid::ENS {
         return EnsServer::JsonResponse(req, status::ok);
     }
 
-    //
-    // static response<string_body> handleGetMessageCount(const request<string_body> &req) {
-    //
-    //     Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-message-count");
-    //
-    //     if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
-    //
-    //     boost::json::value jv;
-    //     if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
-    //
-    //     const auto request = boost::json::value_to<Dto::ENS::GetMessageCountRequest>(jv);
-    //     log_info << "ENS GetMessageCount, ern: " << request.queueErn;
-    //
-    //     const auto repo = Database::RepositoryFactory::instance().ensRepository();
-    //     const std::optional<Database::Entity::ENS::Queue> queue = repo->findQueueByErn(request.queueErn);
-    //     if (!queue.has_value()) {
-    //         return EnsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + request.queueErn);
-    //     }
-    //
-    //     Dto::ENS::GetMessageCountResponse response;
-    //     response.ern = request.queueErn;
-    //     response.available = queue->available;
-    //     response.delayed = queue->delayed;
-    //     response.invisible = queue->invisible;
-    //     response.total = queue->available + queue->delayed + queue->invisible;
-    //     return EnsServer::JsonResponse(req, status::ok, response.toJson());
-    // }
-    //
-    // static response<string_body> handleGetQueueMetadata(const request<string_body> &req) {
-    //
-    //     Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-queue-metadata");
-    //
-    //     if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
-    //
-    //     boost::json::value jv;
-    //     if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
-    //
-    //     const auto request = boost::json::value_to<Dto::ENS::GetQueueMetadataRequest>(jv);
-    //     log_info << "ENS GetQueueMetadata, ern: " << request.ern;
-    //
-    //     const auto repo = Database::RepositoryFactory::instance().ensRepository();
-    //     const std::optional<Database::Entity::ENS::Queue> queue = repo->findQueueByErn(request.ern);
-    //     if (!queue.has_value()) {
-    //         return EnsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + request.ern);
-    //     }
-    //
-    //     Dto::ENS::GetQueueMetadataResponse response;
-    //     response.region = queue->region;
-    //     response.accountId = Core::accountIdFromErn(queue->ern);
-    //     response.owner = queue->owner;
-    //     // Queues aren't namespace-scoped yet (no such field on Database::Entity::ENS::Queue), so
-    //     // this is always empty for now rather than reporting something fabricated.
-    //     response.nameSpace = "";
-    //     response.name = queue->name;
-    //     response.ern = queue->ern;
-    //     response.size = queue->size;
-    //     // "Total" across every message state, unlike get-message-count's breakdown into the three
-    //     // individual available/delayed/invisible counts.
-    //     response.messages = queue->available + queue->delayed + queue->invisible;
-    //     return EnsServer::JsonResponse(req, status::ok, response.toJson());
-    // }
+    static response<string_body> handleGetMessageCount(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-message-count");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ENS::GetMessageCountRequest>(jv);
+        log_info << "ENS GetMessageCount, ern: " << request.topicErn;
+
+        const auto repo = Database::RepositoryFactory::instance().ensRepository();
+        const std::optional<Database::Entity::ENS::Topic> queue = repo->findTopicByErn(request.topicErn);
+        if (!queue.has_value()) {
+            return EnsServer::ErrorResponse(req, status::not_found, "Topic not found, ern: " + request.topicErn);
+        }
+
+        Dto::ENS::GetMessageCountResponse response;
+        response.ern = request.topicErn;
+        response.available = queue->available;
+        response.send = queue->send;
+        response.resend = queue->resend;
+        return EnsServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    static response<string_body> handleGetTopicMetadata(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-topic-metadata");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ENS::GetTopicMetadataRequest>(jv);
+        log_info << "ENS GetTopicMetadata, ern: " << request.ern;
+
+        const auto repo = Database::RepositoryFactory::instance().ensRepository();
+        const std::optional<Database::Entity::ENS::Topic> topic = repo->findTopicByErn(request.ern);
+        if (!topic.has_value()) {
+            return EnsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + request.ern);
+        }
+
+        Dto::ENS::GetTopicMetadataResponse response;
+        response.region = topic->region;
+        response.accountId = Core::accountIdFromErn(topic->ern);
+        response.owner = topic->owner;
+        response.nameSpace = topic->nameSpace;
+        response.name = topic->name;
+        response.ern = topic->ern;
+        response.size = topic->size;
+        response.messages = topic->available + topic->send + topic->send;
+        return EnsServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
     //
     // static response<string_body> handleGetMessageAttribute(const request<string_body> &req) {
     //
@@ -545,6 +538,7 @@ namespace Euclid::ENS {
         if (action == "publish-message") return Command::PublishMessage;
         if (action == "delete-topic") return Command::DeleteTopic;
         if (action == "list-messages") return Command::ListMessages;
+        if (action == "get-message-count") return Command::GetMessageCount;
         // if (action == "delete-message") return Command::DeleteMessage;
         // if (action == "purge-queue") return Command::PurgeQueue;
         // if (action == "purge-all-queues") return Command::PurgeAllQueues;
@@ -594,15 +588,15 @@ namespace Euclid::ENS {
 
             case Command::PurgeAllTopics:
                 return handlePurgeAllTopics(req);
-            //
-            // case Command::GetMetadata:
-            //     return handleGetQueueAttributes(req);
+
+            case Command::GetMetadata:
+                return handleGetTopicMetadata(req);
             //
             // case Command::AddMetadata:
             //     return handleSetQueueAttributes(req);
             //
-            // case Command::GetMessageCount:
-            //     return handleGetMessageCount(req);
+            case Command::GetMessageCount:
+                return handleGetMessageCount(req);
             //
             // case Command::GetQueueMetadata:
             //     return handleGetQueueMetadata(req);
