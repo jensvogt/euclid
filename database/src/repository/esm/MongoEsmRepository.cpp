@@ -188,11 +188,12 @@ namespace Euclid::Database {
             if (auto result = bucketCollection.find_one_and_update(filter.view(), update.view(), opts)) {
                 return Entity::ESM::Bucket::fromDocument(result->view());
             }
+            throw std::runtime_error("upsert returned no document, name: " + bucket.name);
 
         } catch (const std::exception &e) {
             log_error << "Upsert bucket failed, error: " << e.what();
+            throw;
         }
-        return bucket;
     }
 
     long MongoEsmRepository::countBuckets(const std::string &accountId, const std::string &namespaceName) const {
@@ -286,11 +287,12 @@ namespace Euclid::Database {
             if (auto result = objectCollection.find_one_and_update(filter.view(), update.view(), opts)) {
                 return Entity::ESM::Object::fromDocument(result->view());
             }
+            throw std::runtime_error("upsert returned no document, key: " + object.key);
 
         } catch (const std::exception &e) {
             log_error << "Upsert object failed, error: " << e.what();
+            throw;
         }
-        return object;
     }
 
     std::optional<Entity::ESM::Object> MongoEsmRepository::findObjectByBucketAndKey(const std::string &bucketErn, const std::string &key) const {

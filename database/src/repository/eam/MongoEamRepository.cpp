@@ -77,11 +77,12 @@ namespace Euclid::Database {
             if (auto result = userCollection.find_one_and_update(filter.view(), update.view(), opts)) {
                 return Entity::EAM::User::fromDocument(result->view());
             }
+            throw std::runtime_error("upsert returned no document, userId: " + user.userId);
 
         } catch (const std::exception &e) {
             log_error << "Upsert user failed, error: " << e.what();
+            throw;
         }
-        return user;
     }
 
     std::optional<Entity::EAM::User> MongoEamRepository::findUserByUserId(const std::string &userId) const {
@@ -257,11 +258,12 @@ namespace Euclid::Database {
             if (auto result = userGroupCollection.find_one_and_update(filter.view(), update.view(), opts)) {
                 return Entity::EAM::UserGroup::fromDocument(result->view());
             }
+            throw std::runtime_error("upsert returned no document, name: " + group.name);
 
         } catch (const std::exception &e) {
             log_error << "Upsert user group failed, error: " << e.what();
+            throw;
         }
-        return group;
     }
 
     bool MongoEamRepository::userGroupExists(const std::string &name) const {
@@ -403,11 +405,12 @@ namespace Euclid::Database {
             if (auto result = accountCollection.find_one_and_update(filter.view(), update.view(), opts)) {
                 return Entity::EAM::Account::fromDocument(result->view());
             }
+            throw std::runtime_error("upsert returned no document, accountId: " + account.accountId);
 
         } catch (const std::exception &e) {
             log_error << "Upsert account failed, error: " << e.what();
+            throw;
         }
-        return account;
     }
 
     bool MongoEamRepository::accountExists(const std::string &accountId) const {
@@ -549,11 +552,12 @@ namespace Euclid::Database {
             if (auto result = namespaceCollection.find_one_and_update(filter.view(), update.view(), opts)) {
                 return Entity::EAM::Namespace::fromDocument(result->view());
             }
+            throw std::runtime_error("upsert returned no document, name: " + ns.name);
 
         } catch (const std::exception &e) {
             log_error << "Upsert namespace failed, error: " << e.what();
+            throw;
         }
-        return ns;
     }
 
     bool MongoEamRepository::namespaceExists(const std::string &accountId, const std::string &name) const {

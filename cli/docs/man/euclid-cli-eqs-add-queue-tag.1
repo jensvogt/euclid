@@ -1,0 +1,47 @@
+.TH EUCLID-CLI-EQS-ADD-QUEUE-TAG 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eqs-add-queue-tag \- add a tag to a queue
+.SH SYNOPSIS
+.B euclid-cli eqs add-queue-tag
+.BR \-\-queue | \-q
+.I ERN
+.BR \-\-key | \-k
+.I KEY
+.BR \-\-value | \-v
+.I VALUE
+.SH DESCRIPTION
+Adds a tag (a key/value pair) to a queue identified by its Euclid
+resource name (ERN). If a tag with the given key already exists, its
+value is overwritten.
+.SH OPTIONS
+.TP
+.BR \-q ", " \-\-queue " " \fIERN\fR
+Euclid resource name of the queue to tag. Required.
+.TP
+.BR \-k ", " \-\-key " " \fIKEY\fR
+Tag key. Required.
+.TP
+.BR \-v ", " \-\-value " " \fIVALUE\fR
+Tag value. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The tag was added. No output is printed.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or no queue
+with that ERN exists.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eqs add-queue-tag \e
+    --queue ern:eqs:eu-central-1:000000000000:queue:orders \e
+    --key team --value payments
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eqs (1),
+.BR euclid-cli-eqs-set-queue-tag (1),
+.BR euclid-cli-eqs-delete-queue-tag (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

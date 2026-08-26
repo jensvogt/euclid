@@ -43,6 +43,7 @@ namespace Euclid::CLI {
                                            {"receive-messages", "Send a message to a queue"},
                                            {"set-visibility", "Send a messages visibility"},
                                            {"get-message-attribute", "Return a message attribute by name"},
+                                           {"set-message-attribute", "Sets the value of a message attribute"},
                                            {"get-queue-metadata", "Return the metadata for a queue"},
                                            {"get-message-metadata", "Return the metadata for a message"},
                                            {"add-queue-tag", "Adds a tag to queue"},
@@ -85,6 +86,9 @@ namespace Euclid::CLI {
         }
         if (action == "get-message-attribute") {
             return getMessageAttribute(args);
+        }
+        if (action == "set-message-attribute") {
+            return setMessageAttribute(args);
         }
         if (action == "get-queue-metadata") {
             return getQueueMetadata(args);
@@ -155,10 +159,14 @@ namespace Euclid::CLI {
 
     int EqsCli::listMessages(const std::vector<std::string> &args) const {
         po::options_description desc("lists a queue's messages without receiving them");
-        desc.add_options()("queue-ern,e", po::value<std::string>()->required(), "queue ERN")("page-size,s", po::value<long>()->default_value(10), "page size")("page-index,i", po::value<long>()->default_value(0), "page index")("sort-column,c", po::value<std::string>()->default_value("created"), "sort column");
+        desc.add_options()
+                ("queue,q", po::value<std::string>()->required(), "queue ERN")
+                ("page-size,s", po::value<long>()->default_value(10), "page size")
+                ("page-index,i", po::value<long>()->default_value(0), "page index")
+                ("sort-column,c", po::value<std::string>()->default_value("created"), "sort column");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "list-messages", "--queue-ern <ern> [--page-size <n>] [--page-index <n>] [--sort-column <column>]",
+            return PrintActionHelp("eqs", "list-messages", "--queue <ern> [--page-size <n>] [--page-index <n>] [--sort-column <column>]",
                                    "Lists a queue's messages without receiving them, i.e. without changing their status or visibility. Paginated: pageSize defaults to 10, pageIndex to 0, sortColumn to \"created\".",
                                    desc);
         }
@@ -174,7 +182,7 @@ namespace Euclid::CLI {
         }
 
         Dto::EQS::ListMessagesRequest request;
-        request.queueErn = vm["queue-ern"].as<std::string>();
+        request.queueErn = vm["queue"].as<std::string>();
         request.pageSize = vm["page-size"].as<long>();
         request.pageIndex = vm["page-index"].as<long>();
         request.sortColumn = vm["sort-column"].as<std::string>();
@@ -234,7 +242,11 @@ namespace Euclid::CLI {
 
     int EqsCli::listQueues(const std::vector<std::string> &args) const {
         po::options_description desc("list queues options");
-        desc.add_options()("prefix,p", po::value<std::string>(), "queue name prefix")("pageSize,s", po::value<long>()->default_value(-1), "page size")("pageIndex,i", po::value<long>()->default_value(-1), "page index")("sortColumn,c", po::value<std::string>()->default_value("name"), "sort column");
+        desc.add_options()
+                ("prefix,p", po::value<std::string>(), "queue name prefix")
+                ("pageSize,s", po::value<long>()->default_value(-1), "page size")
+                ("pageIndex,i", po::value<long>()->default_value(-1), "page index")
+                ("sortColumn,c", po::value<std::string>()->default_value("name"), "sort column");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eqs", "list-queues", "[--prefix <prefix>] [--pageSize <n>] [--pageIndex <n>] [--sortColumn <column>]",
@@ -253,12 +265,12 @@ namespace Euclid::CLI {
         }
 
         Dto::EQS::ListQueueRequest request;
-        if (vm.contains("prefix")) {
-            request.prefix = vm["prefix"].as<std::string>();
-        }
         request.pageSize = vm["pageSize"].as<long>();
         request.pageIndex = vm["pageIndex"].as<long>();
         request.sortColumn = vm["sortColumn"].as<std::string>();
+        if (vm.contains("prefix")) {
+            request.prefix = vm["prefix"].as<std::string>();
+        }
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
@@ -277,10 +289,11 @@ namespace Euclid::CLI {
 
     int EqsCli::purgeQueue(const std::vector<std::string> &args) const {
         po::options_description desc("purge queue options");
-        desc.add_options()("ern,e", po::value<std::string>()->required(), "euclid resource name");
+        desc.add_options()
+                ("queue,q", po::value<std::string>()->required(), "queue ERN");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "purge-queue", "--ern <ern>",
+            return PrintActionHelp("eqs", "purge-queue", "--queue <ern>",
                                    "Deletes all messages from a SQS queue identified by its Euclid resource name (ERN).",
                                    desc);
         }
@@ -296,7 +309,7 @@ namespace Euclid::CLI {
         }
 
         Dto::EQS::PurgeQueueRequest request;
-        request.ern = vm["ern"].as<std::string>();
+        request.ern = vm["queue"].as<std::string>();
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
@@ -313,7 +326,9 @@ namespace Euclid::CLI {
 
     int EqsCli::purgeAllQueues(const std::vector<std::string> &args) const {
         po::options_description desc("purge all queues options");
-        desc.add_options()("region,r", po::value<std::string>()->required(), "region")("accountId,a", po::value<std::string>()->required(), "account ID");
+        desc.add_options()
+                ("region,r", po::value<std::string>()->required(), "region")
+                ("accountId,a", po::value<std::string>()->required(), "account ID");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eqs", "purge-all-queues", "--region <region> --accountId <accountId>",
@@ -350,10 +365,10 @@ namespace Euclid::CLI {
 
     int EqsCli::getQueueMetadata(const std::vector<std::string> &args) const {
         po::options_description desc("returns the metadata of a queue");
-        desc.add_options()("ern,e", po::value<std::string>()->required(), "queue ERN");
+        desc.add_options()("queue,q", po::value<std::string>()->required(), "queue ERN");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "get-queue-metadata", "--ern <ern>",
+            return PrintActionHelp("eqs", "get-queue-metadata", "--queue <ern>",
                                    "Shows the metadata of a queue, i.e. region, accountId, namespace, size, number of messages.",
                                    desc);
         }
@@ -369,7 +384,7 @@ namespace Euclid::CLI {
         }
 
         Dto::EQS::GetQueueMetadataRequest request;
-        request.ern = vm["ern"].as<std::string>();
+        request.ern = vm["queue"].as<std::string>();
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
@@ -388,10 +403,11 @@ namespace Euclid::CLI {
 
     int EqsCli::deleteQueue(const std::vector<std::string> &args) const {
         po::options_description desc("delete queue options");
-        desc.add_options()("ern,e", po::value<std::string>()->required(), "euclid resource name");
+        desc.add_options()
+                ("queue,q", po::value<std::string>()->required(), "queue ERN");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "delete-queue", "--ern <ern>",
+            return PrintActionHelp("eqs", "delete-queue", "--queue <ern>",
                                    "Deletes an SQS queue identified by its Euclid resource name (ERN).",
                                    desc);
         }
@@ -424,7 +440,11 @@ namespace Euclid::CLI {
 
     int EqsCli::sendMessage(const std::vector<std::string> &args) const {
         po::options_description desc("send message options");
-        desc.add_options()("queue,q", po::value<std::string>()->required(), "queue resource name")("body,b", po::value<std::string>()->required(), "message body")("attributes,a", po::value<std::string>(), "message attributes")("priority,p", po::value<std::string>()->default_value("MIDDLE"), "message priority (LOW|MIDDLE|HIGH)");
+        desc.add_options()
+                ("queue,q", po::value<std::string>()->required(), "queue resource name")
+                ("body,b", po::value<std::string>()->required(), "message body")
+                ("attributes,a", po::value<std::string>(), "message attributes")
+                ("priority,p", po::value<std::string>()->default_value("MIDDLE"), "message priority (LOW|MIDDLE|HIGH)");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eqs", "send-message", "--queue <ern> --body <body|file://path> [--attributes <json|file://path>] [--priority <LOW|MIDDLE|HIGH>]",
@@ -480,7 +500,7 @@ namespace Euclid::CLI {
                 ("waitTime,w", po::value<long>()->default_value(0), "maximal waiting time in seconds");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "receive-messages", "--ern <ern> [--maxCount <value>] [--waitTime <seconds>]",
+            return PrintActionHelp("eqs", "receive-messages", "--queue <ern> [--maxCount <value>] [--waitTime <seconds>]",
                                    "Receive messages from an SQS queue. If messages are available return up to maxCount messages. "
                                    "The returned messages favor higher priority ones: maxCount slots are split across LOW/MIDDLE/HIGH priority "
                                    "proportionally to the server's configurable priority weights (4:2:1 by default), so most of a batch is "
@@ -563,7 +583,7 @@ namespace Euclid::CLI {
                 ("queue,q", po::value<std::string>()->required(), "queue ERN");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "get-message-count", "--ern <ERN>",
+            return PrintActionHelp("eqs", "get-message-count", "--queue <ern>",
                                    "Returns the message counter, like total, invisible, delayed.",
                                    desc);
         }
@@ -637,6 +657,52 @@ namespace Euclid::CLI {
         }
     }
 
+    int EqsCli::setMessageAttribute(const std::vector<std::string> &args) const {
+        po::options_description desc("set message attribute options");
+        desc.add_options()
+                ("message-id,m", po::value<std::string>()->required(), "message ID")
+                ("key,k", po::value<std::string>()->required(), "attribute key")
+                ("value,v", po::value<std::string>()->required(), "attribute value")
+                ("type,t", po::value<std::string>()->required(), "attribute type");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eqs", "set-message-attribute", "--message-id <messageId> --key <key> --value <value> --type <type>",
+                                   "Sets the value of a single message attribute. If the attributes does not exist yet, it will be created; "
+                                   "if it exists already the value will be set. The type can be one of int, long, double, float, bool, string, binary. "
+                                   "The type defaults to string.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n"
+                    << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EQS::SetMessageAttributeRequest request;
+        request.messageId = vm["message-id"].as<std::string>();
+        request.key = vm["key"].as<std::string>();
+        request.value = optionToVariant(vm["value"].as<std::string>(), vm["type"].empty() ? "string" : vm["type"].as<std::string>());
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eqs", "set-message-attribute", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: set-message-attribute failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
     int EqsCli::getMessageMetadata(const std::vector<std::string> &args) const {
         po::options_description desc("get message metadata options");
         desc.add_options()
@@ -684,7 +750,7 @@ namespace Euclid::CLI {
                 ("value,v", po::value<std::string>()->required(), "tag value");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "add-queue-tag", "--queue <queue ERN> --key <value> --value <value>",
+            return PrintActionHelp("eqs", "add-queue-tag", "--queue <ern> --key <value> --value <value>",
                                    "Adds a tag to a queue.",
                                    desc);
         }
@@ -765,7 +831,7 @@ namespace Euclid::CLI {
                 ("key,k", po::value<std::string>()->required(), "tag key");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "delete-queue-tag", "--queue <queue ERN> --key <value>",
+            return PrintActionHelp("eqs", "delete-queue-tag", "--queue <ern> --key <value>",
                                    "Deletes a tag from a queue.",
                                    desc);
         }

@@ -85,6 +85,23 @@ Returns a single message attribute by name. See
 Shows a single message's metadata (status, priority, size, receive
 count, timestamps, etc.). See
 .BR euclid-cli-eqs-get-message-metadata (1).
+.TP
+.B set-message-attribute
+Sets the value of a single message attribute, creating it if it doesn't
+exist yet. See
+.BR euclid-cli-eqs-set-message-attribute (1).
+.TP
+.B add-queue-tag
+Adds a tag to a queue. See
+.BR euclid-cli-eqs-add-queue-tag (1).
+.TP
+.B set-queue-tag
+Sets the value of an existing queue tag. See
+.BR euclid-cli-eqs-set-queue-tag (1).
+.TP
+.B delete-queue-tag
+Deletes a tag from a queue. See
+.BR euclid-cli-eqs-delete-queue-tag (1).
 .SH GLOBAL OPTIONS
 These options are given to
 .B euclid-cli
@@ -208,6 +225,10 @@ euclid-cli --endpoint http://localhost:5566 eqs delete-queue \e
 .BR euclid-cli-eqs-set-visibility (1),
 .BR euclid-cli-eqs-get-message-count (1),
 .BR euclid-cli-eqs-get-message-attribute (1),
-.BR euclid-cli-eqs-get-message-metadata (1)
+.BR euclid-cli-eqs-set-message-attribute (1),
+.BR euclid-cli-eqs-get-message-metadata (1),
+.BR euclid-cli-eqs-add-queue-tag (1),
+.BR euclid-cli-eqs-set-queue-tag (1),
+.BR euclid-cli-eqs-delete-queue-tag (1)
 .SH AUTHOR
 Jens Vogt <jens.vogt@opitz-consulting.com>

@@ -34,6 +34,7 @@
 #include <euclid/dto/eqs/PurgeQueueRequest.h>
 #include <euclid/dto/eqs/ReceiveMessagesRequest.h>
 #include <euclid/dto/eqs/SendMessageRequest.h>
+#include <euclid/dto/eqs/SetMessageAttributeRequest.h>
 #include <euclid/dto/eqs/SetMessageVisibilityRequest.h>
 #include <euclid/dto/eqs/SetQueueTagRequest.h>
 
@@ -187,6 +188,8 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int getMessageAttribute(const std::vector<std::string> &args) const;
+
+        int setMessageAttribute(const std::vector<std::string> &args) const;
 
         /**
          * @brief Returns a message's metadata, i.e. queueErn, size, status, etc.
