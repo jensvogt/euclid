@@ -108,13 +108,13 @@ namespace Euclid::Database {
         virtual std::vector<Entity::ENS::Topic> listTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
 
         /**
-         * @brief Checks if a queue with the specified name exists in the repository.
+         * @brief Checks if a topic with the specified name exists in the repository.
          *
-         * @param name The name of the queue to check for existence.
-         * @return True if a queue with the given name exists, otherwise false.
+         * @param name The name of the topic to check for existence.
+         * @return True if a topic with the given name exists, otherwise false.
          */
-        // [[nodiscard]]
-        // virtual bool queueExists(const std::string &name) const = 0;
+        [[nodiscard]]
+        virtual bool topicExists(const std::string &name) const = 0;
 
         /**
          * @brief Retrieves the total count of topics in the repository.
@@ -138,13 +138,13 @@ namespace Euclid::Database {
         /**
          * @brief Inserts a new message or updates an existing one in the repository.
          *
-         * If a module with the same identifier already exists, its data will be updated
+         * If a message with the same identifier already exists, its data will be updated
          * with the provided message information. Otherwise, a new message will be added
          * to the repository.
          *
          * @param message The message to be inserted or updated in the repository.
          */
-        // virtual void upsertMessage(const Entity::EQS::Message &message) = 0;
+        virtual void upsertMessage(const Entity::ENS::Message &message) = 0;
 
         /**
          * @brief Publish a message to a topic.
@@ -194,17 +194,17 @@ namespace Euclid::Database {
         // virtual std::optional<Entity::EQS::Message> findMessageByName(const std::string &name) const = 0;
 
         /**
-         * @brief Locates a message in the repository by its unique identifier.
+         * @brief Locates a message in the repository by its message ID.
          *
          * Searches for a message matching the specified identifier and returns it
          * if found. If no matching module exists, an empty optional is returned.
          *
-         * @param oid The unique identifier of the message to search for.
+         * @param messageId The message ID of the message to search for.
          * @return An optional containing the found message, or an empty optional
          *         if no module with the given identifier exists.
          */
-        // [[nodiscard]]
-        // virtual std::optional<Entity::EQS::Message> findMessageById(const std::string &oid) const = 0;
+        [[nodiscard]]
+        virtual std::optional<Entity::ENS::Message> findMessageById(const std::string &messageId) const = 0;
 
         /**
          * @brief Finds and retrieves all available entities or objects.

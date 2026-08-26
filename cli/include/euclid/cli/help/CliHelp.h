@@ -43,7 +43,7 @@ namespace Euclid::CLI {
                 line.clear();
             }
             if (!line.empty()) {
-                line += " ";
+                line += ' ';
             }
             line += word;
         }
@@ -65,12 +65,12 @@ namespace Euclid::CLI {
      */
     inline int PrintActionHelp(const std::string &module, const std::string &action, const std::string &synopsis, const std::string &description, const boost::program_options::options_description &options) {
         std::cout << "NAME\n"
-                  << "    " << module << " " << action << "\n\n"
-                  << "SYNOPSIS\n"
-                  << WrapText("euclid-cli " + module + " " + action + " " + synopsis, "    ") << "\n"
-                  << "DESCRIPTION\n"
-                  << WrapText(description, "    ") << "\n"
-                  << options << std::endl;
+                << "    " << module << " " << action << "\n\n"
+                << "SYNOPSIS\n"
+                << WrapText("euclid-cli " + module + " " + action + " " + synopsis, "    ") << "\n"
+                << "DESCRIPTION\n"
+                << WrapText(description, "    ") << "\n"
+                << options << std::endl;
         return 0;
     }
 
@@ -83,8 +83,8 @@ namespace Euclid::CLI {
      */
     inline int PrintModuleHelp(const std::string &module, const std::vector<std::pair<std::string, std::string> > &actions) {
         std::cout << "Usage: euclid-cli " << module << " <action> [options...]\n"
-                  << "       euclid-cli " << module << " <action> help   (show help for a single action)\n\n"
-                  << "Available " << module << " actions:\n";
+                << "       euclid-cli " << module << " <action> help   (show help for a single action)\n\n"
+                << "Available " << module << " actions:\n";
         for (const auto &[name, summary]: actions) {
             std::cout << "    " << name << "\n        " << summary << "\n";
         }
