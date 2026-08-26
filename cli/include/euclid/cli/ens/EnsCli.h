@@ -17,30 +17,14 @@
 #include <euclid/cli/help/CliHelp.h>
 #include <euclid/cli/http/HttpClient.h>
 #include <euclid/core/JsonUtils.h>
-#include <euclid/dto/eqs/AddQueueTagRequest.h>
-#include <euclid/dto/eqs/CreateQueueRequest.h>
-#include <euclid/dto/eqs/CreateQueueResponse.h>
-#include <euclid/dto/eqs/DeleteQueueRequest.h>
-#include <euclid/dto/eqs/DeleteQueueTagRequest.h>
-#include <euclid/dto/eqs/GetMessageAttributeRequest.h>
-#include <euclid/dto/eqs/GetMessageCountRequest.h>
-#include <euclid/dto/eqs/GetMessageMetadataRequest.h>
-#include <euclid/dto/eqs/GetQueueMetadataRequest.h>
-#include <euclid/dto/eqs/ListMessagesRequest.h>
-#include <euclid/dto/eqs/ListMessagesResponse.h>
-#include <euclid/dto/eqs/ListQueueRequest.h>
-#include <euclid/dto/eqs/ListQueueResponse.h>
-#include <euclid/dto/eqs/PurgeAllQueuesRequest.h>
-#include <euclid/dto/eqs/PurgeQueueRequest.h>
-#include <euclid/dto/eqs/ReceiveMessagesRequest.h>
-#include <euclid/dto/eqs/SendMessageRequest.h>
-#include <euclid/dto/eqs/SetMessageVisibilityRequest.h>
-#include <euclid/dto/eqs/SetQueueTagRequest.h>
+#include <euclid/dto/ens/CreateTopicRequest.h>
+#include <euclid/dto/ens/CreateTopicResponse.h>
+#include <euclid/dto/ens/DeleteTopicRequest.h>
 
 namespace Euclid::CLI {
 
     /**
-     * @brief Processes commands for the "access" module (e.g. "access login --user <u> --password <p>").
+     * @brief Processes commands for the "ENS" module (e.g. "ens list-topics<p>").
      *
      * @author jens.vogt\@opitz-consulting.com
      */
@@ -72,7 +56,7 @@ namespace Euclid::CLI {
     private:
 
         /**
-         * @brief Create a new queue
+         * @brief Create a new topic
          *
          * @param args command line arguments
          * @return ok
@@ -81,22 +65,31 @@ namespace Euclid::CLI {
         int createTopic(const std::vector<std::string> &args) const;
 
         /**
-         * @brief Return the queue ERN
-         *
-         * @param args command line arguments
-         * @return ok
-         */
-        // [[nodiscard]]
-        // int getQueueErn(const std::vector<std::string> &args) const;
-
-        /**
-         * @brief List all available queues.
+         * @brief List all available topics.
          *
          * @param args action arguments
          * @return ok
          */
-        // [[nodiscard]]
-        // int listQueues(const std::vector<std::string> &args) const;
+        [[nodiscard]]
+        int listTopics(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Return the topic ERN
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int getTopicErn(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Delete a topic
+         *
+         * @param args action arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int deleteTopic(const std::vector<std::string> &args) const;
 
         /**
          * @brief Lists a queue's messages without receiving them, paginated.
@@ -133,15 +126,6 @@ namespace Euclid::CLI {
          */
         // [[nodiscard]]
         // int getQueueMetadata(const std::vector<std::string> &args) const;
-
-        /**
-         * @brief Delete a queue
-         *
-         * @param args action arguments
-         * @return ok
-         */
-        // [[nodiscard]]
-        // int deleteQueue(const std::vector<std::string> &args) const;
 
         /**
          * @brief Send a message to the queue

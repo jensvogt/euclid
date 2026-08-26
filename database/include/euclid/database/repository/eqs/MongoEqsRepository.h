@@ -97,7 +97,7 @@ namespace Euclid::Database {
          * @return list of all queue entities.
          */
         [[nodiscard]]
-        std::vector<Entity::EQS::Queue> listQueues(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const override;
+        std::vector<Entity::EQS::Queue> listQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const override;
 
         /**
          * @brief Check the existence of the module by name
@@ -114,7 +114,7 @@ namespace Euclid::Database {
          * @return total number of modules
          */
         [[nodiscard]]
-        long countQueues() const override;
+        long countQueues(const std::string &accountId, const std::string &namespaceName) const override;
 
         /**
          * @brief Delete all modules

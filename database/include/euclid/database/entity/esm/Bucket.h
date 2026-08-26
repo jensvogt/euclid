@@ -15,6 +15,7 @@
 #include <bsoncxx/document/value-fwd.hpp>
 
 // Euclid includes
+#include <euclid/database/entity/BaseEntity.h>
 
 namespace Euclid::Database::Entity::ESM {
 
@@ -25,12 +26,7 @@ namespace Euclid::Database::Entity::ESM {
      *
      * @author jens.vogt\@opitz-consulting.com
      */
-    struct Bucket final {
-
-        /**
-         * @brief Region
-         */
-        std::string region;
+    struct Bucket final : BaseEntity {
 
         /**
          * @brief Owner

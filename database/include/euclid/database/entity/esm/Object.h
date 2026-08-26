@@ -14,6 +14,7 @@
 #include <bsoncxx/builder/basic/document.hpp>
 
 // Euclid includes
+#include <euclid/database/entity/BaseEntity.h>
 #include <euclid/database/entity/esm/ObjectStatus.h>
 
 namespace Euclid::Database::Entity::ESM {
@@ -29,12 +30,7 @@ namespace Euclid::Database::Entity::ESM {
      *
      * @author jens.vogt\@opitz-consulting.com
      */
-    struct Object final {
-
-        /**
-         * @brief Region
-         */
-        std::string region;
+    struct Object final : BaseEntity {
 
         /**
          * @brief Owner

@@ -14,11 +14,6 @@ namespace Euclid::Dto::ESM {
     struct Bucket {
 
         /**
-         * @brief Region the bucket lives in
-         */
-        std::string region;
-
-        /**
          * @brief Bucket owner
          */
         std::string owner;
@@ -77,7 +72,6 @@ namespace Euclid::Dto::ESM {
 
         friend Bucket tag_invoke(boost::json::value_to_tag<Bucket>, boost::json::value const &v) {
             Bucket r;
-            r.region = Core::GetStringValue(v, "region");
             r.owner = Core::GetStringValue(v, "owner");
             r.name = Core::GetStringValue(v, "name");
             r.ern = Core::GetStringValue(v, "ern");
@@ -91,7 +85,6 @@ namespace Euclid::Dto::ESM {
 
         friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, Bucket const &obj) {
             jv = {
-                    {"region", obj.region},
                     {"owner", obj.owner},
                     {"name", obj.name},
                     {"ern", obj.ern},

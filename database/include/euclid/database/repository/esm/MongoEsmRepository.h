@@ -96,7 +96,7 @@ namespace Euclid::Database {
          * @return list of matching bucket entities.
          */
         [[nodiscard]]
-        std::vector<Entity::ESM::Bucket> listBuckets(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const override;
+        std::vector<Entity::ESM::Bucket> listBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const override;
 
         /**
          * @brief Check the existence of a bucket by name
@@ -113,7 +113,7 @@ namespace Euclid::Database {
          * @return total number of buckets
          */
         [[nodiscard]]
-        long countBuckets() const override;
+        long countBuckets(const std::string &accountId, const std::string &namespaceName) const override;
 
         /**
          * @brief Delete all buckets

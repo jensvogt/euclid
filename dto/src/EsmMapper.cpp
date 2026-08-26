@@ -5,7 +5,6 @@ namespace Euclid::Dto::ESM {
 
     Bucket EsmMapper::toDto(const Database::Entity::ESM::Bucket &entity) {
         Bucket dto;
-        dto.region = entity.region;
         dto.owner = entity.owner;
         dto.name = entity.name;
         dto.ern = entity.ern;

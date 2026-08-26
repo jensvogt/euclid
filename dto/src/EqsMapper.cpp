@@ -28,7 +28,6 @@ namespace Euclid::Dto::EQS {
 
     Queue EqsMapper::toDto(const Database::Entity::EQS::Queue &entity) {
         Queue dto;
-        dto.region = entity.region;
         dto.name = entity.name;
         dto.owner = entity.owner;
         dto.ern = entity.ern;
@@ -58,7 +57,6 @@ namespace Euclid::Dto::EQS {
 
     Database::Entity::EQS::Queue EqsMapper::toEntity(const Queue &dto) {
         Database::Entity::EQS::Queue entity;
-        entity.region = dto.region;
         entity.name = dto.name;
         entity.owner = dto.owner;
         entity.ern = dto.ern;

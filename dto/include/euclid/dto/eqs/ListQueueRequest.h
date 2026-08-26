@@ -4,9 +4,6 @@
 
 #pragma once
 
-// C++ includes
-#include <string>
-
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 
@@ -32,7 +29,7 @@ namespace Euclid::Dto::EQS {
         /**
          * @brief Sorting columns
          */
-        std::string sortColumn = "userId";
+        std::string sortColumn = "name";
 
         /**
          * @brief Serializes this request to a JSON string

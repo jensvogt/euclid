@@ -58,18 +58,18 @@ namespace Euclid::Database {
         /**
          * @brief Removes the specified element or elements from the collection or data structure by ERN.
          *
-         * @param ern The Euclid resource name (ERN) of the queue to be removed.
+         * @param ern The Euclid resource name (ERN) of the topic to be removed.
          */
-        // virtual void deleteQueueByErn(const std::string &ern) = 0;
+        virtual void deleteTopicByErn(const std::string &ern) = 0;
 
         /**
-         * @brief Searches for a queue by its name.
+         * @brief Searches for a topic by its name.
          *
-         * @param name The name of the queue to search for.
+         * @param name The name of the topic to search for.
          * @return The item matching the given name, or nullptr if no match is found.
          */
-        // [[nodiscard]]
-        // virtual std::optional<Entity::EQS::Queue> findQueueByName(const std::string &name) const = 0;
+        [[nodiscard]]
+        virtual std::optional<Entity::ENS::Topic> findTopicByName(const std::string &name) const = 0;
 
         /**
          * @brief Locates a queue in the repository by its unique identifier.
@@ -96,14 +96,16 @@ namespace Euclid::Database {
         /**
          * @brief Finds and retrieves all available entities or objects.
          *
+         * @param accountId only queues belonging to this account are returned
+         * @param namespaceName only queues in this namespace are returned; empty means don't filter by namespace
          * @param prefix only queues whose name starts with this prefix are returned; empty matches all queues
          * @param pageSize maximum number of queues to return; 0 or less means no limit
          * @param pageIndex zero-based page index, applied when pageSize is set
          * @param sortColumn field to sort by (e.g. "name", "arn"); empty means unsorted
          * @return A collection containing all entities or objects found.
          */
-        // [[nodiscard]]
-        // virtual std::vector<Entity::EQS::Queue> listQueues(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
+        [[nodiscard]]
+        virtual std::vector<Entity::ENS::Topic> listTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
 
         /**
          * @brief Checks if a queue with the specified name exists in the repository.
@@ -115,12 +117,14 @@ namespace Euclid::Database {
         // virtual bool queueExists(const std::string &name) const = 0;
 
         /**
-         * @brief Retrieves the total count of queues in the repository.
+         * @brief Retrieves the total count of topics in the repository.
          *
-         * @return The total number of queues as a long integer.
+         * @param accountId only topics belonging to this account are counted
+         * @param namespaceName only topics in this namespace are counted; empty means don't filter by namespace
+         * @return The total number of topics as a long integer.
          */
-        // [[nodiscard]]
-        // virtual long countQueues() const = 0;
+        [[nodiscard]]
+        virtual long countTopics(const std::string &accountId, const std::string &namespaceName) const = 0;
 
         /**
          * @brief Removes all entries from the queue repository, leaving it in an empty state.

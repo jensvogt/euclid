@@ -20,9 +20,14 @@ namespace Euclid::Database {
             const auto entry = Database::instance().client();
             auto bucketCollection = (*entry)[Database::instance().databaseName()][BUCKET_COLLECTION];
 
+            // Compound on (accountId, namespace, name) rather than name alone - bucket names only
+            // need to be unique within their own account/namespace, not globally. NOTE: replacing
+            // a pre-existing unique index on "name" alone requires dropping that old index first
+            // (Mongo won't do this automatically), and will fail if duplicate names already exist
+            // across accounts in production data - this is an operational migration step.
             mongocxx::options::index nameOpts;
             nameOpts.unique(true);
-            bucketCollection.create_index(make_document(kvp("name", 1)), nameOpts);
+            bucketCollection.create_index(make_document(kvp("accountId", 1), kvp("namespace", 1), kvp("name", 1)), nameOpts);
 
             mongocxx::options::index ernOpts;
             ernOpts.unique(true);
@@ -119,11 +124,15 @@ namespace Euclid::Database {
         return {};
     }
 
-    std::vector<Entity::ESM::Bucket> MongoEsmRepository::listBuckets(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
+    std::vector<Entity::ESM::Bucket> MongoEsmRepository::listBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
 
         try {
 
             document filter = {};
+            filter.append(kvp("accountId", accountId));
+            if (!namespaceName.empty()) {
+                filter.append(kvp("namespace", namespaceName));
+            }
             if (!prefix.empty()) {
                 filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
             }
@@ -157,7 +166,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto filter = make_document(kvp("name", bucket.name));
+            const auto filter = make_document(kvp("accountId", bucket.accountId), kvp("namespace", bucket.namespaceName), kvp("name", bucket.name));
             const auto update = make_document(
                     kvp("$set", bucket.toDocument()),
                     kvp("$setOnInsert", make_document(
@@ -186,14 +195,20 @@ namespace Euclid::Database {
         return bucket;
     }
 
-    long MongoEsmRepository::countBuckets() const {
+    long MongoEsmRepository::countBuckets(const std::string &accountId, const std::string &namespaceName) const {
 
         try {
+
+            document filter = {};
+            filter.append(kvp("accountId", accountId));
+            if (!namespaceName.empty()) {
+                filter.append(kvp("namespace", namespaceName));
+            }
 
             const auto entry = Database::instance().client();
             auto bucketCollection = (*entry)[Database::instance().databaseName()][BUCKET_COLLECTION];
 
-            const int64_t count = bucketCollection.count_documents({});
+            const int64_t count = bucketCollection.count_documents(filter.extract());
             return static_cast<long>(count);
 
         } catch (const std::exception &e) {

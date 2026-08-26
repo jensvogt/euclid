@@ -16,6 +16,7 @@
 
 // Euclid includes
 #include <euclid/core/CryptoUtils.h>
+#include <euclid/database/entity/BaseEntity.h>
 #include <euclid/database/entity/com/Variant.h>
 
 namespace Euclid::Database::Entity::ENS {
@@ -27,7 +28,7 @@ namespace Euclid::Database::Entity::ENS {
      *
      * @author jens.vogt\@opitz-consulting.com
      */
-    struct Message {
+    struct Message final : BaseEntity {
 
         /**
          * @brief ID
@@ -40,9 +41,9 @@ namespace Euclid::Database::Entity::ENS {
         std::string ern;
 
         /**
-         * @brief Queue ERN
+         * @brief Topic ERN
          */
-        std::string queueErn;
+        std::string topicErn;
 
         /**
          * @brief Message body
