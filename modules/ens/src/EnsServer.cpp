@@ -1,6 +1,10 @@
 // Euclid includes
 #include <EnsServer.h>
 
+#include "euclid/dto/ens/GetMessageAttributeRequest.h"
+#include "euclid/dto/ens/GetMessageAttributeResponse.h"
+#include "euclid/dto/ens/SetMessageAttributeRequest.h"
+
 namespace Euclid::ENS {
 
     namespace beast = boost::beast;
@@ -326,37 +330,72 @@ namespace Euclid::ENS {
         return EnsServer::JsonResponse(req, status::ok, response.toJson());
     }
 
-    //
-    // static response<string_body> handleGetMessageAttribute(const request<string_body> &req) {
-    //
-    //     Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-message-attribute");
-    //
-    //     if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
-    //
-    //     boost::json::value jv;
-    //     if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
-    //
-    //     const auto request = boost::json::value_to<Dto::ENS::GetMessageAttributeRequest>(jv);
-    //     log_info << "ENS GetMessageAttribute, messageId: " << request.messageId << ", name: " << request.name;
-    //
-    //     const auto repo = Database::RepositoryFactory::instance().ensRepository();
-    //     const std::optional<Database::Entity::ENS::Message> message = repo->findMessageByName(request.messageId);
-    //     if (!message.has_value()) {
-    //         return EnsServer::ErrorResponse(req, status::not_found, "Message not found, messageId: " + request.messageId);
-    //     }
-    //
-    //     const auto attribute = message->attributes.find(request.name);
-    //     if (attribute == message->attributes.end()) {
-    //         return EnsServer::ErrorResponse(req, status::not_found, "Attribute not found, name: " + request.name);
-    //     }
-    //
-    //     Dto::ENS::GetMessageAttributeResponse response;
-    //     response.messageId = request.messageId;
-    //     response.name = request.name;
-    //     response.value = Dto::ENS::EnsMapper::toDto(attribute->second);
-    //
-    //     return EnsServer::JsonResponse(req, status::ok, response.toJson());
-    // }
+    static response<string_body> handleGetMessageAttribute(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-message-attribute");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ENS::GetMessageAttributeRequest>(jv);
+        log_info << "ENS GetMessageAttribute, messageId: " << request.messageId << ", key: " << request.key;
+
+        // Get the message
+        const auto repo = Database::RepositoryFactory::instance().ensRepository();
+        const std::optional<Database::Entity::ENS::Message> message = repo->findMessageById(request.messageId);
+        if (!message.has_value()) {
+            return EnsServer::ErrorResponse(req, status::not_found, "Message not found, messageId: " + request.messageId);
+        }
+
+        // Check attribute
+        const auto attribute = message->attributes.find(request.key);
+        if (attribute == message->attributes.end()) {
+            return EnsServer::ErrorResponse(req, status::not_found, "Attribute not found, messageId: " + request.messageId + ", key: " + request.key);
+        }
+
+        // Return the attribute
+        Dto::ENS::GetMessageAttributeResponse response;
+        response.messageId = request.messageId;
+        response.key = request.key;
+        response.value = Dto::ENS::EnsMapper::toDto(attribute->second);
+
+        return EnsServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    static response<string_body> handleSetMessageAttribute(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-message-attribute");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ENS::SetMessageAttributeRequest>(jv);
+        log_info << "ENS SetMessageAttribute, messageId: " << request.messageId << ", key: " << request.key;
+
+        // Get the message
+        const auto repo = Database::RepositoryFactory::instance().ensRepository();
+        std::optional<Database::Entity::ENS::Message> message = repo->findMessageById(request.messageId);
+        if (!message.has_value()) {
+            return EnsServer::ErrorResponse(req, status::not_found, "Message not found, messageId: " + request.messageId);
+        }
+
+        // Set attribute and update in database
+        message->attributes[request.key] = Dto::ENS::EnsMapper::toEntity(request.value);
+        repo->upsertMessage(message.value());
+
+        // Return the attribute
+        Dto::ENS::GetMessageAttributeResponse response;
+        response.messageId = request.messageId;
+        response.key = request.key;
+        response.value = Dto::ENS::EnsMapper::toDto(message->attributes[request.key]);
+
+        return EnsServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
     //
     // static response<string_body> handleGetMessageMetadata(const request<string_body> &req) {
     //
@@ -512,6 +551,7 @@ namespace Euclid::ENS {
             GetMessageCount,
             GetQueueMetadata,
             GetMessageAttribute,
+            SetMessageAttribute,
             GetMessageMetadata,
             ListTopics,
             ListMessages,
@@ -539,12 +579,13 @@ namespace Euclid::ENS {
         if (action == "delete-topic") return Command::DeleteTopic;
         if (action == "list-messages") return Command::ListMessages;
         if (action == "get-message-count") return Command::GetMessageCount;
+        if (action == "get-message-attribute") return Command::GetMessageAttribute;
+        if (action == "set-message-attribute") return Command::SetMessageAttribute;
         // if (action == "delete-message") return Command::DeleteMessage;
         // if (action == "purge-queue") return Command::PurgeQueue;
         // if (action == "purge-all-queues") return Command::PurgeAllQueues;
         // if (action == "get-message-count") return Command::GetMessageCount;
         // if (action == "get-queue-metadata") return Command::GetQueueMetadata;
-        // if (action == "get-message-attribute") return Command::GetMessageAttribute;
         // if (action == "get-message-metadata") return Command::GetMessageMetadata;
         // if (action == "get-metadata") return Command::GetMetadata;
         // if (action == "add-metadata") return Command::AddMetadata;
@@ -591,19 +632,19 @@ namespace Euclid::ENS {
 
             case Command::GetMetadata:
                 return handleGetTopicMetadata(req);
-            //
-            // case Command::AddMetadata:
-            //     return handleSetQueueAttributes(req);
-            //
+
             case Command::GetMessageCount:
                 return handleGetMessageCount(req);
             //
             // case Command::GetQueueMetadata:
             //     return handleGetQueueMetadata(req);
             //
-            // case Command::GetMessageAttribute:
-            //     return handleGetMessageAttribute(req);
-            //
+            case Command::GetMessageAttribute:
+                return handleGetMessageAttribute(req);
+
+            case Command::SetMessageAttribute:
+                return handleSetMessageAttribute(req);
+
             // case Command::GetMessageMetadata:
             //     return handleGetMessageMetadata(req);
             //

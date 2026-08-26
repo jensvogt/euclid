@@ -32,9 +32,7 @@ namespace Euclid::Database::Entity::ENS {
                 bsoncxx::builder::basic::kvp("md5Attributes", md5Attributes),
                 bsoncxx::builder::basic::kvp("contentType", contentType),
                 bsoncxx::builder::basic::kvp("lastReceived", bsoncxx::types::b_date(lastReceived)),
-                bsoncxx::builder::basic::kvp("attributes", attrsDoc.extract()),
-                bsoncxx::builder::basic::kvp("created", bsoncxx::types::b_date(created)),
-                bsoncxx::builder::basic::kvp("modified", bsoncxx::types::b_date(modified)));
+                bsoncxx::builder::basic::kvp("attributes", attrsDoc.extract()));
     }
 
     void Message::FromDocument(const std::optional<bsoncxx::document::view> &document) {

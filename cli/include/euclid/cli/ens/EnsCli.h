@@ -12,6 +12,7 @@
 #include <boost/program_options.hpp>
 
 // Euclid includes
+#include <euclid/cli/BaseCli.h>
 #include <euclid/cli/credentials/Credentials.h>
 #include <euclid/cli/help/CliHelp.h>
 #include <euclid/cli/help/CliHelp.h>
@@ -23,6 +24,7 @@
 #include <euclid/dto/ens/CreateTopicResponse.h>
 #include <euclid/dto/ens/DeleteTopicRequest.h>
 #include <euclid/dto/ens/DeleteTopicTagRequest.h>
+#include <euclid/dto/ens/GetMessageAttributeRequest.h>
 #include <euclid/dto/ens/GetMessageCountRequest.h>
 #include <euclid/dto/ens/GetTopicErnRequest.h>
 #include <euclid/dto/ens/GetTopicMetadataRequest.h>
@@ -31,6 +33,7 @@
 #include <euclid/dto/ens/PublishMessageRequest.h>
 #include <euclid/dto/ens/PurgeAllTopicsRequest.h>
 #include <euclid/dto/ens/PurgeTopicRequest.h>
+#include <euclid/dto/ens/SetMessageAttributeRequest.h>
 #include <euclid/dto/ens/SetQueueTagRequest.h>
 
 namespace Euclid::CLI {
@@ -40,7 +43,7 @@ namespace Euclid::CLI {
      *
      * @author jens.vogt\@opitz-consulting.com
      */
-    class EnsCli {
+    class EnsCli final : BaseCli {
 
     public:
 
@@ -163,8 +166,10 @@ namespace Euclid::CLI {
          * @param args action arguments
          * @return ok
          */
-        // [[nodiscard]]
-        // int getMessageAttribute(const std::vector<std::string> &args) const;
+        [[nodiscard]]
+        int getMessageAttribute(const std::vector<std::string> &args) const;
+
+        int setMessageAttribute(const std::vector<std::string> &args) const;
 
         /**
          * @brief Returns a message's metadata, i.e. topicErn, size, status, etc.
