@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.40](https://github.com/jensvogt/euclid/compare/1.0.39...v1.0.40) (2026-08-26)
+
+
+### Bug Fixes
+
+* EQS fix region ([26054e2](https://github.com/jensvogt/euclid/commit/26054e2b1fc6a982f1dd741e0f8e0008c492e5cb))
+
 ## [1.0.39](https://github.com/jensvogt/euclid/compare/1.0.38...v1.0.39) (2026-08-26)
 
 
