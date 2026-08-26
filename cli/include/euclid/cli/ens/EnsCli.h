@@ -17,9 +17,15 @@
 #include <euclid/cli/help/CliHelp.h>
 #include <euclid/cli/http/HttpClient.h>
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/com/Variant.h>
 #include <euclid/dto/ens/CreateTopicRequest.h>
 #include <euclid/dto/ens/CreateTopicResponse.h>
 #include <euclid/dto/ens/DeleteTopicRequest.h>
+#include <euclid/dto/ens/GetTopicErnRequest.h>
+#include <euclid/dto/ens/ListMessagesRequest.h>
+#include <euclid/dto/ens/ListTopicsRequest.h>
+#include <euclid/dto/ens/PublishMessageRequest.h>
+#include <euclid/dto/ens/PurgeTopicRequest.h>
 
 namespace Euclid::CLI {
 
@@ -37,8 +43,8 @@ namespace Euclid::CLI {
          *
          * @param endpoint  Euclid server endpoint
          * @param authentication authentication including the bearer token used to authenticate requests, e.g. for register/list-users;
-         * @param pretty pretty print output;
          * empty if the caller isn't logged in yet
+         * @param pretty pretty print output;
          * @param caCertPath if non-empty, path to a PEM CA certificate trusted in addition to the
          * system trust store, e.g. for self-signed development certificates
          */
@@ -92,31 +98,31 @@ namespace Euclid::CLI {
         int deleteTopic(const std::vector<std::string> &args) const;
 
         /**
-         * @brief Lists a queue's messages without receiving them, paginated.
+         * @brief Lists a topic's messages without receiving them, paginated.
          *
          * @param args action arguments
          * @return ok
          */
-        // [[nodiscard]]
-        // int listMessages(const std::vector<std::string> &args) const;
+        [[nodiscard]]
+        int listMessages(const std::vector<std::string> &args) const;
 
         /**
-         * @brief Purge a queue by deleting all messages.
+         * @brief Purge a topic by deleting all messages.
          *
          * @param args action arguments
          * @return ok
          */
-        // [[nodiscard]]
-        // int purgeQueue(const std::vector<std::string> &args) const;
+        [[nodiscard]]
+        int purgeTopic(const std::vector<std::string> &args) const;
 
         /**
-         * @brief Purge all available queues.
+         * @brief Purge all available topics.
          *
          * @param args action arguments
          * @return ok
          */
-        // [[nodiscard]]
-        // int purgeAllQueues(const std::vector<std::string> &args) const;
+        [[nodiscard]]
+        int purgeAllTopic(const std::vector<std::string> &args) const;
 
         /**
          * @brief Returns the metadata of a queue
@@ -128,31 +134,13 @@ namespace Euclid::CLI {
         // int getQueueMetadata(const std::vector<std::string> &args) const;
 
         /**
-         * @brief Send a message to the queue
+         * @brief Send a message to the topic
          *
          * @param args action arguments
          * @return ok
          */
-        // [[nodiscard]]
-        // int sendMessage(const std::vector<std::string> &args) const;
-
-        /**
-         * @brief Receives message.
-         *
-         * @param args action arguments
-         * @return ok
-         */
-        // [[nodiscard]]
-        // int receiveMessages(const std::vector<std::string> &args) const;
-
-        /**
-         * @brief Sets the visibility timeout for an individual message.
-         *
-         * @param args action arguments
-         * @return ok
-         */
-        // [[nodiscard]]
-        // int setVisibility(const std::vector<std::string> &args) const;
+        [[nodiscard]]
+        int publishMessage(const std::vector<std::string> &args) const;
 
         /**
          * @brief Returns the message count.

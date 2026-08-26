@@ -454,9 +454,8 @@ namespace Euclid::CLI {
             request.body = ResolveFileOrLiteral(vm["body"].as<std::string>());
             if (vm.contains("attributes")) {
                 const std::string attributesJson = ResolveFileOrLiteral(vm["attributes"].as<std::string>());
-                const boost::json::value attributesValue = Core::ParseJsonString(attributesJson);
-                for (const auto &attribute: attributesValue.as_object()) {
-                    request.attributes.emplace(attribute.key(), boost::json::value_to<Dto::EQS::Variant>(attribute.value()));
+                for (const boost::json::value attributesValue = Core::ParseJsonString(attributesJson); const auto &attribute: attributesValue.as_object()) {
+                    request.attributes.emplace(attribute.key(), boost::json::value_to<Dto::COM::Variant>(attribute.value()));
                 }
             }
             const HttpClient client(_endpoint, _authentication, _caCertPath);

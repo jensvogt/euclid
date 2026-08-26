@@ -6,8 +6,7 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
-#include <euclid/database/entity/com/Variant.h>
-#include <euclid/dto/eqs/model/Variant.h>
+#include <euclid/dto/com/Variant.h>
 
 namespace Euclid::Dto::ENS {
 
@@ -36,11 +35,6 @@ namespace Euclid::Dto::ENS {
         std::string status;
 
         /**
-         * @brief Message priority, i.e. "LOW", "MIDDLE" or "HIGH". Defaults to "MIDDLE".
-         */
-        std::string priority = "MIDDLE";
-
-        /**
          * @brief Message body
          */
         std::string body;
@@ -51,14 +45,9 @@ namespace Euclid::Dto::ENS {
         std::string md5Body;
 
         /**
-         * @brief Receipt handle, required to delete the message after receiving it
-         */
-        std::string receiptHandle;
-
-        /**
          * @brief Message attributes
          */
-        std::map<std::string, Database::Entity::COM::Variant> attributes;
+        std::map<std::string, COM::Variant> attributes;
 
         /**
          * @brief MD5 sum of the message attributes
@@ -103,11 +92,9 @@ namespace Euclid::Dto::ENS {
             r.topicErn = Core::GetStringValue(v, "topicErn");
             r.messageId = Core::GetStringValue(v, "messageId");
             r.status = Core::GetStringValue(v, "status");
-            r.priority = Core::GetStringValue(v, "priority");
             r.body = Core::GetStringValue(v, "body");
             r.md5Body = Core::GetStringValue(v, "md5Body");
-            r.receiptHandle = Core::GetStringValue(v, "receiptHandle");
-            // r.attributes = Core::GetMapFromObject<std::string, Database::Entity::COM::Variant>(v, "attributes");
+            r.attributes = Core::GetMapFromObject<std::string, COM::Variant>(v, "attributes");
             r.md5Attributes = Core::GetStringValue(v, "md5Attributes");
             r.lastReceived = Core::GetDatetimeValue(v, "lastReceived");
             r.created = Core::GetDatetimeValue(v, "created");
@@ -121,11 +108,9 @@ namespace Euclid::Dto::ENS {
                     {"topicErn", obj.topicErn},
                     {"messageId", obj.messageId},
                     {"status", obj.status},
-                    {"priority", obj.priority},
                     {"body", obj.body},
                     {"md5Body", obj.md5Body},
-                    {"receiptHandle", obj.receiptHandle},
-                    // {"attributes", boost::json::value_from(obj.attributes)},
+                    {"attributes", boost::json::value_from(obj.attributes)},
                     {"md5Attributes", obj.md5Attributes},
                     {"lastReceived", Core::DateTimeUtils::ToISO8601(obj.lastReceived)},
                     {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
