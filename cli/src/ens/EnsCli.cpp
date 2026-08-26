@@ -46,6 +46,9 @@ namespace Euclid::CLI {
                                            {"set-message-attribute", "Sets the value of a message attribute"},
                                            {"delete-topic", "Delete an existing topic"},
                                            {"list-messages", "List available messages"},
+                                           {"add-topic-tag", "Adds a tag to a topic"},
+                                           {"set-topic-tag", "Sets the value of an existing topic tag"},
+                                           {"delete-topic-tag", "Deletes a tag from a topic"},
                                    });
         }
         if (action == "create-topic") {
@@ -96,6 +99,15 @@ namespace Euclid::CLI {
         // if (action == "get-message-metadata") {
         //     return getMessageMetadata(args);
         // }
+        if (action == "add-topic-tag") {
+            return addTopicTag(args);
+        }
+        if (action == "set-topic-tag") {
+            return setTopicTag(args);
+        }
+        if (action == "delete-topic-tag") {
+            return deleteTopicTag(args);
+        }
         std::cerr << "error: unknown ENS action '" << action << "'\n";
         return 1;
     }
@@ -651,7 +663,7 @@ namespace Euclid::CLI {
                 ("value,v", po::value<std::string>()->required(), "tag value");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("ens", "add-topic-tag", "--topic <topic ERN> --key <value> --value <value>",
+            return PrintActionHelp("ens", "add-topic-tag", "--topic <ern> --key <value> --value <value>",
                                    "Adds a tag to a topic.",
                                    desc);
         }
@@ -732,7 +744,7 @@ namespace Euclid::CLI {
                 ("key,k", po::value<std::string>()->required(), "tag key");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("ens", "delete-topic-tag", "--topic <topic ERN> --key <value>",
+            return PrintActionHelp("ens", "delete-topic-tag", "--topic <ern> --key <value>",
                                    "Deletes a tag from a topic.",
                                    desc);
         }

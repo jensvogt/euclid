@@ -14,11 +14,6 @@ namespace Euclid::Dto::ENS {
     struct Topic {
 
         /**
-         * @brief Region the queue lives in
-         */
-        std::string region;
-
-        /**
          * @brief Queue name
          */
         std::string name;
@@ -82,7 +77,6 @@ namespace Euclid::Dto::ENS {
 
         friend Topic tag_invoke(boost::json::value_to_tag<Topic>, boost::json::value const &v) {
             Topic r;
-            r.region = Core::GetStringValue(v, "region");
             r.name = Core::GetStringValue(v, "name");
             r.owner = Core::GetStringValue(v, "owner");
             r.ern = Core::GetStringValue(v, "ern");
@@ -97,7 +91,6 @@ namespace Euclid::Dto::ENS {
 
         friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, Topic const &obj) {
             jv = {
-                    {"region", obj.region},
                     {"name", obj.name},
                     {"owner", obj.owner},
                     {"ern", obj.ern},
