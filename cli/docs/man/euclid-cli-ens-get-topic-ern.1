@@ -1,0 +1,38 @@
+.TH EUCLID-CLI-ENS-GET-TOPIC-ERN 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ens-get-topic-ern \- resolve a topic's ERN by name
+.SH SYNOPSIS
+.B euclid-cli ens get-topic-ern
+.BR \-\-name | \-n
+.I NAME
+.SH DESCRIPTION
+Resolves the Euclid resource name (ERN) of a topic by its name. The ERN
+is what
+.BR euclid-cli-ens-delete-topic (1)
+requires to identify the topic.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+Name of the topic to resolve. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The topic's name and ERN are printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or no topic
+with that name exists.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ens get-topic-ern \e
+    --name order-events
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ens (1),
+.BR euclid-cli-ens-create-topic (1),
+.BR euclid-cli-ens-list-topics (1),
+.BR euclid-cli-ens-delete-topic (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

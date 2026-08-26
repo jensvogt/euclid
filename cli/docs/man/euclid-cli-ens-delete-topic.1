@@ -1,0 +1,36 @@
+.TH EUCLID-CLI-ENS-DELETE-TOPIC 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ens-delete-topic \- delete a notification topic
+.SH SYNOPSIS
+.B euclid-cli ens delete-topic
+.BR \-\-topic | \-t
+.I ERN
+.SH DESCRIPTION
+Deletes a topic identified by its Euclid resource name (ERN). This
+cannot be undone.
+.SH OPTIONS
+.TP
+.BR \-t ", " \-\-topic " " \fIERN\fR
+Euclid resource name of the topic to delete. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The topic was deleted. No output is printed.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or no topic
+with that ERN exists.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ens delete-topic \e
+    --topic ern:ens:eu-central-1:000000000000:topic:order-events
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ens (1),
+.BR euclid-cli-ens-create-topic (1),
+.BR euclid-cli-ens-get-topic-ern (1),
+.BR euclid-cli-ens-list-topics (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
