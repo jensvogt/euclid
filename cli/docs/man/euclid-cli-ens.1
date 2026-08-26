@@ -1,0 +1,152 @@
+.TH EUCLID-CLI-ENS 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ens \- manage Euclid SNS-compatible notification topics
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+[\fB\-\-loglevel\fR \fILEVEL\fR]
+.B ens
+.I action
+[\fIaction-options\fR...]
+.SH DESCRIPTION
+The
+.B ens
+module talks to the Euclid gateway's ens service to create and manage
+SNS-compatible notification topics. Every
+.B ens
+command sends a single JSON request to the gateway
+(\fB\-\-endpoint\fR, default \fIhttps://localhost:5566\fR) and prints the
+JSON response on success.
+.PP
+All
+.B ens
+commands require the caller to be authenticated; see
+.B AUTHENTICATION
+below for how the session used to sign these requests is obtained. There
+is no administrator requirement - any authenticated user may create,
+list, resolve and delete topics.
+.SH ACTIONS
+.TP
+.B create-topic
+Creates a new topic with a given name and maximum message length. See
+.BR euclid-cli-ens-create-topic (1).
+.TP
+.B list-topics
+Lists topics, optionally filtered by name prefix, paged and sorted. See
+.BR euclid-cli-ens-list-topics (1).
+.TP
+.B get-topic-ern
+Resolves a topic's Euclid resource name (ERN) by its name. See
+.BR euclid-cli-ens-get-topic-ern (1).
+.TP
+.B delete-topic
+Deletes a topic by its ERN. See
+.BR euclid-cli-ens-delete-topic (1).
+.SH GLOBAL OPTIONS
+These options are given to
+.B euclid-cli
+itself, before the
+.I ens
+module name.
+.TP
+.BR \-e ", " \-\-endpoint " " \fIURL\fR
+Euclid gateway endpoint to talk to, e.g. \fIhttps://localhost:5566\fR.
+.TP
+.BR \-\-ca\-cert " " \fIPATH\fR
+Path to a PEM CA certificate to trust in addition to the system trust
+store, e.g. for self-signed development certificates.
+.TP
+.BR \-c ", " \-\-config " " \fIPATH\fR
+Path to a JSON configuration file providing defaults for action
+options (currently used by
+.BR euclid-cli-esm (1)
+only). Defaults to
+.IR /usr/local/euclid/etc/euclid.json ;
+silently ignored if the file doesn't exist.
+.TP
+.BR \-l ", " \-\-loglevel " " \fILEVEL\fR
+Log level: one of \fItrace\fR, \fIdebug\fR, \fIinfo\fR, \fIwarning\fR,
+\fIerror\fR, \fIfatal\fR. Defaults to \fIinfo\fR.
+.TP
+.BR \-h ", " \-\-help
+Print top-level usage and exit.
+.TP
+.BR \-v ", " \-\-version
+Print the euclid-cli version and exit.
+.SH AUTHENTICATION
+.B ens
+commands are authenticated using the session created by
+.BR euclid-cli-eam-login (1),
+loaded from
+.IR $HOME/.euclid/credentials .
+Unlike
+.B eam
+commands, which always send the bearer token,
+.B ens
+requests are signed with SigV4 (the same scheme Euclid SDKs use for SNS)
+using the access key ID and secret stored in that file, if present;
+.BR euclid-cli-eam-login (1)
+provisions this access key automatically on first login, so a separate
+.B eam create-access-key
+call is not normally needed. If no access key is stored, the bearer
+token is sent instead as an
+.I "Authorization: Bearer"
+header.
+.PP
+If the server rejects a request with
+.IR "HTTP 401" ,
+the stored credentials are left untouched (unlike
+.BR eam ,
+which clears them on 401); run
+.B euclid-cli eam login
+again if requests start failing with 401.
+.SH EXIT STATUS
+.TP
+.B 0
+The action completed successfully.
+.TP
+.B 1
+Argument parsing failed, the request could not be sent, or the server
+rejected it (missing/expired session, invalid input, topic not found,
+etc.). Details are printed to standard error.
+.SH FILES
+.TP
+.I $HOME/.euclid/credentials
+JSON file holding the current session's bearer token and/or SigV4
+access key, created by
+.B euclid-cli eam login
+and read by every
+.B ens
+action.
+.SH EXAMPLES
+Create a topic and resolve its ERN:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ens create-topic \e
+    --name order-events --max-length 65536
+
+euclid-cli --endpoint http://localhost:5566 ens get-topic-ern \e
+    --name order-events
+.fi
+.RE
+.PP
+List every topic, then delete one:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ens list-topics
+
+euclid-cli --endpoint http://localhost:5566 ens delete-topic \e
+    --topic ern:ens:eu-central-1:000000000000:topic:order-events
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli (1),
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-ens-create-topic (1),
+.BR euclid-cli-ens-list-topics (1),
+.BR euclid-cli-ens-get-topic-ern (1),
+.BR euclid-cli-ens-delete-topic (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
