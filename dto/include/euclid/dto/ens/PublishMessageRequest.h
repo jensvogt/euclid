@@ -6,20 +6,19 @@
 
 // C++ includes
 #include <map>
-#include <string>
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/com/Variant.h>
 
-namespace Euclid::Dto::EQS {
+namespace Euclid::Dto::ENS {
 
-    struct SendMessageRequest {
+    struct PublishMessageRequest {
 
         /**
-         * @brief Queue ERN
+         * @brief Topic ERN
          */
-        std::string queueErn{};
+        std::string topicErn{};
 
         /**
          * @brief Message body
@@ -32,11 +31,6 @@ namespace Euclid::Dto::EQS {
         std::map<std::string, COM::Variant> attributes{};
 
         /**
-         * @brief Message priority, i.e. "LOW", "MIDDLE" or "HIGH". Defaults to "MIDDLE".
-         */
-        std::string priority{"MIDDLE"};
-
-        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -47,28 +41,25 @@ namespace Euclid::Dto::EQS {
          * @brief Deserializes this request from a JSON string
          */
         [[nodiscard]]
-        static SendMessageRequest fromJson(const std::string &json) {
-            return boost::json::value_to<SendMessageRequest>(Core::ParseJsonString(json));
+        static PublishMessageRequest fromJson(const std::string &json) {
+            return boost::json::value_to<PublishMessageRequest>(Core::ParseJsonString(json));
         }
 
     private:
 
-        friend SendMessageRequest tag_invoke(boost::json::value_to_tag<SendMessageRequest>, boost::json::value const &v) {
-            SendMessageRequest r;
-            r.queueErn = Core::GetStringValue(v, "ern");
+        friend PublishMessageRequest tag_invoke(boost::json::value_to_tag<PublishMessageRequest>, boost::json::value const &v) {
+            PublishMessageRequest r;
+            r.topicErn = Core::GetStringValue(v, "ern");
             r.body = Core::GetStringValue(v, "body");
             r.attributes = Core::GetMapFromObject<std::string, COM::Variant>(v, "attributes");
-            r.priority = Core::GetStringValue(v, "priority");
-            if (r.priority.empty()) r.priority = "MIDDLE";
             return r;
         }
 
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, SendMessageRequest const &obj) {
+        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, PublishMessageRequest const &obj) {
             jv = {
-                    {"ern", obj.queueErn},
+                    {"ern", obj.topicErn},
                     {"body", obj.body},
                     {"attributes", boost::json::value_from(obj.attributes)},
-                    {"priority", obj.priority},
             };
         }
     };

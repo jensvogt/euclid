@@ -130,17 +130,16 @@ namespace Euclid::Database {
         // void upsertMessage(const Entity::EQS::Message &message) override;
 
         /**
-         * @brief Sends a message to a topic
+         * @brief Publish a message to a topic
          *
          * @param messageId messageId
          * @param ern message ERN
          * @param topicErn topic ERN
          * @param body message body
          * @param attributes message attributes
-         * @param priority message priority; defaults to MIDDLE
          * @return the newly created message entity
          */
-        // Entity::EQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &topicErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes, Entity::EQS::MessagePriority priority) override;
+        Entity::ENS::Message publishMessage(const std::string &messageId, const std::string &ern, const std::string &topicErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes) override;
 
         /**
          * @brief Receives up to maxCount available messages from a topic, long-polling for up to waitTime seconds
@@ -164,15 +163,16 @@ namespace Euclid::Database {
          *
          * @param topicErn topic ERN
          */
-        // void purgeTopic(const std::string &topicErn) override;
+        void purgeTopic(const std::string &topicErn) override;
 
         /**
-         * @brief Deletes all messages of every topic in a region/account
+         * @brief Deletes all messages of every topic in a region/account/nameSpace
          *
          * @param region region of the topics to purge
          * @param accountId account ID of the topics to purge
+         * @param nameSpace name space of the topics to purge
          */
-        // void purgeAllTopics(const std::string &region, const std::string &accountId) override;
+        void purgeAllTopics(const std::string &region, const std::string &accountId, const std::string &nameSpace) override;
 
         /**
          * @brief Find by message name
@@ -209,8 +209,8 @@ namespace Euclid::Database {
          * @param sortColumn message field to sort ascending by; empty leaves the order unspecified.
          * @return the requested page of messages.
          */
-        // [[nodiscard]]
-        // std::vector<Entity::EQS::Message> listMessages(const std::string &topicErn, long pageSize, long pageIndex, const std::string &sortColumn) const override;
+        [[nodiscard]]
+        std::vector<Entity::ENS::Message> listMessages(const std::string &topicErn, long pageSize, long pageIndex, const std::string &sortColumn) const override;
 
         /**
          * @brief Check the existence of the module by name
@@ -222,12 +222,12 @@ namespace Euclid::Database {
         // bool messageExists(const std::string &messageId) const override;
 
         /**
-         * @brief Get the total number of modules
+         * @brief Get the total number of messages
          *
-         * @return total number of modules
+         * @return total number of messages
          */
-        // [[nodiscard]]
-        // long countMessages() const override;
+        [[nodiscard]]
+        long countMessages() const override;
 
         /**
          * @brief Get the total number of messages of a topic
@@ -235,8 +235,8 @@ namespace Euclid::Database {
          * @param topicErn topic ERN
          * @return total number of messages of the topic
          */
-        // [[nodiscard]]
-        // long countMessages(const std::string &topicErn) const override;
+        [[nodiscard]]
+        long countMessages(const std::string &topicErn) const override;
 
         /**
          * @brief Delete all modules

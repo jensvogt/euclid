@@ -1,0 +1,50 @@
+.TH EUCLID-CLI-ENS-PURGE-ALL-TOPIC 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ens-purge-all-topic \- delete all messages from every topic in a region/account
+.SH SYNOPSIS
+.B euclid-cli ens purge-all-topic
+.BR \-\-region | \-r
+.I REGION
+.BR \-\-accountId | \-a
+.I ACCOUNT-ID
+[\fB\-\-namespace\fR|\fB\-n\fR \fINAMESPACE\fR]
+.SH DESCRIPTION
+Deletes all messages from every topic in the given region and account.
+If
+.B \-\-namespace
+is given, only topics in that namespace are purged; otherwise every
+topic in the region/account is purged regardless of namespace. No topic
+is deleted, only its messages. This cannot be undone.
+.SH OPTIONS
+.TP
+.BR \-r ", " \-\-region " " \fIREGION\fR
+Region whose topics should be purged. Required.
+.TP
+.BR \-a ", " \-\-accountId " " \fIACCOUNT-ID\fR
+Account ID whose topics should be purged. Required.
+.TP
+.BR \-n ", " \-\-namespace " " \fINAMESPACE\fR
+Only purge topics in this namespace. Optional; if omitted, all
+namespaces are purged.
+.SH EXIT STATUS
+.TP
+.B 0
+Every matching topic's messages were deleted. No output is printed.
+.TP
+.B 1
+Missing/invalid arguments or the server could not be reached.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ens purge-all-topic \e
+    --region eu-central-1 --accountId 000000000000
+
+euclid-cli --endpoint http://localhost:5566 ens purge-all-topic \e
+    --region eu-central-1 --accountId 000000000000 --namespace production
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ens (1),
+.BR euclid-cli-ens-purge-topic (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

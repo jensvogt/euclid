@@ -141,40 +141,33 @@ namespace Euclid::Database {
         //     // TODO: fix me
         //     //_messageStore[message.name] = message;
         // }
-        //
-        // Entity::EQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes, const Entity::EQS::MessagePriority priority) override {
-        //     std::lock_guard lock(_mutex);
-        //
-        //     Entity::EQS::Message message;
-        //     message.ern = ern;
-        //     message.queueErn = queueErn;
-        //     message.body = body;
-        //     message.size = static_cast<long>(body.size());
-        //     message.messageId = messageId;
-        //     message.contentType = Core::ContentTypeUtils::fromContent(message.body);
-        //     message.attributes = attributes;
-        //     message.md5Attributes = Entity::EQS::Message::ComputeAttributesMd5(attributes);
-        //     message.priority = priority;
-        //
-        //     for (auto &queue: _queueStore | std::views::values) {
-        //         if (queue.ern == queueErn) {
-        //             message.visibilityTimeout = queue.visibility;
-        //             if (queue.delay > 0) {
-        //                 message.status = Entity::EQS::MessageStatus::DELAYED;
-        //                 message.delayUntil = std::chrono::system_clock::now() + std::chrono::seconds(queue.delay);
-        //                 queue.delayed += 1;
-        //             } else {
-        //                 queue.available += 1;
-        //             }
-        //             queue.size += message.size;
-        //             queue.modified = std::chrono::system_clock::now();
-        //             break;
-        //         }
-        //     }
-        //
-        //     _messageStore[message.messageId] = message;
-        //     return message;
-        // }
+
+        Entity::ENS::Message publishMessage(const std::string &messageId, const std::string &ern, const std::string &topicErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes) override {
+            std::lock_guard lock(_mutex);
+
+            Entity::ENS::Message message;
+            message.ern = ern;
+            message.topicErn = topicErn;
+            message.body = body;
+            message.size = static_cast<long>(body.size());
+            message.messageId = messageId;
+            message.contentType = Core::ContentTypeUtils::fromContent(message.body);
+            message.attributes = attributes;
+            message.md5Attributes = Entity::ENS::Message::ComputeAttributesMd5(attributes);
+
+            for (auto &queue: _topicStore | std::views::values) {
+                if (queue.ern == topicErn) {
+                    queue.available += 1;
+                    queue.size += message.size;
+                    queue.modified = std::chrono::system_clock::now();
+                    break;
+                }
+            }
+
+            _messageStore[message.messageId] = message;
+            return message;
+        }
+
         //
         // std::vector<Entity::EQS::Message> receiveMessages(const std::string &queueErn, const long maxCount, const long waitTime) override {
         //     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(waitTime);
@@ -298,46 +291,43 @@ namespace Euclid::Database {
         //
         //     _messageStore.erase(it);
         // }
-        //
-        // void purgeQueue(const std::string &queueErn) override {
-        //     std::lock_guard lock(_mutex);
-        //     std::erase_if(_messageStore, [&queueErn](const auto &kv) {
-        //         return kv.second.queueErn == queueErn;
-        //     });
-        //
-        //     for (auto &queue: _queueStore | std::views::values) {
-        //         if (queue.ern == queueErn) {
-        //             queue.size = 0;
-        //             queue.available = 0;
-        //             queue.delayed = 0;
-        //             queue.invisible = 0;
-        //             queue.modified = std::chrono::system_clock::now();
-        //             break;
-        //         }
-        //     }
-        // }
-        //
-        // void purgeAllQueues(const std::string &region, const std::string &accountId) override {
-        //     std::lock_guard lock(_mutex);
-        //     const std::string marker = ":" + region + ":" + accountId + ":";
-        //
-        //     std::set<std::string> ernsToPurge;
-        //     for (auto &queue: _queueStore | std::views::values) {
-        //         if (queue.ern.find(marker) == std::string::npos) {
-        //             continue;
-        //         }
-        //         ernsToPurge.insert(queue.ern);
-        //         queue.size = 0;
-        //         queue.available = 0;
-        //         queue.delayed = 0;
-        //         queue.invisible = 0;
-        //         queue.modified = std::chrono::system_clock::now();
-        //     }
-        //
-        //     std::erase_if(_messageStore, [&ernsToPurge](const auto &kv) {
-        //         return ernsToPurge.contains(kv.second.queueErn);
-        //     });
-        // }
+
+        void purgeTopic(const std::string &topicErn) override {
+            std::lock_guard lock(_mutex);
+            std::erase_if(_messageStore, [&topicErn](const auto &kv) {
+                return kv.second.topicErn == topicErn;
+            });
+
+            for (auto &queue: _topicStore | std::views::values) {
+                if (queue.ern == topicErn) {
+                    queue.size = 0;
+                    queue.available = 0;
+                    queue.modified = std::chrono::system_clock::now();
+                    break;
+                }
+            }
+        }
+
+        void purgeAllTopics(const std::string &region, const std::string &accountId, const std::string &nameSpace) override {
+            std::lock_guard lock(_mutex);
+            const std::string marker = ":" + region + ":" + accountId + ":";
+
+            std::set<std::string> ernsToPurge;
+            for (auto &queue: _topicStore | std::views::values) {
+                if (queue.ern.find(marker) == std::string::npos) {
+                    continue;
+                }
+                ernsToPurge.insert(queue.ern);
+                queue.size = 0;
+                queue.available = 0;
+                queue.modified = std::chrono::system_clock::now();
+            }
+
+            std::erase_if(_messageStore, [&ernsToPurge](const auto &kv) {
+                return ernsToPurge.contains(kv.second.topicErn);
+            });
+        }
+
         //
         // std::optional<Entity::EQS::Message> findMessageByName(const std::string &name) const override {
         //     std::lock_guard lock(_mutex);
@@ -361,48 +351,50 @@ namespace Euclid::Database {
         //     for (const auto &m: _messageStore | std::views::values) result.push_back(m);
         //     return result;
         // }
-        //
-        // std::vector<Entity::EQS::Message> listMessages(const std::string &queueErn, const long pageSize, const long pageIndex, const std::string &sortColumn) const override {
-        //     std::lock_guard lock(_mutex);
-        //     std::vector<Entity::EQS::Message> result;
-        //     for (const auto &m: _messageStore | std::views::values) {
-        //         if (m.queueErn == queueErn) {
-        //             result.push_back(m);
-        //         }
-        //     }
-        //
-        //     if (sortColumn == "created") {
-        //         std::ranges::sort(result, {}, &Entity::EQS::Message::created);
-        //     } else if (sortColumn == "size") {
-        //         std::ranges::sort(result, {}, &Entity::EQS::Message::size);
-        //     } else if (sortColumn == "messageId") {
-        //         std::ranges::sort(result, {}, &Entity::EQS::Message::messageId);
-        //     }
-        //
-        //     if (pageSize > 0) {
-        //         const auto offset = std::min<size_t>(std::max<long>(pageIndex, 0) * pageSize, result.size());
-        //         const auto end = std::min<size_t>(offset + pageSize, result.size());
-        //         result = std::vector(result.begin() + static_cast<long>(offset), result.begin() + static_cast<long>(end));
-        //     }
-        //     return result;
-        // }
+
+        std::vector<Entity::ENS::Message> listMessages(const std::string &topicErn, const long pageSize, const long pageIndex, const std::string &sortColumn) const override {
+            std::lock_guard lock(_mutex);
+            std::vector<Entity::ENS::Message> result;
+            for (const auto &m: _messageStore | std::views::values) {
+                if (m.topicErn == topicErn) {
+                    result.push_back(m);
+                }
+            }
+
+            if (sortColumn == "created") {
+                std::ranges::sort(result, {}, &Entity::ENS::Message::created);
+            } else if (sortColumn == "size") {
+                std::ranges::sort(result, {}, &Entity::ENS::Message::size);
+            } else if (sortColumn == "messageId") {
+                std::ranges::sort(result, {}, &Entity::ENS::Message::messageId);
+            }
+
+            if (pageSize > 0) {
+                const auto offset = std::min<size_t>(std::max<long>(pageIndex, 0) * pageSize, result.size());
+                const auto end = std::min<size_t>(offset + pageSize, result.size());
+                result = std::vector(result.begin() + static_cast<long>(offset), result.begin() + static_cast<long>(end));
+            }
+            return result;
+        }
+
         //
         // bool messageExists(const std::string &name) const override {
         //     std::lock_guard lock(_mutex);
         //     return _messageStore.contains(name);
         // }
-        //
-        // long countMessages() const override {
-        //     std::lock_guard lock(_mutex);
-        //     return _messageStore.size();
-        // }
-        //
-        // long countMessages(const std::string &queueErn) const override {
-        //     std::lock_guard lock(_mutex);
-        //     return std::ranges::count_if(_messageStore | std::views::values, [&queueErn](const auto &message) {
-        //         return message.queueErn == queueErn;
-        //     });
-        // }
+
+        long countMessages() const override {
+            std::lock_guard lock(_mutex);
+            return static_cast<long>(_messageStore.size());
+        }
+
+        long countMessages(const std::string &topicErn) const override {
+            std::lock_guard lock(_mutex);
+            return std::ranges::count_if(_messageStore | std::views::values, [&topicErn](const auto &message) {
+                return message.topicErn == topicErn;
+            });
+        }
+
         //
         // void clearMessages() override {
         //     std::lock_guard lock(_mutex);

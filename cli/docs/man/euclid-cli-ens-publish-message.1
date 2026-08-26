@@ -1,0 +1,69 @@
+.TH EUCLID-CLI-ENS-PUBLISH-MESSAGE 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ens-publish-message \- publish a message to a topic
+.SH SYNOPSIS
+.B euclid-cli ens publish-message
+.BR \-\-topic | \-t
+.I ERN
+.BR \-\-body | \-b
+.I BODY
+[\fB\-\-attributes\fR|\fB\-a\fR \fIJSON\fR]
+.SH DESCRIPTION
+Publishes a message to a topic. If
+.B \-\-body
+starts with
+.IR file:// ,
+the message body is read from the referenced file instead of being
+taken literally.
+.PP
+The optional
+.B \-\-attributes
+value sets the message attributes as a JSON object mapping attribute
+name to
+.IR "{\(dqtype\(dq: <int|long|double|float|bool|string|binary>, \(dqvalue\(dq: <value>}" ,
+given either literally or via
+.I file://path
+to a file containing the JSON.
+.SH OPTIONS
+.TP
+.BR \-t ", " \-\-topic " " \fIERN\fR
+Euclid resource name of the destination topic. Required.
+.TP
+.BR \-b ", " \-\-body " " \fIBODY\fR
+Message body, given literally or as
+.I file://path
+to a file to read it from. Required.
+.TP
+.BR \-a ", " \-\-attributes " " \fIJSON\fR
+Message attributes as a JSON object, given literally or as
+.I file://path
+to a file to read it from. Optional.
+.SH EXIT STATUS
+.TP
+.B 0
+The message was published; its message ID and body/attribute MD5 sums
+are printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, a referenced
+.I file://
+path could not be read, or no topic with that ERN exists.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ens publish-message \e
+    --topic ern:ens:eu-central-1:000000000000:topic:order-events \e
+    --body 'hello world'
+
+euclid-cli --endpoint http://localhost:5566 ens publish-message \e
+    --topic ern:ens:eu-central-1:000000000000:topic:order-events \e
+    --body file://./payload.json \e
+    --attributes '{"orderId": {"type": "string", "value": "42"}}'
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ens (1),
+.BR euclid-cli-ens-create-topic (1),
+.BR euclid-cli-ens-list-messages (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

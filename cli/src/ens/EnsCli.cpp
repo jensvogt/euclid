@@ -1,8 +1,6 @@
 #include <euclid/cli/ens/EnsCli.h>
 
-#include "euclid/dto/ens/GetTopicErnRequest.h"
-#include "euclid/dto/ens/ListTopicsRequest.h"
-#include "euclid/dto/eqs/CreateQueueRequest.h"
+#include "euclid/dto/ens/PurgeAllTopicsRequest.h"
 
 namespace Euclid::CLI {
 
@@ -38,7 +36,11 @@ namespace Euclid::CLI {
                                            {"create-topic", "Create a new topic"},
                                            {"list-topics", "List all available topics"},
                                            {"get-topic-ern", "Returns the ERN for a topic"},
+                                           {"purge-topic", "Purge a topic by deleting all messages"},
+                                           {"purge-all-topic", "Purge all topics by deleting all messages"},
+                                           {"publish-message", "Publish a message to a topic"},
                                            {"delete-topic", "Delete an existing topic"},
+                                           {"list-messages", "List available messages"},
                                    });
         }
         if (action == "create-topic") {
@@ -50,21 +52,21 @@ namespace Euclid::CLI {
         if (action == "get-topic-ern") {
             return getTopicErn(args);
         }
-        // if (action == "purge-queue") {
-        //     return purgeQueue(args);
-        // }
-        // if (action == "purge-all-queues") {
-        //     return purgeAllQueues(args);
-        // }
+        if (action == "publish-message") {
+            return publishMessage(args);
+        }
+        if (action == "purge-topic") {
+            return purgeTopic(args);
+        }
+        if (action == "purge-all-topic") {
+            return purgeAllTopic(args);
+        }
         if (action == "delete-topic") {
             return deleteTopic(args);
         }
-        // if (action == "list-messages") {
-        //     return listMessages(args);
-        // }
-        // if (action == "send-message") {
-        //     return sendMessage(args);
-        // }
+        if (action == "list-messages") {
+            return listMessages(args);
+        }
         // if (action == "receive-messages") {
         //     return receiveMessages(args);
         // }
@@ -137,47 +139,50 @@ namespace Euclid::CLI {
         }
     }
 
-    //
-    // int EqsCli::listMessages(const std::vector<std::string> &args) const {
-    //     po::options_description desc("lists a queue's messages without receiving them");
-    //     desc.add_options()("queue-ern,e", po::value<std::string>()->required(), "queue ERN")("page-size,s", po::value<long>()->default_value(10), "page size")("page-index,i", po::value<long>()->default_value(0), "page index")("sort-column,c", po::value<std::string>()->default_value("created"), "sort column");
-    //
-    //     if (IsHelpRequest(args)) {
-    //         return PrintActionHelp("eqs", "list-messages", "--queue-ern <ern> [--page-size <n>] [--page-index <n>] [--sort-column <column>]",
-    //                                "Lists a queue's messages without receiving them, i.e. without changing their status or visibility. Paginated: pageSize defaults to 10, pageIndex to 0, sortColumn to \"created\".",
-    //                                desc);
-    //     }
-    //
-    //     po::variables_map vm;
-    //     try {
-    //         po::store(po::command_line_parser(args).options(desc).run(), vm);
-    //         po::notify(vm);
-    //     } catch (const po::error &ex) {
-    //         std::cerr << "error: " << ex.what() << "\n\n"
-    //                 << desc << std::endl;
-    //         return 1;
-    //     }
-    //
-    //     Dto::EQS::ListMessagesRequest request;
-    //     request.queueErn = vm["queue-ern"].as<std::string>();
-    //     request.pageSize = vm["page-size"].as<long>();
-    //     request.pageIndex = vm["page-index"].as<long>();
-    //     request.sortColumn = vm["sort-column"].as<std::string>();
-    //
-    //     try {
-    //         const HttpClient client(_endpoint, _authentication, _caCertPath);
-    //         const HttpResponse response = client.Post("eqs", "list-messages", boost::json::value_from(request));
-    //         if (!response.IsSuccess()) {
-    //             std::cerr << "error: list-messages failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
-    //             return 1;
-    //         }
-    //         Core::WriteJson(std::cout, response.body, _pretty);
-    //         return 0;
-    //     } catch (const std::exception &ex) {
-    //         std::cerr << "error: " << ex.what() << std::endl;
-    //         return 1;
-    //     }
-    // }
+    int EnsCli::listMessages(const std::vector<std::string> &args) const {
+        po::options_description desc("lists a topic's messages without receiving them");
+        desc.add_options()
+                ("topic,t", po::value<std::string>()->required(), "topic ERN")
+                ("page-size,s", po::value<long>()->default_value(10), "page size")
+                ("page-index,i", po::value<long>()->default_value(0), "page index")
+                ("sort-column,c", po::value<std::string>()->default_value("created"), "sort column");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ens", "list-messages", "--topic <ern> [--page-size <n>] [--page-index <n>] [--sort-column <column>]",
+                                   "Lists a topic's messages without receiving them, i.e. without changing their status. Paginated: pageSize defaults to 10, pageIndex to 0, sortColumn to \"created\".",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n"
+                    << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ENS::ListMessagesRequest request;
+        request.topicErn = vm["topic"].as<std::string>();
+        request.pageSize = vm["page-size"].as<long>();
+        request.pageIndex = vm["page-index"].as<long>();
+        request.sortColumn = vm["sort-column"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ens", "list-messages", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: list-messages failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
 
     int EnsCli::getTopicErn(const std::vector<std::string> &args) const {
         po::options_description desc("get topic ern options");
@@ -264,79 +269,87 @@ namespace Euclid::CLI {
         }
     }
 
-    //
-    // int EqsCli::purgeQueue(const std::vector<std::string> &args) const {
-    //     po::options_description desc("purge queue options");
-    //     desc.add_options()("ern,e", po::value<std::string>()->required(), "euclid resource name");
-    //
-    //     if (IsHelpRequest(args)) {
-    //         return PrintActionHelp("eqs", "purge-queue", "--ern <ern>",
-    //                                "Deletes all messages from a SQS queue identified by its Euclid resource name (ERN).",
-    //                                desc);
-    //     }
-    //
-    //     po::variables_map vm;
-    //     try {
-    //         po::store(po::command_line_parser(args).options(desc).run(), vm);
-    //         po::notify(vm);
-    //     } catch (const po::error &ex) {
-    //         std::cerr << "error: " << ex.what() << "\n\n"
-    //                 << desc << std::endl;
-    //         return 1;
-    //     }
-    //
-    //     Dto::EQS::PurgeQueueRequest request;
-    //     request.ern = vm["ern"].as<std::string>();
-    //
-    //     try {
-    //         const HttpClient client(_endpoint, _authentication, _caCertPath);
-    //         if (const HttpResponse response = client.Post("eqs", "purge-queue", boost::json::value_from(request)); !response.IsSuccess()) {
-    //             std::cerr << "error: purge-queue failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
-    //             return 1;
-    //         }
-    //         return 0;
-    //     } catch (const std::exception &ex) {
-    //         std::cerr << "error: " << ex.what() << std::endl;
-    //         return 1;
-    //     }
-    // }
-    //
-    // int EqsCli::purgeAllQueues(const std::vector<std::string> &args) const {
-    //     po::options_description desc("purge all queues options");
-    //     desc.add_options()("region,r", po::value<std::string>()->required(), "region")("accountId,a", po::value<std::string>()->required(), "account ID");
-    //
-    //     if (IsHelpRequest(args)) {
-    //         return PrintActionHelp("eqs", "purge-all-queues", "--region <region> --accountId <accountId>",
-    //                                "Deletes all messages from every SQS queue in the given region and account.",
-    //                                desc);
-    //     }
-    //
-    //     po::variables_map vm;
-    //     try {
-    //         po::store(po::command_line_parser(args).options(desc).run(), vm);
-    //         po::notify(vm);
-    //     } catch (const po::error &ex) {
-    //         std::cerr << "error: " << ex.what() << "\n\n"
-    //                 << desc << std::endl;
-    //         return 1;
-    //     }
-    //
-    //     Dto::EQS::PurgeAllQueuesRequest request;
-    //     request.region = vm["region"].as<std::string>();
-    //     request.accountId = vm["accountId"].as<std::string>();
-    //
-    //     try {
-    //         const HttpClient client(_endpoint, _authentication, _caCertPath);
-    //         if (const HttpResponse response = client.Post("eqs", "purge-all-queues", boost::json::value_from(request)); !response.IsSuccess()) {
-    //             std::cerr << "error: purge-all-queues failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
-    //             return 1;
-    //         }
-    //         return 0;
-    //     } catch (const std::exception &ex) {
-    //         std::cerr << "error: " << ex.what() << std::endl;
-    //         return 1;
-    //     }
-    // }
+    int EnsCli::purgeTopic(const std::vector<std::string> &args) const {
+        po::options_description desc("purge topic options");
+        desc.add_options()
+                ("topic,t", po::value<std::string>()->required(), "topic ERN");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ens", "purge-topic", "--topic <ern>",
+                                   "Deletes all messages from a ENS topic identified by its Euclid resource name (ERN).",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n"
+                    << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ENS::PurgeTopicRequest request;
+        request.ern = vm["topic"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            if (const HttpResponse response = client.Post("ens", "purge-topic", boost::json::value_from(request)); !response.IsSuccess()) {
+                std::cerr << "error: purge-topic failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EnsCli::purgeAllTopic(const std::vector<std::string> &args) const {
+        po::options_description desc("purge all topics options");
+        desc.add_options()
+                ("region,r", po::value<std::string>()->required(), "region")
+                ("accountId,a", po::value<std::string>()->required(), "account ID")
+                ("namespace,n", po::value<std::string>(), "name space");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ens", "purge-all-topics", "--region <region> --accountId <accountId> --namespace <namespace>",
+                                   "Deletes all messages from every ENS topic in the given region, account and namespace. If no namespace is specified "
+                                   "purges all topics of the region/accountId.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n"
+                    << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ENS::PurgeAllTopicsRequest request;
+        request.region = vm["region"].as<std::string>();
+        request.accountId = vm["accountId"].as<std::string>();
+        if (vm.contains("namespace")) {
+            request.nameSpace = vm["nameSpace"].as<std::string>();
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            if (const HttpResponse response = client.Post("ens", "purge-all-topics", boost::json::value_from(request)); !response.IsSuccess()) {
+                std::cerr << "error: purge-all-topics failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
     //
     // int EqsCli::getQueueMetadata(const std::vector<std::string> &args) const {
     //     po::options_description desc("returns the metadata of a queue");
@@ -412,58 +425,57 @@ namespace Euclid::CLI {
         }
     }
 
-    //
-    // int EqsCli::sendMessage(const std::vector<std::string> &args) const {
-    //     po::options_description desc("send message options");
-    //     desc.add_options()("queue,q", po::value<std::string>()->required(), "queue resource name")("body,b", po::value<std::string>()->required(), "message body")("attributes,a", po::value<std::string>(), "message attributes")("priority,p", po::value<std::string>()->default_value("MIDDLE"), "message priority (LOW|MIDDLE|HIGH)");
-    //
-    //     if (IsHelpRequest(args)) {
-    //         return PrintActionHelp("eqs", "send-message", "--queue <ern> --body <body|file://path> [--attributes <json|file://path>] [--priority <LOW|MIDDLE|HIGH>]",
-    //                                "Sends a message to an SQS queue. If --body starts with 'file://', the message "
-    //                                "body is read from the referenced file instead of being taken literally. The optional --attributes value sets the message "
-    //                                "attributes as a JSON object mapping attribute name to {\"type\": <int|long|double|float|bool|string|binary>, \"value\": <value>}, "
-    //                                "given either literally or via 'file://path' to a file containing the JSON. --priority defaults to MIDDLE and influences how "
-    //                                "the message is prioritized by receive-messages.",
-    //                                desc);
-    //     }
-    //
-    //     po::variables_map vm;
-    //     try {
-    //         po::store(po::command_line_parser(args).options(desc).run(), vm);
-    //         po::notify(vm);
-    //     } catch (const po::error &ex) {
-    //         std::cerr << "error: " << ex.what() << "\n\n"
-    //                 << desc << std::endl;
-    //         return 1;
-    //     }
-    //
-    //     Dto::EQS::SendMessageRequest request;
-    //     request.queueErn = vm["queue"].as<std::string>();
-    //     request.priority = vm["priority"].as<std::string>();
-    //
-    //     try {
-    //         request.body = ResolveFileOrLiteral(vm["body"].as<std::string>());
-    //         if (vm.contains("attributes")) {
-    //             const std::string attributesJson = ResolveFileOrLiteral(vm["attributes"].as<std::string>());
-    //             const boost::json::value attributesValue = Core::ParseJsonString(attributesJson);
-    //             for (const auto &attribute: attributesValue.as_object()) {
-    //                 request.attributes.emplace(attribute.key(), boost::json::value_to<Dto::EQS::Variant>(attribute.value()));
-    //             }
-    //         }
-    //         const HttpClient client(_endpoint, _authentication, _caCertPath);
-    //         const HttpResponse response = client.Post("eqs", "send-message", boost::json::value_from(request));
-    //         if (!response.IsSuccess()) {
-    //             std::cerr << "error: send-message failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
-    //             return 1;
-    //         }
-    //         Core::WriteJson(std::cout, response.body, _pretty);
-    //         return 0;
-    //     } catch (const std::exception &ex) {
-    //         std::cerr << "error: " << ex.what() << std::endl;
-    //         return 1;
-    //     }
-    // }
-    //
+    int EnsCli::publishMessage(const std::vector<std::string> &args) const {
+        po::options_description desc("publish message options");
+        desc.add_options()
+                ("topic,t", po::value<std::string>()->required(), "topic ERN")
+                ("body,b", po::value<std::string>()->required(), "message body")
+                ("attributes,a", po::value<std::string>(), "message attributes");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ens", "publish-message", "--topic <ern> --body <body|file://path> [--attributes <json|file://path>]",
+                                   "Sends a message to an ENS topic. If --body starts with 'file://', the message "
+                                   "body is read from the referenced file instead of being taken literally. The optional --attributes value sets the message "
+                                   "attributes as a JSON object mapping attribute name to {\"type\": <int|long|double|float|bool|string|binary>, \"value\": <value>}, "
+                                   "given either literally or via 'file://path' to a file containing the JSON.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n"
+                    << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ENS::PublishMessageRequest request;
+        request.topicErn = vm["topic"].as<std::string>();
+
+        try {
+            request.body = ResolveFileOrLiteral(vm["body"].as<std::string>());
+            if (vm.contains("attributes")) {
+                const std::string attributesJson = ResolveFileOrLiteral(vm["attributes"].as<std::string>());
+                for (const boost::json::value attributesValue = Core::ParseJsonString(attributesJson); const auto &attribute: attributesValue.as_object()) {
+                    request.attributes.emplace(attribute.key(), boost::json::value_to<Dto::COM::Variant>(attribute.value()));
+                }
+            }
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ens", "publish-message", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: publish-message failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
     // int EqsCli::receiveMessages(const std::vector<std::string> &args) const {
     //     po::options_description desc("receive messages options");
     //     desc.add_options()

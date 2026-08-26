@@ -6,10 +6,10 @@
 
 namespace Euclid::Dto::ENS {
 
-    Database::Entity::COM::Variant EnsMapper::toEntity(const EQS::Variant &dto) {
+    Database::Entity::COM::Variant EnsMapper::toEntity(const COM::Variant &dto) {
         Database::Entity::COM::Variant entityVariant;
         std::visit([&entityVariant]<typename T>(const T &val) {
-            if constexpr (std::is_same_v<T, EQS::Binary>) {
+            if constexpr (std::is_same_v<T, COM::Binary>) {
                 entityVariant.value = Database::Entity::COM::Binary(val.begin(), val.end());
             } else {
                 entityVariant.value = val;
@@ -18,8 +18,8 @@ namespace Euclid::Dto::ENS {
         return entityVariant;
     }
 
-    EQS::Variant EnsMapper::toDto(const Database::Entity::COM::Variant &entity) {
-        EQS::Variant variant;
+    COM::Variant EnsMapper::toDto(const Database::Entity::COM::Variant &entity) {
+        COM::Variant variant;
         std::visit([&variant]<typename T>(const T &val) {
             if constexpr (std::is_same_v<T, Database::Entity::COM::Binary>) {
                 variant.value = Database::Entity::COM::Binary(val.begin(), val.end());
@@ -76,10 +76,9 @@ namespace Euclid::Dto::ENS {
         dto.messageId = entity.messageId;
         dto.body = entity.body;
         dto.md5Body = entity.md5Body;
-        dto.receiptHandle = entity.receiptHandle;
-        // for (const auto &[key, attr]: entity.attributes) {
-        //     dto.attributes[key] = toDto(attr);
-        // }
+        for (const auto &[key, attr]: entity.attributes) {
+            dto.attributes[key] = toDto(attr);
+        }
         dto.md5Attributes = entity.md5Attributes;
         dto.lastReceived = entity.lastReceived;
         dto.created = entity.created;
@@ -104,10 +103,9 @@ namespace Euclid::Dto::ENS {
         entity.body = dto.body;
         entity.md5Body = dto.md5Body;
         entity.md5Attributes = dto.md5Attributes;
-        entity.receiptHandle = dto.receiptHandle;
-        // for (const auto &[key, variant]: dto.attributes) {
-        //     entity.attributes[key] = toEntity(variant);
-        // }
+        for (const auto &[key, variant]: dto.attributes) {
+            entity.attributes[key] = toEntity(variant);
+        }
         entity.lastReceived = dto.lastReceived;
         entity.created = dto.created;
         entity.modified = dto.modified;
