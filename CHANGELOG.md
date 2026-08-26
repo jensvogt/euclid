@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.37](https://github.com/jensvogt/euclid/compare/1.0.36...v1.0.37) (2026-08-26)
+
+
+### Bug Fixes
+
+* ENS get topic metadata, message count ([a48ed16](https://github.com/jensvogt/euclid/commit/a48ed16dc88c6d4e35dab4fbacf6ccd6562e1e81))
+* ENS purge topic, purge all topics ([c3f0857](https://github.com/jensvogt/euclid/commit/c3f08575c243ad80b93d5d0e421c3656c6610bbb))
+
 ## [1.0.36](https://github.com/jensvogt/euclid/compare/1.0.35...v1.0.36) (2026-08-26)
 
 
