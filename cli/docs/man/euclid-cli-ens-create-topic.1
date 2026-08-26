@@ -1,0 +1,47 @@
+.TH EUCLID-CLI-ENS-CREATE-TOPIC 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ens-create-topic \- create a new notification topic
+.SH SYNOPSIS
+.B euclid-cli ens create-topic
+.BR \-\-name | \-n
+.I NAME
+[\fB\-\-max\-length\fR|\fB\-l\fR \fIBYTES\fR]
+.SH DESCRIPTION
+Creates a new topic with the given name and maximum message length.
+.PP
+The topic is created in the caller's own account and region (taken from
+the logged-in session, not given on the command line). The created
+topic's name and Euclid resource name (ERN) are printed as JSON.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+Name of the topic to create. Required.
+.TP
+.BR \-l ", " \-\-max\-length " " \fIBYTES\fR
+Maximum message body length, in bytes. Defaults to \fI1048576\fR (1 MiB).
+.SH EXIT STATUS
+.TP
+.B 0
+The topic was created; its ERN is printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or the
+server rejected the request (e.g. a topic with that name already
+exists).
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ens create-topic \e
+    --name order-events
+
+euclid-cli --endpoint http://localhost:5566 ens create-topic \e
+    --name order-events --max-length 65536
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ens (1),
+.BR euclid-cli-ens-list-topics (1),
+.BR euclid-cli-ens-get-topic-ern (1),
+.BR euclid-cli-ens-delete-topic (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

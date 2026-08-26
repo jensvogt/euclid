@@ -1,0 +1,51 @@
+.TH EUCLID-CLI-ENS-LIST-TOPICS 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ens-list-topics \- list notification topics
+.SH SYNOPSIS
+.B euclid-cli ens list-topics
+[\fB\-\-prefix\fR|\fB\-p\fR \fIPREFIX\fR]
+[\fB\-\-pageSize\fR|\fB\-s\fR \fIN\fR]
+[\fB\-\-pageIndex\fR|\fB\-i\fR \fIN\fR]
+[\fB\-\-sortColumn\fR|\fB\-c\fR \fICOLUMN\fR]
+.SH DESCRIPTION
+Lists topics in the caller's own account, optionally filtered by name
+prefix and paginated.
+.SH OPTIONS
+.TP
+.BR \-p ", " \-\-prefix " " \fIPREFIX\fR
+Only list topics whose name starts with this prefix. Optional; if
+omitted, all topics in the account are listed.
+.TP
+.BR \-s ", " \-\-pageSize " " \fIN\fR
+Maximum number of topics to return. Defaults to \fI-1\fR (no paging).
+.TP
+.BR \-i ", " \-\-pageIndex " " \fIN\fR
+Zero-based page index to return when \fB\-\-pageSize\fR is set.
+Defaults to \fI-1\fR.
+.TP
+.BR \-c ", " \-\-sortColumn " " \fICOLUMN\fR
+Column to sort results by. Defaults to \fIname\fR.
+.SH EXIT STATUS
+.TP
+.B 0
+The matching topics are printed as JSON (possibly an empty list).
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or the
+server rejected the request.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ens list-topics
+
+euclid-cli --endpoint http://localhost:5566 ens list-topics \e
+    --prefix order- --pageSize 20 --pageIndex 0 --sortColumn name
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ens (1),
+.BR euclid-cli-ens-create-topic (1),
+.BR euclid-cli-ens-get-topic-ern (1),
+.BR euclid-cli-ens-delete-topic (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
