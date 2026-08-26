@@ -1,10 +1,6 @@
 // Euclid includes
 #include <EnsServer.h>
 
-#include "euclid/dto/ens/GetMessageAttributeRequest.h"
-#include "euclid/dto/ens/GetMessageAttributeResponse.h"
-#include "euclid/dto/ens/SetMessageAttributeRequest.h"
-
 namespace Euclid::ENS {
 
     namespace beast = boost::beast;
@@ -467,77 +463,77 @@ namespace Euclid::ENS {
     //     return EnsServer::JsonResponse(req, status::ok, boost::json::serialize(body));
     // }
     //
-    // static response<string_body> handleAddQueueTag(const request<string_body> &req) {
-    //
-    //     Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "add-queue-tag");
-    //
-    //     if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
-    //
-    //     boost::json::value jv;
-    //     if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
-    //
-    //     const auto [ern, key, value] = boost::json::value_to<Dto::ENS::AddQueueTagRequest>(jv);
-    //     log_info << "ENS AddQueueTag, ern: " << ern << ", key: " << key;
-    //
-    //     const auto repo = Database::RepositoryFactory::instance().ensRepository();
-    //     std::optional<Database::Entity::ENS::Queue> queue = repo->findQueueByErn(ern);
-    //     if (!queue.has_value()) {
-    //         return EnsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + ern);
-    //     }
-    //     queue->tags[key] = value;
-    //     queue = repo->upsertQueue(queue.value());
-    //
-    //     return EnsServer::JsonResponse(req, status::ok);
-    // }
-    //
-    // static response<string_body> handleSetQueueTag(const request<string_body> &req) {
-    //
-    //     Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-queue-tag");
-    //
-    //     if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
-    //
-    //     boost::json::value jv;
-    //     if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
-    //
-    //     const auto [ern, key, value] = boost::json::value_to<Dto::ENS::AddQueueTagRequest>(jv);
-    //     log_info << "ENS SetQueueTag, ern: " << ern << ", key: " << key;
-    //
-    //     const auto repo = Database::RepositoryFactory::instance().ensRepository();
-    //     std::optional<Database::Entity::ENS::Queue> queue = repo->findQueueByErn(ern);
-    //     if (!queue.has_value()) {
-    //         return EnsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + ern);
-    //     }
-    //     if (!queue.value().tags.contains(key)) {
-    //         return EnsServer::ErrorResponse(req, status::not_found, "Tag not found, key: " + key);
-    //     }
-    //     queue->tags[key] = value;
-    //     queue = repo->upsertQueue(queue.value());
-    //
-    //     return EnsServer::JsonResponse(req, status::ok);
-    // }
-    //
-    // static response<string_body> handleDeleteQueueTag(const request<string_body> &req) {
-    //
-    //     Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-queue-tag");
-    //
-    //     if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
-    //
-    //     boost::json::value jv;
-    //     if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
-    //
-    //     const auto [ern, key] = boost::json::value_to<Dto::ENS::DeleteQueueTagRequest>(jv);
-    //     log_info << "ENS DeleteQueueTag, ern: " << ern << ", key: " << key;
-    //
-    //     const auto repo = Database::RepositoryFactory::instance().ensRepository();
-    //     std::optional<Database::Entity::ENS::Queue> queue = repo->findQueueByErn(ern);
-    //     if (!queue.has_value()) {
-    //         return EnsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + ern);
-    //     }
-    //     queue->tags.erase(key);
-    //     queue = repo->upsertQueue(queue.value());
-    //
-    //     return EnsServer::JsonResponse(req, status::ok);
-    // }
+    static response<string_body> handleAddTopicTag(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "add-topic-tag");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto [ern, key, value] = boost::json::value_to<Dto::ENS::AddTopicTagRequest>(jv);
+        log_info << "ENS AddTopicTag, ern: " << ern << ", key: " << key;
+
+        const auto repo = Database::RepositoryFactory::instance().ensRepository();
+        std::optional<Database::Entity::ENS::Topic> topic = repo->findTopicByErn(ern);
+        if (!topic.has_value()) {
+            return EnsServer::ErrorResponse(req, status::not_found, "Topic not found, ern: " + ern);
+        }
+        topic->tags[key] = value;
+        topic = repo->upsertTopic(topic.value());
+
+        return EnsServer::JsonResponse(req, status::ok);
+    }
+
+    static response<string_body> handleSetTopicTag(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-topic-tag");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto [ern, key, value] = boost::json::value_to<Dto::ENS::AddTopicTagRequest>(jv);
+        log_info << "ENS SetTopicTag, ern: " << ern << ", key: " << key;
+
+        const auto repo = Database::RepositoryFactory::instance().ensRepository();
+        std::optional<Database::Entity::ENS::Topic> topic = repo->findTopicByErn(ern);
+        if (!topic.has_value()) {
+            return EnsServer::ErrorResponse(req, status::not_found, "Topic not found, ern: " + ern);
+        }
+        if (!topic.value().tags.contains(key)) {
+            return EnsServer::ErrorResponse(req, status::not_found, "Tag not found, key: " + key);
+        }
+        topic->tags[key] = value;
+        topic = repo->upsertTopic(topic.value());
+
+        return EnsServer::JsonResponse(req, status::ok);
+    }
+
+    static response<string_body> handleDeleteTopicTag(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-topic-tag");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto [ern, key] = boost::json::value_to<Dto::ENS::DeleteTopicTagRequest>(jv);
+        log_info << "ENS DeleteTopicTag, ern: " << ern << ", key: " << key;
+
+        const auto repo = Database::RepositoryFactory::instance().ensRepository();
+        std::optional<Database::Entity::ENS::Topic> topic = repo->findTopicByErn(ern);
+        if (!topic.has_value()) {
+            return EnsServer::ErrorResponse(req, status::not_found, "Topic not found, ern: " + ern);
+        }
+        topic->tags.erase(key);
+        topic = repo->upsertTopic(topic.value());
+
+        return EnsServer::JsonResponse(req, status::ok);
+    }
 
     // ── Request dispatcher ───────────────────────────────────────────────────
 
@@ -562,9 +558,9 @@ namespace Euclid::ENS {
             PurgeAllTopics,
             GetMetadata,
             AddMetadata,
-            AddQueueTag,
-            SetQueueTag,
-            DeleteQueueTag,
+            AddTopicTag,
+            SetTopicTag,
+            DeleteTopicTag,
             GetMetrics
         };
     }
@@ -582,6 +578,9 @@ namespace Euclid::ENS {
         if (action == "get-message-attribute") return Command::GetMessageAttribute;
         if (action == "set-message-attribute") return Command::SetMessageAttribute;
         if (action == "get-topic-metadata") return Command::GetMetadata;
+        if (action == "add-topic-tag") return Command::AddTopicTag;
+        if (action == "set-topic-tag") return Command::SetTopicTag;
+        if (action == "delete-topic-tag") return Command::DeleteTopicTag;
         // if (action == "delete-message") return Command::DeleteMessage;
         // if (action == "purge-queue") return Command::PurgeQueue;
         // if (action == "purge-all-queues") return Command::PurgeAllQueues;
@@ -648,14 +647,14 @@ namespace Euclid::ENS {
             // case Command::GetMessageMetadata:
             //     return handleGetMessageMetadata(req);
             //
-            // case Command::AddQueueTag:
-            //     return handleAddQueueTag(req);
-            //
-            // case Command::SetQueueTag:
-            //     return handleSetQueueTag(req);
-            //
-            // case Command::DeleteQueueTag:
-            //     return handleDeleteQueueTag(req);
+            case Command::AddTopicTag:
+                return handleAddTopicTag(req);
+
+            case Command::SetTopicTag:
+                return handleSetTopicTag(req);
+
+            case Command::DeleteTopicTag:
+                return handleDeleteTopicTag(req);
 
             case Command::GetMetrics:
                 return EnsServer::MetricsResponse(req);
