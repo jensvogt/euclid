@@ -198,12 +198,11 @@ namespace Euclid::Database {
             if (auto result = queueCollection.find_one_and_update(filter.view(), update.view(), opts)) {
                 return Entity::ENS::Topic::fromDocument(result->view());
             }
-            throw std::runtime_error("upsert returned no document, name: " + topic.name);
 
         } catch (const std::exception &e) {
-            log_error << "Upsert topic failed, error: " << e.what();
-            throw;
+            log_error << "Upsert SQS queue failed, error: " << e.what();
         }
+        return topic;
     }
 
 
