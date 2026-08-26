@@ -16,6 +16,7 @@
 #include <bsoncxx/builder/basic/document.hpp>
 
 // Euclid includes
+#include <euclid/database/entity/BaseEntity.h>
 #include <euclid/database/entity/eqs/QueueAttribute.h>
 
 namespace Euclid::Database::Entity::EQS {
@@ -27,12 +28,7 @@ namespace Euclid::Database::Entity::EQS {
      *
      * @author jens.vogt\@opitz-consulting.com
      */
-    struct Queue final {
-
-        /**
-         * @brief Region
-         */
-        std::string region;
+    struct Queue final : BaseEntity {
 
         /**
          * @brief Owner

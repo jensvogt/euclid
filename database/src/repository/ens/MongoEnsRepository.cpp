@@ -24,15 +24,15 @@ namespace Euclid::Database {
 
         try {
             const auto entry = Database::instance().client();
-            auto queueCollection = (*entry)[Database::instance().databaseName()][TOPIC_COLLECTION];
+            auto topicCollection = (*entry)[Database::instance().databaseName()][TOPIC_COLLECTION];
 
-            mongocxx::options::index queueNameOpts;
-            queueNameOpts.unique(true);
-            queueCollection.create_index(make_document(kvp("name", 1)), queueNameOpts);
+            mongocxx::options::index topicNameOpts;
+            topicNameOpts.unique(true);
+            topicCollection.create_index(make_document(kvp("name", 1)), topicNameOpts);
 
-            mongocxx::options::index queueErnOpts;
-            queueErnOpts.unique(true);
-            queueCollection.create_index(make_document(kvp("ern", 1)), queueErnOpts);
+            mongocxx::options::index topicErnOpts;
+            topicErnOpts.unique(true);
+            topicCollection.create_index(make_document(kvp("ern", 1)), topicErnOpts);
             //
             // auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
             //
@@ -52,7 +52,7 @@ namespace Euclid::Database {
             // messageCollection.create_index(make_document(kvp("messageId", 1)), messageIdOpts);
 
         } catch (const std::exception &e) {
-            log_error << "Ensure SQS indexes failed, error: " << e.what();
+            log_error << "Ensure ENS indexes failed, error: " << e.what();
         }
     }
 
@@ -98,23 +98,24 @@ namespace Euclid::Database {
     //     }
     //     return {};
     // }
-    //
-    // std::optional<Entity::EQS::Queue> MongoEqsRepository::findQueueByName(const std::string &name) const {
-    //
-    //     try {
-    //
-    //         const auto entry = Database::instance().client();
-    //         auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
-    //
-    //         if (auto mResult = queueCollection.find_one(make_document(kvp("name", name)))) {
-    //             return Entity::EQS::Queue::fromDocument(mResult.value());
-    //         }
-    //
-    //     } catch (const std::exception &e) {
-    //         log_error << "Get queues by name failed, name: " << name << " error: " << e.what();
-    //     }
-    //     return {};
-    // }
+
+    std::optional<Entity::ENS::Topic> MongoEnsRepository::findTopicByName(const std::string &name) const {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto topicCollection = (*entry)[Database::instance().databaseName()][TOPIC_COLLECTION];
+
+            if (auto mResult = topicCollection.find_one(make_document(kvp("name", name)))) {
+                return Entity::ENS::Topic::fromDocument(mResult.value());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Get topic by name failed, name: " << name << " error: " << e.what();
+        }
+        return {};
+    }
+
     //
     // std::optional<Entity::EQS::Queue> MongoEqsRepository::findQueueByErn(const std::string &ern) const {
     //
@@ -132,40 +133,44 @@ namespace Euclid::Database {
     //     }
     //     return {};
     // }
-    //
-    // std::vector<Entity::EQS::Queue> MongoEqsRepository::listQueues(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
-    //
-    //     try {
-    //
-    //         document filter = {};
-    //         if (!prefix.empty()) {
-    //             filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
-    //         }
-    //
-    //         mongocxx::options::find opts;
-    //         if (!sortColumn.empty()) {
-    //             opts.sort(make_document(kvp(sortColumn, 1)));
-    //         }
-    //         if (pageSize > 0) {
-    //             opts.limit(pageSize);
-    //             opts.skip(std::max<long>(pageIndex, 0) * pageSize);
-    //         }
-    //
-    //         std::vector<Entity::EQS::Queue> queues;
-    //         const auto entry = Database::instance().client();
-    //         auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
-    //
-    //         for (auto queueCursor = queueCollection.find(filter.view(), opts); auto queue: queueCursor) {
-    //             queues.push_back(Entity::EQS::Queue::fromDocument(queue));
-    //         }
-    //         return queues;
-    //
-    //     } catch (const std::exception &e) {
-    //
-    //         log_error << "Get SQS queues failed, error: " << e.what();
-    //         return {};
-    //     }
-    // }
+
+    std::vector<Entity::ENS::Topic> MongoEnsRepository::listTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
+
+        try {
+
+            document filter = {};
+            filter.append(kvp("accountId", accountId));
+            if (!namespaceName.empty()) {
+                filter.append(kvp("namespace", namespaceName));
+            }
+            if (!prefix.empty()) {
+                filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
+            }
+
+            mongocxx::options::find opts;
+            if (!sortColumn.empty()) {
+                opts.sort(make_document(kvp(sortColumn, 1)));
+            }
+            if (pageSize > 0) {
+                opts.limit(pageSize);
+                opts.skip(std::max<long>(pageIndex, 0) * pageSize);
+            }
+
+            std::vector<Entity::ENS::Topic> topics;
+            const auto entry = Database::instance().client();
+            auto queueCollection = (*entry)[Database::instance().databaseName()][TOPIC_COLLECTION];
+
+            for (auto queueCursor = queueCollection.find(filter.view(), opts); auto queue: queueCursor) {
+                topics.push_back(Entity::ENS::Topic::fromDocument(queue));
+            }
+            return topics;
+
+        } catch (const std::exception &e) {
+
+            log_error << "Get ENS topics failed, error: " << e.what();
+            return {};
+        }
+    }
 
     Entity::ENS::Topic MongoEnsRepository::upsertTopic(Entity::ENS::Topic &topic) {
 
@@ -201,24 +206,31 @@ namespace Euclid::Database {
         return topic;
     }
 
-    //
-    // long MongoEqsRepository::countQueues() const {
-    //
-    //     try {
-    //
-    //         const auto entry = Database::instance().client();
-    //         auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
-    //
-    //         const int64_t count = queueCollection.count_documents({});
-    //         log_trace << "Service state: " << std::boolalpha << count;
-    //         return static_cast<int>(count);
-    //
-    //     } catch (const std::exception &e) {
-    //
-    //         log_error << "Service exists failed, error: " << e.what();
-    //     }
-    //     return -1;
-    // }
+
+    long MongoEnsRepository::countTopics(const std::string &accountId, const std::string &namespaceName) const {
+
+        try {
+
+            document filter = {};
+            filter.append(kvp("accountId", accountId));
+            if (!namespaceName.empty()) {
+                filter.append(kvp("namespace", namespaceName));
+            }
+
+            const auto entry = Database::instance().client();
+            auto queueCollection = (*entry)[Database::instance().databaseName()][TOPIC_COLLECTION];
+
+            const int64_t count = queueCollection.count_documents(filter.extract());
+            log_trace << "Topic count: " << count;
+            return static_cast<int>(count);
+
+        } catch (const std::exception &e) {
+
+            log_error << "Topic count failed, error: " << e.what();
+        }
+        return -1;
+    }
+
     //
     // void MongoEqsRepository::removeQueueByName(const std::string &name) {
     //
@@ -251,25 +263,26 @@ namespace Euclid::Database {
     //
     // }
     //
-    // void MongoEqsRepository::deleteQueueByErn(const std::string &ern) {
-    //
-    //     try {
-    //         const auto entry = Database::instance().client();
-    //         auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
-    //         auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
-    //
-    //         const auto result = queueCollection.delete_many(make_document(kvp("ern", ern)));
-    //         log_debug << "Sqs deleted, count: " << result->deleted_count();
-    //
-    //         const auto messageResult = messageCollection.delete_many(make_document(kvp("queueErn", ern)));
-    //         log_debug << "Sqs messages deleted, count: " << messageResult->deleted_count();
-    //
-    //     } catch (const std::exception &e) {
-    //
-    //         log_error << "Delete queues failed, error: " << e.what();
-    //     }
-    //
-    // }
+    void MongoEnsRepository::deleteTopicByErn(const std::string &ern) {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto topicCollection = (*entry)[Database::instance().databaseName()][TOPIC_COLLECTION];
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            const auto result = topicCollection.delete_many(make_document(kvp("ern", ern)));
+            log_debug << "END topic deleted, count: " << result->deleted_count();
+
+            const auto messageResult = messageCollection.delete_many(make_document(kvp("topicErn", ern)));
+            log_debug << "ENS messages deleted, count: " << messageResult->deleted_count();
+
+        } catch (const std::exception &e) {
+
+            log_error << "Delete topic failed, error: " << e.what();
+        }
+
+    }
+
     //
     // void MongoEqsRepository::clearQueues() {
     //

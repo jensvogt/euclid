@@ -23,7 +23,7 @@ namespace Euclid::Database::Entity::ENS {
 
         return bsoncxx::builder::basic::make_document(
                 bsoncxx::builder::basic::kvp("ern", ern),
-                bsoncxx::builder::basic::kvp("queueErn", queueErn),
+                bsoncxx::builder::basic::kvp("topicErn", topicErn),
                 bsoncxx::builder::basic::kvp("body", body),
                 bsoncxx::builder::basic::kvp("size", static_cast<int64_t>(size)),
                 bsoncxx::builder::basic::kvp("messageId", messageId),
@@ -42,7 +42,7 @@ namespace Euclid::Database::Entity::ENS {
         for (const auto &field: *document) {
             if (const auto key = field.key(); key == "_id") oid = field.get_oid().value.to_string();
             else if (key == "ern") ern = std::string(field.get_string().value);
-            else if (key == "queueErn") queueErn = std::string(field.get_string().value);
+            else if (key == "topicErn") topicErn = std::string(field.get_string().value);
             else if (key == "body") body = std::string(field.get_string().value);
             else if (key == "size") size = getBsonInt(field);
             else if (key == "messageId") messageId = std::string(field.get_string().value);

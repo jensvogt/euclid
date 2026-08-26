@@ -1,5 +1,9 @@
 #include <euclid/cli/ens/EnsCli.h>
 
+#include "euclid/dto/ens/GetTopicErnRequest.h"
+#include "euclid/dto/ens/ListTopicsRequest.h"
+#include "euclid/dto/eqs/CreateQueueRequest.h"
+
 namespace Euclid::CLI {
 
     namespace po = boost::program_options;
@@ -32,28 +36,31 @@ namespace Euclid::CLI {
         if (action == "help" || action == "--help" || action == "-h") {
             return PrintModuleHelp("ens", {
                                            {"create-topic", "Create a new topic"},
+                                           {"list-topics", "List all available topics"},
+                                           {"get-topic-ern", "Returns the ERN for a topic"},
+                                           {"delete-topic", "Delete an existing topic"},
                                    });
         }
         if (action == "create-topic") {
             return createTopic(args);
         }
-        // if (action == "list-queues") {
-        //     return listQueues(args);
-        // }
-        // if (action == "list-messages") {
-        //     return listMessages(args);
-        // }
-        // if (action == "get-queue-ern") {
-        //     return getQueueErn(args);
-        // }
+        if (action == "list-topics") {
+            return listTopics(args);
+        }
+        if (action == "get-topic-ern") {
+            return getTopicErn(args);
+        }
         // if (action == "purge-queue") {
         //     return purgeQueue(args);
         // }
         // if (action == "purge-all-queues") {
         //     return purgeAllQueues(args);
         // }
-        // if (action == "delete-queue") {
-        //     return deleteQueue(args);
+        if (action == "delete-topic") {
+            return deleteTopic(args);
+        }
+        // if (action == "list-messages") {
+        //     return listMessages(args);
         // }
         // if (action == "send-message") {
         //     return sendMessage(args);
@@ -111,13 +118,13 @@ namespace Euclid::CLI {
             return 1;
         }
 
-        Dto::EQS::CreateQueueRequest request;
+        Dto::ENS::CreateTopicRequest request;
         request.name = vm["name"].as<std::string>();
         request.maxMessageLength = vm["max-length"].as<long>();
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("end", "create-topic", boost::json::value_from(request));
+            const HttpResponse response = client.Post("ens", "create-topic", boost::json::value_from(request));
             if (!response.IsSuccess()) {
                 std::cerr << "error: create-topic failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
@@ -171,87 +178,92 @@ namespace Euclid::CLI {
     //         return 1;
     //     }
     // }
-    //
-    // int EqsCli::getQueueErn(const std::vector<std::string> &args) const {
-    //     po::options_description desc("get queue ern options");
-    //     desc.add_options()("name,n", po::value<std::string>()->required(), "name");
-    //
-    //     if (IsHelpRequest(args)) {
-    //         return PrintActionHelp("eqs", "get-queue-ern", "--name <name>",
-    //                                "Resolves the Euclid resource name (ERN) of a queue by its name.",
-    //                                desc);
-    //     }
-    //
-    //     po::variables_map vm;
-    //     try {
-    //         po::store(po::command_line_parser(args).options(desc).run(), vm);
-    //         po::notify(vm);
-    //     } catch (const po::error &ex) {
-    //         std::cerr << "error: " << ex.what() << "\n\n"
-    //                 << desc << std::endl;
-    //         return 1;
-    //     }
-    //
-    //     Dto::EQS::CreateQueueRequest request;
-    //     request.name = vm["name"].as<std::string>();
-    //
-    //     try {
-    //         const HttpClient client(_endpoint, _authentication, _caCertPath);
-    //         const HttpResponse response = client.Post("eqs", "get-queue-ern", boost::json::value_from(request));
-    //         if (!response.IsSuccess()) {
-    //             std::cerr << "error: get-queue-ern failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
-    //             return 1;
-    //         }
-    //         Core::WriteJson(std::cout, response.body, _pretty);
-    //         return 0;
-    //     } catch (const std::exception &ex) {
-    //         std::cerr << "error: " << ex.what() << std::endl;
-    //         return 1;
-    //     }
-    // }
-    //
-    // int EqsCli::listQueues(const std::vector<std::string> &args) const {
-    //     po::options_description desc("list queues options");
-    //     desc.add_options()("prefix,p", po::value<std::string>(), "queue name prefix")("pageSize,s", po::value<long>()->default_value(-1), "page size")("pageIndex,i", po::value<long>()->default_value(-1), "page index")("sortColumn,c", po::value<std::string>()->default_value("name"), "sort column");
-    //
-    //     if (IsHelpRequest(args)) {
-    //         return PrintActionHelp("eqs", "list-queues", "[--prefix <prefix>] [--pageSize <n>] [--pageIndex <n>] [--sortColumn <column>]",
-    //                                "Lists SQS queues, optionally filtered by name prefix and paginated.",
-    //                                desc);
-    //     }
-    //
-    //     po::variables_map vm;
-    //     try {
-    //         po::store(po::command_line_parser(args).options(desc).run(), vm);
-    //         po::notify(vm);
-    //     } catch (const po::error &ex) {
-    //         std::cerr << "error: " << ex.what() << "\n\n"
-    //                 << desc << std::endl;
-    //         return 1;
-    //     }
-    //
-    //     Dto::EQS::ListQueueRequest request;
-    //     if (vm.contains("prefix")) {
-    //         request.prefix = vm["prefix"].as<std::string>();
-    //     }
-    //     request.pageSize = vm["pageSize"].as<long>();
-    //     request.pageIndex = vm["pageIndex"].as<long>();
-    //     request.sortColumn = vm["sortColumn"].as<std::string>();
-    //
-    //     try {
-    //         const HttpClient client(_endpoint, _authentication, _caCertPath);
-    //         const HttpResponse response = client.Post("eqs", "list-queues", boost::json::value_from(request));
-    //         if (!response.IsSuccess()) {
-    //             std::cerr << "error: list-queues failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
-    //             return 1;
-    //         }
-    //         Core::WriteJson(std::cout, response.body, _pretty);
-    //         return 0;
-    //     } catch (const std::exception &ex) {
-    //         std::cerr << "error: " << ex.what() << std::endl;
-    //         return 1;
-    //     }
-    // }
+
+    int EnsCli::getTopicErn(const std::vector<std::string> &args) const {
+        po::options_description desc("get topic ern options");
+        desc.add_options()("name,n", po::value<std::string>()->required(), "name");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ens", "get-topic-ern", "--name <name>",
+                                   "Resolves the Euclid resource name (ERN) of a topic by its name.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n"
+                    << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ENS::GetTopicErnRequest request;
+        request.name = vm["name"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ens", "get-topic-ern", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: get-topic-ern failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EnsCli::listTopics(const std::vector<std::string> &args) const {
+        po::options_description desc("list topics options");
+        desc.add_options()
+                ("prefix,p", po::value<std::string>(), "queue name prefix")
+                ("pageSize,s", po::value<long>()->default_value(-1), "page size")
+                ("pageIndex,i", po::value<long>()->default_value(-1), "page index")
+                ("sortColumn,c", po::value<std::string>()->default_value("name"), "sort column");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ens", "list-topics", "[--prefix <prefix>] [--pageSize <n>] [--pageIndex <n>] [--sortColumn <column>]",
+                                   "Lists ENS queues, optionally filtered by name prefix and paginated.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n"
+                    << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ENS::ListTopicsRequest request;
+        request.pageSize = vm["pageSize"].as<long>();
+        request.pageIndex = vm["pageIndex"].as<long>();
+        request.sortColumn = vm["sortColumn"].as<std::string>();
+        if (vm.contains("prefix")) {
+            request.prefix = vm["prefix"].as<std::string>();
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ens", "list-topics", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: list-topics failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
     //
     // int EqsCli::purgeQueue(const std::vector<std::string> &args) const {
     //     po::options_description desc("purge queue options");
@@ -364,41 +376,42 @@ namespace Euclid::CLI {
     //     }
     // }
     //
-    // int EqsCli::deleteQueue(const std::vector<std::string> &args) const {
-    //     po::options_description desc("delete queue options");
-    //     desc.add_options()("ern,e", po::value<std::string>()->required(), "euclid resource name");
-    //
-    //     if (IsHelpRequest(args)) {
-    //         return PrintActionHelp("eqs", "delete-queue", "--ern <ern>",
-    //                                "Deletes an SQS queue identified by its Euclid resource name (ERN).",
-    //                                desc);
-    //     }
-    //
-    //     po::variables_map vm;
-    //     try {
-    //         po::store(po::command_line_parser(args).options(desc).run(), vm);
-    //         po::notify(vm);
-    //     } catch (const po::error &ex) {
-    //         std::cerr << "error: " << ex.what() << "\n\n"
-    //                 << desc << std::endl;
-    //         return 1;
-    //     }
-    //
-    //     Dto::EQS::DeleteQueueRequest request;
-    //     request.ern = vm["ern"].as<std::string>();
-    //
-    //     try {
-    //         const HttpClient client(_endpoint, _authentication, _caCertPath);
-    //         if (const HttpResponse response = client.Post("eqs", "delete-queue", boost::json::value_from(request)); !response.IsSuccess()) {
-    //             std::cerr << "error: delete-queue failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
-    //             return 1;
-    //         }
-    //         return 0;
-    //     } catch (const std::exception &ex) {
-    //         std::cerr << "error: " << ex.what() << std::endl;
-    //         return 1;
-    //     }
-    // }
+    int EnsCli::deleteTopic(const std::vector<std::string> &args) const {
+        po::options_description desc("delete topic options");
+        desc.add_options()("topic,t", po::value<std::string>()->required(), "topic ERN");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ens", "delete-topic", "--topic <ern>",
+                                   "Deletes an ENS topic identified by its ERN.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n"
+                    << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ENS::DeleteTopicRequest request;
+        request.ern = vm["topic"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            if (const HttpResponse response = client.Post("ens", "delete-topic", boost::json::value_from(request)); !response.IsSuccess()) {
+                std::cerr << "error: delete-topic failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
     //
     // int EqsCli::sendMessage(const std::vector<std::string> &args) const {
     //     po::options_description desc("send message options");

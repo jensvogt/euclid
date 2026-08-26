@@ -26,9 +26,14 @@ namespace Euclid::Database {
             const auto entry = Database::instance().client();
             auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
 
+            // Compound on (accountId, namespace, name) rather than name alone - queue names only
+            // need to be unique within their own account/namespace, not globally. NOTE: replacing
+            // a pre-existing unique index on "name" alone requires dropping that old index first
+            // (Mongo won't do this automatically), and will fail if duplicate names already exist
+            // across accounts in production data - this is an operational migration step.
             mongocxx::options::index queueNameOpts;
             queueNameOpts.unique(true);
-            queueCollection.create_index(make_document(kvp("name", 1)), queueNameOpts);
+            queueCollection.create_index(make_document(kvp("accountId", 1), kvp("namespace", 1), kvp("name", 1)), queueNameOpts);
 
             mongocxx::options::index queueErnOpts;
             queueErnOpts.unique(true);
@@ -132,11 +137,15 @@ namespace Euclid::Database {
         return {};
     }
 
-    std::vector<Entity::EQS::Queue> MongoEqsRepository::listQueues(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
+    std::vector<Entity::EQS::Queue> MongoEqsRepository::listQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
 
         try {
 
             document filter = {};
+            filter.append(kvp("accountId", accountId));
+            if (!namespaceName.empty()) {
+                filter.append(kvp("namespace", namespaceName));
+            }
             if (!prefix.empty()) {
                 filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
             }
@@ -161,7 +170,7 @@ namespace Euclid::Database {
 
         } catch (const std::exception &e) {
 
-            log_error << "Get SQS queues failed, error: " << e.what();
+            log_error << "Get EQS queues failed, error: " << e.what();
             return {};
         }
     }
@@ -170,7 +179,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto filter = make_document(kvp("name", queue.name));
+            const auto filter = make_document(kvp("accountId", queue.accountId), kvp("namespace", queue.namespaceName), kvp("name", queue.name));
             const auto update = make_document(
                     kvp("$set", queue.toDocument()),
                     kvp("$setOnInsert", make_document(
@@ -195,19 +204,25 @@ namespace Euclid::Database {
             }
 
         } catch (const std::exception &e) {
-            log_error << "Upsert SQS queue failed, error: " << e.what();
+            log_error << "Upsert EQS queue failed, error: " << e.what();
         }
         return queue;
     }
 
-    long MongoEqsRepository::countQueues() const {
+    long MongoEqsRepository::countQueues(const std::string &accountId, const std::string &namespaceName) const {
 
         try {
+
+            document filter = {};
+            filter.append(kvp("accountId", accountId));
+            if (!namespaceName.empty()) {
+                filter.append(kvp("namespace", namespaceName));
+            }
 
             const auto entry = Database::instance().client();
             auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
 
-            const int64_t count = queueCollection.count_documents({});
+            const int64_t count = queueCollection.count_documents(filter.extract());
             log_trace << "Service state: " << std::boolalpha << count;
             return static_cast<int>(count);
 
@@ -233,13 +248,13 @@ namespace Euclid::Database {
             }
 
             const auto result = queueCollection.delete_many(make_document(kvp("name", name)));
-            log_debug << "Sqs deleted, count: " << result->deleted_count();
+            log_debug << "EQS deleted, count: " << result->deleted_count();
 
             if (!erns.empty()) {
                 array ernArray;
                 for (const auto &ern: erns) ernArray.append(ern);
                 const auto messageResult = messageCollection.delete_many(make_document(kvp("queueErn", make_document(kvp("$in", ernArray.view())))));
-                log_debug << "Sqs messages deleted, count: " << messageResult->deleted_count();
+                log_debug << "EQS messages deleted, count: " << messageResult->deleted_count();
             }
 
         } catch (const std::exception &e) {
@@ -257,10 +272,10 @@ namespace Euclid::Database {
             auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
 
             const auto result = queueCollection.delete_many(make_document(kvp("ern", ern)));
-            log_debug << "Sqs deleted, count: " << result->deleted_count();
+            log_debug << "EQS deleted, count: " << result->deleted_count();
 
             const auto messageResult = messageCollection.delete_many(make_document(kvp("queueErn", ern)));
-            log_debug << "Sqs messages deleted, count: " << messageResult->deleted_count();
+            log_debug << "EQS messages deleted, count: " << messageResult->deleted_count();
 
         } catch (const std::exception &e) {
 
@@ -659,19 +674,18 @@ namespace Euclid::Database {
     void MongoEqsRepository::purgeAllQueues(const std::string &region, const std::string &accountId) {
 
         try {
-            const std::string marker = ":" + region + ":" + accountId + ":";
-
             const auto entry = Database::instance().client();
             auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
             auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
 
+            // Filters on the entity's own region/accountId fields now that they exist, rather
+            // than the previous full-scan-and-substring-match-on-ERN workaround.
             array ernArray;
             long queueCount = 0;
-            for (auto queueCursor = queueCollection.find({}); auto queue: queueCursor) {
-                if (const auto entity = Entity::EQS::Queue::fromDocument(queue); entity.ern.find(marker) != std::string::npos) {
-                    ernArray.append(entity.ern);
-                    ++queueCount;
-                }
+            const auto scopeFilter = make_document(kvp("region", region), kvp("accountId", accountId));
+            for (auto queueCursor = queueCollection.find(scopeFilter.view()); auto queue: queueCursor) {
+                ernArray.append(Entity::EQS::Queue::fromDocument(queue).ern);
+                ++queueCount;
             }
 
             if (queueCount == 0) {

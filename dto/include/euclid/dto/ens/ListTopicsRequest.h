@@ -7,9 +7,9 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 
-namespace Euclid::Dto::EQS {
+namespace Euclid::Dto::ENS {
 
-    struct ListQueueRequest {
+    struct ListTopicsRequest {
 
         /**
          * @brief User ID prefix
@@ -40,8 +40,8 @@ namespace Euclid::Dto::EQS {
 
     private:
 
-        friend ListQueueRequest tag_invoke(boost::json::value_to_tag<ListQueueRequest>, boost::json::value const &v) {
-            ListQueueRequest r;
+        friend ListTopicsRequest tag_invoke(boost::json::value_to_tag<ListTopicsRequest>, boost::json::value const &v) {
+            ListTopicsRequest r;
             r.prefix = Core::GetStringValue(v, "prefix");
             r.pageSize = Core::GetLongValue(v, "pageSize");
             r.pageIndex = Core::GetLongValue(v, "pageIndex");
@@ -49,7 +49,7 @@ namespace Euclid::Dto::EQS {
             return r;
         }
 
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ListQueueRequest const &obj) {
+        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ListTopicsRequest const &obj) {
             jv = {
                     {"prefix", obj.prefix},
                     {"pageSize", obj.pageSize},

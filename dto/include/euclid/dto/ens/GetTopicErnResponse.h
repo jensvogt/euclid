@@ -8,17 +8,17 @@
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/BaseDto.h>
 
-namespace Euclid::Dto::EQS {
+namespace Euclid::Dto::ENS {
 
-    struct GetQueueErnResponse : BaseDto {
+    struct GetTopicErnResponse {
 
         /**
-         * @brief Queue name
+         * @brief Topic name
          */
         std::string name{};
 
         /**
-         * @brief Queue ERN
+         * @brief Topic ERN
          */
         std::string ern{};
 
@@ -31,14 +31,14 @@ namespace Euclid::Dto::EQS {
 
     private:
 
-        friend GetQueueErnResponse tag_invoke(boost::json::value_to_tag<GetQueueErnResponse>, boost::json::value const &v) {
-            GetQueueErnResponse r;
+        friend GetTopicErnResponse tag_invoke(boost::json::value_to_tag<GetTopicErnResponse>, boost::json::value const &v) {
+            GetTopicErnResponse r;
             r.name = Core::GetStringValue(v, "name");
             r.ern = Core::GetStringValue(v, "ern");
             return r;
         }
 
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetQueueErnResponse const &obj) {
+        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetTopicErnResponse const &obj) {
             jv = {
                     {"name", obj.name},
                     {"ern", obj.ern},

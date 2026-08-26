@@ -1,5 +1,5 @@
 //
-// Created by vogje01 on 8/23/26.
+// Created by vogje01 on 8/16/26.
 //
 
 #pragma once
@@ -7,21 +7,26 @@
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 
-namespace Euclid::Dto::ESM {
+namespace Euclid::Dto::ENS {
 
     using std::chrono::system_clock;
 
-    struct Bucket {
+    struct Topic {
 
         /**
-         * @brief Bucket owner
+         * @brief Region the queue lives in
          */
-        std::string owner;
+        std::string region;
 
         /**
-         * @brief Bucket name
+         * @brief Queue name
          */
         std::string name;
+
+        /**
+         * @brief Queue owner
+         */
+        std::string owner;
 
         /**
          * @brief Euclid resource name
@@ -29,19 +34,24 @@ namespace Euclid::Dto::ESM {
         std::string ern;
 
         /**
-         * @brief Size in bytes
-         */
-        long size{};
-
-        /**
-         * @brief Number of objects
-         */
-        long objects{};
-
-        /**
          * @brief Queue tags
          */
         std::map<std::string, std::string> tags;
+
+        /**
+         * @brief Queue size in bytes
+         */
+        long size = 0;
+
+        /**
+         * @brief Number of messages in the queue
+         */
+        long messages = 0;
+
+        /**
+         * @brief Visibility in seconds
+         */
+        long maxMessageLength = 1024 * 1024;
 
         /**
          * @brief Creation date
@@ -64,37 +74,41 @@ namespace Euclid::Dto::ESM {
          * @brief Deserializes this request from a JSON string
          */
         [[nodiscard]]
-        static Bucket fromJson(const std::string &json) {
-            return boost::json::value_to<Bucket>(Core::ParseJsonString(json));
+        static Topic fromJson(const std::string &json) {
+            return boost::json::value_to<Topic>(Core::ParseJsonString(json));
         }
 
     private:
 
-        friend Bucket tag_invoke(boost::json::value_to_tag<Bucket>, boost::json::value const &v) {
-            Bucket r;
-            r.owner = Core::GetStringValue(v, "owner");
+        friend Topic tag_invoke(boost::json::value_to_tag<Topic>, boost::json::value const &v) {
+            Topic r;
+            r.region = Core::GetStringValue(v, "region");
             r.name = Core::GetStringValue(v, "name");
+            r.owner = Core::GetStringValue(v, "owner");
             r.ern = Core::GetStringValue(v, "ern");
-            r.size = Core::GetLongValue(v, "size");
-            r.objects = Core::GetLongValue(v, "objects");
             r.tags = Core::GetMapFromObject<std::string, std::string>(v, "tags");
+            r.size = Core::GetLongValue(v, "size", 0);
+            r.messages = Core::GetLongValue(v, "messages", 0);
+            r.maxMessageLength = Core::GetLongValue(v, "maxMessageLength", 1024 * 1024);
             r.created = Core::GetDatetimeValue(v, "created");
             r.modified = Core::GetDatetimeValue(v, "modified");
             return r;
         }
 
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, Bucket const &obj) {
+        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, Topic const &obj) {
             jv = {
-                    {"owner", obj.owner},
+                    {"region", obj.region},
                     {"name", obj.name},
+                    {"owner", obj.owner},
                     {"ern", obj.ern},
-                    {"size", obj.size},
-                    {"objects", obj.objects},
                     {"tags", boost::json::value_from(obj.tags)},
+                    {"size", obj.size},
+                    {"messages", obj.messages},
+                    {"maxMessageLength", obj.maxMessageLength},
                     {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
             };
         }
     };
 
-}// namespace Euclid::Dto::ESM
+}// namespace Euclid::Dto::EQS

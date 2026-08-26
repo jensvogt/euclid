@@ -10,6 +10,8 @@ namespace Euclid::Database::Entity::ESM {
 
         return bsoncxx::builder::basic::make_document(
                 bsoncxx::builder::basic::kvp("region", region),
+                bsoncxx::builder::basic::kvp("accountId", accountId),
+                bsoncxx::builder::basic::kvp("namespace", namespaceName),
                 bsoncxx::builder::basic::kvp("owner", owner),
                 bsoncxx::builder::basic::kvp("bucketErn", bucketErn),
                 bsoncxx::builder::basic::kvp("key", key),
@@ -28,6 +30,8 @@ namespace Euclid::Database::Entity::ESM {
         for (const auto &field: *document) {
             if (const auto fieldKey = field.key(); fieldKey == "_id") object.oid = field.get_oid().value.to_string();
             else if (fieldKey == "region") object.region = std::string(field.get_string().value);
+            else if (fieldKey == "accountId") object.accountId = std::string(field.get_string().value);
+            else if (fieldKey == "namespace") object.namespaceName = std::string(field.get_string().value);
             else if (fieldKey == "owner") object.owner = std::string(field.get_string().value);
             else if (fieldKey == "bucketErn") object.bucketErn = std::string(field.get_string().value);
             else if (fieldKey == "key") object.key = std::string(field.get_string().value);

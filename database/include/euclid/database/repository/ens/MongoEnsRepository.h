@@ -16,7 +16,7 @@ namespace Euclid::Database {
     /**
      * @brief ENS MongoDB database.
      *
-     * Controls all the Euclid queueing modules.
+     * Controls all the Euclid topicing modules.
      *
      * @author jens.vogt\@opitz-consulting.com
      */
@@ -38,64 +38,65 @@ namespace Euclid::Database {
         }
 
         /**
-         * @brief Update or insert a queue
+         * @brief Update or insert a topic
          *
          * @param topic topic entity
          */
         Entity::ENS::Topic upsertTopic(Entity::ENS::Topic &topic) override;
 
         /**
-         * @brief Removes a queue entity
+         * @brief Removes a topic entity
          *
          * @param name module name
          */
-        //void removeQueueByName(const std::string &name) override;
+        //void removeTopicByName(const std::string &name) override;
 
         /**
-         * @brief Removes a queue entity by ERN
+         * @brief Removes a topic entity by ERN
          *
-         * @param ern queue ERN
+         * @param ern topic ERN
          */
-        // void deleteQueueByErn(const std::string &ern) override;
+        void deleteTopicByErn(const std::string &ern) override;
 
         /**
-         * @brief Find by queue name
+         * @brief Find by topic name
          *
-         * @param name queue name
-         * @return optional queue
+         * @param name topic name
+         * @return optional topic
          */
-        // [[nodiscard]]
-        // std::optional<Entity::EQS::Queue> findQueueByName(const std::string &name) const override;
+        [[nodiscard]]
+        std::optional<Entity::ENS::Topic> findTopicByName(const std::string &name) const override;
 
         /**
-         * @brief Find by queue ID
+         * @brief Find by topic ID
          *
-         * @param oid queue OID
-         * @return optional queue
-         */
-        // [[nodiscard]]
-        // std::optional<Entity::EQS::Queue> findQueueById(const std::string &oid) const override;
-
-        /**
-         * @brief Find by queue ERN
-         *
-         * @param ern queue ERN
-         * @return optional queue
+         * @param oid topic OID
+         * @return optional topic
          */
         // [[nodiscard]]
-        // std::optional<Entity::EQS::Queue> findQueueByErn(const std::string &ern) const override;
+        // std::optional<Entity::EQS::Topic> findTopicById(const std::string &oid) const override;
 
         /**
-         * @brief Find all queues
+         * @brief Find by topic ERN
          *
-         * @param prefix only queues whose name starts with this prefix are returned; empty matches all queues
-         * @param pageSize maximum number of queues to return; 0 or less means no limit
+         * @param ern topic ERN
+         * @return optional topic
+         */
+        // [[nodiscard]]
+        // std::optional<Entity::EQS::Topic> findTopicByErn(const std::string &ern) const override;
+
+        /**
+         * @brief Find all topics
+         *
+         * @param accountId only topics belonging to this account are returned
+         * @param namespaceName only topics in this namespace are returned; empty means don't filter by namespace
+         * @param pageSize maximum number of topics to return; 0 or less means no limit
          * @param pageIndex zero-based page index, applied when pageSize is set
          * @param sortColumn field to sort by (e.g. "name", "arn"); empty means unsorted
-         * @return list of all queue entities.
+         * @return list of all topic entities.
          */
-        // [[nodiscard]]
-        // std::vector<Entity::EQS::Queue> listQueues(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const override;
+        [[nodiscard]]
+        std::vector<Entity::ENS::Topic> listTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const override;
 
         /**
          * @brief Check the existence of the module by name
@@ -104,20 +105,22 @@ namespace Euclid::Database {
          * @return true if module exists
          */
         // [[nodiscard]]
-        // bool queueExists(const std::string &name) const override;
+        // bool topicExists(const std::string &name) const override;
 
         /**
          * @brief Get the total number of modules
          *
+         * @param accountId only topics belonging to this account are returned
+         * @param namespaceName only topics in this namespace are returned; empty means don't filter by namespace
          * @return total number of modules
          */
-        // [[nodiscard]]
-        // long countQueues() const override;
+        [[nodiscard]]
+        long countTopics(const std::string &accountId, const std::string &namespaceName) const override;
 
         /**
          * @brief Delete all modules
          */
-        // void clearQueues() override;
+        // void clearTopics() override;
 
         /**
          * @brief Update or insert a message
@@ -127,27 +130,27 @@ namespace Euclid::Database {
         // void upsertMessage(const Entity::EQS::Message &message) override;
 
         /**
-         * @brief Sends a message to a queue
+         * @brief Sends a message to a topic
          *
          * @param messageId messageId
          * @param ern message ERN
-         * @param queueErn queue ERN
+         * @param topicErn topic ERN
          * @param body message body
          * @param attributes message attributes
          * @param priority message priority; defaults to MIDDLE
          * @return the newly created message entity
          */
-        // Entity::EQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes, Entity::EQS::MessagePriority priority) override;
+        // Entity::EQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &topicErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes, Entity::EQS::MessagePriority priority) override;
 
         /**
-         * @brief Receives up to maxCount available messages from a queue, long-polling for up to waitTime seconds
+         * @brief Receives up to maxCount available messages from a topic, long-polling for up to waitTime seconds
          *
-         * @param queueErn queue ERN
+         * @param topicErn topic ERN
          * @param maxCount maximal number of messages to return
          * @param waitTime maximal number of seconds to wait for messages to become available
          * @return up to maxCount messages; empty if none became available within waitTime
          */
-        // std::vector<Entity::EQS::Message> receiveMessages(const std::string &queueErn, long maxCount, long waitTime) override;
+        // std::vector<Entity::EQS::Message> receiveMessages(const std::string &topicErn, long maxCount, long waitTime) override;
 
         /**
          * @brief Deletes a message entity
@@ -157,19 +160,19 @@ namespace Euclid::Database {
         // void deleteMessage(const std::string &receiptHandle) override;
 
         /**
-         * @brief Deletes all messages of a queue
+         * @brief Deletes all messages of a topic
          *
-         * @param queueErn queue ERN
+         * @param topicErn topic ERN
          */
-        // void purgeQueue(const std::string &queueErn) override;
+        // void purgeTopic(const std::string &topicErn) override;
 
         /**
-         * @brief Deletes all messages of every queue in a region/account
+         * @brief Deletes all messages of every topic in a region/account
          *
-         * @param region region of the queues to purge
-         * @param accountId account ID of the queues to purge
+         * @param region region of the topics to purge
+         * @param accountId account ID of the topics to purge
          */
-        // void purgeAllQueues(const std::string &region, const std::string &accountId) override;
+        // void purgeAllTopics(const std::string &region, const std::string &accountId) override;
 
         /**
          * @brief Find by message name
@@ -198,16 +201,16 @@ namespace Euclid::Database {
         // std::vector<Entity::EQS::Message> findAllMessages() const override;
 
         /**
-         * @brief Lists a queue's messages without receiving them, paginated and sorted.
+         * @brief Lists a topic's messages without receiving them, paginated and sorted.
          *
-         * @param queueErn ERN of the queue whose messages are listed.
+         * @param topicErn ERN of the topic whose messages are listed.
          * @param pageSize maximum number of messages to return, or <= 0 for no limit.
          * @param pageIndex zero-based page index.
          * @param sortColumn message field to sort ascending by; empty leaves the order unspecified.
          * @return the requested page of messages.
          */
         // [[nodiscard]]
-        // std::vector<Entity::EQS::Message> listMessages(const std::string &queueErn, long pageSize, long pageIndex, const std::string &sortColumn) const override;
+        // std::vector<Entity::EQS::Message> listMessages(const std::string &topicErn, long pageSize, long pageIndex, const std::string &sortColumn) const override;
 
         /**
          * @brief Check the existence of the module by name
@@ -227,13 +230,13 @@ namespace Euclid::Database {
         // long countMessages() const override;
 
         /**
-         * @brief Get the total number of messages of a queue
+         * @brief Get the total number of messages of a topic
          *
-         * @param queueErn queue ERN
-         * @return total number of messages of the queue
+         * @param topicErn topic ERN
+         * @return total number of messages of the topic
          */
         // [[nodiscard]]
-        // long countMessages(const std::string &queueErn) const override;
+        // long countMessages(const std::string &topicErn) const override;
 
         /**
          * @brief Delete all modules

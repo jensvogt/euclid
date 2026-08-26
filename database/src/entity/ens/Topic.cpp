@@ -20,6 +20,8 @@ namespace Euclid::Database::Entity::ENS {
 
         return bsoncxx::builder::basic::make_document(
                 bsoncxx::builder::basic::kvp("region", region),
+                bsoncxx::builder::basic::kvp("accountId", accountId),
+                bsoncxx::builder::basic::kvp("namespace", namespaceName),
                 bsoncxx::builder::basic::kvp("owner", owner),
                 bsoncxx::builder::basic::kvp("name", name),
                 bsoncxx::builder::basic::kvp("ern", ern),
@@ -37,6 +39,8 @@ namespace Euclid::Database::Entity::ENS {
         for (const auto &field: *document) {
             if (const auto key = field.key(); key == "_id") topic.oid = field.get_oid().value.to_string();
             else if (key == "region") topic.region = std::string(field.get_string().value);
+            else if (key == "accountId") topic.accountId = std::string(field.get_string().value);
+            else if (key == "namespace") topic.namespaceName = std::string(field.get_string().value);
             else if (key == "owner") topic.owner = std::string(field.get_string().value);
             else if (key == "name") topic.name = std::string(field.get_string().value);
             else if (key == "ern") topic.ern = std::string(field.get_string().value);
