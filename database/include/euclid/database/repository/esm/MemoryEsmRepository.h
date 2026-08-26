@@ -126,7 +126,7 @@ namespace Euclid::Database {
             std::vector<Entity::ESM::Bucket> result;
             for (const auto &b: _bucketStore | std::views::values) {
                 if (b.accountId != accountId) continue;
-                if (!namespaceName.empty() && b.namespaceName != namespaceName) continue;
+                if (!namespaceName.empty() && b.nameSpace != namespaceName) continue;
                 if (prefix.empty() || b.name.starts_with(prefix)) {
                     result.push_back(b);
                 }
@@ -167,7 +167,7 @@ namespace Euclid::Database {
         long countBuckets(const std::string &accountId, const std::string &namespaceName) const override {
             std::lock_guard lock(_mutex);
             return static_cast<long>(std::ranges::count_if(_bucketStore | std::views::values, [&](const auto &b) {
-                return b.accountId == accountId && (namespaceName.empty() || b.namespaceName == namespaceName);
+                return b.accountId == accountId && (namespaceName.empty() || b.nameSpace == namespaceName);
             }));
         }
 

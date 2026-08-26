@@ -179,7 +179,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto filter = make_document(kvp("accountId", queue.accountId), kvp("namespace", queue.namespaceName), kvp("name", queue.name));
+            const auto filter = make_document(kvp("accountId", queue.accountId), kvp("namespace", queue.nameSpace), kvp("name", queue.name));
             const auto update = make_document(
                     kvp("$set", queue.toDocument()),
                     kvp("$setOnInsert", make_document(

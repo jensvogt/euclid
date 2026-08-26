@@ -31,7 +31,7 @@ namespace Euclid::Database::Entity {
          * namespace (not "all namespaces") - "namespace" is a reserved word, so the field is named
          * namespaceName; it is serialized as "namespace" in BSON/JSON.
          */
-        std::string namespaceName;
+        std::string nameSpace;
     };
 
 }

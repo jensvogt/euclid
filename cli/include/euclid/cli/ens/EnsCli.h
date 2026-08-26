@@ -21,10 +21,13 @@
 #include <euclid/dto/ens/CreateTopicRequest.h>
 #include <euclid/dto/ens/CreateTopicResponse.h>
 #include <euclid/dto/ens/DeleteTopicRequest.h>
+#include <euclid/dto/ens/GetMessageCountRequest.h>
 #include <euclid/dto/ens/GetTopicErnRequest.h>
+#include <euclid/dto/ens/GetTopicMetadataRequest.h>
 #include <euclid/dto/ens/ListMessagesRequest.h>
 #include <euclid/dto/ens/ListTopicsRequest.h>
 #include <euclid/dto/ens/PublishMessageRequest.h>
+#include <euclid/dto/ens/PurgeAllTopicsRequest.h>
 #include <euclid/dto/ens/PurgeTopicRequest.h>
 
 namespace Euclid::CLI {
@@ -125,13 +128,13 @@ namespace Euclid::CLI {
         int purgeAllTopic(const std::vector<std::string> &args) const;
 
         /**
-         * @brief Returns the metadata of a queue
+         * @brief Returns the metadata of a topic
          *
          * @param args action arguments
          * @return ok
          */
-        // [[nodiscard]]
-        // int getQueueMetadata(const std::vector<std::string> &args) const;
+        [[nodiscard]]
+        int getTopicMetadata(const std::vector<std::string> &args) const;
 
         /**
          * @brief Send a message to the topic
@@ -148,8 +151,8 @@ namespace Euclid::CLI {
          * @param args action arguments
          * @return ok
          */
-        // [[nodiscard]]
-        // int getMessageCount(const std::vector<std::string> &args) const;
+        [[nodiscard]]
+        int getMessageCount(const std::vector<std::string> &args) const;
 
         /**
          * @brief Returns a single message attribute by name.

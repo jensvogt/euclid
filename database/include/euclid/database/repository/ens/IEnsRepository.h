@@ -85,13 +85,13 @@ namespace Euclid::Database {
         // virtual std::optional<Entity::EQS::Queue> findQueueById(const std::string &oid) const = 0;
 
         /**
-         * @brief Searches for a queue by its ERN.
+         * @brief Searches for a topic by its ERN.
          *
-         * @param ern The Euclid resource name (ERN) of the queue to search for.
+         * @param ern The Euclid resource name (ERN) of the topic to search for.
          * @return The item matching the given ERN, or an empty optional if no match is found.
          */
-        // [[nodiscard]]
-        // virtual std::optional<Entity::EQS::Queue> findQueueByErn(const std::string &ern) const = 0;
+        [[nodiscard]]
+        virtual std::optional<Entity::ENS::Topic> findTopicByErn(const std::string &ern) const = 0;
 
         /**
          * @brief Finds and retrieves all available entities or objects.

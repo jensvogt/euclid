@@ -118,7 +118,7 @@ namespace Euclid::ESM {
         bucket.ern = Core::createEsmBucketErn(auth.user->accountId, request.name);
         bucket.region = auth.user->region;
         bucket.accountId = auth.user->accountId;
-        bucket.namespaceName = std::string(req["x-euclid-namespace"]);
+        bucket.nameSpace = std::string(req["x-euclid-namespace"]);
         bucket.owner = auth.user->userId;
 
         const auto saved = Database::RepositoryFactory::instance().esmRepository()->upsertBucket(bucket);
@@ -298,7 +298,7 @@ namespace Euclid::ESM {
         object.owner = auth.user->userId;
         object.region = auth.user->region;
         object.accountId = auth.user->accountId;
-        object.namespaceName = std::string(req["x-euclid-namespace"]);
+        object.nameSpace = std::string(req["x-euclid-namespace"]);
         object.size = static_cast<long>(data.size());
         object.status = Database::Entity::ESM::ObjectStatus::COMPLETED;
         object.contentType = contentType;
@@ -370,7 +370,7 @@ namespace Euclid::ESM {
         object.owner = auth.user->userId;
         object.region = auth.user->region;
         object.accountId = auth.user->accountId;
-        object.namespaceName = std::string(req["x-euclid-namespace"]);
+        object.nameSpace = std::string(req["x-euclid-namespace"]);
         object.status = Database::Entity::ESM::ObjectStatus::CREATED;
         repo->upsertObject(object);
 
@@ -613,7 +613,7 @@ namespace Euclid::ESM {
                 object.owner = owner;
                 object.region = region;
                 object.accountId = accountId;
-                object.namespaceName = ns;
+                object.nameSpace = ns;
                 object.size = static_cast<long>(assembledSize);
                 object.status = Database::Entity::ESM::ObjectStatus::COMPLETED;
                 object.contentType = contentType;
