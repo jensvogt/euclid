@@ -1,0 +1,39 @@
+.TH EUCLID-CLI-ENS-GET-MESSAGE-COUNT 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ens-get-message-count \- show a topic's message counters
+.SH SYNOPSIS
+.B euclid-cli ens get-message-count
+.BR \-\-topic | \-t
+.I ERN
+.SH DESCRIPTION
+Returns a topic's message counters: the number of messages
+.IR available ,
+.I send
+and
+.IR resend ,
+identified by the topic's Euclid resource name (ERN).
+.SH OPTIONS
+.TP
+.BR \-t ", " \-\-topic " " \fIERN\fR
+Euclid resource name of the topic to query. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The topic's message counters are printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or no topic
+with that ERN exists.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ens get-message-count \e
+    --topic ern:ens:eu-central-1:000000000000:topic:order-events
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ens (1),
+.BR euclid-cli-ens-list-messages (1),
+.BR euclid-cli-ens-get-topic-metadata (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
