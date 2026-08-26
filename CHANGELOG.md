@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.0.36](https://github.com/jensvogt/euclid/compare/1.0.35...v1.0.36) (2026-08-26)
+
+
+### Bug Fixes
+
+* ens create-topic CLI ([2017c54](https://github.com/jensvogt/euclid/commit/2017c54b33294e3cf526f1dfdd98b5609e646d32))
+* ens get-topic-ern, delete-topic, list-topics ([bff2b05](https://github.com/jensvogt/euclid/commit/bff2b0581d1d6fc5c86a942c1b5dac6c5faf7910))
+* ENS man pages ([915b134](https://github.com/jensvogt/euclid/commit/915b13424324a82788977d09e06b7259a703dc3f))
+* ens module ([0f911e1](https://github.com/jensvogt/euclid/commit/0f911e1f6d6f6df3ad5e476a87044aac65d63959))
+
 ## [1.0.35](https://github.com/jensvogt/euclid/compare/1.0.34...v1.0.35) (2026-08-25)
 
 
