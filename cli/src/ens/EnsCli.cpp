@@ -1,7 +1,5 @@
 #include <euclid/cli/ens/EnsCli.h>
 
-#include "euclid/dto/ens/PurgeAllTopicsRequest.h"
-
 namespace Euclid::CLI {
 
     namespace po = boost::program_options;
@@ -36,9 +34,11 @@ namespace Euclid::CLI {
                                            {"create-topic", "Create a new topic"},
                                            {"list-topics", "List all available topics"},
                                            {"get-topic-ern", "Returns the ERN for a topic"},
+                                           {"get-topic-metadata", "Returns the metadata of a topics"},
                                            {"purge-topic", "Purge a topic by deleting all messages"},
                                            {"purge-all-topic", "Purge all topics by deleting all messages"},
                                            {"publish-message", "Publish a message to a topic"},
+                                           {"get-message-count", "Returns the number of messages in a topic"},
                                            {"delete-topic", "Delete an existing topic"},
                                            {"list-messages", "List available messages"},
                                    });
@@ -51,6 +51,9 @@ namespace Euclid::CLI {
         }
         if (action == "get-topic-ern") {
             return getTopicErn(args);
+        }
+        if (action == "get-topic-metadata") {
+            return getTopicMetadata(args);
         }
         if (action == "publish-message") {
             return publishMessage(args);
@@ -67,20 +70,11 @@ namespace Euclid::CLI {
         if (action == "list-messages") {
             return listMessages(args);
         }
-        // if (action == "receive-messages") {
-        //     return receiveMessages(args);
-        // }
-        // if (action == "set-visibility") {
-        //     return setVisibility(args);
-        // }
-        // if (action == "get-message-count") {
-        //     return getMessageCount(args);
-        // }
+        if (action == "get-message-count") {
+            return getMessageCount(args);
+        }
         // if (action == "get-message-attribute") {
         //     return getMessageAttribute(args);
-        // }
-        // if (action == "get-queue-metadata") {
-        //     return getQueueMetadata(args);
         // }
         // if (action == "get-message-metadata") {
         //     return getMessageMetadata(args);
@@ -350,45 +344,44 @@ namespace Euclid::CLI {
         }
     }
 
-    //
-    // int EqsCli::getQueueMetadata(const std::vector<std::string> &args) const {
-    //     po::options_description desc("returns the metadata of a queue");
-    //     desc.add_options()("ern,e", po::value<std::string>()->required(), "queue ERN");
-    //
-    //     if (IsHelpRequest(args)) {
-    //         return PrintActionHelp("eqs", "get-queue-metadata", "--ern <ern>",
-    //                                "Shows the metadata of a queue, i.e. region, accountId, namespace, size, number of messages.",
-    //                                desc);
-    //     }
-    //
-    //     po::variables_map vm;
-    //     try {
-    //         po::store(po::command_line_parser(args).options(desc).run(), vm);
-    //         po::notify(vm);
-    //     } catch (const po::error &ex) {
-    //         std::cerr << "error: " << ex.what() << "\n\n"
-    //                 << desc << std::endl;
-    //         return 1;
-    //     }
-    //
-    //     Dto::EQS::GetQueueMetadataRequest request;
-    //     request.ern = vm["ern"].as<std::string>();
-    //
-    //     try {
-    //         const HttpClient client(_endpoint, _authentication, _caCertPath);
-    //         const HttpResponse response = client.Post("eqs", "get-queue-metadata", boost::json::value_from(request));
-    //         if (!response.IsSuccess()) {
-    //             std::cerr << "error: get-queue-metadata failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
-    //             return 1;
-    //         }
-    //         Core::WriteJson(std::cout, response.body, _pretty);
-    //         return 0;
-    //     } catch (const std::exception &ex) {
-    //         std::cerr << "error: " << ex.what() << std::endl;
-    //         return 1;
-    //     }
-    // }
-    //
+    int EnsCli::getTopicMetadata(const std::vector<std::string> &args) const {
+        po::options_description desc("returns the metadata of a topic");
+        desc.add_options()("topic,t", po::value<std::string>()->required(), "topic ERN");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ens", "get-topic-metadata", "--ern <ern>",
+                                   "Shows the metadata of a topic, i.e. region, accountId, namespace, size, number of messages.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n"
+                    << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ENS::GetTopicMetadataRequest request;
+        request.ern = vm["topic"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ens", "get-topic-metadata", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: get-topic-metadata failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
     int EnsCli::deleteTopic(const std::vector<std::string> &args) const {
         po::options_description desc("delete topic options");
         desc.add_options()("topic,t", po::value<std::string>()->required(), "topic ERN");
@@ -476,129 +469,45 @@ namespace Euclid::CLI {
         }
     }
 
-    // int EqsCli::receiveMessages(const std::vector<std::string> &args) const {
-    //     po::options_description desc("receive messages options");
-    //     desc.add_options()
-    //             ("queue,q", po::value<std::string>()->required(), "queue resource name")
-    //             ("maxCount,m", po::value<long>()->default_value(10), "maximal message count")
-    //             ("waitTime,w", po::value<long>()->default_value(0), "maximal waiting time in seconds");
-    //
-    //     if (IsHelpRequest(args)) {
-    //         return PrintActionHelp("eqs", "receive-messages", "--ern <ern> [--maxCount <value>] [--waitTime <seconds>]",
-    //                                "Receive messages from an SQS queue. If messages are available return up to maxCount messages. "
-    //                                "The returned messages favor higher priority ones: maxCount slots are split across LOW/MIDDLE/HIGH priority "
-    //                                "proportionally to the server's configurable priority weights (4:2:1 by default), so most of a batch is "
-    //                                "HIGH priority, fewer MIDDLE, and fewer still LOW.",
-    //                                desc);
-    //     }
-    //
-    //     po::variables_map vm;
-    //     try {
-    //         po::store(po::command_line_parser(args).options(desc).run(), vm);
-    //         po::notify(vm);
-    //     } catch (const po::error &ex) {
-    //         std::cerr << "error: " << ex.what() << "\n\n"
-    //                 << desc << std::endl;
-    //         return 1;
-    //     }
-    //
-    //     Dto::EQS::ReceiveMessagesRequest request;
-    //     request.queueErn = vm["queue"].as<std::string>();
-    //     request.maxCount = vm["maxCount"].as<long>();
-    //     request.waitTime = vm["waitTime"].as<long>();
-    //
-    //     try {
-    //         const HttpClient client(_endpoint, _authentication, _caCertPath);
-    //         const HttpResponse response = client.Post("eqs", "receive-messages", boost::json::value_from(request));
-    //         if (!response.IsSuccess()) {
-    //             std::cerr << "error: receive-messages failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
-    //             return 1;
-    //         }
-    //         Core::WriteJson(std::cout, response.body, _pretty);
-    //         return 0;
-    //     } catch (const std::exception &ex) {
-    //         std::cerr << "error: " << ex.what() << std::endl;
-    //         return 1;
-    //     }
-    // }
-    //
-    // int EqsCli::setVisibility(const std::vector<std::string> &args) const {
-    //     po::options_description desc("sets the message visibility");
-    //     desc.add_options()
-    //             ("message-id,m", po::value<std::string>()->required(), "message ID")
-    //             ("visibility,v", po::value<long>()->default_value(10), "visibility in seconds");
-    //
-    //     if (IsHelpRequest(args)) {
-    //         return PrintActionHelp("eqs", "set-visibility", "--message-id <messageId> --visibility <seconds>",
-    //                                "Sets the visibility timeout for an individual message.",
-    //                                desc);
-    //     }
-    //
-    //     po::variables_map vm;
-    //     try {
-    //         po::store(po::command_line_parser(args).options(desc).run(), vm);
-    //         po::notify(vm);
-    //     } catch (const po::error &ex) {
-    //         std::cerr << "error: " << ex.what() << "\n\n"
-    //                 << desc << std::endl;
-    //         return 1;
-    //     }
-    //
-    //     Dto::EQS::SetMessageVisibilityRequest request;
-    //     request.messageId = vm["message-id"].as<std::string>();
-    //     request.visibility = vm["visibility"].as<long>();
-    //
-    //     try {
-    //         const HttpClient client(_endpoint, _authentication, _caCertPath);
-    //         if (const HttpResponse response = client.Post("eqs", "set-visibility", boost::json::value_from(request)); !response.IsSuccess()) {
-    //             std::cerr << "error: set-visibility failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
-    //             return 1;
-    //         }
-    //         return 0;
-    //     } catch (const std::exception &ex) {
-    //         std::cerr << "error: " << ex.what() << std::endl;
-    //         return 1;
-    //     }
-    // }
-    //
-    // int EqsCli::getMessageCount(const std::vector<std::string> &args) const {
-    //     po::options_description desc("returns the message counter");
-    //     desc.add_options()
-    //             ("queue,q", po::value<std::string>()->required(), "queue ERN");
-    //
-    //     if (IsHelpRequest(args)) {
-    //         return PrintActionHelp("eqs", "get-message-count", "--ern <ERN>",
-    //                                "Returns the message counter, like total, invisible, delayed.",
-    //                                desc);
-    //     }
-    //
-    //     po::variables_map vm;
-    //     try {
-    //         po::store(po::command_line_parser(args).options(desc).run(), vm);
-    //         po::notify(vm);
-    //     } catch (const po::error &ex) {
-    //         std::cerr << "error: " << ex.what() << "\n\n"
-    //                 << desc << std::endl;
-    //         return 1;
-    //     }
-    //
-    //     Dto::EQS::GetMessageCountRequest request;
-    //     request.queueErn = vm["queue"].as<std::string>();
-    //
-    //     try {
-    //         const HttpClient client(_endpoint, _authentication, _caCertPath);
-    //         const HttpResponse response = client.Post("eqs", "get-message-count", boost::json::value_from(request));
-    //         if (!response.IsSuccess()) {
-    //             std::cerr << "error: get-message-count failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
-    //             return 1;
-    //         }
-    //         Core::WriteJson(std::cout, response.body, _pretty);
-    //         return 0;
-    //     } catch (const std::exception &ex) {
-    //         std::cerr << "error: " << ex.what() << std::endl;
-    //         return 1;
-    //     }
-    // }
+    int EnsCli::getMessageCount(const std::vector<std::string> &args) const {
+        po::options_description desc("returns the message count");
+        desc.add_options()
+                ("topic,t", po::value<std::string>()->required(), "topic ERN");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eqs", "get-message-count", "--ern <ern>",
+                                   "Returns the message counter, like available, send, resend.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n"
+                    << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ENS::GetMessageCountRequest request;
+        request.topicErn = vm["topic"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ens", "get-message-count", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: get-message-count failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
     //
     // int EqsCli::getMessageAttribute(const std::vector<std::string> &args) const {
     //     po::options_description desc("returns a message attribute by name");

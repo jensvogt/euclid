@@ -166,7 +166,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto filter = make_document(kvp("accountId", bucket.accountId), kvp("namespace", bucket.namespaceName), kvp("name", bucket.name));
+            const auto filter = make_document(kvp("accountId", bucket.accountId), kvp("namespace", bucket.nameSpace), kvp("name", bucket.name));
             const auto update = make_document(
                     kvp("$set", bucket.toDocument()),
                     kvp("$setOnInsert", make_document(

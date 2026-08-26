@@ -95,7 +95,7 @@ namespace Euclid::Database {
             std::vector<Entity::EQS::Queue> result;
             for (const auto &m: _queueStore | std::views::values) {
                 if (m.accountId != accountId) continue;
-                if (!namespaceName.empty() && m.namespaceName != namespaceName) continue;
+                if (!namespaceName.empty() && m.nameSpace != namespaceName) continue;
                 if (prefix.empty() || m.name.starts_with(prefix)) {
                     result.push_back(m);
                 }
@@ -123,7 +123,7 @@ namespace Euclid::Database {
         long countQueues(const std::string &accountId, const std::string &namespaceName) const override {
             std::lock_guard lock(_mutex);
             return std::ranges::count_if(_queueStore | std::views::values, [&](const auto &m) {
-                return m.accountId == accountId && (namespaceName.empty() || m.namespaceName == namespaceName);
+                return m.accountId == accountId && (namespaceName.empty() || m.nameSpace == namespaceName);
             });
         }
 
