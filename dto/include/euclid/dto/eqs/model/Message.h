@@ -6,7 +6,7 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
-#include <euclid/dto/eqs/model/Variant.h>
+#include <euclid/dto/com/Variant.h>
 
 namespace Euclid::Dto::EQS {
 
@@ -57,7 +57,7 @@ namespace Euclid::Dto::EQS {
         /**
          * @brief Message attributes
          */
-        std::map<std::string, Variant> attributes;
+        std::map<std::string, COM::Variant> attributes;
 
         /**
          * @brief MD5 sum of the message attributes
@@ -106,7 +106,7 @@ namespace Euclid::Dto::EQS {
             r.body = Core::GetStringValue(v, "body");
             r.md5Body = Core::GetStringValue(v, "md5Body");
             r.receiptHandle = Core::GetStringValue(v, "receiptHandle");
-            r.attributes = Core::GetMapFromObject<std::string, Variant>(v, "attributes");
+            r.attributes = Core::GetMapFromObject<std::string, COM::Variant>(v, "attributes");
             r.md5Attributes = Core::GetStringValue(v, "md5Attributes");
             r.lastReceived = Core::GetDatetimeValue(v, "lastReceived");
             r.created = Core::GetDatetimeValue(v, "created");

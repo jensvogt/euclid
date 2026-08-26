@@ -1,0 +1,52 @@
+.TH EUCLID-CLI-ENS-LIST-MESSAGES 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ens-list-messages \- list a topic's messages
+.SH SYNOPSIS
+.B euclid-cli ens list-messages
+.BR \-\-topic | \-t
+.I ERN
+[\fB\-\-page\-size\fR|\fB\-s\fR \fIN\fR]
+[\fB\-\-page\-index\fR|\fB\-i\fR \fIN\fR]
+[\fB\-\-sort\-column\fR|\fB\-c\fR \fICOLUMN\fR]
+.SH DESCRIPTION
+Lists a topic's messages without changing their status. This is a
+read-only, non-destructive inspection of the topic's contents, and is
+paginated.
+.SH OPTIONS
+.TP
+.BR \-t ", " \-\-topic " " \fIERN\fR
+Euclid resource name of the topic to list messages from. Required.
+.TP
+.BR \-s ", " \-\-page\-size " " \fIN\fR
+Maximum number of messages to return. Defaults to \fI10\fR.
+.TP
+.BR \-i ", " \-\-page\-index " " \fIN\fR
+Zero-based page index to return. Defaults to \fI0\fR.
+.TP
+.BR \-c ", " \-\-sort\-column " " \fICOLUMN\fR
+Column to sort results by. Defaults to \fIcreated\fR.
+.SH EXIT STATUS
+.TP
+.B 0
+The matching messages are printed as JSON (possibly an empty list).
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or no topic
+with that ERN exists.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ens list-messages \e
+    --topic ern:ens:eu-central-1:000000000000:topic:order-events
+
+euclid-cli --endpoint http://localhost:5566 ens list-messages \e
+    --topic ern:ens:eu-central-1:000000000000:topic:order-events \e
+    --page-size 25 --page-index 1 --sort-column created
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ens (1),
+.BR euclid-cli-ens-publish-message (1),
+.BR euclid-cli-ens-purge-topic (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

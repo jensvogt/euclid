@@ -14,6 +14,9 @@
 #include <euclid/core/UuidUtils.h>
 #include <euclid/database/repository/ens/MongoEnsRepository.h>
 
+#include "euclid/database/entity/eqs/Queue.h"
+#include "euclid/database/repository/eqs/MongoEqsRepository.h"
+
 namespace Euclid::Database {
 
     MongoEnsRepository::MongoEnsRepository() {
@@ -370,36 +373,37 @@ namespace Euclid::Database {
     //     }
     //     return {};
     // }
-    //
-    // std::vector<Entity::EQS::Message> MongoEqsRepository::listMessages(const std::string &queueErn, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
-    //
-    //     std::vector<Entity::EQS::Message> messages;
-    //     try {
-    //         const auto filter = make_document(kvp("queueErn", queueErn));
-    //
-    //         mongocxx::options::find opts;
-    //         if (!sortColumn.empty()) {
-    //             opts.sort(make_document(kvp(sortColumn, 1)));
-    //         }
-    //         if (pageSize > 0) {
-    //             opts.limit(pageSize);
-    //             opts.skip(std::max<long>(pageIndex, 0) * pageSize);
-    //         }
-    //
-    //         const auto entry = Database::instance().client();
-    //         auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
-    //
-    //         for (auto cursor = messageCollection.find(filter.view(), opts); auto doc: cursor) {
-    //             Entity::EQS::Message message;
-    //             message.FromDocument(doc);
-    //             messages.push_back(std::move(message));
-    //         }
-    //
-    //     } catch (const std::exception &e) {
-    //         log_error << "List messages failed, queueErn: " << queueErn << ", error: " << e.what();
-    //     }
-    //     return messages;
-    // }
+
+    std::vector<Entity::ENS::Message> MongoEnsRepository::listMessages(const std::string &topicErn, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
+
+        std::vector<Entity::ENS::Message> messages;
+        try {
+            const auto filter = make_document(kvp("topicErn", topicErn));
+
+            mongocxx::options::find opts;
+            if (!sortColumn.empty()) {
+                opts.sort(make_document(kvp(sortColumn, 1)));
+            }
+            if (pageSize > 0) {
+                opts.limit(pageSize);
+                opts.skip(std::max<long>(pageIndex, 0) * pageSize);
+            }
+
+            const auto entry = Database::instance().client();
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            for (auto cursor = messageCollection.find(filter.view(), opts); auto doc: cursor) {
+                Entity::ENS::Message message;
+                message.FromDocument(doc);
+                messages.push_back(std::move(message));
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "List messages failed, topicErn: " << topicErn << ", error: " << e.what();
+        }
+        return messages;
+    }
+
     //
     // void MongoEqsRepository::upsertMessage(const Entity::EQS::Message &message) {
     //
@@ -428,57 +432,50 @@ namespace Euclid::Database {
     //         log_error << "Upsert message failed, error: " << e.what();
     //     }
     // }
-    //
-    // Entity::EQS::Message MongoEqsRepository::sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes,
-    //                                                      const Entity::EQS::MessagePriority priority) {
-    //
-    //     Entity::EQS::Message message;
-    //     message.ern = ern;
-    //     message.queueErn = queueErn;
-    //     message.body = body;
-    //     message.size = static_cast<long>(body.size());
-    //     message.messageId = messageId;
-    //     message.md5Body = Core::CryptoUtils::md5Sum(message.body);
-    //     message.contentType = Core::ContentTypeUtils::fromContent(message.body);
-    //     message.attributes = attributes;
-    //     message.md5Attributes = Entity::EQS::Message::ComputeAttributesMd5(attributes);
-    //     message.status = Entity::EQS::MessageStatus::AVAILABLE;
-    //     message.priority = priority;
-    //
-    //     try {
-    //
-    //         const auto entry = Database::instance().client();
-    //         auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
-    //         auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
-    //
-    //         const auto queueFilter = make_document(kvp("ern", queueErn));
-    //         if (auto queueResult = queueCollection.find_one(queueFilter.view())) {
-    //             const auto queue = Entity::EQS::Queue::fromDocument(queueResult->view());
-    //             message.visibilityTimeout = queue.visibility;
-    //
-    //             if (queue.delay > 0) {
-    //                 message.status = Entity::EQS::MessageStatus::DELAYED;
-    //                 message.delayUntil = std::chrono::system_clock::now() + std::chrono::seconds(queue.delay);
-    //             }
-    //
-    //             const auto update = make_document(
-    //                     kvp("$inc", make_document(
-    //                                 kvp("size", static_cast<int64_t>(message.size)),
-    //                                 kvp("available", static_cast<int64_t>(queue.delay > 0 ? 0 : 1)),
-    //                                 kvp("delayed", static_cast<int64_t>(queue.delay > 0 ? 1 : 0)))),
-    //                     kvp("$currentDate", make_document(
-    //                                 kvp("modified", true))));
-    //             queueCollection.update_one(queueFilter.view(), update.view());
-    //         }
-    //
-    //         messageCollection.insert_one(message.ToDocument());
-    //         log_info << "Message sent, ern: " << ern << ", messageId: " << message.messageId;
-    //
-    //     } catch (const std::exception &e) {
-    //         log_error << "Send message failed, ern: " << ern << ", error: " << e.what();
-    //     }
-    //     return message;
-    // }
+
+    Entity::ENS::Message MongoEnsRepository::publishMessage(const std::string &messageId, const std::string &ern, const std::string &topicErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes) {
+
+        Entity::ENS::Message message;
+        message.ern = ern;
+        message.topicErn = topicErn;
+        message.body = body;
+        message.size = static_cast<long>(body.size());
+        message.messageId = messageId;
+        message.md5Body = Core::CryptoUtils::md5Sum(message.body);
+        message.contentType = Core::ContentTypeUtils::fromContent(message.body);
+        message.attributes = attributes;
+        message.md5Attributes = Entity::ENS::Message::ComputeAttributesMd5(attributes);
+        // TOdo: fix status
+        //        message.status = Entity::ENS::MessageStatus::AVAILABLE;
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto queueCollection = (*entry)[Database::instance().databaseName()][TOPIC_COLLECTION];
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            const auto queueFilter = make_document(kvp("ern", topicErn));
+            if (auto queueResult = queueCollection.find_one(queueFilter.view())) {
+                const auto queue = Entity::ENS::Topic::fromDocument(queueResult->view());
+
+                const auto update = make_document(
+                        kvp("$inc", make_document(
+                                    kvp("size", static_cast<int64_t>(message.size)),
+                                    kvp("available", static_cast<int64_t>(1)))),
+                        kvp("$currentDate", make_document(
+                                    kvp("modified", true))));
+                queueCollection.update_one(queueFilter.view(), update.view());
+            }
+
+            messageCollection.insert_one(message.ToDocument());
+            log_info << "Message sent, ern: " << ern << ", messageId: " << message.messageId;
+
+        } catch (const std::exception &e) {
+            log_error << "Send message failed, ern: " << ern << ", error: " << e.what();
+        }
+        return message;
+    }
+
     //
     // std::vector<Entity::EQS::Message> MongoEqsRepository::receiveMessages(const std::string &queueErn, const long maxCount, const long waitTime) {
     //
@@ -642,103 +639,104 @@ namespace Euclid::Database {
     //         log_error << "Delete message failed, error: " << e.what();
     //     }
     // }
-    //
-    // void MongoEqsRepository::purgeQueue(const std::string &queueErn) {
-    //
-    //     try {
-    //         const auto filter = make_document(
-    //                 kvp("queueErn", queueErn));
-    //
-    //         const auto entry = Database::instance().client();
-    //         auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
-    //         auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
-    //
-    //         const auto result = messageCollection.delete_many(filter.view());
-    //         log_debug << "Queue purged, ern: " << queueErn << ", count: " << result->deleted_count();
-    //
-    //         const auto queueFilter = make_document(kvp("ern", queueErn));
-    //         const auto update = make_document(
-    //                 kvp("$set", make_document(
-    //                             kvp("size", static_cast<int64_t>(0)),
-    //                             kvp("available", static_cast<int64_t>(0)),
-    //                             kvp("delayed", static_cast<int64_t>(0)),
-    //                             kvp("invisible", static_cast<int64_t>(0)))),
-    //                 kvp("$currentDate", make_document(
-    //                             kvp("modified", true))));
-    //         queueCollection.update_one(queueFilter.view(), update.view());
-    //     } catch (const std::exception &e) {
-    //         log_error << "Purge queue failed, ern: " << queueErn << ", error: " << e.what();
-    //     }
-    // }
-    //
-    // void MongoEqsRepository::purgeAllQueues(const std::string &region, const std::string &accountId) {
-    //
-    //     try {
-    //         const std::string marker = ":" + region + ":" + accountId + ":";
-    //
-    //         const auto entry = Database::instance().client();
-    //         auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
-    //         auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
-    //
-    //         array ernArray;
-    //         long queueCount = 0;
-    //         for (auto queueCursor = queueCollection.find({}); auto queue: queueCursor) {
-    //             if (const auto entity = Entity::EQS::Queue::fromDocument(queue); entity.ern.find(marker) != std::string::npos) {
-    //                 ernArray.append(entity.ern);
-    //                 ++queueCount;
-    //             }
-    //         }
-    //
-    //         if (queueCount == 0) {
-    //             log_debug << "No queues found, region: " << region << ", accountId: " << accountId;
-    //             return;
-    //         }
-    //
-    //         const auto queueFilter = make_document(kvp("ern", make_document(kvp("$in", ernArray.view()))));
-    //
-    //         const auto messageResult = messageCollection.delete_many(make_document(kvp("queueErn", make_document(kvp("$in", ernArray.view())))));
-    //         log_debug << "Queues purged, region: " << region << ", accountId: " << accountId << ", queueCount: " << queueCount << ", messageCount: " << messageResult->deleted_count();
-    //
-    //         const auto update = make_document(
-    //                 kvp("$set", make_document(
-    //                             kvp("size", static_cast<int64_t>(0)),
-    //                             kvp("available", static_cast<int64_t>(0)),
-    //                             kvp("delayed", static_cast<int64_t>(0)),
-    //                             kvp("invisible", static_cast<int64_t>(0)))),
-    //                 kvp("$currentDate", make_document(
-    //                             kvp("modified", true))));
-    //         queueCollection.update_many(queueFilter.view(), update.view());
-    //     } catch (const std::exception &e) {
-    //         log_error << "Purge all queues failed, region: " << region << ", accountId: " << accountId << ", error: " << e.what();
-    //     }
-    // }
-    //
-    // long MongoEqsRepository::countMessages() const {
-    //
-    //     try {
-    //         const auto entry = Database::instance().client();
-    //         auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
-    //
-    //         return messageCollection.count_documents({});
-    //     } catch (const std::exception &e) {
-    //         log_error << "Count messages failed, error: " << e.what();
-    //     }
-    //     return -1;
-    // }
-    //
-    // long MongoEqsRepository::countMessages(const std::string &queueErn) const {
-    //
-    //     try {
-    //         const auto filter = make_document(kvp("queueErn", queueErn));
-    //         const auto entry = Database::instance().client();
-    //         auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
-    //
-    //         return messageCollection.count_documents(filter.view());
-    //     } catch (const std::exception &e) {
-    //         log_error << "Count messages failed, ern: " << queueErn << ", error: " << e.what();
-    //     }
-    //     return -1;
-    // }
+
+    void MongoEnsRepository::purgeTopic(const std::string &topicErn) {
+
+        try {
+            const auto filter = make_document(kvp("topicErn", topicErn));
+
+            const auto entry = Database::instance().client();
+            auto queueCollection = (*entry)[Database::instance().databaseName()][TOPIC_COLLECTION];
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            const auto result = messageCollection.delete_many(filter.view());
+            log_debug << "Topic purged, ern: " << topicErn << ", count: " << result->deleted_count();
+
+            const auto topicFilter = make_document(kvp("ern", topicErn));
+            const auto update = make_document(
+                    kvp("$set", make_document(
+                                kvp("size", static_cast<int64_t>(0)),
+                                kvp("available", static_cast<int64_t>(0)))),
+                    kvp("$currentDate", make_document(
+                                kvp("modified", true))));
+            queueCollection.update_one(topicFilter.view(), update.view());
+        } catch (const std::exception &e) {
+            log_error << "Purge topic failed, ern: " << topicErn << ", error: " << e.what();
+        }
+    }
+
+    void MongoEnsRepository::purgeAllTopics(const std::string &region, const std::string &accountId, const std::string &nameSpace) {
+
+        try {
+            std::string marker;
+            if (nameSpace.empty()) {
+                marker = ":" + region + ":" + accountId + ":";
+            } else {
+                marker = ":" + region + ":" + accountId + ":" + nameSpace + ":";
+            }
+
+            const auto entry = Database::instance().client();
+            auto topicCollection = (*entry)[Database::instance().databaseName()][TOPIC_COLLECTION];
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            array ernArray;
+            long topicCount = 0;
+            for (auto queueCursor = topicCollection.find({}); auto queue: queueCursor) {
+                if (const auto entity = Entity::EQS::Queue::fromDocument(queue); entity.ern.find(marker) != std::string::npos) {
+                    ernArray.append(entity.ern);
+                    ++topicCount;
+                }
+            }
+
+            if (topicCount == 0) {
+                log_debug << "No topics found, region: " << region << ", accountId: " << accountId;
+                return;
+            }
+
+            const auto queueFilter = make_document(kvp("ern", make_document(kvp("$in", ernArray.view()))));
+
+            const auto messageResult = messageCollection.delete_many(make_document(kvp("queueErn", make_document(kvp("$in", ernArray.view())))));
+            log_debug << "Topics purged, region: " << region << ", accountId: " << accountId << ", topicCount: " << topicCount << ", messageCount: " << messageResult->deleted_count();
+
+            const auto update = make_document(
+                    kvp("$set", make_document(
+                                kvp("size", static_cast<int64_t>(0)),
+                                kvp("available", static_cast<int64_t>(0)))),
+                    kvp("$currentDate", make_document(
+                                kvp("modified", true))));
+            topicCollection.update_many(queueFilter.view(), update.view());
+        } catch (const std::exception &e) {
+            log_error << "Purge all topics failed, region: " << region << ", accountId: " << accountId << ", error: " << e.what();
+        }
+    }
+
+    long MongoEnsRepository::countMessages() const {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            return messageCollection.count_documents({});
+        } catch (const std::exception &e) {
+            log_error << "Count messages failed, error: " << e.what();
+        }
+        return -1;
+    }
+
+    long MongoEnsRepository::countMessages(const std::string &topicErn) const {
+
+        try {
+            const auto filter = make_document(kvp("topicErn", topicErn));
+            const auto entry = Database::instance().client();
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            return messageCollection.count_documents(filter.view());
+        } catch (const std::exception &e) {
+            log_error << "Count messages failed, ern: " << topicErn << ", error: " << e.what();
+        }
+        return -1;
+    }
+
     //
     // void MongoEqsRepository::clearMessages() {
     //

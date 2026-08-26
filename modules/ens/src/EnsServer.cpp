@@ -1,6 +1,8 @@
 // Euclid includes
 #include <EnsServer.h>
 
+#include "euclid/dto/ens/PurgeAllTopicsRequest.h"
+
 namespace Euclid::ENS {
 
     namespace beast = boost::beast;
@@ -19,8 +21,8 @@ namespace Euclid::ENS {
 
         // Timer/counter names shared by every handler below - one series per action, labeled
         // "method"=<action>, e.g. name="queues-service-time" labelName="method" labelValue="send-message".
-        constexpr auto kServiceTimer = "queues-service-time";
-        constexpr auto kServiceCounter = "queues-service-count";
+        constexpr auto kServiceTimer = "topic-service-time";
+        constexpr auto kServiceCounter = "topic-service-count";
     }// namespace
 
     static AuthResult authenticate(const request<string_body> &req) {
@@ -33,15 +35,6 @@ namespace Euclid::ENS {
 
     static response<string_body> unauthorized(const request<string_body> &req, const AuthResult &auth) {
         return EnsServer::Unauthorized(req, {.subject = std::nullopt, .tokenExpired = auth.tokenExpired, .denialReason = auth.denialReason});
-    }
-
-    // Fills in the caller identity shared by every response DTO's "metadata" object. The
-    // request ID that correlates this response with its request travels as the
-    // "x-euclid-request-id" header instead (set centrally in HttpActionServer::JsonResponse).
-    static void applyMetadata(Dto::BaseDto &response, const Database::Entity::EAM::User &user) {
-        response.user = user.userId;
-        response.accountId = user.accountId;
-        response.region = user.region;
     }
 
     // ── Action handlers ──────────────────────────────────────────────────────
@@ -147,59 +140,59 @@ namespace Euclid::ENS {
         return EnsServer::JsonResponse(req, status::ok, response.toJson());
     }
 
-    //
-    // static response<string_body> handleListMessages(const request<string_body> &req) {
-    //
-    //     Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-messages");
-    //
-    //     if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
-    //
-    //     boost::json::value jv;
-    //     if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
-    //
-    //     const auto request = boost::json::value_to<Dto::ENS::ListMessagesRequest>(jv);
-    //     log_info << "ENS ListMessages, queueErn: " << request.queueErn;
-    //
-    //     const auto repo = Database::RepositoryFactory::instance().ensRepository();
-    //     const std::vector<Database::Entity::ENS::Message> messages = repo->listMessages(request.queueErn, request.pageSize, request.pageIndex, request.sortColumn);
-    //     log_info << "Got message list, count: " << messages.size();
-    //
-    //     Dto::ENS::ListMessagesResponse response;
-    //     response.messages = Dto::ENS::EnsMapper::toDto(messages);
-    //     response.total = repo->countMessages(request.queueErn);
-    //
-    //     return EnsServer::JsonResponse(req, status::ok, response.toJson());
-    // }
-    //
-    // static response<string_body> handleSendMessage(const request<string_body> &req) {
-    //
-    //     Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "send-message");
-    //
-    //     const auto auth = authenticate(req);
-    //     if (!auth.user.has_value()) return unauthorized(req, auth);
-    //
-    //     boost::json::value jv;
-    //     if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
-    //
-    //     const auto request = boost::json::value_to<Dto::ENS::SendMessageRequest>(jv);
-    //     log_info << "ENS SendMessage queueErn: " << request.queueErn;
-    //
-    //     const std::string messageId = Core::UuidUtils::CreateRandomUuid();
-    //     const std::string ern = Core::createEnsMessageErn(auth.user.value().accountId, messageId);
-    //     std::map<std::string, Database::Entity::COM::Variant> attributes;
-    //     for (const auto &[key, variant]: request.attributes) {
-    //         attributes[key] = Dto::ENS::EnsMapper::toEntity(variant);
-    //     }
-    //     const auto repo = Database::RepositoryFactory::instance().ensRepository();
-    //     const Database::Entity::ENS::Message message = repo->sendMessage(messageId, ern, request.queueErn, request.body, attributes, Database::Entity::ENS::MessagePriorityFromString(request.priority));
-    //
-    //     Dto::ENS::SendMessageResponse response;
-    //     response.messageId = message.messageId;
-    //     response.md5Body = message.md5Body;
-    //     response.md5Attributes = message.md5Attributes;
-    //
-    //     return EnsServer::JsonResponse(req, status::ok, response.toJson());
-    // }
+    static response<string_body> handleListMessages(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-messages");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ENS::ListMessagesRequest>(jv);
+        log_debug << "ENS ListMessages, topicErn: " << request.topicErn;
+
+        const auto repo = Database::RepositoryFactory::instance().ensRepository();
+        const std::vector<Database::Entity::ENS::Message> messages = repo->listMessages(request.topicErn, request.pageSize, request.pageIndex, request.sortColumn);
+        log_info << "Got message list, count: " << messages.size();
+
+        Dto::ENS::ListMessagesResponse response;
+        response.messages = Dto::ENS::EnsMapper::toDto(messages);
+        response.total = repo->countMessages(request.topicErn);
+
+        return EnsServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    static response<string_body> handlePublishMessage(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "publish-message");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ENS::PublishMessageRequest>(jv);
+        log_info << "ENS PublishMessage topicErn: " << request.topicErn;
+
+        const std::string messageId = Core::UuidUtils::CreateRandomUuid();
+        const std::string ern = Core::createEnsMessageErn(auth.user.value().accountId, messageId);
+        std::map<std::string, Database::Entity::COM::Variant> attributes;
+        for (const auto &[key, variant]: request.attributes) {
+            attributes[key] = Dto::ENS::EnsMapper::toEntity(variant);
+        }
+        const auto repo = Database::RepositoryFactory::instance().ensRepository();
+        const Database::Entity::ENS::Message message = repo->publishMessage(messageId, ern, request.topicErn, request.body, attributes);
+
+        Dto::ENS::PublishMessageResponse response;
+        response.messageId = message.messageId;
+        response.md5Body = message.md5Body;
+        response.md5Attributes = message.md5Attributes;
+
+        return EnsServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
     //
     // static response<string_body> handleReceiveMessage(const request<string_body> &req) {
     //
@@ -242,42 +235,43 @@ namespace Euclid::ENS {
     //
     //     return EnsServer::JsonResponse(req, status::ok);
     // }
-    //
-    // static response<string_body> handlePurgeQueue(const request<string_body> &req) {
-    //
-    //     Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "purge-queue");
-    //
-    //     if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
-    //
-    //     boost::json::value jv;
-    //     if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
-    //
-    //     const auto request = boost::json::value_to<Dto::ENS::PurgeQueueRequest>(jv);
-    //     log_info << "ENS PurgeQueue ern: " << request.ern;
-    //
-    //     const auto repo = Database::RepositoryFactory::instance().ensRepository();
-    //     repo->purgeQueue(request.ern);
-    //
-    //     return EnsServer::JsonResponse(req, status::ok);
-    // }
-    //
-    // static response<string_body> handlePurgeAllQueues(const request<string_body> &req) {
-    //
-    //     Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "purge-all-queues");
-    //
-    //     if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
-    //
-    //     boost::json::value jv;
-    //     if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
-    //
-    //     const auto request = boost::json::value_to<Dto::ENS::PurgeAllQueuesRequest>(jv);
-    //     log_info << "ENS PurgeAllQueues";
-    //
-    //     const auto repo = Database::RepositoryFactory::instance().ensRepository();
-    //     repo->purgeAllQueues(request.region, request.accountId);
-    //
-    //     return EnsServer::JsonResponse(req, status::ok);
-    // }
+
+    static response<string_body> handlePurgeTopic(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "purge-topic");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ENS::PurgeTopicRequest>(jv);
+        log_info << "ENS PurgeTopic ern: " << request.ern;
+
+        const auto repo = Database::RepositoryFactory::instance().ensRepository();
+        repo->purgeTopic(request.ern);
+
+        return EnsServer::JsonResponse(req, status::ok);
+    }
+
+    static response<string_body> handlePurgeAllTopics(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "purge-all-topics");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ENS::PurgeAllTopicsRequest>(jv);
+        log_info << "ENS PurgeAllTopics";
+
+        const auto repo = Database::RepositoryFactory::instance().ensRepository();
+        repo->purgeAllTopics(request.region, request.accountId, request.nameSpace);
+
+        return EnsServer::JsonResponse(req, status::ok);
+    }
+
     //
     // static response<string_body> handleGetMessageCount(const request<string_body> &req) {
     //
@@ -528,11 +522,11 @@ namespace Euclid::ENS {
             GetMessageMetadata,
             ListTopics,
             ListMessages,
-            SendMessage,
+            PublishMessage,
             ReceiveMessages,
             DeleteMessage,
-            PurgeQueue,
-            PurgeAllQueues,
+            PurgeTopic,
+            PurgeAllTopics,
             GetMetadata,
             AddMetadata,
             AddQueueTag,
@@ -544,12 +538,13 @@ namespace Euclid::ENS {
 
     static Command commandFromString(const std::string &action) {
         if (action == "create-topic") return Command::CreateTopic;
-        if (action == "delete-topic") return Command::DeleteTopic;
         if (action == "get-topic-ern") return Command::GetTopicErn;
         if (action == "list-topics") return Command::ListTopics;
-        // if (action == "list-messages") return Command::ListMessages;
-        // if (action == "send-message") return Command::SendMessage;
-        // if (action == "receive-messages") return Command::ReceiveMessages;
+        if (action == "purge-topic") return Command::PurgeTopic;
+        if (action == "purge-all-topics") return Command::PurgeAllTopics;
+        if (action == "publish-message") return Command::PublishMessage;
+        if (action == "delete-topic") return Command::DeleteTopic;
+        if (action == "list-messages") return Command::ListMessages;
         // if (action == "delete-message") return Command::DeleteMessage;
         // if (action == "purge-queue") return Command::PurgeQueue;
         // if (action == "purge-all-queues") return Command::PurgeAllQueues;
@@ -588,23 +583,17 @@ namespace Euclid::ENS {
             case Command::ListTopics:
                 return handleListTopics(req);
 
-            // case Command::ListMessages:
-            //     return handleListMessages(req);
-            //
-            // case Command::SendMessage:
-            //     return handleSendMessage(req);
-            //
-            // case Command::ReceiveMessages:
-            //     return handleReceiveMessage(req);
-            //
-            // case Command::DeleteMessage:
-            //     return handleDeleteMessage(req);
-            //
-            // case Command::PurgeQueue:
-            //     return handlePurgeQueue(req);
-            //
-            // case Command::PurgeAllQueues:
-            //     return handlePurgeAllQueues(req);
+            case Command::ListMessages:
+                return handleListMessages(req);
+
+            case Command::PublishMessage:
+                return handlePublishMessage(req);
+
+            case Command::PurgeTopic:
+                return handlePurgeTopic(req);
+
+            case Command::PurgeAllTopics:
+                return handlePurgeAllTopics(req);
             //
             // case Command::GetMetadata:
             //     return handleGetQueueAttributes(req);
