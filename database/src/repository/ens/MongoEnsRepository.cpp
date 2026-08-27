@@ -532,7 +532,7 @@ namespace Euclid::Database {
             }
 
             messageCollection.insert_one(message.ToDocument());
-            log_info << "Message sent, ern: " << ern << ", messageId: " << message.messageId;
+            log_debug << "Message sent, ern: " << ern << ", messageId: " << message.messageId;
 
         } catch (const std::exception &e) {
             log_error << "Send message failed, ern: " << ern << ", error: " << e.what();

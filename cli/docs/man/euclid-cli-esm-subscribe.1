@@ -1,0 +1,77 @@
+.TH EUCLID-CLI-ESM-SUBSCRIBE 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-subscribe \- subscribes a target resource to a bucket's object-created events
+.SH SYNOPSIS
+.B euclid-cli esm subscribe
+.BR \-\-source\-ern | \-s
+.I BUCKET-ERN
+.BR \-\-target\-ern | \-q
+.I QUEUE-ERN
+[\fB\-\-type\fR|\fB\-t\fR \fITYPE\fR]
+.SH DESCRIPTION
+Subscribes a target resource to a bucket, so a notification message is
+sent to the target every time an object is created in the bucket (via
+.BR euclid-cli-esm-upload-file (1),
+.BR euclid-cli-esm-upload-directory (1),
+or the underlying put-object/complete-upload actions). Only type
+.B SQS
+is supported for now, so
+.B \-\-target\-ern
+must be the ERN of an EQS queue; delivery happens asynchronously via an
+internal event bus, and results in a new message being created on the
+target queue whose body is a JSON object-created notification:
+.IR eventType ", " bucketErn ", " key ", " ern ", " size ", " contentType ", "
+and
+.IR md5Sum .
+.PP
+Subscribing is idempotent: subscribing the same source/type/target
+combination again returns the same subscription, rather than creating a
+duplicate.
+.PP
+Use
+.BR euclid-cli-esm-unsubscribe (1)
+to remove a subscription.
+.SH OPTIONS
+.TP
+.BR \-s ", " \-\-source\-ern " " \fIBUCKET-ERN\fR
+Euclid resource name of the bucket to subscribe to. Required.
+.TP
+.BR \-t ", " \-\-type " " \fITYPE\fR
+Subscription type. Only
+.I SQS
+is supported for now. Defaults to
+.IR SQS .
+.TP
+.BR \-q ", " \-\-target\-ern " " \fIQUEUE-ERN\fR
+Euclid resource name of the delivery target. For type
+.IR SQS ,
+this must be an EQS queue ERN. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The subscription's ERN, source, type and target are printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, the type is
+not
+.IR SQS ,
+.B \-\-source\-ern
+is not an ESM bucket ERN,
+.B \-\-target\-ern
+is not an EQS queue ERN, or the referenced bucket/queue does not exist.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm subscribe \e
+    --source-ern ern:esm:eu-central-1:000000000000:bucket:uploads \e
+    --target-ern ern:eqs:eu-central-1:000000000000:queue:upload-events
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-unsubscribe (1),
+.BR euclid-cli-esm-list-subscriptions (1),
+.BR euclid-cli-esm-upload-file (1),
+.BR euclid-cli-eqs-create-queue (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

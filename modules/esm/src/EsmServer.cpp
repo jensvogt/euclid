@@ -97,6 +97,35 @@ namespace Euclid::ESM {
         return EsmServer::Unauthorized(req, {.subject = std::nullopt, .tokenExpired = auth.tokenExpired, .denialReason = auth.denialReason});
     }
 
+    // Fans out to every SQS-type subscription of bucketErn - one EventBus event per subscription,
+    // so an eqs instance (any one of them, via the claim mechanism) creates the corresponding
+    // queue message. Mirrors ENS's handlePublishMessage fan-out; see EqsServer's EventBus
+    // subscription for the consumer side (shared with ENS's "ens.message.published").
+    static void publishObjectCreated(const std::string &bucketErn, const std::string &key, const std::string &ern, const long size, const std::string &contentType, const std::string &md5Sum) {
+
+        const auto subscriptions = Database::RepositoryFactory::instance().esmRepository()->listSubscriptionsBySourceErn(bucketErn);
+        for (const auto &subscription: subscriptions) {
+            if (subscription.type != "SQS") continue;
+
+            const boost::json::value notification = {
+                    {"eventType", "esm:ObjectCreated:Put"},
+                    {"bucketErn", bucketErn},
+                    {"key", key},
+                    {"ern", ern},
+                    {"size", size},
+                    {"contentType", contentType},
+                    {"md5Sum", md5Sum},
+            };
+            const boost::json::value payload = {
+                    {"messageId", Core::UuidUtils::CreateRandomUuid()},
+                    {"sourceErn", bucketErn},
+                    {"targetErn", subscription.targetErn},
+                    {"body", boost::json::serialize(notification)},
+            };
+            Database::EventBus::instance().Publish("esm.object.created", payload, "esm");
+        }
+    }
+
     // ── Action handlers ──────────────────────────────────────────────────────
     // Each handler parses whatever fields it needs out of the JSON request body.
     // Return a fully formed HTTP response.
@@ -113,12 +142,14 @@ namespace Euclid::ESM {
 
         const auto request = boost::json::value_to<Dto::ESM::CreateBucketRequest>(jv);
 
+        const auto ns = std::string(req["x-euclid-namespace"]);
+
         Database::Entity::ESM::Bucket bucket;
         bucket.name = request.name;
-        bucket.ern = Core::createEsmBucketErn(auth.user->accountId, request.name);
+        bucket.ern = Core::createEsmBucketErn(auth.user->accountId, ns, request.name);
         bucket.region = auth.user->region;
         bucket.accountId = auth.user->accountId;
-        bucket.nameSpace = std::string(req["x-euclid-namespace"]);
+        bucket.nameSpace = ns;
         bucket.owner = auth.user->userId;
 
         const auto saved = Database::RepositoryFactory::instance().esmRepository()->upsertBucket(bucket);
@@ -268,7 +299,7 @@ namespace Euclid::ESM {
         // it replaces cleaned up below), same as complete-upload's existingObject.
         const auto existingObject = repo->findObjectByBucketAndKey(bucketErn, key);
         const auto internalName = Core::UuidUtils::CreateRandomUuid();
-        const auto ern = Core::createEsmObjectErn(auth.user->accountId, bucket->name + "/" + key);
+        const auto ern = Core::createEsmObjectErn(auth.user->accountId, bucket->nameSpace, bucket->name + "/" + key);
 
         const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
         std::error_code ec;
@@ -328,6 +359,7 @@ namespace Euclid::ESM {
 
         Database::EventBus::instance().Publish(
                 "esm.object.modified", boost::json::value{{"ern", ern}, {"bucketErn", bucketErn}, {"key", key}, {"size", object.size}}, "esm");
+        publishObjectCreated(bucketErn, key, ern, object.size, contentType, md5Sum);
 
         Dto::ESM::CompleteUploadResponse response;
         response.bucketErn = bucketErn;
@@ -545,7 +577,7 @@ namespace Euclid::ESM {
         // resolve objects by key.
         const auto existingObject = repo->findObjectByBucketAndKey(bucketErn, key);
         const auto internalName = Core::UuidUtils::CreateRandomUuid();
-        const auto ern = Core::createEsmObjectErn(auth.user->accountId, bucket->name + "/" + key);
+        const auto ern = Core::createEsmObjectErn(auth.user->accountId, bucket->nameSpace, bucket->name + "/" + key);
 
         // Cheap (stat-only, no reads) so it can be reported in the response below without waiting
         // for the background pass to actually assemble the file.
@@ -648,6 +680,7 @@ namespace Euclid::ESM {
                 }
 
                 log_info << "Completed upload, id: " << uploadId << ", key: " << key << ", internalName: " << internalName << ", size: " << assembledSize;
+                publishObjectCreated(bucketErn, key, ern, object.size, contentType, md5Sum);
             } catch (const std::exception &e) {
                 log_error << "Post-processing failed, upload id: " << uploadId << ", error: " << e.what();
             } catch (...) {
@@ -1113,6 +1146,111 @@ namespace Euclid::ESM {
         return EsmServer::JsonResponse(req, status::ok);
     }
 
+    namespace {
+        bool isEsmBucketErn(const std::string &ern) {
+            return ern.starts_with("ern:esm:") && ern.find(":bucket:") != std::string::npos;
+        }
+
+        bool isEqsQueueErn(const std::string &ern) {
+            return ern.starts_with("ern:eqs:") && ern.find(":queue:") != std::string::npos;
+        }
+    }// namespace
+
+    static response<string_body> handleSubscribe(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "subscribe");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ESM::SubscribeRequest>(jv);
+        log_info << "ESM Subscribe, sourceErn: " << request.sourceErn << ", type: " << request.type << ", targetErn: " << request.targetErn;
+
+        if (request.type != "SQS") {
+            return EsmServer::ErrorResponse(req, status::bad_request, "Unsupported subscription type (only SQS is supported for now): " + request.type);
+        }
+        if (!isEsmBucketErn(request.sourceErn)) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "sourceErn is not an ESM bucket ERN: " + request.sourceErn);
+        }
+        if (!isEqsQueueErn(request.targetErn)) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "targetErn is not an EQS queue ERN: " + request.targetErn);
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        if (!repo->findBucketByErn(request.sourceErn).has_value()) {
+            return EsmServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.sourceErn);
+        }
+        if (!Database::RepositoryFactory::instance().eqsRepository()->findQueueByErn(request.targetErn).has_value()) {
+            return EsmServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + request.targetErn);
+        }
+
+        // Derived from the (sourceErn, type, targetErn) triple rather than randomly generated, so
+        // that re-subscribing the same triple upserts the same document with a stable ERN instead
+        // of silently reassigning its identity on every call (see ENS's identical subscribe).
+        const auto subscriptionId = Core::CryptoUtils::md5Sum(request.sourceErn + ":" + request.type + ":" + request.targetErn);
+
+        Database::Entity::ESM::Subscription subscription;
+        subscription.accountId = auth.user->accountId;
+        subscription.nameSpace = std::string(req["x-euclid-namespace"]);
+        subscription.region = auth.user->region;
+        subscription.owner = auth.user->userId;
+        subscription.ern = Core::createErn("esm", auth.user->accountId, "subscription:" + subscriptionId);
+        subscription.sourceErn = request.sourceErn;
+        subscription.type = request.type;
+        subscription.targetErn = request.targetErn;
+
+        const auto saved = repo->upsertSubscription(subscription);
+
+        Dto::ESM::SubscribeResponse response;
+        response.ern = saved.ern;
+        response.sourceErn = saved.sourceErn;
+        response.type = saved.type;
+        response.targetErn = saved.targetErn;
+
+        return EsmServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    static response<string_body> handleUnsubscribe(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "unsubscribe");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = Dto::ESM::UnsubscribeRequest::fromJson(req.body());
+        log_info << "ESM Unsubscribe, ern: " << request.ern;
+
+        Database::RepositoryFactory::instance().esmRepository()->deleteSubscriptionByErn(request.ern);
+
+        return EsmServer::JsonResponse(req, status::ok);
+    }
+
+    static response<string_body> handleListSubscriptions(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-subscriptions");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ESM::ListSubscriptionsRequest>(jv);
+        log_info << "ESM ListSubscriptions, bucketErn: " << request.bucketErn;
+
+        const auto subscriptions = Database::RepositoryFactory::instance().esmRepository()->listSubscriptionsBySourceErn(request.bucketErn);
+
+        Dto::ESM::ListSubscriptionsResponse response;
+        response.subscriptions = Dto::ESM::EsmMapper::toDto(subscriptions);
+        response.total = static_cast<long>(subscriptions.size());
+
+        return EsmServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
     // ── Request dispatcher ───────────────────────────────────────────────────
 
     namespace {
@@ -1139,6 +1277,9 @@ namespace Euclid::ESM {
             ListObjects,
             DeleteObject,
             PurgeBucket,
+            Subscribe,
+            Unsubscribe,
+            ListSubscriptions,
             GetMetrics
         };
     }
@@ -1164,6 +1305,9 @@ namespace Euclid::ESM {
         if (action == "add-bucket-tag") return Command::AddBucketTag;
         if (action == "set-bucket-tag") return Command::SetBucketTag;
         if (action == "delete-bucket-tag") return Command::DeleteBucketTag;
+        if (action == "subscribe") return Command::Subscribe;
+        if (action == "unsubscribe") return Command::Unsubscribe;
+        if (action == "list-subscriptions") return Command::ListSubscriptions;
         if (action == "get-metrics") return Command::GetMetrics;
         return Command::Unknown;
     }
@@ -1243,6 +1387,15 @@ namespace Euclid::ESM {
 
             case Command::DeleteBucketTag:
                 return handleDeleteBucketTag(req);
+
+            case Command::Subscribe:
+                return handleSubscribe(req);
+
+            case Command::Unsubscribe:
+                return handleUnsubscribe(req);
+
+            case Command::ListSubscriptions:
+                return handleListSubscriptions(req);
 
             case Command::Unknown:
             default:

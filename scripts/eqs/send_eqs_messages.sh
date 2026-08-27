@@ -61,10 +61,10 @@ command -v jq >/dev/null 2>&1 || { echo "error: jq is required" >&2; exit 1; }
 cli() { "$CLI" --pretty false --endpoint "$ENDPOINT" "$@"; }
 
 # Resolve the queue's ERN, creating the queue on the fly if it doesn't exist yet.
-ern=$(cli sqs get-queue-ern --name "$QUEUE_NAME" 2>/dev/null | jq -r '.ern // empty')
+ern=$(cli eqs get-queue-ern --name "$QUEUE_NAME" 2>/dev/null | jq -r '.ern // empty')
 if [ -z "$ern" ]; then
     echo "Queue '$QUEUE_NAME' not found, creating it..."
-    ern=$(cli sqs create-queue --name "$QUEUE_NAME" | jq -r '.ern')
+    ern=$(cli eqs create-queue --name "$QUEUE_NAME" | jq -r '.ern')
 fi
 echo "Sending $COUNT messages to '$QUEUE_NAME' (ern: $ern)"
 
@@ -80,7 +80,7 @@ for ((i = 1; i <= COUNT; i++)); do
         priority="${priorities[$(((i - 1) % 3))]}"
     fi
 
-    cli sqs send-message --ern "$ern" --body "test message $i" --priority "$priority" >/dev/null
+    cli eqs send-message --queue "$ern" --body "test message $i" --priority "$priority" >/dev/null
 
     case "$priority" in
         LOW) counts_low=$((counts_low + 1)) ;;
