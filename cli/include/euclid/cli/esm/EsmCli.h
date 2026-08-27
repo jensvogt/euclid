@@ -195,6 +195,13 @@ namespace Euclid::CLI {
         [[nodiscard]]
         int listObjects(const std::vector<std::string> &args) const;
 
+        /**
+         * @brief Returns the number of objects in a bucket
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
         int getObjectCount(const std::vector<std::string> &args) const;
 
         /**
@@ -215,10 +222,31 @@ namespace Euclid::CLI {
         [[nodiscard]]
         int purgeBucket(const std::vector<std::string> &args) const;
 
+        /**
+         * @brief Adds a bucket tag
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
         int addBucketTag(const std::vector<std::string> &args) const;
 
+        /**
+         * @brief Sets the value of an existing bucket tag
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
         int setBucketTag(const std::vector<std::string> &args) const;
 
+        /**
+         * @brief Deletes a bucket tag
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
         int deleteBucketTag(const std::vector<std::string> &args) const;
 
         /**

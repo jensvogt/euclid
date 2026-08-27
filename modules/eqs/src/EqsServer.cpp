@@ -698,6 +698,40 @@ namespace Euclid::EQS {
         }
     }
 
+    // ── EventBus ─────────────────────────────────────────────────────────────
+    // Consumer side of ENS's SQS-type topic subscriptions (see EnsServer::handlePublishMessage):
+    // one delivery per subscribed queue, claimed by exactly one eqs instance, turned into a real
+    // queue message here.
+
+    static bool handleEnsMessagePublished(const Database::EventEnvelope &envelope) {
+
+        const auto targetErn = Core::GetStringValue(envelope.payload, "targetErn");
+        const auto body = Core::GetStringValue(envelope.payload, "body");
+        const auto sourceMessageId = Core::GetStringValue(envelope.payload, "messageId");
+
+        const auto repo = Database::RepositoryFactory::instance().eqsRepository();
+        if (!repo->findQueueByErn(targetErn).has_value()) {
+            log_warning << "EQS EventBus subscription delivery: target queue not found, ern: " << targetErn;
+            return true;// ack - queue is gone, nothing to retry
+        }
+
+        std::map<std::string, Database::Entity::COM::Variant> attributes;
+        if (envelope.payload.is_object()) {
+            if (const auto *attributesValue = envelope.payload.as_object().if_contains("attributes"); attributesValue && attributesValue->is_object()) {
+                for (const auto &attribute: attributesValue->as_object()) {
+                    attributes[attribute.key()] = Dto::EQS::EqsMapper::toEntity(boost::json::value_to<Dto::COM::Variant>(attribute.value()));
+                }
+            }
+        }
+
+        const auto messageId = Core::UuidUtils::CreateRandomUuid();
+        const auto ern = Core::createEqsMessageErn(Core::accountIdFromErn(targetErn), messageId);
+        repo->sendMessage(messageId, ern, targetErn, body, attributes);
+
+        log_info << "EQS created message from ENS subscription delivery, targetErn: " << targetErn << ", messageId: " << messageId << ", sourceMessageId: " << sourceMessageId;
+        return true;
+    }
+
     // ── EqsServer ────────────────────────────────────────────────────────────
 
     EqsServer::EqsServer(std::string socketPath, const int threads) : HttpActionServer("EQS", std::move(socketPath), threads) {
@@ -707,6 +741,9 @@ namespace Euclid::EQS {
                                                               Database::RepositoryFactory::instance().eqsRepository()->resetExpiredMessages();
                                                           },
                                                           std::chrono::seconds(30));
+
+        Database::EventBus::instance().Subscribe("eqs", "ens.message.published", handleEnsMessagePublished);
+        Database::EventBus::instance().Start("eqs");
     }
 
     EqsServer::~EqsServer() {

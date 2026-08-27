@@ -1,0 +1,65 @@
+.TH EUCLID-CLI-EAM-CHANGE-NAMESPACE 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eam-change-namespace \- switch the active namespace for this session
+.SH SYNOPSIS
+.B euclid-cli eam change-namespace
+.BR \-\-namespace | \-n
+.I NAME
+.SH DESCRIPTION
+Switches the namespace this session is restricted to. The server
+validates that
+.I NAME
+exists under the caller's account, and that the caller either is an
+account administrator or holds an explicit grant for it (see
+.BR euclid-cli-eam-grant-namespace-access (1));
+otherwise the request is rejected and nothing local is changed.
+.PP
+On success, the namespace is persisted to
+.I $HOME/.euclid/credentials
+and is then sent as the
+.I x\-euclid\-namespace
+header on every subsequent command, in every module - not just eam - until
+changed again with this command, cleared with an empty string, or
+overwritten by a fresh
+.B euclid-cli-eam-login (1)
+that specifies its own
+.BR \-\-namespace .
+Only one namespace is active per session; there is no per-command
+override.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-namespace " " \fINAME\fR
+Namespace to make active. An empty string clears it, returning the
+session to unscoped (the default before this command is ever run).
+Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The namespace was validated (or cleared) and saved locally.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, the session
+is not authenticated, the namespace does not exist, or access to it has
+not been granted.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eam change-namespace \e
+    --namespace production
+
+euclid-cli --endpoint http://localhost:5566 eam change-namespace \e
+    --namespace ""
+.fi
+.RE
+.SH FILES
+.TP
+.I $HOME/.euclid/credentials
+Where the active namespace is persisted, alongside the session's bearer
+token and SigV4 access key.
+.SH SEE ALSO
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-eam-grant-namespace-access (1),
+.BR euclid-cli-eam-revoke-namespace-access (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

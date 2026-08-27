@@ -49,6 +49,9 @@ namespace Euclid::CLI {
                                            {"add-topic-tag", "Adds a tag to a topic"},
                                            {"set-topic-tag", "Sets the value of an existing topic tag"},
                                            {"delete-topic-tag", "Deletes a tag from a topic"},
+                                           {"subscribe", "Subscribes a target resource (an EQS queue) to a topic"},
+                                           {"unsubscribe", "Deletes a subscription"},
+                                           {"list-subscriptions", "Lists the subscriptions of a topic"},
                                    });
         }
         if (action == "create-topic") {
@@ -107,6 +110,15 @@ namespace Euclid::CLI {
         }
         if (action == "delete-topic-tag") {
             return deleteTopicTag(args);
+        }
+        if (action == "subscribe") {
+            return subscribe(args);
+        }
+        if (action == "unsubscribe") {
+            return unsubscribe(args);
+        }
+        if (action == "list-subscriptions") {
+            return listSubscriptions(args);
         }
         std::cerr << "error: unknown ENS action '" << action << "'\n";
         return 1;
@@ -769,6 +781,128 @@ namespace Euclid::CLI {
                 std::cerr << "error: delete-queue-tag failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EnsCli::subscribe(const std::vector<std::string> &args) const {
+        po::options_description desc("subscribe options");
+        desc.add_options()
+                ("source-ern,s", po::value<std::string>()->required(), "source topic ERN")
+                ("type,t", po::value<std::string>()->default_value("SQS"), "subscription type (only SQS is supported for now)")
+                ("target-ern,q", po::value<std::string>()->required(), "target ERN (an EQS queue ERN)");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ens", "subscribe", "--source-ern <topicErn> --target-ern <queueErn> [--type SQS]",
+                                   "Subscribes a target resource to a topic, so messages published to the topic are also "
+                                   "delivered to the target. Only type SQS is supported for now, so --target-ern must be "
+                                   "the ERN of an EQS queue; --type defaults to SQS.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n"
+                    << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ENS::SubscribeRequest request;
+        request.sourceErn = vm["source-ern"].as<std::string>();
+        request.type = vm["type"].as<std::string>();
+        request.targetErn = vm["target-ern"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ens", "subscribe", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: subscribe failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EnsCli::unsubscribe(const std::vector<std::string> &args) const {
+        po::options_description desc("unsubscribe options");
+        desc.add_options()
+                ("subscription,s", po::value<std::string>()->required(), "subscription ERN");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ens", "unsubscribe", "--subscription <ern>",
+                                   "Deletes a subscription, identified by the ERN returned by euclid-cli-ens-subscribe(1). "
+                                   "Deleting an ERN with no matching subscription is not an error.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n"
+                    << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ENS::UnsubscribeRequest request;
+        request.ern = vm["subscription"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            if (const HttpResponse response = client.Post("ens", "unsubscribe", boost::json::value_from(request)); !response.IsSuccess()) {
+                std::cerr << "error: unsubscribe failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EnsCli::listSubscriptions(const std::vector<std::string> &args) const {
+        po::options_description desc("list subscriptions options");
+        desc.add_options()
+                ("topic,t", po::value<std::string>()->required(), "topic ERN");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ens", "list-subscriptions", "--topic <ern>",
+                                   "Lists the subscriptions of a topic, identified by its Euclid resource name (ERN).",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n"
+                    << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ENS::ListSubscriptionsRequest request;
+        request.topicErn = vm["topic"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ens", "list-subscriptions", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: list-subscriptions failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
             return 0;
         } catch (const std::exception &ex) {
             std::cerr << "error: " << ex.what() << std::endl;

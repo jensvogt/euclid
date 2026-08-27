@@ -9,6 +9,7 @@ euclid-cli-eam-login \- authenticate to Euclid and store a session token
 .I USERID
 .BR \-\-password | \-p
 .I PASSWORD
+[\fB\-\-namespace\fR|\fB\-n\fR \fINAME\fR]
 .SH DESCRIPTION
 Sends the given user ID and password to the eam service's
 .I login
@@ -20,6 +21,18 @@ for details on that file), so that subsequent
 .B euclid-cli eam
 commands are authenticated automatically without logging in again.
 .PP
+If
+.B \-\-namespace
+is given, it is additionally validated and set as this session's active
+namespace, exactly as
+.BR euclid-cli-eam-change-namespace (1)
+does - every namespace-scoped command run afterward (in any module, not
+just eam) is automatically restricted to it via the
+.I x\-euclid\-namespace
+header, until changed again. Login itself still succeeds even if the
+namespace step fails (e.g. an unknown or ungranted namespace); only a
+warning is printed and the exit status reflects the namespace failure.
+.PP
 The full JSON response (containing the token) is also printed to standard
 output.
 .SH OPTIONS
@@ -29,29 +42,43 @@ User ID to authenticate as. Required.
 .TP
 .BR \-p ", " \-\-password " " \fIPASSWORD\fR
 Password for the user. Required.
+.TP
+.BR \-n ", " \-\-namespace " " \fINAME\fR
+Namespace to make active for this session. Must exist, and the user must
+either be an account administrator or hold an explicit grant for it (see
+.BR euclid-cli-eam-grant-namespace-access (1)).
+Optional; omitted means the session stays unscoped, same as before this
+option existed.
 .SH EXIT STATUS
 .TP
 .B 0
-Login succeeded and the token was saved.
+Login succeeded, the token was saved, and (if given) the namespace was
+set.
 .TP
 .B 1
 Missing/invalid arguments, the server could not be reached, the
-credentials were rejected (\fIHTTP 401\fR, "Invalid credentials"), or the
-response did not contain a token.
+credentials were rejected (\fIHTTP 401\fR, "Invalid credentials"), the
+response did not contain a token, or (only when \fB\-\-namespace\fR was
+given) the namespace step failed - login still succeeded in that case.
 .SH EXAMPLES
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 eam login \e
     --user jdoe --password 'hunter2'
+
+euclid-cli --endpoint http://localhost:5566 eam login \e
+    --user jdoe --password 'hunter2' --namespace production
 .fi
 .RE
 .SH FILES
 .TP
 .I $HOME/.euclid/credentials
-Where the bearer token is written on success (mode \fI0600\fR, in a
-directory created with mode \fI0700\fR if it doesn't already exist).
+Where the bearer token (and active namespace, if set) is written on
+success (mode \fI0600\fR, in a directory created with mode \fI0700\fR if
+it doesn't already exist).
 .SH SEE ALSO
 .BR euclid-cli-eam (1),
-.BR euclid-cli-eam-register (1)
+.BR euclid-cli-eam-register (1),
+.BR euclid-cli-eam-change-namespace (1)
 .SH AUTHOR
 Jens Vogt <jens.vogt@opitz-consulting.com>

@@ -46,6 +46,7 @@ namespace Euclid::CLI {
                                            {"delete-namespace", "Delete an existing namespace"},
                                            {"grant-namespace-access", "Grant a user access to a namespace within an account"},
                                            {"revoke-namespace-access", "Revoke a user's access to a namespace within an account"},
+                                           {"change-namespace", "Switch the active namespace for this session"},
                                    });
         }
         if (action == "login") {
@@ -108,6 +109,9 @@ namespace Euclid::CLI {
         if (action == "revoke-namespace-access") {
             return revokeNamespaceAccess(args);
         }
+        if (action == "change-namespace") {
+            return changeNamespace(args);
+        }
         std::cerr << "error: unknown eam action '" << action << "'\n";
         return 1;
     }
@@ -116,15 +120,19 @@ namespace Euclid::CLI {
         po::options_description desc("eam login options");
         desc.add_options()
                 ("user,u", po::value<std::string>()->required(), "username")
-                ("password,p", po::value<std::string>()->required(), "password");
+                ("password,p", po::value<std::string>()->required(), "password")
+                ("namespace,n", po::value<std::string>(), "namespace to make active for this session");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eam", "login", "--user <username> --password <password>",
+            return PrintActionHelp("eam", "login", "--user <username> --password <password> [--namespace <name>]",
                                    "Authenticates against the Euclid access module and, on success, stores the "
                                    "returned bearer token locally so it is used automatically to authenticate "
                                    "subsequent commands. Also provisions a SigV4 access key on first login (or "
                                    "reuses the existing one on later logins) and stores it alongside the token, "
-                                   "so a separate 'create-access-key' call is not needed for Euclid-service commands.",
+                                   "so a separate 'create-access-key' call is not needed for Euclid-service commands. "
+                                   "If --namespace is given, it is validated and set as the session's active namespace "
+                                   "(see euclid-cli-eam-change-namespace(1)) - every namespace-scoped command run "
+                                   "afterward is automatically restricted to it, until changed again.",
                                    desc);
         }
 
@@ -155,7 +163,7 @@ namespace Euclid::CLI {
                 std::cerr << "error: login response did not contain a token\n";
                 return 1;
             }
-            Credentials::Save({
+            Credentials::Entry entry{
                     .token = loginResponse.token,
                     .userId = loginResponse.user,
                     .accountId = loginResponse.accountId,
@@ -163,7 +171,23 @@ namespace Euclid::CLI {
                     .accessKeyId = loginResponse.accessKeyId,
                     .secretAccessKey = loginResponse.secretAccessKey,
                     .isAdmin = loginResponse.isAdmin,
-            });
+            };
+
+            if (vm.contains("namespace")) {
+                const auto ns = vm["namespace"].as<std::string>();
+                Dto::EAM::ChangeNamespaceRequest nsRequest;
+                nsRequest.ns = ns;
+
+                const HttpClient nsClient(_endpoint, entry, _caCertPath);
+                if (const HttpResponse nsResponse = nsClient.Post("eam", "change-namespace", boost::json::value_from(nsRequest)); !nsResponse.IsSuccess()) {
+                    Credentials::Save(entry);
+                    std::cerr << "warning: logged in, but setting namespace failed (HTTP " << nsResponse.statusCode << "): " << boost::json::serialize(nsResponse.body) << std::endl;
+                    return 1;
+                }
+                entry.nameSpace = ns;
+            }
+
+            Credentials::Save(entry);
 
             Core::WriteJson(std::cout, response.body, _pretty);
             return 0;
@@ -558,9 +582,8 @@ namespace Euclid::CLI {
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("eam", "user-group-remove-user", boost::json::value_from(request));
 
-            if (!response.IsSuccess()) {
+            if (const HttpResponse response = client.Post("eam", "user-group-remove-user", boost::json::value_from(request)); !response.IsSuccess()) {
                 reportFailure("user-group-remove-user", response);
                 return 1;
             }
@@ -951,6 +974,60 @@ namespace Euclid::CLI {
                 reportFailure("revoke-namespace-access", response);
                 return 1;
             }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::changeNamespace(const std::vector<std::string> &args) const {
+        po::options_description desc("eam change namespace options");
+        desc.add_options()
+                ("namespace,n", po::value<std::string>()->required(), "namespace to make active; empty string clears it");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "change-namespace", "--namespace <name>",
+                                   "Switches the active namespace for this session: validated against the "
+                                   "current account (and the caller's namespace grants, unless an account "
+                                   "administrator) and, on success, persisted to $HOME/.euclid/credentials. Every "
+                                   "namespace-scoped command run afterward is automatically restricted to it, "
+                                   "until changed again. Pass an empty string to clear it back to unscoped.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        const auto ns = vm["namespace"].as<std::string>();
+
+        Dto::EAM::ChangeNamespaceRequest request;
+        request.ns = ns;
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eam", "change-namespace", boost::json::value_from(request));
+
+            if (!response.IsSuccess()) {
+                reportFailure("change-namespace", response);
+                return 1;
+            }
+
+            auto entry = Credentials::Load();
+            if (!entry.has_value()) {
+                std::cerr << "error: not logged in\n";
+                return 1;
+            }
+            entry->nameSpace = ns;
+            Credentials::Save(*entry);
+
+            std::cout << (ns.empty() ? "Namespace cleared.\n" : "Namespace set to '" + ns + "'.\n");
             return 0;
         } catch (const std::exception &ex) {
             std::cerr << "error: " << ex.what() << std::endl;

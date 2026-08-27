@@ -110,4 +110,24 @@ namespace Euclid::Dto::ENS {
         return entity;
     }
 
+    Subscription EnsMapper::toDto(const Database::Entity::ENS::Subscription &entity) {
+        Subscription dto;
+        dto.ern = entity.ern;
+        dto.sourceErn = entity.sourceErn;
+        dto.type = entity.type;
+        dto.targetErn = entity.targetErn;
+        dto.created = entity.created;
+        dto.modified = entity.modified;
+        return dto;
+    }
+
+    std::vector<Subscription> EnsMapper::toDto(const std::vector<Database::Entity::ENS::Subscription> &entities) {
+        std::vector<Subscription> dtos;
+        dtos.reserve(entities.size());
+        for (const auto &entity: entities) {
+            dtos.push_back(toDto(entity));
+        }
+        return dtos;
+    }
+
 }// namespace Euclid::Dto::ENS
