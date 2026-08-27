@@ -15,6 +15,7 @@
 #include <euclid/cli/help/CliHelp.h>
 #include <euclid/cli/http/HttpClient.h>
 #include <euclid/dto/eam/CreateAccessKeyResponse.h>
+#include <euclid/dto/eam/ChangeNamespaceRequest.h>
 #include <euclid/dto/eam/CreateAccountRequest.h>
 #include <euclid/dto/eam/CreateNamespaceRequest.h>
 #include <euclid/dto/eam/CreateUserGroupRequest.h>
@@ -219,6 +220,16 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int revokeNamespaceAccess(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Switches the caller's active namespace for this session (persisted in
+         * ~/.euclid/credentials, sent as x-euclid-namespace on every subsequent command).
+         *
+         * @param args action arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int changeNamespace(const std::vector<std::string> &args) const;
 
         /**
          * @brief Euclid endpoint

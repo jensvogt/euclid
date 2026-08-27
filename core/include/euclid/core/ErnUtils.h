@@ -98,6 +98,17 @@ namespace Euclid::Core {
     }
 
     /**
+     * @brief Creates a ENS subscription ERN
+     *
+     * @param accountId account ID
+     * @param subscriptionId subscription ID
+     * @return resource ERN
+     */
+    inline std::string createEnsSubscriptionErn(const std::string &accountId, const std::string &subscriptionId) {
+        return createErn("ens", accountId, "subscription:" + subscriptionId);
+    }
+
+    /**
      * @brief Creates a ENS message ERN
      *
      * @param accountId account ID
@@ -131,15 +142,16 @@ namespace Euclid::Core {
     }
 
     /**
-     * @brief Extracts the account ID from an ERN, i.e. the fifth colon-separated field of
-     * "ern:euclid:{service}:{region}:{accountId}:{resourceType}:{resourceId}".
+     * @brief Extracts the account ID from an ERN, i.e. the fourth colon-separated field of
+     * "ern:{service}:{region}:{accountId}:{resourceId}" (createErn()'s format - resourceId
+     * itself is "{resourceType}:{resourceName}", already a single field here).
      *
      * @param ern ERN to parse
      * @return the account ID, or an empty string if @p ern doesn't have enough fields.
      */
     inline std::string accountIdFromErn(const std::string &ern) {
         std::size_t pos = 0;
-        for (int field = 0; field < 4; ++field) {
+        for (int field = 0; field < 3; ++field) {
             pos = ern.find(':', pos);
             if (pos == std::string::npos) return {};
             ++pos;

@@ -183,6 +183,25 @@ namespace Euclid::ENS {
         const auto repo = Database::RepositoryFactory::instance().ensRepository();
         const Database::Entity::ENS::Message message = repo->publishMessage(messageId, ern, request.topicErn, request.body, attributes);
 
+        // Fan out to every SQS-type subscription of this topic - one EventBus event per
+        // subscription, so an eqs instance (any one of them, via the claim mechanism) creates the
+        // corresponding queue message. Other subscription types (none exist yet) are ignored.
+        boost::json::object attributesJson;
+        for (const auto &[key, variant]: request.attributes) {
+            attributesJson[key] = boost::json::value_from(variant);
+        }
+        for (const auto &subscription: repo->listSubscriptionsBySourceErn(request.topicErn)) {
+            if (subscription.type != "SQS") continue;
+            const boost::json::value payload = {
+                    {"messageId", message.messageId},
+                    {"sourceErn", request.topicErn},
+                    {"targetErn", subscription.targetErn},
+                    {"body", request.body},
+                    {"attributes", attributesJson},
+            };
+            Database::EventBus::instance().Publish("ens.message.published", payload, "ens");
+        }
+
         Dto::ENS::PublishMessageResponse response;
         response.messageId = message.messageId;
         response.md5Body = message.md5Body;
@@ -535,6 +554,111 @@ namespace Euclid::ENS {
         return EnsServer::JsonResponse(req, status::ok);
     }
 
+    namespace {
+        bool isEnsTopicErn(const std::string &ern) {
+            return ern.starts_with("ern:ens:") && ern.find(":topic:") != std::string::npos;
+        }
+
+        bool isEqsQueueErn(const std::string &ern) {
+            return ern.starts_with("ern:eqs:") && ern.find(":queue:") != std::string::npos;
+        }
+    }// namespace
+
+    static response<string_body> handleSubscribe(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "subscribe");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ENS::SubscribeRequest>(jv);
+        log_info << "ENS Subscribe, sourceErn: " << request.sourceErn << ", type: " << request.type << ", targetErn: " << request.targetErn;
+
+        if (request.type != "SQS") {
+            return EnsServer::ErrorResponse(req, status::bad_request, "Unsupported subscription type (only SQS is supported for now): " + request.type);
+        }
+        if (!isEnsTopicErn(request.sourceErn)) {
+            return EnsServer::ErrorResponse(req, status::bad_request, "sourceErn is not an ENS topic ERN: " + request.sourceErn);
+        }
+        if (!isEqsQueueErn(request.targetErn)) {
+            return EnsServer::ErrorResponse(req, status::bad_request, "targetErn is not an EQS queue ERN: " + request.targetErn);
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().ensRepository();
+        if (!repo->findTopicByErn(request.sourceErn).has_value()) {
+            return EnsServer::ErrorResponse(req, status::not_found, "Topic not found, ern: " + request.sourceErn);
+        }
+        if (!Database::RepositoryFactory::instance().eqsRepository()->findQueueByErn(request.targetErn).has_value()) {
+            return EnsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + request.targetErn);
+        }
+
+        // Derived from the (sourceErn, type, targetErn) triple rather than randomly generated, so
+        // that re-subscribing the same triple upserts the same document with a stable ERN instead
+        // of silently reassigning its identity on every call.
+        const auto subscriptionId = Core::CryptoUtils::md5Sum(request.sourceErn + ":" + request.type + ":" + request.targetErn);
+
+        Database::Entity::ENS::Subscription subscription;
+        subscription.accountId = auth.user->accountId;
+        subscription.nameSpace = std::string(req["x-euclid-namespace"]);
+        subscription.region = auth.user->region;
+        subscription.owner = auth.user->userId;
+        subscription.ern = Core::createEnsSubscriptionErn(auth.user->accountId, subscriptionId);
+        subscription.sourceErn = request.sourceErn;
+        subscription.type = request.type;
+        subscription.targetErn = request.targetErn;
+
+        const auto saved = repo->upsertSubscription(subscription);
+
+        Dto::ENS::SubscribeResponse response;
+        response.ern = saved.ern;
+        response.sourceErn = saved.sourceErn;
+        response.type = saved.type;
+        response.targetErn = saved.targetErn;
+
+        return EnsServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    static response<string_body> handleUnsubscribe(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "unsubscribe");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = Dto::ENS::UnsubscribeRequest::fromJson(req.body());
+        log_info << "ENS Unsubscribe, ern: " << request.ern;
+
+        Database::RepositoryFactory::instance().ensRepository()->deleteSubscriptionByErn(request.ern);
+
+        return EnsServer::JsonResponse(req, status::ok);
+    }
+
+    static response<string_body> handleListSubscriptions(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-subscriptions");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ENS::ListSubscriptionsRequest>(jv);
+        log_info << "ENS ListSubscriptions, topicErn: " << request.topicErn;
+
+        const auto subscriptions = Database::RepositoryFactory::instance().ensRepository()->listSubscriptionsBySourceErn(request.topicErn);
+
+        Dto::ENS::ListSubscriptionsResponse response;
+        response.subscriptions = Dto::ENS::EnsMapper::toDto(subscriptions);
+        response.total = static_cast<long>(subscriptions.size());
+
+        return EnsServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
     // ── Request dispatcher ───────────────────────────────────────────────────
 
     namespace {
@@ -561,6 +685,9 @@ namespace Euclid::ENS {
             AddTopicTag,
             SetTopicTag,
             DeleteTopicTag,
+            Subscribe,
+            Unsubscribe,
+            ListSubscriptions,
             GetMetrics
         };
     }
@@ -581,6 +708,9 @@ namespace Euclid::ENS {
         if (action == "add-topic-tag") return Command::AddTopicTag;
         if (action == "set-topic-tag") return Command::SetTopicTag;
         if (action == "delete-topic-tag") return Command::DeleteTopicTag;
+        if (action == "subscribe") return Command::Subscribe;
+        if (action == "unsubscribe") return Command::Unsubscribe;
+        if (action == "list-subscriptions") return Command::ListSubscriptions;
         // if (action == "delete-message") return Command::DeleteMessage;
         // if (action == "purge-queue") return Command::PurgeQueue;
         // if (action == "purge-all-queues") return Command::PurgeAllQueues;
@@ -655,6 +785,15 @@ namespace Euclid::ENS {
 
             case Command::DeleteTopicTag:
                 return handleDeleteTopicTag(req);
+
+            case Command::Subscribe:
+                return handleSubscribe(req);
+
+            case Command::Unsubscribe:
+                return handleUnsubscribe(req);
+
+            case Command::ListSubscriptions:
+                return handleListSubscriptions(req);
 
             case Command::GetMetrics:
                 return EnsServer::MetricsResponse(req);

@@ -14,7 +14,8 @@ The
 module talks to the Euclid gateway's eam service to authenticate and
 manage the access-control hierarchy: accounts, the namespaces under them
 (e.g. \fIdevelopment\fR, \fIintegration\fR, \fIproduction\fR), users, user
-groups, and per-user namespace grants. Every
+groups, per-user namespace grants, and which namespace the current session
+is restricted to. Every
 .B eam
 command sends a single JSON request to the gateway
 (\fB\-\-endpoint\fR, default \fIhttp://localhost:5566\fR) and prints the
@@ -125,6 +126,12 @@ Requires administrator privileges on that account. See
 Revokes a user's access to a specific namespace within a specific
 account. Requires administrator privileges on that account. See
 .BR euclid-cli-eam-revoke-namespace-access (1).
+.TP
+.B change-namespace
+Switches the active namespace for this session (or clears it), validated
+against the caller's own grants. Self-service; no administrator
+privileges required beyond having been granted the target namespace. See
+.BR euclid-cli-eam-change-namespace (1).
 .SH ADMINISTRATOR PRIVILEGES
 There is no per-user "is admin" field. Instead, two independent levels of
 administrator privilege exist:
@@ -197,6 +204,19 @@ header. If the server rejects a request with
 file is deleted so that the failure is unambiguous, and you need to run
 .B euclid-cli eam login
 again before retrying.
+.PP
+The same file also holds the session's active namespace, set via
+.B \-\-namespace
+on
+.BR euclid-cli-eam-login (1)
+or via
+.BR euclid-cli-eam-change-namespace (1),
+and sent as the
+.I x\-euclid\-namespace
+header on every command afterward, in every module - not just eam. This
+is the only way namespace scoping is applied; there is no per-command
+override. A session with no namespace set (the default) sends no such
+header and behaves exactly as before this mechanism existed.
 .SH EXIT STATUS
 .TP
 .B 0
@@ -256,6 +276,21 @@ euclid-cli --endpoint http://localhost:5566 eam grant-namespace-access \e
     --account-id 123456789012 --namespace development
 .fi
 .RE
+.PP
+Make that namespace active for the current session, so subsequent
+.B eqs
+/
+.B ens
+/
+.B esm
+commands are automatically scoped to it without a per-command flag:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eam change-namespace \e
+    --namespace development
+.fi
+.RE
 .SH SEE ALSO
 .BR euclid-cli (1),
 .BR euclid-cli-eam-login (1),
@@ -277,6 +312,7 @@ euclid-cli --endpoint http://localhost:5566 eam grant-namespace-access \e
 .BR euclid-cli-eam-list-namespaces (1),
 .BR euclid-cli-eam-delete-namespace (1),
 .BR euclid-cli-eam-grant-namespace-access (1),
-.BR euclid-cli-eam-revoke-namespace-access (1)
+.BR euclid-cli-eam-revoke-namespace-access (1),
+.BR euclid-cli-eam-change-namespace (1)
 .SH AUTHOR
 Jens Vogt <jens.vogt@opitz-consulting.com>

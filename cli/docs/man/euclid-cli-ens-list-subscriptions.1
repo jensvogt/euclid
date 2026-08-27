@@ -1,0 +1,39 @@
+.TH EUCLID-CLI-ENS-LIST-SUBSCRIPTIONS 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ens-list-subscriptions \- list the subscriptions of a topic
+.SH SYNOPSIS
+.B euclid-cli ens list-subscriptions
+.BR \-\-topic | \-t
+.I TOPIC-ERN
+.SH DESCRIPTION
+Lists every subscription fanning out from a topic, identified by its
+Euclid resource name (ERN). Each subscription is printed with its own
+ERN (usable with
+.BR euclid-cli-ens-unsubscribe (1)),
+its type, and its target ERN.
+.SH OPTIONS
+.TP
+.BR \-t ", " \-\-topic " " \fITOPIC-ERN\fR
+Euclid resource name of the topic whose subscriptions are listed.
+Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The topic's subscriptions are printed as JSON (an empty list if it has
+none).
+.TP
+.B 1
+Missing/invalid arguments, or the server could not be reached.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ens list-subscriptions \e
+    --topic ern:ens:eu-central-1:000000000000:topic:order-events
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ens (1),
+.BR euclid-cli-ens-subscribe (1),
+.BR euclid-cli-ens-unsubscribe (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

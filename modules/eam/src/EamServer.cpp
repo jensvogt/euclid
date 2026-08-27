@@ -12,6 +12,7 @@
 #include "euclid/dto/eam/ListUserGroupsResponse.h"
 #include "euclid/dto/eam/UserGroupAddUserRequest.h"
 
+#include <euclid/dto/eam/ChangeNamespaceRequest.h>
 #include <euclid/dto/eam/CreateAccountRequest.h>
 #include <euclid/dto/eam/CreateAccountResponse.h>
 #include <euclid/dto/eam/CreateNamespaceRequest.h>
@@ -903,6 +904,46 @@ namespace Euclid::EAM {
         return EamServer::JsonResponse(req, status::ok);
     }
 
+    // Switches the caller's active namespace (persisted client-side in ~/.euclid/credentials,
+    // sent back on every subsequent request as x-euclid-namespace). An empty namespace clears it
+    // back to unscoped and always succeeds; a non-empty one must exist and the caller must either
+    // be an account admin or hold an explicit grant for it (see handleGrantNamespaceAccess) -
+    // otherwise a user could silently point every future command at a namespace they have no
+    // business touching.
+    static response<string_body> handleChangeNamespace(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "change-namespace");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EamServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EAM::ChangeNamespaceRequest>(jv);
+
+        if (request.ns.empty()) {
+            log_info << "EAM ChangeNamespace, userId: " << auth.user->userId << ", namespace: (cleared)";
+            return EamServer::JsonResponse(req, status::ok);
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().eamRepository();
+        if (!repo->namespaceExists(auth.user->accountId, request.ns)) {
+            return EamServer::ErrorResponse(req, status::not_found, "Namespace does not exist");
+        }
+
+        const bool granted = isAccountAdmin(*auth.user, auth.user->accountId) ||
+                              std::ranges::any_of(auth.user->accountGrants, [&](const auto &grant) {
+                                  return grant.accountId == auth.user->accountId && std::ranges::contains(grant.namespaces, request.ns);
+                              });
+        if (!granted) {
+            return EamServer::ErrorResponse(req, status::forbidden, "Namespace access not granted");
+        }
+
+        log_info << "EAM ChangeNamespace, userId: " << auth.user->userId << ", namespace: " << request.ns;
+        return EamServer::JsonResponse(req, status::ok);
+    }
+
     // ── Request dispatcher ───────────────────────────────────────────────────
 
     namespace {
@@ -929,6 +970,7 @@ namespace Euclid::EAM {
             DeleteNamespace,
             GrantNamespaceAccess,
             RevokeNamespaceAccess,
+            ChangeNamespace,
             GetMetrics
         };
     }
@@ -954,6 +996,7 @@ namespace Euclid::EAM {
         if (action == "delete-namespace") return Action::DeleteNamespace;
         if (action == "grant-namespace-access") return Action::GrantNamespaceAccess;
         if (action == "revoke-namespace-access") return Action::RevokeNamespaceAccess;
+        if (action == "change-namespace") return Action::ChangeNamespace;
         if (action == "get-metrics") return Action::GetMetrics;
         return Action::Unknown;
     }
@@ -1027,6 +1070,9 @@ namespace Euclid::EAM {
 
             case Action::RevokeNamespaceAccess:
                 return handleRevokeNamespaceAccess(req);
+
+            case Action::ChangeNamespace:
+                return handleChangeNamespace(req);
 
             case Action::GetMetrics:
                 return EamServer::MetricsResponse(req);
