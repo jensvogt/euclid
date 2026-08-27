@@ -69,7 +69,7 @@ namespace Euclid::EQS {
             dlQueue.accountId = auth.user->accountId;
             dlQueue.nameSpace = ns;
             dlQueue.name = request.dlqName;
-            dlQueue.ern = Core::createEqsQueueErn(auth.user->accountId, request.dlqName);
+            dlQueue.ern = Core::createEqsQueueErn(auth.user->accountId, ns, request.dlqName);
             dlQueue.visibility = request.visibility;
             dlQueue.maxMessageLength = request.maxMessageLength;
             dlQueue.maxReceiveCount = request.maxRetries;
@@ -84,7 +84,7 @@ namespace Euclid::EQS {
         queue.accountId = auth.user->accountId;
         queue.nameSpace = ns;
         queue.name = request.name;
-        queue.ern = Core::createEqsQueueErn(auth.user->accountId, request.name);
+        queue.ern = Core::createEqsQueueErn(auth.user->accountId, ns, request.name);
         queue.visibility = request.visibility;
         queue.maxMessageLength = request.maxMessageLength;
         queue.maxReceiveCount = request.maxRetries;
@@ -699,11 +699,14 @@ namespace Euclid::EQS {
     }
 
     // ── EventBus ─────────────────────────────────────────────────────────────
-    // Consumer side of ENS's SQS-type topic subscriptions (see EnsServer::handlePublishMessage):
-    // one delivery per subscribed queue, claimed by exactly one eqs instance, turned into a real
-    // queue message here.
+    // Consumer side of every SQS-type subscription in the system - ENS topics
+    // (EnsServer::handlePublishMessage, event "ens.message.published") and ESM buckets
+    // (EsmServer::publishObjectCreated, event "esm.object.created") both fan out through the same
+    // payload shape (targetErn + body [+ attributes]), so one handler, registered for both event
+    // types below, covers both: one delivery per subscribed queue, claimed by exactly one eqs
+    // instance, turned into a real queue message here.
 
-    static bool handleEnsMessagePublished(const Database::EventEnvelope &envelope) {
+    static bool handleSubscriptionDelivery(const Database::EventEnvelope &envelope) {
 
         const auto targetErn = Core::GetStringValue(envelope.payload, "targetErn");
         const auto body = Core::GetStringValue(envelope.payload, "body");
@@ -728,7 +731,8 @@ namespace Euclid::EQS {
         const auto ern = Core::createEqsMessageErn(Core::accountIdFromErn(targetErn), messageId);
         repo->sendMessage(messageId, ern, targetErn, body, attributes);
 
-        log_info << "EQS created message from ENS subscription delivery, targetErn: " << targetErn << ", messageId: " << messageId << ", sourceMessageId: " << sourceMessageId;
+        log_info << "EQS created message from subscription delivery, source: " << envelope.sourceModule << ", eventType: " << envelope.eventType
+                  << ", targetErn: " << targetErn << ", messageId: " << messageId << ", sourceMessageId: " << sourceMessageId;
         return true;
     }
 
@@ -742,7 +746,8 @@ namespace Euclid::EQS {
                                                           },
                                                           std::chrono::seconds(30));
 
-        Database::EventBus::instance().Subscribe("eqs", "ens.message.published", handleEnsMessagePublished);
+        Database::EventBus::instance().Subscribe("eqs", "ens.message.published", handleSubscriptionDelivery);
+        Database::EventBus::instance().Subscribe("eqs", "esm.object.created", handleSubscriptionDelivery);
         Database::EventBus::instance().Start("eqs");
     }
 

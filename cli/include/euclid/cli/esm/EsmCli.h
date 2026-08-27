@@ -43,8 +43,11 @@
 #include <euclid/dto/esm/ListBucketsRequest.h>
 #include <euclid/dto/esm/ListObjectsRequest.h>
 #include <euclid/dto/esm/ListObjectsResponse.h>
+#include <euclid/dto/esm/ListSubscriptionsRequest.h>
 #include <euclid/dto/esm/PurgeBucketRequest.h>
 #include <euclid/dto/esm/SetBucketTagRequest.h>
+#include <euclid/dto/esm/SubscribeRequest.h>
+#include <euclid/dto/esm/UnsubscribeRequest.h>
 
 // Fallbacks used when euclid.modules.storage.part-size/concurrency aren't set in the loaded
 // configuration file (see main.cpp's --config) - so upload-file/download-file still have sane
@@ -248,6 +251,33 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int deleteBucketTag(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Subscribes a target resource (an EQS queue) to a bucket's object-created events.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int subscribe(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Deletes a subscription.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int unsubscribe(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Lists the subscriptions of a bucket.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int listSubscriptions(const std::vector<std::string> &args) const;
 
         /**
          * @brief Uploads one local file to one bucket/key - the per-file logic shared by

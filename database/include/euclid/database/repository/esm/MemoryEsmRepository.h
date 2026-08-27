@@ -12,6 +12,7 @@
 // Euclid includes
 #include <euclid/core/UuidUtils.h>
 #include <euclid/database/entity/esm/Bucket.h>
+#include <euclid/database/entity/esm/Subscription.h>
 #include <euclid/database/repository/esm/IEsmRepository.h>
 
 namespace Euclid::Database {
@@ -291,6 +292,42 @@ namespace Euclid::Database {
             });
         }
 
+        Entity::ESM::Subscription upsertSubscription(Entity::ESM::Subscription &subscription) override {
+            std::lock_guard lock(_mutex);
+            bool found = false;
+            for (auto &existing: _subscriptionStore | std::views::values) {
+                if (existing.sourceErn == subscription.sourceErn && existing.type == subscription.type && existing.targetErn == subscription.targetErn) {
+                    subscription.oid = existing.oid;
+                    subscription.ern = existing.ern;
+                    subscription.created = existing.created;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found && subscription.oid.empty()) {
+                subscription.oid = Core::UuidUtils::CreateRandomUuid();
+            }
+            subscription.modified = std::chrono::system_clock::now();
+            _subscriptionStore[subscription.oid] = subscription;
+            return subscription;
+        }
+
+        std::vector<Entity::ESM::Subscription> listSubscriptionsBySourceErn(const std::string &sourceErn) const override {
+            std::lock_guard lock(_mutex);
+            std::vector<Entity::ESM::Subscription> result;
+            for (const auto &s: _subscriptionStore | std::views::values) {
+                if (s.sourceErn == sourceErn) result.push_back(s);
+            }
+            return result;
+        }
+
+        void deleteSubscriptionByErn(const std::string &ern) override {
+            std::lock_guard lock(_mutex);
+            std::erase_if(_subscriptionStore, [&ern](const auto &kv) {
+                return kv.second.ern == ern;
+            });
+        }
+
     private:
 
         /**
@@ -307,6 +344,11 @@ namespace Euclid::Database {
          * @brief Object store
          */
         std::unordered_map<std::string, Entity::ESM::Object> _objectStore;
+
+        /**
+         * @brief Subscription store
+         */
+        std::unordered_map<std::string, Entity::ESM::Subscription> _subscriptionStore;
     };
 
 }// namespace Euclid::Database

@@ -23,7 +23,7 @@ namespace Euclid::Database {
             // options::pool exists but has no size method in newer versions
             _pool = std::make_unique<mongocxx::pool>(_uri);
 
-            log_info << "MongoDB pool initialized" << " uri=" << _uri.to_string() << " database=" << _databaseName << " poolSize=" << poolSize;
+            log_debug << "MongoDB pool initialized" << " uri=" << _uri.to_string() << " database=" << _databaseName << " poolSize=" << poolSize;
 
             ping();
 

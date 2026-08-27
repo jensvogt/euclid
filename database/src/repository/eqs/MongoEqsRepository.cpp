@@ -471,7 +471,7 @@ namespace Euclid::Database {
             }
 
             messageCollection.insert_one(message.ToDocument());
-            log_info << "Message sent, ern: " << ern << ", messageId: " << message.messageId;
+            log_debug << "Message sent, ern: " << ern << ", messageId: " << message.messageId;
 
         } catch (const std::exception &e) {
             log_error << "Send message failed, ern: " << ern << ", error: " << e.what();
@@ -573,7 +573,7 @@ namespace Euclid::Database {
                                                 kvp("modified", true))));
                             queueCollection.update_one(make_document(kvp("ern", deadLetterQueueErn)).view(), targetUpdate.view());
 
-                            log_info << "Message moved to dead letter queue, ern: " << queueErn << ", dlqErn: " << deadLetterQueueErn << ", messageId: " << message.messageId;
+                            log_debug << "Message moved to dead letter queue, ern: " << queueErn << ", dlqErn: " << deadLetterQueueErn << ", messageId: " << message.messageId;
                             continue;
                         }
 
@@ -834,7 +834,7 @@ namespace Euclid::Database {
             }
 
             if (resetCount > 0)
-                log_info << "Reset expired messages, count: " << resetCount;
+                log_debug << "Reset expired messages, count: " << resetCount;
 
         } catch (const std::exception &e) {
             log_error << "Reset expired messages failed, error: " << e.what();

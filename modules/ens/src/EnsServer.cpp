@@ -56,7 +56,7 @@ namespace Euclid::ENS {
         topic.accountId = auth.user->accountId;
         topic.nameSpace = ns;
         topic.name = request.name;
-        topic.ern = Core::createEnsTopicErn(auth.user->accountId, request.name);
+        topic.ern = Core::createEnsTopicErn(auth.user->accountId, ns, request.name);
         topic.maxMessageLength = request.maxMessageLength;
         topic.region = auth.user->region;
         topic.owner = auth.user->userId;
