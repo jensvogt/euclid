@@ -38,6 +38,9 @@ namespace Euclid::CLI {
             request.set("x-euclid-region", authentication.region);
             request.set("x-euclid-account-id", authentication.accountId);
             request.set("x-euclid-user-id", authentication.userId);
+            if (!authentication.nameSpace.empty()) {
+                request.set("x-euclid-namespace", authentication.nameSpace);
+            }
         }
 
         // Service calls (everything but the access module itself) sign with SigV4 when an

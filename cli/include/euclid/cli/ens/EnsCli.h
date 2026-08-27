@@ -35,6 +35,9 @@
 #include <euclid/dto/ens/PurgeTopicRequest.h>
 #include <euclid/dto/ens/SetMessageAttributeRequest.h>
 #include <euclid/dto/ens/SetQueueTagRequest.h>
+#include <euclid/dto/ens/ListSubscriptionsRequest.h>
+#include <euclid/dto/ens/SubscribeRequest.h>
+#include <euclid/dto/ens/UnsubscribeRequest.h>
 
 namespace Euclid::CLI {
 
@@ -169,6 +172,13 @@ namespace Euclid::CLI {
         [[nodiscard]]
         int getMessageAttribute(const std::vector<std::string> &args) const;
 
+        /**
+         * @brief Sets a ENS message attribute
+         *
+         * @param args action arguments
+         * @return ok
+         */
+        [[nodiscard]]
         int setMessageAttribute(const std::vector<std::string> &args) const;
 
         /**
@@ -206,6 +216,33 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int deleteTopicTag(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Subscribes a target resource (e.g. an EQS queue) to a topic.
+         *
+         * @param args action arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int subscribe(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Deletes a subscription.
+         *
+         * @param args action arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int unsubscribe(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Lists the subscriptions of a topic.
+         *
+         * @param args action arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int listSubscriptions(const std::vector<std::string> &args) const;
 
         /**
          * @brief Euclid endpoint

@@ -189,6 +189,13 @@ namespace Euclid::CLI {
         [[nodiscard]]
         int getMessageAttribute(const std::vector<std::string> &args) const;
 
+        /**
+         * @brief Sets the value of an existing message attribute
+         *
+         * @param args action arguments
+         * @return ok
+         */
+        [[nodiscard]]
         int setMessageAttribute(const std::vector<std::string> &args) const;
 
         /**
@@ -209,8 +216,22 @@ namespace Euclid::CLI {
         [[nodiscard]]
         int addQueueTag(const std::vector<std::string> &args) const;
 
+        /**
+         * @brief Set the value of a topic tag
+         *
+         * @param args action arguments
+         * @return ok
+         */
+        [[nodiscard]]
         int setQueueTag(const std::vector<std::string> &args) const;
 
+        /**
+         * @brief Deletes a topic tag
+         *
+         * @param args action arguments
+         * @return ok
+         */
+        [[nodiscard]]
         int deleteQueueTag(const std::vector<std::string> &args) const;
 
         /**

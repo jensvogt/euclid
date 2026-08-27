@@ -12,8 +12,8 @@ euclid-cli-ens \- manage Euclid SNS-compatible notification topics and messages
 The
 .B ens
 module talks to the Euclid gateway's ens service to create and manage
-SNS-compatible notification topics, publish messages to them, and tag
-topics. Every
+SNS-compatible notification topics, publish messages to them, subscribe
+EQS queues to receive fan-out deliveries, and tag topics. Every
 .B ens
 command sends a single JSON request to the gateway
 (\fB\-\-endpoint\fR, default \fIhttps://localhost:5566\fR) and prints the
@@ -69,6 +69,19 @@ Returns a single message attribute by key. See
 Sets the value of a single message attribute, creating it if it doesn't
 exist yet. See
 .BR euclid-cli-ens-set-message-attribute (1).
+.TP
+.B subscribe
+Subscribes a target resource (an EQS queue) to a topic, so published
+messages are also delivered to it. See
+.BR euclid-cli-ens-subscribe (1).
+.TP
+.B unsubscribe
+Deletes a subscription. See
+.BR euclid-cli-ens-unsubscribe (1).
+.TP
+.B list-subscriptions
+Lists the subscriptions of a topic. See
+.BR euclid-cli-ens-list-subscriptions (1).
 .TP
 .B add-topic-tag
 Adds a tag to a topic.
@@ -193,6 +206,19 @@ euclid-cli --endpoint http://localhost:5566 ens publish-message \e
 .fi
 .RE
 .PP
+Subscribe a queue to a topic, then remove the subscription:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ens subscribe \e
+    --source-ern ern:ens:eu-central-1:000000000000:topic:order-events \e
+    --target-ern ern:eqs:eu-central-1:000000000000:queue:orders
+
+euclid-cli --endpoint http://localhost:5566 ens unsubscribe \e
+    --subscription ern:ens:eu-central-1:000000000000:subscription:6f1b1e2e...
+.fi
+.RE
+.PP
 List every topic, inspect one topic's messages, then delete the topic:
 .PP
 .RS
@@ -218,6 +244,9 @@ euclid-cli --endpoint http://localhost:5566 ens delete-topic \e
 .BR euclid-cli-ens-get-message-count (1),
 .BR euclid-cli-ens-get-message-attribute (1),
 .BR euclid-cli-ens-set-message-attribute (1),
+.BR euclid-cli-ens-subscribe (1),
+.BR euclid-cli-ens-unsubscribe (1),
+.BR euclid-cli-ens-list-subscriptions (1),
 .BR euclid-cli-ens-add-topic-tag (1),
 .BR euclid-cli-ens-set-topic-tag (1),
 .BR euclid-cli-ens-delete-topic-tag (1),

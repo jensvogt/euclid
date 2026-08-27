@@ -37,6 +37,13 @@ namespace Euclid::CLI {
             std::string region;
 
             /**
+             * @brief Active namespace for this session, set via "eam login --namespace" or "eam
+             * change-namespace". Empty means unscoped (no namespace restriction) - the default
+             * until one is explicitly set. Sent as the x-euclid-namespace header on every request.
+             */
+            std::string nameSpace;
+
+            /**
              * @brief SigV4 access key ID. Populated automatically on "access login" (reusing the
              * account's existing active key, or provisioning one on first login), and refreshable
              * via "access create-access-key". Empty only if login has never succeeded.

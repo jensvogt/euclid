@@ -1,0 +1,37 @@
+.TH EUCLID-CLI-ENS-UNSUBSCRIBE 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ens-unsubscribe \- deletes a subscription
+.SH SYNOPSIS
+.B euclid-cli ens unsubscribe
+.BR \-\-subscription | \-s
+.I SUBSCRIPTION-ERN
+.SH DESCRIPTION
+Deletes a subscription, identified by the ERN returned by
+.BR euclid-cli-ens-subscribe (1).
+Once deleted, messages published to the subscription's topic are no longer
+delivered to its target. Deleting an ERN with no matching subscription is
+not an error.
+.SH OPTIONS
+.TP
+.BR \-s ", " \-\-subscription " " \fISUBSCRIPTION-ERN\fR
+Euclid resource name of the subscription to delete. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The subscription was deleted (or was already absent). No output is
+printed.
+.TP
+.B 1
+Missing/invalid arguments, or the server could not be reached.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ens unsubscribe \e
+    --subscription ern:ens:eu-central-1:000000000000:subscription:6f1b1e2e...
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ens (1),
+.BR euclid-cli-ens-subscribe (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
