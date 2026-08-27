@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.41](https://github.com/jensvogt/euclid/compare/1.0.40...v1.0.41) (2026-08-27)
+
+
+### Bug Fixes
+
+* add namespace login feature ([13713ea](https://github.com/jensvogt/euclid/commit/13713ea720094cb9af3b8c048c9fd562cf5f618a))
+
 ## [1.0.40](https://github.com/jensvogt/euclid/compare/1.0.39...v1.0.40) (2026-08-26)
 
 
