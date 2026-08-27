@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.42](https://github.com/jensvogt/euclid/compare/1.0.41...v1.0.42) (2026-08-27)
+
+
+### Bug Fixes
+
+* add ESM subscribe/unsubscribe ([a389946](https://github.com/jensvogt/euclid/commit/a3899468c1d54258f20a316ce6eb3072d725c00e))
+
 ## [1.0.41](https://github.com/jensvogt/euclid/compare/1.0.40...v1.0.41) (2026-08-27)
 
 
