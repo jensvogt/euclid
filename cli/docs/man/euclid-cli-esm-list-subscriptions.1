@@ -1,0 +1,39 @@
+.TH EUCLID-CLI-ESM-LIST-SUBSCRIPTIONS 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-list-subscriptions \- list the subscriptions of a bucket
+.SH SYNOPSIS
+.B euclid-cli esm list-subscriptions
+.BR \-\-bucket | \-b
+.I BUCKET-ERN
+.SH DESCRIPTION
+Lists every subscription fanning out object-created notifications from a
+bucket, identified by its Euclid resource name (ERN). Each subscription
+is printed with its own ERN (usable with
+.BR euclid-cli-esm-unsubscribe (1)),
+its type, and its target ERN.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-bucket " " \fIBUCKET-ERN\fR
+Euclid resource name of the bucket whose subscriptions are listed.
+Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The bucket's subscriptions are printed as JSON (an empty list if it has
+none).
+.TP
+.B 1
+Missing/invalid arguments, or the server could not be reached.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm list-subscriptions \e
+    --bucket ern:esm:eu-central-1:000000000000:bucket:uploads
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-subscribe (1),
+.BR euclid-cli-esm-unsubscribe (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

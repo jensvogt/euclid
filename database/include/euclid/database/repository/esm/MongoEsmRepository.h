@@ -184,6 +184,28 @@ namespace Euclid::Database {
          */
         void deleteObjectByErn(const std::string &ern) override;
 
+        /**
+         * @brief Creates or refreshes a subscription (upsert keyed on sourceErn/type/targetErn)
+         *
+         * @param subscription subscription entity
+         */
+        Entity::ESM::Subscription upsertSubscription(Entity::ESM::Subscription &subscription) override;
+
+        /**
+         * @brief Lists every subscription fanning out from a bucket.
+         *
+         * @param sourceErn bucket ERN
+         */
+        [[nodiscard]]
+        std::vector<Entity::ESM::Subscription> listSubscriptionsBySourceErn(const std::string &sourceErn) const override;
+
+        /**
+         * @brief Deletes a subscription by its ERN.
+         *
+         * @param ern subscription ERN
+         */
+        void deleteSubscriptionByErn(const std::string &ern) override;
+
     private:
 
         /**
@@ -195,6 +217,11 @@ namespace Euclid::Database {
          * @brief Objects collection name
          */
         static constexpr auto OBJECT_COLLECTION = "esm_object";
+
+        /**
+         * @brief Subscriptions collection name
+         */
+        static constexpr auto SUBSCRIPTION_COLLECTION = "esm_subscription";
 
         /**
          * @brief Creates the indexes required for efficient bucket lookup, if they do not already exist.

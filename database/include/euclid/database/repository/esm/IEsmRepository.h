@@ -12,6 +12,7 @@
 // Euclid includes
 #include <euclid/database/entity/esm/Bucket.h>
 #include <euclid/database/entity/esm/Object.h>
+#include <euclid/database/entity/esm/Subscription.h>
 
 namespace Euclid::Database {
 
@@ -182,6 +183,31 @@ namespace Euclid::Database {
          * @param ern The Euclid resource name (ERN) of the object to be removed.
          */
         virtual void deleteObjectByErn(const std::string &ern) = 0;
+
+        /**
+         * @brief Creates (or, for a matching existing sourceErn/type/targetErn, refreshes) a
+         * subscription that fans out object-created notifications from sourceErn to targetErn.
+         *
+         * @param subscription the subscription to be inserted or updated in the repository.
+         */
+        virtual Entity::ESM::Subscription upsertSubscription(Entity::ESM::Subscription &subscription) = 0;
+
+        /**
+         * @brief Lists every subscription fanning out from a bucket.
+         *
+         * @param sourceErn ERN of the bucket whose subscriptions are listed.
+         * @return the bucket's subscriptions; empty if it has none.
+         */
+        [[nodiscard]]
+        virtual std::vector<Entity::ESM::Subscription> listSubscriptionsBySourceErn(const std::string &sourceErn) const = 0;
+
+        /**
+         * @brief Deletes a subscription by its ERN. Deleting an ERN with no matching subscription
+         * is not an error.
+         *
+         * @param ern subscription ERN
+         */
+        virtual void deleteSubscriptionByErn(const std::string &ern) = 0;
     };
 
 }// namespace Euclid::Database

@@ -49,4 +49,24 @@ namespace Euclid::Dto::ESM {
         return dtos;
     }
 
+    Subscription EsmMapper::toDto(const Database::Entity::ESM::Subscription &entity) {
+        Subscription dto;
+        dto.ern = entity.ern;
+        dto.sourceErn = entity.sourceErn;
+        dto.type = entity.type;
+        dto.targetErn = entity.targetErn;
+        dto.created = entity.created;
+        dto.modified = entity.modified;
+        return dto;
+    }
+
+    std::vector<Subscription> EsmMapper::toDto(const std::vector<Database::Entity::ESM::Subscription> &entities) {
+        std::vector<Subscription> dtos;
+        dtos.reserve(entities.size());
+        for (const auto &entity: entities) {
+            dtos.push_back(toDto(entity));
+        }
+        return dtos;
+    }
+
 }// namespace Euclid::Dto::ESM
