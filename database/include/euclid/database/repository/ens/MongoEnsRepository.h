@@ -45,6 +45,28 @@ namespace Euclid::Database {
         Entity::ENS::Topic upsertTopic(Entity::ENS::Topic &topic) override;
 
         /**
+         * @brief Creates or refreshes a subscription (upsert keyed on sourceErn/type/targetErn)
+         *
+         * @param subscription subscription entity
+         */
+        Entity::ENS::Subscription upsertSubscription(Entity::ENS::Subscription &subscription) override;
+
+        /**
+         * @brief Lists every subscription fanning out from a topic.
+         *
+         * @param sourceErn topic ERN
+         */
+        [[nodiscard]]
+        std::vector<Entity::ENS::Subscription> listSubscriptionsBySourceErn(const std::string &sourceErn) const override;
+
+        /**
+         * @brief Deletes a subscription by its ERN.
+         *
+         * @param ern subscription ERN
+         */
+        void deleteSubscriptionByErn(const std::string &ern) override;
+
+        /**
          * @brief Removes a topic entity
          *
          * @param name module name
@@ -255,6 +277,7 @@ namespace Euclid::Database {
         static constexpr auto DATABASE_NAME = "euclid";
         static constexpr auto TOPIC_COLLECTION = "ens_topic";
         static constexpr auto MESSAGE_COLLECTION = "ens_message";
+        static constexpr auto SUBSCRIPTION_COLLECTION = "ens_subscription";
 
         /**
          * @brief Creates the indexes required for efficient message lookup, if they do not already exist.

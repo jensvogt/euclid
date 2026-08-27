@@ -16,6 +16,7 @@
 #include <euclid/core/Scheduler.h>
 #include <euclid/core/UuidUtils.h>
 #include <euclid/core/monitoring/MonitoringTimer.h>
+#include <euclid/database/EventBus.h>
 #include <euclid/database/RepositoryFactory.h>
 #include <euclid/database/entity/eam/User.h>
 #include <euclid/database/entity/eqs/Queue.h>

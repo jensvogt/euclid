@@ -9,8 +9,10 @@
 
 // Euclid includes
 #include <euclid/database/entity/ens/Message.h>
+#include <euclid/database/entity/ens/Subscription.h>
 #include <euclid/database/entity/ens/Topic.h>
 #include <euclid/dto/ens/model/Message.h>
+#include <euclid/dto/ens/model/Subscription.h>
 #include <euclid/dto/ens/model/Topic.h>
 
 namespace Euclid::Dto::ENS {
@@ -83,6 +85,22 @@ namespace Euclid::Dto::ENS {
          * @return Variant DTO
          */
         static COM::Variant toDto(const Database::Entity::COM::Variant &entity);
+
+        /**
+         * @brief Maps a Subscription entity to a Subscription DTO.
+         *
+         * @param entity source Subscription entity from the database
+         * @return Subscription DTO
+         */
+        static Subscription toDto(const Database::Entity::ENS::Subscription &entity);
+
+        /**
+         * @brief Maps a list of Subscription entities to a list of Subscription DTOs.
+         *
+         * @param entities source Subscription entities from the database
+         * @return list of Subscription DTOs
+         */
+        static std::vector<Subscription> toDto(const std::vector<Database::Entity::ENS::Subscription> &entities);
     };
 
 }// namespace Euclid::Dto::ENS

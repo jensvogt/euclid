@@ -124,6 +124,8 @@ namespace Euclid::ESM {
         const auto saved = Database::RepositoryFactory::instance().esmRepository()->upsertBucket(bucket);
         log_info << "ESM bucket created, ern: " << bucket.ern;
 
+        Database::EventBus::instance().Publish("esm.bucket.modified", boost::json::value{{"ern", saved.ern}, {"name", saved.name}}, "esm");
+
         Dto::ESM::CreateBucketResponse response;
         response.name = saved.name;
         response.ern = saved.ern;
@@ -217,6 +219,8 @@ namespace Euclid::ESM {
         log_info << "ESM bucket deleted, ern: " << request.ern;
 
         Database::RepositoryFactory::instance().esmRepository()->deleteBucketByErn(request.ern);
+
+        Database::EventBus::instance().Publish("esm.bucket.deleted", boost::json::value{{"ern", request.ern}}, "esm");
 
         return EsmServer::JsonResponse(req, status::ok);
     }
@@ -321,6 +325,9 @@ namespace Euclid::ESM {
         }
 
         log_info << "ESM put object, bucket: " << bucketErn << ", key: " << key << ", internalName: " << internalName << ", size: " << data.size();
+
+        Database::EventBus::instance().Publish(
+                "esm.object.modified", boost::json::value{{"ern", ern}, {"bucketErn", bucketErn}, {"key", key}, {"size", object.size}}, "esm");
 
         Dto::ESM::CompleteUploadResponse response;
         response.bucketErn = bucketErn;
@@ -992,6 +999,8 @@ namespace Euclid::ESM {
         }
 
         repo->deleteObjectByErn(request.ern);
+
+        Database::EventBus::instance().Publish("esm.object.deleted", boost::json::value{{"ern", request.ern}}, "esm");
 
         return JsonResponse(req, status::ok);
     }

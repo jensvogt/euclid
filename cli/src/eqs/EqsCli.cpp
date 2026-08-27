@@ -423,7 +423,7 @@ namespace Euclid::CLI {
         }
 
         Dto::EQS::DeleteQueueRequest request;
-        request.ern = vm["ern"].as<std::string>();
+        request.ern = vm["queue"].as<std::string>();
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);

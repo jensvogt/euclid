@@ -9,6 +9,7 @@
 #include <boost/beast/http.hpp>
 
 // Euclid includes
+#include <euclid/core/CryptoUtils.h>
 #include <euclid/core/DateTimeUtils.h>
 #include <euclid/core/ErnUtils.h>
 #include <euclid/core/HttpActionServer.h>
@@ -16,8 +17,10 @@
 #include <euclid/core/Scheduler.h>
 #include <euclid/core/UuidUtils.h>
 #include <euclid/core/monitoring/MonitoringTimer.h>
+#include <euclid/database/EventBus.h>
 #include <euclid/database/RepositoryFactory.h>
 #include <euclid/database/entity/eam/User.h>
+#include <euclid/database/entity/ens/Subscription.h>
 #include <euclid/database/entity/ens/Topic.h>
 #include <euclid/database/entity/eqs/Queue.h>
 #include <euclid/dto/BaseDto.h>
@@ -37,6 +40,8 @@
 #include <euclid/dto/ens/GetTopicMetadataResponse.h>
 #include <euclid/dto/ens/ListMessagesRequest.h>
 #include <euclid/dto/ens/ListMessagesResponse.h>
+#include <euclid/dto/ens/ListSubscriptionsRequest.h>
+#include <euclid/dto/ens/ListSubscriptionsResponse.h>
 #include <euclid/dto/ens/ListTopicsRequest.h>
 #include <euclid/dto/ens/ListTopicsResponse.h>
 #include <euclid/dto/ens/PublishMessageRequest.h>
@@ -44,6 +49,9 @@
 #include <euclid/dto/ens/PurgeAllTopicsRequest.h>
 #include <euclid/dto/ens/PurgeTopicRequest.h>
 #include <euclid/dto/ens/SetMessageAttributeRequest.h>
+#include <euclid/dto/ens/SubscribeRequest.h>
+#include <euclid/dto/ens/SubscribeResponse.h>
+#include <euclid/dto/ens/UnsubscribeRequest.h>
 
 namespace Euclid::ENS {
 

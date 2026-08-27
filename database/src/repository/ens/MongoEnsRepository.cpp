@@ -33,6 +33,11 @@ namespace Euclid::Database {
             mongocxx::options::index topicErnOpts;
             topicErnOpts.unique(true);
             topicCollection.create_index(make_document(kvp("ern", 1)), topicErnOpts);
+
+            auto subscriptionCollection = (*entry)[Database::instance().databaseName()][SUBSCRIPTION_COLLECTION];
+            mongocxx::options::index subscriptionOpts;
+            subscriptionOpts.unique(true);
+            subscriptionCollection.create_index(make_document(kvp("sourceErn", 1), kvp("type", 1), kvp("targetErn", 1)), subscriptionOpts);
             //
             // auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
             //
@@ -205,6 +210,74 @@ namespace Euclid::Database {
         return topic;
     }
 
+
+    Entity::ENS::Subscription MongoEnsRepository::upsertSubscription(Entity::ENS::Subscription &subscription) {
+
+        try {
+
+            const auto filter = make_document(kvp("sourceErn", subscription.sourceErn), kvp("type", subscription.type), kvp("targetErn", subscription.targetErn));
+            const auto update = make_document(
+                    kvp("$set", subscription.toDocument()),
+                    kvp("$setOnInsert", make_document(
+                                kvp("created", bsoncxx::types::b_date{
+                                            std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                    subscription.created.time_since_epoch())
+                                    })
+                                )),
+                    kvp("$currentDate", make_document(
+                                kvp("modified", true)
+                                )));
+
+            mongocxx::options::find_one_and_update opts;
+            opts.upsert(true);
+            opts.return_document(mongocxx::options::return_document::k_after);
+
+            const auto entry = Database::instance().client();
+            auto subscriptionCollection = (*entry)[Database::instance().databaseName()][SUBSCRIPTION_COLLECTION];
+
+            if (auto result = subscriptionCollection.find_one_and_update(filter.view(), update.view(), opts)) {
+                return Entity::ENS::Subscription::fromDocument(result->view());
+            }
+            throw std::runtime_error("upsert returned no document, sourceErn: " + subscription.sourceErn);
+
+        } catch (const std::exception &e) {
+            log_error << "Upsert subscription failed, error: " << e.what();
+            throw;
+        }
+    }
+
+    std::vector<Entity::ENS::Subscription> MongoEnsRepository::listSubscriptionsBySourceErn(const std::string &sourceErn) const {
+
+        std::vector<Entity::ENS::Subscription> subscriptions;
+        try {
+            const auto filter = make_document(kvp("sourceErn", sourceErn));
+
+            const auto entry = Database::instance().client();
+            auto subscriptionCollection = (*entry)[Database::instance().databaseName()][SUBSCRIPTION_COLLECTION];
+
+            for (auto cursor = subscriptionCollection.find(filter.view()); auto doc: cursor) {
+                subscriptions.push_back(Entity::ENS::Subscription::fromDocument(doc));
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "List subscriptions failed, sourceErn: " << sourceErn << ", error: " << e.what();
+        }
+        return subscriptions;
+    }
+
+    void MongoEnsRepository::deleteSubscriptionByErn(const std::string &ern) {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto subscriptionCollection = (*entry)[Database::instance().databaseName()][SUBSCRIPTION_COLLECTION];
+
+            const auto result = subscriptionCollection.delete_many(make_document(kvp("ern", ern)));
+            log_debug << "Subscription deleted, ern: " << ern << ", count: " << result->deleted_count();
+
+        } catch (const std::exception &e) {
+            log_error << "Delete subscription failed, ern: " << ern << ", error: " << e.what();
+        }
+    }
 
     long MongoEnsRepository::countTopics(const std::string &accountId, const std::string &namespaceName) const {
 

@@ -19,6 +19,7 @@
 #include <euclid/core/LogStream.h>
 #include <euclid/core/UuidUtils.h>
 #include <euclid/database/entity/ens/Message.h>
+#include <euclid/database/entity/ens/Subscription.h>
 #include <euclid/database/entity/ens/Topic.h>
 #include <euclid/database/repository/ens/IEnsRepository.h>
 
@@ -50,6 +51,42 @@ namespace Euclid::Database {
                 _topicStore[topic.oid] = topic;
             }
             return topic;
+        }
+
+        Entity::ENS::Subscription upsertSubscription(Entity::ENS::Subscription &subscription) override {
+            std::lock_guard lock(_mutex);
+            bool found = false;
+            for (auto &existing: _subscriptionStore | std::views::values) {
+                if (existing.sourceErn == subscription.sourceErn && existing.type == subscription.type && existing.targetErn == subscription.targetErn) {
+                    subscription.oid = existing.oid;
+                    subscription.ern = existing.ern;
+                    subscription.created = existing.created;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found && subscription.oid.empty()) {
+                subscription.oid = Core::UuidUtils::CreateRandomUuid();
+            }
+            subscription.modified = std::chrono::system_clock::now();
+            _subscriptionStore[subscription.oid] = subscription;
+            return subscription;
+        }
+
+        std::vector<Entity::ENS::Subscription> listSubscriptionsBySourceErn(const std::string &sourceErn) const override {
+            std::lock_guard lock(_mutex);
+            std::vector<Entity::ENS::Subscription> result;
+            for (const auto &s: _subscriptionStore | std::views::values) {
+                if (s.sourceErn == sourceErn) result.push_back(s);
+            }
+            return result;
+        }
+
+        void deleteSubscriptionByErn(const std::string &ern) override {
+            std::lock_guard lock(_mutex);
+            std::erase_if(_subscriptionStore, [&ern](const auto &kv) {
+                return kv.second.ern == ern;
+            });
         }
 
         //
@@ -446,6 +483,7 @@ namespace Euclid::Database {
         mutable std::mutex _mutex;
         std::unordered_map<std::string, Entity::ENS::Topic> _topicStore;
         std::unordered_map<std::string, Entity::ENS::Message> _messageStore;
+        std::unordered_map<std::string, Entity::ENS::Subscription> _subscriptionStore;
     };
 
 }// namespace Euclid::Database

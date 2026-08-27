@@ -1,0 +1,71 @@
+.TH EUCLID-CLI-ENS-SUBSCRIBE 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ens-subscribe \- subscribes a target resource to a topic
+.SH SYNOPSIS
+.B euclid-cli ens subscribe
+.BR \-\-source\-ern | \-s
+.I TOPIC-ERN
+.BR \-\-target\-ern | \-q
+.I QUEUE-ERN
+[\fB\-\-type\fR|\fB\-t\fR \fITYPE\fR]
+.SH DESCRIPTION
+Subscribes a target resource to a topic, so messages published to the topic
+are also delivered to the target. Only type
+.B SQS
+is supported for now, so
+.B \-\-target\-ern
+must be the ERN of an EQS queue; delivery happens asynchronously via an
+internal event bus, and results in a new message being created on the
+target queue with the same body and attributes as the published topic
+message.
+.PP
+Subscribing is idempotent: subscribing the same source/type/target
+combination again returns the same subscription, rather than creating a
+duplicate.
+.PP
+Use
+.BR euclid-cli-ens-unsubscribe (1)
+to remove a subscription.
+.SH OPTIONS
+.TP
+.BR \-s ", " \-\-source\-ern " " \fITOPIC-ERN\fR
+Euclid resource name of the topic to subscribe to. Required.
+.TP
+.BR \-t ", " \-\-type " " \fITYPE\fR
+Subscription type. Only
+.I SQS
+is supported for now. Defaults to
+.IR SQS .
+.TP
+.BR \-q ", " \-\-target\-ern " " \fIQUEUE-ERN\fR
+Euclid resource name of the delivery target. For type
+.IR SQS ,
+this must be an EQS queue ERN. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The subscription's ERN, source, type and target are printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, the type is
+not
+.IR SQS ,
+.B \-\-source\-ern
+is not an ENS topic ERN,
+.B \-\-target\-ern
+is not an EQS queue ERN, or the referenced topic/queue does not exist.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ens subscribe \e
+    --source-ern ern:ens:eu-central-1:000000000000:topic:order-events \e
+    --target-ern ern:eqs:eu-central-1:000000000000:queue:orders
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ens (1),
+.BR euclid-cli-ens-unsubscribe (1),
+.BR euclid-cli-ens-publish-message (1),
+.BR euclid-cli-eqs-create-queue (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
