@@ -984,7 +984,7 @@ namespace Euclid::CLI {
     int EamCli::changeNamespace(const std::vector<std::string> &args) const {
         po::options_description desc("eam change namespace options");
         desc.add_options()
-                ("namespace,n", po::value<std::string>()->required(), "namespace to make active; empty string clears it");
+                ("namespace,n", po::value<std::string>(), "namespace to make active; if missing or empty string clears it");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eam", "change-namespace", "--namespace <name>",
@@ -1005,16 +1005,15 @@ namespace Euclid::CLI {
             return 1;
         }
 
-        const auto ns = vm["namespace"].as<std::string>();
+        const auto ns = vm["namespace"].empty() ? "" : vm["namespace"].as<std::string>();
 
         Dto::EAM::ChangeNamespaceRequest request;
         request.ns = ns;
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("eam", "change-namespace", boost::json::value_from(request));
 
-            if (!response.IsSuccess()) {
+            if (const HttpResponse response = client.Post("eam", "change-namespace", boost::json::value_from(request)); !response.IsSuccess()) {
                 reportFailure("change-namespace", response);
                 return 1;
             }

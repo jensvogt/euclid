@@ -76,6 +76,19 @@ namespace Euclid::Database {
      * kMaxAttempts failed/timed-out attempts, a delivery is moved to the DLQ collection instead
      * of retried forever.
      *
+     * @par Delivery trigger
+     * A background thread watches "internal_events" via a MongoDB change stream (requires the
+     * server to run as a replica set - even a single-node one - which is what enables change
+     * streams at all), filtered server-side to inserts targeting this moduleType, and attempts a
+     * claim the moment one arrives - this is what gives near-instant delivery instead of waiting
+     * out a poll interval. The stream is only a wake-up signal though; the actual claim still
+     * goes through the same atomic find-and-update either way, so correctness never depends on
+     * the stream not missing anything. Start()'s pollInterval is a much slower safety-net sweep
+     * layered on top, catching anything a dead/reconnecting stream would otherwise leave stranded
+     * (e.g. the gap before the watch thread's first connection succeeds); it also intentionally
+     * doesn't fire on updates (like reap()'s status reset), so a reaped delivery is picked up by
+     * this sweep or the next stream event for a fresh insert, not necessarily instantly.
+     *
      * @par Usage
      * @code
      * // In modules/esm/src/main.cpp, after Database::instance().initialize():
@@ -104,6 +117,7 @@ namespace Euclid::Database {
         }
 
         EventBus(const EventBus &) = delete;
+
         EventBus &operator=(const EventBus &) = delete;
 
         /**
@@ -120,13 +134,18 @@ namespace Euclid::Database {
          * delivery), false to retry it. Exceptions are caught and treated as a failed attempt.
          */
         void Subscribe(const std::string &moduleType, const std::string &eventType,
-                        std::function<bool(const EventEnvelope &)> handler);
+                       std::function<bool(const EventEnvelope &)> handler);
 
         /**
-         * @brief Starts this process's poll loop for moduleType's claimed deliveries and stuck-claim
-         * reaping. Call once, after all Subscribe() calls for this process.
+         * @brief Starts this process's change-stream watcher (the primary, low-latency delivery
+         * path), a safety-net poll at pollInterval, and stuck-claim reaping. Call once, after all
+         * Subscribe() calls for this process.
+         *
+         * @param pollInterval cadence of the safety-net sweep, not the normal delivery latency -
+         * see the class-level "Delivery trigger" note. Defaults to a slow 30s since the change
+         * stream handles the normal case.
          */
-        void Start(const std::string &moduleType, std::chrono::milliseconds pollInterval = std::chrono::seconds(2));
+        void Start(const std::string &moduleType, std::chrono::milliseconds pollInterval = std::chrono::seconds(30));
 
         /**
          * @brief Publishes an event, fanning it out to every module type currently subscribed to
@@ -141,9 +160,14 @@ namespace Euclid::Database {
         EventBus() = default;
 
         void ensureIndexes();
+
         void pollOnce(const std::string &moduleType);
-        void reap();
-        void moveToDlq(const bsoncxx::document::view &doc, const std::string &reason);
+
+        void watchLoop(const std::string &moduleType);
+
+        static void reap();
+
+        static void moveToDlq(const bsoncxx::document::view &doc, const std::string &reason);
 
         static constexpr auto SUBSCRIPTION_COLLECTION = "internal_event_subscriptions";
         static constexpr auto EVENT_COLLECTION = "internal_events";
@@ -151,12 +175,13 @@ namespace Euclid::Database {
         static constexpr int kMaxAttempts = 5;
         static constexpr int kBatchSize = 10;
         static constexpr auto kVisibilityTimeout = std::chrono::seconds(30);
+        static constexpr auto kWatchReconnectDelay = std::chrono::seconds(2);
 
         std::once_flag _indexesOnce;
         std::string _instanceId;
 
         std::mutex _handlersMutex;
-        std::unordered_map<std::string, std::function<bool(const EventEnvelope &)>> _handlers;// keyed by eventType
+        std::unordered_map<std::string, std::function<bool(const EventEnvelope &)> > _handlers;// keyed by eventType
     };
 
 }// namespace Euclid::Database

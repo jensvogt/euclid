@@ -12,7 +12,8 @@ euclid-cli-esm \- manage Euclid S3-compatible storage buckets and objects
 The
 .B esm
 module talks to the Euclid gateway's esm service to create and manage
-S3-compatible storage buckets and the objects stored in them. Every
+S3-compatible storage buckets and the objects stored in them, and to
+subscribe EQS queues to receive object-created notifications. Every
 .B esm
 command sends a single JSON request to the gateway
 (\fB\-\-endpoint\fR, default \fIhttps://localhost:5566\fR) and prints the

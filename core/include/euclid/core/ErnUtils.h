@@ -22,6 +22,29 @@ namespace Euclid::Core {
     }
 
     /**
+     * @brief Create Euclid Resource Name (ERN) for a namespace-scoped resource.
+     *
+     * Use for resource types whose name is only unique within (accountId, nameSpace) - e.g. EQS
+     * queues, ENS topics, ESM buckets/objects - so that same-named resources in different
+     * namespaces of the same account don't collide into the same ERN (which the unique index on
+     * "ern" alone would then reject as a duplicate, even though the compound
+     * (accountId, namespace, name) index says they're legitimately distinct resources). Resource
+     * types that aren't namespace-scoped (EAM users/groups/accounts/namespaces themselves, or
+     * anything keyed by a randomly generated ID rather than a user-chosen name) should keep using
+     * the plain @ref createErn overload above instead.
+     *
+     * @param service module name
+     * @param accountId account ID
+     * @param nameSpace namespace within accountId the resource belongs to; empty means unscoped,
+     * same as every namespace-scoped entity's own nameSpace field
+     * @param resourceId resource ID
+     */
+    inline std::string createErn(const std::string &service, const std::string &accountId, const std::string &nameSpace, const std::string &resourceId) {
+        const auto region = Configuration::instance().getOr<std::string>("euclid.region", "eu-central-1");
+        return "ern:" + service + ":" + region + ":" + accountId + ":" + nameSpace + ":" + resourceId;
+    }
+
+    /**
      * @brief Creates an EAM user ERN
      *
      * @param accountId account ID
@@ -68,11 +91,12 @@ namespace Euclid::Core {
      * @brief Creates a EQS queue ERN
      *
      * @param accountId account ID
+     * @param nameSpace namespace within accountId the queue belongs to; empty means unscoped
      * @param name resource name
      * @return resource ERN
      */
-    inline std::string createEqsQueueErn(const std::string &accountId, const std::string &name) {
-        return createErn("eqs", accountId, "queue:" + name);
+    inline std::string createEqsQueueErn(const std::string &accountId, const std::string &nameSpace, const std::string &name) {
+        return createErn("eqs", accountId, nameSpace, "queue:" + name);
     }
 
     /**
@@ -90,11 +114,12 @@ namespace Euclid::Core {
      * @brief Creates a ENS topic ERN
      *
      * @param accountId account ID
+     * @param nameSpace namespace within accountId the topic belongs to; empty means unscoped
      * @param name resource name
      * @return resource ERN
      */
-    inline std::string createEnsTopicErn(const std::string &accountId, const std::string &name) {
-        return createErn("ens", accountId, "topic:" + name);
+    inline std::string createEnsTopicErn(const std::string &accountId, const std::string &nameSpace, const std::string &name) {
+        return createErn("ens", accountId, nameSpace, "topic:" + name);
     }
 
     /**
@@ -123,28 +148,34 @@ namespace Euclid::Core {
      * @brief Creates a ESM bucket ERN
      *
      * @param accountId account ID
+     * @param nameSpace namespace within accountId the bucket belongs to; empty means unscoped
      * @param name resource name
      * @return resource ERN
      */
-    inline std::string createEsmBucketErn(const std::string &accountId, const std::string &name) {
-        return createErn("esm", accountId, "bucket:" + name);
+    inline std::string createEsmBucketErn(const std::string &accountId, const std::string &nameSpace, const std::string &name) {
+        return createErn("esm", accountId, nameSpace, "bucket:" + name);
     }
 
     /**
      * @brief Creates a ESM object ERN
      *
      * @param accountId account ID
+     * @param nameSpace namespace within accountId the object's bucket belongs to; empty means
+     * unscoped
      * @param name resource name
      * @return resource ERN
      */
-    inline std::string createEsmObjectErn(const std::string &accountId, const std::string &name) {
-        return createErn("esm", accountId, "object:" + name);
+    inline std::string createEsmObjectErn(const std::string &accountId, const std::string &nameSpace, const std::string &name) {
+        return createErn("esm", accountId, nameSpace, "object:" + name);
     }
 
     /**
      * @brief Extracts the account ID from an ERN, i.e. the fourth colon-separated field of
      * "ern:{service}:{region}:{accountId}:{resourceId}" (createErn()'s format - resourceId
-     * itself is "{resourceType}:{resourceName}", already a single field here).
+     * itself is "{resourceType}:{resourceName}", already a single field here). accountId sits at
+     * the same position in the namespace-scoped createErn() overload's output too
+     * ("ern:{service}:{region}:{accountId}:{nameSpace}:{resourceId}"), since nameSpace is
+     * inserted after it - this helper works unchanged for both.
      *
      * @param ern ERN to parse
      * @return the account ID, or an empty string if @p ern doesn't have enough fields.

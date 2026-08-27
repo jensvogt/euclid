@@ -26,6 +26,7 @@
 #include <euclid/database/entity/esm/Bucket.h>
 #include <euclid/database/entity/esm/Object.h>
 #include <euclid/database/entity/esm/ObjectStatus.h>
+#include <euclid/database/entity/esm/Subscription.h>
 #include <euclid/dto/BaseDto.h>
 #include <euclid/dto/esm/CompleteDownloadRequest.h>
 #include <euclid/dto/esm/CompleteUploadRequest.h>
@@ -48,9 +49,14 @@
 #include <euclid/dto/esm/ListBucketsResponse.h>
 #include <euclid/dto/esm/ListObjectsRequest.h>
 #include <euclid/dto/esm/ListObjectsResponse.h>
+#include <euclid/dto/esm/ListSubscriptionsRequest.h>
+#include <euclid/dto/esm/ListSubscriptionsResponse.h>
 #include <euclid/dto/esm/EsmMapper.h>
 #include <euclid/dto/esm/PurgeBucketRequest.h>
 #include <euclid/dto/esm/PurgeBucketResponse.h>
+#include <euclid/dto/esm/SubscribeRequest.h>
+#include <euclid/dto/esm/SubscribeResponse.h>
+#include <euclid/dto/esm/UnsubscribeRequest.h>
 #include <euclid/dto/esm/UploadPartResponse.h>
 
 namespace Euclid::ESM {

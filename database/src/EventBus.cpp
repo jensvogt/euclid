@@ -1,11 +1,15 @@
 // C++ includes
 #include <set>
+#include <thread>
 
 // Mongodb includes
 #include <bsoncxx/builder/basic/document.hpp>
 #include <bsoncxx/builder/basic/kvp.hpp>
+#include <mongocxx/change_stream.hpp>
+#include <mongocxx/options/change_stream.hpp>
 #include <mongocxx/options/find_one_and_update.hpp>
 #include <mongocxx/options/index.hpp>
+#include <mongocxx/pipeline.hpp>
 
 // Euclid includes
 #include <euclid/core/LogStream.h>
@@ -31,12 +35,11 @@ namespace Euclid::Database {
 
             try {
                 const auto entry = Database::instance().client();
-                auto db = (*entry)[Database::instance().databaseName()];
+                const auto db = (*entry)[Database::instance().databaseName()];
 
                 mongocxx::options::index subscriptionOpts;
                 subscriptionOpts.unique(true);
                 db[SUBSCRIPTION_COLLECTION].create_index(make_document(kvp("moduleType", 1), kvp("eventType", 1)), subscriptionOpts);
-
                 db[EVENT_COLLECTION].create_index(make_document(kvp("targetModule", 1), kvp("status", 1), kvp("visibleAt", 1)));
 
             } catch (const std::exception &e) {
@@ -78,7 +81,7 @@ namespace Euclid::Database {
 
         try {
             const auto entry = Database::instance().client();
-            auto db = (*entry)[Database::instance().databaseName()];
+            const auto db = (*entry)[Database::instance().databaseName()];
 
             std::set<std::string> targets;
             const auto filter = make_document(kvp("eventType", eventType));
@@ -126,7 +129,55 @@ namespace Euclid::Database {
         scheduler.SchedulePeriodic("eventbus-poll-" + moduleType, [this, moduleType] { pollOnce(moduleType); }, pollInterval);
         scheduler.SchedulePeriodic("eventbus-reap", [this] { reap(); }, std::chrono::seconds(10));
 
+        std::thread([this, moduleType] { watchLoop(moduleType); }).detach();
+
         log_info << "EventBus started, moduleType: " << moduleType << ", instanceId: " << _instanceId;
+    }
+
+    void EventBus::watchLoop(const std::string &moduleType) {
+
+        while (true) {
+            try {
+                const auto entry = Database::instance().client();
+                auto eventCollection = (*entry)[Database::instance().databaseName()][EVENT_COLLECTION];
+
+                // Server-side filter: only inserts targeting this moduleType wake this watcher up,
+                // so many module types can share the collection without waking each other for
+                // irrelevant traffic. Deliberately insert-only (not update) - reap()'s status reset
+                // is covered by the next safety-net sweep instead, which keeps this filter simple
+                // and avoids needing full_document(updateLookup) for update events.
+                mongocxx::pipeline pipeline;
+                pipeline.match(make_document(
+                        kvp("operationType", "insert"),
+                        kvp("fullDocument.targetModule", moduleType)));
+
+                mongocxx::options::change_stream options;
+                options.max_await_time(std::chrono::seconds(30));
+
+                auto stream = eventCollection.watch(pipeline, options);
+                log_info << "EventBus change stream opened, moduleType: " << moduleType;
+
+                // Catches anything inserted in the gap between a previous stream dying (or this
+                // being the first connection ever) and this watch() call taking effect.
+                pollOnce(moduleType);
+
+                // begin() == end() just means "no notification within max_await_time" - it does
+                // NOT mean the stream died, so the fix is to keep re-checking the *same* stream
+                // (calling begin() again), not to tear it down and reconnect from scratch. Only a
+                // thrown exception (an actual network/cursor error) falls through to the reconnect
+                // below. Runs until that happens - this loop has no other exit.
+                for (auto it = stream.begin();; it = stream.begin()) {
+                    for (; it != stream.end(); ++it) {
+                        pollOnce(moduleType);// pure wake-up signal - the claim re-reads status from the DB itself
+                    }
+                }
+
+            } catch (const std::exception &e) {
+                log_error << "EventBus change stream failed, moduleType: " << moduleType << ", error: " << e.what() << ", reconnecting";
+            }
+
+            std::this_thread::sleep_for(kWatchReconnectDelay);
+        }
     }
 
     void EventBus::pollOnce(const std::string &moduleType) {
@@ -141,9 +192,9 @@ namespace Euclid::Database {
                 const auto filter = make_document(kvp("targetModule", moduleType), kvp("status", kPending));
                 const auto update = make_document(
                         kvp("$set", make_document(
-                                            kvp("status", kClaimed),
-                                            kvp("claimedBy", _instanceId),
-                                            kvp("visibleAt", bsoncxx::types::b_date{now + kVisibilityTimeout}))),
+                                    kvp("status", kClaimed),
+                                    kvp("claimedBy", _instanceId),
+                                    kvp("visibleAt", bsoncxx::types::b_date{now + kVisibilityTimeout}))),
                         kvp("$inc", make_document(kvp("attempts", static_cast<int64_t>(1)))));
 
                 const auto sort = make_document(kvp("createdAt", 1));
@@ -211,9 +262,8 @@ namespace Euclid::Database {
 
             const auto filter = make_document(kvp("status", kClaimed), kvp("visibleAt", make_document(kvp("$lte", bsoncxx::types::b_date{now}))));
             const auto update = make_document(kvp("$set", make_document(kvp("status", kPending))));
-            const auto result = eventCollection.update_many(filter.view(), update.view());
 
-            if (result && result->modified_count() > 0) {
+            if (const auto result = eventCollection.update_many(filter.view(), update.view()); result && result->modified_count() > 0) {
                 log_warning << "EventBus reaped stuck deliveries, count: " << result->modified_count();
             }
 
@@ -226,7 +276,7 @@ namespace Euclid::Database {
 
         try {
             const auto entry = Database::instance().client();
-            auto db = (*entry)[Database::instance().databaseName()];
+            const auto db = (*entry)[Database::instance().databaseName()];
 
             document dlqDoc;
             for (const auto &field: doc) dlqDoc.append(kvp(field.key(), field.get_value()));
