@@ -141,8 +141,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -184,8 +183,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -225,8 +223,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -267,8 +264,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -311,8 +307,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -351,8 +346,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -391,8 +385,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -429,8 +422,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -471,8 +463,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -517,8 +508,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -557,8 +547,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -602,8 +591,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -685,8 +673,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -726,8 +713,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -766,8 +752,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -777,8 +762,8 @@ namespace Euclid::CLI {
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            if (const HttpResponse response = client.Post("eqs", "delete-queue-tag", boost::json::value_from(request)); !response.IsSuccess()) {
-                std::cerr << "error: delete-queue-tag failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+            if (const HttpResponse response = client.Post("ens", "delete-topic-tag", boost::json::value_from(request)); !response.IsSuccess()) {
+                std::cerr << "error: delete-topic-tag failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             return 0;
@@ -808,8 +793,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -850,8 +834,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -887,8 +870,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 

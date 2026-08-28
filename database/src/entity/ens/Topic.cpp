@@ -6,6 +6,17 @@
 
 namespace Euclid::Database::Entity::ENS {
 
+    namespace {
+        // See ESM's Bucket::getBsonInt for why this tolerates both int32 and int64 - the same
+        // failure mode (get_int64() throwing on a document whose counters ended up as int32,
+        // silently dropping it from list results) applies to topics.
+        long getBsonInt(const bsoncxx::document::element &field) {
+            if (field.type() == bsoncxx::type::k_int64) return field.get_int64().value;
+            if (field.type() == bsoncxx::type::k_int32) return field.get_int32().value;
+            return 0;
+        }
+    }// namespace
+
     bsoncxx::document::value Topic::toDocument() const {
 
         bsoncxx::builder::basic::document tagsDoc;
@@ -46,11 +57,11 @@ namespace Euclid::Database::Entity::ENS {
             else if (key == "owner") topic.owner = std::string(field.get_string().value);
             else if (key == "name") topic.name = std::string(field.get_string().value);
             else if (key == "ern") topic.ern = std::string(field.get_string().value);
-            else if (key == "size") topic.size = field.get_int64().value;
-            else if (key == "available") topic.available = field.get_int64().value;
-            else if (key == "send") topic.send = field.get_int64().value;
-            else if (key == "resend") topic.resend = field.get_int64().value;
-            else if (key == "maxMessageLength") topic.maxMessageLength = field.get_int64().value;
+            else if (key == "size") topic.size = getBsonInt(field);
+            else if (key == "available") topic.available = getBsonInt(field);
+            else if (key == "send") topic.send = getBsonInt(field);
+            else if (key == "resend") topic.resend = getBsonInt(field);
+            else if (key == "maxMessageLength") topic.maxMessageLength = getBsonInt(field);
             else if (key == "created") topic.created = system_clock::time_point{field.get_date().value};
             else if (key == "modified") topic.modified = system_clock::time_point{field.get_date().value};
             else if (key == "tags") {

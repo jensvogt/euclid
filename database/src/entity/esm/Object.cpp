@@ -6,6 +6,15 @@
 
 namespace Euclid::Database::Entity::ESM {
 
+    namespace {
+        // See Bucket.cpp's getBsonInt for why this tolerates both int32 and int64.
+        long getBsonInt(const bsoncxx::document::element &field) {
+            if (field.type() == bsoncxx::type::k_int64) return field.get_int64().value;
+            if (field.type() == bsoncxx::type::k_int32) return field.get_int32().value;
+            return 0;
+        }
+    }// namespace
+
     bsoncxx::document::value Object::toDocument() const {
 
         return bsoncxx::builder::basic::make_document(
@@ -37,7 +46,7 @@ namespace Euclid::Database::Entity::ESM {
             else if (fieldKey == "key") object.key = std::string(field.get_string().value);
             else if (fieldKey == "internalName") object.internalName = std::string(field.get_string().value);
             else if (fieldKey == "ern") object.ern = std::string(field.get_string().value);
-            else if (fieldKey == "size") object.size = field.get_int64().value;
+            else if (fieldKey == "size") object.size = getBsonInt(field);
             else if (fieldKey == "status") object.status = ObjectStatusFromString(std::string(field.get_string().value));
             else if (fieldKey == "contentType") object.contentType = std::string(field.get_string().value);
             else if (fieldKey == "md5Sum") object.md5Sum = std::string(field.get_string().value);

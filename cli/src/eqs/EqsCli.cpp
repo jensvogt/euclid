@@ -26,9 +26,9 @@ namespace Euclid::CLI {
 
     }// namespace
 
-    EqsCli::EqsCli(std::string endpoint, Credentials::Entry authentication, const bool pretty, std::string caCertPath) : _endpoint(std::move(endpoint)), _authentication(std::move(authentication)), _pretty(pretty), _caCertPath(std::move(caCertPath)) {}
+    EkmCli::EkmCli(std::string endpoint, Credentials::Entry authentication, const bool pretty, std::string caCertPath) : _endpoint(std::move(endpoint)), _authentication(std::move(authentication)), _pretty(pretty), _caCertPath(std::move(caCertPath)) {}
 
-    int EqsCli::process(const std::string &action, const std::vector<std::string> &args) const {
+    int EkmCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
             return PrintModuleHelp("eqs", {
                                            {"create-queue", "Create a new queue"},
@@ -105,17 +105,17 @@ namespace Euclid::CLI {
         if (action == "delete-queue-tag") {
             return deleteQueueTag(args);
         }
-        std::cerr << "error: unknown SQS action '" << action << "'\n";
+        std::cerr << "error: unknown EQS action '" << action << "'\n";
         return 1;
     }
 
-    int EqsCli::createQueue(const std::vector<std::string> &args) const {
+    int EkmCli::createQueue(const std::vector<std::string> &args) const {
         po::options_description desc("create queue options");
         desc.add_options()("name,n", po::value<std::string>()->required(), "name")("visibility,v", po::value<long>()->default_value(30), "visibility in seconds")("max-retries,m", po::value<long>()->default_value(3), "maximal number of retries")("max-length,l", po::value<long>()->default_value(1024 * 1024), "maximal message length")("dlq-name,d", po::value<std::string>(), "name of the dead letter queue")("delay,e", po::value<long>()->default_value(0), "message delay");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eqs", "create-queue", "--name <name> [--visibility <seconds>] [--max-retries <value>] [--max-length <value>] [dlq-name <name>] [--delay <seconds>]",
-                                   "Creates a new SQS queue with the given name, max retries, max message length, dead letter queue ARN, and visibility timeout. The dead letter queue name is optional; "
+                                   "Creates a new EQS queue with the given name, max retries, max message length, dead letter queue ARN, and visibility timeout. The dead letter queue name is optional; "
                                    "visibility defaults to 30 seconds, max retries defaults to 3, delay to 0, and max message length defaults to 1MB.",
                                    desc);
         }
@@ -157,7 +157,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int EqsCli::listMessages(const std::vector<std::string> &args) const {
+    int EkmCli::listMessages(const std::vector<std::string> &args) const {
         po::options_description desc("lists a queue's messages without receiving them");
         desc.add_options()
                 ("queue,q", po::value<std::string>()->required(), "queue ERN")
@@ -202,7 +202,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int EqsCli::getQueueErn(const std::vector<std::string> &args) const {
+    int EkmCli::getQueueErn(const std::vector<std::string> &args) const {
         po::options_description desc("get queue ern options");
         desc.add_options()("name,n", po::value<std::string>()->required(), "name");
 
@@ -240,7 +240,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int EqsCli::listQueues(const std::vector<std::string> &args) const {
+    int EkmCli::listQueues(const std::vector<std::string> &args) const {
         po::options_description desc("list queues options");
         desc.add_options()
                 ("prefix,p", po::value<std::string>(), "queue name prefix")
@@ -250,7 +250,7 @@ namespace Euclid::CLI {
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eqs", "list-queues", "[--prefix <prefix>] [--pageSize <n>] [--pageIndex <n>] [--sortColumn <column>]",
-                                   "Lists SQS queues, optionally filtered by name prefix and paginated.",
+                                   "Lists EQS queues, optionally filtered by name prefix and paginated.",
                                    desc);
         }
 
@@ -287,14 +287,14 @@ namespace Euclid::CLI {
         }
     }
 
-    int EqsCli::purgeQueue(const std::vector<std::string> &args) const {
+    int EkmCli::purgeQueue(const std::vector<std::string> &args) const {
         po::options_description desc("purge queue options");
         desc.add_options()
                 ("queue,q", po::value<std::string>()->required(), "queue ERN");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eqs", "purge-queue", "--queue <ern>",
-                                   "Deletes all messages from a SQS queue identified by its Euclid resource name (ERN).",
+                                   "Deletes all messages from a EQS queue identified by its Euclid resource name (ERN).",
                                    desc);
         }
 
@@ -324,7 +324,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int EqsCli::purgeAllQueues(const std::vector<std::string> &args) const {
+    int EkmCli::purgeAllQueues(const std::vector<std::string> &args) const {
         po::options_description desc("purge all queues options");
         desc.add_options()
                 ("region,r", po::value<std::string>()->required(), "region")
@@ -332,7 +332,7 @@ namespace Euclid::CLI {
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eqs", "purge-all-queues", "--region <region> --accountId <accountId>",
-                                   "Deletes all messages from every SQS queue in the given region and account.",
+                                   "Deletes all messages from every EQS queue in the given region and account.",
                                    desc);
         }
 
@@ -363,7 +363,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int EqsCli::getQueueMetadata(const std::vector<std::string> &args) const {
+    int EkmCli::getQueueMetadata(const std::vector<std::string> &args) const {
         po::options_description desc("returns the metadata of a queue");
         desc.add_options()("queue,q", po::value<std::string>()->required(), "queue ERN");
 
@@ -401,14 +401,14 @@ namespace Euclid::CLI {
         }
     }
 
-    int EqsCli::deleteQueue(const std::vector<std::string> &args) const {
+    int EkmCli::deleteQueue(const std::vector<std::string> &args) const {
         po::options_description desc("delete queue options");
         desc.add_options()
                 ("queue,q", po::value<std::string>()->required(), "queue ERN");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eqs", "delete-queue", "--queue <ern>",
-                                   "Deletes an SQS queue identified by its Euclid resource name (ERN).",
+                                   "Deletes an EQS queue identified by its Euclid resource name (ERN).",
                                    desc);
         }
 
@@ -438,7 +438,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int EqsCli::sendMessage(const std::vector<std::string> &args) const {
+    int EkmCli::sendMessage(const std::vector<std::string> &args) const {
         po::options_description desc("send message options");
         desc.add_options()
                 ("queue,q", po::value<std::string>()->required(), "queue resource name")
@@ -448,7 +448,7 @@ namespace Euclid::CLI {
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eqs", "send-message", "--queue <ern> --body <body|file://path> [--attributes <json|file://path>] [--priority <LOW|MIDDLE|HIGH>]",
-                                   "Sends a message to an SQS queue. If --body starts with 'file://', the message "
+                                   "Sends a message to an EQS queue. If --body starts with 'file://', the message "
                                    "body is read from the referenced file instead of being taken literally. The optional --attributes value sets the message "
                                    "attributes as a JSON object mapping attribute name to {\"type\": <int|long|double|float|bool|string|binary>, \"value\": <value>}, "
                                    "given either literally or via 'file://path' to a file containing the JSON. --priority defaults to MIDDLE and influences how "
@@ -492,7 +492,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int EqsCli::receiveMessages(const std::vector<std::string> &args) const {
+    int EkmCli::receiveMessages(const std::vector<std::string> &args) const {
         po::options_description desc("receive messages options");
         desc.add_options()
                 ("queue,q", po::value<std::string>()->required(), "queue resource name")
@@ -501,7 +501,7 @@ namespace Euclid::CLI {
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eqs", "receive-messages", "--queue <ern> [--maxCount <value>] [--waitTime <seconds>]",
-                                   "Receive messages from an SQS queue. If messages are available return up to maxCount messages. "
+                                   "Receive messages from an EQS queue. If messages are available return up to maxCount messages. "
                                    "The returned messages favor higher priority ones: maxCount slots are split across LOW/MIDDLE/HIGH priority "
                                    "proportionally to the server's configurable priority weights (4:2:1 by default), so most of a batch is "
                                    "HIGH priority, fewer MIDDLE, and fewer still LOW.",
@@ -538,7 +538,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int EqsCli::setVisibility(const std::vector<std::string> &args) const {
+    int EkmCli::setVisibility(const std::vector<std::string> &args) const {
         po::options_description desc("sets the message visibility");
         desc.add_options()
                 ("message-id,m", po::value<std::string>()->required(), "message ID")
@@ -577,7 +577,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int EqsCli::getMessageCount(const std::vector<std::string> &args) const {
+    int EkmCli::getMessageCount(const std::vector<std::string> &args) const {
         po::options_description desc("returns the message counter");
         desc.add_options()
                 ("queue,q", po::value<std::string>()->required(), "queue ERN");
@@ -616,7 +616,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int EqsCli::getMessageAttribute(const std::vector<std::string> &args) const {
+    int EkmCli::getMessageAttribute(const std::vector<std::string> &args) const {
         po::options_description desc("returns a message attribute by name");
         desc.add_options()
                 ("message-id,m", po::value<std::string>()->required(), "message ID")
@@ -657,7 +657,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int EqsCli::setMessageAttribute(const std::vector<std::string> &args) const {
+    int EkmCli::setMessageAttribute(const std::vector<std::string> &args) const {
         po::options_description desc("set message attribute options");
         desc.add_options()
                 ("message-id,m", po::value<std::string>()->required(), "message ID")
@@ -703,7 +703,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int EqsCli::getMessageMetadata(const std::vector<std::string> &args) const {
+    int EkmCli::getMessageMetadata(const std::vector<std::string> &args) const {
         po::options_description desc("get message metadata options");
         desc.add_options()
                 ("message-id,m", po::value<std::string>()->required(), "message ID");
@@ -742,7 +742,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int EqsCli::addQueueTag(const std::vector<std::string> &args) const {
+    int EkmCli::addQueueTag(const std::vector<std::string> &args) const {
         po::options_description desc("add queue tag options");
         desc.add_options()
                 ("queue,q", po::value<std::string>()->required(), "queue ERN")
@@ -783,7 +783,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int EqsCli::setQueueTag(const std::vector<std::string> &args) const {
+    int EkmCli::setQueueTag(const std::vector<std::string> &args) const {
         po::options_description desc("set queue tag options");
         desc.add_options()
                 ("queue,q", po::value<std::string>()->required(), "queue ERN")
@@ -824,7 +824,7 @@ namespace Euclid::CLI {
         }
     }
 
-    int EqsCli::deleteQueueTag(const std::vector<std::string> &args) const {
+    int EkmCli::deleteQueueTag(const std::vector<std::string> &args) const {
         po::options_description desc("delete queue tag options");
         desc.add_options()
                 ("queue,q", po::value<std::string>()->required(), "queue ERN")

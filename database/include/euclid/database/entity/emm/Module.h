@@ -139,6 +139,15 @@ namespace Euclid::Database::Entity {
         std::chrono::system_clock::time_point modified = std::chrono::system_clock::now();
 
         /**
+         * @brief Time this module's pool last went from having no running instances to having its
+         * first one - the module's own "boot time", from which uptime is derived (e.g. in
+         * euclid-ui). Default-constructed (epoch/1970) means the module has never had a running
+         * instance. Stamped by the repository (see MongoEmmRepository::upsertInstance), not by
+         * ServiceController, so it survives manager restarts.
+         */
+        std::chrono::system_clock::time_point lastStartTime{};
+
+        /**
          * @brief Live pool of instances currently known for this module.
          */
         std::vector<ModuleInstance> instances;

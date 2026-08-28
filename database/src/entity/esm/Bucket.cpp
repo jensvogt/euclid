@@ -6,6 +6,21 @@
 
 namespace Euclid::Database::Entity::ESM {
 
+    namespace {
+        // Documents can carry "size"/"objects" as either BSON int32 or int64 - toDocument() always
+        // writes int64, but manually-inserted or externally-written documents (test fixtures,
+        // migrations, direct mongosh edits) can end up as plain int32, which get_int64() rejects
+        // with a type-mismatch exception instead of silently narrowing. That exception used to
+        // propagate out of fromDocument() and get swallowed by the repository's outer try/catch,
+        // silently dropping the document from list results while leaving count queries (which don't
+        // parse into an entity) unaffected - see MongoEsmRepository::listBuckets vs. countBuckets.
+        long getBsonInt(const bsoncxx::document::element &field) {
+            if (field.type() == bsoncxx::type::k_int64) return field.get_int64().value;
+            if (field.type() == bsoncxx::type::k_int32) return field.get_int32().value;
+            return 0;
+        }
+    }// namespace
+
     bsoncxx::document::value Bucket::toDocument() const {
 
         bsoncxx::builder::basic::document tagsDoc;
@@ -37,8 +52,8 @@ namespace Euclid::Database::Entity::ESM {
             else if (key == "owner") bucket.owner = std::string(field.get_string().value);
             else if (key == "name") bucket.name = std::string(field.get_string().value);
             else if (key == "ern") bucket.ern = std::string(field.get_string().value);
-            else if (key == "size") bucket.size = field.get_int64().value;
-            else if (key == "objects") bucket.objects = field.get_int64().value;
+            else if (key == "size") bucket.size = getBsonInt(field);
+            else if (key == "objects") bucket.objects = getBsonInt(field);
             else if (key == "created") bucket.created = system_clock::time_point{field.get_date().value};
             else if (key == "modified") bucket.modified = system_clock::time_point{field.get_date().value};
             else if (key == "tags") {
