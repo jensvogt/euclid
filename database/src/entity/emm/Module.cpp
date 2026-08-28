@@ -44,6 +44,7 @@ namespace Euclid::Database::Entity {
                 bsoncxx::builder::basic::kvp("args", [this](bsoncxx::builder::basic::sub_array sa) {
                     for (const auto &arg: args) sa.append(arg);
                 }),
+                bsoncxx::builder::basic::kvp("lastStartTime", bsoncxx::types::b_date{std::chrono::duration_cast<std::chrono::milliseconds>(lastStartTime.time_since_epoch())}),
                 bsoncxx::builder::basic::kvp("instances", [this](bsoncxx::builder::basic::sub_array sa) {
                     for (const auto &instance: instances) sa.append(instance.toDocument());
                 }));
@@ -66,6 +67,7 @@ namespace Euclid::Database::Entity {
                 for (const auto &elem: field.get_array().value) module.instances.push_back(ModuleInstance::fromDocument(elem.get_document().value));
             } else if (key == "created") module.created = std::chrono::system_clock::time_point{field.get_date().value};
             else if (key == "modified") module.modified = std::chrono::system_clock::time_point{field.get_date().value};
+            else if (key == "lastStartTime") module.lastStartTime = std::chrono::system_clock::time_point{field.get_date().value};
             else if (key == "_id") module.oid = field.get_oid().value.to_string();
         }
         return module;

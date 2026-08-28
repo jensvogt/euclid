@@ -32,6 +32,11 @@ namespace Euclid::Dto::ENS {
         std::string sortColumn = "name";
 
         /**
+         * @brief Sort direction
+         */
+        std::string sortDirection = "asc";
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -46,6 +51,7 @@ namespace Euclid::Dto::ENS {
             r.pageSize = Core::GetLongValue(v, "pageSize");
             r.pageIndex = Core::GetLongValue(v, "pageIndex");
             r.sortColumn = Core::GetStringValue(v, "sortColumn");
+            r.sortDirection = Core::GetStringValue(v, "sortDirection");
             return r;
         }
 
@@ -55,6 +61,7 @@ namespace Euclid::Dto::ENS {
                     {"pageSize", obj.pageSize},
                     {"pageIndex", obj.pageIndex},
                     {"sortColumn", obj.sortColumn},
+                    {"sortDirection", obj.sortDirection},
             };
         }
     };

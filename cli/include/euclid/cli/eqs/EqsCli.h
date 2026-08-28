@@ -20,6 +20,7 @@
 #include <euclid/dto/eqs/AddQueueTagRequest.h>
 #include <euclid/dto/eqs/CreateQueueRequest.h>
 #include <euclid/dto/eqs/CreateQueueResponse.h>
+#include <euclid/dto/eqs/DeleteMessageRequest.h>
 #include <euclid/dto/eqs/DeleteQueueRequest.h>
 #include <euclid/dto/eqs/DeleteQueueTagRequest.h>
 #include <euclid/dto/eqs/GetMessageAttributeRequest.h>
@@ -170,6 +171,16 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int setVisibility(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Deletes a single message, either by receipt handle or, for a message that has
+         * not been received yet, by message ID.
+         *
+         * @param args action arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int deleteMessage(const std::vector<std::string> &args) const;
 
         /**
          * @brief Returns the message count.

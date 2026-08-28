@@ -399,6 +399,7 @@ namespace Euclid::main {
                     {"maxRestarts", m.maxRestarts},
                     {"created", Core::DateTimeUtils::ToISO8601(m.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(m.modified)},
+                    {"lastStartTime", m.lastStartTime.time_since_epoch().count() == 0 ? boost::json::value(nullptr) : boost::json::value(Core::DateTimeUtils::ToISO8601(m.lastStartTime))},
                     {"instances", std::move(instances)},
             });
         }

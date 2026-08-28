@@ -46,7 +46,7 @@ namespace Euclid::Dto::EQS {
         /**
          * @brief Number of messages in the queue
          */
-        long messages = 0;
+        long available = 0;
 
         /**
          * @brief Number of delayed messages in the queue
@@ -56,7 +56,7 @@ namespace Euclid::Dto::EQS {
         /**
          * @brief Number of busy messages in the queue
          */
-        long busy = 0;
+        long invisible = 0;
 
         /**
          * @brief Visibility in seconds
@@ -113,9 +113,9 @@ namespace Euclid::Dto::EQS {
             r.tags = Core::GetMapFromObject<std::string, std::string>(v, "tags");
             r.size = Core::GetLongValue(v, "size", 0);
             r.delay = Core::GetLongValue(v, "delay", 0);
-            r.messages = Core::GetLongValue(v, "messages", 0);
+            r.available = Core::GetLongValue(v, "available", 0);
             r.delayed = Core::GetLongValue(v, "delayed", 0);
-            r.busy = Core::GetLongValue(v, "busy", 0);
+            r.invisible = Core::GetLongValue(v, "invisible", 0);
             r.visibility = Core::GetLongValue(v, "visibility", 30);
             r.maxMessageLength = Core::GetLongValue(v, "maxMessageLength", 1024 * 1024);
             r.maxReceiveCount = Core::GetLongValue(v, "maxReceiveCount", 3);
@@ -133,9 +133,9 @@ namespace Euclid::Dto::EQS {
                     {"tags", boost::json::value_from(obj.tags)},
                     {"size", obj.size},
                     {"delay", obj.delay},
-                    {"messages", obj.messages},
+                    {"available", obj.available},
                     {"delayed", obj.delayed},
-                    {"busy", obj.busy},
+                    {"invisible", obj.invisible},
                     {"visibility", obj.visibility},
                     {"maxMessageLength", obj.maxMessageLength},
                     {"maxReceiveCount", obj.maxReceiveCount},

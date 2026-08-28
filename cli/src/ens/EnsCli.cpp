@@ -141,8 +141,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -171,11 +170,13 @@ namespace Euclid::CLI {
                 ("topic,t", po::value<std::string>()->required(), "topic ERN")
                 ("page-size,s", po::value<long>()->default_value(10), "page size")
                 ("page-index,i", po::value<long>()->default_value(0), "page index")
-                ("sort-column,c", po::value<std::string>()->default_value("created"), "sort column");
+                ("sort-column,c", po::value<std::string>()->default_value("created"), "sort column")
+                ("sort-direction,d", po::value<std::string>()->default_value("asc"), "sort direction");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("ens", "list-messages", "--topic <ern> [--page-size <n>] [--page-index <n>] [--sort-column <column>]",
-                                   "Lists a topic's messages without receiving them, i.e. without changing their status. Paginated: pageSize defaults to 10, pageIndex to 0, sortColumn to \"created\".",
+            return PrintActionHelp("ens", "list-messages", "--topic <ern> [--page-size <n>] [--page-index <n>] [--sort-column <column>] [--sort-direction <direction>]",
+                                   "Lists a topic's messages without receiving them, i.e. without changing their status. Paginated: page-size defaults to 10, page-index to 0, sort-column to \"created\""
+                                   "and sort-direction to \"asc\".",
                                    desc);
         }
 
@@ -184,8 +185,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -194,6 +194,7 @@ namespace Euclid::CLI {
         request.pageSize = vm["page-size"].as<long>();
         request.pageIndex = vm["page-index"].as<long>();
         request.sortColumn = vm["sort-column"].as<std::string>();
+        request.sortDirection = vm["sort-direction"].as<std::string>();
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
@@ -225,8 +226,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -252,13 +252,15 @@ namespace Euclid::CLI {
         po::options_description desc("list topics options");
         desc.add_options()
                 ("prefix,p", po::value<std::string>(), "queue name prefix")
-                ("pageSize,s", po::value<long>()->default_value(-1), "page size")
-                ("pageIndex,i", po::value<long>()->default_value(-1), "page index")
-                ("sortColumn,c", po::value<std::string>()->default_value("name"), "sort column");
+                ("page-size,s", po::value<long>()->default_value(-1), "page size")
+                ("page-index,i", po::value<long>()->default_value(-1), "page index")
+                ("sort-column,c", po::value<std::string>()->default_value("name"), "sort column")
+                ("sort-direction,d", po::value<std::string>()->default_value("asc"), "sort direction");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("ens", "list-topics", "[--prefix <prefix>] [--pageSize <n>] [--pageIndex <n>] [--sortColumn <column>]",
-                                   "Lists ENS queues, optionally filtered by name prefix and paginated.",
+            return PrintActionHelp("ens", "list-topics", "[--prefix <prefix>] [--page-size <n>] [--page-index <n>] [--sort-column <column>] [--sort-direction <direction>]",
+                                   "Lists ENS queues, optionally filtered by name prefix and paginated.. Paginated: pageSize defaults to 10, pageIndex to 0,"
+                                   " sortColumn to \"name\" and sortDirection to \"asc\".",
                                    desc);
         }
 
@@ -267,15 +269,15 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
         Dto::ENS::ListTopicsRequest request;
-        request.pageSize = vm["pageSize"].as<long>();
-        request.pageIndex = vm["pageIndex"].as<long>();
-        request.sortColumn = vm["sortColumn"].as<std::string>();
+        request.pageSize = vm["page-size"].as<long>();
+        request.pageIndex = vm["page-index"].as<long>();
+        request.sortColumn = vm["sort-column"].as<std::string>();
+        request.sortDirection = vm["sort-direction"].as<std::string>();
         if (vm.contains("prefix")) {
             request.prefix = vm["prefix"].as<std::string>();
         }
@@ -311,8 +313,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -351,8 +352,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -391,8 +391,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -429,8 +428,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -471,8 +469,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -517,8 +514,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -557,8 +553,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -602,8 +597,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -685,8 +679,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -726,8 +719,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -766,8 +758,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -777,8 +768,8 @@ namespace Euclid::CLI {
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            if (const HttpResponse response = client.Post("eqs", "delete-queue-tag", boost::json::value_from(request)); !response.IsSuccess()) {
-                std::cerr << "error: delete-queue-tag failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+            if (const HttpResponse response = client.Post("ens", "delete-topic-tag", boost::json::value_from(request)); !response.IsSuccess()) {
+                std::cerr << "error: delete-topic-tag failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             return 0;
@@ -808,8 +799,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -850,8 +840,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 
@@ -887,8 +876,7 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
 

@@ -101,10 +101,11 @@ namespace Euclid::Database {
          * @param pageSize maximum number of queues to return; 0 or less means no limit
          * @param pageIndex zero-based page index, applied when pageSize is set
          * @param sortColumn field to sort by (e.g. "name", "arn"); empty means unsorted
+         * @param sortDirection direction of sort by (e.g. "asc", "desc"); empty means unsorted
          * @return A collection containing all entities or objects found.
          */
         [[nodiscard]]
-        virtual std::vector<Entity::EQS::Queue> listQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
+        virtual std::vector<Entity::EQS::Queue> listQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const = 0;
 
         /**
          * @brief Checks if a queue with the specified name exists in the repository.
@@ -120,10 +121,11 @@ namespace Euclid::Database {
          *
          * @param accountId only queues belonging to this account are counted
          * @param namespaceName only queues in this namespace are counted; empty means don't filter by namespace
+         * @param prefix only queues whose name starts with this prefix are counted; empty means don't filter by prefix
          * @return The total number of queues as a long integer.
          */
         [[nodiscard]]
-        virtual long countQueues(const std::string &accountId, const std::string &namespaceName) const = 0;
+        virtual long countQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "") const = 0;
 
         /**
          * @brief Removes all entries from the queue repository, leaving it in an empty state.
@@ -191,6 +193,18 @@ namespace Euclid::Database {
         virtual void deleteMessage(const std::string &receiptHandle) = 0;
 
         /**
+         * @brief Deletes a message from the repository by its message ID, regardless of its
+         * current status (AVAILABLE, DELAYED or INVISIBLE).
+         *
+         * Unlike deleteMessage(), this does not require the message to have been received first,
+         * i.e. it bypasses the usual receipt-handle lease/lock semantics. This is a Euclid-specific
+         * extension; AWS SQS has no equivalent operation.
+         *
+         * @param messageId The message ID of the message to delete.
+         */
+        virtual void deleteMessageById(const std::string &messageId) = 0;
+
+        /**
          * @brief Deletes all messages of a queue.
          *
          * @param queueErn The Euclid resource name (ERN) of the queue whose messages are to be purged.
@@ -243,11 +257,12 @@ namespace Euclid::Database {
          * @param pageSize maximum number of messages to return, or <= 0 for no limit.
          * @param pageIndex zero-based page index, combined with pageSize to compute the offset.
          * @param sortColumn message field to sort ascending by, e.g. "created", "size",
+         * @param sortDirection direction of sort by (e.g. "asc", "desc"); empty means unsorted
          * "messageId"; unrecognized/empty leaves the order unspecified.
          * @return the requested page of messages.
          */
         [[nodiscard]]
-        virtual std::vector<Entity::EQS::Message> listMessages(const std::string &queueErn, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
+        virtual std::vector<Entity::EQS::Message> listMessages(const std::string &queueErn, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const = 0;
 
         /**
          * @brief Checks if a message with the specified name exists in the repository.

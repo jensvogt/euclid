@@ -1,4 +1,4 @@
-#include <euclid/dto/eqs/EqsMapper.h>
+#include <../include/euclid/dto/eqs/mapper/EqsMapper.h>
 
 namespace Euclid::Dto::EQS {
 
@@ -34,9 +34,9 @@ namespace Euclid::Dto::EQS {
         dto.delay = entity.delay;
         dto.tags = entity.tags;
         dto.size = entity.size;
-        dto.messages = entity.available;
+        dto.available = entity.available;
         dto.delayed = entity.delayed;
-        dto.busy = entity.invisible;
+        dto.invisible = entity.invisible;
         dto.visibility = entity.visibility;
         dto.maxMessageLength = entity.maxMessageLength;
         dto.maxReceiveCount = entity.maxReceiveCount;
@@ -62,9 +62,9 @@ namespace Euclid::Dto::EQS {
         entity.ern = dto.ern;
         entity.size = dto.size;
         entity.delay = dto.delay;
-        entity.available = dto.messages;
+        entity.available = dto.available;
         entity.delayed = dto.delayed;
-        entity.invisible = dto.busy;
+        entity.invisible = dto.invisible;
         entity.visibility = dto.visibility;
         entity.maxMessageLength = dto.maxMessageLength;
         entity.maxReceiveCount = dto.maxReceiveCount;

@@ -120,7 +120,8 @@ namespace Euclid::Database {
             const auto entry = Database::instance().client();
             auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
 
-            const auto moduleFields = bsoncxx::builder::basic::make_document(
+            bsoncxx::builder::basic::document moduleFieldsDoc;
+            moduleFieldsDoc.append(
                     bsoncxx::builder::basic::kvp("executable", module.executable),
                     bsoncxx::builder::basic::kvp("socketPath", module.socketPath),
                     bsoncxx::builder::basic::kvp("active", module.active),
@@ -129,6 +130,33 @@ namespace Euclid::Database {
                     bsoncxx::builder::basic::kvp("args", [&module](bsoncxx::builder::basic::sub_array sa) {
                         for (const auto &arg: module.args) sa.append(arg);
                     }));
+
+            // Stamps the module's "boot time" - read fresh from the currently-persisted document
+            // rather than tracked in ServiceController's in-memory state, so it's correct across
+            // manager restarts and uniform across every path that can bring an instance up
+            // (initial start, crash-restart, scale-up from zero). Only set when this transition is
+            // the pool's first RUNNING instance (no other instance in the stored document is
+            // already RUNNING); a module with several instances starting up together only stamps
+            // once, on whichever of them reaches RUNNING first.
+            if (instance.state == Entity::ModuleState::RUNNING) {
+                bool anyOtherRunning = false;
+                if (const auto existing = collection.find_one(bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("name", module.name)))) {
+                    if (const auto instancesField = existing->view()["instances"]; instancesField && instancesField.type() == bsoncxx::type::k_array) {
+                        for (const auto &elem: instancesField.get_array().value) {
+                            const auto other = Entity::ModuleInstance::fromDocument(elem.get_document().value);
+                            if (other.instanceId != instance.instanceId && other.state == Entity::ModuleState::RUNNING) {
+                                anyOtherRunning = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (!anyOtherRunning) {
+                    moduleFieldsDoc.append(bsoncxx::builder::basic::kvp("lastStartTime", bsoncxx::types::b_date{
+                                                                                 std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())}));
+                }
+            }
+            const auto moduleFields = moduleFieldsDoc.extract();
 
             // Step 1: the instance is already in the array (a restart of an existing pool slot,
             // matched by its stable instanceId rather than pid, which changes every restart) -
