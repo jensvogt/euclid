@@ -16,10 +16,10 @@
 #define DEFAULT_LOG_LEVEL          "info"
 #ifdef _WIN32
 #define DEFAULT_CONFIGURATION_FILE "C:\\Program Files\\euclid\\etc\\euclid.json"
-#define DEFAULT_SOCKET_PATH        "C:\\Program Files\\euclid\\data\\run\\euclid-eqs.sock"
+#define DEFAULT_SOCKET_PATH        "C:\\Program Files\\euclid\\data\\run\\euclid-ekm.sock"
 #else
 #define DEFAULT_CONFIGURATION_FILE "/usr/local/euclid/etc/euclid.json"
-#define DEFAULT_SOCKET_PATH        "/var/run/euclid-eqs.sock"
+#define DEFAULT_SOCKET_PATH        "/var/run/euclid-ekm.sock"
 #endif
 
 namespace po = boost::program_options;
@@ -49,7 +49,7 @@ static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
             ("console-log", po::value<bool>(&opts.consoleLog)->default_value(true)->implicit_value(true), "Enable console logging")
             ("file-log", po::value<bool>(&opts.fileLog)->default_value(false)->implicit_value(true), "Enable file logging");
 
-    po::options_description all("EQS options");
+    po::options_description all("EKM options");
     all.add(general).add(logging);
 
     try {
@@ -57,12 +57,12 @@ static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
         po::store(po::command_line_parser(argc, argv).options(all).run(), vm);
 
         if (vm.contains("help")) {
-            std::cout << "EQS v" << APP_VERSION << " - ENS service process\n\n" << all << "\n";
+            std::cout << "EKM v" << APP_VERSION << " - EKM service process\n\n" << all << "\n";
             return std::nullopt;
         }
 
         if (vm.contains("version")) {
-            std::cout << "EQS version " << APP_VERSION << "\n";
+            std::cout << "EKM version " << APP_VERSION << "\n";
             return std::nullopt;
         }
 
@@ -130,15 +130,15 @@ int main(const int argc, char *argv[]) {
     Euclid::Database::WireScopeLookup();
     Euclid::Database::WireGrantLookup();
 
-    Euclid::Core::Monitoring::MetricsPusher metricsPusher("eqs");
+    Euclid::Core::Monitoring::MetricsPusher metricsPusher("ekm");
     try {
-        Euclid::EQS::EqsServer server(cliOpts->socketPath);
+        Euclid::EKM::EkmServer server(cliOpts->socketPath);
         return server.RunUntilSignal();
     } catch (const std::exception &e) {
-        log_error << "Failed to start EQS service: " << e.what();
+        log_error << "Failed to start EKM service: " << e.what();
         return 1;
     } catch (...) {
-        log_error << "Failed to start EQS service: unknown exception type";
+        log_error << "Failed to start EKM service: unknown exception type";
         return 1;
     }
 }

@@ -11,6 +11,7 @@
 // Euclid includes
 #include <euclid/cli/credentials/Credentials.h>
 #include <euclid/cli/eam/EamCli.h>
+#include <euclid/cli/ekm/EkmCli.h>
 #include <euclid/cli/emm/EmmCli.h>
 #include <euclid/cli/ens/EnsCli.h>
 #include <euclid/cli/eqs/EqsCli.h>
@@ -139,7 +140,7 @@ int main(const int argc, char *argv[]) {
     }
     if (module == "eqs") {
         const auto authToken = Euclid::CLI::Credentials::Load();
-        const Euclid::CLI::EkmCli eqs(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), pretty, caCert);
+        const Euclid::CLI::EqsCli eqs(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), pretty, caCert);
         return eqs.process(action, args);
     }
     if (module == "ens") {

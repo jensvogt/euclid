@@ -26,9 +26,7 @@
 namespace Euclid::Database {
 
     /**
-     * @brief Sqs memory database.
-     *
-     * Controls all the AwsMock sqss.
+     * @brief EQS memory database.
      *
      * @author jens.vogt\@opitz-consulting.com
      */
@@ -90,7 +88,7 @@ namespace Euclid::Database {
             return std::nullopt;
         }
 
-        std::vector<Entity::EQS::Queue> listQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const override {
+        std::vector<Entity::EQS::Queue> listQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const override {
             std::lock_guard lock(_mutex);
             std::vector<Entity::EQS::Queue> result;
             for (const auto &m: _queueStore | std::views::values) {
@@ -120,10 +118,12 @@ namespace Euclid::Database {
             return _queueStore.contains(name);
         }
 
-        long countQueues(const std::string &accountId, const std::string &namespaceName) const override {
+        long countQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "") const override {
             std::lock_guard lock(_mutex);
             return std::ranges::count_if(_queueStore | std::views::values, [&](const auto &m) {
-                return m.accountId == accountId && (namespaceName.empty() || m.nameSpace == namespaceName);
+                return m.accountId == accountId
+                    && (namespaceName.empty() || m.nameSpace == namespaceName)
+                    && (prefix.empty() || m.name.starts_with(prefix));
             });
         }
 
@@ -295,6 +295,35 @@ namespace Euclid::Database {
             _messageStore.erase(it);
         }
 
+        void deleteMessageById(const std::string &messageId) override {
+            std::lock_guard lock(_mutex);
+
+            const auto it = std::ranges::find_if(_messageStore, [&messageId](const auto &kv) {
+                return kv.second.messageId == messageId;
+            });
+            if (it == _messageStore.end()) {
+                return;
+            }
+            const auto &message = it->second;
+
+            for (auto &queue: _queueStore | std::views::values) {
+                if (queue.ern == message.queueErn) {
+                    queue.size -= message.size;
+                    if (message.status == Entity::EQS::MessageStatus::AVAILABLE) {
+                        queue.available -= 1;
+                    } else if (message.status == Entity::EQS::MessageStatus::DELAYED) {
+                        queue.delayed -= 1;
+                    } else if (message.status == Entity::EQS::MessageStatus::INVISIBLE) {
+                        queue.invisible -= 1;
+                    }
+                    queue.modified = std::chrono::system_clock::now();
+                    break;
+                }
+            }
+
+            _messageStore.erase(it);
+        }
+
         void purgeQueue(const std::string &queueErn) override {
             std::lock_guard lock(_mutex);
             std::erase_if(_messageStore, [&queueErn](const auto &kv) {
@@ -359,7 +388,7 @@ namespace Euclid::Database {
             return result;
         }
 
-        std::vector<Entity::EQS::Message> listMessages(const std::string &queueErn, const long pageSize, const long pageIndex, const std::string &sortColumn) const override {
+        std::vector<Entity::EQS::Message> listMessages(const std::string &queueErn, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const override {
             std::lock_guard lock(_mutex);
             std::vector<Entity::EQS::Message> result;
             for (const auto &m: _messageStore | std::views::values) {

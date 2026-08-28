@@ -6,9 +6,9 @@ euclid-cli-eam-list-accounts \- list Euclid accounts
 [\fB\-\-endpoint\fR \fIURL\fR]
 .B eam list-accounts
 [\fB\-\-prefix\fR \fIPREFIX\fR]
-[\fB\-\-pageSize\fR \fIN\fR]
-[\fB\-\-pageIndex\fR \fIN\fR]
-[\fB\-\-sortColumn\fR \fICOLUMN\fR]
+[\fB\-\-page\-size\fR \fIN\fR]
+[\fB\-\-page\-index\fR \fIN\fR]
+[\fB\-\-sort\-column\fR \fICOLUMN\fR]
 .SH DESCRIPTION
 Lists accounts via the eam service's
 .I list-accounts
@@ -23,15 +23,15 @@ count, is printed to standard output.
 Only return accounts whose account ID starts with \fIPREFIX\fR. If
 omitted, all accounts match.
 .TP
-.BR \-s ", " \-\-pageSize " " \fIN\fR
+.BR \-s ", " \-\-page\-size " " \fIN\fR
 Maximum number of accounts to return. \fI0\fR or less (the default,
 \fI\-1\fR) means no limit.
 .TP
-.BR \-i ", " \-\-pageIndex " " \fIN\fR
-Zero-based page index, applied when \fB\-\-pageSize\fR is set. Defaults to
+.BR \-i ", " \-\-page\-index " " \fIN\fR
+Zero-based page index, applied when \fB\-\-page\-size\fR is set. Defaults to
 \fI\-1\fR (meaningless while paging is off).
 .TP
-.BR \-c ", " \-\-sortColumn " " \fICOLUMN\fR
+.BR \-c ", " \-\-sort\-column " " \fICOLUMN\fR
 Field to sort by: \fIaccountId\fR (default) or \fIname\fR.
 .SH EXIT STATUS
 .TP

@@ -50,6 +50,16 @@ Maximum restarts allowed per instance, or \fI\-1\fR for unlimited.
 .I created ", " modified
 ISO 8601 timestamps.
 .TP
+.I lastStartTime
+ISO 8601 timestamp of when the module's pool last went from having no
+running instances to having its first one - i.e. the module's own
+"boot time", from which euclid-ui derives its displayed uptime.
+.I null
+if the module has never had a running instance. Stamped once per
+cold start: if several instances come up together, or one instance
+crash-restarts while a sibling stays up, this does not change - only a
+transition from zero running instances to the first one updates it.
+.TP
 .I instances
 Array of the module's current instances, each with
 .IR instanceId ", " pid ", " state
