@@ -4,9 +4,9 @@ euclid-cli-eqs-list-queues \- list queues
 .SH SYNOPSIS
 .B euclid-cli eqs list-queues
 [\fB\-\-prefix\fR|\fB\-p\fR \fIPREFIX\fR]
-[\fB\-\-pageSize\fR|\fB\-s\fR \fIN\fR]
-[\fB\-\-pageIndex\fR|\fB\-i\fR \fIN\fR]
-[\fB\-\-sortColumn\fR|\fB\-c\fR \fICOLUMN\fR]
+[\fB\-\-page\-size\fR|\fB\-s\fR \fIN\fR]
+[\fB\-\-page\-index\fR|\fB\-i\fR \fIN\fR]
+[\fB\-\-sort\-column\fR|\fB\-c\fR \fICOLUMN\fR]
 .SH DESCRIPTION
 Lists queues, optionally filtered by name prefix and paginated.
 .SH OPTIONS
@@ -15,14 +15,14 @@ Lists queues, optionally filtered by name prefix and paginated.
 Only list queues whose name starts with this prefix. Optional; if
 omitted, all queues are listed.
 .TP
-.BR \-s ", " \-\-pageSize " " \fIN\fR
+.BR \-s ", " \-\-page\-size " " \fIN\fR
 Maximum number of queues to return. Defaults to \fI-1\fR (no paging).
 .TP
-.BR \-i ", " \-\-pageIndex " " \fIN\fR
-Zero-based page index to return when \fB\-\-pageSize\fR is set.
+.BR \-i ", " \-\-page\-index " " \fIN\fR
+Zero-based page index to return when \fB\-\-page\-size\fR is set.
 Defaults to \fI-1\fR.
 .TP
-.BR \-c ", " \-\-sortColumn " " \fICOLUMN\fR
+.BR \-c ", " \-\-sort\-column " " \fICOLUMN\fR
 Column to sort results by. Defaults to \fIname\fR.
 .SH EXIT STATUS
 .TP
@@ -38,7 +38,7 @@ server rejected the request.
 euclid-cli --endpoint http://localhost:5566 eqs list-queues
 
 euclid-cli --endpoint http://localhost:5566 eqs list-queues \e
-    --prefix orders- --pageSize 20 --pageIndex 0 --sortColumn name
+    --prefix orders- --page-size 20 --page-index 0 --sort-column name
 .fi
 .RE
 .SH SEE ALSO

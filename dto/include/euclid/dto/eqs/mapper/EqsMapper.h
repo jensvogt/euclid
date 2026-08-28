@@ -16,7 +16,7 @@
 namespace Euclid::Dto::EQS {
 
     /**
-     * @brief Maps between the SQS module's database entities and DTOs.
+     * @brief Maps between the EQS module's database entities and DTOs.
      */
     struct EqsMapper {
 

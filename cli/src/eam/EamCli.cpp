@@ -249,13 +249,15 @@ namespace Euclid::CLI {
         po::options_description desc("eam list users");
         desc.add_options()
                 ("prefix,p", po::value<std::string>(), "user name prefix")
-                ("pageSize,s", po::value<long>()->default_value(-1), "page size")
-                ("pageIndex,i", po::value<long>()->default_value(-1), "page index")
-                ("sortColumn,c", po::value<std::string>()->default_value("userId"), "sort column");
+                ("page-size,s", po::value<long>()->default_value(-1), "page size")
+                ("page-index,i", po::value<long>()->default_value(-1), "page index")
+                ("sort-column,c", po::value<std::string>()->default_value("userId"), "sort column")
+                ("sort-direction,d", po::value<std::string>()->default_value("asc"), "sort direction");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eam", "list-users", "[--prefix <prefix>] [--pageSize <n>] [--pageIndex <n>] [--sortColumn <column>]",
-                                   "Lists user accounts, optionally filtered by name prefix and paginated.",
+            return PrintActionHelp("eam", "list-users", "[--prefix <prefix>] [--page-size <n>] [--page-index <n>] [--sort-column <column>] [--sort-direction <direction>]",
+                                   "Lists user accounts, optionally filtered by name prefix and paginated. Sort-column can be 'name', 'userId', 'email'. Sort-direction"
+                                   "can be one of 'asc', 'desc'",
                                    desc);
         }
 
@@ -272,9 +274,9 @@ namespace Euclid::CLI {
         if (vm.contains("prefix")) {
             request.prefix = vm["prefix"].as<std::string>();
         }
-        request.pageSize = vm["pageSize"].as<long>();
-        request.pageIndex = vm["pageIndex"].as<long>();
-        request.sortColumn = vm["sortColumn"].as<std::string>();
+        request.pageSize = vm["page-size"].as<long>();
+        request.pageIndex = vm["page-index"].as<long>();
+        request.sortColumn = vm["sort-column"].as<std::string>();
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
@@ -471,13 +473,15 @@ namespace Euclid::CLI {
         po::options_description desc("eam list user groups");
         desc.add_options()
                 ("prefix,p", po::value<std::string>(), "user group name prefix")
-                ("pageSize,s", po::value<long>()->default_value(-1), "page size")
-                ("pageIndex,i", po::value<long>()->default_value(-1), "page index")
-                ("sortColumn,c", po::value<std::string>()->default_value("name"), "sort column");
+                ("page-size,s", po::value<long>()->default_value(-1), "page size")
+                ("page-index,i", po::value<long>()->default_value(-1), "page index")
+                ("sort-column,c", po::value<std::string>()->default_value("name"), "sort column")
+                ("sort-direction,d", po::value<std::string>()->default_value("asc"), "sort direction");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eam", "list-user-groups", "[--prefix <prefix>] [--pageSize <n>] [--pageIndex <n>] [--sortColumn <column>]",
-                                   "Lists user groups, optionally filtered by name prefix and paginated.",
+            return PrintActionHelp("eam", "list-user-groups", "[--prefix <prefix>] [--page-size <n>] [--page-index <n>] [--sort-column <column>] [--sort-direction <direction>]",
+                                   "Lists user groups, optionally filtered by name prefix and paginated. Paginated: page-size defaults to 10, page-index to 0, sort-column to \"created\""
+                                   "and sort-direction to \"asc\".",
                                    desc);
         }
 
@@ -491,9 +495,10 @@ namespace Euclid::CLI {
         }
 
         Dto::EAM::ListUserGroupsRequest request;
-        request.pageSize = vm["pageSize"].as<long>();
-        request.pageIndex = vm["pageIndex"].as<long>();
-        request.sortColumn = vm["sortColumn"].as<std::string>();
+        request.pageSize = vm["page-size"].as<long>();
+        request.pageIndex = vm["page-index"].as<long>();
+        request.sortColumn = vm["sort-column"].as<std::string>();
+        request.sortDirection = vm["sort-direction"].as<std::string>();
         if (vm.contains("prefix")) {
             request.prefix = vm["prefix"].as<std::string>();
         }
@@ -679,13 +684,15 @@ namespace Euclid::CLI {
         po::options_description desc("eam list accounts");
         desc.add_options()
                 ("prefix,p", po::value<std::string>(), "account ID prefix")
-                ("pageSize,s", po::value<long>()->default_value(-1), "page size")
-                ("pageIndex,i", po::value<long>()->default_value(-1), "page index")
-                ("sortColumn,c", po::value<std::string>()->default_value("accountId"), "sort column");
+                ("page-size,s", po::value<long>()->default_value(-1), "page size")
+                ("page-index,i", po::value<long>()->default_value(-1), "page index")
+                ("sort-column,c", po::value<std::string>()->default_value("accountId"), "sort column")
+                ("sort-direction,d", po::value<std::string>()->default_value("asc"), "sort direction");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eam", "list-accounts", "[--prefix <prefix>] [--pageSize <n>] [--pageIndex <n>] [--sortColumn <column>]",
-                                   "Lists accounts, optionally filtered by accountId prefix and paginated.",
+            return PrintActionHelp("eam", "list-accounts", "[--prefix <prefix>] [--page-size <n>] [--page-index <n>] [--sort-column <column>] [--sort-direction <direction>]",
+                                   "Lists accounts, optionally filtered by accountId prefix and paginated. Paginated: page-size defaults to 10, page-index to 0, sort-column to \"accountId\""
+                                   "and sort-direction to \"asc\".",
                                    desc);
         }
 
@@ -699,9 +706,10 @@ namespace Euclid::CLI {
         }
 
         Dto::EAM::ListAccountsRequest request;
-        request.pageSize = vm["pageSize"].as<long>();
-        request.pageIndex = vm["pageIndex"].as<long>();
-        request.sortColumn = vm["sortColumn"].as<std::string>();
+        request.pageSize = vm["page-size"].as<long>();
+        request.pageIndex = vm["page-index"].as<long>();
+        request.sortColumn = vm["sort-column"].as<std::string>();
+        request.sortDirection = vm["sort-direction"].as<std::string>();
         if (vm.contains("prefix")) {
             request.prefix = vm["prefix"].as<std::string>();
         }
@@ -809,15 +817,17 @@ namespace Euclid::CLI {
     int EamCli::listNamespaces(const std::vector<std::string> &args) const {
         po::options_description desc("eam list namespaces");
         desc.add_options()
-                ("account-id,a", po::value<std::string>()->required(), "account ID")
+                ("account,a", po::value<std::string>()->required(), "account ID")
                 ("prefix,p", po::value<std::string>(), "namespace name prefix")
-                ("pageSize,s", po::value<long>()->default_value(-1), "page size")
-                ("pageIndex,i", po::value<long>()->default_value(-1), "page index")
-                ("sortColumn,c", po::value<std::string>()->default_value("name"), "sort column");
+                ("page-size,s", po::value<long>()->default_value(-1), "page size")
+                ("page-index,i", po::value<long>()->default_value(-1), "page index")
+                ("sort-column,c", po::value<std::string>()->default_value("name"), "sort column")
+                ("sort-direction,d", po::value<std::string>()->default_value("asc"), "sort direction");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eam", "list-namespaces", "--account-id <accountId> [--prefix <prefix>] [--pageSize <n>] [--pageIndex <n>] [--sortColumn <column>]",
-                                   "Lists namespaces under an account, optionally filtered by name prefix and paginated.",
+            return PrintActionHelp("eam", "list-namespaces", "--account <accountId> [--prefix <prefix>] [--page-size <n>] [--page-index <n>] [--sort-column <column>] [--sort-direction <direction>]",
+                                   "Lists namespaces under an account, optionally filtered by name prefix and paginated. Paginated: page-size defaults to 10, page-index to 0, sort-column to \"created\""
+                                   "and sort-direction to \"asc\".",
                                    desc);
         }
 
@@ -831,10 +841,11 @@ namespace Euclid::CLI {
         }
 
         Dto::EAM::ListNamespacesRequest request;
-        request.accountId = vm["account-id"].as<std::string>();
-        request.pageSize = vm["pageSize"].as<long>();
-        request.pageIndex = vm["pageIndex"].as<long>();
-        request.sortColumn = vm["sortColumn"].as<std::string>();
+        request.accountId = vm["account"].as<std::string>();
+        request.pageSize = vm["page-size"].as<long>();
+        request.pageIndex = vm["page-index"].as<long>();
+        request.sortColumn = vm["sort-column"].as<std::string>();
+        request.sortDirection = vm["sort-direction"].as<std::string>();
         if (vm.contains("prefix")) {
             request.prefix = vm["prefix"].as<std::string>();
         }
@@ -859,11 +870,11 @@ namespace Euclid::CLI {
     int EamCli::deleteNamespace(const std::vector<std::string> &args) const {
         po::options_description desc("eam delete namespace options");
         desc.add_options()
-                ("account-id,a", po::value<std::string>()->required(), "account ID")
+                ("account,a", po::value<std::string>()->required(), "account ID")
                 ("name,n", po::value<std::string>()->required(), "namespace name");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eam", "delete-namespace", "--account-id <accountId> --name <name>",
+            return PrintActionHelp("eam", "delete-namespace", "--account <accountId> --name <name>",
                                    "Deletes an existing namespace. Requires administrator privileges on the "
                                    "account, and the namespace must have no remaining user grants.",
                                    desc);
@@ -879,7 +890,7 @@ namespace Euclid::CLI {
         }
 
         Dto::EAM::DeleteNamespaceRequest request;
-        request.accountId = vm["account-id"].as<std::string>();
+        request.accountId = vm["account"].as<std::string>();
         request.name = vm["name"].as<std::string>();
 
         try {
@@ -900,11 +911,11 @@ namespace Euclid::CLI {
         po::options_description desc("eam grant namespace access options");
         desc.add_options()
                 ("user,u", po::value<std::string>()->required(), "user ERN")
-                ("account-id,a", po::value<std::string>()->required(), "account ID")
+                ("account,a", po::value<std::string>()->required(), "account ID")
                 ("namespace,s", po::value<std::string>()->required(), "namespace name");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eam", "grant-namespace-access", "--user <ERN> --account-id <accountId> --namespace <name>",
+            return PrintActionHelp("eam", "grant-namespace-access", "--user <ern> --account <accountId> --namespace <name>",
                                    "Grants a user access to a namespace within an account. Requires "
                                    "administrator privileges on that account.",
                                    desc);
@@ -921,7 +932,7 @@ namespace Euclid::CLI {
 
         Dto::EAM::GrantNamespaceAccessRequest request;
         request.user = vm["user"].as<std::string>();
-        request.accountId = vm["account-id"].as<std::string>();
+        request.accountId = vm["account"].as<std::string>();
         request.ns = vm["namespace"].as<std::string>();
 
         try {
@@ -942,11 +953,11 @@ namespace Euclid::CLI {
         po::options_description desc("eam revoke namespace access options");
         desc.add_options()
                 ("user,u", po::value<std::string>()->required(), "user ERN")
-                ("account-id,a", po::value<std::string>()->required(), "account ID")
+                ("account,a", po::value<std::string>()->required(), "account ID")
                 ("namespace,s", po::value<std::string>()->required(), "namespace name");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eam", "revoke-namespace-access", "--user <ERN> --account-id <accountId> --namespace <name>",
+            return PrintActionHelp("eam", "revoke-namespace-access", "--user <ern> --account <accountId> --namespace <name>",
                                    "Revokes a user's access to a namespace within an account. Requires "
                                    "administrator privileges on that account.",
                                    desc);
@@ -963,14 +974,13 @@ namespace Euclid::CLI {
 
         Dto::EAM::RevokeNamespaceAccessRequest request;
         request.user = vm["user"].as<std::string>();
-        request.accountId = vm["account-id"].as<std::string>();
+        request.accountId = vm["account"].as<std::string>();
         request.ns = vm["namespace"].as<std::string>();
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("eam", "revoke-namespace-access", boost::json::value_from(request));
 
-            if (!response.IsSuccess()) {
+            if (const HttpResponse response = client.Post("eam", "revoke-namespace-access", boost::json::value_from(request)); !response.IsSuccess()) {
                 reportFailure("revoke-namespace-access", response);
                 return 1;
             }

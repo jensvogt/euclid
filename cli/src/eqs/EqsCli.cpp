@@ -42,6 +42,7 @@ namespace Euclid::CLI {
                                            {"send-message", "Send a message to a queue"},
                                            {"receive-messages", "Send a message to a queue"},
                                            {"set-visibility", "Send a messages visibility"},
+                                           {"delete-message", "Deletes a single message, by receipt handle or message ID"},
                                            {"get-message-attribute", "Return a message attribute by name"},
                                            {"set-message-attribute", "Sets the value of a message attribute"},
                                            {"get-queue-metadata", "Return the metadata for a queue"},
@@ -81,6 +82,9 @@ namespace Euclid::CLI {
         if (action == "set-visibility") {
             return setVisibility(args);
         }
+        if (action == "delete-message") {
+            return deleteMessage(args);
+        }
         if (action == "get-message-count") {
             return getMessageCount(args);
         }
@@ -105,7 +109,7 @@ namespace Euclid::CLI {
         if (action == "delete-queue-tag") {
             return deleteQueueTag(args);
         }
-        std::cerr << "error: unknown SQS action '" << action << "'\n";
+        std::cerr << "error: unknown EQS action '" << action << "'\n";
         return 1;
     }
 
@@ -115,7 +119,7 @@ namespace Euclid::CLI {
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eqs", "create-queue", "--name <name> [--visibility <seconds>] [--max-retries <value>] [--max-length <value>] [dlq-name <name>] [--delay <seconds>]",
-                                   "Creates a new SQS queue with the given name, max retries, max message length, dead letter queue ARN, and visibility timeout. The dead letter queue name is optional; "
+                                   "Creates a new EQS queue with the given name, max retries, max message length, dead letter queue ARN, and visibility timeout. The dead letter queue name is optional; "
                                    "visibility defaults to 30 seconds, max retries defaults to 3, delay to 0, and max message length defaults to 1MB.",
                                    desc);
         }
@@ -163,11 +167,13 @@ namespace Euclid::CLI {
                 ("queue,q", po::value<std::string>()->required(), "queue ERN")
                 ("page-size,s", po::value<long>()->default_value(10), "page size")
                 ("page-index,i", po::value<long>()->default_value(0), "page index")
-                ("sort-column,c", po::value<std::string>()->default_value("created"), "sort column");
+                ("sort-column,c", po::value<std::string>()->default_value("created"), "sort column")
+                ("sort-direction,d", po::value<std::string>()->default_value("asc"), "sort direction");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "list-messages", "--queue <ern> [--page-size <n>] [--page-index <n>] [--sort-column <column>]",
-                                   "Lists a queue's messages without receiving them, i.e. without changing their status or visibility. Paginated: pageSize defaults to 10, pageIndex to 0, sortColumn to \"created\".",
+            return PrintActionHelp("eqs", "list-messages", "--queue <ern> [--page-size <n>] [--page-index <n>] [--sort-column <column>] [--sort-direction <direction>]",
+                                   "Lists a queue's messages without receiving them, i.e. without changing their status or visibility. Paginated: page-size defaults to 10, page-index to 0,"
+                                   " sort-column to \"created\" and sort-direction to \"asc\".",
                                    desc);
         }
 
@@ -186,6 +192,7 @@ namespace Euclid::CLI {
         request.pageSize = vm["page-size"].as<long>();
         request.pageIndex = vm["page-index"].as<long>();
         request.sortColumn = vm["sort-column"].as<std::string>();
+        request.sortDirection = vm["sort-direction"].as<std::string>();
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
@@ -244,13 +251,15 @@ namespace Euclid::CLI {
         po::options_description desc("list queues options");
         desc.add_options()
                 ("prefix,p", po::value<std::string>(), "queue name prefix")
-                ("pageSize,s", po::value<long>()->default_value(-1), "page size")
-                ("pageIndex,i", po::value<long>()->default_value(-1), "page index")
-                ("sortColumn,c", po::value<std::string>()->default_value("name"), "sort column");
+                ("page-size,s", po::value<long>()->default_value(-1), "page size")
+                ("page-index,i", po::value<long>()->default_value(-1), "page index")
+                ("sort-column,c", po::value<std::string>()->default_value("name"), "sort column")
+                ("sort-direction,d", po::value<std::string>()->default_value("asc"), "sort direction");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "list-queues", "[--prefix <prefix>] [--pageSize <n>] [--pageIndex <n>] [--sortColumn <column>]",
-                                   "Lists SQS queues, optionally filtered by name prefix and paginated.",
+            return PrintActionHelp("eqs", "list-queues", "[--prefix <prefix>] [--page-size <n>] [--page-index <n>] [--sort-column <column>] [--sort-direction <direction>]",
+                                   "Lists EQS queues, optionally filtered by name prefix and paginated. The sort-column can be name, available, delayed, invisible, created, modified. The "
+                                   "sort-direction can be one of 'asc', 'desc'.",
                                    desc);
         }
 
@@ -265,9 +274,10 @@ namespace Euclid::CLI {
         }
 
         Dto::EQS::ListQueueRequest request;
-        request.pageSize = vm["pageSize"].as<long>();
-        request.pageIndex = vm["pageIndex"].as<long>();
-        request.sortColumn = vm["sortColumn"].as<std::string>();
+        request.pageSize = vm["page-size"].as<long>();
+        request.pageIndex = vm["page-index"].as<long>();
+        request.sortColumn = vm["sort-column"].as<std::string>();
+        request.sortDirection = vm["sort-direction"].as<std::string>();
         if (vm.contains("prefix")) {
             request.prefix = vm["prefix"].as<std::string>();
         }
@@ -294,7 +304,7 @@ namespace Euclid::CLI {
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eqs", "purge-queue", "--queue <ern>",
-                                   "Deletes all messages from a SQS queue identified by its Euclid resource name (ERN).",
+                                   "Deletes all messages from a EQS queue identified by its Euclid resource name (ERN).",
                                    desc);
         }
 
@@ -332,7 +342,7 @@ namespace Euclid::CLI {
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eqs", "purge-all-queues", "--region <region> --accountId <accountId>",
-                                   "Deletes all messages from every SQS queue in the given region and account.",
+                                   "Deletes all messages from every EQS queue in the given region and account.",
                                    desc);
         }
 
@@ -408,7 +418,7 @@ namespace Euclid::CLI {
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eqs", "delete-queue", "--queue <ern>",
-                                   "Deletes an SQS queue identified by its Euclid resource name (ERN).",
+                                   "Deletes an EQS queue identified by its Euclid resource name (ERN).",
                                    desc);
         }
 
@@ -448,7 +458,7 @@ namespace Euclid::CLI {
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eqs", "send-message", "--queue <ern> --body <body|file://path> [--attributes <json|file://path>] [--priority <LOW|MIDDLE|HIGH>]",
-                                   "Sends a message to an SQS queue. If --body starts with 'file://', the message "
+                                   "Sends a message to an EQS queue. If --body starts with 'file://', the message "
                                    "body is read from the referenced file instead of being taken literally. The optional --attributes value sets the message "
                                    "attributes as a JSON object mapping attribute name to {\"type\": <int|long|double|float|bool|string|binary>, \"value\": <value>}, "
                                    "given either literally or via 'file://path' to a file containing the JSON. --priority defaults to MIDDLE and influences how "
@@ -501,7 +511,7 @@ namespace Euclid::CLI {
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eqs", "receive-messages", "--queue <ern> [--maxCount <value>] [--waitTime <seconds>]",
-                                   "Receive messages from an SQS queue. If messages are available return up to maxCount messages. "
+                                   "Receive messages from an EQS queue. If messages are available return up to maxCount messages. "
                                    "The returned messages favor higher priority ones: maxCount slots are split across LOW/MIDDLE/HIGH priority "
                                    "proportionally to the server's configurable priority weights (4:2:1 by default), so most of a batch is "
                                    "HIGH priority, fewer MIDDLE, and fewer still LOW.",
@@ -568,6 +578,54 @@ namespace Euclid::CLI {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
             if (const HttpResponse response = client.Post("eqs", "set-visibility", boost::json::value_from(request)); !response.IsSuccess()) {
                 std::cerr << "error: set-visibility failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EqsCli::deleteMessage(const std::vector<std::string> &args) const {
+        po::options_description desc("delete message options");
+        desc.add_options()
+                ("receipt-handle,r", po::value<std::string>()->default_value(""), "receipt handle of a received message")
+                ("message-id,m", po::value<std::string>()->default_value(""), "message ID; deletes the message even if it has not been received yet");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eqs", "delete-message", "--receipt-handle <handle> | --message-id <messageId>",
+                                   "Deletes a single message. Use --receipt-handle for a message that was received (this is the standard "
+                                   "SQS-compatible way, and fails once the visibility timeout has expired). Use --message-id to delete a "
+                                   "message directly, including one that has never been received (status AVAILABLE or DELAYED); this bypasses "
+                                   "the usual receipt-handle lease and is a Euclid-specific extension with no AWS SQS equivalent.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n"
+                    << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EQS::DeleteMessageRequest request;
+        request.receiptHandle = vm["receipt-handle"].as<std::string>();
+        request.messageId = vm["message-id"].as<std::string>();
+
+        if (request.receiptHandle.empty() && request.messageId.empty()) {
+            std::cerr << "error: either --receipt-handle or --message-id must be given\n\n"
+                    << desc << std::endl;
+            return 1;
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            if (const HttpResponse response = client.Post("eqs", "delete-message", boost::json::value_from(request)); !response.IsSuccess()) {
+                std::cerr << "error: delete-message failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             return 0;

@@ -5,12 +5,12 @@ euclid-cli-eam-list-namespaces \- list namespaces under an account
 .B euclid-cli
 [\fB\-\-endpoint\fR \fIURL\fR]
 .B eam list-namespaces
-.BR \-\-account\-id | \-a
+.BR \-\-account | \-a
 .I ACCOUNTID
 [\fB\-\-prefix\fR \fIPREFIX\fR]
-[\fB\-\-pageSize\fR \fIN\fR]
-[\fB\-\-pageIndex\fR \fIN\fR]
-[\fB\-\-sortColumn\fR \fICOLUMN\fR]
+[\fB\-\-page\-size\fR \fIN\fR]
+[\fB\-\-page\-index\fR \fIN\fR]
+[\fB\-\-sort\-column\fR \fICOLUMN\fR]
 .SH DESCRIPTION
 Lists the namespaces under an account via the eam service's
 .I list-namespaces
@@ -24,22 +24,22 @@ The JSON response, containing the matching namespaces and the total
 namespace count for the account, is printed to standard output.
 .SH OPTIONS
 .TP
-.BR \-a ", " \-\-account\-id " " \fIACCOUNTID\fR
+.BR \-a ", " \-\-account " " \fIACCOUNTID\fR
 Only return namespaces belonging to this account. Required.
 .TP
 .BR \-p ", " \-\-prefix " " \fIPREFIX\fR
 Only return namespaces whose name starts with \fIPREFIX\fR. If omitted,
 all namespaces under the account match.
 .TP
-.BR \-s ", " \-\-pageSize " " \fIN\fR
+.BR \-s ", " \-\-page\-size " " \fIN\fR
 Maximum number of namespaces to return. \fI0\fR or less (the default,
 \fI\-1\fR) means no limit.
 .TP
-.BR \-i ", " \-\-pageIndex " " \fIN\fR
-Zero-based page index, applied when \fB\-\-pageSize\fR is set. Defaults to
+.BR \-i ", " \-\-page\-index " " \fIN\fR
+Zero-based page index, applied when \fB\-\-page\-size\fR is set. Defaults to
 \fI\-1\fR (meaningless while paging is off).
 .TP
-.BR \-c ", " \-\-sortColumn " " \fICOLUMN\fR
+.BR \-c ", " \-\-sort\-column " " \fICOLUMN\fR
 Field to sort by: \fIname\fR (default) or \fIdescription\fR.
 .SH EXIT STATUS
 .TP
@@ -57,7 +57,7 @@ again before retrying.
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 eam list-namespaces \e
-    --account-id 123456789012
+    --account 123456789012
 .fi
 .RE
 .SH SEE ALSO

@@ -137,7 +137,7 @@ namespace Euclid::Database {
         return {};
     }
 
-    std::vector<Entity::EQS::Queue> MongoEqsRepository::listQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
+    std::vector<Entity::EQS::Queue> MongoEqsRepository::listQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const {
 
         try {
 
@@ -152,7 +152,7 @@ namespace Euclid::Database {
 
             mongocxx::options::find opts;
             if (!sortColumn.empty()) {
-                opts.sort(make_document(kvp(sortColumn, 1)));
+                opts.sort(make_document(kvp(sortColumn, sortDirection == "asc" ? 1 : -1)));
             }
             if (pageSize > 0) {
                 opts.limit(pageSize);
@@ -210,7 +210,7 @@ namespace Euclid::Database {
         }
     }
 
-    long MongoEqsRepository::countQueues(const std::string &accountId, const std::string &namespaceName) const {
+    long MongoEqsRepository::countQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix) const {
 
         try {
 
@@ -218,6 +218,9 @@ namespace Euclid::Database {
             filter.append(kvp("accountId", accountId));
             if (!namespaceName.empty()) {
                 filter.append(kvp("namespace", namespaceName));
+            }
+            if (!prefix.empty()) {
+                filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
             }
 
             const auto entry = Database::instance().client();
@@ -372,7 +375,7 @@ namespace Euclid::Database {
         return {};
     }
 
-    std::vector<Entity::EQS::Message> MongoEqsRepository::listMessages(const std::string &queueErn, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
+    std::vector<Entity::EQS::Message> MongoEqsRepository::listMessages(const std::string &queueErn, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const {
 
         std::vector<Entity::EQS::Message> messages;
         try {
@@ -380,7 +383,7 @@ namespace Euclid::Database {
 
             mongocxx::options::find opts;
             if (!sortColumn.empty()) {
-                opts.sort(make_document(kvp(sortColumn, 1)));
+                opts.sort(make_document(kvp(sortColumn, sortDirection == "asc" ? 1 : -1)));
             }
             if (pageSize > 0) {
                 opts.limit(pageSize);
@@ -428,8 +431,7 @@ namespace Euclid::Database {
         }
     }
 
-    Entity::EQS::Message MongoEqsRepository::sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes,
-                                                         const Entity::EQS::MessagePriority priority) {
+    Entity::EQS::Message MongoEqsRepository::sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes, const Entity::EQS::MessagePriority priority) {
 
         Entity::EQS::Message message;
         message.ern = ern;
@@ -639,6 +641,41 @@ namespace Euclid::Database {
             }
         } catch (const std::exception &e) {
             log_error << "Delete message failed, error: " << e.what();
+        }
+    }
+
+    void MongoEqsRepository::deleteMessageById(const std::string &messageId) {
+
+        try {
+            const auto filter = make_document(
+                    kvp("messageId", messageId));
+
+            const auto entry = Database::instance().client();
+            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            Entity::EQS::Message message;
+            if (auto mResult = messageCollection.find_one(filter.view())) {
+                message.FromDocument(mResult->view());
+            }
+
+            const auto result = messageCollection.delete_many(filter.view());
+            log_debug << "Message deleted, count: " << result->deleted_count();
+
+            if (result && result->deleted_count() > 0 && !message.queueErn.empty()) {
+                const auto queueFilter = make_document(kvp("ern", message.queueErn));
+                const auto update = make_document(
+                        kvp("$inc", make_document(
+                                    kvp("size", static_cast<int64_t>(-message.size)),
+                                    kvp("available", static_cast<int64_t>(message.status == Entity::EQS::MessageStatus::AVAILABLE ? -1 : 0)),
+                                    kvp("delayed", static_cast<int64_t>(message.status == Entity::EQS::MessageStatus::DELAYED ? -1 : 0)),
+                                    kvp("invisible", static_cast<int64_t>(message.status == Entity::EQS::MessageStatus::INVISIBLE ? -1 : 0)))),
+                        kvp("$currentDate", make_document(
+                                    kvp("modified", true))));
+                queueCollection.update_one(queueFilter.view(), update.view());
+            }
+        } catch (const std::exception &e) {
+            log_error << "Delete message by ID failed, messageId: " << messageId << ", error: " << e.what();
         }
     }
 

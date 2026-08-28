@@ -14,6 +14,9 @@
 #include <euclid/database/repository/eam/IEamRepository.h>
 #include <euclid/database/repository/eam/MemoryEamRepository.h>
 #include <euclid/database/repository/eam/MongoEamRepository.h>
+#include <euclid/database/repository/ekm/IEkmRepository.h>
+#include <euclid/database/repository/ekm/MemoryEkmRepository.h>
+#include <euclid/database/repository/ekm/MongoEkmRepository.h>
 #include <euclid/database/repository/emm/IEmmRepository.h>
 #include <euclid/database/repository/emm/MemoryEmmRepository.h>
 #include <euclid/database/repository/emm/MongoEmmRepository.h>
@@ -80,6 +83,12 @@ namespace Euclid::Database {
         [[nodiscard]]
         std::shared_ptr<IEsmRepository> esmRepository() const {
             static auto repo = createEsmRepository();
+            return repo;
+        }
+
+        [[nodiscard]]
+        std::shared_ptr<IEkmRepository> ekmRepository() const {
+            static auto repo = createEkmRepository();
             return repo;
         }
 
@@ -151,6 +160,17 @@ namespace Euclid::Database {
                     return std::make_shared<MemoryEsmRepository>();
             }
             return std::make_shared<MemoryEsmRepository>();
+        }
+
+        [[nodiscard]]
+        std::shared_ptr<IEkmRepository> createEkmRepository() const {
+            switch (_backend) {
+                case BackendType::MONGODB:
+                    return std::make_shared<MongoEkmRepository>();
+                case BackendType::MEMORY:
+                    return std::make_shared<MemoryEkmRepository>();
+            }
+            return std::make_shared<MemoryEkmRepository>();
         }
     };
 

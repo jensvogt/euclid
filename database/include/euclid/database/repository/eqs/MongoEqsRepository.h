@@ -94,10 +94,11 @@ namespace Euclid::Database {
          * @param pageSize maximum number of queues to return; 0 or less means no limit
          * @param pageIndex zero-based page index, applied when pageSize is set
          * @param sortColumn field to sort by (e.g. "name", "arn"); empty means unsorted
+         * @param sortDirection direction of sort by (e.g. "asc", "desc"); empty means unsorted
          * @return list of all queue entities.
          */
         [[nodiscard]]
-        std::vector<Entity::EQS::Queue> listQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const override;
+        std::vector<Entity::EQS::Queue> listQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const override;
 
         /**
          * @brief Check the existence of the module by name
@@ -111,10 +112,13 @@ namespace Euclid::Database {
         /**
          * @brief Get the total number of modules
          *
+         * @param accountId account ID owning the queues
+         * @param namespaceName namespace to count queues in
+         * @param prefix only count queues whose name starts with this prefix; empty means no filter
          * @return total number of modules
          */
         [[nodiscard]]
-        long countQueues(const std::string &accountId, const std::string &namespaceName) const override;
+        long countQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "") const override;
 
         /**
          * @brief Delete all modules
@@ -157,6 +161,13 @@ namespace Euclid::Database {
          * @param receiptHandle receipt handle of the message
          */
         void deleteMessage(const std::string &receiptHandle) override;
+
+        /**
+         * @brief Deletes a message entity by message ID, regardless of its current status
+         *
+         * @param messageId message ID of the message
+         */
+        void deleteMessageById(const std::string &messageId) override;
 
         /**
          * @brief Deletes all messages of a queue
@@ -206,10 +217,11 @@ namespace Euclid::Database {
          * @param pageSize maximum number of messages to return, or <= 0 for no limit.
          * @param pageIndex zero-based page index.
          * @param sortColumn message field to sort ascending by; empty leaves the order unspecified.
+         * @param sortDirection direction of sort by (e.g. "asc", "desc"); empty means unsorted
          * @return the requested page of messages.
          */
         [[nodiscard]]
-        std::vector<Entity::EQS::Message> listMessages(const std::string &queueErn, long pageSize, long pageIndex, const std::string &sortColumn) const override;
+        std::vector<Entity::EQS::Message> listMessages(const std::string &queueErn, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const override;
 
         /**
          * @brief Check the existence of the module by name

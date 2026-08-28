@@ -11,6 +11,7 @@
 // Euclid includes
 #include <euclid/cli/credentials/Credentials.h>
 #include <euclid/cli/eam/EamCli.h>
+#include <euclid/cli/ekm/EkmCli.h>
 #include <euclid/cli/emm/EmmCli.h>
 #include <euclid/cli/ens/EnsCli.h>
 #include <euclid/cli/eqs/EqsCli.h>
@@ -41,7 +42,14 @@ int main(const int argc, char *argv[]) {
             ("loglevel,l", po::value<std::string>()->default_value("info"), "log level (trace|debug|info|warning|error|fatal)");
 
     const std::string usage = "Usage: euclid-cli [options] <module> <action> [args...]\n"
-            "Example: euclid-cli --endpoint http://localhost:5566 eqs list-queues\n";
+            "Example: euclid-cli --endpoint http://localhost:5566 eqs list-queues\n"
+            "Modules:\n"
+            "\tEAM Euclid access management (user, user groups, accounts, namespaces)\n"
+            "\tEQS Euclid queueing system (queues, messages)\n"
+            "\tENS Euclid notifications system (pub/sub topics, messages\n"
+            "\tEKM Euclid key management (cryptographic keys, encryption, decryption)\n"
+            "\tEMM Euclid module management (start, stop, restart, auto-scaler)\n"
+            "\tEMO Euclid monitoring (modules, system)\n";
 
     // Global options are only recognized before <module> - the first token that isn't one of
     // them (or a value for one) starts <module> <action> [args...], which is taken verbatim from
@@ -149,6 +157,11 @@ int main(const int argc, char *argv[]) {
         const auto authToken = Euclid::CLI::Credentials::Load();
         const Euclid::CLI::EmmCli emm(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), pretty, caCert);
         return emm.process(action, args);
+    }
+    if (module == "ekm") {
+        const auto authToken = Euclid::CLI::Credentials::Load();
+        const Euclid::CLI::EkmCli ekm(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), pretty, caCert);
+        return ekm.process(action, args);
     }
 
     std::cerr << "error: unknown module '" << module << "'\n\n" << usage << std::endl;

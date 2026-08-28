@@ -1,8 +1,6 @@
 // Euclid includes
 #include <EqsServer.h>
 
-#include "euclid/dto/eqs/SetMessageAttributeRequest.h"
-
 namespace Euclid::EQS {
 
     namespace beast = boost::beast;
@@ -21,8 +19,8 @@ namespace Euclid::EQS {
 
         // Timer/counter names shared by every handler below - one series per action, labeled
         // "method"=<action>, e.g. name="queues-service-time" labelName="method" labelValue="send-message".
-        constexpr auto kServiceTimer = "queues-service-time";
-        constexpr auto kServiceCounter = "queues-service-count";
+        constexpr auto kServiceTimer = "eqs-service-time";
+        constexpr auto kServiceCounter = "eqs-service-count";
     }// namespace
 
     static AuthResult authenticate(const request<string_body> &req) {
@@ -111,7 +109,7 @@ namespace Euclid::EQS {
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = Dto::EQS::DeleteQueueRequest::fromJson(req.body());
-        log_info << "SQS DeleteQueue, ern: " << request.ern;
+        log_info << "EQS DeleteQueue, ern: " << request.ern;
 
         Database::RepositoryFactory::instance().eqsRepository()->deleteQueueByErn(request.ern);
 
@@ -158,12 +156,12 @@ namespace Euclid::EQS {
 
         const auto ns = std::string(req["x-euclid-namespace"]);
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
-        const std::vector<Database::Entity::EQS::Queue> queues = repo->listQueues(auth.user->accountId, ns, request.prefix, request.pageSize, request.pageIndex, request.sortColumn);
+        const std::vector<Database::Entity::EQS::Queue> queues = repo->listQueues(auth.user->accountId, ns, request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection);
         log_info << "Got queue list, count: " << queues.size();
 
         Dto::EQS::ListQueueResponse response;
         response.queues = Dto::EQS::EqsMapper::toDto(queues);
-        response.total = repo->countQueues(auth.user->accountId, ns);
+        response.total = repo->countQueues(auth.user->accountId, ns, request.prefix);
 
         return EqsServer::JsonResponse(req, status::ok, response.toJson());
     }
@@ -181,7 +179,7 @@ namespace Euclid::EQS {
         log_info << "EQS ListMessages, queueErn: " << request.queueErn;
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
-        const std::vector<Database::Entity::EQS::Message> messages = repo->listMessages(request.queueErn, request.pageSize, request.pageIndex, request.sortColumn);
+        const std::vector<Database::Entity::EQS::Message> messages = repo->listMessages(request.queueErn, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection);
         log_info << "Got message list, count: " << messages.size();
 
         Dto::EQS::ListMessagesResponse response;
@@ -245,6 +243,45 @@ namespace Euclid::EQS {
         return EqsServer::JsonResponse(req, status::ok, response.toJson());
     }
 
+    static response<string_body> handleSetVisibility(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-visibility");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EQS::SetMessageVisibilityRequest>(jv);
+        if (request.messageId.empty()) {
+            return EqsServer::ErrorResponse(req, status::bad_request, "Message ID missing");
+        }
+        // Same bounds as AWS SQS's ChangeMessageVisibility (0s..12h).
+        if (request.visibility < 0 || request.visibility > 43200) {
+            return EqsServer::ErrorResponse(req, status::bad_request, "Visibility must be between 0 and 43200 seconds");
+        }
+        log_info << "EQS SetVisibility, messageId: " << request.messageId << ", visibility: " << request.visibility;
+
+        const auto repo = Database::RepositoryFactory::instance().eqsRepository();
+        std::optional<Database::Entity::EQS::Message> message = repo->findMessageByName(request.messageId);
+        if (!message.has_value()) {
+            return EqsServer::ErrorResponse(req, status::not_found, "Message not found, messageId: " + request.messageId);
+        }
+
+        // For an in-flight message this restarts the remaining invisibility window from now,
+        // matching AWS's "new timeout counted from the time of the request" semantics. For a
+        // message that is not yet in flight (AVAILABLE/DELAYED), this just changes the timeout
+        // that will apply the next time it is received - a Euclid-specific extension, since AWS
+        // only allows ChangeMessageVisibility on a message currently leased via receipt handle.
+        message->visibilityTimeout = request.visibility;
+        if (message->status == Database::Entity::EQS::MessageStatus::INVISIBLE) {
+            message->lastReceived = std::chrono::system_clock::now();
+        }
+        repo->upsertMessage(message.value());
+
+        return EqsServer::JsonResponse(req, status::ok);
+    }
+
     static response<string_body> handleDeleteMessage(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-message");
@@ -255,10 +292,17 @@ namespace Euclid::EQS {
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::EQS::DeleteMessageRequest>(jv);
-        log_info << "EQS DeleteMessage receiptHandle: " << request.receiptHandle;
-
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
-        repo->deleteMessage(request.receiptHandle);
+
+        if (!request.receiptHandle.empty()) {
+            log_info << "EQS DeleteMessage receiptHandle: " << request.receiptHandle;
+            repo->deleteMessage(request.receiptHandle);
+        } else if (!request.messageId.empty()) {
+            log_info << "EQS DeleteMessage messageId: " << request.messageId;
+            repo->deleteMessageById(request.messageId);
+        } else {
+            return EqsServer::ErrorResponse(req, status::bad_request, "Receipt handle or message ID missing");
+        }
 
         return EqsServer::JsonResponse(req, status::ok);
     }
@@ -581,6 +625,7 @@ namespace Euclid::EQS {
             ListMessages,
             SendMessage,
             ReceiveMessages,
+            SetVisibility,
             DeleteMessage,
             PurgeQueue,
             PurgeAllQueues,
@@ -601,6 +646,7 @@ namespace Euclid::EQS {
         if (action == "list-messages") return Command::ListMessages;
         if (action == "send-message") return Command::SendMessage;
         if (action == "receive-messages") return Command::ReceiveMessages;
+        if (action == "set-visibility") return Command::SetVisibility;
         if (action == "delete-message") return Command::DeleteMessage;
         if (action == "purge-queue") return Command::PurgeQueue;
         if (action == "purge-all-queues") return Command::PurgeAllQueues;
@@ -648,6 +694,9 @@ namespace Euclid::EQS {
 
             case Command::ReceiveMessages:
                 return handleReceiveMessage(req);
+
+            case Command::SetVisibility:
+                return handleSetVisibility(req);
 
             case Command::DeleteMessage:
                 return handleDeleteMessage(req);
@@ -699,7 +748,7 @@ namespace Euclid::EQS {
     }
 
     // ── EventBus ─────────────────────────────────────────────────────────────
-    // Consumer side of every SQS-type subscription in the system - ENS topics
+    // Consumer side of every EQS-type subscription in the system - ENS topics
     // (EnsServer::handlePublishMessage, event "ens.message.published") and ESM buckets
     // (EsmServer::publishObjectCreated, event "esm.object.created") both fan out through the same
     // payload shape (targetErn + body [+ attributes]), so one handler, registered for both event
