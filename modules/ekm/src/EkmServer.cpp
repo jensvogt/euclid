@@ -1,6 +1,8 @@
 // Euclid includes
 #include <EkmServer.h>
 
+#include "euclid/dto/ekm/mapper/EkmMapper.h"
+
 namespace Euclid::EKM {
 
     namespace beast = boost::beast;
@@ -89,13 +91,13 @@ namespace Euclid::EKM {
         log_info << "EKM ListKeys" << (!request.prefix.empty() ? ", prefix: " + request.prefix : "");
 
         const auto nameSpace = std::string(req["x-euclid-namespace"]);
-        const auto repo = Database::RepositoryFactory::instance().eqsRepository();
-        const std::vector<Database::Entity::EQS::Queue> queues = repo->listQueues(auth.user->accountId, nameSpace, request.prefix, request.pageSize, request.pageIndex, request.sortColumn);
-        log_info << "EKM key list, count: " << queues.size();
+        const auto repo = Database::RepositoryFactory::instance().ekmRepository();
+        const std::vector<Database::Entity::EKM::Key> keys = repo->listKeys(auth.user->accountId, nameSpace, request.prefix, request.pageSize, request.pageIndex, request.sortColumn);
+        log_info << "EKM key list, count: " << keys.size();
 
         Dto::EKM::ListKeysResponse response;
-        response.keys = Dto::EKM::EkmMapper::toDto(queues);
-        response.total = repo->countQueues(auth.user->accountId, nameSpace);
+        response.keys = Dto::EKM::EkmMapper::toDto(keys);
+        response.total = repo->countKeys(auth.user->accountId, nameSpace);
 
         return EkmServer::JsonResponse(req, status::ok, response.toJson());
     }

@@ -6,9 +6,9 @@ euclid-cli-eam-list-users \- list Euclid user accounts
 [\fB\-\-endpoint\fR \fIURL\fR]
 .B eam list-users
 [\fB\-\-prefix\fR \fIPREFIX\fR]
-[\fB\-\-pageSize\fR \fIN\fR]
-[\fB\-\-pageIndex\fR \fIN\fR]
-[\fB\-\-sortColumn\fR \fICOLUMN\fR]
+[\fB\-\-page\-size\fR \fIN\fR]
+[\fB\-\-page\-index\fR \fIN\fR]
+[\fB\-\-sort\-column\fR \fICOLUMN\fR]
 .SH DESCRIPTION
 Lists user accounts via the eam service's
 .I list-users
@@ -27,15 +27,15 @@ count, is printed to standard output.
 Only return users whose user ID starts with \fIPREFIX\fR. If omitted, all
 users match.
 .TP
-.BR \-s ", " \-\-pageSize " " \fIN\fR
+.BR \-s ", " \-\-page\-size " " \fIN\fR
 Maximum number of users to return. \fI0\fR or less (the default,
 \fI\-1\fR) means no limit.
 .TP
-.BR \-i ", " \-\-pageIndex " " \fIN\fR
-Zero-based page index, applied when \fB\-\-pageSize\fR is set. Defaults to
+.BR \-i ", " \-\-page\-index " " \fIN\fR
+Zero-based page index, applied when \fB\-\-page\-size\fR is set. Defaults to
 \fI\-1\fR (meaningless while paging is off).
 .TP
-.BR \-c ", " \-\-sortColumn " " \fICOLUMN\fR
+.BR \-c ", " \-\-sort\-column " " \fICOLUMN\fR
 Field to sort by: \fIuserId\fR (default) or \fIemail\fR.
 .SH EXIT STATUS
 .TP
@@ -60,7 +60,7 @@ List up to 20 users whose ID starts with "jd", sorted by email:
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 eam list-users \e
-    --prefix jd --pageSize 20 --pageIndex 0 --sortColumn email
+    --prefix jd --page-size 20 --page-index 0 --sort-column email
 .fi
 .RE
 .SH SEE ALSO

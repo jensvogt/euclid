@@ -220,13 +220,15 @@ namespace Euclid::CLI {
         po::options_description desc("list buckets options");
         desc.add_options()
                 ("prefix,p", po::value<std::string>(), "bucket name prefix")
-                ("pageSize,s", po::value<long>()->default_value(-1), "page size")
-                ("pageIndex,i", po::value<long>()->default_value(-1), "page index")
-                ("sortColumn,c", po::value<std::string>()->default_value("name"), "sort column");
+                ("page-size,s", po::value<long>()->default_value(-1), "page size")
+                ("page-index,i", po::value<long>()->default_value(-1), "page index")
+                ("sort-column,c", po::value<std::string>()->default_value("name"), "sort column")
+                ("sort-direction,d", po::value<std::string>()->default_value("asc"), "sort direction");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "list-buckets", "[--prefix <prefix>] [--pageSize <n>] [--pageIndex <n>] [--sortColumn <column>]",
-                                   "Lists storage buckets, optionally filtered by name prefix and paginated.",
+            return PrintActionHelp("esm", "list-buckets", "[--prefix <prefix>] [--page-size <n>] [--page-index <n>] [--sort-column <column>] [--sort-direction <direction>]",
+                                   "Lists storage buckets, optionally filtered by name prefix and paginated. Paginated: page-size defaults to 10, page-index to 0,"
+                                   " sort-column to \"created\" and sort-direction to \"asc\".",
                                    desc);
         }
 
@@ -240,9 +242,9 @@ namespace Euclid::CLI {
         }
 
         Dto::ESM::ListBucketsRequest request;
-        request.pageSize = vm["pageSize"].as<long>();
-        request.pageIndex = vm["pageIndex"].as<long>();
-        request.sortColumn = vm["sortColumn"].as<std::string>();
+        request.pageSize = vm["page-size"].as<long>();
+        request.pageIndex = vm["page-index"].as<long>();
+        request.sortColumn = vm["sort-column"].as<std::string>();
         if (vm.contains("prefix")) {
             request.prefix = vm["prefix"].as<std::string>();
         }
@@ -1075,14 +1077,16 @@ namespace Euclid::CLI {
         po::options_description desc("list objects options");
         desc.add_options()
                 ("bucket,b", po::value<std::string>()->required(), "bucket ERN")
-                ("prefix,p", po::value<std::string>(), "bucket name prefix")
-                ("pageSize,s", po::value<long>()->default_value(-1), "page size")
-                ("pageIndex,i", po::value<long>()->default_value(-1), "page index")
-                ("sortColumn,c", po::value<std::string>()->default_value("name"), "sort column");
+                ("prefix,p", po::value<std::string>(), "object name prefix")
+                ("page-size,s", po::value<long>()->default_value(-1), "page size")
+                ("page-index,i", po::value<long>()->default_value(-1), "page index")
+                ("sort-column,c", po::value<std::string>()->default_value("name"), "sort column")
+                ("sort-direction,d", po::value<std::string>()->default_value("asc"), "sort direction");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "list-objects", "--bucket <ern> [--prefix <prefix>] [--pageSize <n>] [--pageIndex <n>] [--sortColumn <column>]",
-                                   "Lists storage objects by bucket, optionally filtered by name prefix and paginated.",
+            return PrintActionHelp("esm", "list-objects", "--bucket <ern> [--prefix <prefix>] [--page-size <n>] [--page-index <n>] [--sort-column <column>] [--sort-direction <direction>]",
+                                   "Lists storage objects by bucket, optionally filtered by name prefix and paginated. Paginated: page-size defaults to 10, page-index to 0,"
+                                   " sort-column to \"name\" and sort-direction to \"asc\".",
                                    desc);
         }
 
@@ -1096,12 +1100,11 @@ namespace Euclid::CLI {
         }
 
         Dto::ESM::ListObjectsRequest request;
-        request.pageSize = vm["pageSize"].as<long>();
-        request.pageIndex = vm["pageIndex"].as<long>();
-        request.sortColumn = vm["sortColumn"].as<std::string>();
-        if (vm.contains("bucket")) {
-            request.bucketErn = vm["bucket"].as<std::string>();
-        }
+        request.bucketErn = vm["bucket"].as<std::string>();
+        request.pageSize = vm["page-size"].as<long>();
+        request.pageIndex = vm["page-index"].as<long>();
+        request.sortColumn = vm["sort-column"].as<std::string>();
+        request.sortDirection = vm["sort-direction"].as<std::string>();
         if (vm.contains("prefix")) {
             request.prefix = vm["prefix"].as<std::string>();
         }

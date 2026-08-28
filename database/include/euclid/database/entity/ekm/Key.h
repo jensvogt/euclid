@@ -34,6 +34,16 @@ namespace Euclid::Database::Entity::EKM {
         std::string oid;
 
         /**
+         * @brief Euclid resource name
+         */
+        std::string ern;
+
+        /**
+         * @brief Name
+         */
+        std::string name;
+
+        /**
          * @brief Key algorithm name
          */
         std::string algorithm;

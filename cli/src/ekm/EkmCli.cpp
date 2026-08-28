@@ -1,5 +1,7 @@
 #include <euclid/cli/ekm/EkmCli.h>
 
+#include "euclid/dto/ekm/ListKeysRequest.h"
+
 namespace Euclid::CLI {
 
     namespace po = boost::program_options;
@@ -8,7 +10,7 @@ namespace Euclid::CLI {
 
     int EkmCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
-            return PrintModuleHelp("eqs", {
+            return PrintModuleHelp("ekm", {
                                            {"create-key", "Create a new key"},
                                            {"list-keys", "List existing keys"},
                                    });
@@ -50,9 +52,9 @@ namespace Euclid::CLI {
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("eqs", "create-queue", boost::json::value_from(request));
+            const HttpResponse response = client.Post("eqs", "create-key", boost::json::value_from(request));
             if (!response.IsSuccess()) {
-                std::cerr << "error: create-queue failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                std::cerr << "error: create-key failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);
@@ -64,16 +66,15 @@ namespace Euclid::CLI {
     }
 
     int EkmCli::listKeys(const std::vector<std::string> &args) const {
-        po::options_description desc("lists a queue's messages without receiving them");
+        po::options_description desc("lists all keys");
         desc.add_options()
-                ("queue,q", po::value<std::string>()->required(), "queue ERN")
                 ("page-size,s", po::value<long>()->default_value(10), "page size")
                 ("page-index,i", po::value<long>()->default_value(0), "page index")
-                ("sort-column,c", po::value<std::string>()->default_value("created"), "sort column");
+                ("sort-column,c", po::value<std::string>()->default_value("name"), "sort column");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "list-messages", "--queue <ern> [--page-size <n>] [--page-index <n>] [--sort-column <column>]",
-                                   "Lists a queue's messages without receiving them, i.e. without changing their status or visibility. Paginated: pageSize defaults to 10, pageIndex to 0, sortColumn to \"created\".",
+            return PrintActionHelp("ekm", "list-keys", "[--page-size <n>] [--page-index <n>] [--sort-column <column>]",
+                                   "Lists all keys. Paginated: pageSize defaults to 10, pageIndex to 0, sortColumn to \"name\".",
                                    desc);
         }
 
@@ -86,17 +87,16 @@ namespace Euclid::CLI {
             return 1;
         }
 
-        Dto::EQS::ListMessagesRequest request;
-        request.queueErn = vm["queue"].as<std::string>();
+        Dto::EKM::ListKeysRequest request;
         request.pageSize = vm["page-size"].as<long>();
         request.pageIndex = vm["page-index"].as<long>();
         request.sortColumn = vm["sort-column"].as<std::string>();
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("eqs", "list-messages", boost::json::value_from(request));
+            const HttpResponse response = client.Post("eqs", "list-keys", boost::json::value_from(request));
             if (!response.IsSuccess()) {
-                std::cerr << "error: list-messages failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                std::cerr << "error: list-keys failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);
