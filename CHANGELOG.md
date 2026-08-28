@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.44](https://github.com/jensvogt/euclid/compare/1.0.43...v1.0.44) (2026-08-28)
+
+
+### Bug Fixes
+
+* add EKM module ([0c3bad1](https://github.com/jensvogt/euclid/commit/0c3bad145941b6cefefb8dbf8c4c8c9e2745e4cd))
+* change all man pages, introduce correct count queries when a prefix is selected ([1efddc7](https://github.com/jensvogt/euclid/commit/1efddc75f81de683f9970da449304d63bafb9244))
+
 ## [1.0.43](https://github.com/jensvogt/euclid/compare/1.0.42...v1.0.43) (2026-08-28)
 
 
