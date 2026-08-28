@@ -37,6 +37,17 @@ Lists every module known to the manager, one entry per module name, each
 with its live pool of instances (pid, state, socket, restart count).
 See
 .BR euclid-cli-emm-list-modules (1).
+.TP
+.B export
+Exports one or more modules' own MongoDB collections to a local JSON
+file. See
+.BR euclid-cli-emm-export (1).
+.TP
+.B import
+Imports a JSON file written by
+.B export
+back into MongoDB. See
+.BR euclid-cli-emm-import (1).
 .SH GLOBAL OPTIONS
 These options are given to
 .B euclid-cli
@@ -129,10 +140,32 @@ List every module the manager knows about:
 euclid-cli --endpoint http://localhost:5566 emm list-modules
 .fi
 .RE
+.PP
+Export EQS's queues (and, with \fB\-\-full\fR, its messages too) to a
+JSON file:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm export --module eqs
+
+euclid-cli --endpoint http://localhost:5566 emm export \e
+    --module eqs --full --file eqs-backup.json
+.fi
+.RE
+.PP
+Round-trip that file back in:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm import --file eqs-backup.json
+.fi
+.RE
 .SH SEE ALSO
 .BR euclid-cli (1),
 .BR euclid-cli-eam (1),
 .BR euclid-cli-eam-login (1),
-.BR euclid-cli-emm-list-modules (1)
+.BR euclid-cli-emm-list-modules (1),
+.BR euclid-cli-emm-export (1),
+.BR euclid-cli-emm-import (1)
 .SH AUTHOR
 Jens Vogt <jens.vogt@opitz-consulting.com>
