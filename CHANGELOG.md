@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.43](https://github.com/jensvogt/euclid/compare/1.0.42...v1.0.43) (2026-08-28)
+
+
+### Bug Fixes
+
+* add EMM import/export ([f0ad4cb](https://github.com/jensvogt/euclid/commit/f0ad4cb5db3992a46ee38155e66b3b7d8d8d29c3))
+
 ## [1.0.42](https://github.com/jensvogt/euclid/compare/1.0.41...v1.0.42) (2026-08-27)
 
 
