@@ -6,16 +6,17 @@ euclid-cli-esm-subscribe \- subscribes a target resource to a bucket's object-cr
 .BR \-\-source\-ern | \-s
 .I BUCKET-ERN
 .BR \-\-target\-ern | \-q
-.I QUEUE-ERN
+.I QUEUE-ERN\fR|\fITOPIC-ERN
 [\fB\-\-type\fR|\fB\-t\fR \fITYPE\fR]
 .SH DESCRIPTION
 Subscribes a target resource to a bucket, so a notification message is
 sent to the target every time an object is created in the bucket (via
 .BR euclid-cli-esm-upload-file (1),
 .BR euclid-cli-esm-upload-directory (1),
-or the underlying put-object/complete-upload actions). Only type
+or the underlying put-object/complete-upload actions). Two types are
+supported:
 .B SQS
-is supported for now, so
+(the default) delivers straight to an EQS queue, so
 .B \-\-target\-ern
 must be the ERN of an EQS queue; delivery happens asynchronously via an
 internal event bus, and results in a new message being created on the
@@ -23,6 +24,14 @@ target queue whose body is a JSON object-created notification:
 .IR eventType ", " bucketErn ", " key ", " ern ", " size ", " contentType ", "
 and
 .IR md5Sum .
+.B SNS
+delivers to an ENS topic instead, so
+.B \-\-target\-ern
+must be the ERN of an ENS topic; the same JSON notification is published
+as a regular message on that topic, and from there fans out to the
+topic's own SQS subscribers exactly like any other published message
+(see
+.BR euclid-cli-ens-subscribe (1)).
 .PP
 Subscribing is idempotent: subscribing the same source/type/target
 combination again returns the same subscription, rather than creating a
@@ -37,15 +46,19 @@ to remove a subscription.
 Euclid resource name of the bucket to subscribe to. Required.
 .TP
 .BR \-t ", " \-\-type " " \fITYPE\fR
-Subscription type. Only
+Subscription type, one of
 .I SQS
-is supported for now. Defaults to
+or
+.IR SNS .
+Defaults to
 .IR SQS .
 .TP
-.BR \-q ", " \-\-target\-ern " " \fIQUEUE-ERN\fR
+.BR \-q ", " \-\-target\-ern " " \fIQUEUE-ERN\fR|\fITOPIC-ERN\fR
 Euclid resource name of the delivery target. For type
 .IR SQS ,
-this must be an EQS queue ERN. Required.
+this must be an EQS queue ERN; for type
+.IR SNS ,
+this must be an ENS topic ERN. Required.
 .SH EXIT STATUS
 .TP
 .B 0
@@ -54,11 +67,14 @@ The subscription's ERN, source, type and target are printed as JSON.
 .B 1
 Missing/invalid arguments, the server could not be reached, the type is
 not
-.IR SQS ,
+.I SQS
+or
+.IR SNS ,
 .B \-\-source\-ern
 is not an ESM bucket ERN,
 .B \-\-target\-ern
-is not an EQS queue ERN, or the referenced bucket/queue does not exist.
+is not an EQS queue ERN (type SQS) or ENS topic ERN (type SNS), or the
+referenced bucket/queue/topic does not exist.
 .SH EXAMPLES
 .RS
 .nf
@@ -67,11 +83,25 @@ euclid-cli --endpoint http://localhost:5566 esm subscribe \e
     --target-ern ern:eqs:eu-central-1:000000000000:queue:upload-events
 .fi
 .RE
+.PP
+Subscribe a topic instead, so uploads also fan out to everything that
+topic is subscribed to:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm subscribe \e
+    --source-ern ern:esm:eu-central-1:000000000000:bucket:uploads \e
+    --target-ern ern:ens:eu-central-1:000000000000:topic:upload-events \e
+    --type SNS
+.fi
+.RE
 .SH SEE ALSO
 .BR euclid-cli-esm (1),
 .BR euclid-cli-esm-unsubscribe (1),
 .BR euclid-cli-esm-list-subscriptions (1),
 .BR euclid-cli-esm-upload-file (1),
-.BR euclid-cli-eqs-create-queue (1)
+.BR euclid-cli-eqs-create-queue (1),
+.BR euclid-cli-ens-create-topic (1),
+.BR euclid-cli-ens-subscribe (1)
 .SH AUTHOR
 Jens Vogt <jens.vogt@opitz-consulting.com>

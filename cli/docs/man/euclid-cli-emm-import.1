@@ -1,0 +1,114 @@
+.TH EUCLID-CLI-EMM-IMPORT 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-emm-import \- import a JSON file written by "emm export" back into MongoDB
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B emm import
+.BR \-\-file | \-f
+.I PATH
+[\fB\-\-module\fR|\fB\-m\fR \fIMODULE\fR[,\fIMODULE\fR...]]
+.SH DESCRIPTION
+Imports a JSON file previously written by
+.BR euclid-cli-emm-export (1)
+back into MongoDB - the counterpart to
+.BR export ,
+and, like it, a lightweight tool rather than a full
+.BR mongorestore (1)
+replacement.
+.PP
+Every document in the file is upserted into its collection, matched by
+its
+.I _id
+- if a document with that
+.I _id
+already exists it is fully
+.B replaced
+(not merged: fields present in the live document but absent from the
+imported one are removed, so the result matches the export exactly),
+otherwise it is inserted. The caller must be authenticated as an
+administrator; see
+.BR euclid-cli-emm (1)
+for how that's checked.
+.PP
+Only collection names the server recognizes as belonging to a module
+(the same set
+.B export
+draws from) are ever written to; anything else found in the file's
+.I collections
+object is reported back as skipped instead of being written to an
+arbitrary collection.
+.PP
+By default every collection present in the file is imported.
+.B \-\-module
+restricts this to a comma-separated subset of the file's modules - e.g.
+re-importing only
+.I esm
+out of a file that
+.B export \-\-all
+produced.
+.SH OPTIONS
+.TP
+.BR \-f ", " \-\-file " " \fIPATH\fR
+JSON file previously written by
+.BR euclid-cli-emm-export (1).
+Required.
+.TP
+.BR \-m ", " \-\-module " " \fIMODULE\fR[,\fIMODULE\fR...]
+Comma-separated subset of the file's modules to import, e.g.
+.IR esm,eqs .
+Optional; when omitted, every collection in the file is imported.
+.SH OUTPUT
+The JSON response is printed to standard output:
+.RS
+.TP
+.I imported
+Object keyed by collection name, each value
+.RI { imported: " " count "[, " failed: " " count ] }
+- the number of documents upserted, and, if any were skipped because
+they couldn't be parsed, how many.
+.TP
+.I skipped
+Array of collections in the file that weren't imported, each with a
+.I reason
+- an unrecognized collection name, or one excluded by
+.BR \-\-module .
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+The request was accepted and processed; check the printed
+.I imported / skipped
+summary for per-collection results (a collection-level parse failure
+or an unrecognized/filtered-out collection does not itself fail the
+command - see OUTPUT).
+.TP
+.B 1
+Missing/invalid arguments, the file doesn't exist, isn't valid JSON, or
+has no
+.I collections
+object, the stored session is missing or not an administrator's, or the
+request could not be sent or was rejected by the server.
+.SH EXAMPLES
+Round-trip a module through export and import:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm export --module eqs --file eqs-backup.json
+euclid-cli --endpoint http://localhost:5566 emm import --file eqs-backup.json
+.fi
+.RE
+.PP
+Re-import only ENS out of a multi-module export:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm import --file all-backup.json --module ens
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-emm (1),
+.BR euclid-cli-emm-export (1),
+.BR euclid-cli-eam-login (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

@@ -13,7 +13,8 @@ The
 .B esm
 module talks to the Euclid gateway's esm service to create and manage
 S3-compatible storage buckets and the objects stored in them, and to
-subscribe EQS queues to receive object-created notifications. Every
+subscribe EQS queues or ENS topics to receive object-created
+notifications. Every
 .B esm
 command sends a single JSON request to the gateway
 (\fB\-\-endpoint\fR, default \fIhttps://localhost:5566\fR) and prints the
@@ -94,6 +95,19 @@ Deletes an object by its ERN. See
 Removes all objects from a bucket, leaving the bucket itself in place.
 See
 .BR euclid-cli-esm-purge-bucket (1).
+.TP
+.B subscribe
+Subscribes a target resource (an EQS queue or an ENS topic) to a
+bucket's object-created events. See
+.BR euclid-cli-esm-subscribe (1).
+.TP
+.B unsubscribe
+Deletes a subscription. See
+.BR euclid-cli-esm-unsubscribe (1).
+.TP
+.B list-subscriptions
+Lists the subscriptions of a bucket. See
+.BR euclid-cli-esm-list-subscriptions (1).
 .SH GLOBAL OPTIONS
 These options are given to
 .B euclid-cli
@@ -228,6 +242,23 @@ euclid-cli --endpoint http://localhost:5566 esm purge-bucket \e
     --bucket ern:euclid:storage:eu-central-1:000000000000:bucket:reports
 .fi
 .RE
+.PP
+Subscribe a queue to a bucket's object-created events, then remove the
+subscription:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm subscribe \e
+    --source-ern ern:esm:eu-central-1:000000000000:bucket:reports \e
+    --target-ern ern:eqs:eu-central-1:000000000000:queue:upload-events
+
+euclid-cli --endpoint http://localhost:5566 esm list-subscriptions \e
+    --bucket ern:esm:eu-central-1:000000000000:bucket:reports
+
+euclid-cli --endpoint http://localhost:5566 esm unsubscribe \e
+    --subscription ern:esm:eu-central-1:000000000000:subscription:6f1b1e2e...
+.fi
+.RE
 .SH SEE ALSO
 .BR euclid-cli (1),
 .BR euclid-cli-eam (1),
@@ -244,6 +275,9 @@ euclid-cli --endpoint http://localhost:5566 esm purge-bucket \e
 .BR euclid-cli-esm-list-objects (1),
 .BR euclid-cli-esm-get-object-count (1),
 .BR euclid-cli-esm-delete-object (1),
-.BR euclid-cli-esm-purge-bucket (1)
+.BR euclid-cli-esm-purge-bucket (1),
+.BR euclid-cli-esm-subscribe (1),
+.BR euclid-cli-esm-unsubscribe (1),
+.BR euclid-cli-esm-list-subscriptions (1)
 .SH AUTHOR
 Jens Vogt <jens.vogt@opitz-consulting.com>
