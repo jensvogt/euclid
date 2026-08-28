@@ -21,8 +21,8 @@ namespace Euclid::EQS {
 
         // Timer/counter names shared by every handler below - one series per action, labeled
         // "method"=<action>, e.g. name="queues-service-time" labelName="method" labelValue="send-message".
-        constexpr auto kServiceTimer = "queues-service-time";
-        constexpr auto kServiceCounter = "queues-service-count";
+        constexpr auto kServiceTimer = "eqs-service-time";
+        constexpr auto kServiceCounter = "eqs-service-count";
     }// namespace
 
     static AuthResult authenticate(const request<string_body> &req) {
@@ -111,7 +111,7 @@ namespace Euclid::EQS {
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = Dto::EQS::DeleteQueueRequest::fromJson(req.body());
-        log_info << "SQS DeleteQueue, ern: " << request.ern;
+        log_info << "EQS DeleteQueue, ern: " << request.ern;
 
         Database::RepositoryFactory::instance().eqsRepository()->deleteQueueByErn(request.ern);
 
@@ -699,7 +699,7 @@ namespace Euclid::EQS {
     }
 
     // ── EventBus ─────────────────────────────────────────────────────────────
-    // Consumer side of every SQS-type subscription in the system - ENS topics
+    // Consumer side of every EQS-type subscription in the system - ENS topics
     // (EnsServer::handlePublishMessage, event "ens.message.published") and ESM buckets
     // (EsmServer::publishObjectCreated, event "esm.object.created") both fan out through the same
     // payload shape (targetErn + body [+ attributes]), so one handler, registered for both event

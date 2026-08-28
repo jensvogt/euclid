@@ -48,6 +48,15 @@ namespace Euclid::Database {
             stored.args = module.args;
             stored.modified = now;
 
+            // See MongoEmmRepository::upsertInstance for why this is gated on "no other instance
+            // is already RUNNING" rather than unconditionally stamped on every RUNNING transition.
+            if (instance.state == Entity::ModuleState::RUNNING) {
+                const bool anyOtherRunning = std::ranges::any_of(stored.instances, [&](const auto &i) {
+                    return i.instanceId != instance.instanceId && i.state == Entity::ModuleState::RUNNING;
+                });
+                if (!anyOtherRunning) stored.lastStartTime = now;
+            }
+
             Entity::ModuleInstance toStore = instance;
             const auto it = std::ranges::find_if(stored.instances, [&](const auto &i) { return i.instanceId == instance.instanceId; });
             if (it != stored.instances.end()) {
