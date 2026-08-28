@@ -1,0 +1,163 @@
+.TH EUCLID-CLI-EMM-EXPORT 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-emm-export \- export one or more modules' MongoDB data to a local JSON file
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B emm export
+(\fB\-\-module\fR|\fB\-m\fR \fIMODULE\fR[,\fIMODULE\fR...] | \fB\-\-all\fR)
+[\fB\-\-full\fR]
+[\fB\-\-file\fR|\fB\-f\fR \fIPATH\fR]
+.SH DESCRIPTION
+Exports one or more modules' own MongoDB collections to a single local
+JSON file - a lightweight backup/inspection tool, not a full
+.BR mongodump (1)
+replacement (no resume, no incremental export, and no restore
+counterpart yet). The caller must be authenticated as an administrator;
+see
+.BR euclid-cli-emm (1)
+for how that's checked.
+.PP
+.B \-\-module
+takes a comma-separated list of modules
+.RI ( "e.g. " esm,eqs,ens ),
+so a single run can cover several modules at once, each contributing
+its own collections to the one output file.
+.B \-\-all
+exports every module instead. The two are mutually exclusive - exactly
+one is required.
+.PP
+For each exported module, by default only its top-level resource
+collection(s) are included - the same resources euclid-cli's own
+.I list-*
+actions show: queues
+.RI ( eqs ),
+topics and their subscriptions
+.RI ( ens ),
+buckets and their subscriptions
+.RI ( esm ),
+users/groups/accounts/namespaces
+.RI ( eam ),
+or the module registry
+.RI ( emm ).
+.B \-\-full
+additionally includes the bulk child data each resource owns - EQS/ENS
+messages and ESM objects - which is opt-in because it can dwarf the
+container records around it.
+.PP
+Each document is rendered using MongoDB's relaxed Extended JSON (ISO
+date strings, plain numbers,
+.I {"$oid": ...}
+for ObjectIds), so the file both reads naturally and preserves BSON
+types that plain JSON can't represent unambiguously.
+.SH OPTIONS
+.TP
+.BR \-m ", " \-\-module " " \fIMODULE\fR[,\fIMODULE\fR...]
+Comma-separated modules to export, from
+.IR eam ", " emm ", " emo ", " ens ", " eqs ", "
+and
+.IR esm .
+Mutually exclusive with
+.BR \-\-all ;
+exactly one of the two is required.
+.TP
+.B \-\-all
+Exports every module. Mutually exclusive with
+.BR \-\-module .
+.TP
+.B \-\-full
+Also export the bulk child data collection(s) (EQS/ENS messages, ESM
+objects), not just the top-level resources. Ignored for modules with no
+child data
+.RI ( eam ", " emm ", " emo ).
+Defaults to off.
+.TP
+.BR \-f ", " \-\-file " " \fIPATH\fR
+Output file path. Defaults to
+.IR MODULES\-export\-UNIXTIME.json
+in the current directory, where
+.I MODULES
+is the requested module names joined with
+.RI ( - )
+(or
+.I all
+when
+.B \-\-all
+was given).
+.SH OUTPUT
+The written file is a single JSON object:
+.RS
+.TP
+.I modules
+Array of the exported module names.
+.TP
+.I full
+Whether the bulk child collection(s) were included.
+.TP
+.I exportedAt
+ISO 8601 timestamp of when the export ran.
+.TP
+.I collections
+Object keyed by MongoDB collection name (e.g.
+.IR eqs_queue ", " eqs_message ),
+each value a JSON array of that collection's documents. Collections
+from every requested module are merged into this one object (their
+names already carry the module prefix, so there's no collision).
+.RE
+.PP
+On success, a small JSON summary
+.RI ( modules ", " full ", " file )
+is printed to standard output - not the exported data itself, which
+only goes to the file.
+.SH EXIT STATUS
+.TP
+.B 0
+The export was written to
+.IR PATH .
+.TP
+.B 1
+Missing/invalid arguments (including giving both or neither of
+.BR \-\-module " and " \-\-all ),
+an unknown module name, the stored session is missing or not an
+administrator's, the request could not be sent, the server rejected it,
+or the output file could not be opened for writing.
+.SH EXAMPLES
+Export just the queues known to EQS:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm export --module eqs
+.fi
+.RE
+.PP
+Export ESM buckets together with every object they contain, to a chosen
+file:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm export \e
+    --module esm --full --file esm-backup.json
+.fi
+.RE
+.PP
+Export several modules in one file:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm export --module esm,eqs,ens
+.fi
+.RE
+.PP
+Export every module, including bulk child data:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm export --all --full
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-emm (1),
+.BR euclid-cli-emm-list-modules (1),
+.BR euclid-cli-eam-login (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

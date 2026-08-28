@@ -97,32 +97,45 @@ namespace Euclid::ESM {
         return EsmServer::Unauthorized(req, {.subject = std::nullopt, .tokenExpired = auth.tokenExpired, .denialReason = auth.denialReason});
     }
 
-    // Fans out to every SQS-type subscription of bucketErn - one EventBus event per subscription,
-    // so an eqs instance (any one of them, via the claim mechanism) creates the corresponding
-    // queue message. Mirrors ENS's handlePublishMessage fan-out; see EqsServer's EventBus
-    // subscription for the consumer side (shared with ENS's "ens.message.published").
+    // Fans out to every subscription of bucketErn - one EventBus event per subscription, so a
+    // subscribing instance (any one of them, via the claim mechanism) delivers it. Type SQS goes
+    // straight to an EQS queue (event "esm.object.created", consumed by EqsServer's
+    // handleSubscriptionDelivery); type SNS goes to an ENS topic (event "esm.object.published",
+    // consumed by EnsServer's handleObjectPublishedNotification, which publishes it as a regular
+    // topic message and lets ENS's own subscription fan-out take it from there).
     static void publishObjectCreated(const std::string &bucketErn, const std::string &key, const std::string &ern, const long size, const std::string &contentType, const std::string &md5Sum) {
 
         const auto subscriptions = Database::RepositoryFactory::instance().esmRepository()->listSubscriptionsBySourceErn(bucketErn);
-        for (const auto &subscription: subscriptions) {
-            if (subscription.type != "SQS") continue;
+        if (subscriptions.empty()) return;
 
-            const boost::json::value notification = {
-                    {"eventType", "esm:ObjectCreated:Put"},
-                    {"bucketErn", bucketErn},
-                    {"key", key},
-                    {"ern", ern},
-                    {"size", size},
-                    {"contentType", contentType},
-                    {"md5Sum", md5Sum},
-            };
-            const boost::json::value payload = {
-                    {"messageId", Core::UuidUtils::CreateRandomUuid()},
-                    {"sourceErn", bucketErn},
-                    {"targetErn", subscription.targetErn},
-                    {"body", boost::json::serialize(notification)},
-            };
-            Database::EventBus::instance().Publish("esm.object.created", payload, "esm");
+        const boost::json::value notification = {
+                {"eventType", "esm:ObjectCreated:Put"},
+                {"bucketErn", bucketErn},
+                {"key", key},
+                {"ern", ern},
+                {"size", size},
+                {"contentType", contentType},
+                {"md5Sum", md5Sum},
+        };
+        const auto body = boost::json::serialize(notification);
+
+        for (const auto &subscription: subscriptions) {
+            if (subscription.type == "SQS") {
+                const boost::json::value payload = {
+                        {"messageId", Core::UuidUtils::CreateRandomUuid()},
+                        {"sourceErn", bucketErn},
+                        {"targetErn", subscription.targetErn},
+                        {"body", body},
+                };
+                Database::EventBus::instance().Publish("esm.object.created", payload, "esm");
+            } else if (subscription.type == "SNS") {
+                const boost::json::value payload = {
+                        {"sourceErn", bucketErn},
+                        {"targetErn", subscription.targetErn},
+                        {"body", body},
+                };
+                Database::EventBus::instance().Publish("esm.object.published", payload, "esm");
+            }
         }
     }
 
@@ -1154,6 +1167,10 @@ namespace Euclid::ESM {
         bool isEqsQueueErn(const std::string &ern) {
             return ern.starts_with("ern:eqs:") && ern.find(":queue:") != std::string::npos;
         }
+
+        bool isEnsTopicErn(const std::string &ern) {
+            return ern.starts_with("ern:ens:") && ern.find(":topic:") != std::string::npos;
+        }
     }// namespace
 
     static response<string_body> handleSubscribe(const request<string_body> &req) {
@@ -1169,22 +1186,28 @@ namespace Euclid::ESM {
         const auto request = boost::json::value_to<Dto::ESM::SubscribeRequest>(jv);
         log_info << "ESM Subscribe, sourceErn: " << request.sourceErn << ", type: " << request.type << ", targetErn: " << request.targetErn;
 
-        if (request.type != "SQS") {
-            return EsmServer::ErrorResponse(req, status::bad_request, "Unsupported subscription type (only SQS is supported for now): " + request.type);
+        if (request.type != "SQS" && request.type != "SNS") {
+            return EsmServer::ErrorResponse(req, status::bad_request, "Unsupported subscription type (only SQS and SNS are supported for now): " + request.type);
         }
         if (!isEsmBucketErn(request.sourceErn)) {
             return EsmServer::ErrorResponse(req, status::bad_request, "sourceErn is not an ESM bucket ERN: " + request.sourceErn);
         }
-        if (!isEqsQueueErn(request.targetErn)) {
+        if (request.type == "SQS" && !isEqsQueueErn(request.targetErn)) {
             return EsmServer::ErrorResponse(req, status::bad_request, "targetErn is not an EQS queue ERN: " + request.targetErn);
+        }
+        if (request.type == "SNS" && !isEnsTopicErn(request.targetErn)) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "targetErn is not an ENS topic ERN: " + request.targetErn);
         }
 
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
         if (!repo->findBucketByErn(request.sourceErn).has_value()) {
             return EsmServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.sourceErn);
         }
-        if (!Database::RepositoryFactory::instance().eqsRepository()->findQueueByErn(request.targetErn).has_value()) {
+        if (request.type == "SQS" && !Database::RepositoryFactory::instance().eqsRepository()->findQueueByErn(request.targetErn).has_value()) {
             return EsmServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + request.targetErn);
+        }
+        if (request.type == "SNS" && !Database::RepositoryFactory::instance().ensRepository()->findTopicByErn(request.targetErn).has_value()) {
+            return EsmServer::ErrorResponse(req, status::not_found, "Topic not found, ern: " + request.targetErn);
         }
 
         // Derived from the (sourceErn, type, targetErn) triple rather than randomly generated, so

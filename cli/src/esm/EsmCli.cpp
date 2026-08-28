@@ -76,7 +76,7 @@ namespace Euclid::CLI {
                                            {"set-bucket-tag", "Sets the value of an existing bucket tag"},
                                            {"delete-bucket-tag", "Deletes a tag from a bucket"},
                                            {"delete-object", "Deletes an object by ERN"},
-                                           {"subscribe", "Subscribes a target resource (an EQS queue) to a bucket's object-created events"},
+                                           {"subscribe", "Subscribes a target resource (an EQS queue or an ENS topic) to a bucket's object-created events"},
                                            {"unsubscribe", "Deletes a subscription"},
                                            {"list-subscriptions", "Lists the subscriptions of a bucket"},
                                    });
@@ -1365,14 +1365,15 @@ namespace Euclid::CLI {
         po::options_description desc("subscribe options");
         desc.add_options()
                 ("source-ern,s", po::value<std::string>()->required(), "source bucket ERN")
-                ("type,t", po::value<std::string>()->default_value("SQS"), "subscription type (only SQS is supported for now)")
-                ("target-ern,q", po::value<std::string>()->required(), "target ERN (an EQS queue ERN)");
+                ("type,t", po::value<std::string>()->default_value("SQS"), "subscription type: SQS or SNS")
+                ("target-ern,q", po::value<std::string>()->required(), "target ERN (an EQS queue ERN for SQS, an ENS topic ERN for SNS)");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "subscribe", "--source-ern <bucketErn> --target-ern <queueErn> [--type SQS]",
+            return PrintActionHelp("esm", "subscribe", "--source-ern <bucketErn> --target-ern <queueErn|topicErn> [--type SQS|SNS]",
                                    "Subscribes a target resource to a bucket, so a notification is sent to the target "
-                                   "every time an object is created in the bucket. Only type SQS is supported for now, "
-                                   "so --target-ern must be the ERN of an EQS queue; --type defaults to SQS.",
+                                   "every time an object is created in the bucket. Type SQS (the default) delivers "
+                                   "straight to an EQS queue; type SNS delivers to an ENS topic, from where it fans "
+                                   "out further to that topic's own SQS subscribers.",
                                    desc);
         }
 

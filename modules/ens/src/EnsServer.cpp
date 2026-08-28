@@ -161,6 +161,44 @@ namespace Euclid::ENS {
         return EnsServer::JsonResponse(req, status::ok, response.toJson());
     }
 
+    // Creates a message on topicErn and fans it out to every SQS-type subscription of that topic
+    // - one EventBus event per subscription, so an eqs instance (any one of them, via the claim
+    // mechanism) creates the corresponding queue message. Other subscription types are ignored.
+    // Shared by handlePublishMessage (a direct client publish) and
+    // handleObjectPublishedNotification (an ESM object-created notification arriving via an
+    // SNS-type ESM subscription), so a topic behaves the same regardless of who published to it.
+    static Database::Entity::ENS::Message publishToTopic(const std::string &topicErn, const std::string &body,
+                                                           const std::map<std::string, Dto::COM::Variant> &attributes,
+                                                           const std::string &accountId) {
+
+        const std::string messageId = Core::UuidUtils::CreateRandomUuid();
+        const std::string ern = Core::createEnsMessageErn(accountId, messageId);
+        std::map<std::string, Database::Entity::COM::Variant> entityAttributes;
+        for (const auto &[key, variant]: attributes) {
+            entityAttributes[key] = Dto::ENS::EnsMapper::toEntity(variant);
+        }
+        const auto repo = Database::RepositoryFactory::instance().ensRepository();
+        const Database::Entity::ENS::Message message = repo->publishMessage(messageId, ern, topicErn, body, entityAttributes);
+
+        boost::json::object attributesJson;
+        for (const auto &[key, variant]: attributes) {
+            attributesJson[key] = boost::json::value_from(variant);
+        }
+        for (const auto &subscription: repo->listSubscriptionsBySourceErn(topicErn)) {
+            if (subscription.type != "SQS") continue;
+            const boost::json::value payload = {
+                    {"messageId", message.messageId},
+                    {"sourceErn", topicErn},
+                    {"targetErn", subscription.targetErn},
+                    {"body", body},
+                    {"attributes", attributesJson},
+            };
+            Database::EventBus::instance().Publish("ens.message.published", payload, "ens");
+        }
+
+        return message;
+    }
+
     static response<string_body> handlePublishMessage(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "publish-message");
@@ -174,33 +212,7 @@ namespace Euclid::ENS {
         const auto request = boost::json::value_to<Dto::ENS::PublishMessageRequest>(jv);
         log_info << "ENS PublishMessage topicErn: " << request.topicErn;
 
-        const std::string messageId = Core::UuidUtils::CreateRandomUuid();
-        const std::string ern = Core::createEnsMessageErn(auth.user.value().accountId, messageId);
-        std::map<std::string, Database::Entity::COM::Variant> attributes;
-        for (const auto &[key, variant]: request.attributes) {
-            attributes[key] = Dto::ENS::EnsMapper::toEntity(variant);
-        }
-        const auto repo = Database::RepositoryFactory::instance().ensRepository();
-        const Database::Entity::ENS::Message message = repo->publishMessage(messageId, ern, request.topicErn, request.body, attributes);
-
-        // Fan out to every SQS-type subscription of this topic - one EventBus event per
-        // subscription, so an eqs instance (any one of them, via the claim mechanism) creates the
-        // corresponding queue message. Other subscription types (none exist yet) are ignored.
-        boost::json::object attributesJson;
-        for (const auto &[key, variant]: request.attributes) {
-            attributesJson[key] = boost::json::value_from(variant);
-        }
-        for (const auto &subscription: repo->listSubscriptionsBySourceErn(request.topicErn)) {
-            if (subscription.type != "SQS") continue;
-            const boost::json::value payload = {
-                    {"messageId", message.messageId},
-                    {"sourceErn", request.topicErn},
-                    {"targetErn", subscription.targetErn},
-                    {"body", request.body},
-                    {"attributes", attributesJson},
-            };
-            Database::EventBus::instance().Publish("ens.message.published", payload, "ens");
-        }
+        const auto message = publishToTopic(request.topicErn, request.body, request.attributes, auth.user->accountId);
 
         Dto::ENS::PublishMessageResponse response;
         response.messageId = message.messageId;
@@ -208,6 +220,30 @@ namespace Euclid::ENS {
         response.md5Attributes = message.md5Attributes;
 
         return EnsServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    // ── EventBus ─────────────────────────────────────────────────────────────
+    // Consumer side of ESM's SNS-type bucket subscriptions: an object-created notification
+    // targeting an ENS topic (EsmServer::publishObjectCreated, event "esm.object.published") is
+    // published as a regular topic message here, so it flows through the topic's own subscription
+    // fan-out (publishToTopic above) exactly like a client-published message would.
+
+    static bool handleObjectPublishedNotification(const Database::EventEnvelope &envelope) {
+
+        const auto targetErn = Core::GetStringValue(envelope.payload, "targetErn");
+        const auto body = Core::GetStringValue(envelope.payload, "body");
+
+        const auto repo = Database::RepositoryFactory::instance().ensRepository();
+        if (!repo->findTopicByErn(targetErn).has_value()) {
+            log_warning << "ENS EventBus object-published notification: target topic not found, ern: " << targetErn;
+            return true;// ack - topic is gone, nothing to retry
+        }
+
+        const auto message = publishToTopic(targetErn, body, {}, Core::accountIdFromErn(targetErn));
+
+        log_info << "ENS created message from ESM object-published notification, source: " << envelope.sourceModule << ", targetErn: " << targetErn
+                  << ", messageId: " << message.messageId;
+        return true;
     }
 
     //
@@ -814,6 +850,9 @@ namespace Euclid::ENS {
         //                                                       Database::RepositoryFactory::instance().ensRepository()->resetExpiredMessages();
         //                                                   },
         //                                                   std::chrono::seconds(30));
+
+        Database::EventBus::instance().Subscribe("ens", "esm.object.published", handleObjectPublishedNotification);
+        Database::EventBus::instance().Start("ens");
     }
 
     EnsServer::~EnsServer() {

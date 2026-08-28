@@ -1,4 +1,5 @@
 // C++ includes
+#include <algorithm>
 #include <charconv>
 #include <optional>
 
@@ -6,10 +7,19 @@
 #include <boost/asio/ssl/stream.hpp>
 #include <boost/beast/ssl.hpp>
 
+// Mongo includes
+#include <bsoncxx/builder/basic/document.hpp>
+#include <bsoncxx/builder/basic/kvp.hpp>
+#include <bsoncxx/json.hpp>
+#include <mongocxx/collection.hpp>
+#include <mongocxx/options/replace.hpp>
+
 // Euclid includes
 #include <euclid/core/Configuration.h>
 #include <euclid/core/DateTimeUtils.h>
+#include <euclid/core/JsonUtils.h>
 #include <euclid/core/SigV4.h>
+#include <euclid/database/Database.h>
 #include <euclid/database/RepositoryFactory.h>
 #include <euclid/manager/GatewayServer.h>
 
@@ -150,6 +160,87 @@ namespace Euclid::main {
     // nicety only and not a security boundary (nothing stops a modified/older client, or a
     // direct SigV4-signed curl, from skipping it). subject is the already-authenticated caller
     // from route() - always set, since "emm" is never in isPublicAction's allowlist.
+    // Which of a module's own MongoDB collections "export" dumps. topLevel is what --full-less
+    // export includes - the same resources euclid-cli's own list-* actions show (queues, topics,
+    // buckets, users, ...). fullOnly is the bulk child data each of those resources owns
+    // (EQS/ENS messages, ESM objects) - opt-in via --full, since it can dwarf the container
+    // records around it and usually isn't what an operator wants for a quick inspection/backup.
+    struct ModuleExportSpec {
+        std::vector<std::string> topLevel;
+        std::vector<std::string> fullOnly;
+    };
+
+    static const std::unordered_map<std::string, ModuleExportSpec> &moduleExportSpecs() {
+        static const std::unordered_map<std::string, ModuleExportSpec> specs{
+                {"eqs", {{"eqs_queue"}, {"eqs_message"}}},
+                {"ens", {{"ens_topic", "ens_subscription"}, {"ens_message"}}},
+                {"esm", {{"esm_bucket", "esm_subscription"}, {"esm_object"}}},
+                {"eam", {{"eam_user", "eam_usergroup", "eam_account", "eam_namespace"}, {}}},
+                {"emm", {{"emm_module"}, {}}},
+                {"emo", {{"emo_data"}, {}}},
+        };
+        return specs;
+    }
+
+    // Renders one collection as a JSON array of its documents. Each document round-trips through
+    // bsoncxx's relaxed Extended JSON (ISO dates, plain numbers, {"$oid": ...} for ObjectIds) on
+    // the way to a boost::json::value, rather than being hand-assembled from known fields - export
+    // is meant to reflect whatever is actually stored, including fields no repository method
+    // happens to read back out.
+    static boost::json::array exportCollection(mongocxx::collection collection) {
+        boost::json::array docs;
+        for (auto cursor = collection.find({}); const auto &doc: cursor) {
+            docs.push_back(boost::json::parse(bsoncxx::to_json(doc, bsoncxx::ExtendedJsonMode::k_relaxed)));
+        }
+        return docs;
+    }
+
+    // Collection name -> owning module, derived from moduleExportSpecs() (the single source of
+    // truth for which collections belong to a module). "import" uses this to reject any collection
+    // name it doesn't recognize instead of blindly writing wherever an import file happens to name
+    // - the file is client-supplied input crossing a trust boundary, not something the server
+    // generated itself the way an export file normally would be.
+    static const std::unordered_map<std::string, std::string> &collectionModules() {
+        static const std::unordered_map<std::string, std::string> result = [] {
+            std::unordered_map<std::string, std::string> m;
+            for (const auto &[module, spec]: moduleExportSpecs()) {
+                for (const auto &c: spec.topLevel) m[c] = module;
+                for (const auto &c: spec.fullOnly) m[c] = module;
+            }
+            return m;
+        }();
+        return result;
+    }
+
+    // Upserts one collection's worth of documents (by "_id", replacing the whole document rather
+    // than merging fields, so a restore reflects the export exactly - including fields since
+    // removed from the live document). Each document is parsed independently so one malformed
+    // entry - the file is external input, possibly hand-edited - fails on its own instead of
+    // aborting the rest of the collection.
+    static std::pair<long, long> importCollection(mongocxx::collection collection, const boost::json::array &docs) {
+        namespace basic = bsoncxx::builder::basic;
+        long imported = 0;
+        long failed = 0;
+        mongocxx::options::replace opts;
+        opts.upsert(true);
+        for (const auto &doc: docs) {
+            try {
+                const auto bsonDoc = bsoncxx::from_json(boost::json::serialize(doc));
+                const auto idElement = bsonDoc.view()["_id"];
+                if (!idElement) {
+                    ++failed;
+                    continue;
+                }
+                collection.replace_one(basic::make_document(basic::kvp("_id", idElement.get_value())), bsonDoc.view(), opts);
+                ++imported;
+            } catch (const std::exception &e) {
+                log_warning << "emm import: skipping malformed document, collection: " << std::string(collection.name()) << ", error: " << e.what();
+                ++failed;
+            }
+        }
+        return {imported, failed};
+    }
+
     static http::response<http::string_body> handleEmmRequest(const http::request<http::string_body> &req, const std::string &subject) {
         auto jsonResponse = [&](const http::status status, std::string body) {
             http::response<http::string_body> r{status, req.version()};
@@ -169,7 +260,119 @@ namespace Euclid::main {
             return err(http::status::forbidden, "administrator privileges required");
         }
 
-        if (const auto action = std::string(req["x-euclid-action"]); action != "list-modules") {
+        const auto action = std::string(req["x-euclid-action"]);
+
+        if (action == "export") {
+            boost::json::value jv = boost::json::object{};
+            if (!req.body().empty()) {
+                try {
+                    jv = boost::json::parse(req.body());
+                } catch (const std::exception &) {
+                    return err(http::status::bad_request, "invalid JSON body");
+                }
+            }
+            const auto all = Core::GetBoolValue(jv, "all");
+            const auto requestedModules = Core::GetStringArrayValue(jv, "modules");
+            const auto full = Core::GetBoolValue(jv, "full");
+
+            if (all == !requestedModules.empty()) {
+                return err(http::status::bad_request, "exactly one of \"all\" or \"modules\" is required");
+            }
+
+            const auto &specs = moduleExportSpecs();
+            std::vector<std::string> modules;
+            if (all) {
+                for (const auto &[name, spec]: specs) modules.push_back(name);
+                std::ranges::sort(modules);
+            } else {
+                for (const auto &module: requestedModules) {
+                    if (!specs.contains(module)) {
+                        return err(http::status::bad_request, "unknown module '" + module + "' (expected one of: eam, emm, emo, ens, eqs, esm)");
+                    }
+                    modules.push_back(module);
+                }
+            }
+
+            const auto entry = Database::Database::instance().client();
+            auto db = (*entry)[Database::Database::instance().databaseName()];
+
+            boost::json::object collections;
+            for (const auto &module: modules) {
+                const auto &spec = specs.at(module);
+                for (const auto &collectionName: spec.topLevel) {
+                    collections[collectionName] = exportCollection(db[collectionName]);
+                }
+                if (full) {
+                    for (const auto &collectionName: spec.fullOnly) {
+                        collections[collectionName] = exportCollection(db[collectionName]);
+                    }
+                }
+            }
+
+            boost::json::array modulesJson(modules.begin(), modules.end());
+            return jsonResponse(http::status::ok, boost::json::serialize(boost::json::object{
+                                        {"modules", std::move(modulesJson)},
+                                        {"full", full},
+                                        {"exportedAt", Core::DateTimeUtils::ToISO8601(std::chrono::system_clock::now())},
+                                        {"collections", std::move(collections)},
+                                }));
+        }
+
+        if (action == "import") {
+            if (req.body().empty()) {
+                return err(http::status::bad_request, "missing JSON body");
+            }
+            boost::json::value jv;
+            try {
+                jv = boost::json::parse(req.body());
+            } catch (const std::exception &) {
+                return err(http::status::bad_request, "invalid JSON body");
+            }
+            if (!jv.is_object() || !Core::AttributeExists(jv, "collections") || !jv.at("collections").is_object()) {
+                return err(http::status::bad_request, "missing \"collections\" object");
+            }
+
+            // Optional filter, e.g. re-importing only "esm" out of a multi-module export file;
+            // an empty filter (the common case - re-importing everything the file contains) means
+            // no restriction.
+            const auto moduleFilter = Core::GetStringArrayValue(jv, "modules");
+            const std::unordered_set<std::string> allowedModules(moduleFilter.begin(), moduleFilter.end());
+
+            const auto &collModules = collectionModules();
+            const auto entry = Database::Database::instance().client();
+            auto db = (*entry)[Database::Database::instance().databaseName()];
+
+            boost::json::object imported;
+            boost::json::array skipped;
+            for (const auto &[collectionName, docsValue]: jv.at("collections").as_object()) {
+                const std::string name(collectionName);
+                const auto owner = collModules.find(name);
+                if (owner == collModules.end()) {
+                    skipped.push_back(boost::json::object{{"collection", name}, {"reason", "unknown collection"}});
+                    continue;
+                }
+                if (!allowedModules.empty() && !allowedModules.contains(owner->second)) {
+                    skipped.push_back(boost::json::object{{"collection", name}, {"reason", "excluded by \"modules\" filter"}});
+                    continue;
+                }
+                if (!docsValue.is_array()) {
+                    skipped.push_back(boost::json::object{{"collection", name}, {"reason", "not a JSON array"}});
+                    continue;
+                }
+
+                const auto [count, failed] = importCollection(db[name], docsValue.as_array());
+                boost::json::object result{{"imported", count}};
+                if (failed > 0) result["failed"] = failed;
+                imported[name] = std::move(result);
+            }
+
+            return jsonResponse(http::status::ok, boost::json::serialize(boost::json::object{
+                                        {"imported", std::move(imported)},
+                                        {"skipped", std::move(skipped)},
+                                }));
+        }
+
+        if (action != "list-modules") {
             return err(http::status::not_found, "unknown emm action '" + action + "'");
         }
 
