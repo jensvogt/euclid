@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.46](https://github.com/jensvogt/euclid/compare/v1.0.45...v1.0.46) (2026-08-29)
+
+
+### Bug Fixes
+
+* eks man pages ([62426d7](https://github.com/jensvogt/euclid/commit/62426d7de9fa6ddbc8231c94d07577ea60e02278))
+* macOS/windows problems ([24e3f38](https://github.com/jensvogt/euclid/commit/24e3f389a74869d12372cfd9f43d5cdabb899881))
+
 ## [1.0.45](https://github.com/jensvogt/euclid/compare/v1.0.44...v1.0.45) (2026-08-29)
 
 
