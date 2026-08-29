@@ -2,6 +2,7 @@
 #include <chrono>
 #include <map>
 #include <mutex>
+#include <optional>
 
 // Boost includes
 #include <boost/beast/core.hpp>
@@ -10,6 +11,7 @@
 #include <EmoServer.h>
 #include <euclid/core/Configuration.h>
 #include <euclid/core/DateTimeUtils.h>
+#include <euclid/core/SystemUtils.h>
 #include <euclid/database/entity/eam/User.h>
 
 namespace Euclid::Monitoring {
@@ -28,6 +30,20 @@ namespace Euclid::Monitoring {
         };
 
         constexpr auto kPrunePeriod = std::chrono::hours(24);
+        constexpr auto kCpuUsagePeriod = std::chrono::seconds(60);
+
+        // Previous Core::SystemUtils::ReadCpuTimes() reading, so collectCpuUsage() can compute a
+        // delta-based percentage rather than a since-boot average. There's only ever one
+        // EmoServer per process, same reasoning as the accumulators map above.
+        std::mutex &cpuTimesMutex() {
+            static std::mutex mutex;
+            return mutex;
+        }
+
+        std::optional<Core::SystemUtils::CpuTimes> &previousCpuTimes() {
+            static std::optional<Core::SystemUtils::CpuTimes> previous;
+            return previous;
+        }
 
         std::string accumulatorKey(const std::string &name, const std::string &labelName, const std::string &labelValue) {
             return name + ":" + labelName + ":" + labelValue;
@@ -181,12 +197,20 @@ namespace Euclid::Monitoring {
 
         _pruneTaskId = scheduler.SchedulePeriodic("monitoring-prune", [] { prune(); },
                                                   std::chrono::duration_cast<std::chrono::milliseconds>(kPrunePeriod));
+
+#ifdef __linux__
+        // collectCpuUsage() reads /proc/stat, which only exists on Linux.
+        const auto cpuUsagePeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.monitoring.cpu-usage-period", kCpuUsagePeriod.count()));
+        _cpuUsageTaskId = scheduler.SchedulePeriodic("monitoring-cpu-usage", [] { collectCpuUsage(); },
+                                                     std::chrono::duration_cast<std::chrono::milliseconds>(cpuUsagePeriod));
+#endif
     }
 
     EmoServer::~EmoServer() {
         auto &scheduler = Core::Scheduler::instance();
         scheduler.Cancel(_flushTaskId);
         scheduler.Cancel(_pruneTaskId);
+        scheduler.Cancel(_cpuUsageTaskId);
     }
 
     void EmoServer::flush() {
@@ -228,6 +252,39 @@ namespace Euclid::Monitoring {
         const auto retentionDays = Core::Configuration::instance().getOr<long>("euclid.monitoring.retention", 3);
         const auto cutoff = std::chrono::system_clock::now() - std::chrono::hours(24 * retentionDays);
         Database::RepositoryFactory::instance().emoRepository()->deleteOlderThan(cutoff);
+    }
+
+    void EmoServer::collectCpuUsage() {
+
+        const auto current = Core::SystemUtils::ReadCpuTimes();
+        if (!current.has_value()) {
+            log_warning << "Monitoring cpu-usage collection failed, /proc/stat not readable";
+            return;
+        }
+
+        std::lock_guard lock(cpuTimesMutex());
+        const auto previous = previousCpuTimes();
+        previousCpuTimes() = current;
+
+        // The first call only primes previousCpuTimes() - a percentage needs a delta between two
+        // readings.
+        if (!previous.has_value()) return;
+
+        const auto totalDelta = current->total - previous->total;
+        const auto idleDelta = current->idle - previous->idle;
+        if (totalDelta == 0) return;
+
+        Database::Entity::Monitoring::MonitoringData row;
+        row.name = "system-cpu-usage";
+        row.labelName = "host";
+        row.labelValue = Core::SystemUtils::GetHostName();
+        row.value = 100.0 * static_cast<double>(totalDelta - idleDelta) / static_cast<double>(totalDelta);
+        row.timestamp = std::chrono::system_clock::now();
+
+        Database::RepositoryFactory::instance().emoRepository()->insert(row);
+
+        log_debug << "Monitoring flushed, name: " << row.name << ", labelName: " << row.labelName
+                << ", labelValue: " << row.labelValue << ", value: " << row.value;
     }
 
     response<string_body> EmoServer::Dispatch(const request<string_body> &req) {

@@ -83,6 +83,8 @@ namespace Euclid::Dto::EQS {
         dto.status = Database::Entity::EQS::MessageStatusToString(entity.status);
         dto.priority = Database::Entity::EQS::MessagePriorityToString(entity.priority);
         dto.body = entity.body;
+        dto.size = entity.size;
+        dto.contentType = entity.contentType;
         dto.md5Body = entity.md5Body;
         dto.receiptHandle = entity.receiptHandle;
         for (const auto &[key, attr]: entity.attributes) {
