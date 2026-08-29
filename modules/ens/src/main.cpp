@@ -132,7 +132,7 @@ int main(const int argc, char *argv[]) {
     Euclid::Database::WireScopeLookup();
     Euclid::Database::WireGrantLookup();
 
-    Euclid::Core::Monitoring::MetricsPusher metricsPusher("eqs");
+    Euclid::Core::Monitoring::MetricsPusher metricsPusher("ens");
     try {
         Euclid::ENS::EnsServer server(cliOpts->socketPath);
         return server.RunUntilSignal();
