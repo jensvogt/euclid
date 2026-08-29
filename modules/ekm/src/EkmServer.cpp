@@ -52,7 +52,7 @@ namespace Euclid::EKM {
 
     static response<string_body> handleCreateKey(const request<string_body> &req) {
 
-        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "create-queue");
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "create-key");
 
         const auto auth = authenticate(req);
         if (!auth.user.has_value()) return unauthorized(req, auth);
@@ -63,9 +63,16 @@ namespace Euclid::EKM {
         const auto request = boost::json::value_to<Dto::EKM::CreateKeyRequest>(jv);
         const auto ns = std::string(req["x-euclid-namespace"]);
 
+        // Keys are identified by a randomly generated ID rather than a user-chosen name (there's
+        // no "name" field on CreateKeyRequest) - mirrors how EQS/ENS message IDs are minted.
+        const auto keyId = Core::UuidUtils::CreateRandomUuid();
+
         Database::Entity::EKM::Key key;
         key.accountId = auth.user->accountId;
+        key.region = auth.user->region;
         key.nameSpace = ns;
+        key.name = keyId;
+        key.ern = Core::createEkmKeyErn(auth.user->accountId, keyId);
         key.algorithm = request.algorithm;
         key.length = request.length;
 
@@ -79,7 +86,7 @@ namespace Euclid::EKM {
 
     static response<string_body> handleListKeys(const request<string_body> &req) {
 
-        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-queues");
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-keys");
 
         const auto auth = authenticate(req);
         if (!auth.user.has_value()) return unauthorized(req, auth);
@@ -92,12 +99,12 @@ namespace Euclid::EKM {
 
         const auto nameSpace = std::string(req["x-euclid-namespace"]);
         const auto repo = Database::RepositoryFactory::instance().ekmRepository();
-        const std::vector<Database::Entity::EKM::Key> keys = repo->listKeys(auth.user->accountId, nameSpace, request.prefix, request.pageSize, request.pageIndex, request.sortColumn);
+        const std::vector<Database::Entity::EKM::Key> keys = repo->listKeys(auth.user->accountId, nameSpace, request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection);
         log_info << "EKM key list, count: " << keys.size();
 
         Dto::EKM::ListKeysResponse response;
         response.keys = Dto::EKM::EkmMapper::toDto(keys);
-        response.total = repo->countKeys(auth.user->accountId, nameSpace);
+        response.total = repo->countKeys(auth.user->accountId, nameSpace, request.prefix);
 
         return EkmServer::JsonResponse(req, status::ok, response.toJson());
     }

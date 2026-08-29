@@ -145,6 +145,17 @@ namespace Euclid::Core {
     }
 
     /**
+     * @brief Creates an EKM key ERN
+     *
+     * @param accountId account ID
+     * @param keyId key ID
+     * @return resource ERN
+     */
+    inline std::string createEkmKeyErn(const std::string &accountId, const std::string &keyId) {
+        return createErn("ekm", accountId, "key:" + keyId);
+    }
+
+    /**
      * @brief Creates a ESM bucket ERN
      *
      * @param accountId account ID

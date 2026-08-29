@@ -118,7 +118,7 @@ namespace Euclid::Database {
          * @return list of all topic entities.
          */
         [[nodiscard]]
-        std::vector<Entity::ENS::Topic> listTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const override;
+        std::vector<Entity::ENS::Topic> listTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const override;
 
         /**
          * @brief Check the existence of the module by name
@@ -137,7 +137,7 @@ namespace Euclid::Database {
          * @return total number of modules
          */
         [[nodiscard]]
-        long countTopics(const std::string &accountId, const std::string &namespaceName) const override;
+        long countTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "") const override;
 
         /**
          * @brief Delete all modules
@@ -232,7 +232,7 @@ namespace Euclid::Database {
          * @return the requested page of messages.
          */
         [[nodiscard]]
-        std::vector<Entity::ENS::Message> listMessages(const std::string &topicErn, long pageSize, long pageIndex, const std::string &sortColumn) const override;
+        std::vector<Entity::ENS::Message> listMessages(const std::string &topicErn, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const override;
 
         /**
          * @brief Check the existence of the module by name

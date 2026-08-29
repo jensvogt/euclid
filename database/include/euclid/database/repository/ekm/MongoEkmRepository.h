@@ -94,7 +94,7 @@ namespace Euclid::Database {
          * @return list of all queue entities.
          */
         [[nodiscard]]
-        std::vector<Entity::EKM::Key> listKeys(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const override;
+        std::vector<Entity::EKM::Key> listKeys(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const override;
 
         /**
          * @brief Check the existence of the module by name
@@ -113,7 +113,7 @@ namespace Euclid::Database {
          * @return total number of keys
          */
         [[nodiscard]]
-        long countKeys(const std::string &accountId, const std::string &nameSpace) const override;
+        long countKeys(const std::string &accountId, const std::string &nameSpace, const std::string &prefix = "") const override;
 
         /**
          * @brief Delete all modules

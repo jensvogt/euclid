@@ -138,7 +138,7 @@ namespace Euclid::Database {
         return {};
     }
 
-    std::vector<Entity::ENS::Topic> MongoEnsRepository::listTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
+    std::vector<Entity::ENS::Topic> MongoEnsRepository::listTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const {
 
         try {
 
@@ -153,7 +153,7 @@ namespace Euclid::Database {
 
             mongocxx::options::find opts;
             if (!sortColumn.empty()) {
-                opts.sort(make_document(kvp(sortColumn, 1)));
+                opts.sort(make_document(kvp(sortColumn, sortDirection == "asc" ? 1 : -1)));
             }
             if (pageSize > 0) {
                 opts.limit(pageSize);
@@ -279,7 +279,7 @@ namespace Euclid::Database {
         }
     }
 
-    long MongoEnsRepository::countTopics(const std::string &accountId, const std::string &namespaceName) const {
+    long MongoEnsRepository::countTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix) const {
 
         try {
 
@@ -287,6 +287,9 @@ namespace Euclid::Database {
             filter.append(kvp("accountId", accountId));
             if (!namespaceName.empty()) {
                 filter.append(kvp("namespace", namespaceName));
+            }
+            if (!prefix.empty()) {
+                filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
             }
 
             const auto entry = Database::instance().client();
@@ -443,7 +446,7 @@ namespace Euclid::Database {
     //     return {};
     // }
 
-    std::vector<Entity::ENS::Message> MongoEnsRepository::listMessages(const std::string &topicErn, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
+    std::vector<Entity::ENS::Message> MongoEnsRepository::listMessages(const std::string &topicErn, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const {
 
         std::vector<Entity::ENS::Message> messages;
         try {
@@ -451,7 +454,7 @@ namespace Euclid::Database {
 
             mongocxx::options::find opts;
             if (!sortColumn.empty()) {
-                opts.sort(make_document(kvp(sortColumn, 1)));
+                opts.sort(make_document(kvp(sortColumn, sortDirection == "asc" ? 1 : -1)));
             }
             if (pageSize > 0) {
                 opts.limit(pageSize);

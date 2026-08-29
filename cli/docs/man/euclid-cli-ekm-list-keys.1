@@ -1,0 +1,48 @@
+.TH EUCLID-CLI-EKM-LIST-KEYS 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ekm-list-keys \- list existing encryption keys
+.SH SYNOPSIS
+.B euclid-cli ekm list-keys
+[\fB\-\-page\-size\fR|\fB\-s\fR \fICOUNT\fR]
+[\fB\-\-page\-index\fR|\fB\-i\fR \fIINDEX\fR]
+[\fB\-\-sort\-column\fR|\fB\-c\fR \fICOLUMN\fR]
+.SH DESCRIPTION
+Lists all keys. Paginated:
+.B \-\-page\-size
+defaults to \fI10\fR,
+.B \-\-page\-index
+to \fI0\fR,
+.B \-\-sort\-column
+to \fIname\fR.
+.SH OPTIONS
+.TP
+.BR \-s ", " \-\-page\-size " " \fICOUNT\fR
+Number of keys to return per page. Defaults to \fI10\fR.
+.TP
+.BR \-i ", " \-\-page\-index " " \fIINDEX\fR
+Zero-based page index to return. Defaults to \fI0\fR.
+.TP
+.BR \-c ", " \-\-sort\-column " " \fICOLUMN\fR
+Column to sort by. Defaults to \fIname\fR.
+.SH EXIT STATUS
+.TP
+.B 0
+The listing was retrieved and printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or the
+server rejected the request.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ekm list-keys
+
+euclid-cli --endpoint http://localhost:5566 ekm list-keys \e
+    --page-size 25 --page-index 1 --sort-column algorithm
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ekm (1),
+.BR euclid-cli-ekm-create-key (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

@@ -55,20 +55,22 @@ namespace Euclid::Database {
          * @param pageSize maximum number of queues to return; 0 or less means no limit
          * @param pageIndex zero-based page index, applied when pageSize is set
          * @param sortColumn field to sort by (e.g. "name", "arn"); empty means unsorted
+         * @param sortDirection "asc" or "desc"; anything else is treated as "desc"
          * @return A collection containing all entities or objects found.
          */
         [[nodiscard]]
-        virtual std::vector<Entity::EKM::Key> listKeys(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
+        virtual std::vector<Entity::EKM::Key> listKeys(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const = 0;
 
         /**
          * @brief Retrieves the total count of keys in the repository.
          *
          * @param accountId only keys belonging to this account are counted
          * @param namespaceName only keys in this namespace are counted; empty means don't filter by namespace
+         * @param prefix only keys whose name starts with this prefix are counted; empty means don't filter by name
          * @return The total number of keys as a long integer.
          */
         [[nodiscard]]
-        virtual long countKeys(const std::string &accountId, const std::string &namespaceName) const = 0;
+        virtual long countKeys(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "") const = 0;
 
     };
 
