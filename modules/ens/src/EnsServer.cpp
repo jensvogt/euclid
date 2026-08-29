@@ -128,12 +128,12 @@ namespace Euclid::ENS {
 
         const auto ns = std::string(req["x-euclid-namespace"]);
         const auto repo = Database::RepositoryFactory::instance().ensRepository();
-        const std::vector<Database::Entity::ENS::Topic> topics = repo->listTopics(auth.user->accountId, ns, request.prefix, request.pageSize, request.pageIndex, request.sortColumn);
+        const std::vector<Database::Entity::ENS::Topic> topics = repo->listTopics(auth.user->accountId, ns, request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection);
         log_info << "ENS ListTopics count, count: " << topics.size();
 
         Dto::ENS::ListTopicsResponse response;
         response.topics = Dto::ENS::EnsMapper::toDto(topics);
-        response.total = repo->countTopics(auth.user->accountId, ns);
+        response.total = repo->countTopics(auth.user->accountId, ns, request.prefix);
 
         return EnsServer::JsonResponse(req, status::ok, response.toJson());
     }
@@ -151,7 +151,7 @@ namespace Euclid::ENS {
         log_debug << "ENS ListMessages, topicErn: " << request.topicErn;
 
         const auto repo = Database::RepositoryFactory::instance().ensRepository();
-        const std::vector<Database::Entity::ENS::Message> messages = repo->listMessages(request.topicErn, request.pageSize, request.pageIndex, request.sortColumn);
+        const std::vector<Database::Entity::ENS::Message> messages = repo->listMessages(request.topicErn, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection);
         log_info << "Got message list, count: " << messages.size();
 
         Dto::ENS::ListMessagesResponse response;

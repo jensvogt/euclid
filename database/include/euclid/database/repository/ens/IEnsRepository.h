@@ -128,10 +128,11 @@ namespace Euclid::Database {
          * @param pageSize maximum number of queues to return; 0 or less means no limit
          * @param pageIndex zero-based page index, applied when pageSize is set
          * @param sortColumn field to sort by (e.g. "name", "arn"); empty means unsorted
+         * @param sortDirection "asc" or "desc"; anything else is treated as "desc"
          * @return A collection containing all entities or objects found.
          */
         [[nodiscard]]
-        virtual std::vector<Entity::ENS::Topic> listTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
+        virtual std::vector<Entity::ENS::Topic> listTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const = 0;
 
         /**
          * @brief Checks if a topic with the specified name exists in the repository.
@@ -147,10 +148,11 @@ namespace Euclid::Database {
          *
          * @param accountId only topics belonging to this account are counted
          * @param namespaceName only topics in this namespace are counted; empty means don't filter by namespace
+         * @param prefix only topics whose name starts with this prefix are counted; empty means don't filter by name
          * @return The total number of topics as a long integer.
          */
         [[nodiscard]]
-        virtual long countTopics(const std::string &accountId, const std::string &namespaceName) const = 0;
+        virtual long countTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "") const = 0;
 
         /**
          * @brief Removes all entries from the queue repository, leaving it in an empty state.
@@ -249,10 +251,11 @@ namespace Euclid::Database {
          * @param pageIndex zero-based page index, combined with pageSize to compute the offset.
          * @param sortColumn message field to sort ascending by, e.g. "created", "size",
          * "messageId"; unrecognized/empty leaves the order unspecified.
+         * @param sortDirection "asc" or "desc"; anything else is treated as "desc"
          * @return the requested page of messages.
          */
         [[nodiscard]]
-        virtual std::vector<Entity::ENS::Message> listMessages(const std::string &topicErn, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
+        virtual std::vector<Entity::ENS::Message> listMessages(const std::string &topicErn, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const = 0;
 
         /**
          * @brief Checks if a message with the specified name exists in the repository.

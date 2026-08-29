@@ -84,7 +84,7 @@ namespace Euclid::Database {
         //     return std::nullopt;
         // }
 
-        std::vector<Entity::EKM::Key> listKeys(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const override {
+        std::vector<Entity::EKM::Key> listKeys(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const override {
             std::lock_guard lock(_mutex);
             std::vector<Entity::EKM::Key> result;
             for (const auto &m: _keyStore | std::views::values) {
@@ -114,10 +114,12 @@ namespace Euclid::Database {
         //     return _queueStore.contains(name);
         // }
 
-        long countKeys(const std::string &accountId, const std::string &namespaceName) const override {
+        long countKeys(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "") const override {
             std::lock_guard lock(_mutex);
             return std::ranges::count_if(_keyStore | std::views::values, [&](const auto &m) {
-                return m.accountId == accountId && (namespaceName.empty() || m.nameSpace == namespaceName);
+                return m.accountId == accountId
+                    && (namespaceName.empty() || m.nameSpace == namespaceName)
+                    && (prefix.empty() || m.name.starts_with(prefix));
             });
         }
 
