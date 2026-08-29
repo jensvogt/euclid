@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <future>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -107,6 +108,52 @@ namespace Euclid::Core {
          * @return number of CPU cores
          */
         static int GetNumberOfCores();
+
+        /**
+         * @brief One reading of the Linux system's aggregate CPU time counters, from /proc/stat.
+         *
+         * idle/total are cumulative jiffies since boot, not a point-in-time percentage - callers
+         * take the delta between two readings to compute usage over the interval between them.
+         */
+        struct CpuTimes {
+            unsigned long long idle = 0;
+            unsigned long long total = 0;
+        };
+
+        /**
+         * @brief Reads the aggregate "cpu" line of /proc/stat (Linux-only, see man proc(5)):
+         * "cpu  user nice system idle iowait irq softirq steal guest guest_nice".
+         *
+         * Stateless - callers that want a usage percentage keep their own previous reading and
+         * take the delta, since two different call sites polling on different schedules would
+         * otherwise corrupt each other's baseline if this kept the "previous" state itself.
+         *
+         * @return idle/total jiffies since boot, or std::nullopt if /proc/stat couldn't be read
+         * or parsed (e.g. non-Linux system).
+         */
+        static std::optional<CpuTimes> ReadCpuTimes();
+
+        /**
+         * @brief This process's real (resident) and virtual memory usage, plus real memory as a
+         * percentage of the system's total RAM - the same figures `ps aux`'s RSS/VSZ/%MEM
+         * columns report.
+         */
+        struct MemoryUsage {
+            double realMb = 0;
+            double virtualMb = 0;
+            double percentOfTotal = 0;
+        };
+
+        /**
+         * @brief Reads this process's current memory usage from /proc/self/status (VmRSS,
+         * VmSize) and /proc/meminfo (MemTotal), Linux-only (see man proc(5)). Unlike
+         * ReadCpuTimes(), this is a direct point-in-time reading - no delta between two calls is
+         * needed.
+         *
+         * @return the reading, or std::nullopt if /proc/self/status or /proc/meminfo couldn't be
+         * read or parsed (e.g. non-Linux system).
+         */
+        static std::optional<MemoryUsage> ReadMemoryUsage();
 
         /**
          * @brief Returns the value of an environment variable or empty string, if not existent.

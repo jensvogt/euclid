@@ -10,6 +10,8 @@
 #include <pwd.h>        // getpwuid_r
 #include <sys/types.h>  // uid_t
 #endif
+#include <fstream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 
@@ -119,6 +121,78 @@ namespace Euclid::Core {
 
     int SystemUtils::GetNumberOfCores() {
         return static_cast<int>(boost::thread::hardware_concurrency());
+    }
+
+    std::optional<SystemUtils::CpuTimes> SystemUtils::ReadCpuTimes() {
+#ifdef __linux__
+        std::ifstream stat("/proc/stat");
+        if (!stat.is_open()) return std::nullopt;
+
+        std::string line;
+        if (!std::getline(stat, line)) return std::nullopt;
+
+        std::istringstream iss(line);
+        std::string label;
+        unsigned long long user, nice, system, idle, iowait, irq, softirq, steal;
+        iss >> label >> user >> nice >> system >> idle >> iowait >> irq >> softirq >> steal;
+        if (!iss || label != "cpu") return std::nullopt;
+
+        CpuTimes times;
+        times.idle = idle + iowait;
+        times.total = user + nice + system + idle + iowait + irq + softirq + steal;
+        return times;
+#else
+        return std::nullopt;
+#endif
+    }
+
+    std::optional<SystemUtils::MemoryUsage> SystemUtils::ReadMemoryUsage() {
+#ifdef __linux__
+        std::ifstream status("/proc/self/status");
+        if (!status.is_open()) return std::nullopt;
+
+        unsigned long long vmRssKb = 0, vmSizeKb = 0;
+        bool haveRss = false, haveSize = false;
+        std::string line;
+        while ((!haveRss || !haveSize) && std::getline(status, line)) {
+            std::istringstream iss(line);
+            std::string label;
+            unsigned long long value;
+            iss >> label >> value;
+            if (label == "VmRSS:") {
+                vmRssKb = value;
+                haveRss = true;
+            } else if (label == "VmSize:") {
+                vmSizeKb = value;
+                haveSize = true;
+            }
+        }
+        if (!haveRss || !haveSize) return std::nullopt;
+
+        std::ifstream meminfo("/proc/meminfo");
+        if (!meminfo.is_open()) return std::nullopt;
+
+        unsigned long long memTotalKb = 0;
+        while (std::getline(meminfo, line)) {
+            std::istringstream iss(line);
+            std::string label;
+            unsigned long long value;
+            iss >> label >> value;
+            if (label == "MemTotal:") {
+                memTotalKb = value;
+                break;
+            }
+        }
+        if (memTotalKb == 0) return std::nullopt;
+
+        MemoryUsage usage;
+        usage.realMb = static_cast<double>(vmRssKb) / 1024.0;
+        usage.virtualMb = static_cast<double>(vmSizeKb) / 1024.0;
+        usage.percentOfTotal = 100.0 * static_cast<double>(vmRssKb) / static_cast<double>(memTotalKb);
+        return usage;
+#else
+        return std::nullopt;
+#endif
     }
 
     std::string SystemUtils::GetEnvironmentVariableValue(const std::string &name) {

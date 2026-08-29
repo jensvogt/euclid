@@ -14,6 +14,8 @@
 #include <euclid/core/UuidUtils.h>
 #include <euclid/database/repository/eqs/MongoEqsRepository.h>
 
+#include <boost/chrono/system_clocks.hpp>
+
 namespace Euclid::Database {
 
     MongoEqsRepository::MongoEqsRepository() {
@@ -445,6 +447,8 @@ namespace Euclid::Database {
         message.md5Attributes = Entity::EQS::Message::ComputeAttributesMd5(attributes);
         message.status = Entity::EQS::MessageStatus::AVAILABLE;
         message.priority = priority;
+        message.created = std::chrono::system_clock::now();
+        message.modified = std::chrono::system_clock::now();
 
         try {
 

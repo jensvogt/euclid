@@ -74,6 +74,8 @@ namespace Euclid::EQS {
             dlQueue.region = auth.user->region;
             dlQueue.owner = auth.user->userId;
             dlQueue.delay = request.delay;
+            dlQueue.created = std::chrono::system_clock::now();
+            dlQueue.modified = std::chrono::system_clock::now();
 
             dlqSaved = Database::RepositoryFactory::instance().eqsRepository()->upsertQueue(dlQueue);
         }
@@ -90,6 +92,8 @@ namespace Euclid::EQS {
         queue.owner = auth.user->userId;
         queue.deadLetterQueueErn = dlqSaved.ern;
         queue.delay = request.delay;
+        queue.created = std::chrono::system_clock::now();
+        queue.modified = std::chrono::system_clock::now();
 
         const auto saved = Database::RepositoryFactory::instance().eqsRepository()->upsertQueue(queue);
 

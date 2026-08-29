@@ -27,7 +27,7 @@
 #include <euclid/dto/eqs/DeleteMessageRequest.h>
 #include <euclid/dto/eqs/DeleteQueueRequest.h>
 #include <euclid/dto/eqs/DeleteQueueTagRequest.h>
-#include <../../../dto/include/euclid/dto/eqs/mapper/EqsMapper.h>
+#include <euclid/dto/eqs/mapper/EqsMapper.h>
 #include <euclid/dto/eqs/GetMessageAttributeRequest.h>
 #include <euclid/dto/eqs/GetMessageAttributeResponse.h>
 #include <euclid/dto/eqs/GetMessageCountRequest.h>
