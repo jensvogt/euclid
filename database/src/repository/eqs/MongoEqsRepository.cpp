@@ -460,7 +460,6 @@ namespace Euclid::Database {
             if (auto queueResult = queueCollection.find_one(queueFilter.view())) {
                 const auto queue = Entity::EQS::Queue::fromDocument(queueResult->view());
                 message.visibilityTimeout = queue.visibility;
-
                 if (queue.delay > 0) {
                     message.status = Entity::EQS::MessageStatus::DELAYED;
                     message.delayUntil = std::chrono::system_clock::now() + std::chrono::seconds(queue.delay);
