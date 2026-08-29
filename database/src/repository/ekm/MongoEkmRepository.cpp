@@ -119,7 +119,7 @@ namespace Euclid::Database {
     //     return {};
     // }
 
-    std::vector<Entity::EKM::Key> MongoEkmRepository::listKeys(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
+    std::vector<Entity::EKM::Key> MongoEkmRepository::listKeys(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const {
 
         try {
 
@@ -134,7 +134,7 @@ namespace Euclid::Database {
 
             mongocxx::options::find opts;
             if (!sortColumn.empty()) {
-                opts.sort(make_document(kvp(sortColumn, 1)));
+                opts.sort(make_document(kvp(sortColumn, sortDirection == "asc" ? 1 : -1)));
             }
             if (pageSize > 0) {
                 opts.limit(pageSize);
@@ -192,7 +192,7 @@ namespace Euclid::Database {
         }
     }
 
-    long MongoEkmRepository::countKeys(const std::string &accountId, const std::string &nameSpace) const {
+    long MongoEkmRepository::countKeys(const std::string &accountId, const std::string &nameSpace, const std::string &prefix) const {
 
         try {
 
@@ -200,6 +200,9 @@ namespace Euclid::Database {
             filter.append(kvp("accountId", accountId));
             if (!nameSpace.empty()) {
                 filter.append(kvp("namespace", nameSpace));
+            }
+            if (!prefix.empty()) {
+                filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
             }
 
             const auto entry = Database::instance().client();

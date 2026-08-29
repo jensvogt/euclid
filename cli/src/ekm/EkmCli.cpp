@@ -52,7 +52,7 @@ namespace Euclid::CLI {
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("eqs", "create-key", boost::json::value_from(request));
+            const HttpResponse response = client.Post("ekm", "create-key", boost::json::value_from(request));
             if (!response.IsSuccess()) {
                 std::cerr << "error: create-key failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
@@ -94,7 +94,7 @@ namespace Euclid::CLI {
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("eqs", "list-keys", boost::json::value_from(request));
+            const HttpResponse response = client.Post("ekm", "list-keys", boost::json::value_from(request));
             if (!response.IsSuccess()) {
                 std::cerr << "error: list-keys failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;

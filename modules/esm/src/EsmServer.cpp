@@ -1067,18 +1067,33 @@ namespace Euclid::ESM {
         const auto request = Dto::ESM::PurgeBucketRequest::fromJson(req.body());
         log_info << "ESM PurgeBucket, ern: " << request.bucketErn;
 
+        // Repository connection
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        auto bucket = repo->findBucketByErn(request.bucketErn);
+        if (!bucket.has_value()) {
+            return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.bucketErn);
+        }
         const auto objects = repo->listObjects(request.bucketErn, request.prefix, -1, -1, "");
 
         const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
+        long purgedSize = 0;
         for (const auto &object: objects) {
             std::error_code ec;
             std::filesystem::remove(std::filesystem::path(dataDir) / object.internalName, ec);
             if (ec)
                 log_warning << "Could not remove object file, internalName: " << object.internalName << ", error: " << ec.message();
             repo->deleteObjectByErn(object.ern);
+            purgedSize += object.size;
         }
-        log_info << "ESM bucket purged, ern: " << request.bucketErn << ", remaining count: " << objects.size();
+        log_info << "ESM bucket purged, ern: " << request.bucketErn << ", count: " << objects.size();
+
+        // Adjust counters by what was actually deleted rather than zeroing them out - a prefix-scoped
+        // purge only removes some of the bucket's objects, so anything left outside the prefix must
+        // still be reflected.
+        bucket->size = std::max<long>(0, bucket->size - purgedSize);
+        bucket->objects = std::max<long>(0, bucket->objects - static_cast<long>(objects.size()));
+        bucket = repo->upsertBucket(bucket.value());
+        log_debug << "ESM bucket updated, ern: " << request.bucketErn << ", count: " << bucket->objects << ", size: " << bucket->size;
 
         Dto::ESM::PurgeBucketResponse response;
         response.ern = request.bucketErn;

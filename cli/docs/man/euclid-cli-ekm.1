@@ -1,0 +1,120 @@
+.TH EUCLID-CLI-EKM 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ekm \- manage Euclid encryption keys
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+[\fB\-\-loglevel\fR \fILEVEL\fR]
+.B ekm
+.I action
+[\fIaction-options\fR...]
+.SH DESCRIPTION
+The
+.B ekm
+module talks to the Euclid gateway's ekm service to create and list
+encryption keys. Every
+.B ekm
+command sends a single JSON request to the gateway
+(\fB\-\-endpoint\fR, default \fIhttps://localhost:5566\fR) and prints the
+JSON response on success.
+.PP
+All
+.B ekm
+commands require the caller to be authenticated; see
+.B AUTHENTICATION
+below for how the session used to sign these requests is obtained.
+.SH ACTIONS
+.TP
+.B create-key
+Creates a new key with a given algorithm and length. See
+.BR euclid-cli-ekm-create-key (1).
+.TP
+.B list-keys
+Lists existing keys, paged and sorted. See
+.BR euclid-cli-ekm-list-keys (1).
+.SH GLOBAL OPTIONS
+These options are given to
+.B euclid-cli
+itself, before the
+.I ekm
+module name.
+.TP
+.BR \-e ", " \-\-endpoint " " \fIURL\fR
+Euclid gateway endpoint to talk to, e.g. \fIhttps://localhost:5566\fR.
+.TP
+.BR \-\-ca\-cert " " \fIPATH\fR
+Path to a PEM CA certificate to trust in addition to the system trust
+store, e.g. for self-signed development certificates.
+.TP
+.BR \-c ", " \-\-config " " \fIPATH\fR
+Path to a JSON configuration file providing defaults for action
+options (currently used by
+.BR euclid-cli-esm (1)
+only). Defaults to
+.IR /usr/local/euclid/etc/euclid.json ;
+silently ignored if the file doesn't exist.
+.TP
+.BR \-l ", " \-\-loglevel " " \fILEVEL\fR
+Log level: one of \fItrace\fR, \fIdebug\fR, \fIinfo\fR, \fIwarning\fR,
+\fIerror\fR, \fIfatal\fR. Defaults to \fIinfo\fR.
+.TP
+.BR \-h ", " \-\-help
+Print top-level usage and exit.
+.TP
+.BR \-v ", " \-\-version
+Print the euclid-cli version and exit.
+.SH AUTHENTICATION
+.B ekm
+commands are authenticated using the session created by
+.BR euclid-cli-eam-login (1),
+loaded from
+.IR $HOME/.euclid/credentials .
+Like
+.BR eqs (1)
+and
+.BR esm (1)
+requests, they are signed with SigV4 using the stored access key ID and
+secret if present, falling back to the bearer token otherwise.
+.PP
+If the server rejects a request with
+.IR "HTTP 401" ,
+run
+.B euclid-cli eam login
+again.
+.SH EXIT STATUS
+.TP
+.B 0
+The action completed successfully.
+.TP
+.B 1
+Argument parsing failed, the request could not be sent, or the server
+rejected it (missing/expired session, invalid input, etc.). Details are
+printed to standard error.
+.SH FILES
+.TP
+.I $HOME/.euclid/credentials
+JSON file holding the current session's bearer token and/or SigV4
+access key, created by
+.B euclid-cli eam login
+and read by every
+.B ekm
+action.
+.SH EXAMPLES
+Create a key and list keys:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ekm create-key \e
+    --algorithm aes-gcm --length 256
+
+euclid-cli --endpoint http://localhost:5566 ekm list-keys
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli (1),
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-ekm-create-key (1),
+.BR euclid-cli-ekm-list-keys (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
