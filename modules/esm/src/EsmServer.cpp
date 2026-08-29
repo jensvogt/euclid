@@ -191,12 +191,12 @@ namespace Euclid::ESM {
         const auto ns = std::string(req["x-euclid-namespace"]);
 
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
-        const std::vector<Database::Entity::ESM::Bucket> buckets = repo->listBuckets(auth.user->accountId, ns, request.prefix, request.pageSize, request.pageIndex, request.sortColumn);
+        const std::vector<Database::Entity::ESM::Bucket> buckets = repo->listBuckets(auth.user->accountId, ns, request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection);
         log_info << "ESM bucket list, count: " << buckets.size();
 
         Dto::ESM::ListBucketsResponse response;
         response.buckets = Dto::ESM::EsmMapper::toDto(buckets);
-        response.total = repo->countBuckets(auth.user->accountId, ns);
+        response.total = repo->countBuckets(auth.user->accountId, ns, request.prefix);
 
         return EsmServer::JsonResponse(req, status::ok, response.toJson());
     }
@@ -979,7 +979,7 @@ namespace Euclid::ESM {
             return ErrorResponse(req, status::forbidden, "Bucket does not belong to the caller's account");
         }
 
-        const std::vector<Database::Entity::ESM::Object> objects = repo->listObjects(request.bucketErn, request.prefix, request.pageSize, request.pageIndex, request.sortColumn);
+        const std::vector<Database::Entity::ESM::Object> objects = repo->listObjects(request.bucketErn, request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection);
         log_info << "ESM got object list, bucket: " << request.bucketErn << ", count: " << objects.size();
 
         Dto::ESM::ListObjectsResponse response;

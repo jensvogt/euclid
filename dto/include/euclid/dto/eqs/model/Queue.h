@@ -79,6 +79,11 @@ namespace Euclid::Dto::EQS {
         std::string deadLetterQueueArn;
 
         /**
+         * @brief Default priority for new messages
+         */
+        std::string priority;
+
+        /**
          * @brief Creation date
          */
         system_clock::time_point created;
@@ -120,6 +125,7 @@ namespace Euclid::Dto::EQS {
             r.maxMessageLength = Core::GetLongValue(v, "maxMessageLength", 1024 * 1024);
             r.maxReceiveCount = Core::GetLongValue(v, "maxReceiveCount", 3);
             r.deadLetterQueueArn = Core::GetStringValue(v, "deadLetterQueueArn");
+            r.priority = Core::GetStringValue(v, "priority");
             r.created = Core::GetDatetimeValue(v, "created");
             r.modified = Core::GetDatetimeValue(v, "modified");
             return r;
@@ -140,6 +146,7 @@ namespace Euclid::Dto::EQS {
                     {"maxMessageLength", obj.maxMessageLength},
                     {"maxReceiveCount", obj.maxReceiveCount},
                     {"deadLetterQueueArn", obj.deadLetterQueueArn},
+                    {"priority", obj.priority},
                     {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
             };

@@ -1,6 +1,9 @@
 // Euclid includes
 #include <EqsServer.h>
 
+#include <boost/asio/query.hpp>
+#include <boost/asio/query.hpp>
+
 namespace Euclid::EQS {
 
     namespace beast = boost::beast;
@@ -206,14 +209,29 @@ namespace Euclid::EQS {
         const auto request = boost::json::value_to<Dto::EQS::SendMessageRequest>(jv);
         log_info << "EQS SendMessage queueErn: " << request.queueErn;
 
+        const auto repo = Database::RepositoryFactory::instance().eqsRepository();
+        std::optional<Database::Entity::EQS::Queue> queue = repo->findQueueByErn(request.queueErn);
+        if (!queue.has_value()) {
+            return EqsServer::ErrorResponse(req, status::bad_request, "Queue does not exist");
+        }
+
         const std::string messageId = Core::UuidUtils::CreateRandomUuid();
         const std::string ern = Core::createEqsMessageErn(auth.user.value().accountId, messageId);
+
+        // Attributes
         std::map<std::string, Database::Entity::COM::Variant> attributes;
         for (const auto &[key, variant]: request.attributes) {
             attributes[key] = Dto::EQS::EqsMapper::toEntity(variant);
         }
-        const auto repo = Database::RepositoryFactory::instance().eqsRepository();
-        const Database::Entity::EQS::Message message = repo->sendMessage(messageId, ern, request.queueErn, request.body, attributes, Database::Entity::EQS::MessagePriorityFromString(request.priority));
+
+        // Priority
+        Database::Entity::EQS::MessagePriority priority = queue->priority;
+        if (!request.priority.empty()) {
+            priority = Database::Entity::EQS::MessagePriorityFromString(request.priority);
+        }
+
+        // Create message
+        const Database::Entity::EQS::Message message = repo->sendMessage(messageId, ern, request.queueErn, request.body, attributes, priority);
 
         Dto::EQS::SendMessageResponse response;
         response.messageId = message.messageId;

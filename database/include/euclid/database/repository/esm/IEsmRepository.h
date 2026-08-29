@@ -86,10 +86,11 @@ namespace Euclid::Database {
          * @param pageSize maximum number of buckets to return; 0 or less means no limit
          * @param pageIndex zero-based page index, applied when pageSize is set
          * @param sortColumn field to sort by (e.g. "name", "ern"); empty means unsorted
+         * @param sortDirection "asc" or "desc"; anything else is treated as "desc"
          * @return matching, paged and sorted list of buckets
          */
         [[nodiscard]]
-        virtual std::vector<Entity::ESM::Bucket> listBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
+        virtual std::vector<Entity::ESM::Bucket> listBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const = 0;
 
         /**
          * @brief Checks if a bucket with the specified name exists in the repository.
@@ -105,10 +106,11 @@ namespace Euclid::Database {
          *
          * @param accountId only buckets belonging to this account are counted
          * @param namespaceName only buckets in this namespace are counted; empty means don't filter by namespace
+         * @param prefix only buckets whose name starts with this prefix are counted; empty means don't filter by name
          * @return The total number of buckets as a long integer.
          */
         [[nodiscard]]
-        virtual long countBuckets(const std::string &accountId, const std::string &namespaceName) const = 0;
+        virtual long countBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "") const = 0;
 
         /**
          * @brief Removes all entries from the bucket repository, leaving it in an empty state.
@@ -172,10 +174,11 @@ namespace Euclid::Database {
          * @param pageSize maximum number of buckets to return; 0 or less means no limit
          * @param pageIndex zero-based page index, applied when pageSize is set
          * @param sortColumn field to sort by (e.g. "name", "ern"); empty means unsorted
+         * @param sortDirection "asc" or "desc"; anything else is treated as "desc"
          * @return matching, paged and sorted list of buckets
          */
         [[nodiscard]]
-        virtual std::vector<Entity::ESM::Object> listObjects(const std::string &bucketErn, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
+        virtual std::vector<Entity::ESM::Object> listObjects(const std::string &bucketErn, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const = 0;
 
         /**
          * @brief Removes a object by its ERN.

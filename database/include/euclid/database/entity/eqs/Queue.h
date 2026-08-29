@@ -16,6 +16,8 @@
 #include <bsoncxx/builder/basic/document.hpp>
 
 // Euclid includes
+#include "MessagePriority.h"
+
 #include <euclid/database/entity/BaseEntity.h>
 #include <euclid/database/entity/eqs/QueueAttribute.h>
 
@@ -104,6 +106,11 @@ namespace Euclid::Database::Entity::EQS {
          * @brief Maximal receive count
          */
         std::string deadLetterQueueErn{};
+
+        /**
+         * @brief Default priority for messages
+         */
+        MessagePriority priority = MessagePriority::MIDDLE;
 
         /**
          * @brief Creation date
