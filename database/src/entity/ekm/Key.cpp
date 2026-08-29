@@ -28,7 +28,7 @@ namespace Euclid::Database::Entity::EKM {
                 bsoncxx::builder::basic::kvp("ern", ern),
                 bsoncxx::builder::basic::kvp("name", name),
                 bsoncxx::builder::basic::kvp("algorithm", algorithm),
-                bsoncxx::builder::basic::kvp("length", length),
+                bsoncxx::builder::basic::kvp("length", static_cast<int64_t>(length)),
                 bsoncxx::builder::basic::kvp("tags", tagsDoc.extract()));
     }
 
