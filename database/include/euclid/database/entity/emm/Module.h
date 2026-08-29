@@ -124,6 +124,16 @@ namespace Euclid::Database::Entity {
         int maxRestarts = -1;
 
         /**
+         * @brief Minimum number of autoscaled instances the controller keeps running for this module.
+         */
+        int minInstances = 1;
+
+        /**
+         * @brief Maximum number of autoscaled instances the controller may run for this module.
+         */
+        int maxInstances = 1;
+
+        /**
          * @brief Process arguments list.
          */
         std::vector<std::string> args;

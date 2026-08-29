@@ -123,6 +123,14 @@
           "count": 5
         }
       },
+      "emm": {
+        "active": true,
+        "name": "emm",
+        "socketPath": "/var/run/euclid/euclid-emm.sock",
+        "executable": "/usr/local/euclid/bin/euclid-emm",
+        "minInstances": 1,
+        "maxInstances": 1
+      },
       "lambda": {
         "active": true,
         "backup": {
@@ -283,7 +291,8 @@
     "monitoring": {
       "active": true,
       "average-period": 300,
-      "retention": 3
+      "retention": 3,
+      "cpu-usage-period": 60
     },
     "mongodb": {
       "active": true,

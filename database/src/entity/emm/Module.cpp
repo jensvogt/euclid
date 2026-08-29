@@ -41,6 +41,8 @@ namespace Euclid::Database::Entity {
                 bsoncxx::builder::basic::kvp("active", active),
                 bsoncxx::builder::basic::kvp("autoRestart", autoRestart),
                 bsoncxx::builder::basic::kvp("maxRestarts", maxRestarts),
+                bsoncxx::builder::basic::kvp("minInstances", minInstances),
+                bsoncxx::builder::basic::kvp("maxInstances", maxInstances),
                 bsoncxx::builder::basic::kvp("args", [this](bsoncxx::builder::basic::sub_array sa) {
                     for (const auto &arg: args) sa.append(arg);
                 }),
@@ -61,6 +63,8 @@ namespace Euclid::Database::Entity {
             else if (key == "active") module.active = field.get_bool().value;
             else if (key == "autoRestart") module.autoRestart = field.get_bool().value;
             else if (key == "maxRestarts") module.maxRestarts = field.get_int32().value;
+            else if (key == "minInstances") module.minInstances = field.get_int32().value;
+            else if (key == "maxInstances") module.maxInstances = field.get_int32().value;
             else if (key == "args") {
                 for (const auto &elem: field.get_array().value) module.args.push_back(std::string(elem.get_string().value));
             } else if (key == "instances") {

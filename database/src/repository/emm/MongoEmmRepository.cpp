@@ -127,6 +127,8 @@ namespace Euclid::Database {
                     bsoncxx::builder::basic::kvp("active", module.active),
                     bsoncxx::builder::basic::kvp("autoRestart", module.autoRestart),
                     bsoncxx::builder::basic::kvp("maxRestarts", module.maxRestarts),
+                    bsoncxx::builder::basic::kvp("minInstances", module.minInstances),
+                    bsoncxx::builder::basic::kvp("maxInstances", module.maxInstances),
                     bsoncxx::builder::basic::kvp("args", [&module](bsoncxx::builder::basic::sub_array sa) {
                         for (const auto &arg: module.args) sa.append(arg);
                     }));

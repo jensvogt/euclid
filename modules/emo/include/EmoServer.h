@@ -73,10 +73,18 @@ namespace Euclid::Monitoring {
         static void prune();
 
         /**
-         * @brief Ids of the scheduled flush/prune tasks, used to cancel them on destruction.
+         * @brief Reads the Linux system's overall CPU usage (from /proc/stat) since the previous
+         * call and persists it as a "system-cpu-usage" MonitoringData row. The first call after
+         * process start only primes the previous-reading state, since a delta needs two samples.
+         */
+        static void collectCpuUsage();
+
+        /**
+         * @brief Ids of the scheduled flush/prune/cpu-usage tasks, used to cancel them on destruction.
          */
         std::string _flushTaskId;
         std::string _pruneTaskId;
+        std::string _cpuUsageTaskId;
     };
 
 }// namespace Euclid::Monitoring
