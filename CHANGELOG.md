@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.45](https://github.com/jensvogt/euclid/compare/v1.0.44...v1.0.45) (2026-08-29)
+
+
+### Bug Fixes
+
+* more monitoring ([532cf18](https://github.com/jensvogt/euclid/commit/532cf183370fc7d7890308540d1d177fda247a9b))
+* some REST API bugs ([5eaf979](https://github.com/jensvogt/euclid/commit/5eaf97934cf8122149a17aa357ad71d838298b44))
+
 ## [1.0.44](https://github.com/jensvogt/euclid/compare/1.0.43...v1.0.44) (2026-08-28)
 
 
