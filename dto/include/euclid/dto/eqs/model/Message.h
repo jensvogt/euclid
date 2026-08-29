@@ -70,6 +70,16 @@ namespace Euclid::Dto::EQS {
         system_clock::time_point lastReceived;
 
         /**
+         * @brief Size of the body in bytes
+         */
+        long size{};
+
+        /**
+         * @brief Content type
+         */
+        std::string contentType;
+
+        /**
          * @brief Creation date
          */
         system_clock::time_point created;
@@ -108,6 +118,8 @@ namespace Euclid::Dto::EQS {
             r.receiptHandle = Core::GetStringValue(v, "receiptHandle");
             r.attributes = Core::GetMapFromObject<std::string, COM::Variant>(v, "attributes");
             r.md5Attributes = Core::GetStringValue(v, "md5Attributes");
+            r.size = Core::GetLongValue(v, "size");
+            r.contentType = Core::GetStringValue(v, "contentType");
             r.lastReceived = Core::GetDatetimeValue(v, "lastReceived");
             r.created = Core::GetDatetimeValue(v, "created");
             r.modified = Core::GetDatetimeValue(v, "modified");
@@ -124,6 +136,8 @@ namespace Euclid::Dto::EQS {
                     {"body", obj.body},
                     {"md5Body", obj.md5Body},
                     {"receiptHandle", obj.receiptHandle},
+                    {"size", boost::json::value_from(obj.size)},
+                    {"contentType", boost::json::value_from(obj.contentType)},
                     {"attributes", boost::json::value_from(obj.attributes)},
                     {"md5Attributes", obj.md5Attributes},
                     {"lastReceived", Core::DateTimeUtils::ToISO8601(obj.lastReceived)},

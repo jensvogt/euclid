@@ -33,13 +33,22 @@ namespace Euclid::Core {
          *
          * Also starts Core::Monitoring::MonitoringCollector, so every module built on this base
          * class collects Core::Monitoring::MonitoringTimer/MetricEventBus metrics without each
-         * one having to remember to start it itself.
+         * one having to remember to start it itself. Also schedules a periodic task (Linux only)
+         * that records this process's system CPU usage ("euclid-cpu-usage") and memory usage
+         * ("euclid-memory-usage-real-mb"/"-virtual-mb"/"-percent") as gauges, all labelled with
+         * this module's serviceName, so they're pushed to the monitoring module the same way as
+         * every other MetricEventBus-recorded metric - see MetricsPusher.
          *
          * @param serviceName name used in log lines and the accept loop's thread name.
          * @param socketPath  Unix domain socket path to listen on.
          * @param threads     number of io_context worker threads.
          */
         HttpActionServer(std::string serviceName, std::string socketPath, int threads = 2);
+
+        /**
+         * @brief Cancels the periodic CPU/memory usage collection task.
+         */
+        ~HttpActionServer() override;
 
         /**
          * @brief Builds an HTTP response with a JSON body.
@@ -251,6 +260,13 @@ namespace Euclid::Core {
         [[nodiscard]]
         static boost::beast::http::response<boost::beast::http::string_body>
         MetricsResponse(const boost::beast::http::request<boost::beast::http::string_body> &req);
+
+    private:
+
+        /**
+         * @brief Id of the scheduled CPU/memory usage collection task, used to cancel it on destruction.
+         */
+        std::string _resourceUsageTaskId;
     };
 
 }// namespace Euclid::Core

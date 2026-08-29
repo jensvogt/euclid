@@ -45,6 +45,8 @@ namespace Euclid::Database {
             stored.active = module.active;
             stored.autoRestart = module.autoRestart;
             stored.maxRestarts = module.maxRestarts;
+            stored.minInstances = module.minInstances;
+            stored.maxInstances = module.maxInstances;
             stored.args = module.args;
             stored.modified = now;
 

@@ -11,6 +11,8 @@ namespace Euclid::Dto {
         m.args = svc.config.args;
         m.autoRestart = svc.config.autoRestart;
         m.maxRestarts = svc.config.maxRestarts;
+        m.minInstances = svc.config.minInstances;
+        m.maxInstances = svc.config.maxInstances;
         m.modified = std::chrono::system_clock::now();
         return m;
     }
