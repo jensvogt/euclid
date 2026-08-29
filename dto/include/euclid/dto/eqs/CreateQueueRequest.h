@@ -42,6 +42,11 @@ namespace Euclid::Dto::EQS {
         long delay = 0;
 
         /**
+         * @brief Default priority for new messages
+         */
+        std::string priority = "MIDDLE";
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -65,6 +70,7 @@ namespace Euclid::Dto::EQS {
             r.maxMessageLength = Core::GetLongValue(v, "maxMessageLength");
             r.dlqName = Core::GetStringValue(v, "dlqName");
             r.delay = Core::GetLongValue(v, "delay");
+            r.priority = Core::GetStringValue(v, "priority");
             return r;
         }
 
@@ -76,6 +82,7 @@ namespace Euclid::Dto::EQS {
                     {"maxMessageLength", obj.maxMessageLength},
                     {"dlqName", obj.dlqName},
                     {"delay", obj.delay},
+                    {"priority", obj.priority},
             };
         }
     };
