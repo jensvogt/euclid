@@ -1,6 +1,7 @@
 set(BINARY euclid-mgr)
 
-add_executable(${BINARY} src/main.cpp src/Controller.cpp src/GatewayServer.cpp src/ControllerPlatform.cpp)
+add_executable(${BINARY} src/main.cpp src/Controller.cpp src/GatewayServer.cpp src/ControllerPlatform.cpp
+        src/GatewayWsSession.cpp src/GatewayWsRegistry.cpp src/GatewayEventIngest.cpp)
 
 set_target_properties(${BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 

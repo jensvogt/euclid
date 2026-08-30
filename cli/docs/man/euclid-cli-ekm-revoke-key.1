@@ -1,0 +1,75 @@
+.TH EUCLID-CLI-EKM-REVOKE-KEY 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ekm-revoke-key \- revoke an encryption key
+.SH SYNOPSIS
+.B euclid-cli ekm revoke-key
+.BR \-\-key | \-k
+.I ERN
+.SH DESCRIPTION
+Revokes a key: its status becomes
+.BR REVOKED .
+A revoked key can no longer be used to encrypt
+(see
+.BR euclid-cli-ekm-encrypt (1)),
+but
+.BR euclid-cli-ekm-decrypt (1)
+keeps working, so data already encrypted under the key stays
+recoverable.
+.PP
+Unlike
+.BR euclid-cli-ekm-delete-key (1),
+revoking does not schedule the key for removal - it stays around
+(and decryptable) indefinitely, unless separately deleted. There is
+no
+.B unrevoke
+action; revocation is permanent, the same as revoking a certificate or
+an API credential.
+.PP
+Revoking a key that is already
+.B PENDING_DELETION
+(scheduled via
+.BR euclid-cli-ekm-delete-key (1))
+is refused: encryption is already blocked in that state, and
+downgrading the status to
+.B REVOKED
+would hide the fact that a deletion is scheduled from anything that
+reads status without also checking the key's
+.B deletionDate
+field in
+.BR euclid-cli-ekm-list-keys (1).
+.SH OPTIONS
+.TP
+.BR \-k ", " \-\-key " " \fIERN\fR
+Euclid resource name of the key to revoke, as returned by the
+.B ern
+field of
+.BR euclid-cli-ekm-create-key (1)
+or
+.BR euclid-cli-ekm-list-keys (1).
+Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The key was revoked; its ERN, name and new status are printed as
+JSON.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or the
+server rejected the request (e.g. unknown ERN, or the key is already
+pending deletion).
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ekm revoke-key \e
+    --key ern:ekm:eu-central-1:000000000000:key:3f1c2b7a-...
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ekm (1),
+.BR euclid-cli-ekm-create-key (1),
+.BR euclid-cli-ekm-list-keys (1),
+.BR euclid-cli-ekm-delete-key (1),
+.BR euclid-cli-ekm-encrypt (1),
+.BR euclid-cli-ekm-decrypt (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

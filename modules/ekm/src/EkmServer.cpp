@@ -71,8 +71,7 @@ namespace Euclid::EKM {
         } else if (request.algorithm == "AES" && request.length == 256) {
             keyMaterial = Core::CryptoUtils::GenerateAes256Key();
         } else {
-            return EkmServer::ErrorResponse(req, status::bad_request,
-                                             "Unsupported algorithm/length: " + request.algorithm + "/" + std::to_string(request.length));
+            return EkmServer::ErrorResponse(req, status::bad_request, "Unsupported algorithm/length: " + request.algorithm + "/" + std::to_string(request.length));
         }
 
         // Keys are identified by a randomly generated ID rather than a user-chosen name (there's
@@ -91,9 +90,106 @@ namespace Euclid::EKM {
 
         const auto saved = Database::RepositoryFactory::instance().ekmRepository()->upsertKey(key);
 
+        // Reference wiring of Core::EventPusher for websocket clients (e.g. Euclid-JDK) that
+        // want to be told about key lifecycle changes as they happen, instead of polling
+        // list-keys. Fire-and-forget - see EventPusher's doc comment for why a slow/unreachable
+        // gateway never delays this response.
+        Core::EventPusher::Push("ekm.key.created", saved.accountId, saved.region,
+                                 boost::json::object{
+                                         {"ern", saved.ern},
+                                         {"algorithm", saved.algorithm},
+                                         {"length", saved.length},
+                                 });
+
         Dto::EKM::CreateKeyResponse response;
         response.name = saved.name;
         response.ern = saved.ern;
+        response.status = Database::Entity::EKM::KeyStatusToString(saved.status);
+        return EkmServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    // Schedules a key for permanent deletion rather than deleting it outright: decryption stays
+    // available until the background purge sweep (see EkmServer::EkmServer()) removes the key
+    // once its deletionDate has passed. That grace period - pendingWindowInDays, 7 by default -
+    // is what gives callers a chance to decrypt/migrate whatever was encrypted under this key
+    // before it becomes unrecoverable. Encryption, however, is blocked immediately (status flips
+    // to PENDING_DELETION) - a key that's on its way out shouldn't be gaining new data to lose.
+    static response<string_body> handleDeleteKey(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-key");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EkmServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EKM::DeleteKeyRequest>(jv);
+        if (request.keyId.empty()) {
+            return EkmServer::ErrorResponse(req, status::bad_request, "Missing keyId");
+        }
+        if (request.pendingWindowInDays < 1) {
+            return EkmServer::ErrorResponse(req, status::bad_request, "pendingWindowInDays must be >= 1");
+        }
+
+        const auto ns = std::string(req["x-euclid-namespace"]);
+        auto key = Database::RepositoryFactory::instance().ekmRepository()->findKeyByName(auth.user->accountId, ns, request.keyId);
+        if (!key.has_value()) {
+            return EkmServer::ErrorResponse(req, status::not_found, "Key not found, id: " + request.keyId);
+        }
+
+        key->deletionDate = std::chrono::system_clock::now() + std::chrono::hours(24 * request.pendingWindowInDays);
+        key->status = Database::Entity::EKM::KeyStatus::PENDING_DELETION;
+        const auto saved = Database::RepositoryFactory::instance().ekmRepository()->upsertKey(*key);
+
+        log_info << "EKM key scheduled for deletion, id: " << saved.name << ", deletionDate: " << Core::DateTimeUtils::ToISO8601(saved.deletionDate);
+
+        Dto::EKM::DeleteKeyResponse response;
+        response.name = saved.name;
+        response.ern = saved.ern;
+        response.deletionDate = Core::DateTimeUtils::ToISO8601(saved.deletionDate);
+        response.status = Database::Entity::EKM::KeyStatusToString(saved.status);
+        return EkmServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    // Permanently blocks encryption with this key while leaving decryption untouched - see
+    // Database::Entity::EKM::KeyStatus. Unlike delete-key, revoking doesn't schedule the key for
+    // removal; it stays around (and decryptable) indefinitely unless separately deleted. Refuses
+    // to revoke a key that's already PENDING_DELETION: encryption is already blocked there, and
+    // downgrading the status to REVOKED would hide the fact that a deletion is scheduled from
+    // anything that reads status without also checking deletionDate.
+    static response<string_body> handleRevokeKey(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "revoke-key");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EkmServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EKM::RevokeKeyRequest>(jv);
+        if (request.ern.empty()) {
+            return EkmServer::ErrorResponse(req, status::bad_request, "Missing ERN");
+        }
+
+        const auto ns = std::string(req["x-euclid-namespace"]);
+        auto key = Database::RepositoryFactory::instance().ekmRepository()->findKeyByErn(request.ern);
+        if (!key.has_value()) {
+            return EkmServer::ErrorResponse(req, status::not_found, "Key not found, ern: " + request.ern);
+        }
+        if (key->status == Database::Entity::EKM::KeyStatus::PENDING_DELETION) {
+            return EkmServer::ErrorResponse(req, status::bad_request, "Ern '" + request.ern + "' is already scheduled for deletion; encryption is already blocked");
+        }
+
+        key->status = Database::Entity::EKM::KeyStatus::REVOKED;
+        const auto saved = Database::RepositoryFactory::instance().ekmRepository()->upsertKey(*key);
+
+        log_info << "EKM key revoked, id: " << saved.name;
+
+        Dto::EKM::RevokeKeyResponse response;
+        response.name = saved.name;
+        response.ern = saved.ern;
+        response.status = Database::Entity::EKM::KeyStatusToString(saved.status);
         return EkmServer::JsonResponse(req, status::ok, response.toJson());
     }
 
@@ -119,6 +215,10 @@ namespace Euclid::EKM {
         }
         if (key->keyMaterial.empty()) {
             return EkmServer::ErrorResponse(req, status::bad_request, "Key '" + keyId + "' has no key material (it was created before key generation was added); create a new key");
+        }
+        if (key->status != Database::Entity::EKM::KeyStatus::AVAILABLE) {
+            return EkmServer::ErrorResponse(req, status::forbidden,
+                                            "Key '" + keyId + "' is " + Database::Entity::EKM::KeyStatusToString(key->status) + " and cannot be used for encryption");
         }
 
         std::string ciphertext;
@@ -209,7 +309,9 @@ namespace Euclid::EKM {
             CreateKey,
             ListKeys,
             Encrypt,
-            Decrypt
+            Decrypt,
+            DeleteKey,
+            RevokeKey
         };
     }
 
@@ -218,6 +320,8 @@ namespace Euclid::EKM {
         if (action == "list-keys") return Command::ListKeys;
         if (action == "encrypt") return Command::Encrypt;
         if (action == "decrypt") return Command::Decrypt;
+        if (action == "delete-key") return Command::DeleteKey;
+        if (action == "revoke-key") return Command::RevokeKey;
         return Command::Unknown;
     }
 
@@ -243,6 +347,12 @@ namespace Euclid::EKM {
             case Command::Decrypt:
                 return handleDecrypt(req);
 
+            case Command::DeleteKey:
+                return handleDeleteKey(req);
+
+            case Command::RevokeKey:
+                return handleRevokeKey(req);
+
             case Command::Unknown:
             default:
                 log_warning << "Unknown action: " << action;
@@ -252,9 +362,18 @@ namespace Euclid::EKM {
 
     // ── EkmServer ────────────────────────────────────────────────────────────
 
-    EkmServer::EkmServer(std::string socketPath, const int threads) : HttpActionServer("EKM", std::move(socketPath), threads) {}
+    EkmServer::EkmServer(std::string socketPath, const int threads) : HttpActionServer("EKM", std::move(socketPath), threads) {
+        auto &scheduler = Core::Scheduler::instance();
+        scheduler.Start();
+        _purgeKeysTaskId = scheduler.SchedulePeriodic("ekm-purge-keys-pending-deletion", [] {
+                                                          Database::RepositoryFactory::instance().ekmRepository()->purgeKeysPendingDeletion();
+                                                      },
+                                                      std::chrono::hours(1));
+    }
 
-    EkmServer::~EkmServer() = default;
+    EkmServer::~EkmServer() {
+        Core::Scheduler::instance().Cancel(_purgeKeysTaskId);
+    }
 
     response<string_body> EkmServer::Dispatch(const request<string_body> &req) {
         return dispatch(req);

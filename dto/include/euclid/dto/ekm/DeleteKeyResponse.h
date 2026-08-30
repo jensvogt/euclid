@@ -1,5 +1,5 @@
 //
-// Created by vogje01 on 8/16/26.
+// Created by vogje01 on 8/30/26.
 //
 
 #pragma once
@@ -9,7 +9,7 @@
 
 namespace Euclid::Dto::EKM {
 
-    struct CreateKeyResponse {
+    struct DeleteKeyResponse {
 
         /**
          * @brief Euclid resource name
@@ -22,19 +22,14 @@ namespace Euclid::Dto::EKM {
         std::string name;
 
         /**
-         * @brief Name of the algorithm
+         * @brief Point in time at which the key will be permanently deleted, ISO8601
          */
-        std::string algorithm;
+        std::string deletionDate;
 
         /**
-         * @brief Key length
+         * @brief Lifecycle status; always "PENDING_DELETION" after a successful delete-key
          */
-        long length = 128;
-
-        /**
-         * @brief Lifecycle status; always "AVAILABLE" for a freshly created key
-         */
-        std::string status = "AVAILABLE";
+        std::string status = "PENDING_DELETION";
 
         /**
          * @brief Serializes this request to a JSON string
@@ -46,28 +41,26 @@ namespace Euclid::Dto::EKM {
         /**
          * @brief Deserializes this request from a JSON string
          */
-        [[nodiscard]] static CreateKeyResponse fromJson(const std::string &json) {
-            return boost::json::value_to<CreateKeyResponse>(Core::ParseJsonString(json));
+        [[nodiscard]] static DeleteKeyResponse fromJson(const std::string &json) {
+            return boost::json::value_to<DeleteKeyResponse>(Core::ParseJsonString(json));
         }
 
     private:
 
-        friend CreateKeyResponse tag_invoke(boost::json::value_to_tag<CreateKeyResponse>, boost::json::value const &v) {
-            CreateKeyResponse r;
+        friend DeleteKeyResponse tag_invoke(boost::json::value_to_tag<DeleteKeyResponse>, boost::json::value const &v) {
+            DeleteKeyResponse r;
             r.ern = Core::GetStringValue(v, "ern");
             r.name = Core::GetStringValue(v, "name");
-            r.algorithm = Core::GetStringValue(v, "algorithm");
-            r.length = Core::GetLongValue(v, "length");
+            r.deletionDate = Core::GetStringValue(v, "deletionDate");
             r.status = Core::GetStringValue(v, "status");
             return r;
         }
 
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, CreateKeyResponse const &obj) {
+        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, DeleteKeyResponse const &obj) {
             jv = {
                     {"ern", obj.ern},
                     {"name", obj.name},
-                    {"algorithm", obj.algorithm},
-                    {"length", obj.length},
+                    {"deletionDate", obj.deletionDate},
                     {"status", obj.status},
             };
         }

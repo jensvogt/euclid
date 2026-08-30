@@ -9,8 +9,13 @@ namespace Euclid::Dto::EKM {
         dto.algorithm = entity.algorithm;
         dto.length = entity.length;
         dto.tags = entity.tags;
+        dto.status = Database::Entity::EKM::KeyStatusToString(entity.status);
         dto.created = entity.created;
         dto.modified = entity.modified;
+        if (entity.deletionDate != Database::Entity::EKM::system_clock::time_point{}) {
+            dto.deletionDate = Core::DateTimeUtils::ToISO8601(entity.deletionDate);
+        }
+        dto.status = Database::Entity::EKM::KeyStatusToString(entity.status);
         return dto;
     }
 
@@ -30,6 +35,7 @@ namespace Euclid::Dto::EKM {
         entity.algorithm = dto.algorithm;
         entity.length = dto.length;
         entity.tags = dto.tags;
+        entity.status = Database::Entity::EKM::KeyStatusFromString(dto.status);
         entity.created = dto.created;
         entity.modified = dto.modified;
         return entity;

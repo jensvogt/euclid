@@ -147,7 +147,7 @@ namespace Euclid::CLI {
         request.visibility = vm["visibility"].as<long>();
         request.maxRetries = vm["max-retries"].as<long>();
         request.maxMessageLength = vm["max-length"].as<long>();
-        request.priority = vm["priority"].as<long>();
+        request.priority = vm["priority"].as<std::string>();
         if (vm.contains("dlq-name")) {
             request.dlqName = vm["dlq-name"].as<std::string>();
         }

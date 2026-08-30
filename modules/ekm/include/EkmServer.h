@@ -8,6 +8,7 @@
 #include <euclid/core/CryptoUtils.h>
 #include <euclid/core/DateTimeUtils.h>
 #include <euclid/core/ErnUtils.h>
+#include <euclid/core/EventPusher.h>
 #include <euclid/core/HttpActionServer.h>
 #include <euclid/core/LogStream.h>
 #include <euclid/core/Scheduler.h>
@@ -19,8 +20,12 @@
 #include <euclid/dto/BaseDto.h>
 #include <euclid/dto/ekm/CreateKeyRequest.h>
 #include <euclid/dto/ekm/CreateKeyResponse.h>
+#include <euclid/dto/ekm/DeleteKeyRequest.h>
+#include <euclid/dto/ekm/DeleteKeyResponse.h>
 #include <euclid/dto/ekm/ListKeysRequest.h>
 #include <euclid/dto/ekm/ListKeysResponse.h>
+#include <euclid/dto/ekm/RevokeKeyRequest.h>
+#include <euclid/dto/ekm/RevokeKeyResponse.h>
 
 namespace Euclid::EKM {
 
@@ -40,8 +45,8 @@ namespace Euclid::EKM {
         /**
          * @brief Constructs the server.
          *
-         * Also starts the background task that periodically resets messages whose visibility
-         * timeout has expired back to status "INITIAL" so they become receivable again.
+         * Also starts the background task that periodically purges keys whose scheduled deletion
+         * date (set by delete-key) has passed.
          *
          * @param socketPath Unix domain socket path to listen on.
          * @param threads    Number of io_context worker threads.
@@ -49,7 +54,7 @@ namespace Euclid::EKM {
         explicit EkmServer(std::string socketPath, int threads = 2);
 
         /**
-         * @brief Cancels the background visibility timeout task.
+         * @brief Cancels the background key-purge task.
          */
         ~EkmServer() override;
 
@@ -63,6 +68,14 @@ namespace Euclid::EKM {
          */
         [[nodiscard]]
         response<string_body> Dispatch(const request<string_body> &req) override;
+
+    private:
+
+        /**
+         * @brief Id of the periodic task that purges keys whose scheduled deletion date has
+         * passed, cancelled in the destructor.
+         */
+        std::string _purgeKeysTaskId;
     };
 
 }// namespace Euclid::EKM

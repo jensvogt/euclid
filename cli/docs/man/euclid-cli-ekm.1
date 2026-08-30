@@ -11,8 +11,9 @@ euclid-cli-ekm \- manage Euclid encryption keys
 .SH DESCRIPTION
 The
 .B ekm
-module talks to the Euclid gateway's ekm service to create and list
-encryption keys, and to encrypt/decrypt data with them. Most
+module talks to the Euclid gateway's ekm service to create, list,
+revoke and delete encryption keys, and to encrypt/decrypt data with
+them. Most
 .B ekm
 commands send a single JSON request to the gateway
 (\fB\-\-endpoint\fR, default \fIhttps://localhost:5566\fR) and print the
@@ -40,6 +41,17 @@ Creates a new key with a given algorithm and length. See
 .B list-keys
 Lists existing keys, paged and sorted. See
 .BR euclid-cli-ekm-list-keys (1).
+.TP
+.B delete-key
+Schedules a key for permanent deletion after a grace period (default
+7 days); decryption stays available until then, but encryption is
+blocked immediately. See
+.BR euclid-cli-ekm-delete-key (1).
+.TP
+.B revoke-key
+Revokes a key: blocks encryption permanently while leaving decryption
+untouched, without scheduling the key for removal. See
+.BR euclid-cli-ekm-revoke-key (1).
 .TP
 .B encrypt
 Encrypts a file or stdin with a key, writing the ciphertext to a file
@@ -118,7 +130,8 @@ and read by every
 .B ekm
 action.
 .SH EXAMPLES
-Create a key, list keys, and encrypt/decrypt a file:
+Create a key, list keys, encrypt/decrypt a file, revoke the key, and
+schedule it for deletion:
 .PP
 .RS
 .nf
@@ -132,6 +145,12 @@ euclid-cli --endpoint http://localhost:5566 ekm encrypt \e
 
 euclid-cli --endpoint http://localhost:5566 ekm decrypt \e
     --key-id 3f1c2b7a-... --input plain.enc --output plain.txt
+
+euclid-cli --endpoint http://localhost:5566 ekm revoke-key \e
+    --key ern:ekm:eu-central-1:000000000000:key:3f1c2b7a-...
+
+euclid-cli --endpoint http://localhost:5566 ekm delete-key \e
+    --key-id 3f1c2b7a-...
 .fi
 .RE
 .SH SEE ALSO
@@ -140,6 +159,8 @@ euclid-cli --endpoint http://localhost:5566 ekm decrypt \e
 .BR euclid-cli-eam-login (1),
 .BR euclid-cli-ekm-create-key (1),
 .BR euclid-cli-ekm-list-keys (1),
+.BR euclid-cli-ekm-revoke-key (1),
+.BR euclid-cli-ekm-delete-key (1),
 .BR euclid-cli-ekm-encrypt (1),
 .BR euclid-cli-ekm-decrypt (1)
 .SH AUTHOR
