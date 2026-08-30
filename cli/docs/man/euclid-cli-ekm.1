@@ -12,11 +12,19 @@ euclid-cli-ekm \- manage Euclid encryption keys
 The
 .B ekm
 module talks to the Euclid gateway's ekm service to create and list
-encryption keys. Every
+encryption keys, and to encrypt/decrypt data with them. Most
 .B ekm
-command sends a single JSON request to the gateway
-(\fB\-\-endpoint\fR, default \fIhttps://localhost:5566\fR) and prints the
-JSON response on success.
+commands send a single JSON request to the gateway
+(\fB\-\-endpoint\fR, default \fIhttps://localhost:5566\fR) and print the
+JSON response on success; the
+.B encrypt
+and
+.B decrypt
+actions instead send and receive raw bytes - see
+.BR euclid-cli-ekm-encrypt (1)
+and
+.BR euclid-cli-ekm-decrypt (1)
+for details.
 .PP
 All
 .B ekm
@@ -32,6 +40,16 @@ Creates a new key with a given algorithm and length. See
 .B list-keys
 Lists existing keys, paged and sorted. See
 .BR euclid-cli-ekm-list-keys (1).
+.TP
+.B encrypt
+Encrypts a file or stdin with a key, writing the ciphertext to a file
+or stdout. See
+.BR euclid-cli-ekm-encrypt (1).
+.TP
+.B decrypt
+Decrypts a file or stdin with a key, writing the plaintext to a file
+or stdout. See
+.BR euclid-cli-ekm-decrypt (1).
 .SH GLOBAL OPTIONS
 These options are given to
 .B euclid-cli
@@ -100,7 +118,7 @@ and read by every
 .B ekm
 action.
 .SH EXAMPLES
-Create a key and list keys:
+Create a key, list keys, and encrypt/decrypt a file:
 .PP
 .RS
 .nf
@@ -108,6 +126,12 @@ euclid-cli --endpoint http://localhost:5566 ekm create-key \e
     --algorithm aes-gcm --length 256
 
 euclid-cli --endpoint http://localhost:5566 ekm list-keys
+
+euclid-cli --endpoint http://localhost:5566 ekm encrypt \e
+    --key-id 3f1c2b7a-... --input plain.txt --output plain.enc
+
+euclid-cli --endpoint http://localhost:5566 ekm decrypt \e
+    --key-id 3f1c2b7a-... --input plain.enc --output plain.txt
 .fi
 .RE
 .SH SEE ALSO
@@ -115,6 +139,8 @@ euclid-cli --endpoint http://localhost:5566 ekm list-keys
 .BR euclid-cli-eam (1),
 .BR euclid-cli-eam-login (1),
 .BR euclid-cli-ekm-create-key (1),
-.BR euclid-cli-ekm-list-keys (1)
+.BR euclid-cli-ekm-list-keys (1),
+.BR euclid-cli-ekm-encrypt (1),
+.BR euclid-cli-ekm-decrypt (1)
 .SH AUTHOR
 Jens Vogt <jens.vogt@opitz-consulting.com>

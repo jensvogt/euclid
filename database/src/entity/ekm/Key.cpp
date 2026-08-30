@@ -29,6 +29,7 @@ namespace Euclid::Database::Entity::EKM {
                 bsoncxx::builder::basic::kvp("name", name),
                 bsoncxx::builder::basic::kvp("algorithm", algorithm),
                 bsoncxx::builder::basic::kvp("length", static_cast<int64_t>(length)),
+                bsoncxx::builder::basic::kvp("keyMaterial", keyMaterial),
                 bsoncxx::builder::basic::kvp("tags", tagsDoc.extract()));
     }
 
@@ -45,6 +46,7 @@ namespace Euclid::Database::Entity::EKM {
             else if (k == "name") key.name = std::string(field.get_string().value);
             else if (k == "algorithm") key.algorithm = std::string(field.get_string().value);
             else if (k == "length") key.length = getBsonInt(field);
+            else if (k == "keyMaterial") key.keyMaterial = std::string(field.get_string().value);
             else if (k == "created") key.created = system_clock::time_point{field.get_date().value};
             else if (k == "modified") key.modified = system_clock::time_point{field.get_date().value};
             else if (k == "tags") {

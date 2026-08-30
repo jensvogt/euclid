@@ -54,6 +54,11 @@ namespace Euclid::Database::Entity::EKM {
         long length = 128;
 
         /**
+         * @brief Raw key material, base64-encoded. Never leaves the server - not part of any DTO.
+         */
+        std::string keyMaterial;
+
+        /**
          * @brief Queue tags
          */
         std::map<std::string, std::string> tags;

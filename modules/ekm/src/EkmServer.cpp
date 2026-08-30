@@ -63,6 +63,18 @@ namespace Euclid::EKM {
         const auto request = boost::json::value_to<Dto::EKM::CreateKeyRequest>(jv);
         const auto ns = std::string(req["x-euclid-namespace"]);
 
+        // Only AES-128/256 are supported for now - other algorithm/length combinations have no
+        // key generation routine yet.
+        std::string keyMaterial;
+        if (request.algorithm == "AES" && request.length == 128) {
+            keyMaterial = Core::CryptoUtils::GenerateAes128Key();
+        } else if (request.algorithm == "AES" && request.length == 256) {
+            keyMaterial = Core::CryptoUtils::GenerateAes256Key();
+        } else {
+            return EkmServer::ErrorResponse(req, status::bad_request,
+                                             "Unsupported algorithm/length: " + request.algorithm + "/" + std::to_string(request.length));
+        }
+
         // Keys are identified by a randomly generated ID rather than a user-chosen name (there's
         // no "name" field on CreateKeyRequest) - mirrors how EQS/ENS message IDs are minted.
         const auto keyId = Core::UuidUtils::CreateRandomUuid();
@@ -75,6 +87,7 @@ namespace Euclid::EKM {
         key.ern = Core::createEkmKeyErn(auth.user->accountId, keyId);
         key.algorithm = request.algorithm;
         key.length = request.length;
+        key.keyMaterial = keyMaterial;
 
         const auto saved = Database::RepositoryFactory::instance().ekmRepository()->upsertKey(key);
 
@@ -82,6 +95,84 @@ namespace Euclid::EKM {
         response.name = saved.name;
         response.ern = saved.ern;
         return EkmServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    // Plaintext travels as the raw request body ("application/octet-stream") rather than a base64
+    // JSON field - mirrors ESM's upload-part/download-part convention for payload-carrying actions.
+    // The key ID travels as a header for the same reason: the body is opaque bytes, not JSON.
+    static response<string_body> handleEncrypt(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "encrypt");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        const auto keyId = std::string(req["x-euclid-key-id"]);
+        if (keyId.empty()) {
+            return EkmServer::ErrorResponse(req, status::bad_request, "Missing x-euclid-key-id header");
+        }
+
+        const auto ns = std::string(req["x-euclid-namespace"]);
+        const auto key = Database::RepositoryFactory::instance().ekmRepository()->findKeyByName(auth.user->accountId, ns, keyId);
+        if (!key.has_value()) {
+            return EkmServer::ErrorResponse(req, status::not_found, "Key not found, id: " + keyId);
+        }
+        if (key->keyMaterial.empty()) {
+            return EkmServer::ErrorResponse(req, status::bad_request, "Key '" + keyId + "' has no key material (it was created before key generation was added); create a new key");
+        }
+
+        std::string ciphertext;
+        try {
+            ciphertext = Core::CryptoUtils::AesGcmEncrypt(Core::CryptoUtils::Base64Decode(key->keyMaterial), req.body());
+        } catch (const std::exception &ex) {
+            return EkmServer::ErrorResponse(req, status::internal_server_error, std::string("Encryption failed: ") + ex.what());
+        }
+
+        response<string_body> res{status::ok, req.version()};
+        res.set(field::content_type, "application/octet-stream");
+        res.keep_alive(req.keep_alive());
+        res.body() = std::move(ciphertext);
+        res.prepare_payload();
+        return res;
+    }
+
+    // Mirror image of handleEncrypt(): ciphertext (IV || ciphertext || tag, as produced by
+    // encrypt) travels as the raw request body, the key ID as a header, and the recovered
+    // plaintext comes back as the raw response body.
+    static response<string_body> handleDecrypt(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "decrypt");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        const auto keyId = std::string(req["x-euclid-key-id"]);
+        if (keyId.empty()) {
+            return EkmServer::ErrorResponse(req, status::bad_request, "Missing x-euclid-key-id header");
+        }
+
+        const auto ns = std::string(req["x-euclid-namespace"]);
+        const auto key = Database::RepositoryFactory::instance().ekmRepository()->findKeyByName(auth.user->accountId, ns, keyId);
+        if (!key.has_value()) {
+            return EkmServer::ErrorResponse(req, status::not_found, "Key not found, id: " + keyId);
+        }
+        if (key->keyMaterial.empty()) {
+            return EkmServer::ErrorResponse(req, status::bad_request, "Key '" + keyId + "' has no key material (it was created before key generation was added); create a new key");
+        }
+
+        std::string plaintext;
+        try {
+            plaintext = Core::CryptoUtils::AesGcmDecrypt(Core::CryptoUtils::Base64Decode(key->keyMaterial), req.body());
+        } catch (const std::exception &ex) {
+            return EkmServer::ErrorResponse(req, status::bad_request, std::string("Decryption failed: ") + ex.what());
+        }
+
+        response<string_body> res{status::ok, req.version()};
+        res.set(field::content_type, "application/octet-stream");
+        res.keep_alive(req.keep_alive());
+        res.body() = std::move(plaintext);
+        res.prepare_payload();
+        return res;
     }
 
     static response<string_body> handleListKeys(const request<string_body> &req) {
@@ -116,13 +207,17 @@ namespace Euclid::EKM {
         enum class Command {
             Unknown,
             CreateKey,
-            ListKeys
+            ListKeys,
+            Encrypt,
+            Decrypt
         };
     }
 
     static Command commandFromString(const std::string &action) {
         if (action == "create-key") return Command::CreateKey;
         if (action == "list-keys") return Command::ListKeys;
+        if (action == "encrypt") return Command::Encrypt;
+        if (action == "decrypt") return Command::Decrypt;
         return Command::Unknown;
     }
 
@@ -141,6 +236,12 @@ namespace Euclid::EKM {
 
             case Command::ListKeys:
                 return handleListKeys(req);
+
+            case Command::Encrypt:
+                return handleEncrypt(req);
+
+            case Command::Decrypt:
+                return handleDecrypt(req);
 
             case Command::Unknown:
             default:

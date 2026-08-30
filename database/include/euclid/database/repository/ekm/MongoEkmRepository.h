@@ -44,6 +44,17 @@ namespace Euclid::Database {
         Entity::EKM::Key upsertKey(Entity::EKM::Key &key) override;
 
         /**
+         * @brief Find a key by its account, namespace and name
+         *
+         * @param accountId account the key belongs to
+         * @param namespaceName namespace the key belongs to
+         * @param name key name
+         * @return optional key
+         */
+        [[nodiscard]]
+        std::optional<Entity::EKM::Key> findKeyByName(const std::string &accountId, const std::string &namespaceName, const std::string &name) const override;
+
+        /**
          * @brief Removes a queue entity
          *
          * @param name module name
