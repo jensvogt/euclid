@@ -159,8 +159,7 @@ namespace Euclid::Core {
         }
     }// namespace
 
-    HttpActionServer::HttpActionServer(std::string serviceName, std::string socketPath, const int threads)
-        : UnixSocketServer(serviceName, std::move(socketPath), threads) {
+    HttpActionServer::HttpActionServer(const std::string &serviceName, std::string socketPath, const int threads) : UnixSocketServer(serviceName, std::move(socketPath), threads) {
         Monitoring::MonitoringCollector::instance().Start();
 
 #ifdef __linux__
@@ -170,7 +169,7 @@ namespace Euclid::Core {
         _resourceUsageTaskId = scheduler.SchedulePeriodic("resource-usage-" + serviceName, [serviceName] {
             recordCpuUsage(serviceName);
             recordMemoryUsage(serviceName);
-        }, std::chrono::duration_cast<std::chrono::milliseconds>(resourceUsagePeriod));
+        }, std::chrono::duration_cast<milliseconds>(resourceUsagePeriod));
 #endif
     }
 

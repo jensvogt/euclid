@@ -24,8 +24,8 @@ namespace Euclid::ESM {
 
         // Timer/counter names shared by every handler below - one series per action, labeled
         // "method"=<action>, e.g. name="queues-service-time" labelName="method" labelValue="send-message".
-        constexpr auto kServiceTimer = "storage-service-time";
-        constexpr auto kServiceCounter = "storage-service-count";
+        constexpr auto kServiceTimer = "esm-service-time";
+        constexpr auto kServiceCounter = "esm-service-count";
 
         // Fallback for "euclid.modules.storage.data-dir", matching the default in dist/etc/euclid*.json.
 #ifdef _WIN32

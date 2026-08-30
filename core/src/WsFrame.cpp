@@ -90,4 +90,54 @@ namespace Euclid::Core {
         });
     }
 
+    std::optional<std::string> WsFrame::FrameType(const std::string &text) {
+        boost::system::error_code ec;
+        const auto jv = boost::json::parse(text, ec);
+        if (ec || !jv.is_object()) return std::nullopt;
+
+        const auto *type = jv.as_object().if_contains("type");
+        if (!type || !type->is_string()) return std::nullopt;
+        return std::string(type->as_string());
+    }
+
+    std::optional<WsFrame::ParsedSubscription> WsFrame::ParseSubscription(const std::string &text, std::string &error) {
+
+        boost::system::error_code ec;
+        const auto jv = boost::json::parse(text, ec);
+        if (ec || !jv.is_object()) {
+            error = "Invalid JSON frame";
+            return std::nullopt;
+        }
+
+        const auto &obj = jv.as_object();
+        const auto *type = obj.if_contains("type");
+        if (!type || !type->is_string() || (type->as_string() != "subscribe" && type->as_string() != "unsubscribe")) {
+            error = R"(Expected a "subscribe" or "unsubscribe" frame)";
+            return std::nullopt;
+        }
+
+        const auto *id = obj.if_contains("id");
+        const auto *topic = obj.if_contains("topic");
+        if (!id || !id->is_string() || !topic || !topic->is_string()) {
+            error = "Subscription frame missing id/topic";
+            return std::nullopt;
+        }
+
+        ParsedSubscription r;
+        r.id = std::string(id->as_string());
+        r.type = std::string(type->as_string());
+        r.topic = std::string(topic->as_string());
+        if (const auto *filter = obj.if_contains("filter"); filter && filter->is_object()) {
+            r.filter = filter->as_object();
+        }
+        return r;
+    }
+
+    std::string WsFrame::BuildSubscriptionAckFrame(const std::string &id, const std::string &ackType) {
+        return boost::json::serialize(boost::json::object{
+                {"type", ackType},
+                {"id", id},
+        });
+    }
+
 }// namespace Euclid::Core

@@ -1,3 +1,6 @@
+// C++ includes
+#include <algorithm>
+
 // Boost includes
 #include <boost/asio/strand.hpp>
 
@@ -77,6 +80,34 @@ namespace Euclid::main {
             });
         }
 
+        // Shared by GatewayWsSession::handleSubscriptionFrame() and GatewayWsTlsSession's - parses
+        // one inbound subscribe/unsubscribe frame and adds/removes the subscription in place,
+        // under the caller's own mutex (guarding that same session's WantsEvent()). Handled
+        // inline rather than dispatched onto the io_context like DispatchFrame() above, since
+        // there's no backend round-trip involved - just an in-memory list mutation.
+        template<class SessionPtr>
+        void HandleSubscriptionFrame(SessionPtr self, std::mutex &mutex, std::vector<Core::WsFrame::Subscription> &subscriptions, const std::string &text) {
+
+            std::string error;
+            auto parsed = Core::WsFrame::ParseSubscription(text, error);
+            if (!parsed.has_value()) {
+                self->PostFrame(Core::WsFrame::BuildErrorFrame("", 400, error));
+                return;
+            }
+
+            {
+                std::lock_guard lock(mutex);
+                if (parsed->type == "subscribe") {
+                    subscriptions.push_back({.topic = parsed->topic, .filter = parsed->filter});
+                } else {
+                    std::erase_if(subscriptions, [&](const Core::WsFrame::Subscription &sub) {
+                        return sub.topic == parsed->topic && sub.filter == parsed->filter;
+                    });
+                }
+            }
+            self->PostFrame(Core::WsFrame::BuildSubscriptionAckFrame(parsed->id, parsed->type == "subscribe" ? "subscribed" : "unsubscribed"));
+        }
+
     }// namespace
 
     // ── GatewayWsSession ─────────────────────────────────────────────────────
@@ -106,13 +137,31 @@ namespace Euclid::main {
     void GatewayWsSession::onRead(const beast::error_code &ec, std::size_t) {
         if (ec) return;// EOF, timeout, etc. - session destructs once every outstanding handler drops its shared_ptr
 
-        if (_ws.got_text()) handleRequestFrame(beast::buffers_to_string(_buffer.data()));
+        if (_ws.got_text()) handleFrame(beast::buffers_to_string(_buffer.data()));
         _buffer.consume(_buffer.size());
         doRead();
     }
 
+    void GatewayWsSession::handleFrame(const std::string &text) {
+        const auto type = Core::WsFrame::FrameType(text);
+        if (type == "subscribe" || type == "unsubscribe") {
+            handleSubscriptionFrame(text);
+            return;
+        }
+        handleRequestFrame(text);
+    }
+
     void GatewayWsSession::handleRequestFrame(const std::string &text) {
         DispatchFrame(shared_from_this(), _ioc, _ctrl, _authorization, _accountId, _region, _namespace, text);
+    }
+
+    void GatewayWsSession::handleSubscriptionFrame(const std::string &text) {
+        HandleSubscriptionFrame(shared_from_this(), _subscriptionsMutex, _subscriptions, text);
+    }
+
+    bool GatewayWsSession::WantsEvent(const std::string &topic, const boost::json::object &body) const {
+        std::lock_guard lock(_subscriptionsMutex);
+        return std::ranges::any_of(_subscriptions, [&](const Core::WsFrame::Subscription &sub) { return sub.Matches(topic, body); });
     }
 
     void GatewayWsSession::PostFrame(std::string frame) {
@@ -158,13 +207,31 @@ namespace Euclid::main {
     void GatewayWsTlsSession::onRead(const beast::error_code &ec, std::size_t) {
         if (ec) return;
 
-        if (_ws.got_text()) handleRequestFrame(beast::buffers_to_string(_buffer.data()));
+        if (_ws.got_text()) handleFrame(beast::buffers_to_string(_buffer.data()));
         _buffer.consume(_buffer.size());
         doRead();
     }
 
+    void GatewayWsTlsSession::handleFrame(const std::string &text) {
+        const auto type = Core::WsFrame::FrameType(text);
+        if (type == "subscribe" || type == "unsubscribe") {
+            handleSubscriptionFrame(text);
+            return;
+        }
+        handleRequestFrame(text);
+    }
+
     void GatewayWsTlsSession::handleRequestFrame(const std::string &text) {
         DispatchFrame(shared_from_this(), _ioc, _ctrl, _authorization, _accountId, _region, _namespace, text);
+    }
+
+    void GatewayWsTlsSession::handleSubscriptionFrame(const std::string &text) {
+        HandleSubscriptionFrame(shared_from_this(), _subscriptionsMutex, _subscriptions, text);
+    }
+
+    bool GatewayWsTlsSession::WantsEvent(const std::string &topic, const boost::json::object &body) const {
+        std::lock_guard lock(_subscriptionsMutex);
+        return std::ranges::any_of(_subscriptions, [&](const Core::WsFrame::Subscription &sub) { return sub.Matches(topic, body); });
     }
 
     void GatewayWsTlsSession::PostFrame(std::string frame) {
