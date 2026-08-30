@@ -130,3 +130,107 @@ BOOST_AUTO_TEST_CASE(BuildEventFrame_HasExpectedShape) {
     BOOST_CHECK_EQUAL(jv.at("region").as_string(), "eu-central-1");
     BOOST_CHECK_EQUAL(jv.at("body").at("ern").as_string(), "ern:euclid:keys:...");
 }
+
+// ── FrameType() ──────────────────────────────────────────────────────────────
+
+BOOST_AUTO_TEST_CASE(FrameType_ValidFrame_ReturnsType) {
+    const auto type = WsFrame::FrameType(R"({"type":"subscribe","id":"1","topic":"eqs.message.sent"})");
+
+    BOOST_REQUIRE(type.has_value());
+    BOOST_CHECK_EQUAL(*type, "subscribe");
+}
+
+BOOST_AUTO_TEST_CASE(FrameType_MalformedJson_ReturnsNullopt) {
+    BOOST_CHECK(!WsFrame::FrameType("not json").has_value());
+}
+
+BOOST_AUTO_TEST_CASE(FrameType_MissingType_ReturnsNullopt) {
+    BOOST_CHECK(!WsFrame::FrameType(R"({"id":"1"})").has_value());
+}
+
+// ── ParseSubscription() ───────────────────────────────────────────────────────
+
+BOOST_AUTO_TEST_CASE(ParseSubscription_ValidSubscribeFrame_ReturnsSubscription) {
+    std::string error;
+    const auto parsed = WsFrame::ParseSubscription(
+            R"({"type":"subscribe","id":"abc-123","topic":"eqs.message.sent","filter":{"queueErn":"ern:eqs:queue/orders"}})", error);
+
+    BOOST_REQUIRE(parsed.has_value());
+    BOOST_CHECK_EQUAL(parsed->id, "abc-123");
+    BOOST_CHECK_EQUAL(parsed->type, "subscribe");
+    BOOST_CHECK_EQUAL(parsed->topic, "eqs.message.sent");
+    BOOST_CHECK_EQUAL(parsed->filter.at("queueErn").as_string(), "ern:eqs:queue/orders");
+}
+
+BOOST_AUTO_TEST_CASE(ParseSubscription_ValidUnsubscribeFrame_ReturnsSubscription) {
+    std::string error;
+    const auto parsed = WsFrame::ParseSubscription(R"({"type":"unsubscribe","id":"1","topic":"eqs.message.sent"})", error);
+
+    BOOST_REQUIRE(parsed.has_value());
+    BOOST_CHECK_EQUAL(parsed->type, "unsubscribe");
+}
+
+BOOST_AUTO_TEST_CASE(ParseSubscription_MissingFilter_DefaultsToEmptyObject) {
+    std::string error;
+    const auto parsed = WsFrame::ParseSubscription(R"({"type":"subscribe","id":"1","topic":"ekm.key.created"})", error);
+
+    BOOST_REQUIRE(parsed.has_value());
+    BOOST_CHECK(parsed->filter.empty());
+}
+
+BOOST_AUTO_TEST_CASE(ParseSubscription_WrongType_ReturnsNullopt) {
+    std::string error;
+    const auto parsed = WsFrame::ParseSubscription(R"({"type":"request","id":"1","topic":"eqs.message.sent"})", error);
+
+    BOOST_CHECK(!parsed.has_value());
+}
+
+BOOST_AUTO_TEST_CASE(ParseSubscription_MissingTopic_ReturnsNullopt) {
+    std::string error;
+    const auto parsed = WsFrame::ParseSubscription(R"({"type":"subscribe","id":"1"})", error);
+
+    BOOST_CHECK(!parsed.has_value());
+}
+
+// ── BuildSubscriptionAckFrame() ───────────────────────────────────────────────
+
+BOOST_AUTO_TEST_CASE(BuildSubscriptionAckFrame_HasExpectedShape) {
+    const auto frame = WsFrame::BuildSubscriptionAckFrame("abc", "subscribed");
+    const auto jv = boost::json::parse(frame);
+
+    BOOST_CHECK_EQUAL(jv.at("type").as_string(), "subscribed");
+    BOOST_CHECK_EQUAL(jv.at("id").as_string(), "abc");
+}
+
+// ── WsFrame::Subscription::Matches() ──────────────────────────────────────────
+
+BOOST_AUTO_TEST_CASE(SubscriptionMatches_SameTopicNoFilter_MatchesAnyBody) {
+    const WsFrame::Subscription sub{.topic = "eqs.message.sent", .filter = {}};
+
+    BOOST_CHECK(sub.Matches("eqs.message.sent", boost::json::object{{"queueErn", "queue/orders"}}));
+    BOOST_CHECK(sub.Matches("eqs.message.sent", boost::json::object{}));
+}
+
+BOOST_AUTO_TEST_CASE(SubscriptionMatches_DifferentTopic_NeverMatches) {
+    const WsFrame::Subscription sub{.topic = "eqs.message.sent", .filter = {}};
+
+    BOOST_CHECK(!sub.Matches("ekm.key.created", boost::json::object{}));
+}
+
+BOOST_AUTO_TEST_CASE(SubscriptionMatches_FilterKeyEqual_Matches) {
+    const WsFrame::Subscription sub{.topic = "eqs.message.sent", .filter = {{"queueErn", "queue/orders"}}};
+
+    BOOST_CHECK(sub.Matches("eqs.message.sent", boost::json::object{{"queueErn", "queue/orders"}, {"messageId", "m1"}}));
+}
+
+BOOST_AUTO_TEST_CASE(SubscriptionMatches_FilterKeyDifferentValue_DoesNotMatch) {
+    const WsFrame::Subscription sub{.topic = "eqs.message.sent", .filter = {{"queueErn", "queue/orders"}}};
+
+    BOOST_CHECK(!sub.Matches("eqs.message.sent", boost::json::object{{"queueErn", "queue/other"}}));
+}
+
+BOOST_AUTO_TEST_CASE(SubscriptionMatches_FilterKeyMissingFromBody_DoesNotMatch) {
+    const WsFrame::Subscription sub{.topic = "eqs.message.sent", .filter = {{"queueErn", "queue/orders"}}};
+
+    BOOST_CHECK(!sub.Matches("eqs.message.sent", boost::json::object{{"messageId", "m1"}}));
+}

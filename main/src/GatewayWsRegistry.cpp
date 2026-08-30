@@ -43,7 +43,12 @@ namespace Euclid::main {
         if (live.empty()) return;
 
         const auto frame = Core::WsFrame::BuildEventFrame(topic, accountId, region, body);
-        for (const auto &session: live) session->PostFrame(frame);
+        for (const auto &session: live) {
+            // Delivery is opt-in: a session with no matching "subscribe" frame on record gets
+            // nothing, even though it's in scope for accountId/region - see WsFrame's class doc
+            // comment for why (every session would otherwise see every queue's/key's/etc. events).
+            if (session->WantsEvent(topic, body)) session->PostFrame(frame);
+        }
     }
 
 }// namespace Euclid::main

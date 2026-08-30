@@ -18,10 +18,12 @@
 #include <euclid/database/RepositoryFactory.h>
 #include <euclid/database/entity/ekm/Key.h>
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/ekm/AddKeyTagRequest.h>
 #include <euclid/dto/ekm/CreateKeyRequest.h>
 #include <euclid/dto/ekm/CreateKeyResponse.h>
 #include <euclid/dto/ekm/DeleteKeyRequest.h>
 #include <euclid/dto/ekm/DeleteKeyResponse.h>
+#include <euclid/dto/ekm/DeleteKeyTagRequest.h>
 #include <euclid/dto/ekm/ListKeysRequest.h>
 #include <euclid/dto/ekm/ListKeysResponse.h>
 #include <euclid/dto/ekm/RevokeKeyRequest.h>

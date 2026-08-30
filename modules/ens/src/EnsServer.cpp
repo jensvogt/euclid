@@ -19,8 +19,8 @@ namespace Euclid::ENS {
 
         // Timer/counter names shared by every handler below - one series per action, labeled
         // "method"=<action>, e.g. name="queues-service-time" labelName="method" labelValue="send-message".
-        constexpr auto kServiceTimer = "topic-service-time";
-        constexpr auto kServiceCounter = "topic-service-count";
+        constexpr auto kServiceTimer = "ens-service-time";
+        constexpr auto kServiceCounter = "ens-service-count";
     }// namespace
 
     static AuthResult authenticate(const request<string_body> &req) {
@@ -168,8 +168,8 @@ namespace Euclid::ENS {
     // handleObjectPublishedNotification (an ESM object-created notification arriving via an
     // SNS-type ESM subscription), so a topic behaves the same regardless of who published to it.
     static Database::Entity::ENS::Message publishToTopic(const std::string &topicErn, const std::string &body,
-                                                           const std::map<std::string, Dto::COM::Variant> &attributes,
-                                                           const std::string &accountId) {
+                                                         const std::map<std::string, Dto::COM::Variant> &attributes,
+                                                         const std::string &accountId) {
 
         const std::string messageId = Core::UuidUtils::CreateRandomUuid();
         const std::string ern = Core::createEnsMessageErn(accountId, messageId);

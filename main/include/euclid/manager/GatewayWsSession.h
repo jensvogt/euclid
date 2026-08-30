@@ -3,7 +3,9 @@
 // C++ includes
 #include <deque>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <vector>
 
 // Boost includes
 #include <boost/asio/io_context.hpp>
@@ -15,6 +17,7 @@
 #include <boost/beast/websocket/ssl.hpp>
 
 // Euclid includes
+#include <euclid/core/WsFrame.h>
 #include <euclid/manager/Controller.h>
 
 namespace Euclid::main {
@@ -45,6 +48,15 @@ namespace Euclid::main {
          * @brief Region this session authenticated for at handshake time.
          */
         [[nodiscard]] virtual const std::string &region() const = 0;
+
+        /**
+         * @brief Whether this session currently wants to receive an event with this topic/body,
+         * i.e. whether at least one of its active subscriptions (registered via "subscribe"
+         * frames - see WsFrame::Subscription) matches - GatewayWsRegistry::Broadcast() only
+         * PostFrame()s to sessions where this returns true, so a session with no matching
+         * subscription receives nothing even though it's in scope for accountId/region.
+         */
+        [[nodiscard]] virtual bool WantsEvent(const std::string &topic, const boost::json::object &body) const = 0;
     };
 
     /**
@@ -69,9 +81,12 @@ namespace Euclid::main {
      *
      * Each inbound request frame is dispatched onto the owning io_context so concurrent in-flight
      * requests on one connection don't block each other or the read loop - see handleRequestFrame
-     * in GatewayWsSession.cpp. Every outbound frame (a response or a pushed event, the latter
-     * arriving from GatewayWsRegistry::Broadcast() on an unrelated thread) goes through one
-     * PostFrame()-fed write queue, since Beast websocket writes aren't safely concurrent.
+     * in GatewayWsSession.cpp. A subscribe/unsubscribe frame, by contrast, is handled inline on
+     * the read loop (see handleFrame/handleSubscriptionFrame) since it's just an in-memory list
+     * mutation, not worth the extra hop. Every outbound frame (a response, a subscription ack, or
+     * a pushed event, the last of which arrives from GatewayWsRegistry::Broadcast() on an
+     * unrelated thread) goes through one PostFrame()-fed write queue, since Beast websocket
+     * writes aren't safely concurrent.
      *
      * @author jens.vogt\@opitz-consulting.com
      */
@@ -90,12 +105,15 @@ namespace Euclid::main {
         void PostFrame(std::string frame) override;
         [[nodiscard]] const std::string &accountId() const override { return _accountId; }
         [[nodiscard]] const std::string &region() const override { return _region; }
+        [[nodiscard]] bool WantsEvent(const std::string &topic, const boost::json::object &body) const override;
 
     private:
         void onAccept(const boost::beast::error_code &ec);
         void doRead();
         void onRead(const boost::beast::error_code &ec, std::size_t bytes);
+        void handleFrame(const std::string &text);
         void handleRequestFrame(const std::string &text);
+        void handleSubscriptionFrame(const std::string &text);
         void doWrite();
 
         boost::beast::websocket::stream<boost::beast::tcp_stream> _ws;
@@ -107,6 +125,8 @@ namespace Euclid::main {
         std::string _namespace;
         boost::beast::flat_buffer _buffer;
         std::deque<std::string> _writeQueue;
+        mutable std::mutex _subscriptionsMutex;
+        std::vector<Core::WsFrame::Subscription> _subscriptions;
     };
 
     /**
@@ -125,12 +145,15 @@ namespace Euclid::main {
         void PostFrame(std::string frame) override;
         [[nodiscard]] const std::string &accountId() const override { return _accountId; }
         [[nodiscard]] const std::string &region() const override { return _region; }
+        [[nodiscard]] bool WantsEvent(const std::string &topic, const boost::json::object &body) const override;
 
     private:
         void onAccept(const boost::beast::error_code &ec);
         void doRead();
         void onRead(const boost::beast::error_code &ec, std::size_t bytes);
+        void handleFrame(const std::string &text);
         void handleRequestFrame(const std::string &text);
+        void handleSubscriptionFrame(const std::string &text);
         void doWrite();
 
         boost::beast::websocket::stream<boost::beast::ssl_stream<boost::beast::tcp_stream> > _ws;
@@ -142,6 +165,8 @@ namespace Euclid::main {
         std::string _namespace;
         boost::beast::flat_buffer _buffer;
         std::deque<std::string> _writeQueue;
+        mutable std::mutex _subscriptionsMutex;
+        std::vector<Core::WsFrame::Subscription> _subscriptions;
     };
 
 }// namespace Euclid::main

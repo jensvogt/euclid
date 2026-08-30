@@ -48,8 +48,10 @@ namespace Euclid::main {
 
         /**
          * @brief Delivers a pushed event to every currently-live session registered under
-         * accountId/region, building the event frame once and posting it onto each matching
-         * session's own write queue.
+         * accountId/region AND currently subscribed to a matching topic/filter (see
+         * IWsSession::WantsEvent()) - building the event frame once and posting it onto each
+         * matching session's own write queue. A session with no matching subscription receives
+         * nothing, even though it's in scope for accountId/region.
          *
          * @param topic     event topic, e.g. "ekm.key.created"
          * @param accountId account the event belongs to

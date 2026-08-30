@@ -275,6 +275,57 @@ namespace Euclid::EKM {
         return res;
     }
 
+    // Upserts the tag unconditionally - mirrors add-topic-tag/add-queue-tag/add-bucket-tag in the
+    // other modules (no set-key-tag counterpart exists here, so there's no "key must already have
+    // this tag" variant to distinguish it from).
+    static response<string_body> handleAddKeyTag(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "add-key-tag");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EkmServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto [ern, key, value] = boost::json::value_to<Dto::EKM::AddKeyTagRequest>(jv);
+        log_info << "EKM AddKeyTag, ern: " << ern << ", key: " << key;
+
+        const auto repo = Database::RepositoryFactory::instance().ekmRepository();
+        std::optional<Database::Entity::EKM::Key> foundKey = repo->findKeyByErn(ern);
+        if (!foundKey.has_value()) {
+            return EkmServer::ErrorResponse(req, status::not_found, "Key not found, ern: " + ern);
+        }
+        foundKey->tags[key] = value;
+        foundKey = repo->upsertKey(foundKey.value());
+
+        return EkmServer::JsonResponse(req, status::ok);
+    }
+
+    // erase() is unconditional - a key key that doesn't have this tag silently no-ops rather than
+    // 404ing, mirroring delete-queue-tag/delete-bucket-tag/delete-topic-tag.
+    static response<string_body> handleDeleteKeyTag(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-key-tag");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EkmServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto [ern, key] = boost::json::value_to<Dto::EKM::DeleteKeyTagRequest>(jv);
+        log_info << "EKM DeleteKeyTag, ern: " << ern << ", key: " << key;
+
+        const auto repo = Database::RepositoryFactory::instance().ekmRepository();
+        std::optional<Database::Entity::EKM::Key> foundKey = repo->findKeyByErn(ern);
+        if (!foundKey.has_value()) {
+            return EkmServer::ErrorResponse(req, status::not_found, "Key not found, ern: " + ern);
+        }
+        foundKey->tags.erase(key);
+        foundKey = repo->upsertKey(foundKey.value());
+
+        return EkmServer::JsonResponse(req, status::ok);
+    }
+
     static response<string_body> handleListKeys(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-keys");
@@ -311,7 +362,9 @@ namespace Euclid::EKM {
             Encrypt,
             Decrypt,
             DeleteKey,
-            RevokeKey
+            RevokeKey,
+            AddKeyTag,
+            DeleteKeyTag
         };
     }
 
@@ -322,6 +375,8 @@ namespace Euclid::EKM {
         if (action == "decrypt") return Command::Decrypt;
         if (action == "delete-key") return Command::DeleteKey;
         if (action == "revoke-key") return Command::RevokeKey;
+        if (action == "add-key-tag") return Command::AddKeyTag;
+        if (action == "delete-key-tag") return Command::DeleteKeyTag;
         return Command::Unknown;
     }
 
@@ -352,6 +407,12 @@ namespace Euclid::EKM {
 
             case Command::RevokeKey:
                 return handleRevokeKey(req);
+
+            case Command::AddKeyTag:
+                return handleAddKeyTag(req);
+
+            case Command::DeleteKeyTag:
+                return handleDeleteKeyTag(req);
 
             case Command::Unknown:
             default:

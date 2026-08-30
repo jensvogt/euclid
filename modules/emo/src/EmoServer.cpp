@@ -69,7 +69,7 @@ namespace Euclid::Monitoring {
             static std::map<std::string, Accumulator> accumulators;
             return accumulators;
         }
-    } // namespace
+    }// namespace
 
     static AuthResult authenticate(const request<string_body> &req) {
         const auto auth = EmoServer::Authenticate(req);
@@ -157,15 +157,38 @@ namespace Euclid::Monitoring {
         boost::json::array items;
         for (const auto &row: rows) {
             items.push_back(boost::json::object{
-                {"name", row.name},
-                {"labelName", row.labelName},
-                {"labelValue", row.labelValue},
-                {"value", row.value},
-                {"timestamp", Core::DateTimeUtils::ToISO8601(row.timestamp)}
+                    {"name", row.name},
+                    {"labelName", row.labelName},
+                    {"labelValue", row.labelValue},
+                    {"value", row.value},
+                    {"timestamp", Core::DateTimeUtils::ToISO8601(row.timestamp)}
             });
         }
 
         return EmoServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{{"items", items}}));
+    }
+
+    // Return the average over the last hour, not regarding labelName/labelValue
+    static response<string_body> handleAverage(const request<string_body> &req) {
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+        if (!Database::IsEamAdmin(*Database::RepositoryFactory::instance().eamRepository(), auth.user->userId)) {
+            return EmoServer::ErrorResponse(req, status::forbidden, "Administrator privileges required");
+        }
+
+        boost::json::value jv;
+        if (const auto err = EmoServer::ParseJsonBody(req, jv)) return *err;
+
+        std::string name;
+        if (jv.is_object()) {
+            const auto &obj = jv.as_object();
+            if (const auto *v = obj.if_contains("name"); v && v->is_string()) name = v->as_string().c_str();
+        }
+
+        const auto result = Database::RepositoryFactory::instance().emoRepository()->average(name);
+
+        return EmoServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{{"average", result}}));
     }
 
     // ── Request dispatcher ───────────────────────────────────────────────────
@@ -179,6 +202,7 @@ namespace Euclid::Monitoring {
         log_debug << "Monitoring action=" << action;
 
         if (action == "list") return handleList(req);
+        if (action == "average") return handleAverage(req);
         if (action == "push-metrics") return handlePushMetrics(req);
 
         return EmoServer::ErrorResponse(req, status::not_found, "Action not implemented: " + action);
@@ -291,4 +315,4 @@ namespace Euclid::Monitoring {
         return dispatch(req);
     }
 
-} // namespace Euclid::Monitoring
+}// namespace Euclid::Monitoring
