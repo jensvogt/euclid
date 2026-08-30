@@ -49,6 +49,44 @@ namespace Euclid::Core {
         static std::string GenerateSecretAccessKey();
 
         /**
+         * @brief Generates a random 128-bit AES key.
+         *
+         * @return 16 cryptographically random bytes, base64-encoded.
+         */
+        static std::string GenerateAes128Key();
+
+        /**
+         * @brief Generates a random 256-bit AES key.
+         *
+         * @return 32 cryptographically random bytes, base64-encoded.
+         */
+        static std::string GenerateAes256Key();
+
+        /**
+         * @brief Encrypts data with AES-GCM.
+         *
+         * @param key raw AES key bytes - 16 bytes selects AES-128-GCM, 32 bytes selects
+         * AES-256-GCM. Decode a stored key (e.g. Key::keyMaterial) with Base64Decode() first.
+         * @param plaintext data to encrypt.
+         * @return a random 12-byte IV, the ciphertext, and the 16-byte GCM authentication tag,
+         * concatenated as IV || ciphertext || tag. Both the IV and the tag are needed to decrypt,
+         * so they travel alongside the ciphertext rather than being returned separately.
+         */
+        static std::string AesGcmEncrypt(const std::string &key, const std::string &plaintext);
+
+        /**
+         * @brief Decrypts data produced by AesGcmEncrypt().
+         *
+         * @param key raw AES key bytes - 16 bytes selects AES-128-GCM, 32 bytes selects
+         * AES-256-GCM. Decode a stored key (e.g. Key::keyMaterial) with Base64Decode() first.
+         * @param ciphertext IV || ciphertext || tag, as returned by AesGcmEncrypt().
+         * @return the decrypted plaintext.
+         * @throws std::runtime_error if ciphertext is too short to contain an IV and tag, or if
+         * authentication fails (wrong key, or the data was tampered with / truncated).
+         */
+        static std::string AesGcmDecrypt(const std::string &key, const std::string &ciphertext);
+
+        /**
          * @brief Calculates the SHA-256 sum of a string.
          *
          * @param str input string.

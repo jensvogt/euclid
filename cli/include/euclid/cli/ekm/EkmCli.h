@@ -72,6 +72,38 @@ namespace Euclid::CLI {
         int listKeys(const std::vector<std::string> &args) const;
 
         /**
+         * @brief Encrypts a file or stdin with a key, writing the ciphertext to a file or stdout
+         *
+         * @param args command arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int encrypt(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Decrypts a file or stdin with a key, writing the plaintext to a file or stdout
+         *
+         * @param args command arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int decrypt(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Shared implementation of encrypt()/decrypt(): both read a key ID plus a file or
+         * stdin, POST the raw bytes to the given action, and write the raw response to a file or
+         * stdout. Only the action name and its help text differ between the two.
+         *
+         * @param action "encrypt" or "decrypt"
+         * @param caption short caption for the options group, e.g. "encrypt a file or stdin with a key"
+         * @param description longer sentence shown in the action's DESCRIPTION section
+         * @param args command arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int runTransform(const std::string &action, const std::string &caption, const std::string &description, const std::vector<std::string> &args) const;
+
+        /**
          * @brief Euclid endpoint
          */
         std::string _endpoint;

@@ -119,6 +119,24 @@ namespace Euclid::Database {
     //     return {};
     // }
 
+    std::optional<Entity::EKM::Key> MongoEkmRepository::findKeyByName(const std::string &accountId, const std::string &namespaceName, const std::string &name) const {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto keyCollection = (*entry)[Database::instance().databaseName()][KEY_COLLECTION];
+
+            const auto filter = make_document(kvp("accountId", accountId), kvp("namespace", namespaceName), kvp("name", name));
+            if (auto result = keyCollection.find_one(filter.view())) {
+                return Entity::EKM::Key::fromDocument(result->view());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Find EKM key by name failed, name: " << name << ", error: " << e.what();
+        }
+        return std::nullopt;
+    }
+
     std::vector<Entity::EKM::Key> MongoEkmRepository::listKeys(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const {
 
         try {

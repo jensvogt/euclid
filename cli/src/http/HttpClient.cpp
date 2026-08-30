@@ -295,4 +295,21 @@ namespace Euclid::CLI {
         return result;
     }
 
+    BinaryHttpResponse HttpClient::PostBinaryForBinary(const std::string &target, const std::string &action, const std::vector<std::pair<std::string, std::string> > &extraHeaders, const std::string &data) const {
+        const auto [scheme, host, port] = ParseEndpoint(_endpoint);
+        const http::request<http::string_body> request = BuildBinaryRequest(host, target, action, extraHeaders, data, _authentication);
+        const auto raw = Transmit(target, action, request);
+
+        BinaryHttpResponse result;
+        result.statusCode = static_cast<int>(raw.result_int());
+        if (result.IsSuccess()) {
+            result.data = raw.body();
+        } else if (!raw.body().empty()) {
+            boost::system::error_code ec;
+            result.errorBody = boost::json::parse(raw.body(), ec);
+            if (ec) result.errorBody = boost::json::value(raw.body());
+        }
+        return result;
+    }
+
 }

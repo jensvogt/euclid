@@ -191,6 +191,22 @@ namespace Euclid::CLI {
         [[nodiscard]]
         BinaryHttpResponse PostForBinary(const std::string &target, const std::string &action, const std::vector<std::pair<std::string, std::string> > &extraHeaders) const;
 
+        /**
+         * @brief Sends a POST request with a raw binary body and expects a raw binary response -
+         * the combination of PostBinary() and PostForBinary(), for actions where both the request
+         * and the response are opaque bytes (see EKM's "encrypt": plaintext in, ciphertext out).
+         * The request path is always "/" - routing is done via the "x-euclid-target" and
+         * "x-euclid-action" headers; any request-specific metadata must travel in extraHeaders.
+         *
+         * @param target module target, e.g. "ekm" (sent as the "x-euclid-target" header)
+         * @param action module action, e.g. "encrypt" (sent as the "x-euclid-action" header)
+         * @param extraHeaders additional headers to set on the request, e.g. the key ID
+         * @param data raw bytes to send as the request body ("application/octet-stream")
+         * @return status code plus raw response bytes on success, or a parsed JSON error body on failure
+         */
+        [[nodiscard]]
+        BinaryHttpResponse PostBinaryForBinary(const std::string &target, const std::string &action, const std::vector<std::pair<std::string, std::string> > &extraHeaders, const std::string &data) const;
+
     private:
 
         /**

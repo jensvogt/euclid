@@ -2,6 +2,11 @@
 
 #include "euclid/dto/ekm/ListKeysRequest.h"
 
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
+
 namespace Euclid::CLI {
 
     namespace po = boost::program_options;
@@ -13,6 +18,8 @@ namespace Euclid::CLI {
             return PrintModuleHelp("ekm", {
                                            {"create-key", "Create a new key"},
                                            {"list-keys", "List existing keys"},
+                                           {"encrypt", "Encrypt a file or stdin with a key"},
+                                           {"decrypt", "Decrypt a file or stdin with a key"},
                                    });
         }
         if (action == "create-key") {
@@ -20,6 +27,12 @@ namespace Euclid::CLI {
         }
         if (action == "list-keys") {
             return listKeys(args);
+        }
+        if (action == "encrypt") {
+            return encrypt(args);
+        }
+        if (action == "decrypt") {
+            return decrypt(args);
         }
         std::cerr << "error: unknown EKM action '" << action << "'\n";
         return 1;
@@ -100,6 +113,87 @@ namespace Euclid::CLI {
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EkmCli::encrypt(const std::vector<std::string> &args) const {
+        return runTransform("encrypt", "encrypt a file or stdin with a key",
+                            "Encrypts a file or stdin with the given key and writes the ciphertext to a file or stdout.", args);
+    }
+
+    int EkmCli::decrypt(const std::vector<std::string> &args) const {
+        return runTransform("decrypt", "decrypt a file or stdin with a key",
+                            "Decrypts a file or stdin with the given key and writes the plaintext to a file or stdout.", args);
+    }
+
+    int EkmCli::runTransform(const std::string &action, const std::string &caption, const std::string &description, const std::vector<std::string> &args) const {
+        po::options_description desc(caption);
+        desc.add_options()
+                ("key-id,k", po::value<std::string>()->required(), "ID of the key to use (as returned by create-key)")
+                ("input,i", po::value<std::string>(), "input file path (default: stdin)")
+                ("output,o", po::value<std::string>(), "output file path (default: stdout)");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ekm", action, "--key-id <id> [--input <file>] [--output <file>]", description, desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        std::string data;
+        if (vm.count("input")) {
+            std::ifstream in(vm["input"].as<std::string>(), std::ios::binary);
+            if (!in.is_open()) {
+                std::cerr << "error: could not open input file '" << vm["input"].as<std::string>() << "'\n";
+                return 1;
+            }
+            std::ostringstream buffer;
+            buffer << in.rdbuf();
+            data = buffer.str();
+        } else {
+#ifdef _WIN32
+            _setmode(_fileno(stdin), _O_BINARY);
+#endif
+            std::ostringstream buffer;
+            buffer << std::cin.rdbuf();
+            data = buffer.str();
+        }
+
+        const std::vector<std::pair<std::string, std::string> > headers{
+                {"x-euclid-key-id", vm["key-id"].as<std::string>()},
+        };
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const BinaryHttpResponse response = client.PostBinaryForBinary("ekm", action, headers, data);
+            if (!response.IsSuccess()) {
+                std::cerr << "error: " << action << " failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.errorBody) << std::endl;
+                return 1;
+            }
+
+            if (vm.count("output")) {
+                std::ofstream out(vm["output"].as<std::string>(), std::ios::binary | std::ios::trunc);
+                if (!out.is_open()) {
+                    std::cerr << "error: could not open output file '" << vm["output"].as<std::string>() << "'\n";
+                    return 1;
+                }
+                out.write(response.data.data(), static_cast<std::streamsize>(response.data.size()));
+            } else {
+#ifdef _WIN32
+                _setmode(_fileno(stdout), _O_BINARY);
+#endif
+                std::cout.write(response.data.data(), static_cast<std::streamsize>(response.data.size()));
+            }
             return 0;
         } catch (const std::exception &ex) {
             std::cerr << "error: " << ex.what() << std::endl;
