@@ -37,7 +37,13 @@
         "enabled": true,
         "cert-file": "C:\\Program Files\\euclid\\etc\\euclid_cert.crt",
         "key-file": "C:\\Program Files\\euclid\\etc\\euclid_cert.key"
-      }
+      },
+      "websocket": {
+        "enabled": true,
+        "max-message-size": 1048576,
+        "idle-timeout-seconds": 300
+      },
+      "event-socket-path": "C:\\Program Files\\euclid\\data\\run\\euclid-gateway-events.sock"
     },
     "modules": {
       "eam": {

@@ -1,0 +1,87 @@
+.TH EUCLID-CLI-EKM-DELETE-KEY 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ekm-delete-key \- schedule an encryption key for deletion
+.SH SYNOPSIS
+.B euclid-cli ekm delete-key
+.BR \-\-key\-id | \-k
+.I KEY_ID
+[\fB\-\-pending\-window\-days\fR|\fB\-d\fR \fIDAYS\fR]
+.SH DESCRIPTION
+Schedules a key for permanent deletion after a grace period,
+.I DAYS
+days from now (default
+.IR 7 ).
+The key is not deleted immediately. Its status becomes
+.BR PENDING_DELETION :
+.BR euclid-cli-ekm-decrypt (1)
+keeps working for the whole grace period, giving time to decrypt or
+migrate everything that was encrypted under the key, but
+.BR euclid-cli-ekm-encrypt (1)
+is blocked right away, the same as after
+.BR euclid-cli-ekm-revoke-key (1).
+Once the grace period elapses, the server's background purge sweep
+deletes the key and its material for good; there is no undo.
+.PP
+.BR euclid-cli-ekm-list-keys (1)
+shows a
+.B status
+of
+.B PENDING_DELETION
+and a
+.B deletionDate
+field for any key that has been scheduled for deletion, so pending
+deletions stay visible until they take effect.
+.PP
+Calling
+.B delete-key
+again on the same key reschedules it, replacing the previous deletion
+date with a new one computed from
+.B \-\-pending\-window\-days
+at the time of the call.
+.SH OPTIONS
+.TP
+.BR \-k ", " \-\-key\-id " " \fIKEY_ID\fR
+ID of the key to schedule for deletion, as returned by the
+.B name
+field of
+.BR euclid-cli-ekm-create-key (1).
+Required.
+.TP
+.BR \-d ", " \-\-pending\-window\-days " " \fIDAYS\fR
+Number of days to wait before the key is permanently deleted. Defaults
+to \fI7\fR.
+.SH EXIT STATUS
+.TP
+.B 0
+The key was scheduled for deletion; its ERN, name and computed
+deletion date are printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or the
+server rejected the request (e.g. unknown key ID).
+.SH EXAMPLES
+Schedule a key for deletion using the default 7-day grace period:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ekm delete-key \e
+    --key-id 3f1c2b7a-...
+.fi
+.RE
+Schedule a key for deletion in 30 days instead:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ekm delete-key \e
+    --key-id 3f1c2b7a-... --pending-window-days 30
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ekm (1),
+.BR euclid-cli-ekm-create-key (1),
+.BR euclid-cli-ekm-list-keys (1),
+.BR euclid-cli-ekm-revoke-key (1),
+.BR euclid-cli-ekm-encrypt (1),
+.BR euclid-cli-ekm-decrypt (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

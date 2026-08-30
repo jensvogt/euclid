@@ -54,43 +54,13 @@ namespace Euclid::Database {
             return std::nullopt;
         }
 
-        //
-        // void removeQueueByName(const std::string &name) override {
-        //     std::lock_guard lock(_mutex);
-        //     std::erase_if(_queueStore, [&name](const auto &kv) {
-        //         return kv.second.name == name;
-        //     });
-        // }
-        //
-        // void deleteQueueByErn(const std::string &ern) override {
-        //     std::lock_guard lock(_mutex);
-        //     std::erase_if(_queueStore, [&ern](const auto &kv) {
-        //         return kv.second.ern == ern;
-        //     });
-        // }
-        //
-        // std::optional<Entity::EKM::Queue> findQueueByName(const std::string &name) const override {
-        //     std::lock_guard lock(_mutex);
-        //     const auto it = _queueStore.find(name);
-        //     if (it == _queueStore.end()) return std::nullopt;
-        //     return it->second;
-        // }
-        //
-        // std::optional<Entity::EKM::Queue> findQueueById(const std::string &id) const override {
-        //     std::lock_guard lock(_mutex);
-        //     for (const auto &m: _queueStore | std::views::values) {
-        //         if (m.oid == id) return m;
-        //     }
-        //     return std::nullopt;
-        // }
-        //
-        // std::optional<Entity::EKM::Queue> findQueueByErn(const std::string &ern) const override {
-        //     std::lock_guard lock(_mutex);
-        //     for (const auto &m: _queueStore | std::views::values) {
-        //         if (m.ern == ern) return m;
-        //     }
-        //     return std::nullopt;
-        // }
+        std::optional<Entity::EKM::Key> findKeyByErn(const std::string &ern) const override {
+            std::lock_guard lock(_mutex);
+            for (const auto &m: _keyStore | std::views::values) {
+                if (m.ern == ern) return m;
+            }
+            return std::nullopt;
+        }
 
         std::vector<Entity::EKM::Key> listKeys(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const override {
             std::lock_guard lock(_mutex);
@@ -126,9 +96,18 @@ namespace Euclid::Database {
             std::lock_guard lock(_mutex);
             return std::ranges::count_if(_keyStore | std::views::values, [&](const auto &m) {
                 return m.accountId == accountId
-                    && (namespaceName.empty() || m.nameSpace == namespaceName)
-                    && (prefix.empty() || m.name.starts_with(prefix));
+                       && (namespaceName.empty() || m.nameSpace == namespaceName)
+                       && (prefix.empty() || m.name.starts_with(prefix));
             });
+        }
+
+        long purgeKeysPendingDeletion() override {
+            std::lock_guard lock(_mutex);
+            const auto now = std::chrono::system_clock::now();
+            return static_cast<long>(std::erase_if(_keyStore, [&](const auto &kv) {
+                const auto &deletionDate = kv.second.deletionDate;
+                return deletionDate != std::chrono::system_clock::time_point{} && deletionDate <= now;
+            }));
         }
 
         //

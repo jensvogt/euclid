@@ -18,6 +18,8 @@ namespace Euclid::CLI {
             return PrintModuleHelp("ekm", {
                                            {"create-key", "Create a new key"},
                                            {"list-keys", "List existing keys"},
+                                           {"delete-key", "Schedule a key for deletion"},
+                                           {"revoke-key", "Revoke a key (blocks encryption, decryption still works)"},
                                            {"encrypt", "Encrypt a file or stdin with a key"},
                                            {"decrypt", "Decrypt a file or stdin with a key"},
                                    });
@@ -27,6 +29,12 @@ namespace Euclid::CLI {
         }
         if (action == "list-keys") {
             return listKeys(args);
+        }
+        if (action == "delete-key") {
+            return deleteKey(args);
+        }
+        if (action == "revoke-key") {
+            return revokeKey(args);
         }
         if (action == "encrypt") {
             return encrypt(args);
@@ -110,6 +118,89 @@ namespace Euclid::CLI {
             const HttpResponse response = client.Post("ekm", "list-keys", boost::json::value_from(request));
             if (!response.IsSuccess()) {
                 std::cerr << "error: list-keys failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EkmCli::deleteKey(const std::vector<std::string> &args) const {
+        po::options_description desc("schedule a key for deletion");
+        desc.add_options()
+                ("key-id,k", po::value<std::string>()->required(), "ID of the key to delete (as returned by create-key)")
+                ("pending-window-days,d", po::value<long>()->default_value(7), "days to wait before the key is permanently deleted");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ekm", "delete-key", "--key-id <id> [--pending-window-days <days>]",
+                                   "Schedules a key for permanent deletion after a grace period (default 7 days). "
+                                   "The key can still be used to decrypt during that time - so there is time to "
+                                   "decrypt or migrate everything encrypted under it before it becomes unrecoverable "
+                                   "- but it can no longer be used to encrypt.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EKM::DeleteKeyRequest request;
+        request.keyId = vm["key-id"].as<std::string>();
+        request.pendingWindowInDays = vm["pending-window-days"].as<long>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ekm", "delete-key", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: delete-key failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EkmCli::revokeKey(const std::vector<std::string> &args) const {
+        po::options_description desc("revoke a key");
+        desc.add_options()
+                ("key,k", po::value<std::string>()->required(), "ERN of the key to revoke");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ekm", "revoke-key", "--key <ern>",
+                                   "Revokes a key: it can no longer be used to encrypt, but decryption of data "
+                                   "already encrypted under it keeps working. Unlike delete-key, revoking does not "
+                                   "schedule the key for removal.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EKM::RevokeKeyRequest request;
+        request.ern = vm["key"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ekm", "revoke-key", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: revoke-key failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);

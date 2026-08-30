@@ -58,6 +58,15 @@ namespace Euclid::Database {
         virtual std::optional<Entity::EKM::Key> findKeyByName(const std::string &accountId, const std::string &namespaceName, const std::string &name) const = 0;
 
         /**
+         * @brief Finds a key by its ERN.
+         *
+         * @param ern ERN of the key
+         * @return the key if found, std::nullopt otherwise
+         */
+        [[nodiscard]]
+        virtual std::optional<Entity::EKM::Key> findKeyByErn(const std::string &ern) const = 0;
+
+        /**
          * @brief Finds and retrieves all available entities or objects.
          *
          * @param accountId only queues belonging to this account are returned
@@ -82,6 +91,14 @@ namespace Euclid::Database {
          */
         [[nodiscard]]
         virtual long countKeys(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "") const = 0;
+
+        /**
+         * @brief Permanently deletes every key whose scheduled deletion date has passed. Called
+         * periodically by the EKM module's background sweep - see EkmServer.
+         *
+         * @return number of keys deleted
+         */
+        virtual long purgeKeysPendingDeletion() = 0;
 
     };
 

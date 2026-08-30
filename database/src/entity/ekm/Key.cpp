@@ -21,7 +21,8 @@ namespace Euclid::Database::Entity::EKM {
             tagsDoc.append(bsoncxx::builder::basic::kvp(k, v));
         }
 
-        return bsoncxx::builder::basic::make_document(
+        bsoncxx::builder::basic::document doc;
+        doc.append(
                 bsoncxx::builder::basic::kvp("region", region),
                 bsoncxx::builder::basic::kvp("accountId", accountId),
                 bsoncxx::builder::basic::kvp("namespace", nameSpace),
@@ -30,7 +31,16 @@ namespace Euclid::Database::Entity::EKM {
                 bsoncxx::builder::basic::kvp("algorithm", algorithm),
                 bsoncxx::builder::basic::kvp("length", static_cast<int64_t>(length)),
                 bsoncxx::builder::basic::kvp("keyMaterial", keyMaterial),
+                bsoncxx::builder::basic::kvp("status", KeyStatusToString(status)),
                 bsoncxx::builder::basic::kvp("tags", tagsDoc.extract()));
+
+        // Only written once a deletion is actually scheduled - leaves ordinary keys' documents
+        // free of a spurious 1970-01-01 field.
+        if (deletionDate != system_clock::time_point{}) {
+            doc.append(bsoncxx::builder::basic::kvp("deletionDate", bsoncxx::types::b_date(deletionDate)));
+        }
+
+        return doc.extract();
     }
 
     Key Key::fromDocument(const std::optional<bsoncxx::document::view> &document) {
@@ -49,6 +59,8 @@ namespace Euclid::Database::Entity::EKM {
             else if (k == "keyMaterial") key.keyMaterial = std::string(field.get_string().value);
             else if (k == "created") key.created = system_clock::time_point{field.get_date().value};
             else if (k == "modified") key.modified = system_clock::time_point{field.get_date().value};
+            else if (k == "deletionDate") key.deletionDate = system_clock::time_point{field.get_date().value};
+            else if (k == "status") key.status = KeyStatusFromString(std::string(field.get_string().value));
             else if (k == "tags") {
                 for (const auto &tag: field.get_document().view()) {
                     key.tags[std::string(tag.key())] = std::string(tag.get_string().value);

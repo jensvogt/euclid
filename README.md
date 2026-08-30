@@ -138,13 +138,17 @@ Requires a C++23 compiler (GCC 14+/Clang), CMake 3.28+, and
 Every process reads the same JSON config (`--config <path>`, default
 `/etc/euclid/euclid.json`; see `dist/linux/etc/euclid.json` for the full, commented reference). Key defaults:
 
-| Setting                               | Default | Purpose                           |
-|---------------------------------------|---------|-----------------------------------|
-| `euclid.gateway.http.port`            | 5566    | Gateway HTTP(S) entry point       |
-| `euclid.frontend.port`                | 4567    | Static frontend (when built)      |
-| `euclid.logging.websocket-port`       | 4569    | Live log streaming                |
-| `euclid.database.backend`             | mongodb | `mongodb` or `memory`             |
-| `euclid.modules.sqs.priority-weights` | 4:2:1   | HIGH:MIDDLE:LOW receive weighting |
+| Setting                                       | Default | Purpose                                                             |
+|------------------------------------------------|---------|-----------------------------------------------------------------------|
+| `euclid.gateway.http.port`                    | 5566    | Gateway HTTP(S) entry point       |
+| `euclid.gateway.websocket.enabled`            | true    | Accept websocket upgrades on the gateway HTTP(S) port |
+| `euclid.gateway.websocket.max-message-size`   | 1048576 | Max inbound websocket frame size, in bytes |
+| `euclid.gateway.websocket.idle-timeout-seconds` | 300   | Websocket ping/pong idle timeout |
+| `euclid.gateway.event-socket-path`            | (none)  | Unix domain socket modules push business events to, for websocket clients (`Core::EventPusher`) |
+| `euclid.frontend.port`                        | 4567    | Static frontend (when built)      |
+| `euclid.logging.websocket-port`               | 4569    | Live log streaming                |
+| `euclid.database.backend`                     | mongodb | `mongodb` or `memory`             |
+| `euclid.modules.sqs.priority-weights`         | 4:2:1   | HIGH:MIDDLE:LOW receive weighting |
 
 ---
 

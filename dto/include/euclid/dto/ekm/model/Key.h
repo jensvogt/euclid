@@ -39,6 +39,18 @@ namespace Euclid::Dto::EKM {
         long length = 0;
 
         /**
+         * @brief Point in time at which this key will be permanently deleted, ISO8601. Empty if
+         * the key is not scheduled for deletion.
+         */
+        std::string deletionDate;
+
+        /**
+         * @brief Lifecycle status: AVAILABLE, REVOKED, or PENDING_DELETION. Only AVAILABLE keys
+         * can be used to encrypt; decryption works regardless of status.
+         */
+        std::string status = "AVAILABLE";
+
+        /**
          * @brief Creation date
          */
         system_clock::time_point created;
@@ -71,8 +83,10 @@ namespace Euclid::Dto::EKM {
             r.name = Core::GetStringValue(v, "name");
             r.algorithm = Core::GetStringValue(v, "algorithm");
             r.tags = Core::GetMapFromObject<std::string, std::string>(v, "tags");
+            r.status = Core::GetStringValue(v, "status");
             r.created = Core::GetDatetimeValue(v, "created");
             r.modified = Core::GetDatetimeValue(v, "modified");
+            r.deletionDate = Core::GetStringValue(v, "deletionDate");
             return r;
         }
 
@@ -82,10 +96,14 @@ namespace Euclid::Dto::EKM {
                     {"name", obj.name},
                     {"algorithm", obj.algorithm},
                     {"length", obj.length},
+                    {"status", obj.status},
                     {"tags", boost::json::value_from(obj.tags)},
                     {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
             };
+            if (!obj.deletionDate.empty()) {
+                jv.as_object()["deletionDate"] = obj.deletionDate;
+            }
         }
     };
 

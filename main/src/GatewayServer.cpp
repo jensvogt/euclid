@@ -9,15 +9,25 @@
 
 // Euclid includes
 #include <euclid/core/Configuration.h>
+#include <euclid/core/HttpActionServer.h>
 #include <euclid/core/SigV4.h>
 #include <euclid/manager/GatewayServer.h>
+#include <euclid/manager/GatewayWsSession.h>
 
 namespace Euclid::main {
 
     namespace beast = boost::beast;
     namespace http = beast::http;
+    namespace websocket = beast::websocket;
     namespace asio = boost::asio;
     using tcp = asio::ip::tcp;
+
+    // Whether the gateway accepts websocket upgrades at all - lets ops disable the transport
+    // without a rebuild. Checked per-upgrade-attempt rather than cached, same cost as any other
+    // Configuration::getOr() call elsewhere in this file.
+    static bool WebSocketEnabled() {
+        return Core::Configuration::instance().getOr<bool>("euclid.gateway.websocket.enabled", true);
+    }
 
     // Boost.Beast's parser defaults to a 1MB body limit when none is set explicitly, which is
     // silently exceeded by a single storage upload-part (default part size alone is 5MB) - the
@@ -74,7 +84,8 @@ namespace Euclid::main {
 
     // Proxies req over a Unix-domain socket at socketPath and returns the
     // backend's response.  Runs synchronously on the calling worker thread.
-    static http::response<http::string_body> forwardToService(const http::request<http::string_body> &req, const std::string &socketPath) {
+    // Declared in GatewayServer.h so GatewayWsSession.cpp can reuse it too.
+    http::response<http::string_body> forwardToService(const http::request<http::string_body> &req, const std::string &socketPath) {
         namespace local = asio::local;
         auto errorResponse = [&](const http::status st, const std::string_view msg) {
             http::response<http::string_body> r{st, req.version()};
@@ -229,7 +240,7 @@ namespace Euclid::main {
     class GatewaySession : public std::enable_shared_from_this<GatewaySession> {
     public:
 
-        GatewaySession(tcp::socket socket, ServiceController &ctrl) : _stream(std::move(socket)), _ctrl(ctrl) {}
+        GatewaySession(tcp::socket socket, asio::io_context &ioc, ServiceController &ctrl) : _stream(std::move(socket)), _ioc(ioc), _ctrl(ctrl) {}
 
         void run() { doRead(); }
 
@@ -248,7 +259,18 @@ namespace Euclid::main {
         }
 
         void handleRequest() {
-            auto res = route(_parser->get(), _ctrl);
+            auto &req = _parser->get();
+
+            // Hands the connection off to a GatewayWsSession permanently - this object's
+            // shared_ptr chain ends once handleUpgrade() returns, since nothing keeps posting
+            // further work to it. See GatewayWsSession.h's class doc comment for the protocol
+            // and the auth-once-at-handshake tradeoff this makes.
+            if (WebSocketEnabled() && websocket::is_upgrade(req)) {
+                handleUpgrade();
+                return;
+            }
+
+            auto res = route(req, _ctrl);
             auto sp = std::make_shared<http::response<http::string_body> >(std::move(res));
             const bool keepAlive = sp->keep_alive();
             http::async_write(
@@ -262,9 +284,35 @@ namespace Euclid::main {
                     });
         }
 
+        void handleUpgrade() {
+            auto &req = _parser->get();
+
+            // Authenticated exactly once, here, at handshake time - reuses the same SigV4/Bearer
+            // verification the HTTP path runs per-request. On failure the connection is closed
+            // without ever completing the websocket handshake.
+            const auto auth = Core::HttpActionServer::Authenticate(req);
+            if (!auth.subject.has_value()) {
+                auto res = Core::HttpActionServer::Unauthorized(req, auth);
+                auto sp = std::make_shared<http::response<http::string_body> >(std::move(res));
+                http::async_write(_stream, *sp, [self = shared_from_this(), sp](const beast::error_code &, std::size_t) {
+                    beast::error_code ignored;
+                    std::ignore = self->_stream.socket().shutdown(tcp::socket::shutdown_send, ignored);
+                });
+                return;
+            }
+
+            const auto authorization = std::string(req[http::field::authorization]);
+            const auto accountId = std::string(req["x-euclid-account-id"]);
+            const auto region = std::string(req["x-euclid-region"]);
+            const auto ns = std::string(req["x-euclid-namespace"]);
+            auto session = std::make_shared<GatewayWsSession>(std::move(_stream), _ioc, _ctrl, authorization, accountId, region, ns);
+            session->run(std::move(req));
+        }
+
         beast::tcp_stream _stream;
         beast::flat_buffer _buf;
         std::optional<http::request_parser<http::string_body> > _parser;
+        asio::io_context &_ioc;
         ServiceController &_ctrl;
     };
 
@@ -276,8 +324,8 @@ namespace Euclid::main {
     class GatewayTlsSession : public std::enable_shared_from_this<GatewayTlsSession> {
     public:
 
-        GatewayTlsSession(tcp::socket socket, asio::ssl::context &sslCtx, ServiceController &ctrl)
-            : _stream(std::move(socket), sslCtx), _ctrl(ctrl) {}
+        GatewayTlsSession(tcp::socket socket, asio::ssl::context &sslCtx, asio::io_context &ioc, ServiceController &ctrl)
+            : _stream(std::move(socket), sslCtx), _ioc(ioc), _ctrl(ctrl) {}
 
         void run() {
             beast::get_lowest_layer(_stream).expires_after(std::chrono::seconds(30));
@@ -304,7 +352,14 @@ namespace Euclid::main {
         }
 
         void handleRequest() {
-            auto res = route(_parser->get(), _ctrl);
+            auto &req = _parser->get();
+
+            if (WebSocketEnabled() && websocket::is_upgrade(req)) {
+                handleUpgrade();
+                return;
+            }
+
+            auto res = route(req, _ctrl);
             auto sp = std::make_shared<http::response<http::string_body> >(std::move(res));
             const bool keepAlive = sp->keep_alive();
             http::async_write(
@@ -328,9 +383,31 @@ namespace Euclid::main {
                     });
         }
 
+        void handleUpgrade() {
+            auto &req = _parser->get();
+
+            const auto auth = Core::HttpActionServer::Authenticate(req);
+            if (!auth.subject.has_value()) {
+                auto res = Core::HttpActionServer::Unauthorized(req, auth);
+                auto sp = std::make_shared<http::response<http::string_body> >(std::move(res));
+                http::async_write(_stream, *sp, [self = shared_from_this(), sp](const beast::error_code &, std::size_t) {
+                    beast::get_lowest_layer(self->_stream).close();
+                });
+                return;
+            }
+
+            const auto authorization = std::string(req[http::field::authorization]);
+            const auto accountId = std::string(req["x-euclid-account-id"]);
+            const auto region = std::string(req["x-euclid-region"]);
+            const auto ns = std::string(req["x-euclid-namespace"]);
+            auto session = std::make_shared<GatewayWsTlsSession>(std::move(_stream), _ioc, _ctrl, authorization, accountId, region, ns);
+            session->run(std::move(req));
+        }
+
         beast::ssl_stream<beast::tcp_stream> _stream;
         beast::flat_buffer _buf;
         std::optional<http::request_parser<http::string_body> > _parser;
+        asio::io_context &_ioc;
         ServiceController &_ctrl;
     };
 
@@ -376,8 +453,8 @@ namespace Euclid::main {
     void GatewayServer::doAccept() {
         _acceptor.async_accept(asio::make_strand(_ioc), [this](const beast::error_code &ec, tcp::socket socket) {
             if (!ec) {
-                if (_tlsEnabled) std::make_shared<GatewayTlsSession>(std::move(socket), _sslCtx, _ctrl)->run();
-                else std::make_shared<GatewaySession>(std::move(socket), _ctrl)->run();
+                if (_tlsEnabled) std::make_shared<GatewayTlsSession>(std::move(socket), _sslCtx, _ioc, _ctrl)->run();
+                else std::make_shared<GatewaySession>(std::move(socket), _ioc, _ctrl)->run();
             }
             if (!_ioc.stopped()) doAccept();
         });

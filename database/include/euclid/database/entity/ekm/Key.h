@@ -16,6 +16,7 @@
 
 // Euclid includes
 #include <euclid/database/entity/BaseEntity.h>
+#include <euclid/database/entity/ekm/KeyStatus.h>
 
 namespace Euclid::Database::Entity::EKM {
 
@@ -62,6 +63,23 @@ namespace Euclid::Database::Entity::EKM {
          * @brief Queue tags
          */
         std::map<std::string, std::string> tags;
+
+        /**
+         * @brief If set to anything other than the epoch, the point in time at which this key
+         * will be permanently deleted by the purge sweep. Decryption stays available right up
+         * until then - the whole point of the delay is to leave time to decrypt/migrate data
+         * before it becomes unrecoverable - but see KeyStatus::PENDING_DELETION: encryption is
+         * blocked as soon as a deletion is scheduled. Epoch (default) means the key is not
+         * scheduled for deletion.
+         */
+        system_clock::time_point deletionDate{};
+
+        /**
+         * @brief Lifecycle status - see KeyStatus. Gates whether the key can still be used to
+         * encrypt; decryption is never blocked by status, so already-encrypted data stays
+         * recoverable regardless of status.
+         */
+        KeyStatus status = KeyStatus::AVAILABLE;
 
         /**
          * @brief Creation date

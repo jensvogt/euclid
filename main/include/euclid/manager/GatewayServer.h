@@ -30,6 +30,21 @@
 namespace Euclid::main {
 
     /**
+     * @brief Proxies req over a Unix-domain socket at socketPath and returns the backend's
+     * response. Runs synchronously on the calling thread, bounded by
+     * euclid.gateway.http.backend-timeout-seconds.
+     *
+     * Shared by both the HTTP request path (this file's route()) and the websocket request path
+     * (GatewayWsSession.cpp/GatewayWsTlsSession), so a backend module never has to know or care
+     * which transport the original client used - see WsFrame::ToHttpRequest(), which builds the
+     * same http::request shape from a websocket frame that route() builds from an actual HTTP
+     * request.
+     */
+    [[nodiscard]]
+    boost::beast::http::response<boost::beast::http::string_body>
+    forwardToService(const boost::beast::http::request<boost::beast::http::string_body> &req, const std::string &socketPath);
+
+    /**
      * @brief Represents a server that manages gateway connections.
      *
      * This class initializes the server, configures the necessary resources, and
