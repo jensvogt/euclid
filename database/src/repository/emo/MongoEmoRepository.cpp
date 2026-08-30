@@ -72,6 +72,34 @@ namespace Euclid::Database {
         }
     }
 
+    double MongoEmoRepository::average(const std::string &name) const {
+
+        try {
+            bsoncxx::builder::basic::document filter{};
+            mongocxx::pipeline pipeline{};
+
+            // Stage 1: $match
+            pipeline.match(bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("name", name)));
+
+            // Stage 2: $group
+            pipeline.group(bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("_id", "$name"),
+                                                                  bsoncxx::builder::basic::kvp("average",
+                                                                                               bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("$avg", "$value")))));
+            const auto entry = Database::instance().client();
+            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+
+            double result{};
+            for (auto cursor = collection.aggregate(pipeline); const auto &doc: cursor) {
+                result = doc["average"].get_double().value;
+            }
+            return result;
+
+        } catch (const std::exception &e) {
+            log_error << "List monitoring data failed, error: " << e.what();
+            return {};
+        }
+    }
+
     void MongoEmoRepository::deleteOlderThan(const std::chrono::system_clock::time_point cutoff) {
 
         try {

@@ -137,6 +137,24 @@ namespace Euclid::Database {
         return std::nullopt;
     }
 
+    std::optional<Entity::EKM::Key> MongoEkmRepository::findKeyByErn(const std::string &ern) const {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto keyCollection = (*entry)[Database::instance().databaseName()][KEY_COLLECTION];
+
+            const auto filter = make_document(kvp("ern", ern));
+            if (auto result = keyCollection.find_one(filter.view())) {
+                return Entity::EKM::Key::fromDocument(result->view());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Find EKM key by ERN failed, ern: " << ern << ", error: " << e.what();
+        }
+        return std::nullopt;
+    }
+
     std::vector<Entity::EKM::Key> MongoEkmRepository::listKeys(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const {
 
         try {
@@ -207,6 +225,29 @@ namespace Euclid::Database {
         } catch (const std::exception &e) {
             log_error << "Upsert EKM queue failed, error: " << e.what();
             throw;
+        }
+    }
+
+    long MongoEkmRepository::purgeKeysPendingDeletion() {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto keyCollection = (*entry)[Database::instance().databaseName()][KEY_COLLECTION];
+
+            // deletionDate is only ever written once a deletion is scheduled (see Key::toDocument()),
+            // so a plain $lte filter is enough - keys with no deletionDate field don't match.
+            const auto filter = make_document(kvp("deletionDate", make_document(kvp("$lte", bsoncxx::types::b_date(std::chrono::system_clock::now())))));
+
+            const auto result = keyCollection.delete_many(filter.view());
+            const auto count = result ? result->deleted_count() : 0;
+            if (count > 0)
+                log_info << "EKM purged keys pending deletion, count: " << count;
+            return static_cast<long>(count);
+
+        } catch (const std::exception &e) {
+            log_error << "Purge EKM keys pending deletion failed, error: " << e.what();
+            return 0;
         }
     }
 

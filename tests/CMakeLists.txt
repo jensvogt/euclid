@@ -15,3 +15,12 @@ set_target_properties(${SCOPE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 target_link_libraries(${SCOPE_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
 
 add_test(NAME ${SCOPE_BINARY} COMMAND ${SCOPE_BINARY})
+
+set(WS_FRAME_BINARY euclid-gateway-ws-frame-tests)
+
+add_executable(${WS_FRAME_BINARY} GatewayWsFrameTest.cpp)
+set_target_properties(${WS_FRAME_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${WS_FRAME_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${WS_FRAME_BINARY} COMMAND ${WS_FRAME_BINARY})

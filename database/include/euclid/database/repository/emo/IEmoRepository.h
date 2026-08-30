@@ -46,6 +46,15 @@ namespace Euclid::Database {
         virtual std::vector<Entity::Monitoring::MonitoringData> list(const std::string &name, const std::string &labelName, const std::string &labelValue, long limit) const = 0;
 
         /**
+         * @brief Returns an average over all labelName/labelvalue
+         *
+         * @param name       filter by metric name; empty matches all names.
+         * @return matching data points, sorted by timestamp descending.
+         */
+        [[nodiscard]]
+        virtual double average(const std::string &name) const = 0;
+
+        /**
          * @brief Deletes every data point whose timestamp is older than cutoff.
          *
          * @param cutoff data points with timestamp before this point in time are removed.

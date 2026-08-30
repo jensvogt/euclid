@@ -43,8 +43,8 @@ namespace Euclid::Core {
          * @param socketPath  Unix domain socket path to listen on.
          * @param threads     number of io_context worker threads.
          */
-        HttpActionServer(std::string serviceName, std::string socketPath, int threads = 2);
-
+        HttpActionServer(const std::string &serviceName, std::string socketPath, int threads);
+        
         /**
          * @brief Cancels the periodic CPU/memory usage collection task.
          */

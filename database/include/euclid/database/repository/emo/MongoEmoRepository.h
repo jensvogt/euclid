@@ -53,6 +53,15 @@ namespace Euclid::Database {
         std::vector<Entity::Monitoring::MonitoringData> list(const std::string &name, const std::string &labelName, const std::string &labelValue, long limit) const override;
 
         /**
+         * @brief Returns an average over all labelName/labelvalue
+         *
+         * @param name       filter by metric name; empty matches all names.
+         * @return matching data points, sorted by timestamp descending.
+         */
+        [[nodiscard]]
+        double average(const std::string &name) const override;
+
+        /**
          * @brief clean up monitoring data
          *
          * @param cutoff cut off timestamp

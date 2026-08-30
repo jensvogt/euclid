@@ -32,6 +32,11 @@ namespace Euclid::Dto::EKM {
         long length = 128;
 
         /**
+         * @brief Lifecycle status; always "AVAILABLE" for a freshly created key
+         */
+        std::string status = "AVAILABLE";
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -53,6 +58,7 @@ namespace Euclid::Dto::EKM {
             r.name = Core::GetStringValue(v, "name");
             r.algorithm = Core::GetStringValue(v, "algorithm");
             r.length = Core::GetLongValue(v, "length");
+            r.status = Core::GetStringValue(v, "status");
             return r;
         }
 
@@ -62,6 +68,7 @@ namespace Euclid::Dto::EKM {
                     {"name", obj.name},
                     {"algorithm", obj.algorithm},
                     {"length", obj.length},
+                    {"status", obj.status},
             };
         }
     };

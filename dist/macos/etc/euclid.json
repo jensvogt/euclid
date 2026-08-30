@@ -37,7 +37,13 @@
         "enabled": false,
         "cert-file": "",
         "key-file": ""
-      }
+      },
+      "websocket": {
+        "enabled": true,
+        "max-message-size": 1048576,
+        "idle-timeout-seconds": 300
+      },
+      "event-socket-path": "/var/run/euclid/euclid-gateway-events.sock"
     },
     "modules": {
       "eam": {
