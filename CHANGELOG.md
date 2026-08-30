@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.47](https://github.com/jensvogt/euclid/compare/1.0.46...v1.0.47) (2026-08-30)
+
+
+### Bug Fixes
+
+* support for AES128 and AES256 encryption ([18abfa0](https://github.com/jensvogt/euclid/commit/18abfa0b52c12440c3d342b3ae4c014f572ea80e))
+
 ## [1.0.46](https://github.com/jensvogt/euclid/compare/v1.0.45...v1.0.46) (2026-08-29)
 
 
