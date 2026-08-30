@@ -5,6 +5,7 @@
 #include <boost/beast/http.hpp>
 
 // Euclid includes
+#include <euclid/core/CryptoUtils.h>
 #include <euclid/core/DateTimeUtils.h>
 #include <euclid/core/ErnUtils.h>
 #include <euclid/core/HttpActionServer.h>
