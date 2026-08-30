@@ -46,6 +46,14 @@ namespace Euclid::Database {
             return key;
         }
 
+        std::optional<Entity::EKM::Key> findKeyByName(const std::string &accountId, const std::string &namespaceName, const std::string &name) const override {
+            std::lock_guard lock(_mutex);
+            for (const auto &m: _keyStore | std::views::values) {
+                if (m.accountId == accountId && m.nameSpace == namespaceName && m.name == name) return m;
+            }
+            return std::nullopt;
+        }
+
         //
         // void removeQueueByName(const std::string &name) override {
         //     std::lock_guard lock(_mutex);

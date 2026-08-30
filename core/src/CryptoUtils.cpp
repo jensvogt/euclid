@@ -1,4 +1,5 @@
 // C++ includes
+#include <cstring>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -33,6 +34,13 @@ namespace Euclid::Core {
                 throw std::runtime_error("Failed to generate random bytes");
             }
             return buf;
+        }
+
+        // Draws keyBits/8 random bytes for an AES key and base64-encodes them, ready to hand
+        // straight to CryptoUtils::GenerateAes128Key()/GenerateAes256Key().
+        std::string generateAesKey(const std::size_t keyBits) {
+            const auto random = randomBytes(keyBits / 8);
+            return CryptoUtils::Base64Encode(std::string(random.begin(), random.end()));
         }
 
     }// namespace
@@ -93,6 +101,120 @@ namespace Euclid::Core {
         const int len = EVP_EncodeBlock(reinterpret_cast<unsigned char *>(encoded.data()), random.data(), static_cast<int>(random.size()));
         encoded.resize(static_cast<std::size_t>(len));
         return encoded;
+    }
+
+    std::string CryptoUtils::GenerateAes128Key() {
+        return generateAesKey(128);
+    }
+
+    std::string CryptoUtils::GenerateAes256Key() {
+        return generateAesKey(256);
+    }
+
+    std::string CryptoUtils::AesGcmEncrypt(const std::string &key, const std::string &plaintext) {
+
+        constexpr int kIvLength = 12;
+        constexpr int kTagLength = 16;
+
+        const EVP_CIPHER *cipher = nullptr;
+        if (key.size() == 16) cipher = EVP_aes_128_gcm();
+        else if (key.size() == 32) cipher = EVP_aes_256_gcm();
+        else throw std::runtime_error("Unsupported AES key size: " + std::to_string(key.size()));
+
+        const auto iv = randomBytes(kIvLength);
+
+        EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+        if (ctx == nullptr) throw std::runtime_error("Failed to create cipher context");
+
+        struct CtxGuard {
+            EVP_CIPHER_CTX *ctx;
+            ~CtxGuard() { EVP_CIPHER_CTX_free(ctx); }
+        } guard{ctx};
+
+        if (EVP_EncryptInit_ex(ctx, cipher, nullptr, nullptr, nullptr) != 1 ||
+            EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, kIvLength, nullptr) != 1 ||
+            EVP_EncryptInit_ex(ctx, nullptr, nullptr, reinterpret_cast<const unsigned char *>(key.data()), iv.data()) != 1) {
+            throw std::runtime_error("Failed to initialize AES-GCM encryption");
+        }
+
+        std::string ciphertext(plaintext.size(), '\0');
+        int updateLength = 0;
+        if (EVP_EncryptUpdate(ctx, reinterpret_cast<unsigned char *>(ciphertext.data()), &updateLength,
+                               reinterpret_cast<const unsigned char *>(plaintext.data()), static_cast<int>(plaintext.size())) != 1) {
+            throw std::runtime_error("AES-GCM encryption failed");
+        }
+
+        int finalLength = 0;
+        if (EVP_EncryptFinal_ex(ctx, reinterpret_cast<unsigned char *>(ciphertext.data()) + updateLength, &finalLength) != 1) {
+            throw std::runtime_error("AES-GCM encryption failed");
+        }
+        ciphertext.resize(static_cast<std::size_t>(updateLength + finalLength));
+
+        unsigned char tag[kTagLength];
+        if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, kTagLength, tag) != 1) {
+            throw std::runtime_error("Failed to retrieve AES-GCM authentication tag");
+        }
+
+        std::string result;
+        result.reserve(iv.size() + ciphertext.size() + kTagLength);
+        result.append(iv.begin(), iv.end());
+        result.append(ciphertext);
+        result.append(reinterpret_cast<char *>(tag), kTagLength);
+        return result;
+    }
+
+    std::string CryptoUtils::AesGcmDecrypt(const std::string &key, const std::string &ciphertext) {
+
+        constexpr int kIvLength = 12;
+        constexpr int kTagLength = 16;
+
+        const EVP_CIPHER *cipher = nullptr;
+        if (key.size() == 16) cipher = EVP_aes_128_gcm();
+        else if (key.size() == 32) cipher = EVP_aes_256_gcm();
+        else throw std::runtime_error("Unsupported AES key size: " + std::to_string(key.size()));
+
+        if (ciphertext.size() < static_cast<std::size_t>(kIvLength + kTagLength)) {
+            throw std::runtime_error("Ciphertext too short to contain an IV and authentication tag");
+        }
+
+        const auto *iv = reinterpret_cast<const unsigned char *>(ciphertext.data());
+        const auto *body = reinterpret_cast<const unsigned char *>(ciphertext.data()) + kIvLength;
+        const auto bodyLength = ciphertext.size() - kIvLength - kTagLength;
+
+        unsigned char tag[kTagLength];
+        std::memcpy(tag, ciphertext.data() + kIvLength + bodyLength, kTagLength);
+
+        EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+        if (ctx == nullptr) throw std::runtime_error("Failed to create cipher context");
+
+        struct CtxGuard {
+            EVP_CIPHER_CTX *ctx;
+            ~CtxGuard() { EVP_CIPHER_CTX_free(ctx); }
+        } guard{ctx};
+
+        if (EVP_DecryptInit_ex(ctx, cipher, nullptr, nullptr, nullptr) != 1 ||
+            EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, kIvLength, nullptr) != 1 ||
+            EVP_DecryptInit_ex(ctx, nullptr, nullptr, reinterpret_cast<const unsigned char *>(key.data()), iv) != 1) {
+            throw std::runtime_error("Failed to initialize AES-GCM decryption");
+        }
+
+        std::string plaintext(bodyLength, '\0');
+        int updateLength = 0;
+        if (EVP_DecryptUpdate(ctx, reinterpret_cast<unsigned char *>(plaintext.data()), &updateLength,
+                               body, static_cast<int>(bodyLength)) != 1) {
+            throw std::runtime_error("AES-GCM decryption failed");
+        }
+
+        if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, kTagLength, tag) != 1) {
+            throw std::runtime_error("Failed to set AES-GCM authentication tag");
+        }
+
+        int finalLength = 0;
+        if (EVP_DecryptFinal_ex(ctx, reinterpret_cast<unsigned char *>(plaintext.data()) + updateLength, &finalLength) != 1) {
+            throw std::runtime_error("AES-GCM authentication failed - wrong key or tampered/truncated data");
+        }
+        plaintext.resize(static_cast<std::size_t>(updateLength + finalLength));
+        return plaintext;
     }
 
     std::string CryptoUtils::sha256Hex(const std::string &str) {

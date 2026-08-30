@@ -47,6 +47,17 @@ namespace Euclid::Database {
         virtual Entity::EKM::Key upsertKey(Entity::EKM::Key &key) = 0;
 
         /**
+         * @brief Finds a key by its account, namespace and name.
+         *
+         * @param accountId account the key belongs to
+         * @param namespaceName namespace the key belongs to
+         * @param name key name, as returned by upsertKey()
+         * @return the key if found, std::nullopt otherwise
+         */
+        [[nodiscard]]
+        virtual std::optional<Entity::EKM::Key> findKeyByName(const std::string &accountId, const std::string &namespaceName, const std::string &name) const = 0;
+
+        /**
          * @brief Finds and retrieves all available entities or objects.
          *
          * @param accountId only queues belonging to this account are returned

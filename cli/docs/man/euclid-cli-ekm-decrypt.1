@@ -1,0 +1,76 @@
+.TH EUCLID-CLI-EKM-DECRYPT 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ekm-decrypt \- decrypt a file or stdin with an encryption key
+.SH SYNOPSIS
+.B euclid-cli ekm decrypt
+.BR \-\-key\-id | \-k
+.I KEY_ID
+[\fB\-\-input\fR|\fB\-i\fR \fIFILE\fR]
+[\fB\-\-output\fR|\fB\-o\fR \fIFILE\fR]
+.SH DESCRIPTION
+Decrypts a file or, if
+.B \-\-input
+is omitted, standard input, with the given key and writes the
+recovered plaintext to a file or, if
+.B \-\-output
+is omitted, standard output. The input must be ciphertext produced by
+.BR euclid-cli-ekm-encrypt (1)
+with the same key.
+.PP
+Unlike most
+.B ekm
+actions, the request and response bodies are raw bytes rather than
+JSON: the ciphertext travels as the request body and the plaintext
+comes back as the response body, both read and written in binary
+mode. The key ID travels as a header instead of a JSON field.
+.SH OPTIONS
+.TP
+.BR \-k ", " \-\-key\-id " " \fIKEY_ID\fR
+ID of the key to decrypt with, as returned by the
+.B name
+field of
+.BR euclid-cli-ekm-create-key (1).
+Must be the same key that was used to encrypt the data. Required.
+.TP
+.BR \-i ", " \-\-input " " \fIFILE\fR
+Path of the file to decrypt. If omitted, the ciphertext is read from
+standard input.
+.TP
+.BR \-o ", " \-\-output " " \fIFILE\fR
+Path to write the recovered plaintext to. If omitted, the plaintext
+is written to standard output.
+.SH EXIT STATUS
+.TP
+.B 0
+The data was decrypted and verified; the plaintext was written to the
+requested destination.
+.TP
+.B 1
+Missing/invalid arguments, the input or output file could not be
+opened, the server could not be reached, or the server rejected the
+request (unknown key ID, wrong key, or the ciphertext was truncated
+or tampered with).
+.SH EXAMPLES
+Decrypt a file back to another file:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ekm decrypt \e
+    --key-id 3f1c2b7a-... --input plain.enc --output plain.txt
+.fi
+.RE
+Decrypt stdin and write plaintext to stdout:
+.PP
+.RS
+.nf
+cat plain.enc | euclid-cli --endpoint http://localhost:5566 \e
+    ekm decrypt --key-id 3f1c2b7a-... > plain.txt
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ekm (1),
+.BR euclid-cli-ekm-create-key (1),
+.BR euclid-cli-ekm-list-keys (1),
+.BR euclid-cli-ekm-encrypt (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
