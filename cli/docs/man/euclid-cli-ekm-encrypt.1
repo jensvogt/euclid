@@ -21,6 +21,15 @@ actions, the request and response bodies are raw bytes rather than
 JSON: the plaintext travels as the request body and the ciphertext
 comes back as the response body, both read and written in binary
 mode. The key ID travels as a header instead of a JSON field.
+.PP
+Only a key whose status is
+.B AVAILABLE
+can be used to encrypt. A key that has been revoked (see
+.BR euclid-cli-ekm-revoke-key (1))
+or scheduled for deletion (see
+.BR euclid-cli-ekm-delete-key (1))
+still decrypts fine, but is rejected here with
+.IR "HTTP 403" .
 .SH OPTIONS
 .TP
 .BR \-k ", " \-\-key\-id " " \fIKEY_ID\fR
@@ -68,6 +77,8 @@ cat plain.txt | euclid-cli --endpoint http://localhost:5566 \e
 .BR euclid-cli-ekm (1),
 .BR euclid-cli-ekm-create-key (1),
 .BR euclid-cli-ekm-list-keys (1),
+.BR euclid-cli-ekm-revoke-key (1),
+.BR euclid-cli-ekm-delete-key (1),
 .BR euclid-cli-ekm-decrypt (1)
 .SH AUTHOR
 Jens Vogt <jens.vogt@opitz-consulting.com>

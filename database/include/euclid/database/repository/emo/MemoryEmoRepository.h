@@ -69,6 +69,24 @@ namespace Euclid::Database {
         }
 
         /**
+         * @brief Return an average over all labelName/labelValue
+         *
+         * @param name metric name
+         * @return list of monitoring metrics
+         */
+        double average(const std::string &name) const override {
+            std::lock_guard lock(_mutex);
+
+            std::vector<Entity::Monitoring::MonitoringData> result;
+            for (const auto &data: _store) {
+                if (!name.empty() && data.name != name) continue;
+                result.push_back(data);
+            }
+
+            return 0.0;
+        }
+
+        /**
          * @brief clean up monitoring data
          *
          * @param cutoff cut off timestamp

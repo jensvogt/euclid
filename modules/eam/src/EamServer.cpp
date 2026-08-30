@@ -77,8 +77,8 @@ namespace Euclid::EAM {
 
     // Timer/counter names shared by every handler below - one series per action, labeled
     // "method"=<action>.
-    constexpr auto kServiceTimer = "access-service-time";
-    constexpr auto kServiceCounter = "access-service-count";
+    constexpr auto kServiceTimer = "eam-service-time";
+    constexpr auto kServiceCounter = "eam-service-count";
 
     // Counts users with at least one non-expired session. Fired as a gauge (see
     // reportCurrentUsers()) rather than derived per-request, since it's shared state - every
@@ -752,8 +752,7 @@ namespace Euclid::EAM {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-namespaces");
 
-        const auto auth = authenticate(req);
-        if (!auth.user.has_value()) {
+        if (const auto auth = authenticate(req); !auth.user.has_value()) {
             return unauthorized(req, auth);
         }
 
@@ -933,9 +932,9 @@ namespace Euclid::EAM {
         }
 
         const bool granted = isAccountAdmin(*auth.user, auth.user->accountId) ||
-                              std::ranges::any_of(auth.user->accountGrants, [&](const auto &grant) {
-                                  return grant.accountId == auth.user->accountId && std::ranges::contains(grant.namespaces, request.ns);
-                              });
+                             std::ranges::any_of(auth.user->accountGrants, [&](const auto &grant) {
+                                 return grant.accountId == auth.user->accountId && std::ranges::contains(grant.namespaces, request.ns);
+                             });
         if (!granted) {
             return EamServer::ErrorResponse(req, status::forbidden, "Namespace access not granted");
         }

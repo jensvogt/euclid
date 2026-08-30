@@ -22,6 +22,7 @@
 #include <euclid/database/RepositoryFactory.h>
 #include <euclid/manager/Controller.h>
 #include <euclid/manager/ControllerPlatform.h>
+#include <euclid/manager/GatewayEventIngest.h>
 #include <euclid/manager/GatewayServer.h>
 
 // ── Constants ───────────────────────────────────────────────
@@ -406,6 +407,22 @@ static int RunManager(const CliOptions &opts, [[maybe_unused]] const bool report
     auto &gateway = *gatewayOpt;
     gateway.start();
 
+    // Receiving end of Core::EventPusher - every module process pushes business events (e.g.
+    // EKM key lifecycle) here over a fixed configured Unix domain socket, the same one-shot-push
+    // idiom MetricsPusher already uses for the "emo" module, just event-driven instead of
+    // scheduled. Only started if a path is actually configured, so deployments that haven't set
+    // euclid.gateway.event-socket-path yet are unaffected - Core::EventPusher::Push() is
+    // similarly a no-op on the sending side until a module configures the same key.
+    std::optional<Euclid::main::GatewayEventIngest> eventIngestOpt;
+    if (const auto eventSocketPath = cfg.getOr<std::string>("euclid.gateway.event-socket-path", ""); !eventSocketPath.empty()) {
+        try {
+            eventIngestOpt.emplace(eventSocketPath);
+            eventIngestOpt->start();
+        } catch (const std::exception &e) {
+            log_error << "Failed to start gateway event ingest on " << eventSocketPath << ": " << e.what();
+        }
+    }
+
 #if defined(_WIN32)
     if (reportServiceStatus) updateServiceStatus(SERVICE_RUNNING);
 #endif
@@ -420,6 +437,7 @@ static int RunManager(const CliOptions &opts, [[maybe_unused]] const bool report
     // mid-shutdown, and the watchdog can spawn an instance that stopAll()'s already-taken
     // snapshot will never see. See handleShutdown()'s comment for the failure mode this avoids.
     ctrl.stopWatchdog();
+    if (eventIngestOpt) eventIngestOpt->stop();
     gateway.stop();
     ctrl.stopAll();
 

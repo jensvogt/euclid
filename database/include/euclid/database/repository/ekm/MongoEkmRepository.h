@@ -55,76 +55,46 @@ namespace Euclid::Database {
         std::optional<Entity::EKM::Key> findKeyByName(const std::string &accountId, const std::string &namespaceName, const std::string &name) const override;
 
         /**
-         * @brief Removes a queue entity
+         * @brief Find a key by its ERN
          *
-         * @param name module name
+         * @param ern ERN of the key
+         * @return optional key
          */
-        // void removeQueueByName(const std::string &name) override;
-
-        /**
-         * @brief Removes a queue entity by ERN
-         *
-         * @param ern queue ERN
-         */
-        // void deleteQueueByErn(const std::string &ern) override;
-
-        /**
-         * @brief Find by queue name
-         *
-         * @param name queue name
-         * @return optional queue
-         */
-        // [[nodiscard]]
-        // std::optional<Entity::EQS::Queue> findQueueByName(const std::string &name) const override;
-
-        /**
-         * @brief Find by queue ID
-         *
-         * @param oid queue OID
-         * @return optional queue
-         */
-        // [[nodiscard]]
-        // std::optional<Entity::EQS::Queue> findQueueById(const std::string &oid) const override;
-
-        /**
-         * @brief Find by queue ERN
-         *
-         * @param ern queue ERN
-         * @return optional queue
-         */
-        // [[nodiscard]]
-        // std::optional<Entity::EQS::Queue> findQueueByErn(const std::string &ern) const override;
+        [[nodiscard]]
+        std::optional<Entity::EKM::Key> findKeyByErn(const std::string &ern) const override;
 
         /**
          * @brief Find all keys
          *
+         * @param accountId account the key belongs to
+         * @param namespaceName namespace the key belongs to
          * @param prefix only queues whose name starts with this prefix are returned; empty matches all queues
          * @param pageSize maximum number of queues to return; 0 or less means no limit
          * @param pageIndex zero-based page index, applied when pageSize is set
-         * @param sortColumn field to sort by (e.g. "name", "arn"); empty means unsorted
+         * @param sortColumn field to sort by (e.g. "name", "ern"); empty means unsorted
+         * @param sortDirection sort direction (e.g. "asc", "desc"); empty means asc
          * @return list of all queue entities.
          */
         [[nodiscard]]
         std::vector<Entity::EKM::Key> listKeys(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const override;
 
         /**
-         * @brief Check the existence of the module by name
-         *
-         * @param name module name check existence
-         * @return true if module exists
-         */
-        // [[nodiscard]]
-        // bool queueExists(const std::string &name) const override;
-
-        /**
          * @brief Get the total number of keys
          *
          * @param accountId only keys belonging to this account are counted
          * @param nameSpace only keys in this namespace are counted; empty means don't filter by namespace
+         * @param prefix only queues whose name starts with this prefix are returned; empty matches all queues
          * @return total number of keys
          */
         [[nodiscard]]
         long countKeys(const std::string &accountId, const std::string &nameSpace, const std::string &prefix = "") const override;
+
+        /**
+         * @brief Permanently deletes every key whose scheduled deletion date has passed
+         *
+         * @return number of keys deleted
+         */
+        long purgeKeysPendingDeletion() override;
 
         /**
          * @brief Delete all modules

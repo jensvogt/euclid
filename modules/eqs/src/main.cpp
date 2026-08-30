@@ -7,6 +7,7 @@
 
 // Euclid includes
 #include <euclid/core/Configuration.h>
+#include <euclid/core/EventPusher.h>
 #include <euclid/core/LogStream.h>
 #include <euclid/core/Version.h>
 #include <euclid/core/monitoring/MetricsPusher.h>
@@ -131,6 +132,7 @@ int main(const int argc, char *argv[]) {
     Euclid::Database::WireGrantLookup();
 
     Euclid::Core::Monitoring::MetricsPusher metricsPusher("eqs");
+    Euclid::Core::EventPusher::SetGatewaySocketPath(cfg.getOr<std::string>("euclid.gateway.event-socket-path", ""));
     try {
         Euclid::EQS::EqsServer server(cliOpts->socketPath);
         return server.RunUntilSignal();
