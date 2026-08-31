@@ -6,19 +6,20 @@
 #include <boost/program_options.hpp>
 
 // Euclid includes
+#include <SftpServer.h>
+#include <euclid/database/RepositoryFactory.h>
 #include <euclid/core/Configuration.h>
 #include <euclid/core/LogStream.h>
 #include <euclid/core/Version.h>
 #include <euclid/core/monitoring/MetricsPusher.h>
-#include <FtpServer.h>
 
 #define DEFAULT_LOG_LEVEL          "info"
 #ifdef _WIN32
 #define DEFAULT_CONFIGURATION_FILE "C:\\Program Files\\euclid\\etc\\euclid.json"
-#define DEFAULT_SOCKET_PATH        "C:\\Program Files\\euclid\\data\\run\\euclid-ftp.sock"
+#define DEFAULT_SOCKET_PATH        "C:\\Program Files\\euclid\\data\\run\\euclid-sftp.sock"
 #else
 #define DEFAULT_CONFIGURATION_FILE "/usr/local/euclid/etc/euclid.json"
-#define DEFAULT_SOCKET_PATH        "/var/run/euclid-ftp.sock"
+#define DEFAULT_SOCKET_PATH        "/var/run/euclid-sftp.sock"
 #endif
 
 namespace po = boost::program_options;
@@ -28,6 +29,7 @@ namespace {
         std::string socketPath;
         std::string configFile;
         std::string logLevel;
+        std::string transferServerId;
         bool consoleLog{true};
         bool fileLog{false};
     };
@@ -42,7 +44,11 @@ static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
             ("help,h", "Show this help message")
             ("version,v", "Show version information")
             ("config,c", po::value<std::string>(&opts.configFile)->default_value(DEFAULT_CONFIGURATION_FILE), "Path to JSON configuration file")
-            ("socket,s", po::value<std::string>(&opts.socketPath)->default_value(DEFAULT_SOCKET_PATH), "Unix domain socket path");
+            ("socket,s", po::value<std::string>(&opts.socketPath)->default_value(DEFAULT_SOCKET_PATH), "Unix domain socket path")
+            ("transfer-server,t", po::value<std::string>(&opts.transferServerId)->default_value(""),
+             "Run as the named ETS transfer server: take address/port/host key from its definition, "
+             "authenticate against EAM and store files in its ESM bucket. Without it the server runs "
+             "standalone from euclid.modules.sftp.*");
 
     po::options_description logging("Logging options", 120, 50);
     logging.add_options()
@@ -50,7 +56,7 @@ static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
             ("console-log", po::value<bool>(&opts.consoleLog)->default_value(true)->implicit_value(true), "Enable console logging")
             ("file-log", po::value<bool>(&opts.fileLog)->default_value(false)->implicit_value(true), "Enable file logging");
 
-    po::options_description all("FTP options");
+    po::options_description all("SFTP options");
     all.add(general).add(logging);
 
     try {
@@ -58,12 +64,12 @@ static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
         po::store(po::command_line_parser(argc, argv).options(all).run(), vm);
 
         if (vm.contains("help")) {
-            std::cout << "FTP v" << APP_VERSION << " - FTP service process\n\n" << all << "\n";
+            std::cout << "SFTP v" << APP_VERSION << " - SFTP service process\n\n" << all << "\n";
             return std::nullopt;
         }
 
         if (vm.contains("version")) {
-            std::cout << "FTP version " << APP_VERSION << "\n";
+            std::cout << "SFTP version " << APP_VERSION << "\n";
             return std::nullopt;
         }
 
@@ -100,15 +106,30 @@ int main(const int argc, char *argv[]) {
     Euclid::Core::LogStream::Initialize();
     Euclid::Core::LogStream::SetSeverity(cfg.getOr<std::string>("euclid.logging.level", cliOpts->logLevel));
 
-    Euclid::Core::Monitoring::MetricsPusher metricsPusher("ftp");
+    // The repositories are needed even standalone, because MetricsPusher resolves the
+    // monitoring module through them.
     try {
-        Euclid::FTP::FtpServer server(cliOpts->socketPath);
+        if (const auto backend = cfg.getOr<std::string>("euclid.database.backend", "mongodb"); backend == "memory") {
+            Euclid::Database::RepositoryFactory::instance().initialize(Euclid::Database::BackendType::MEMORY);
+        } else {
+            Euclid::Database::Database::instance().initialize();
+            Euclid::Database::RepositoryFactory::instance().initialize(Euclid::Database::BackendType::MONGODB);
+        }
+    } catch (const std::exception &e) {
+        log_error << "Failed to initialize database: " << e.what();
+        return 1;
+    }
+    Euclid::Database::WireModuleSocketLookup();
+
+    Euclid::Core::Monitoring::MetricsPusher metricsPusher("sftp");
+    try {
+        Euclid::SFTP::SftpServer server(cliOpts->socketPath, 2, cliOpts->transferServerId);
         return server.RunUntilSignal();
     } catch (const std::exception &e) {
-        log_error << "Failed to start FTP service: " << e.what();
+        log_error << "Failed to start SFTP service: " << e.what();
         return 1;
     } catch (...) {
-        log_error << "Failed to start FTP service: unknown exception type";
+        log_error << "Failed to start SFTP service: unknown exception type";
         return 1;
     }
 }

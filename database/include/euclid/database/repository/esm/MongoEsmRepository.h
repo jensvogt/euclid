@@ -162,7 +162,7 @@ namespace Euclid::Database {
          * @return The total number of messages as a long integer.
          */
         [[nodiscard]]
-        long countObjects(const std::string &bucketErn, const std::string &prefix) const override;
+        long countObjects(const std::string &bucketErn, const std::string &prefix, bool includeDirectories = false) const override;
 
         /**
          * @brief Find all buckets, optionally filtered, paged and sorted.
@@ -175,7 +175,7 @@ namespace Euclid::Database {
          * @return list of matching bucket entities.
          */
         [[nodiscard]]
-        std::vector<Entity::ESM::Object> listObjects(const std::string &bucketErn, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const override;
+        std::vector<Entity::ESM::Object> listObjects(const std::string &bucketErn, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc", bool includeDirectories = false) const override;
 
         /**
          * @brief Removes a object entity by ERN

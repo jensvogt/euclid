@@ -34,39 +34,51 @@ namespace Euclid::Database {
         }
 
         /**
-         * @brief Insert new monitoring data
+         * @brief Write one monitoring data point, replacing any existing point for the same bucket
          *
          * @param data monitoring data
          */
-        void insert(const Entity::Monitoring::MonitoringData &data) override;
+        void upsert(const Entity::Monitoring::MonitoringData &data) override;
 
         /**
          * @brief Return a list of monitoring data
          *
-         * @param name metric name
-         * @param labelName label name
-         * @param labelValue label value
-         * @param limit maximal number of monitoring data entries
+         * @param query filter to apply
          * @return list of monitoring metrics
          */
         [[nodiscard]]
-        std::vector<Entity::Monitoring::MonitoringData> list(const std::string &name, const std::string &labelName, const std::string &labelValue, long limit) const override;
+        std::vector<Entity::Monitoring::MonitoringData> list(const MonitoringQuery &query) const override;
 
         /**
-         * @brief Returns an average over all labelName/labelvalue
+         * @brief Returns an average over all labelName/labelValue
          *
-         * @param name       filter by metric name; empty matches all names.
-         * @return matching data points, sorted by timestamp descending.
+         * @param query filter to apply
+         * @return average value
          */
         [[nodiscard]]
-        double average(const std::string &name) const override;
+        double average(const MonitoringQuery &query) const override;
 
         /**
-         * @brief clean up monitoring data
+         * @brief Aggregate one resolution tier into the next coarser one
          *
-         * @param cutoff cut off timestamp
+         * @param from tier to read
+         * @param to tier to write
+         * @param windowStart start of the source range, inclusive
+         * @param windowEnd end of the source range, exclusive
+         * @param retention how long the written buckets should be kept
+         * @return number of buckets written
          */
-        void deleteOlderThan(std::chrono::system_clock::time_point cutoff) override;
+        long rollup(Entity::Monitoring::Resolution from, Entity::Monitoring::Resolution to,
+                    std::chrono::system_clock::time_point windowStart, std::chrono::system_clock::time_point windowEnd,
+                    std::chrono::seconds retention) override;
+
+        /**
+         * @brief Clean up expired monitoring data
+         *
+         * @param now point in time to evaluate expiry against
+         * @return number of data points deleted
+         */
+        long deleteExpired(std::chrono::system_clock::time_point now) override;
 
     private:
 

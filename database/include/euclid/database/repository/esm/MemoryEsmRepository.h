@@ -240,12 +240,13 @@ namespace Euclid::Database {
          *
          * @paranm bucketErn bucket ERN
          * @paranm prefix object key prefix
+         * @param includeDirectories whether directory keys are counted
          * @return The total number of messages as a long integer.
          */
-        long countObjects(const std::string &bucketErn, const std::string &prefix) const override {
+        long countObjects(const std::string &bucketErn, const std::string &prefix, const bool includeDirectories = false) const override {
             std::lock_guard lock(_mutex);
-            return std::ranges::count_if(_objectStore | std::views::values, [&bucketErn,prefix](const auto &objects) {
-                return objects.bucketErn == bucketErn && (prefix.empty() || objects.key.starts_with(prefix));
+            return std::ranges::count_if(_objectStore | std::views::values, [&bucketErn,prefix,includeDirectories](const auto &objects) {
+                return objects.bucketErn == bucketErn && (prefix.empty() || objects.key.starts_with(prefix)) && (includeDirectories || !Entity::ESM::IsDirectoryKey(objects.key));
             });
         }
 
@@ -257,13 +258,15 @@ namespace Euclid::Database {
          * @param pageSize maximum number of buckets to return; 0 or less means no limit
          * @param pageIndex zero-based page index, applied when pageSize is set
          * @param sortColumn field to sort by (e.g. "name", "ern"); empty means unsorted
+         * @param sortDirection "asc" or "desc"; anything else is treated as "desc"
+         * @param includeDirectories whether directory keys are returned
          * @return list of matching bucket entities.
          */
-        std::vector<Entity::ESM::Object> listObjects(const std::string &bucketErn, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const override {
+        std::vector<Entity::ESM::Object> listObjects(const std::string &bucketErn, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc", const bool includeDirectories = false) const override {
             std::lock_guard lock(_mutex);
             std::vector<Entity::ESM::Object> result;
             for (const auto &b: _objectStore | std::views::values) {
-                if (b.bucketErn == bucketErn && (prefix.empty() || b.key.starts_with(prefix))) {
+                if (b.bucketErn == bucketErn && (prefix.empty() || b.key.starts_with(prefix)) && (includeDirectories || !Entity::ESM::IsDirectoryKey(b.key))) {
                     result.push_back(b);
                 }
             }

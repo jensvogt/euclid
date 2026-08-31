@@ -1,11 +1,28 @@
 #include <FtpSession.h>
 
+// Euclid includes
+#include <TransferMetrics.h>
+#include <euclid/core/UuidUtils.h>
+
 namespace Euclid::FTP {
 
     namespace asio = boost::asio;
     using tcp = asio::ip::tcp;
 
     namespace {
+
+        // Deletes a transfer's spool file however the command it belongs to returns - including
+        // the several early-return error paths below, which would otherwise leak a full copy of
+        // the transferred file into the spool directory on every failure.
+        struct SpoolGuard {
+            std::filesystem::path path;
+            ~SpoolGuard() {
+                if (path.empty()) return;
+                std::error_code ec;
+                std::filesystem::remove(path, ec);
+            }
+        };
+
 
         std::string Trim(const std::string &s) {
             const auto begin = s.find_first_not_of(" \t\r\n");
@@ -165,26 +182,26 @@ namespace Euclid::FTP {
             return;
         }
 
-        const auto it = _config.users.find(_pendingUser);
-        if (it == _config.users.end() || it->second.password != arg) {
+        // EAM is the only credential source: the transfer server definition decides which of
+        // its users may log in, and success also decides which bucket this session sees and
+        // under whose identity it reaches it.
+        const Transfer::TransferAuthenticator authenticator(_config.transferServer);
+        const auto identity = authenticator.Authenticate(_pendingUser, arg);
+        if (!identity.has_value()) {
             sendReply(530, "Login incorrect");
             _pendingUser.clear();
             return;
         }
 
-        std::error_code fsEc;
-        auto home = std::filesystem::weakly_canonical(_config.rootDir / it->second.home, fsEc);
-        if (fsEc) {
-            home = _config.rootDir / it->second.home;
-        }
-
-        _username = _pendingUser;
-        _homeDir = home;
+        _username = identity->userId;
+        _homeDir = _config.rootDir;
+        _storage.emplace(_config.transferServer.bucketErn, identity->token, _config.transferServer.region, _config.transferServer.accountId);
         _cwd = "/";
         _authenticated = true;
         _pendingUser.clear();
 
-        log_info << "FTP login: user=" << _username;
+        log_info << "FTP login: user=" << _username << ", server=" << _config.transferServer.serverId
+                << ", bucket=" << _config.transferServer.bucketName;
         sendReply(230, "Login successful");
     }
 
@@ -227,7 +244,13 @@ namespace Euclid::FTP {
 
     void FtpSession::cmdCwd(const std::string &arg) {
         const auto [virtualPath, physicalPath] = resolve(arg);
-        if (std::error_code fsEc; !std::filesystem::is_directory(physicalPath, fsEc)) {
+        if (_storage) {
+            // The bucket root always exists; anything else has to resolve to a directory.
+            if (const auto entry = _storage->Stat(keyOf(virtualPath)); virtualPath != "/" && (!entry.has_value() || !entry->isDirectory)) {
+                sendReply(550, "No such directory");
+                return;
+            }
+        } else if (std::error_code fsEc; !std::filesystem::is_directory(physicalPath, fsEc)) {
             sendReply(550, "No such directory");
             return;
         }
@@ -246,6 +269,15 @@ namespace Euclid::FTP {
         }
 
         const auto [virtualPath, physicalPath] = resolve(arg);
+        if (_storage) {
+            if (_storage->MakeDirectory(keyOf(virtualPath))) {
+                sendReply("257 \"" + virtualPath + "\" directory created");
+            } else {
+                sendReply(550, "Could not create directory");
+            }
+            return;
+        }
+
         std::error_code fsEc;
         if (std::filesystem::exists(physicalPath, fsEc)) {
             sendReply(550, "Directory already exists");
@@ -268,6 +300,15 @@ namespace Euclid::FTP {
         }
 
         const auto [virtualPath, physicalPath] = resolve(arg);
+        if (_storage) {
+            if (_storage->RemoveDirectory(keyOf(virtualPath))) {
+                sendReply(250, "Directory removed");
+            } else {
+                sendReply(550, "Could not remove directory");
+            }
+            return;
+        }
+
         std::error_code fsEc;
         if (!std::filesystem::is_directory(physicalPath, fsEc)) {
             sendReply(550, "No such directory");
@@ -396,7 +437,7 @@ namespace Euclid::FTP {
     void FtpSession::cmdList(const std::string &arg) {
         const auto [virtualPath, physicalPath] = resolve(arg);
         std::error_code fsEc;
-        if (!std::filesystem::exists(physicalPath, fsEc)) {
+        if (!_storage && !std::filesystem::exists(physicalPath, fsEc)) {
             sendReply(450, "No such file or directory");
             return;
         }
@@ -406,7 +447,12 @@ namespace Euclid::FTP {
         if (!data) return;
 
         std::ostringstream out;
-        if (std::filesystem::is_directory(physicalPath, fsEc)) {
+        if (_storage) {
+            for (const auto &entry: _storage->List(keyOf(virtualPath))) {
+                out << (entry.isDirectory ? 'd' : '-') << "rw-r--r-- 1 ftp ftp " << std::setw(10) << entry.size
+                    << " Jan  1 00:00 " << entry.name << "\r\n";
+            }
+        } else if (std::filesystem::is_directory(physicalPath, fsEc)) {
             for (const auto &entry: std::filesystem::directory_iterator(physicalPath, fsEc)) {
                 out << BuildListLine(entry.path(), entry.path().filename().string()) << "\r\n";
             }
@@ -425,18 +471,29 @@ namespace Euclid::FTP {
     void FtpSession::cmdRetr(const std::string &arg) {
         const auto [virtualPath, physicalPath] = resolve(arg);
         std::error_code fsEc;
-        if (!std::filesystem::is_regular_file(physicalPath, fsEc)) {
+
+        // In transfer mode the object is pulled into a spool file first, so the send loop below
+        // is identical in both modes.
+        std::filesystem::path sourcePath = physicalPath;
+        if (_storage) {
+            sourcePath = spoolPath();
+            if (!_storage->Download(keyOf(virtualPath), sourcePath)) {
+                sendReply(550, "File not found");
+                return;
+            }
+        } else if (!std::filesystem::is_regular_file(physicalPath, fsEc)) {
             sendReply(550, "File not found");
             return;
         }
+        const SpoolGuard guard{_storage.has_value() ? sourcePath : std::filesystem::path{}};
 
-        std::ifstream in(physicalPath, std::ios::binary);
+        std::ifstream in(sourcePath, std::ios::binary);
         if (!in.is_open()) {
             sendReply(550, "Could not open file");
             return;
         }
 
-        const auto size = std::filesystem::file_size(physicalPath, fsEc);
+        const auto size = std::filesystem::file_size(sourcePath, fsEc);
         sendReply(150, "Opening BINARY mode data connection for " + physicalPath.filename().string() + " (" + std::to_string(size) + " bytes)");
 
         auto data = openDataConnection();
@@ -444,32 +501,48 @@ namespace Euclid::FTP {
 
         std::array<char, 65536> buffer{};
         boost::system::error_code ec;
+        long sent = 0;
         while (in) {
             in.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
             const auto n = in.gcount();
             if (n <= 0) break;
-            asio::write(*data, asio::buffer(buffer.data(), static_cast<std::size_t>(n)), ec);
+            const auto written = asio::write(*data, asio::buffer(buffer.data(), static_cast<std::size_t>(n)), ec);
+            sent += static_cast<long>(written);
             if (ec) break;
         }
 
         std::ignore=data->shutdown(tcp::socket::shutdown_both, ec);
         std::ignore=data->close(ec);
 
+        // Recorded even for a transfer that broke off part-way: those bytes did leave the server,
+        // and a download that stops half-way is exactly what a byte count is there to show. The
+        // file itself only counts once it was served in full.
+        Transfer::Metrics::BytesSent(_config.transferServer.serverId, sent);
+
         if (in.bad()) {
             sendReply(451, "Local error reading file");
         } else {
+            Transfer::Metrics::FileSent(_config.transferServer.serverId);
             sendReply(226, "Transfer complete");
         }
     }
 
     void FtpSession::cmdStor(const std::string &arg) {
         const auto [virtualPath, physicalPath] = resolve(arg);
-        if (std::error_code fsEc; !std::filesystem::is_directory(physicalPath.parent_path(), fsEc)) {
+
+        // In transfer mode the bytes land in a spool file first and are stored as an object once
+        // the client closes the data connection - the bucket takes whole objects, so there is
+        // nothing to store until the transfer is actually complete.
+        std::filesystem::path targetPath = physicalPath;
+        if (_storage) {
+            targetPath = spoolPath();
+        } else if (std::error_code fsEc; !std::filesystem::is_directory(physicalPath.parent_path(), fsEc)) {
             sendReply(550, "Destination directory does not exist");
             return;
         }
+        const SpoolGuard guard{_storage.has_value() ? targetPath : std::filesystem::path{}};
 
-        std::ofstream out(physicalPath, std::ios::binary | std::ios::trunc);
+        std::ofstream out(targetPath, std::ios::binary | std::ios::trunc);
         if (!out.is_open()) {
             sendReply(550, "Could not create file");
             return;
@@ -481,6 +554,7 @@ namespace Euclid::FTP {
 
         std::array<char, 65536> buffer{};
         boost::system::error_code ec;
+        long received = 0;
         while (true) {
             const std::size_t n = data->read_some(asio::buffer(buffer), ec);
             if (ec == asio::error::eof) {
@@ -489,21 +563,45 @@ namespace Euclid::FTP {
             }
             if (ec) break;
             out.write(buffer.data(), static_cast<std::streamsize>(n));
+            received += static_cast<long>(n);
         }
 
         out.close();
         boost::system::error_code closeEc;
         std::ignore=data->close(closeEc);
 
+        // Bytes are what arrived, whether or not the object is stored below; the file only counts
+        // once the bucket actually holds it.
+        Transfer::Metrics::BytesReceived(_config.transferServer.serverId, received);
+
         if (ec) {
             sendReply(426, "Connection closed; transfer aborted");
-        } else {
-            sendReply(226, "Transfer complete");
+            return;
         }
+
+        // A failed store has to be reported as a failed transfer: the client has sent every byte
+        // and would otherwise take a 226 as confirmation that the file is safely stored.
+        if (_storage && !_storage->Upload(keyOf(virtualPath), targetPath)) {
+            log_error << "FTP upload to bucket failed, key: " << keyOf(virtualPath);
+            sendReply(552, "Could not store file");
+            return;
+        }
+
+        Transfer::Metrics::FileReceived(_config.transferServer.serverId);
+        sendReply(226, "Transfer complete");
     }
 
     void FtpSession::cmdDele(const std::string &arg) {
         const auto [virtualPath, physicalPath] = resolve(arg);
+        if (_storage) {
+            if (_storage->Remove(keyOf(virtualPath))) {
+                sendReply(250, "Delete successful");
+            } else {
+                sendReply(550, "File not found");
+            }
+            return;
+        }
+
         std::error_code fsEc;
         if (!std::filesystem::is_regular_file(physicalPath, fsEc)) {
             sendReply(550, "File not found");
@@ -544,6 +642,18 @@ namespace Euclid::FTP {
             return;
         }
         sendReply(213, FormatMdtmTimestamp(ftime));
+    }
+
+    std::filesystem::path FtpSession::spoolPath() const {
+        // A UUID rather than the key: two sessions may transfer the same object at once, and a
+        // key contains slashes that would otherwise have to be flattened into a filename.
+        return _config.rootDir / ("spool-" + Core::UuidUtils::CreateRandomUuid());
+    }
+
+    std::string FtpSession::keyOf(const std::string &virtualPath) {
+        std::string key = virtualPath;
+        while (!key.empty() && key.front() == '/') key.erase(key.begin());
+        return key;
     }
 
     FtpSession::ResolvedPath FtpSession::resolve(const std::string &arg) const {

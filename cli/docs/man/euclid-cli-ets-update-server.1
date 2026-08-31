@@ -1,0 +1,118 @@
+.TH EUCLID-CLI-ETS-UPDATE-SERVER 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ets-update-server \- change an existing transfer server's settings
+.SH SYNOPSIS
+.B euclid-cli ets update-server
+.BR \-\-server\-id | \-n
+.I NAME
+[\fB\-\-port\fR|\fB\-p\fR \fIPORT\fR]
+[\fB\-\-bucket\fR|\fB\-b\fR \fIBUCKET\fR]
+[\fB\-\-address\fR|\fB\-a\fR \fIADDRESS\fR]
+[\fB\-\-users\fR|\fB\-u\fR \fILIST\fR]
+[\fB\-\-groups\fR|\fB\-g\fR \fILIST\fR]
+[\fB\-\-host\-key\fR|\fB\-k\fR \fIPATH\fR]
+[\fB\-\-pasv\-min\fR \fIPORT\fR]
+[\fB\-\-pasv\-max\fR \fIPORT\fR]
+.SH DESCRIPTION
+Changes an existing transfer server's settings. Only the options
+actually given are altered, so one setting can be changed without
+resending the whole definition. At least one option besides
+.B \-\-server\-id
+must be given.
+.PP
+.B \-\-users
+and
+.B \-\-groups
+.I replace
+the current list rather than adding to it. To add a user, pass the full
+intended list; to close a server to everyone, note that removing both
+lists entirely is not possible here - a server with neither cannot be
+logged in to, and is better deleted.
+.PP
+A running server keeps running on its old settings: the manager restarts
+a transfer server only when its desired state changes, not when its
+definition does. Run
+.BR euclid-cli-ets-stop-server (1)
+followed by
+.BR euclid-cli-ets-start-server (1)
+to apply the change.
+.PP
+The protocol cannot be changed. FTP and SFTP are different processes
+with different settings, so switching one for the other means deleting
+the server and creating it again.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-server\-id " " \fINAME\fR
+Name of the server to change. Required.
+.TP
+.BR \-p ", " \-\-port " " \fIPORT\fR
+TCP port to listen on.
+.TP
+.BR \-b ", " \-\-bucket " " \fIBUCKET\fR
+Name of the ESM bucket this server's clients read and write. Must
+already exist. Objects already in the old bucket are not moved; clients
+simply see the new bucket's contents after the server restarts.
+.TP
+.BR \-a ", " \-\-address " " \fIADDRESS\fR
+Address to bind to.
+.TP
+.BR \-u ", " \-\-users " " \fILIST\fR
+Comma-separated EAM user IDs allowed to log in. Replaces the current
+list.
+.TP
+.BR \-g ", " \-\-groups " " \fILIST\fR
+Comma-separated EAM user groups whose members may log in. Replaces the
+current list.
+.TP
+.BR \-k ", " \-\-host\-key " " \fIPATH\fR
+SFTP only. Private SSH host key file. Pointing a server at a different
+key changes the identity clients see, and clients that pinned the old
+one will refuse to connect until their known-hosts entry is updated.
+.TP
+.B \-\-pasv\-min " " \fIPORT\fR
+FTP only. Lowest passive data port.
+.TP
+.B \-\-pasv\-max " " \fIPORT\fR
+FTP only. Highest passive data port.
+.SH EXIT STATUS
+.TP
+.B 0
+The server was updated; its full definition is printed as JSON.
+.TP
+.B 1
+Missing or invalid arguments, no option besides \fB\-\-server\-id\fR
+given, the caller is not an authenticated administrator, the server
+could not be reached, or the request was rejected - an unknown server
+ID or bucket (HTTP 404).
+.SH EXAMPLES
+Open a server to an additional user group, then restart it so the change
+takes effect:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ets update-server \e
+    --server-id sftp1 --groups transfer-users,auditors
+
+euclid-cli --endpoint http://localhost:5566 ets stop-server \e
+    --server-id sftp1
+euclid-cli --endpoint http://localhost:5566 ets start-server \e
+    --server-id sftp1
+.fi
+.RE
+.PP
+Point a server at a different bucket:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ets update-server \e
+    --server-id ftp1 --bucket archive
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ets (1),
+.BR euclid-cli-ets-create-server (1),
+.BR euclid-cli-ets-get-server (1),
+.BR euclid-cli-ets-start-server (1),
+.BR euclid-cli-ets-stop-server (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

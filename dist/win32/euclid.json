@@ -133,23 +133,26 @@
         "maxInstances": 1
       },
       "ftp": {
-        "active": true,
+        "active": false,
         "name": "ftp",
-        "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-ftp.sock",
         "executable": "C:\\Program Files\\euclid\\bin\\euclid-ftp",
-        "data-dir": "C:\\Program Files\\euclid\\data\\ftp",
-        "address": "0.0.0.0",
-        "port": 2121,
-        "pasv-min": 6000,
-        "pasv-max": 6100,
+        "data-dir": "C:\\Program Files\\euclid\\data\\ftp"
+      },
+      "sftp": {
+        "active": false,
+        "name": "sftp",
+        "executable": "C:\\Program Files\\euclid\\bin\\euclid-sftp",
+        "data-dir": "C:\\Program Files\\euclid\\data\\sftp",
+        "host-key": "C:\\Program Files\\euclid\\etc\\ssh_host_key"
+      },
+      "ets": {
+        "active": true,
+        "name": "ets",
+        "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-ets.sock",
+        "executable": "C:\\Program Files\\euclid\\bin\\euclid-ets",
+        "socket-dir": "C:\\Program Files\\euclid\\data\\run",
         "minInstances": 1,
-        "maxInstances": 1,
-        "users": {
-          "ftpuser": {
-            "password": "change-me",
-            "home": "ftpuser"
-          }
-        }
+        "maxInstances": 1
       },
       "lambda": {
         "active": true,
@@ -311,8 +314,14 @@
     "monitoring": {
       "active": true,
       "average-period": 300,
-      "retention": 3,
-      "cpu-usage-period": 60
+      "cpu-usage-period": 60,
+      "rollup-hour-period": 600,
+      "rollup-day-period": 3600,
+      "retention": {
+        "raw": 7,
+        "hour": 90,
+        "day": 1825
+      }
     },
     "mongodb": {
       "active": true,

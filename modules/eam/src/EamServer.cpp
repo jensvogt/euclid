@@ -99,7 +99,7 @@ namespace Euclid::EAM {
     }
 
     static void reportCurrentUsers() {
-        Core::Monitoring::MetricEventBus::instance().sigMetricGauge("access-current-users", "", "", static_cast<double>(countCurrentUsers()));
+        Core::Monitoring::MetricEventBus::instance().sigMetricGauge("eam-current-users", "", "", static_cast<double>(countCurrentUsers()));
     }
 
     // Looks up the user by userId, falling back to email, and checks the password

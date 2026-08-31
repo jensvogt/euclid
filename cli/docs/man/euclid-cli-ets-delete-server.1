@@ -1,0 +1,72 @@
+.TH EUCLID-CLI-ETS-DELETE-SERVER 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ets-delete-server \- delete a transfer server definition
+.SH SYNOPSIS
+.B euclid-cli ets delete-server
+.BR \-\-server\-id | \-n
+.I NAME
+.SH DESCRIPTION
+Deletes a transfer server definition.
+.PP
+A server that is currently running is stopped: the Euclid manager runs
+exactly the servers that are defined and marked running, so a definition
+that no longer exists is torn down on its next reconcile pass, a few
+seconds later. Clients connected at that moment are disconnected.
+.PP
+Nothing in the bucket is touched. The objects clients uploaded through
+this server remain, and are still reachable through
+.BR euclid-cli-esm (1)
+or any other transfer server pointed at the same bucket. Deleting a
+server removes an access route, not the data behind it.
+.PP
+The definition itself is not recoverable - there is no undo, and
+recreating the server means passing every setting again. To take a
+server out of service temporarily, use
+.BR euclid-cli-ets-stop-server (1)
+instead, which keeps the definition.
+.PP
+An SFTP server's host key file is left on disk. Recreating a server with
+the same
+.B \-\-host\-key
+path therefore keeps its old identity, and clients that pinned it
+continue to connect without complaint.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-server\-id " " \fINAME\fR
+Name of the server to delete. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The definition was deleted; the server ID is printed as JSON with
+\fIdeleted\fR \fItrue\fR.
+.TP
+.B 1
+Missing or invalid arguments, the caller is not an authenticated
+administrator, the server could not be reached, or no server has that ID
+(HTTP 404).
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ets delete-server \e
+    --server-id sftp1
+.fi
+.RE
+.PP
+Check what a server is before removing it:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ets get-server \e
+    --server-id sftp1
+euclid-cli --endpoint http://localhost:5566 ets delete-server \e
+    --server-id sftp1
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ets (1),
+.BR euclid-cli-ets-stop-server (1),
+.BR euclid-cli-ets-create-server (1),
+.BR euclid-cli-ets-get-server (1),
+.BR euclid-cli-esm-list-objects (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

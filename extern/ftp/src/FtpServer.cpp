@@ -2,6 +2,7 @@
 #include <FtpSession.h>
 
 // Euclid includes
+#include <TransferContext.h>
 #include <euclid/core/Configuration.h>
 #include <euclid/core/LogStream.h>
 
@@ -21,14 +22,51 @@ namespace Euclid::FTP {
 
     }// namespace
 
-    FtpServer::FtpServer(std::string socketPath, const int threads) : HttpActionServer("FTP", std::move(socketPath), threads), _acceptor(_ftpIoc) {
+    FtpServer::FtpServer(std::string socketPath, const int threads, const std::string &transferServerId)
+        : HttpActionServer("FTP", std::move(socketPath), threads), _acceptor(_ftpIoc) {
+
+        // A transfer server is the only thing this process can be. There is no config-file
+        // credential source to fall back on, so without a definition there would be no bucket to
+        // serve and nobody who could log in - failing here is clearer than listening on a port
+        // that rejects everyone.
+        if (transferServerId.empty()) {
+            throw std::runtime_error("--transfer-server is required: define a server with 'euclid-cli ets create-server' and start it with 'euclid-cli ets start-server'");
+        }
 
         loadConfig();
+
+        const auto context = Transfer::TransferContext::Load(transferServerId);
+        if (!context.has_value()) {
+            throw std::runtime_error("transfer server '" + transferServerId + "' is not defined");
+        }
+        const auto &server = context->Server();
+        if (server.bucketErn.empty()) {
+            throw std::runtime_error("transfer server '" + transferServerId + "' has no bucket");
+        }
+
+        // The ETS definition wins over anything in the config file: it is the record euclid-mgr
+        // started this process from, and the one the ETS module edits, so letting a stale config
+        // key override it would make the two disagree.
+        _config.transferServer = server;
+        _config.bindAddress = server.address;
+        _config.port = static_cast<unsigned short>(server.port);
+        if (server.pasvMin > 0) _config.pasvMin = static_cast<unsigned short>(server.pasvMin);
+        if (server.pasvMax > 0) _config.pasvMax = static_cast<unsigned short>(server.pasvMax);
+        _config.rootDir = std::filesystem::path(_config.rootDir) / ("transfer-" + server.serverId);
+
+        std::error_code spoolEc;
+        std::filesystem::create_directories(_config.rootDir, spoolEc);
+        if (spoolEc) {
+            throw std::runtime_error("could not create spool directory for transfer server '" + transferServerId + "': " + spoolEc.message());
+        }
+
+        log_info << "FTP running as transfer server '" << server.serverId << "', bucket: " << server.bucketName
+                << ", users: " << server.userIds.size() << ", groups: " << server.userGroups.size();
 
         boost::system::error_code ec;
         const auto address = asio::ip::make_address(_config.bindAddress, ec);
         if (ec) {
-            throw std::runtime_error("invalid euclid.modules.ftp.address '" + _config.bindAddress + "': " + ec.message());
+            throw std::runtime_error("transfer server '" + transferServerId + "' has an invalid address '" + _config.bindAddress + "': " + ec.message());
         }
         const tcp::endpoint endpoint(address, _config.port);
 
@@ -37,7 +75,7 @@ namespace Euclid::FTP {
         if (!ec) _acceptor.bind(endpoint, ec);
         if (!ec) _acceptor.listen(asio::socket_base::max_listen_connections, ec);
         if (ec) {
-            throw std::runtime_error("could not listen on " + _config.bindAddress + ":" + std::to_string(_config.port) + " for FTP: " + ec.message());
+            throw std::runtime_error("transfer server '" + transferServerId + "' could not listen on " + _config.bindAddress + ":" + std::to_string(_config.port) + ": " + ec.message());
         }
 
         log_info << "FTP control port listening on " << _config.bindAddress << ":" << _config.port << ", data ports " << _config.pasvMin << "-" << _config.pasvMax << ", root " << _config.rootDir.string();
@@ -58,36 +96,20 @@ namespace Euclid::FTP {
     void FtpServer::loadConfig() {
         auto &cfg = Core::Configuration::instance();
 
-        _config.bindAddress = cfg.getOr<std::string>("euclid.modules.ftp.address", "0.0.0.0");
-        _config.port = static_cast<unsigned short>(cfg.getOr<long>("euclid.modules.ftp.port", 2121L));
-        _config.pasvMin = static_cast<unsigned short>(cfg.getOr<long>("euclid.modules.ftp.pasv-min", 6000L));
-        _config.pasvMax = static_cast<unsigned short>(cfg.getOr<long>("euclid.modules.ftp.pasv-max", 6100L));
+        // Only installation-wide defaults live here. Everything that distinguishes one transfer
+        // server from another - address, port, passive range, bucket, who may log in - comes from
+        // its ETS definition, and is applied over these by the constructor. advertisedAddress is
+        // the exception: it describes the host's own NAT situation, not the server's, so it stays
+        // a per-installation setting.
         _config.advertisedAddress = cfg.getOr<std::string>("euclid.modules.ftp.advertised-address", "");
         _config.rootDir = cfg.getOr<std::string>("euclid.modules.ftp.data-dir", std::string(kDefaultDataDir));
 
         std::error_code fsEc;
         std::filesystem::create_directories(_config.rootDir, fsEc);
         if (fsEc) {
-            log_warning << "could not create FTP root directory '" << _config.rootDir.string() << "': " << fsEc.message();
+            log_warning << "could not create FTP spool directory '" << _config.rootDir.string() << "': " << fsEc.message();
         }
 
-        if (cfg.has("euclid.modules.ftp.users")) {
-            for (const auto &[name, props]: cfg.getObjects("euclid.modules.ftp.users")) {
-                FtpUser user;
-                user.password = props.contains("password") ? std::get<std::string>(props.at("password")) : std::string();
-                user.home = props.contains("home") ? std::get<std::string>(props.at("home")) : name;
-                _config.users.emplace(name, user);
-
-                std::filesystem::create_directories(_config.rootDir / user.home, fsEc);
-                if (fsEc) {
-                    log_warning << "could not create FTP home directory for user '" << name << "': " << fsEc.message();
-                }
-            }
-        }
-
-        if (_config.users.empty()) {
-            log_warning << "no users configured under euclid.modules.ftp.users - nobody will be able to log in";
-        }
     }
 
     void FtpServer::acceptLoop() {

@@ -1,0 +1,129 @@
+.TH EUCLID-CLI-ETS-CREATE-SERVER 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ets-create-server \- define a new FTP or SFTP transfer server
+.SH SYNOPSIS
+.B euclid-cli ets create-server
+.BR \-\-server\-id | \-n
+.I NAME
+.BR \-\-port | \-p
+.I PORT
+.BR \-\-bucket | \-b
+.I BUCKET
+[\fB\-\-protocol\fR|\fB\-P\fR \fIPROTOCOL\fR]
+[\fB\-\-address\fR|\fB\-a\fR \fIADDRESS\fR]
+[\fB\-\-users\fR|\fB\-u\fR \fILIST\fR]
+[\fB\-\-groups\fR|\fB\-g\fR \fILIST\fR]
+[\fB\-\-host\-key\fR|\fB\-k\fR \fIPATH\fR]
+[\fB\-\-pasv\-min\fR \fIPORT\fR]
+[\fB\-\-pasv\-max\fR \fIPORT\fR]
+.SH DESCRIPTION
+Defines a new FTP or SFTP transfer server fronting an ESM bucket.
+Clients authenticate with their EAM credentials and are admitted if they
+are named by
+.B \-\-users
+or belong to one of
+.BR \-\-groups ;
+whatever they upload is stored as an object in the bucket, which is what
+every listing and download then reads back.
+.PP
+The server is created
+.IR stopped .
+Nothing listens on
+.I PORT
+until
+.BR euclid-cli-ets-start-server (1)
+marks it as one that should run.
+.PP
+The bucket is resolved when the server is created, not when it starts,
+so a misspelled bucket name is reported here rather than surfacing later
+as a server that runs but stores nothing.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-server\-id " " \fINAME\fR
+Name identifying the server, unique across the installation. Also the
+name the manager runs its process under, which is why a duplicate is
+rejected. Required.
+.TP
+.BR \-p ", " \-\-port " " \fIPORT\fR
+TCP port to listen on. Rejected if another transfer server already uses
+it, since the second one to start would otherwise fail to bind with
+nothing in its definition explaining why. Required.
+.TP
+.BR \-b ", " \-\-bucket " " \fIBUCKET\fR
+Name of the ESM bucket this server's clients read and write. Must
+already exist. Required.
+.TP
+.BR \-P ", " \-\-protocol " " \fIPROTOCOL\fR
+Transfer protocol, \fIFTP\fR or \fISFTP\fR. Defaults to \fISFTP\fR.
+Cannot be changed later - delete the server and create it again instead.
+.TP
+.BR \-a ", " \-\-address " " \fIADDRESS\fR
+Address to bind to. Defaults to \fI0.0.0.0\fR.
+.TP
+.BR \-u ", " \-\-users " " \fILIST\fR
+Comma-separated EAM user IDs allowed to log in, e.g.
+\fIalice,bob\fR.
+.TP
+.BR \-g ", " \-\-groups " " \fILIST\fR
+Comma-separated EAM user groups whose members may log in. Union with
+\fB\-\-users\fR, not intersection: a user may be listed directly, belong
+to a permitted group, or both.
+.IP
+At least one of \fB\-\-users\fR or \fB\-\-groups\fR must be given -
+a server naming neither could not be logged in to at all.
+.TP
+.BR \-k ", " \-\-host\-key " " \fIPATH\fR
+SFTP only. Private SSH host key file identifying the server to clients.
+Generated as an ed25519 key on first start if the file does not exist;
+an existing file is never overwritten, since changing a server's
+identity makes every client that pinned it refuse to connect. Ignored
+for FTP.
+.TP
+.B \-\-pasv\-min " " \fIPORT\fR
+FTP only. Lowest passive data port. Defaults to \fI6000\fR.
+.TP
+.B \-\-pasv\-max " " \fIPORT\fR
+FTP only. Highest passive data port. Defaults to \fI6100\fR.
+.SH EXIT STATUS
+.TP
+.B 0
+The server was defined; its full definition is printed as JSON, with
+\fIdesiredState\fR \fISTOPPED\fR.
+.TP
+.B 1
+Missing or invalid arguments, neither \fB\-\-users\fR nor
+\fB\-\-groups\fR given, the caller is not an authenticated
+administrator, the server could not be reached, or the request was
+rejected - a duplicate server ID or port (HTTP 409), an unknown bucket
+(HTTP 404), or a protocol that is neither FTP nor SFTP (HTTP 400).
+.SH EXAMPLES
+An SFTP server open to one user group:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ets create-server \e
+    --server-id sftp1 --protocol SFTP --port 2222 \e
+    --bucket dropbox --groups transfer-users
+.fi
+.RE
+.PP
+An FTP server on a fixed address with a narrow passive range, open to
+two named users:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ets create-server \e
+    --server-id ftp1 --protocol FTP --port 2121 \e
+    --address 10.0.0.5 --bucket dropbox \e
+    --users alice,bob --pasv-min 6000 --pasv-max 6020
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ets (1),
+.BR euclid-cli-ets-update-server (1),
+.BR euclid-cli-ets-start-server (1),
+.BR euclid-cli-ets-delete-server (1),
+.BR euclid-cli-esm-create-bucket (1),
+.BR euclid-cli-eam-create-user-group (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

@@ -42,6 +42,17 @@ namespace Euclid::Dto::ESM {
         std::string sortDirection = "asc";
 
         /**
+         * @brief Whether directory keys are listed too.
+         *
+         * @par
+         * A directory is a zero-byte object whose key ends in "/" (see
+         * Database::Entity::ESM::IsDirectoryKey()), so leaving these out by default keeps them
+         * out of every listing that only cares about files - the RUI, the CLI, an SDK. A
+         * transfer server, which has to show and manage directories, sets this.
+         */
+        bool includeDirectories = false;
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -58,6 +69,7 @@ namespace Euclid::Dto::ESM {
             r.pageIndex = Core::GetLongValue(v, "pageIndex");
             r.sortColumn = Core::GetStringValue(v, "sortColumn");
             r.sortDirection = Core::GetStringValue(v, "sortDirection");
+            r.includeDirectories = Core::GetBoolValue(v, "includeDirectories");
             return r;
         }
 
@@ -69,6 +81,7 @@ namespace Euclid::Dto::ESM {
                     {"pageIndex", obj.pageIndex},
                     {"sortColumn", obj.sortColumn},
                     {"sortDirection", obj.sortDirection},
+                    {"includeDirectories", obj.includeDirectories},
             };
         }
     };

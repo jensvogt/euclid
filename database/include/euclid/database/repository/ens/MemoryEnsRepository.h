@@ -185,6 +185,7 @@ namespace Euclid::Database {
             message.contentType = Core::ContentTypeUtils::fromContent(message.body);
             message.attributes = attributes;
             message.md5Attributes = Entity::ENS::Message::ComputeAttributesMd5(attributes);
+            message.status = "PUBLISHED";
 
             for (auto &queue: _topicStore | std::views::values) {
                 if (queue.ern == topicErn) {
