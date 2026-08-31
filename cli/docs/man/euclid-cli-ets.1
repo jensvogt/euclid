@@ -1,0 +1,188 @@
+.TH EUCLID-CLI-ETS 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ets \- manage Euclid FTP and SFTP transfer servers
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+[\fB\-\-loglevel\fR \fILEVEL\fR]
+.B ets
+.I action
+[\fIaction-options\fR...]
+.SH DESCRIPTION
+The
+.B ets
+module talks to the Euclid gateway's ets service to define FTP and SFTP
+endpoints that front an ESM bucket, and to start and stop them.
+.PP
+A transfer server ties three modules together. Clients authenticate
+with their
+.BR eam (1)
+credentials, and are admitted only if the server names them directly or
+they belong to one of its permitted user groups. Whatever they upload is
+stored as an object in the server's
+.BR esm (1)
+bucket, and every listing and download reads back out of that bucket -
+so the bucket, not any local directory, is what a client actually sees.
+Two servers pointed at the same bucket therefore show the same contents,
+as does a file put there by any other route.
+.PP
+.B ets
+itself never speaks FTP or SFTP. It owns the server
+.I definitions
+only, and
+.B start-server
+and
+.B stop-server
+do nothing but record the state a server
+.I should
+be in. The Euclid manager notices within a few seconds and spawns or
+stops the actual
+.BR euclid-ftp (8)
+or
+.BR euclid-sftp (8)
+process. This is why every action returns immediately, and why
+.B list-server
+output carries both a
+.I desiredState
+and an observed
+.IR state :
+the two differ while a server is coming up or going down, and stay
+different if it cannot start at all.
+.PP
+Because the definitions are stored rather than sent as commands, a
+manager restart brings every server marked running back by itself, and
+.B ets
+being unreachable at the moment a change is requested does not lose it.
+.PP
+All
+.B ets
+commands require administrator privileges; see
+.B AUTHENTICATION
+below.
+.SH ACTIONS
+.TP
+.B create-server
+Defines a new FTP or SFTP server for a bucket. The server is created
+stopped. See
+.BR euclid-cli-ets-create-server (1).
+.TP
+.B update-server
+Changes an existing server's settings; only the options given are
+altered. See
+.BR euclid-cli-ets-update-server (1).
+.TP
+.B list-servers
+Lists the defined servers with their desired and observed state. See
+.BR euclid-cli-ets-list-servers (1).
+.TP
+.B get-server
+Shows one server's full definition. See
+.BR euclid-cli-ets-get-server (1).
+.TP
+.B delete-server
+Deletes a server definition, stopping it if it is running. See
+.BR euclid-cli-ets-delete-server (1).
+.TP
+.B start-server
+Marks a server as one that should be running. See
+.BR euclid-cli-ets-start-server (1).
+.TP
+.B stop-server
+Marks a server as one that should not be running, keeping its
+definition. See
+.BR euclid-cli-ets-stop-server (1).
+.SH GLOBAL OPTIONS
+These options are given to
+.B euclid-cli
+itself, before the
+.I ets
+module name.
+.TP
+.BR \-e ", " \-\-endpoint " " \fIURL\fR
+Euclid gateway endpoint to talk to, e.g. \fIhttps://localhost:5566\fR.
+.TP
+.BR \-\-ca\-cert " " \fIPATH\fR
+Path to a PEM CA certificate to trust in addition to the system trust
+store, e.g. for self-signed development certificates.
+.TP
+.BR \-p ", " \-\-pretty " " \fIBOOL\fR
+Pretty-print the JSON response. Defaults to \fItrue\fR.
+.TP
+.BR \-l ", " \-\-loglevel " " \fILEVEL\fR
+Log level: one of \fItrace\fR, \fIdebug\fR, \fIinfo\fR, \fIwarning\fR,
+\fIerror\fR, \fIfatal\fR. Defaults to \fIinfo\fR.
+.TP
+.BR \-h ", " \-\-help
+Print top-level usage and exit.
+.TP
+.BR \-v ", " \-\-version
+Print the euclid-cli version and exit.
+.SH AUTHENTICATION
+.B ets
+commands are authenticated using the session created by
+.BR euclid-cli-eam-login (1),
+loaded from
+.IR $HOME/.euclid/credentials .
+.PP
+Every action is administrator-only, since each one changes or reveals
+which network listeners exist and who can reach which bucket through
+them. The CLI checks this before sending a request, to fail with a
+clearer message, but the server checks independently on every request
+and is the actual boundary.
+.PP
+Requesting help for an action does not require a session, so
+.B "euclid-cli ets <action> \-\-help"
+works before logging in.
+.PP
+If the server rejects a request with
+.IR "HTTP 401" ,
+run
+.B euclid-cli eam login
+again.
+.SH EXIT STATUS
+.TP
+.B 0
+The action completed successfully.
+.TP
+.B 1
+Argument parsing failed, the caller is not an authenticated
+administrator, the request could not be sent, or the server rejected
+it. Details are printed to standard error.
+.SH FILES
+.TP
+.I $HOME/.euclid/credentials
+JSON file holding the current session's bearer token and/or SigV4
+access key, created by
+.B euclid-cli eam login
+and read by every
+.B ets
+action.
+.SH EXAMPLES
+Define an SFTP server for the \fIdropbox\fR bucket, open it to the
+members of one user group, start it, and check that it came up:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ets create-server \e
+    --server-id sftp1 --protocol SFTP --port 2222 \e
+    --bucket dropbox --groups transfer-users
+
+euclid-cli --endpoint http://localhost:5566 ets start-server \e
+    --server-id sftp1
+
+euclid-cli --endpoint http://localhost:5566 ets list-servers
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli (1),
+.BR euclid-cli-ets-create-server (1),
+.BR euclid-cli-ets-update-server (1),
+.BR euclid-cli-ets-list-servers (1),
+.BR euclid-cli-ets-get-server (1),
+.BR euclid-cli-ets-delete-server (1),
+.BR euclid-cli-ets-start-server (1),
+.BR euclid-cli-ets-stop-server (1),
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-esm (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

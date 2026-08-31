@@ -350,13 +350,16 @@ namespace Euclid::Database {
         return -1;
     }
 
-    long MongoEsmRepository::countObjects(const std::string &bucketErn, const std::string &prefix) const {
+    long MongoEsmRepository::countObjects(const std::string &bucketErn, const std::string &prefix, const bool includeDirectories) const {
 
         try {
             document filter = {};
             filter.append(kvp("bucketErn", bucketErn));
             if (!prefix.empty()) {
                 filter.append(kvp("key", make_document(kvp("$regex", "^" + prefix))));
+            }
+            if (!includeDirectories) {
+                filter.append(kvp("$nor", make_array(make_document(kvp("key", make_document(kvp("$regex", "/$")))))));
             }
             const auto entry = Database::instance().client();
             auto messageCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
@@ -368,7 +371,7 @@ namespace Euclid::Database {
         return -1;
     }
 
-    std::vector<Entity::ESM::Object> MongoEsmRepository::listObjects(const std::string &bucketErn, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const {
+    std::vector<Entity::ESM::Object> MongoEsmRepository::listObjects(const std::string &bucketErn, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection, const bool includeDirectories) const {
 
         try {
 
@@ -376,6 +379,11 @@ namespace Euclid::Database {
             filter.append(kvp("bucketErn", bucketErn));
             if (!prefix.empty()) {
                 filter.append(kvp("key", make_document(kvp("$regex", "^" + prefix))));
+            }
+            // $nor rather than a second "key" condition: the prefix filter above already occupies
+            // that field name, and a document cannot carry it twice.
+            if (!includeDirectories) {
+                filter.append(kvp("$nor", make_array(make_document(kvp("key", make_document(kvp("$regex", "/$")))))));
             }
 
             mongocxx::options::find opts;

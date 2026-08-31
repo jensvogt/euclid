@@ -31,6 +31,7 @@ namespace Euclid::Database::Entity::ENS {
                 bsoncxx::builder::basic::kvp("md5Body", md5Body),
                 bsoncxx::builder::basic::kvp("md5Attributes", md5Attributes),
                 bsoncxx::builder::basic::kvp("contentType", contentType),
+                bsoncxx::builder::basic::kvp("status", status),
                 bsoncxx::builder::basic::kvp("lastReceived", bsoncxx::types::b_date(lastReceived)),
                 bsoncxx::builder::basic::kvp("attributes", attrsDoc.extract()));
     }
@@ -48,6 +49,7 @@ namespace Euclid::Database::Entity::ENS {
             else if (key == "md5Body") md5Body = std::string(field.get_string().value);
             else if (key == "md5Attributes") md5Attributes = std::string(field.get_string().value);
             else if (key == "contentType") contentType = std::string(field.get_string().value);
+            else if (key == "status") status = std::string(field.get_string().value);
             else if (key == "lastReceived") lastReceived = system_clock::time_point{field.get_date().value};
             else if (key == "created") created = system_clock::time_point{field.get_date().value};
             else if (key == "modified") modified = system_clock::time_point{field.get_date().value};

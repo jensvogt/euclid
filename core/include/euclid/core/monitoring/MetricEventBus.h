@@ -54,6 +54,16 @@ namespace Euclid::Core::Monitoring {
          */
         boost::signals2::signal<void(std::string, std::string, std::string)> sigMetricRate;
 
+        /**
+         * @brief Fired to add an amount to a rate-style metric: name, labelName, labelValue, amount.
+         *
+         * The same metric sigMetricRate records, for a quantity that arrives in lumps rather than
+         * one occurrence at a time - a transfer server counting the bytes of a file it just
+         * stored, say. Aggregated as the sum of every amount recorded during a collection period,
+         * which is what sigMetricRate produces too when each occurrence adds one.
+         */
+        boost::signals2::signal<void(std::string, std::string, std::string, double)> sigMetricCounter;
+
     private:
 
         MetricEventBus() = default;

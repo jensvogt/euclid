@@ -11,6 +11,7 @@
 #include <euclid/core/Configuration.h>
 #include <euclid/core/HttpActionServer.h>
 #include <euclid/core/SigV4.h>
+#include <euclid/core/monitoring/MonitoringTimer.h>
 #include <euclid/manager/GatewayServer.h>
 #include <euclid/manager/GatewayWsSession.h>
 
@@ -59,7 +60,7 @@ namespace Euclid::main {
     //   2. Authorization   — SigV4 credential scope: "<key>/<date>/<region>/<svc>/aws4_request"
     static std::string detectEuclidService(const http::request<http::string_body> &req) {
         static const std::unordered_set<std::string> kModules{
-                "eam", "esm", "eqs", "ens", "emm", "emo", "ekm"
+                "eam", "esm", "eqs", "ens", "emm", "emo", "ekm", "ets"
         };
 
         if (const auto module = std::string(req["x-euclid-target"]); !module.empty()) {
@@ -152,6 +153,14 @@ namespace Euclid::main {
     // on the underlying stream type.
 
     static http::response<http::string_body> route(const http::request<http::string_body> &req, ServiceController &ctrl) {
+
+        // Labelled by HTTP method rather than per-action (unlike each module's own
+        // "<module>-service-time"/"-service-count", recorded per action inside that module) -
+        // this is the single chokepoint every request through the gateway passes through,
+        // regardless of target service, and at this point route() hasn't parsed out an
+        // Euclid action yet (nor does every request through here carry one, e.g. a bare
+        // OPTIONS preflight) - the HTTP method is the one dimension always available up front.
+        Core::Monitoring::MonitoringTimer measure("gateway-service-time", "gateway-service-count", "method", std::string(req.method_string()));
 
         const auto version = req.version();
         const auto keepAlive = req.keep_alive();

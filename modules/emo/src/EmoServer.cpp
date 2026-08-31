@@ -19,6 +19,12 @@ namespace Euclid::Monitoring {
     namespace beast = boost::beast;
     namespace http = beast::http;
 
+    using Database::Entity::Monitoring::AlignDown;
+    using Database::Entity::Monitoring::MetricType;
+    using Database::Entity::Monitoring::Resolution;
+    using Database::Entity::Monitoring::ResolutionBucket;
+    using Database::Entity::Monitoring::ResolutionFromString;
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     namespace {
@@ -31,6 +37,18 @@ namespace Euclid::Monitoring {
 
         constexpr auto kPrunePeriod = std::chrono::hours(24);
         constexpr auto kCpuUsagePeriod = std::chrono::seconds(60);
+
+        // Rollups run several times per target bucket rather than once, so the bucket currently in
+        // progress is always readable, just incomplete. Cheap because each pass only reads the tier
+        // above over a short window, and safe because rollups replace buckets instead of appending.
+        constexpr auto kHourRollupPeriod = std::chrono::minutes(10);
+        constexpr auto kDayRollupPeriod = std::chrono::hours(1);
+
+        // Default retention per tier, in days. Roughly 2000 rows per series in total, against the
+        // ~525,000 five-minute rows five years of undownsampled history would cost.
+        constexpr long kRawRetentionDays = 7;
+        constexpr long kHourRetentionDays = 90;
+        constexpr long kDayRetentionDays = 1825;
 
         // Previous Core::SystemUtils::ReadCpuTimes() reading, so collectCpuUsage() can compute a
         // delta-based percentage rather than a since-boot average. There's only ever one
@@ -49,15 +67,17 @@ namespace Euclid::Monitoring {
             return name + ":" + labelName + ":" + labelValue;
         }
 
-        // Running sum/count of samples taken for one "name:labelName:labelValue" key during the
+        // Running aggregate of the samples taken for one "name:labelName:labelValue" key during the
         // current averaging period. Fed by handlePushMetrics() (one process pushes one batch per
-        // its own push tick), drained by EmoServer::flush(). There's only ever one
-        // EmoServer per process, so file-local state (rather than instance members reached
+        // its own push tick) and by collectCpuUsage(), drained by EmoServer::flush(). There's only
+        // ever one EmoServer per process, so file-local state (rather than instance members reached
         // through the free-function dispatch table) is simplest.
         struct Accumulator {
             double sum = 0;
+            double minValue = 0;
+            double maxValue = 0;
             long samples = 0;
-            bool isRate = false;
+            MetricType type = MetricType::GAUGE;
         };
 
         std::mutex &accumulatorsMutex() {
@@ -68,6 +88,41 @@ namespace Euclid::Monitoring {
         std::map<std::string, Accumulator> &accumulators() {
             static std::map<std::string, Accumulator> accumulators;
             return accumulators;
+        }
+
+        // Single entry point for every sample, whichever side it arrives from, so that all of them
+        // land in the same bucket-aligned rows that the rollups can then aggregate.
+        void recordSample(const std::string &name, const std::string &labelName, const std::string &labelValue,
+                          const double value, const MetricType type) {
+
+            std::lock_guard lock(accumulatorsMutex());
+            auto &acc = accumulators()[accumulatorKey(name, labelName, labelValue)];
+            if (acc.samples == 0) {
+                acc.minValue = value;
+                acc.maxValue = value;
+            } else {
+                acc.minValue = std::min(acc.minValue, value);
+                acc.maxValue = std::max(acc.maxValue, value);
+            }
+            acc.sum += value;
+            acc.samples++;
+            acc.type = type;
+        }
+
+        std::chrono::seconds retentionOf(const Resolution resolution) {
+            const auto &configuration = Core::Configuration::instance();
+            switch (resolution) {
+                case Resolution::HOUR:
+                    return std::chrono::hours(24 * configuration.getOr<long>("euclid.monitoring.retention.hour", kHourRetentionDays));
+                case Resolution::DAY:
+                    return std::chrono::hours(24 * configuration.getOr<long>("euclid.monitoring.retention.day", kDayRetentionDays));
+                default:
+                    return std::chrono::hours(24 * configuration.getOr<long>("euclid.monitoring.retention.raw", kRawRetentionDays));
+            }
+        }
+
+        std::chrono::seconds averagePeriod() {
+            return std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.monitoring.average-period", 300));
         }
     }// namespace
 
@@ -81,6 +136,28 @@ namespace Euclid::Monitoring {
 
     static response<string_body> unauthorized(const request<string_body> &req, const AuthResult &auth) {
         return EmoServer::Unauthorized(req, {.subject = std::nullopt, .tokenExpired = auth.tokenExpired, .denialReason = auth.denialReason});
+    }
+
+    // Shared parsing of the name/label/resolution/range filters accepted by "list" and "average".
+    static Database::MonitoringQuery parseQuery(const boost::json::value &jv, const long defaultLimit) {
+
+        Database::MonitoringQuery query;
+        query.limit = defaultLimit;
+        if (!jv.is_object()) return query;
+
+        const auto &obj = jv.as_object();
+        if (const auto *v = obj.if_contains("name"); v && v->is_string()) query.name = v->as_string().c_str();
+        if (const auto *v = obj.if_contains("labelName"); v && v->is_string()) query.labelName = v->as_string().c_str();
+        if (const auto *v = obj.if_contains("labelValue"); v && v->is_string()) query.labelValue = v->as_string().c_str();
+        if (const auto *v = obj.if_contains("limit"); v && v->is_number()) query.limit = v->to_number<long>();
+        if (const auto *v = obj.if_contains("from"); v && v->is_string()) query.from = Core::DateTimeUtils::FromISO8601(v->as_string().c_str());
+        if (const auto *v = obj.if_contains("to"); v && v->is_string()) query.to = Core::DateTimeUtils::FromISO8601(v->as_string().c_str());
+        if (const auto *v = obj.if_contains("resolution"); v && v->is_string()) {
+            if (const auto resolution = ResolutionFromString(v->as_string().c_str()); resolution != Resolution::UNKNOWN) {
+                query.resolution = resolution;
+            }
+        }
+        return query;
     }
 
     // ── "push-metrics" action handler ──────────────────────────────────────────
@@ -103,25 +180,21 @@ namespace Euclid::Monitoring {
             return EmoServer::ErrorResponse(req, status::bad_request, R"(Expected "module" and "items")");
         }
 
-        std::lock_guard lock(accumulatorsMutex());
         for (const auto &v: items->as_array()) {
             if (!v.is_object()) continue;
             const auto &item = v.as_object();
 
             std::string name, labelName, labelValue;
             double value = 0;
-            bool isRate = false;
+            auto type = MetricType::GAUGE;
             if (const auto *p = item.if_contains("name"); p && p->is_string()) name = p->as_string().c_str();
             if (const auto *p = item.if_contains("labelName"); p && p->is_string()) labelName = p->as_string().c_str();
             if (const auto *p = item.if_contains("labelValue"); p && p->is_string()) labelValue = p->as_string().c_str();
             if (const auto *p = item.if_contains("value"); p && p->is_number()) value = p->to_number<double>();
-            if (const auto *p = item.if_contains("type"); p && p->is_string()) isRate = p->as_string() == "rate";
+            if (const auto *p = item.if_contains("type"); p && p->is_string()) type = p->as_string() == "rate" ? MetricType::RATE : MetricType::GAUGE;
             if (name.empty()) continue;
 
-            auto &acc = accumulators()[accumulatorKey(name, labelName, labelValue)];
-            acc.sum += value;
-            acc.samples++;
-            acc.isRate = isRate;
+            recordSample(name, labelName, labelValue, value, type);
         }
 
         return EmoServer::JsonResponse(req, status::ok);
@@ -142,17 +215,7 @@ namespace Euclid::Monitoring {
         boost::json::value jv;
         if (const auto err = EmoServer::ParseJsonBody(req, jv)) return *err;
 
-        std::string name, labelName, labelValue;
-        long limit = 100;
-        if (jv.is_object()) {
-            const auto &obj = jv.as_object();
-            if (const auto *v = obj.if_contains("name"); v && v->is_string()) name = v->as_string().c_str();
-            if (const auto *v = obj.if_contains("labelName"); v && v->is_string()) labelName = v->as_string().c_str();
-            if (const auto *v = obj.if_contains("labelValue"); v && v->is_string()) labelValue = v->as_string().c_str();
-            if (const auto *v = obj.if_contains("limit"); v && v->is_number()) limit = v->to_number<long>();
-        }
-
-        const auto rows = Database::RepositoryFactory::instance().emoRepository()->list(name, labelName, labelValue, limit);
+        const auto rows = Database::RepositoryFactory::instance().emoRepository()->list(parseQuery(jv, 100));
 
         boost::json::array items;
         for (const auto &row: rows) {
@@ -161,6 +224,11 @@ namespace Euclid::Monitoring {
                     {"labelName", row.labelName},
                     {"labelValue", row.labelValue},
                     {"value", row.value},
+                    {"minValue", row.minValue},
+                    {"maxValue", row.maxValue},
+                    {"samples", row.samples},
+                    {"type", MetricTypeToString(row.type)},
+                    {"resolution", ResolutionToString(row.resolution)},
                     {"timestamp", Core::DateTimeUtils::ToISO8601(row.timestamp)}
             });
         }
@@ -168,7 +236,8 @@ namespace Euclid::Monitoring {
         return EmoServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{{"items", items}}));
     }
 
-    // Return the average over the last hour, not regarding labelName/labelValue
+    // Return the sample-weighted average of one metric over the requested resolution and range,
+    // not regarding labelName/labelValue.
     static response<string_body> handleAverage(const request<string_body> &req) {
 
         const auto auth = authenticate(req);
@@ -180,13 +249,7 @@ namespace Euclid::Monitoring {
         boost::json::value jv;
         if (const auto err = EmoServer::ParseJsonBody(req, jv)) return *err;
 
-        std::string name;
-        if (jv.is_object()) {
-            const auto &obj = jv.as_object();
-            if (const auto *v = obj.if_contains("name"); v && v->is_string()) name = v->as_string().c_str();
-        }
-
-        const auto result = Database::RepositoryFactory::instance().emoRepository()->average(name);
+        const auto result = Database::RepositoryFactory::instance().emoRepository()->average(parseQuery(jv, 0));
 
         return EmoServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{{"average", result}}));
     }
@@ -215,12 +278,21 @@ namespace Euclid::Monitoring {
         auto &scheduler = Core::Scheduler::instance();
         scheduler.Start();
 
-        const auto averagePeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.monitoring.average-period", 300));
         _flushTaskId = scheduler.SchedulePeriodic("monitoring-flush", [] { flush(); },
-                                                  std::chrono::duration_cast<std::chrono::milliseconds>(averagePeriod));
+                                                  std::chrono::duration_cast<std::chrono::milliseconds>(averagePeriod()));
 
         _pruneTaskId = scheduler.SchedulePeriodic("monitoring-prune", [] { prune(); },
                                                   std::chrono::duration_cast<std::chrono::milliseconds>(kPrunePeriod));
+
+        // RAW is rolled into HOUR and HOUR into DAY - never RAW straight into DAY, so the daily
+        // pass reads 24 rows per series rather than 288.
+        const auto hourRollupPeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.monitoring.rollup-hour-period", std::chrono::seconds(kHourRollupPeriod).count()));
+        _hourRollupTaskId = scheduler.SchedulePeriodic("monitoring-rollup-hour", [] { rollup(Resolution::RAW, Resolution::HOUR); },
+                                                       std::chrono::duration_cast<std::chrono::milliseconds>(hourRollupPeriod));
+
+        const auto dayRollupPeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.monitoring.rollup-day-period", std::chrono::seconds(kDayRollupPeriod).count()));
+        _dayRollupTaskId = scheduler.SchedulePeriodic("monitoring-rollup-day", [] { rollup(Resolution::HOUR, Resolution::DAY); },
+                                                      std::chrono::duration_cast<std::chrono::milliseconds>(dayRollupPeriod));
 
 #ifdef __linux__
         // collectCpuUsage() reads /proc/stat, which only exists on Linux.
@@ -234,6 +306,8 @@ namespace Euclid::Monitoring {
         auto &scheduler = Core::Scheduler::instance();
         scheduler.Cancel(_flushTaskId);
         scheduler.Cancel(_pruneTaskId);
+        scheduler.Cancel(_hourRollupTaskId);
+        scheduler.Cancel(_dayRollupTaskId);
         scheduler.Cancel(_cpuUsageTaskId);
     }
 
@@ -245,7 +319,12 @@ namespace Euclid::Monitoring {
             snapshot.swap(accumulators());
         }
 
-        const auto timestamp = std::chrono::system_clock::now();
+        // The samples just drained cover the period that ended roughly now, so the bucket they
+        // belong to is the one before this firing. Aligning half a period back rather than a whole
+        // one lands in the right bucket whether the scheduler fires slightly early or slightly late.
+        const auto period = averagePeriod();
+        const auto bucket = AlignDown(std::chrono::system_clock::now() - period / 2, period);
+        const auto expiresAt = bucket + retentionOf(Resolution::RAW);
         const auto repo = Database::RepositoryFactory::instance().emoRepository();
 
         for (const auto &[key, acc]: snapshot) {
@@ -263,19 +342,36 @@ namespace Euclid::Monitoring {
             row.labelValue = key.substr(secondColon + 1);
             // Rate metrics: sum of per-tick, per-instance occurrence counts = total over the
             // period. Gauge metrics: mean across every tick and instance sampled.
-            row.value = acc.isRate ? acc.sum : acc.sum / static_cast<double>(acc.samples);
-            row.timestamp = timestamp;
-            repo->insert(row);
+            row.value = acc.type == MetricType::RATE ? acc.sum : acc.sum / static_cast<double>(acc.samples);
+            row.minValue = acc.minValue;
+            row.maxValue = acc.maxValue;
+            row.samples = acc.samples;
+            row.type = acc.type;
+            row.resolution = Resolution::RAW;
+            row.timestamp = bucket;
+            row.expiresAt = expiresAt;
+            repo->upsert(row);
 
             log_debug << "Monitoring flushed, name: " << row.name << ", labelName: " << row.labelName
                     << ", labelValue: " << row.labelValue << ", value: " << row.value;
         }
     }
 
+    void EmoServer::rollup(const Resolution from, const Resolution to) {
+
+        // Re-aggregate the bucket in progress plus the one before it, so a firing that was late,
+        // or one that follows a restart, repairs the gap instead of leaving a hole. The rollup
+        // replaces whole buckets, so overlapping windows cost a little work and change nothing.
+        const auto now = std::chrono::system_clock::now();
+        const auto windowStart = AlignDown(now, ResolutionBucket(to)) - ResolutionBucket(to);
+
+        Database::RepositoryFactory::instance().emoRepository()->rollup(from, to, windowStart, now, retentionOf(to));
+    }
+
     void EmoServer::prune() {
-        const auto retentionDays = Core::Configuration::instance().getOr<long>("euclid.monitoring.retention", 3);
-        const auto cutoff = std::chrono::system_clock::now() - std::chrono::hours(24 * retentionDays);
-        Database::RepositoryFactory::instance().emoRepository()->deleteOlderThan(cutoff);
+        // On MongoDB the TTL index on expiresAt has usually already removed these; this stays as
+        // the portable path for backends without one, and as a backstop if the TTL monitor is off.
+        Database::RepositoryFactory::instance().emoRepository()->deleteExpired(std::chrono::system_clock::now());
     }
 
     void EmoServer::collectCpuUsage() {
@@ -298,17 +394,11 @@ namespace Euclid::Monitoring {
         const auto idleDelta = current->idle - previous->idle;
         if (totalDelta == 0) return;
 
-        Database::Entity::Monitoring::MonitoringData row;
-        row.name = "system-cpu-usage";
-        row.labelName = "host";
-        row.labelValue = Core::SystemUtils::GetHostName();
-        row.value = 100.0 * static_cast<double>(totalDelta - idleDelta) / static_cast<double>(totalDelta);
-        row.timestamp = std::chrono::system_clock::now();
-
-        Database::RepositoryFactory::instance().emoRepository()->insert(row);
-
-        log_debug << "Monitoring flushed, name: " << row.name << ", labelName: " << row.labelName
-                << ", labelValue: " << row.labelValue << ", value: " << row.value;
+        // Recorded as a sample rather than written straight out, so CPU usage is bucket-aligned
+        // and carries a sample count and a min/max like every other metric, and so the rollups
+        // can aggregate it at all.
+        const auto usage = 100.0 * static_cast<double>(totalDelta - idleDelta) / static_cast<double>(totalDelta);
+        recordSample("system-cpu-usage", "host", Core::SystemUtils::GetHostName(), usage, MetricType::GAUGE);
     }
 
     response<string_body> EmoServer::Dispatch(const request<string_body> &req) {

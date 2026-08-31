@@ -70,6 +70,38 @@ namespace Euclid::main {
         void registerModule(const Dto::ModuleConfig &cfg);
 
         /**
+         * @brief Removes a module's pool entirely, so nothing restarts it.
+         *
+         * Only meaningful for modules registered at runtime rather than from the config file -
+         * in practice the transfer servers reconcileTransferServers() manages, whose definitions
+         * can be deleted while the manager is running.
+         *
+         * @param name module name.
+         * @return true if a pool was removed.
+         */
+        bool deregisterModule(const std::string &name);
+
+        /**
+         * @brief Makes the running transfer server processes match the definitions ETS holds.
+         *
+         * @par
+         * Config-declared modules are registered once at startup; transfer servers cannot be,
+         * because they are created and destroyed through the ETS module long after the manager
+         * has read its config. This closes that gap by treating the ETS repository as the
+         * desired state and this controller's pools as the observed one: a definition marked
+         * RUNNING that has no pool gets registered and started, one marked STOPPED that is up
+         * gets stopped, and a definition that has been deleted outright is stopped and its pool
+         * removed.
+         *
+         * @par
+         * Being a reconcile rather than a command is what makes it robust: no message can be
+         * missed, the manager recovers the full picture on restart, and ETS being unreachable at
+         * the moment a change is requested does not matter, since the change was durably written
+         * before it ever needed to be acted on.
+         */
+        void reconcileTransferServers();
+
+        /**
          * @brief Starts a service by its name.
          *
          * Spawns instances until the module's pool reaches its configured minInstances.
@@ -279,6 +311,14 @@ namespace Euclid::main {
          * @brief Thread responsible for monitoring and managing system processes.
          */
         std::thread _watchdog;
+
+        /**
+         * @brief Watchdog ticks since the last transfer server reconcile, and how many to let
+         *        pass between reconciles. The watchdog ticks once a second; spawning a transfer
+         *        server is not urgent enough to justify re-reading every definition that often.
+         */
+        int _transferReconcileTick = 0;
+        static constexpr int kTransferReconcileTicks = 5;
 
         /**
          * @brief Indicates whether the service is currently running.

@@ -296,8 +296,14 @@
     "monitoring": {
       "active": true,
       "average-period": 300,
-      "retention": 3,
-      "cpu-usage-period": 60
+      "cpu-usage-period": 60,
+      "rollup-hour-period": 600,
+      "rollup-day-period": 3600,
+      "retention": {
+        "raw": 7,
+        "hour": 90,
+        "day": 1825
+      }
     },
     "mongodb": {
       "active": true,
