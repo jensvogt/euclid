@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.49](https://github.com/jensvogt/euclid/compare/v1.0.48...v1.0.49) (2026-08-31)
+
+
+### Bug Fixes
+
+* support for huge file uploads ([b635af0](https://github.com/jensvogt/euclid/commit/b635af0f9eb5253b61e6443ecf9dfc75ea185ce1))
+
 ## [1.0.48](https://github.com/jensvogt/euclid/compare/1.0.47...v1.0.48) (2026-08-31)
 
 
