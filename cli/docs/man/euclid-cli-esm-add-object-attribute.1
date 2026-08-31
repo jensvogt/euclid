@@ -1,0 +1,79 @@
+.TH EUCLID-CLI-ESM-ADD-OBJECT-ATTRIBUTE 1 "August 2026" "euclid-cli 1.0.33" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-add-object-attribute \- add an attribute to a storage object
+.SH SYNOPSIS
+.B euclid-cli esm add-object-attribute
+.BR \-\-ern | \-e
+.I ERN
+.BR \-\-name | \-n
+.I NAME
+.BR \-\-value | \-v
+.I VALUE
+[\fB\-\-type\fR|\fB\-t\fR \fITYPE\fR]
+.SH DESCRIPTION
+Adds a user-defined attribute to a storage object. Attributes are
+metadata the object's owner attaches to it; the storage module never
+interprets them, unlike the content type or checksum it derives from
+the object's bytes itself.
+.PP
+The object must not carry an attribute of that name yet - this action
+refuses to overwrite one, so a mistyped name is reported instead of
+quietly creating a second attribute. Use
+.BR euclid-cli-esm-set-object-attribute (1)
+to change a value that already exists.
+.PP
+A value keeps its type across storage and retrieval, so a number
+stored as a number is read back as one. Prints the stored attribute as
+JSON on success.
+.SH OPTIONS
+.TP
+.BR \-e ", " \-\-ern " " \fIERN\fR
+Euclid resource name of the object. Required.
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+Attribute name. Required.
+.TP
+.BR \-v ", " \-\-value " " \fIVALUE\fR
+Attribute value, as text; interpreted according to
+.BR \-\-type .
+Required.
+.TP
+.BR \-t ", " \-\-type " " \fITYPE\fR
+Type of the value: one of \fIint\fR, \fIlong\fR, \fIdouble\fR,
+\fIfloat\fR, \fIbool\fR, \fIstring\fR or \fIbinary\fR. Defaults to
+\fIstring\fR.
+.SH EXIT STATUS
+.TP
+.B 0
+The attribute was added. The stored attribute is printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, no object
+with that ERN exists, the object belongs to another account, or the
+object already has an attribute of that name.
+.SH EXAMPLES
+Tag an object with the pipeline that produced it:
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm add-object-attribute \e
+    --ern ern:esm:eu-central-1:000000000000:development:object:mix/PIM-4269.xml \e
+    --name source --value pim
+.fi
+.RE
+.PP
+Record a revision number as a number rather than as text:
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm add-object-attribute \e
+    --ern ern:esm:eu-central-1:000000000000:development:object:mix/PIM-4269.xml \e
+    --name revision --value 7 --type long
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-set-object-attribute (1),
+.BR euclid-cli-esm-list-object-attributes (1),
+.BR euclid-cli-esm-delete-object-attribute (1),
+.BR euclid-cli-esm-list-objects (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
