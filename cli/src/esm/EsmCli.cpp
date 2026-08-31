@@ -14,11 +14,13 @@ namespace Euclid::CLI {
             return mutex;
         }
 
-        // uploadPart() retry tuning: parts are the hot path of an upload (thousands of calls for a
-        // large file), so they're the ones most likely to hit a transient failure - e.g. a request
-        // landing on a storage instance the gateway's autoscaler is mid-way through killing. A
-        // handful of quick retries turns that into a brief stall instead of aborting the whole
-        // upload.
+        // Retry tuning for the whole create-upload/upload-part/complete-upload sequence. Parts are
+        // the hot path (thousands of calls for a large file), so they're the ones most likely to
+        // hit a transient failure - e.g. a request landing on a storage instance the gateway's
+        // autoscaler is mid-way through killing. A handful of quick retries turns that into a brief
+        // stall instead of aborting the whole upload. create-upload/complete-upload are called once
+        // each, but bracket every part: giving up on the first transient 5xx there throws away the
+        // entire file, so they retry on the same terms.
         constexpr int kMaxPartAttempts = 4;
         constexpr std::chrono::milliseconds kPartRetryBaseDelay{500};
 
@@ -389,18 +391,36 @@ namespace Euclid::CLI {
                 {"x-euclid-expected-concurrency", std::to_string(concurrency)},
         };
 
-        try {
-            const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("esm", "create-upload", boost::json::value_from(request), headers);
-            if (!response.IsSuccess()) {
-                std::cerr << "error: create-upload failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
-                return std::nullopt;
+        // Retried on 5xx exactly like uploadPart() below. Safe to repeat: the object row the server
+        // seeds is upserted on bucketErn+key, so a second attempt updates the same row rather than
+        // adding another one - the only cost of a retry is the scratch directory the abandoned
+        // upload ID left behind.
+        for (int attempt = 1; attempt <= kMaxPartAttempts; ++attempt) {
+            const bool lastAttempt = attempt == kMaxPartAttempts;
+
+            try {
+                const HttpClient client(_endpoint, _authentication, _caCertPath);
+                const HttpResponse response = client.Post("esm", "create-upload", boost::json::value_from(request), headers);
+                if (response.IsSuccess()) {
+                    return boost::json::value_to<Dto::ESM::CreateUploadResponse>(response.body).uploadId;
+                }
+
+                if (response.statusCode < 500 || lastAttempt) {
+                    std::cerr << "error: create-upload failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                    return std::nullopt;
+                }
+                std::cerr << "warning: create-upload failed (attempt " << attempt << "/" << kMaxPartAttempts << ", HTTP " << response.statusCode << "), retrying..." << std::endl;
+            } catch (const std::exception &ex) {
+                if (lastAttempt) {
+                    std::cerr << "error: " << ex.what() << std::endl;
+                    return std::nullopt;
+                }
+                std::cerr << "warning: create-upload failed (attempt " << attempt << "/" << kMaxPartAttempts << "): " << ex.what() << ", retrying..." << std::endl;
             }
-            return boost::json::value_to<Dto::ESM::CreateUploadResponse>(response.body).uploadId;
-        } catch (const std::exception &ex) {
-            std::cerr << "error: " << ex.what() << std::endl;
-            return std::nullopt;
+
+            std::this_thread::sleep_for(kPartRetryBaseDelay * attempt);
         }
+        return std::nullopt;// unreachable
     }
 
     // upload-part does NOT conform to the JSON in/out convention every other action uses here -
@@ -450,18 +470,35 @@ namespace Euclid::CLI {
         Dto::ESM::CompleteUploadRequest request;
         request.uploadId = uploadId;
 
-        try {
-            const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("esm", "complete-upload", boost::json::value_from(request));
-            if (!response.IsSuccess()) {
-                std::cerr << "error: complete-upload failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
-                return std::nullopt;
+        // Retried on 5xx like createUpload() above, and for the same reason: failing here discards
+        // every part already uploaded. Safe to repeat as long as the request is rejected before the
+        // server takes ownership of the staged parts - it validates and hands assembly to a
+        // background pass, so a 5xx from that validation means nothing was consumed. An upload the
+        // server did accept fails a retry with 404 (upload not found), which is not retried.
+        for (int attempt = 1; attempt <= kMaxPartAttempts; ++attempt) {
+            const bool lastAttempt = attempt == kMaxPartAttempts;
+
+            try {
+                const HttpClient client(_endpoint, _authentication, _caCertPath);
+                const HttpResponse response = client.Post("esm", "complete-upload", boost::json::value_from(request));
+                if (response.IsSuccess()) return response.body;
+
+                if (response.statusCode < 500 || lastAttempt) {
+                    std::cerr << "error: complete-upload failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                    return std::nullopt;
+                }
+                std::cerr << "warning: complete-upload failed (attempt " << attempt << "/" << kMaxPartAttempts << ", HTTP " << response.statusCode << "), retrying..." << std::endl;
+            } catch (const std::exception &ex) {
+                if (lastAttempt) {
+                    std::cerr << "error: " << ex.what() << std::endl;
+                    return std::nullopt;
+                }
+                std::cerr << "warning: complete-upload failed (attempt " << attempt << "/" << kMaxPartAttempts << "): " << ex.what() << ", retrying..." << std::endl;
             }
-            return response.body;
-        } catch (const std::exception &ex) {
-            std::cerr << "error: " << ex.what() << std::endl;
-            return std::nullopt;
+
+            std::this_thread::sleep_for(kPartRetryBaseDelay * attempt);
         }
+        return std::nullopt;// unreachable
     }
 
     BinaryHttpResponse EsmCli::getObject(const std::string &bucketErn, const std::string &key, const long maxInlineSize) const {
