@@ -16,6 +16,15 @@ target_link_libraries(${SCOPE_BINARY} PRIVATE euclidcore Boost::unit_test_framew
 
 add_test(NAME ${SCOPE_BINARY} COMMAND ${SCOPE_BINARY})
 
+set(HTTP_SIGNATURE_BINARY euclid-http-signature-tests)
+
+add_executable(${HTTP_SIGNATURE_BINARY} HttpSignatureTest.cpp)
+set_target_properties(${HTTP_SIGNATURE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${HTTP_SIGNATURE_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${HTTP_SIGNATURE_BINARY} COMMAND ${HTTP_SIGNATURE_BINARY})
+
 set(MONITORING_BINARY euclid-monitoring-collector-tests)
 
 add_executable(${MONITORING_BINARY} MonitoringCollectorTest.cpp)

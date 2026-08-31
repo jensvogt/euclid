@@ -108,6 +108,18 @@ store, e.g. for self-signed development certificates.
 .BR \-p ", " \-\-pretty " " \fIBOOL\fR
 Pretty-print the JSON response. Defaults to \fItrue\fR.
 .TP
+.BR \-s ", " \-\-signature " " \fISCHEME\fR
+Signature scheme used for signed service calls: \fIsigv4\fR (the
+default) or \fIrfc9421\fR for RFC 9421 HTTP Message Signatures. Both
+prove the request with the same access key; RFC 9421 puts the
+signature in \fISignature\fR/\fISignature\-Input\fR headers and binds
+the body through \fIContent\-Digest\fR (RFC 9530) instead of using
+AWS's Authorization header. Overrides
+.I euclid.cli.signature
+from the configuration file. Ignored for
+.BR euclid-cli-eam (1)
+commands, which authenticate with the session's bearer token.
+.TP
 .BR \-l ", " \-\-loglevel " " \fILEVEL\fR
 Log level: one of \fItrace\fR, \fIdebug\fR, \fIinfo\fR, \fIwarning\fR,
 \fIerror\fR, \fIfatal\fR. Defaults to \fIinfo\fR.
