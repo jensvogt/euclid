@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.51](https://github.com/jensvogt/euclid/compare/1.0.50...v1.0.51) (2026-08-31)
+
+
+### Bug Fixes
+
+* add RFC9421 for message signature ([3aa94e9](https://github.com/jensvogt/euclid/commit/3aa94e9c2651784e4ddd66570171deead1fb239f))
+* add RFC9421 for message signature ([2974ba8](https://github.com/jensvogt/euclid/commit/2974ba8c7a58deeab59e679c89ba86f527188a93))
+
 ## [1.0.50](https://github.com/jensvogt/euclid/compare/1.0.49...v1.0.50) (2026-08-31)
 
 
