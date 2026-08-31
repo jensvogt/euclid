@@ -40,6 +40,7 @@ int main(const int argc, char *argv[]) {
             ("endpoint,e", po::value<std::string>()->default_value(DEFAULT_ENDPOINT), "service endpoint URL")
             ("ca-cert,t", po::value<std::string>()->default_value(DEFAULT_CERT), "path to a PEM CA certificate to trust in addition to the system trust store (e.g. for self-signed development certificates)")
             ("config,c", po::value<std::string>()->default_value(DEFAULT_CONFIG_FILE), "path to a JSON configuration file providing defaults for action options (e.g. euclid.modules.storage.part-size/concurrency for esm's upload-file/download-file); silently ignored if the file doesn't exist")
+            ("signature,s", po::value<std::string>(), "signature scheme for signed service calls: sigv4 (default) or rfc9421 (HTTP Message Signatures); overrides euclid.cli.signature from the config file")
             ("loglevel,l", po::value<std::string>()->default_value("info"), "log level (trace|debug|info|warning|error|fatal)");
 
     const std::string usage = "Usage: euclid-cli [options] <module> <action> [args...]\n"
@@ -66,7 +67,7 @@ int main(const int argc, char *argv[]) {
     // simply never visible to the global parser at all.
     static const std::unordered_set<std::string> kGlobalFlags{"-h", "--help", "-v", "--version"};
     static const std::unordered_set<std::string> kGlobalValueOptions{
-            "-p", "--pretty", "-e", "--endpoint", "--ca-cert", "-c", "--config", "-l", "--loglevel"
+            "-p", "--pretty", "-e", "--endpoint", "--ca-cert", "-c", "--config", "-l", "--loglevel", "-s", "--signature"
     };
 
     std::vector<std::string> globalArgs;
@@ -133,6 +134,12 @@ int main(const int argc, char *argv[]) {
         } catch (const std::exception &ex) {
             std::cerr << "warning: could not load config file '" << configFile << "': " << ex.what() << "\n";
         }
+    }
+
+    // Applied after the config file is loaded, so the command line wins over
+    // euclid.cli.signature; HttpClient reads it back out when it signs a service call.
+    if (vm.contains("signature")) {
+        Euclid::Core::Configuration::instance().set<std::string>("euclid.cli.signature", vm["signature"].as<std::string>());
     }
 
     if (module == "eam") {
