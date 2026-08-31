@@ -6,6 +6,7 @@
 
 // C++ includes
 #include <chrono>
+#include <map>
 #include <optional>
 #include <string>
 
@@ -15,6 +16,7 @@
 
 // Euclid includes
 #include <euclid/database/entity/BaseEntity.h>
+#include <euclid/database/entity/com/Variant.h>
 #include <euclid/database/entity/esm/ObjectStatus.h>
 
 namespace Euclid::Database::Entity::ESM {
@@ -83,6 +85,17 @@ namespace Euclid::Database::Entity::ESM {
          * post-processing (complete-upload); empty until status reaches COMPLETED.
          */
         std::string md5Sum;
+
+        /**
+         * @brief User-defined attributes travelling with the object.
+         *
+         * @par
+         * Free-form metadata the object's owner attaches to it - the storage module neither
+         * interprets these nor derives anything from them, unlike contentType or md5Sum, which it
+         * computes itself. Values keep their C++ type across a MongoDB round-trip (see
+         * COM::Variant), so a number stored as a number reads back as one.
+         */
+        std::map<std::string, COM::Variant> attributes;
 
         /**
          * @brief Creation date

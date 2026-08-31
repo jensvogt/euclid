@@ -152,7 +152,9 @@
         "executable": "C:\\Program Files\\euclid\\bin\\euclid-ets",
         "socket-dir": "C:\\Program Files\\euclid\\data\\run",
         "minInstances": 1,
-        "maxInstances": 1
+        "maxInstances": 1,
+        "inline-max": 67108864,
+        "part-size": 8388608
       },
       "lambda": {
         "active": true,
