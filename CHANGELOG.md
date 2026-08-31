@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.48](https://github.com/jensvogt/euclid/compare/1.0.47...v1.0.48) (2026-08-31)
+
+
+### Bug Fixes
+
+* support for FTP/SFTP servers ([14b1fc4](https://github.com/jensvogt/euclid/commit/14b1fc4e4fa0d4e86a4ae3016847c713be566637))
+
 ## [1.0.47](https://github.com/jensvogt/euclid/compare/1.0.46...v1.0.47) (2026-08-30)
 
 
