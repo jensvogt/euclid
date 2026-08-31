@@ -4,8 +4,12 @@
 
 #pragma once
 
+// C++ includes
+#include <map>
+
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/com/Variant.h>
 
 namespace Euclid::Dto::ESM {
 
@@ -49,6 +53,11 @@ namespace Euclid::Dto::ESM {
         std::string md5Sum;
 
         /**
+         * @brief User-defined attributes, as a JSON object of typed values
+         */
+        std::map<std::string, COM::Variant> attributes;
+
+        /**
          * @brief Creation date
          */
         system_clock::time_point created;
@@ -84,6 +93,7 @@ namespace Euclid::Dto::ESM {
             r.status = Core::GetStringValue(v, "status");
             r.contentType = Core::GetStringValue(v, "contentType");
             r.md5Sum = Core::GetStringValue(v, "md5Sum");
+            r.attributes = Core::GetMapFromObject<std::string, COM::Variant>(v, "attributes");
             r.created = Core::GetDatetimeValue(v, "created");
             r.modified = Core::GetDatetimeValue(v, "modified");
             return r;
@@ -98,6 +108,7 @@ namespace Euclid::Dto::ESM {
                     {"status", obj.status},
                     {"contentType", obj.contentType},
                     {"md5Sum", obj.md5Sum},
+                    {"attributes", boost::json::value_from(obj.attributes)},
                     {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
             };

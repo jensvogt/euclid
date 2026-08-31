@@ -195,7 +195,8 @@ namespace Euclid::FTP {
 
         _username = identity->userId;
         _homeDir = _config.rootDir;
-        _storage.emplace(_config.transferServer.bucketErn, identity->token, _config.transferServer.region, _config.transferServer.accountId);
+        _storage.emplace(_config.transferServer.bucketErn, identity->token, _config.transferServer.region, _config.transferServer.accountId,
+                         _config.transferServer.serverId, identity->userId);
         _cwd = "/";
         _authenticated = true;
         _pendingUser.clear();
@@ -301,7 +302,7 @@ namespace Euclid::FTP {
 
         const auto [virtualPath, physicalPath] = resolve(arg);
         if (_storage) {
-            if (_storage->RemoveDirectory(keyOf(virtualPath))) {
+            if (_storage->DeleteDirectory(keyOf(virtualPath))) {
                 sendReply(250, "Directory removed");
             } else {
                 sendReply(550, "Could not remove directory");

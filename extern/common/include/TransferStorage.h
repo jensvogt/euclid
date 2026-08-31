@@ -3,12 +3,27 @@
 // C++ includes
 #include <chrono>
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace Euclid::Transfer {
+
+    /**
+     * @brief Renders string attributes as the JSON object ESM's x-euclid-attributes header takes.
+     *
+     * @par
+     * ESM stores an attribute as a typed value, so each one is written out with its type
+     * alongside it - everything a transfer server has to say about an object is a string, hence
+     * the plain map in.
+     *
+     * @param attributes attribute names and their values; empty names are skipped.
+     * @return the JSON object, or an empty string if there is nothing to send.
+     */
+    [[nodiscard]]
+    std::string AttributesHeader(const std::map<std::string, std::string> &attributes);
 
     /**
      * @brief One entry in a directory listing.
@@ -66,9 +81,12 @@ namespace Euclid::Transfer {
          * @param region region this transfer server runs in; sent on every call, since a module
          * rejects a request whose region does not match the one it is configured for.
          * @param accountId account the transfer server (and therefore its bucket) belongs to.
+         * @param serverId ID of the transfer server, recorded on every object stored through it.
+         * @param userId the logged-in user, recorded on every object stored through it.
          */
-        TransferStorage(std::string bucketErn, std::string token, std::string region, std::string accountId)
-            : _bucketErn(std::move(bucketErn)), _token(std::move(token)), _region(std::move(region)), _accountId(std::move(accountId)) {}
+        TransferStorage(std::string bucketErn, std::string token, std::string region, std::string accountId, std::string serverId, std::string userId)
+            : _bucketErn(std::move(bucketErn)), _token(std::move(token)), _region(std::move(region)), _accountId(std::move(accountId)),
+              _serverId(std::move(serverId)), _userId(std::move(userId)) {}
 
         /**
          * @brief Lists the immediate children of a directory.
@@ -106,6 +124,12 @@ namespace Euclid::Transfer {
         /**
          * @brief Uploads a local spool file as an object, replacing any object at that key.
          *
+         * @par
+         * A small file goes up in one put-object call; anything past the inline limit is split
+         * into parts instead (see PartSize()). Neither end can hold a multi-gigabyte object in
+         * memory - the module refuses a request body past euclid.gateway.http.max-body, and even
+         * under it the bytes would exist twice in this process and once more in ESM.
+         *
          * @param key object key.
          * @param spoolPath local file to read.
          * @return true on success.
@@ -134,11 +158,17 @@ namespace Euclid::Transfer {
         /**
          * @brief Removes an empty directory by deleting its marker object.
          *
+         * @par
+         * Deliberately not called RemoveDirectory: <windows.h> defines that as a macro expanding
+         * to RemoveDirectoryA, which rewrites this declaration in any translation unit that has
+         * already pulled Windows in and leaves it disagreeing with the definition. MakeDirectory
+         * dodges the same trap - CreateDirectory is a macro too.
+         *
          * @param directory directory key.
          * @return true if it was removed; false if it does not exist or still has contents.
          */
         [[nodiscard]]
-        bool RemoveDirectory(const std::string &directory) const;
+        bool DeleteDirectory(const std::string &directory) const;
 
         /**
          * @brief Renames an object.
@@ -183,10 +213,46 @@ namespace Euclid::Transfer {
         [[nodiscard]]
         std::vector<std::pair<std::string, std::string> > scopedHeaders(std::vector<std::pair<std::string, std::string> > headers) const;
 
+        /**
+         * @brief The attributes every object stored through this view carries: which transfer
+         * server took it and who was logged in when they did.
+         *
+         * @par
+         * Recorded on the object rather than only in the log, because a bucket is shared - files
+         * arriving through several servers, several users and possibly other routes entirely all
+         * end up side by side, and where one came from is not otherwise recoverable from it.
+         *
+         * @return the attributes as the JSON object put-object's x-euclid-attributes header takes.
+         */
+        [[nodiscard]]
+        std::string provenanceHeader() const;
+
+        /**
+         * @brief Uploads a spool file as a multipart upload, one part-sized chunk per request.
+         *
+         * @param key object key.
+         * @param spoolPath local file to read.
+         * @return true if every part went up and the upload was completed.
+         */
+        [[nodiscard]]
+        bool uploadInParts(const std::string &key, const std::filesystem::path &spoolPath) const;
+
+        /**
+         * @brief Downloads an object into a spool file, one part-sized chunk per request.
+         *
+         * @param key object key.
+         * @param spoolPath local file to write.
+         * @return true if the whole object was written.
+         */
+        [[nodiscard]]
+        bool downloadInParts(const std::string &key, const std::filesystem::path &spoolPath) const;
+
         std::string _bucketErn;
         std::string _token;
         std::string _region;
         std::string _accountId;
+        std::string _serverId;
+        std::string _userId;
     };
 
 }// namespace Euclid::Transfer

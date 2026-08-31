@@ -169,7 +169,8 @@ namespace Euclid::SFTP {
                 if (const auto identity = authenticator.Authenticate(user, password)) {
                     _username = identity->userId;
                     _homeDir = _config.rootDir;
-                    _storage.emplace(_config.transferServer.bucketErn, identity->token, _config.transferServer.region, _config.transferServer.accountId);
+                    _storage.emplace(_config.transferServer.bucketErn, identity->token, _config.transferServer.region, _config.transferServer.accountId,
+                                     _config.transferServer.serverId, identity->userId);
                     authenticated = true;
 
                     ssh_message_auth_reply_success(message, 0);
@@ -714,7 +715,7 @@ namespace Euclid::SFTP {
         const auto resolved = resolve(filename != nullptr ? filename : "");
 
         if (_storage) {
-            if (!_storage->RemoveDirectory(keyOf(resolved.virtualPath))) {
+            if (!_storage->DeleteDirectory(keyOf(resolved.virtualPath))) {
                 sftp_reply_status(msg, SSH_FX_FAILURE, "Could not remove directory");
                 return;
             }

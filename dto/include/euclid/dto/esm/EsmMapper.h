@@ -8,6 +8,7 @@
 #include <vector>
 
 // Euclid includes
+#include <euclid/database/entity/com/Variant.h>
 #include <euclid/database/entity/esm/Bucket.h>
 #include <euclid/database/entity/esm/Object.h>
 #include <euclid/database/entity/esm/Subscription.h>
@@ -69,6 +70,22 @@ namespace Euclid::Dto::ESM {
          * @return list of Subscription DTOs
          */
         static std::vector<Subscription> toDto(const std::vector<Database::Entity::ESM::Subscription> &entities);
+
+        /**
+         * @brief Maps an object attribute entity to an object attribute DTO.
+         *
+         * @param entity source Variant entity from the database
+         * @return Variant DTO
+         */
+        static COM::Variant toDto(const Database::Entity::COM::Variant &entity);
+
+        /**
+         * @brief Maps an object attribute DTO to an object attribute entity.
+         *
+         * @param dto source Variant DTO
+         * @return Variant entity ready for persistence
+         */
+        static Database::Entity::COM::Variant toEntity(const COM::Variant &dto);
     };
 
 }// namespace Euclid::Dto::ESM
