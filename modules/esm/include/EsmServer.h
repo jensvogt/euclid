@@ -54,6 +54,7 @@
 #include <euclid/dto/esm/EsmMapper.h>
 #include <euclid/dto/esm/PurgeBucketRequest.h>
 #include <euclid/dto/esm/PurgeBucketResponse.h>
+#include <euclid/dto/esm/SetObjectAttributesRequest.h>
 #include <euclid/dto/esm/SubscribeRequest.h>
 #include <euclid/dto/esm/SubscribeResponse.h>
 #include <euclid/dto/esm/UnsubscribeRequest.h>

@@ -34,6 +34,15 @@ target_link_libraries(${ESM_DIRECTORY_BINARY} PRIVATE eucliddb Boost::unit_test_
 
 add_test(NAME ${ESM_DIRECTORY_BINARY} COMMAND ${ESM_DIRECTORY_BINARY})
 
+set(ESM_ATTRIBUTES_BINARY euclid-esm-object-attributes-tests)
+
+add_executable(${ESM_ATTRIBUTES_BINARY} EsmObjectAttributesTest.cpp)
+set_target_properties(${ESM_ATTRIBUTES_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${ESM_ATTRIBUTES_BINARY} PRIVATE eucliddto euclidtransfer Boost::unit_test_framework)
+
+add_test(NAME ${ESM_ATTRIBUTES_BINARY} COMMAND ${ESM_ATTRIBUTES_BINARY})
+
 set(WS_FRAME_BINARY euclid-gateway-ws-frame-tests)
 
 add_executable(${WS_FRAME_BINARY} GatewayWsFrameTest.cpp)

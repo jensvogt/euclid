@@ -3,6 +3,30 @@
 
 namespace Euclid::Dto::ESM {
 
+    Database::Entity::COM::Variant EsmMapper::toEntity(const COM::Variant &dto) {
+        Database::Entity::COM::Variant entityVariant;
+        std::visit([&entityVariant]<typename T>(const T &val) {
+            if constexpr (std::is_same_v<T, COM::Binary>) {
+                entityVariant.value = Database::Entity::COM::Binary(val.begin(), val.end());
+            } else {
+                entityVariant.value = val;
+            }
+        }, dto.value);
+        return entityVariant;
+    }
+
+    COM::Variant EsmMapper::toDto(const Database::Entity::COM::Variant &entity) {
+        COM::Variant variant;
+        std::visit([&variant]<typename T>(const T &val) {
+            if constexpr (std::is_same_v<T, Database::Entity::COM::Binary>) {
+                variant.value = COM::Binary(val.begin(), val.end());
+            } else {
+                variant.value = val;
+            }
+        }, entity.value);
+        return variant;
+    }
+
     Bucket EsmMapper::toDto(const Database::Entity::ESM::Bucket &entity) {
         Bucket dto;
         dto.owner = entity.owner;
@@ -35,6 +59,9 @@ namespace Euclid::Dto::ESM {
         dto.status = Database::Entity::ESM::ObjectStatusToString(entity.status);
         dto.contentType = entity.contentType;
         dto.md5Sum = entity.md5Sum;
+        for (const auto &[name, attribute]: entity.attributes) {
+            dto.attributes[name] = toDto(attribute);
+        }
         dto.created = entity.created;
         dto.modified = entity.modified;
         return dto;

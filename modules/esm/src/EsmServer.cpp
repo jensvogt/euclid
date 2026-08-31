@@ -97,6 +97,34 @@ namespace Euclid::ESM {
         return EsmServer::Unauthorized(req, {.subject = std::nullopt, .tokenExpired = auth.tokenExpired, .denialReason = auth.denialReason});
     }
 
+    // Attributes travel as a header on put-object, because the body is the object's bytes and has
+    // no room for anything else. The JSON is the same shape set-object-attributes takes, so a
+    // client has one representation of an attribute map to produce rather than two.
+    //
+    // std::nullopt means the header was there but could not be read - reported as a bad request
+    // rather than dropped, since silently storing an object without the metadata a caller asked
+    // for is worse than refusing the upload.
+    static std::optional<std::map<std::string, Database::Entity::COM::Variant> > attributesFromHeader(const request<string_body> &req) {
+
+        const auto header = std::string(req["x-euclid-attributes"]);
+        if (header.empty()) return std::map<std::string, Database::Entity::COM::Variant>{};
+
+        try {
+            const auto parsed = boost::json::parse(header);
+            if (!parsed.is_object()) return std::nullopt;
+
+            std::map<std::string, Database::Entity::COM::Variant> attributes;
+            for (const auto &element: parsed.as_object()) {
+                attributes[std::string(element.key())] = Dto::ESM::EsmMapper::toEntity(boost::json::value_to<Dto::COM::Variant>(element.value()));
+            }
+            return attributes;
+
+        } catch (const std::exception &e) {
+            log_warning << "ESM could not read x-euclid-attributes header, error: " << e.what();
+            return std::nullopt;
+        }
+    }
+
     // Fans out to every subscription of bucketErn - one EventBus event per subscription, so a
     // subscribing instance (any one of them, via the claim mechanism) delivers it. Type SQS goes
     // straight to an EQS queue (event "esm.object.created", consumed by EqsServer's
@@ -299,6 +327,10 @@ namespace Euclid::ESM {
         if (key.empty()) {
             return EsmServer::ErrorResponse(req, status::bad_request, "Missing x-euclid-key header");
         }
+        const auto attributes = attributesFromHeader(req);
+        if (!attributes.has_value()) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "Malformed x-euclid-attributes header");
+        }
 
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
         const auto bucket = repo->findBucketByErn(bucketErn);
@@ -351,6 +383,7 @@ namespace Euclid::ESM {
         object.status = Database::Entity::ESM::ObjectStatus::COMPLETED;
         object.contentType = contentType;
         object.md5Sum = md5Sum;
+        object.attributes = *attributes;
         repo->upsertObject(object);
 
         // A directory is not one of the bucket's objects as far as its counters are concerned -
@@ -551,6 +584,13 @@ namespace Euclid::ESM {
         const auto request = boost::json::value_to<Dto::ESM::CompleteUploadRequest>(jv);
         log_info << "ESM CompleteUpload, id: " << request.uploadId;
 
+        // Same header put-object takes: an upload big enough to be split into parts must not lose
+        // the metadata a small one keeps.
+        const auto attributes = attributesFromHeader(req);
+        if (!attributes.has_value()) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "Malformed x-euclid-attributes header");
+        }
+
         const auto uploadDir = uploadDirFor(request.uploadId);
         const auto metaPath = uploadDir / kUploadMetaFile;
         if (!std::filesystem::exists(metaPath)) {
@@ -627,7 +667,7 @@ namespace Euclid::ESM {
         // detached thread's entry function calls std::terminate() and takes down the entire
         // process, unlike an exception in a normal request handler which route()/Dispatch() would
         // otherwise catch.
-        std::thread([repo, uploadDir, parts, dataDir, destPath, internalName, ern, bucketErn, key, owner, region, accountId, ns, existingObject, uploadId = request.uploadId] {
+        std::thread([repo, uploadDir, parts, dataDir, destPath, internalName, ern, bucketErn, key, owner, region, accountId, ns, existingObject, attributes = *attributes, uploadId = request.uploadId] {
             try {
                 std::error_code ec;
                 std::filesystem::create_directories(dataDir, ec);
@@ -673,6 +713,7 @@ namespace Euclid::ESM {
                 object.status = Database::Entity::ESM::ObjectStatus::COMPLETED;
                 object.contentType = contentType;
                 object.md5Sum = md5Sum;
+                object.attributes = attributes;
                 repo->upsertObject(object);
 
                 // Re-fetches the bucket rather than reusing the snapshot from before assembly
@@ -1112,6 +1153,55 @@ namespace Euclid::ESM {
         return JsonResponse(req, status::ok, response.toJson());
     }
 
+    // Attributes are the one part of an object a client owns outright - everything else about it
+    // (size, content type, checksum) is either the bytes it uploaded or something ESM derived from
+    // them, and none of it is writable. They are set through their own action rather than as part
+    // of put-object because they outlive any single upload: re-uploading the bytes at a key is a
+    // new object as far as the store is concerned, and would otherwise silently drop them.
+    static response<string_body> handleSetObjectAttributes(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-object-attributes");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ESM::SetObjectAttributesRequest>(jv);
+        if (request.ern.empty()) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "ern is required");
+        }
+        log_info << "ESM SetObjectAttributes, ern: " << request.ern << ", count: " << request.attributes.size();
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        auto object = repo->findObjectByErn(request.ern);
+        if (!object.has_value()) {
+            return EsmServer::ErrorResponse(req, status::not_found, "Object not found, ern: " + request.ern);
+        }
+
+        // Same check list-objects makes: a syntactically valid ERN from another account must not
+        // let its objects be written to.
+        const auto bucket = repo->findBucketByErn(object->bucketErn);
+        if (!bucket.has_value()) {
+            return EsmServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + object->bucketErn);
+        }
+        if (bucket->accountId != auth.user->accountId) {
+            return EsmServer::ErrorResponse(req, status::forbidden, "Object does not belong to the caller's account");
+        }
+
+        object->attributes.clear();
+        for (const auto &[name, value]: request.attributes) {
+            object->attributes[name] = Dto::ESM::EsmMapper::toEntity(value);
+        }
+        const auto stored = repo->upsertObject(*object);
+
+        Database::EventBus::instance().Publish(
+                "esm.object.modified", boost::json::value{{"ern", stored.ern}, {"bucketErn", stored.bucketErn}, {"key", stored.key}, {"size", stored.size}}, "esm");
+
+        return EsmServer::JsonResponse(req, status::ok, Dto::ESM::EsmMapper::toDto(stored).toJson());
+    }
+
     static response<string_body> handleAddBucketTag(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "add-bucket-tag");
@@ -1323,6 +1413,7 @@ namespace Euclid::ESM {
             CompleteDownload,
             GetObjectCount,
             ListObjects,
+            SetObjectAttributes,
             DeleteObject,
             PurgeBucket,
             Subscribe,
@@ -1348,6 +1439,7 @@ namespace Euclid::ESM {
         if (action == "complete-download") return Command::CompleteDownload;
         if (action == "list-objects") return Command::ListObjects;
         if (action == "get-object-count") return Command::GetObjectCount;
+        if (action == "set-object-attributes") return Command::SetObjectAttributes;
         if (action == "delete-object") return Command::DeleteObject;
         if (action == "purge-bucket") return Command::PurgeBucket;
         if (action == "add-bucket-tag") return Command::AddBucketTag;
@@ -1423,6 +1515,9 @@ namespace Euclid::ESM {
 
             case Command::GetObjectCount:
                 return handleGetObjectCount(req);
+
+            case Command::SetObjectAttributes:
+                return handleSetObjectAttributes(req);
 
             case Command::PurgeBucket:
                 return handlePurgeBucket(req);
