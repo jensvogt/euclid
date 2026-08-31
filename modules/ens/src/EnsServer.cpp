@@ -21,6 +21,30 @@ namespace Euclid::ENS {
         // "method"=<action>, e.g. name="queues-service-time" labelName="method" labelValue="send-message".
         constexpr auto kServiceTimer = "ens-service-time";
         constexpr auto kServiceCounter = "ens-service-count";
+
+        // Message and byte volume per topic, the counterpart of EQS's per-queue counters and read
+        // the same way round: "sent" is what was published into a topic, "received" is what came
+        // back out of it - here that means what was handed to its subscriptions, since a topic has
+        // no consumers of its own to pull from it. One publish to three subscriptions therefore
+        // counts once as sent and three times as received, which is exactly the fan-out factor.
+        //
+        // Labelled by ERN rather than by topic name, for the same reason EQS labels by queue ERN:
+        // it is what these call sites already hold, and it stays unique across accounts and
+        // namespaces.
+        constexpr auto kTopicLabel = "topic";
+        constexpr auto kMessagesSent = "ens-messages-sent";
+        constexpr auto kMessagesReceived = "ens-messages-received";
+        constexpr auto kBytesSent = "ens-bytes-sent";
+        constexpr auto kBytesReceived = "ens-bytes-received";
+
+        // One event carrying its own count rather than one signal per message: sigMetricCounter
+        // sums amounts into the same rate metric sigMetricRate counts occurrences in.
+        void recordMessages(const char *messageMetric, const char *byteMetric, const std::string &topicErn, const long messages, const long bytes) {
+            if (messages <= 0) return;
+            auto &bus = Core::Monitoring::MetricEventBus::instance();
+            bus.sigMetricCounter(messageMetric, kTopicLabel, topicErn, static_cast<double>(messages));
+            if (bytes > 0) bus.sigMetricCounter(byteMetric, kTopicLabel, topicErn, static_cast<double>(bytes));
+        }
     }// namespace
 
     static AuthResult authenticate(const request<string_body> &req) {
@@ -180,10 +204,16 @@ namespace Euclid::ENS {
         const auto repo = Database::RepositoryFactory::instance().ensRepository();
         const Database::Entity::ENS::Message message = repo->publishMessage(messageId, ern, topicErn, body, entityAttributes);
 
+        // Counted here rather than in handlePublishMessage, so that a message arriving from an
+        // ESM object notification counts the same as one a client published - both reach a topic
+        // only through this function.
+        recordMessages(kMessagesSent, kBytesSent, topicErn, 1, message.size);
+
         boost::json::object attributesJson;
         for (const auto &[key, variant]: attributes) {
             attributesJson[key] = boost::json::value_from(variant);
         }
+        long delivered = 0;
         for (const auto &subscription: repo->listSubscriptionsBySourceErn(topicErn)) {
             if (subscription.type != "SQS") continue;
             const boost::json::value payload = {
@@ -194,7 +224,9 @@ namespace Euclid::ENS {
                     {"attributes", attributesJson},
             };
             Database::EventBus::instance().Publish("ens.message.published", payload, "ens");
+            ++delivered;
         }
+        recordMessages(kMessagesReceived, kBytesReceived, topicErn, delivered, delivered * message.size);
 
         return message;
     }

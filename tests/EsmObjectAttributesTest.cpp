@@ -7,7 +7,9 @@
 // Euclid includes
 #include <euclid/database/entity/esm/Object.h>
 #include <euclid/dto/esm/EsmMapper.h>
-#include <euclid/dto/esm/SetObjectAttributesRequest.h>
+#include <euclid/dto/esm/ListObjectAttributesResponse.h>
+#include <euclid/dto/esm/ObjectAttributeRequest.h>
+#include <euclid/dto/esm/ObjectAttributeResponse.h>
 #include <euclid/dto/esm/model/Object.h>
 #include <TransferStorage.h>
 
@@ -75,26 +77,53 @@ BOOST_AUTO_TEST_CASE(AttributesSurviveAJsonRoundTrip) {
     BOOST_TEST(restored.attributes.at("thumbnail").get<Euclid::Dto::COM::Binary>() == (Euclid::Dto::COM::Binary{0x00, 0x01, 0xFE, 0xFF}));
 }
 
-BOOST_AUTO_TEST_CASE(SetObjectAttributesRequestCarriesTypedValues) {
-    Euclid::Dto::ESM::SetObjectAttributesRequest request;
+BOOST_AUTO_TEST_CASE(ObjectAttributeRequestCarriesOneTypedValue) {
+    // add-object-attribute and set-object-attribute share this request: they differ in what the
+    // handler expects to find already stored, not in what the caller sends.
+    Euclid::Dto::ESM::ObjectAttributeRequest request;
     request.ern = "ern:esm:eu-central-1:000000000000:development:object:transfer/mix/PIM-4269.xml";
-    request.attributes["source"] = Euclid::Dto::COM::Variant(std::string("pim"));
-    request.attributes["revision"] = Euclid::Dto::COM::Variant(7L);
-    request.attributes["final"] = Euclid::Dto::COM::Variant(true);
+    request.name = "revision";
+    request.value = Euclid::Dto::COM::Variant(7L);
 
-    const auto restored = Euclid::Dto::ESM::SetObjectAttributesRequest::fromJson(request.toJson());
+    const auto restored = Euclid::Dto::ESM::ObjectAttributeRequest::fromJson(request.toJson());
 
     BOOST_TEST(restored.ern == request.ern);
-    BOOST_TEST_REQUIRE(restored.attributes.size() == 3U);
-    BOOST_TEST(restored.attributes.at("source").get<std::string>() == "pim");
-    BOOST_TEST(restored.attributes.at("revision").get<long>() == 7L);
-    BOOST_TEST(restored.attributes.at("final").get<bool>());
+    BOOST_TEST(restored.name == "revision");
+    BOOST_TEST(restored.value.get<long>() == 7L);
+}
 
-    // The handler replaces the object's whole map with what it parsed, so a request carrying no
-    // attributes at all has to parse as empty rather than as "leave them alone" - that is how an
-    // object's attributes are cleared.
-    const auto cleared = Euclid::Dto::ESM::SetObjectAttributesRequest::fromJson(R"({"ern":"ern:esm:x"})");
-    BOOST_TEST(cleared.attributes.empty());
+BOOST_AUTO_TEST_CASE(ObjectAttributeResponseCarriesOneTypedValue) {
+    Euclid::Dto::ESM::ObjectAttributeResponse response;
+    response.ern = "ern:esm:eu-central-1:000000000000:development:object:transfer/mix/PIM-4269.xml";
+    response.name = "final";
+    response.value = Euclid::Dto::COM::Variant(true);
+
+    const auto restored = Euclid::Dto::ESM::ObjectAttributeResponse::fromJson(response.toJson());
+
+    BOOST_TEST(restored.name == "final");
+    BOOST_TEST(restored.value.get<bool>());
+}
+
+BOOST_AUTO_TEST_CASE(ListObjectAttributesResponseCarriesTheWholeMap) {
+    Euclid::Dto::ESM::ListObjectAttributesResponse response;
+    response.ern = "ern:esm:eu-central-1:000000000000:development:object:transfer/mix/PIM-4269.xml";
+    for (const auto &[name, value]: EsmMapper::toDto(objectWithAttributes()).attributes) {
+        response.attributes[name] = value;
+    }
+    response.total = static_cast<long>(response.attributes.size());
+
+    const auto restored = Euclid::Dto::ESM::ListObjectAttributesResponse::fromJson(response.toJson());
+
+    BOOST_TEST(restored.ern == response.ern);
+    BOOST_TEST(restored.total == 5);
+    BOOST_TEST_REQUIRE(restored.attributes.size() == 5U);
+    BOOST_TEST(restored.attributes.at("source").get<std::string>() == "pim");
+    BOOST_TEST(restored.attributes.at("thumbnail").get<Euclid::Dto::COM::Binary>() == (Euclid::Dto::COM::Binary{0x00, 0x01, 0xFE, 0xFF}));
+
+    // An object with nothing on it lists as an empty map, not as a missing field.
+    const auto empty = Euclid::Dto::ESM::ListObjectAttributesResponse::fromJson(Euclid::Dto::ESM::ListObjectAttributesResponse{}.toJson());
+    BOOST_TEST(empty.attributes.empty());
+    BOOST_TEST(empty.total == 0);
 }
 
 BOOST_AUTO_TEST_CASE(MapperRoundTripsAttributesBackToTheEntity) {

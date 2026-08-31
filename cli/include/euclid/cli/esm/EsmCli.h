@@ -36,14 +36,17 @@
 #include <euclid/dto/esm/CreateUploadRequest.h>
 #include <euclid/dto/esm/CreateUploadResponse.h>
 #include <euclid/dto/esm/DeleteBucketRequest.h>
+#include <euclid/dto/esm/DeleteObjectAttributeRequest.h>
 #include <euclid/dto/esm/DeleteObjectRequest.h>
 #include <euclid/dto/esm/GetBucketErnRequest.h>
 #include <euclid/dto/esm/GetBucketSizeRequest.h>
 #include <euclid/dto/esm/GetObjectCountRequest.h>
 #include <euclid/dto/esm/ListBucketsRequest.h>
+#include <euclid/dto/esm/ListObjectAttributesRequest.h>
 #include <euclid/dto/esm/ListObjectsRequest.h>
 #include <euclid/dto/esm/ListObjectsResponse.h>
 #include <euclid/dto/esm/ListSubscriptionsRequest.h>
+#include <euclid/dto/esm/ObjectAttributeRequest.h>
 #include <euclid/dto/esm/PurgeBucketRequest.h>
 #include <euclid/dto/esm/SetBucketTagRequest.h>
 #include <euclid/dto/esm/SubscribeRequest.h>
@@ -251,6 +254,42 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int deleteBucketTag(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Adds an attribute to an object, which must not have one of that name yet
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int addObjectAttribute(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Sets the value of an existing object attribute
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int setObjectAttribute(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Lists the attributes of an object
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int listObjectAttributes(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Deletes an attribute from an object
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int deleteObjectAttribute(const std::vector<std::string> &args) const;
 
         /**
          * @brief Subscribes a target resource (an EQS queue) to a bucket's object-created events.
