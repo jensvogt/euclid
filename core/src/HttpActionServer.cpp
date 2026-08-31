@@ -8,6 +8,7 @@
 #include <euclid/core/HttpActionServer.h>
 
 #include <euclid/core/Configuration.h>
+#include <euclid/core/HttpSignature.h>
 #include <euclid/core/JwtUtils.h>
 #include <euclid/core/LogStream.h>
 #include <euclid/core/Scheduler.h>
@@ -234,7 +235,24 @@ namespace Euclid::Core {
 
         std::optional<std::string> subject;
 
-        if (constexpr std::string_view bearerPrefix = "Bearer "; header.starts_with(bearerPrefix)) {
+        // Checked before Authorization: an RFC 9421 signature lives in its own headers and a
+        // client may well present it with no Authorization header at all, so keying off that one
+        // would never reach this branch.
+        if (HttpSignature::IsSigned(req)) {
+
+            std::string resolvedUserId;
+            const auto lookupSecret = [&](const std::string &accessKeyId) -> std::optional<std::string> {
+                const auto record = accessKeyLookup() ? accessKeyLookup()(accessKeyId) : std::nullopt;
+                if (!record.has_value()) return std::nullopt;
+                resolvedUserId = record->userId;
+                return record->secretAccessKey;
+            };
+            if (!HttpSignature::Verify(req, lookupSecret).has_value()) {
+                return {.subject = std::nullopt, .denialReason = "Signature does not match"};
+            }
+            subject = resolvedUserId;
+
+        } else if (constexpr std::string_view bearerPrefix = "Bearer "; header.starts_with(bearerPrefix)) {
 
             const auto token = header.substr(bearerPrefix.size());
             const auto secret = JwtSecret();

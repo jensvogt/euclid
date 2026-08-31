@@ -1,6 +1,8 @@
 #include <euclid/cli/http/HttpClient.h>
 
 // Euclid includes
+#include <euclid/core/Configuration.h>
+#include <euclid/core/HttpSignature.h>
 #include <euclid/core/SigV4.h>
 
 namespace Euclid::CLI {
@@ -43,14 +45,27 @@ namespace Euclid::CLI {
             }
         }
 
-        // Service calls (everything but the access module itself) sign with SigV4 when an
-        // access key is configured, matching how real Euclid SDKs authenticate; access-module
-        // calls (login/register/access-key management) always use the bearer token, since
-        // there's no access key yet at login time and key management is euclid's own session
-        // auth, not an euclid service call.
+        // Which signature scheme a signed request uses: SigV4 unless the caller asked for RFC
+        // 9421 (--signature rfc9421, or euclid.cli.signature in the config file). Both prove the
+        // same thing with the same access key; RFC 9421 is the standard spelling, for clients and
+        // proxies that already understand HTTP Message Signatures.
+        bool UseHttpSignature() {
+            const auto scheme = Core::Configuration::instance().getOr<std::string>("euclid.cli.signature", "sigv4");
+            return scheme == "rfc9421" || scheme == "http-signature";
+        }
+
+        // Service calls (everything but the access module itself) are signed when an access key
+        // is configured, matching how real Euclid SDKs authenticate; access-module calls
+        // (login/register/access-key management) always use the bearer token, since there's no
+        // access key yet at login time and key management is euclid's own session auth, not an
+        // euclid service call.
         void AuthenticateRequest(http::request<http::string_body> &request, const std::string &target, const Credentials::Entry &authentication) {
             if (target != "eam" && !authentication.accessKeyId.empty() && !authentication.secretAccessKey.empty()) {
-                Core::SigV4::Sign(request, authentication.accessKeyId, authentication.secretAccessKey, authentication.region, target);
+                if (UseHttpSignature()) {
+                    Core::HttpSignature::Sign(request, authentication.accessKeyId, authentication.secretAccessKey);
+                } else {
+                    Core::SigV4::Sign(request, authentication.accessKeyId, authentication.secretAccessKey, authentication.region, target);
+                }
             } else if (!authentication.token.empty()) {
                 request.set(http::field::authorization, "Bearer " + authentication.token);
             }
