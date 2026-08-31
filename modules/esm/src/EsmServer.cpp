@@ -1155,12 +1155,62 @@ namespace Euclid::ESM {
 
     // Attributes are the one part of an object a client owns outright - everything else about it
     // (size, content type, checksum) is either the bytes it uploaded or something ESM derived from
-    // them, and none of it is writable. They are set through their own action rather than as part
+    // them, and none of it is writable. They live behind their own actions rather than being part
     // of put-object because they outlive any single upload: re-uploading the bytes at a key is a
     // new object as far as the store is concerned, and would otherwise silently drop them.
-    static response<string_body> handleSetObjectAttributes(const request<string_body> &req) {
+    //
+    // The four actions follow the add/set/list/delete split every other keyed collection in
+    // euclid uses (bucket tags, queue tags): adding refuses a name that is already there and
+    // setting refuses one that is not, so a caller that mistypes a name is told about it instead
+    // of quietly creating a second attribute or overwriting a first.
 
-        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-object-attributes");
+    namespace {
+
+        // Everything the four attribute actions need before touching an object: the object itself,
+        // or the response explaining why the caller cannot have it.
+        struct ResolvedObject {
+            std::optional<Database::Entity::ESM::Object> object;
+            std::optional<response<string_body> > error;
+        };
+
+        ResolvedObject resolveObject(const request<string_body> &req, const AuthResult &auth, const std::string &ern) {
+
+            if (ern.empty()) {
+                return {.error = EsmServer::ErrorResponse(req, status::bad_request, "ern is required")};
+            }
+
+            const auto repo = Database::RepositoryFactory::instance().esmRepository();
+            auto object = repo->findObjectByErn(ern);
+            if (!object.has_value()) {
+                return {.error = EsmServer::ErrorResponse(req, status::not_found, "Object not found, ern: " + ern)};
+            }
+
+            // Same check list-objects makes: a syntactically valid ERN from another account must
+            // not expose - or let anyone write to - that account's objects.
+            const auto bucket = repo->findBucketByErn(object->bucketErn);
+            if (!bucket.has_value()) {
+                return {.error = EsmServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + object->bucketErn)};
+            }
+            if (bucket->accountId != auth.user->accountId) {
+                return {.error = EsmServer::ErrorResponse(req, status::forbidden, "Object does not belong to the caller's account")};
+            }
+
+            return {.object = std::move(object)};
+        }
+
+        // An attribute change is a change to the object, and anything watching the object (the
+        // RUI's live view, a subscriber) has no other way to learn about it.
+        void publishObjectModified(const Database::Entity::ESM::Object &object) {
+            Database::EventBus::instance().Publish(
+                    "esm.object.modified",
+                    boost::json::value{{"ern", object.ern}, {"bucketErn", object.bucketErn}, {"key", object.key}, {"size", object.size}}, "esm");
+        }
+
+    }// namespace
+
+    static response<string_body> handleAddObjectAttribute(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "add-object-attribute");
 
         const auto auth = authenticate(req);
         if (!auth.user.has_value()) return unauthorized(req, auth);
@@ -1168,38 +1218,123 @@ namespace Euclid::ESM {
         boost::json::value jv;
         if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
 
-        const auto request = boost::json::value_to<Dto::ESM::SetObjectAttributesRequest>(jv);
-        if (request.ern.empty()) {
-            return EsmServer::ErrorResponse(req, status::bad_request, "ern is required");
+        const auto request = boost::json::value_to<Dto::ESM::ObjectAttributeRequest>(jv);
+        if (request.name.empty()) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "name is required");
         }
-        log_info << "ESM SetObjectAttributes, ern: " << request.ern << ", count: " << request.attributes.size();
+        log_info << "ESM AddObjectAttribute, ern: " << request.ern << ", name: " << request.name;
 
-        const auto repo = Database::RepositoryFactory::instance().esmRepository();
-        auto object = repo->findObjectByErn(request.ern);
-        if (!object.has_value()) {
-            return EsmServer::ErrorResponse(req, status::not_found, "Object not found, ern: " + request.ern);
-        }
+        auto [object, error] = resolveObject(req, auth, request.ern);
+        if (error.has_value()) return *error;
 
-        // Same check list-objects makes: a syntactically valid ERN from another account must not
-        // let its objects be written to.
-        const auto bucket = repo->findBucketByErn(object->bucketErn);
-        if (!bucket.has_value()) {
-            return EsmServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + object->bucketErn);
-        }
-        if (bucket->accountId != auth.user->accountId) {
-            return EsmServer::ErrorResponse(req, status::forbidden, "Object does not belong to the caller's account");
+        if (object->attributes.contains(request.name)) {
+            return EsmServer::ErrorResponse(req, status::conflict, "Attribute already exists, name: " + request.name);
         }
 
-        object->attributes.clear();
-        for (const auto &[name, value]: request.attributes) {
-            object->attributes[name] = Dto::ESM::EsmMapper::toEntity(value);
+        object->attributes[request.name] = Dto::ESM::EsmMapper::toEntity(request.value);
+        const auto stored = Database::RepositoryFactory::instance().esmRepository()->upsertObject(*object);
+        publishObjectModified(stored);
+
+        Dto::ESM::ObjectAttributeResponse response;
+        response.ern = stored.ern;
+        response.name = request.name;
+        response.value = Dto::ESM::EsmMapper::toDto(stored.attributes.at(request.name));
+
+        return EsmServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    static response<string_body> handleSetObjectAttribute(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-object-attribute");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ESM::ObjectAttributeRequest>(jv);
+        if (request.name.empty()) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "name is required");
         }
-        const auto stored = repo->upsertObject(*object);
+        log_info << "ESM SetObjectAttribute, ern: " << request.ern << ", name: " << request.name;
 
-        Database::EventBus::instance().Publish(
-                "esm.object.modified", boost::json::value{{"ern", stored.ern}, {"bucketErn", stored.bucketErn}, {"key", stored.key}, {"size", stored.size}}, "esm");
+        auto [object, error] = resolveObject(req, auth, request.ern);
+        if (error.has_value()) return *error;
 
-        return EsmServer::JsonResponse(req, status::ok, Dto::ESM::EsmMapper::toDto(stored).toJson());
+        if (!object->attributes.contains(request.name)) {
+            return EsmServer::ErrorResponse(req, status::not_found, "Attribute not found, name: " + request.name);
+        }
+
+        object->attributes[request.name] = Dto::ESM::EsmMapper::toEntity(request.value);
+        const auto stored = Database::RepositoryFactory::instance().esmRepository()->upsertObject(*object);
+        publishObjectModified(stored);
+
+        Dto::ESM::ObjectAttributeResponse response;
+        response.ern = stored.ern;
+        response.name = request.name;
+        response.value = Dto::ESM::EsmMapper::toDto(stored.attributes.at(request.name));
+
+        return EsmServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    static response<string_body> handleListObjectAttributes(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-object-attributes");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ESM::ListObjectAttributesRequest>(jv);
+        log_info << "ESM ListObjectAttributes, ern: " << request.ern;
+
+        auto [object, error] = resolveObject(req, auth, request.ern);
+        if (error.has_value()) return *error;
+
+        Dto::ESM::ListObjectAttributesResponse response;
+        response.ern = object->ern;
+        for (const auto &[name, value]: object->attributes) {
+            response.attributes[name] = Dto::ESM::EsmMapper::toDto(value);
+        }
+        response.total = static_cast<long>(response.attributes.size());
+
+        return EsmServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    static response<string_body> handleDeleteObjectAttribute(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-object-attribute");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ESM::DeleteObjectAttributeRequest>(jv);
+        if (request.name.empty()) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "name is required");
+        }
+        log_info << "ESM DeleteObjectAttribute, ern: " << request.ern << ", name: " << request.name;
+
+        auto [object, error] = resolveObject(req, auth, request.ern);
+        if (error.has_value()) return *error;
+
+        // Reported rather than ignored, for the same reason add and set are strict: a delete that
+        // silently succeeds on a name nobody ever stored is the one way a typo could still go
+        // unnoticed.
+        if (!object->attributes.contains(request.name)) {
+            return EsmServer::ErrorResponse(req, status::not_found, "Attribute not found, name: " + request.name);
+        }
+
+        object->attributes.erase(request.name);
+        const auto stored = Database::RepositoryFactory::instance().esmRepository()->upsertObject(*object);
+        publishObjectModified(stored);
+
+        return EsmServer::JsonResponse(req, status::ok);
     }
 
     static response<string_body> handleAddBucketTag(const request<string_body> &req) {
@@ -1413,7 +1548,10 @@ namespace Euclid::ESM {
             CompleteDownload,
             GetObjectCount,
             ListObjects,
-            SetObjectAttributes,
+            AddObjectAttribute,
+            SetObjectAttribute,
+            ListObjectAttributes,
+            DeleteObjectAttribute,
             DeleteObject,
             PurgeBucket,
             Subscribe,
@@ -1439,7 +1577,10 @@ namespace Euclid::ESM {
         if (action == "complete-download") return Command::CompleteDownload;
         if (action == "list-objects") return Command::ListObjects;
         if (action == "get-object-count") return Command::GetObjectCount;
-        if (action == "set-object-attributes") return Command::SetObjectAttributes;
+        if (action == "add-object-attribute") return Command::AddObjectAttribute;
+        if (action == "set-object-attribute") return Command::SetObjectAttribute;
+        if (action == "list-object-attributes") return Command::ListObjectAttributes;
+        if (action == "delete-object-attribute") return Command::DeleteObjectAttribute;
         if (action == "delete-object") return Command::DeleteObject;
         if (action == "purge-bucket") return Command::PurgeBucket;
         if (action == "add-bucket-tag") return Command::AddBucketTag;
@@ -1516,8 +1657,17 @@ namespace Euclid::ESM {
             case Command::GetObjectCount:
                 return handleGetObjectCount(req);
 
-            case Command::SetObjectAttributes:
-                return handleSetObjectAttributes(req);
+            case Command::AddObjectAttribute:
+                return handleAddObjectAttribute(req);
+
+            case Command::SetObjectAttribute:
+                return handleSetObjectAttribute(req);
+
+            case Command::ListObjectAttributes:
+                return handleListObjectAttributes(req);
+
+            case Command::DeleteObjectAttribute:
+                return handleDeleteObjectAttribute(req);
 
             case Command::PurgeBucket:
                 return handlePurgeBucket(req);

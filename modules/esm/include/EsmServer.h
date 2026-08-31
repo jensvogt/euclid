@@ -38,6 +38,7 @@
 #include <euclid/dto/esm/CreateUploadRequest.h>
 #include <euclid/dto/esm/CreateUploadResponse.h>
 #include <euclid/dto/esm/DeleteBucketRequest.h>
+#include <euclid/dto/esm/DeleteObjectAttributeRequest.h>
 #include <euclid/dto/esm/DeleteObjectRequest.h>
 #include <euclid/dto/esm/GetBucketErnRequest.h>
 #include <euclid/dto/esm/GetBucketErnResponse.h>
@@ -47,14 +48,17 @@
 #include <euclid/dto/esm/GetObjectCountResponse.h>
 #include <euclid/dto/esm/ListBucketsRequest.h>
 #include <euclid/dto/esm/ListBucketsResponse.h>
+#include <euclid/dto/esm/ListObjectAttributesRequest.h>
+#include <euclid/dto/esm/ListObjectAttributesResponse.h>
 #include <euclid/dto/esm/ListObjectsRequest.h>
 #include <euclid/dto/esm/ListObjectsResponse.h>
 #include <euclid/dto/esm/ListSubscriptionsRequest.h>
 #include <euclid/dto/esm/ListSubscriptionsResponse.h>
 #include <euclid/dto/esm/EsmMapper.h>
+#include <euclid/dto/esm/ObjectAttributeRequest.h>
+#include <euclid/dto/esm/ObjectAttributeResponse.h>
 #include <euclid/dto/esm/PurgeBucketRequest.h>
 #include <euclid/dto/esm/PurgeBucketResponse.h>
-#include <euclid/dto/esm/SetObjectAttributesRequest.h>
 #include <euclid/dto/esm/SubscribeRequest.h>
 #include <euclid/dto/esm/SubscribeResponse.h>
 #include <euclid/dto/esm/UnsubscribeRequest.h>

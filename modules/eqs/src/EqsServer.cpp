@@ -24,6 +24,36 @@ namespace Euclid::EQS {
         // "method"=<action>, e.g. name="queues-service-time" labelName="method" labelValue="send-message".
         constexpr auto kServiceTimer = "eqs-service-time";
         constexpr auto kServiceCounter = "eqs-service-count";
+
+        // Message and byte volume per queue, named after the actions that move them: "sent" is
+        // what went into a queue, "received" is what a consumer took back out. One queue is one
+        // label, so a deployment's traffic can be read per queue rather than only in total.
+        //
+        // Labelled by ERN rather than by queue name: it is the identifier every one of these call
+        // sites already has without a second lookup, and the only one that stays unique across
+        // accounts and namespaces.
+        constexpr auto kQueueLabel = "queue";
+        constexpr auto kMessagesSent = "eqs-messages-sent";
+        constexpr auto kMessagesReceived = "eqs-messages-received";
+        constexpr auto kBytesSent = "eqs-bytes-sent";
+        constexpr auto kBytesReceived = "eqs-bytes-received";
+
+        // A batch is recorded as one event carrying its own count, rather than one signal per
+        // message: sigMetricCounter sums amounts into the same rate metric sigMetricRate counts
+        // occurrences in, so a receive of ten messages costs one call and reads as ten.
+        void recordMessagesSent(const std::string &queueErn, const long messages, const long bytes) {
+            if (messages <= 0) return;
+            auto &bus = Core::Monitoring::MetricEventBus::instance();
+            bus.sigMetricCounter(kMessagesSent, kQueueLabel, queueErn, static_cast<double>(messages));
+            if (bytes > 0) bus.sigMetricCounter(kBytesSent, kQueueLabel, queueErn, static_cast<double>(bytes));
+        }
+
+        void recordMessagesReceived(const std::string &queueErn, const long messages, const long bytes) {
+            if (messages <= 0) return;
+            auto &bus = Core::Monitoring::MetricEventBus::instance();
+            bus.sigMetricCounter(kMessagesReceived, kQueueLabel, queueErn, static_cast<double>(messages));
+            if (bytes > 0) bus.sigMetricCounter(kBytesReceived, kQueueLabel, queueErn, static_cast<double>(bytes));
+        }
     }// namespace
 
     static AuthResult authenticate(const request<string_body> &req) {
@@ -232,6 +262,7 @@ namespace Euclid::EQS {
 
         // Create message
         const Database::Entity::EQS::Message message = repo->sendMessage(messageId, ern, request.queueErn, request.body, attributes, priority);
+        recordMessagesSent(request.queueErn, 1, message.size);
 
         // Second reference wiring of Core::EventPusher (see modules/ekm/src/EkmServer.cpp's
         // handleCreateKey() for the first) - lets websocket clients (e.g. Euclid-JDK) subscribed
@@ -268,6 +299,13 @@ namespace Euclid::EQS {
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
         std::vector<Database::Entity::EQS::Message> messages = repo->receiveMessages(request.queueErn, request.maxCount, request.waitTime);
+
+        // Counted per message handed out, so a message received twice (its visibility timeout ran
+        // out before it was deleted) counts twice - that redelivery is real traffic, and the gap
+        // between this and eqs-messages-sent is what makes it visible.
+        long receivedBytes = 0;
+        for (const auto &message: messages) receivedBytes += message.size;
+        recordMessagesReceived(request.queueErn, static_cast<long>(messages.size()), receivedBytes);
 
         Dto::EQS::ReceiveMessagesResponse response;
         response.messages = Dto::EQS::EqsMapper::toDto(messages);
@@ -813,7 +851,11 @@ namespace Euclid::EQS {
 
         const auto messageId = Core::UuidUtils::CreateRandomUuid();
         const auto ern = Core::createEqsMessageErn(Core::accountIdFromErn(targetErn), messageId);
-        repo->sendMessage(messageId, ern, targetErn, body, attributes);
+        const auto message = repo->sendMessage(messageId, ern, targetErn, body, attributes);
+
+        // A subscription delivery is a message sent to this queue like any other - counting it
+        // only in the publishing module would leave the queue's own totals short of what it holds.
+        recordMessagesSent(targetErn, 1, message.size);
 
         log_info << "EQS created message from subscription delivery, source: " << envelope.sourceModule << ", eventType: " << envelope.eventType
                   << ", targetErn: " << targetErn << ", messageId: " << messageId << ", sourceMessageId: " << sourceMessageId;
