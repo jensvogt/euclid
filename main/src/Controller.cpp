@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstring>
 #include <ranges>
+#include <set>
 #include <thread>
 
 // Boost includes
@@ -273,6 +274,78 @@ namespace Euclid::main {
         _services[normalized.name] = std::move(group);
     }
 
+    bool ServiceController::deregisterModule(const std::string &name) {
+        std::lock_guard lock(_mutex);
+        return _services.erase(name) > 0;
+    }
+
+    void ServiceController::reconcileTransferServers() {
+
+        const auto servers = Database::RepositoryFactory::instance().etsRepository()->listServers("");
+
+        // Transfer servers are spawned from the same two executables every other deployment
+        // uses; only the --transfer-server argument tells one instance apart from another.
+        const auto &configuration = Core::Configuration::instance();
+        const auto ftpExecutable = configuration.getOr<std::string>("euclid.modules.ftp.executable", "/usr/local/euclid/bin/euclid-ftp");
+        const auto sftpExecutable = configuration.getOr<std::string>("euclid.modules.sftp.executable", "/usr/local/euclid/bin/euclid-sftp");
+        const auto socketDir = configuration.getOr<std::string>("euclid.modules.ets.socket-dir", "/var/run/euclid");
+
+        std::set<std::string> defined;
+
+        for (const auto &server: servers) {
+            defined.insert(server.serverId);
+
+            const bool wantRunning = server.desiredState == Database::Entity::ETS::TransferServerState::RUNNING;
+            bool registered;
+            {
+                std::lock_guard lock(_mutex);
+                registered = _services.contains(server.serverId);
+            }
+
+            if (wantRunning && !registered) {
+                Dto::ModuleConfig config;
+                config.name = server.serverId;
+                config.executable = server.protocol == Database::Entity::ETS::TransferProtocol::FTP ? ftpExecutable : sftpExecutable;
+                config.args = {"--config", configuration.filePath().string(), "--transfer-server", server.serverId};
+                config.socketPath = socketDir + "/euclid-transfer-" + server.serverId + ".sock";
+                config.maxRestarts = -1;
+                config.autoRestart = true;
+                // Deliberately single-instance: two processes cannot share a listening port, so
+                // a transfer server is not something the autoscaler can scale out.
+                config.minInstances = 1;
+                config.maxInstances = 1;
+
+                log_info << "Transfer server starting, serverId: " << server.serverId
+                        << ", protocol: " << Database::Entity::ETS::TransferProtocolToString(server.protocol) << ", port: " << server.port;
+                registerModule(config);
+                start(server.serverId);
+
+            } else if (!wantRunning && registered) {
+                log_info << "Transfer server stopping, serverId: " << server.serverId;
+                stop(server.serverId);
+                deregisterModule(server.serverId);
+            }
+        }
+
+        // Whatever this controller still runs as a transfer server but ETS no longer defines was
+        // deleted while it was up, and has to be torn down. Only pools this function created are
+        // considered, so a config-declared module is never touched by name collision.
+        std::vector<std::string> orphaned;
+        {
+            std::lock_guard lock(_mutex);
+            for (const auto &[name, group]: _services) {
+                if (defined.contains(name)) continue;
+                if (std::ranges::find(group.config.args, "--transfer-server") == group.config.args.end()) continue;
+                orphaned.push_back(name);
+            }
+        }
+        for (const auto &name: orphaned) {
+            log_info << "Transfer server removed, serverId: " << name;
+            stop(name);
+            deregisterModule(name);
+        }
+    }
+
     bool ServiceController::start(const std::string &name) {
         std::vector<std::shared_ptr<Dto::ModuleProcess> > toSpawn;
         {
@@ -479,6 +552,19 @@ namespace Euclid::main {
                 // nothing to reap). On Windows it's the only way instances get reaped at
                 // all, since there's no SIGCHLD/waitpid(-1) equivalent there.
                 onChildExit();
+
+                // Transfer server definitions live in the database, so reconciling is pointless
+                // while it is unreachable - and would read an empty list as "delete everything".
+                // Every few ticks rather than every one: spawning a process is not urgent, and
+                // this reads the whole definition set each time.
+                if (_databaseWasReachable && ++_transferReconcileTick >= kTransferReconcileTicks) {
+                    _transferReconcileTick = 0;
+                    try {
+                        reconcileTransferServers();
+                    } catch (const std::exception &e) {
+                        log_error << "Transfer server reconcile failed, error: " << e.what();
+                    }
+                }
 
                 const bool dbReachable = isDatabaseReachable();
                 if (dbReachable != _databaseWasReachable) {
@@ -722,18 +808,26 @@ namespace Euclid::main {
                 svc->wasBusySinceLastCheck = false;
             }
 
-            // Scale up on ANY current demand rather than requiring every instance to be busy at
-            // once: acquireInstance() round-robins blindly (it doesn't prefer idle instances), so
-            // one instance being busy is already a sign the pool is under load, not proof the
-            // whole group is saturated. Requiring full saturation at a single 1s watchdog tick
-            // made this almost never fire for a workload of many quick requests - throughput would
-            // stay well above what one instance could serve, but the poll would rarely catch every
-            // instance mid-request at the same instant.
+            // Scale up only once the pool is actually saturated (every running instance was busy
+            // at some point in the last tick), not just because SOME instance was touched at all.
+            // wasBusySinceLastCheck already solves the sub-tick sampling problem (a busy window
+            // shorter than the 1s poll interval still counts, see its doc comment), so by the time
+            // we get here "busy" is already an accurate picture of the last ~1s, not a
+            // point-in-time snapshot - requiring busy == running on top of that is a genuine
+            // saturation signal, not the "requires impossible exact-instant alignment" problem an
+            // earlier version of this check was written to work around. Scaling up on ANY busy
+            // instance (the previous condition) meant a single instance handling purely sequential,
+            // non-concurrent traffic - e.g. one euclid-cli command after another - looked identical
+            // to genuine concurrent overload: every request momentarily marks its instance busy,
+            // and since round-robin doesn't prefer idle instances, each one's next watchdog tick
+            // saw "an instance was busy" and spawned another, walking the pool all the way to
+            // maxInstances even though only one caller was ever active at a time.
             // running < desiredCount fires scale-up proactively, ahead of any busy sample, when a
             // client has declared it's about to need more instances than the pool currently has -
-            // see declareExpectedConcurrency()'s doc comment for why busy>0 alone can't be trusted
-            // to catch this for high-instance-count/short-request workloads.
-            if ((busy > 0 || running < group.desiredCount) && running < group.config.maxInstances) {
+            // see declareExpectedConcurrency()'s doc comment for why busy-based detection alone
+            // can't be trusted to catch this for high-instance-count/short-request workloads.
+            const bool saturated = running > 0 && busy >= running;
+            if ((saturated || running < group.desiredCount) && running < group.config.maxInstances) {
                 auto svc = std::make_shared<Dto::ModuleProcess>();
                 svc->config = group.config;
                 group.instances.push_back(svc);

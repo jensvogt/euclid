@@ -23,6 +23,8 @@
 
 // Euclid includes
 #include <FtpServer.h>
+#include <TransferAuthenticator.h>
+#include <TransferStorage.h>
 #include <euclid/core/LogStream.h>
 
 namespace Euclid::FTP {
@@ -110,8 +112,27 @@ namespace Euclid::FTP {
          */
         [[nodiscard]] std::optional<boost::asio::ip::tcp::socket> openDataConnection();
 
+        /**
+         * @brief Maps a virtual FTP path to the bucket key it addresses, i.e. the same path
+         * without its leading slash. Transfer mode only.
+         */
+        [[nodiscard]] static std::string keyOf(const std::string &virtualPath);
+
+        /**
+         * @brief Local scratch file backing one in-flight transfer in transfer mode.
+         */
+        [[nodiscard]] std::filesystem::path spoolPath() const;
+
         boost::asio::ip::tcp::socket _control;
         FtpServerConfig _config;
+
+        /**
+         * @brief Bucket-backed storage for the logged-in user, present only in transfer mode.
+         *
+         * Constructed at login rather than at startup because it carries that user's own bearer
+         * token: every ESM call is made as the user who logged in, not as the server.
+         */
+        std::optional<Transfer::TransferStorage> _storage;
         boost::asio::streambuf _inputBuffer;
 
         bool _authenticated{false};

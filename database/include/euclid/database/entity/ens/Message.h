@@ -100,6 +100,15 @@ namespace Euclid::Database::Entity::ENS {
         std::string contentType;
 
         /**
+         * @brief Delivery status
+         *
+         * ENS is fire-and-forget pub/sub (no consumer-side visibility timeout/claim cycle like
+         * EQS), so this is a single terminal value set once at publish time rather than a state
+         * machine.
+         */
+        std::string status = "PUBLISHED";
+
+        /**
          * @brief Creation date
          */
         system_clock::time_point created = system_clock::now();

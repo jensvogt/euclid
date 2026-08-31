@@ -353,9 +353,12 @@ namespace Euclid::ESM {
         object.md5Sum = md5Sum;
         repo->upsertObject(object);
 
+        // A directory is not one of the bucket's objects as far as its counters are concerned -
+        // it holds no bytes and is not something a client stored, so counting it would report a
+        // bucket as fuller than what a listing shows.
         if (auto freshBucket = repo->findBucketByErn(bucketErn); freshBucket.has_value()) {
             freshBucket->size += object.size;
-            freshBucket->objects++;
+            if (!Database::Entity::ESM::IsDirectoryKey(key)) freshBucket->objects++;
             freshBucket = repo->upsertBucket(*freshBucket);
             log_debug << "Updated bucket, ern: " << freshBucket->ern << ", size: " << freshBucket->size << ", objects: " << freshBucket->objects;
         }
@@ -679,7 +682,7 @@ namespace Euclid::ESM {
                 // accumulate into a separate phantom bucket instead of updating this one.
                 if (auto freshBucket = repo->findBucketByErn(bucketErn); freshBucket.has_value()) {
                     freshBucket->size += object.size;
-                    freshBucket->objects++;
+                    if (!Database::Entity::ESM::IsDirectoryKey(key)) freshBucket->objects++;
                     freshBucket = repo->upsertBucket(*freshBucket);
                     log_debug << "Updated bucket, ern: " << freshBucket->ern << ", size: " << freshBucket->size << ", objects: " << freshBucket->objects;
                 }
@@ -979,12 +982,12 @@ namespace Euclid::ESM {
             return ErrorResponse(req, status::forbidden, "Bucket does not belong to the caller's account");
         }
 
-        const std::vector<Database::Entity::ESM::Object> objects = repo->listObjects(request.bucketErn, request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection);
+        const std::vector<Database::Entity::ESM::Object> objects = repo->listObjects(request.bucketErn, request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection, request.includeDirectories);
         log_info << "ESM got object list, bucket: " << request.bucketErn << ", count: " << objects.size();
 
         Dto::ESM::ListObjectsResponse response;
         response.objects = Dto::ESM::EsmMapper::toDto(objects);
-        response.total = repo->countObjects(request.bucketErn, request.prefix);
+        response.total = repo->countObjects(request.bucketErn, request.prefix, request.includeDirectories);
 
         return JsonResponse(req, status::ok, response.toJson());
     }
@@ -1033,7 +1036,9 @@ namespace Euclid::ESM {
         if (const auto object = repo->findObjectByErn(request.ern); object.has_value()) {
             if (auto bucket = repo->findBucketByErn(object->bucketErn); bucket.has_value()) {
                 bucket->size = std::max<long>(0, bucket->size - object->size);
-                bucket->objects = std::max<long>(0, bucket->objects - 1);
+                // Mirrors put-object: a directory was never counted, so removing one must not
+                // decrement anything either.
+                if (!Database::Entity::ESM::IsDirectoryKey(object->key)) bucket->objects = std::max<long>(0, bucket->objects - 1);
                 repo->upsertBucket(*bucket);
             }
 
@@ -1073,10 +1078,14 @@ namespace Euclid::ESM {
         if (!bucket.has_value()) {
             return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.bucketErn);
         }
-        const auto objects = repo->listObjects(request.bucketErn, request.prefix, -1, -1, "");
+        // Directories are listed here, unlike everywhere else: a purge that left them behind
+        // would empty a bucket that still could not be deleted. They are not counted below,
+        // though, since they were never counted when they were created.
+        const auto objects = repo->listObjects(request.bucketErn, request.prefix, -1, -1, "", "asc", true);
 
         const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
         long purgedSize = 0;
+        long purgedObjects = 0;
         for (const auto &object: objects) {
             std::error_code ec;
             std::filesystem::remove(std::filesystem::path(dataDir) / object.internalName, ec);
@@ -1084,20 +1093,21 @@ namespace Euclid::ESM {
                 log_warning << "Could not remove object file, internalName: " << object.internalName << ", error: " << ec.message();
             repo->deleteObjectByErn(object.ern);
             purgedSize += object.size;
+            if (!Database::Entity::ESM::IsDirectoryKey(object.key)) purgedObjects++;
         }
-        log_info << "ESM bucket purged, ern: " << request.bucketErn << ", count: " << objects.size();
+        log_info << "ESM bucket purged, ern: " << request.bucketErn << ", count: " << purgedObjects;
 
         // Adjust counters by what was actually deleted rather than zeroing them out - a prefix-scoped
         // purge only removes some of the bucket's objects, so anything left outside the prefix must
         // still be reflected.
         bucket->size = std::max<long>(0, bucket->size - purgedSize);
-        bucket->objects = std::max<long>(0, bucket->objects - static_cast<long>(objects.size()));
+        bucket->objects = std::max<long>(0, bucket->objects - purgedObjects);
         bucket = repo->upsertBucket(bucket.value());
         log_debug << "ESM bucket updated, ern: " << request.bucketErn << ", count: " << bucket->objects << ", size: " << bucket->size;
 
         Dto::ESM::PurgeBucketResponse response;
         response.ern = request.bucketErn;
-        response.count = static_cast<long>(objects.size());
+        response.count = purgedObjects;
 
         return JsonResponse(req, status::ok, response.toJson());
     }

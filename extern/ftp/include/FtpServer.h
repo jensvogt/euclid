@@ -2,8 +2,8 @@
 
 // C++ includes
 #include <atomic>
+#include <optional>
 #include <filesystem>
-#include <map>
 #include <string>
 #include <thread>
 
@@ -13,18 +13,11 @@
 #include <boost/beast/http.hpp>
 
 // Euclid includes
+#include <TransferStorage.h>
 #include <euclid/core/HttpActionServer.h>
+#include <euclid/database/entity/ets/TransferServer.h>
 
 namespace Euclid::FTP {
-
-    /**
-     * @brief One configured FTP user: password and home directory (relative to
-     * FtpServerConfig::rootDir).
-     */
-    struct FtpUser {
-        std::string password;
-        std::string home;
-    };
 
     /**
      * @brief Static configuration for the FTP control/data listeners, read once at startup
@@ -43,8 +36,22 @@ namespace Euclid::FTP {
          */
         std::string advertisedAddress;
 
+        /**
+         * @brief Scratch area for in-flight transfers. Not a file store: the files themselves
+         * live in the bucket, and nothing here outlives the transfer that created it.
+         */
         std::filesystem::path rootDir;
-        std::map<std::string, FtpUser> users;
+
+        /**
+         * @brief The ETS definition this process serves.
+         *
+         * @par
+         * Always present - a transfer server has no meaning without one. It supplies the address,
+         * port and passive range to listen on, the ESM bucket that backs every file operation, and
+         * the EAM users and groups permitted to log in. There is deliberately no second,
+         * config-file credential source: EAM is the only way in.
+         */
+        Database::Entity::ETS::TransferServer transferServer;
     };
 
     /**
@@ -54,8 +61,8 @@ namespace Euclid::FTP {
      * (Core::HttpActionServer) purely so euclid-mgr's ServiceController can supervise it
      * (readiness probe, "get-metrics") - real FTP traffic never goes through that socket
      * or through the gateway. Instead, the constructor opens a second, ordinary TCP
-     * acceptor on euclid.modules.ftp.port and serves the actual FTP control protocol
-     * there, one thread per client connection (see FtpSession).
+     * acceptor on the port its ETS transfer server definition names, and serves the actual
+     * FTP control protocol there, one thread per client connection (see FtpSession).
      *
      * @author jens.vogt\@opitz-consulting.com
      */
@@ -70,9 +77,10 @@ namespace Euclid::FTP {
          * @param socketPath Unix domain socket path to listen on (health/metrics only).
          * @param threads    number of io_context worker threads for the Unix socket.
          *
-         * @throws std::runtime_error if euclid.modules.ftp.port is already in use.
+         * @throws std::runtime_error if transferServerId is empty or names no known server,
+         * or if the port that server defines is already in use.
          */
-        explicit FtpServer(std::string socketPath, int threads = 2);
+        explicit FtpServer(std::string socketPath, int threads = 2, const std::string &transferServerId = "");
 
         /**
          * @brief Stops the FTP TCP acceptor and joins its thread.

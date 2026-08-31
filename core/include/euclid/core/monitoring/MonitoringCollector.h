@@ -41,8 +41,10 @@ namespace Euclid::Core::Monitoring {
             std::string labelValue;
 
             /**
-             * @brief For a rate metric, the number of occurrences since the last Collect(). For a
-             * gauge metric, the mean of every sample recorded since the last Collect().
+             * @brief For a rate metric, the total accumulated since the last Collect() - the
+             * number of occurrences, or the sum of the amounts when they were recorded through
+             * MetricEventBus::sigMetricCounter. For a gauge metric, the mean of every sample
+             * recorded since the last Collect().
              */
             double value{};
 
@@ -69,7 +71,7 @@ namespace Euclid::Core::Monitoring {
 
         void setGauge(const std::string &name, const std::string &labelName, const std::string &labelValue, double value);
 
-        void increment(const std::string &name, const std::string &labelName, const std::string &labelValue);
+        void increment(const std::string &name, const std::string &labelName, const std::string &labelValue, double amount = 1.0);
 
         static std::string key(const std::string &name, const std::string &labelName, const std::string &labelValue);
 

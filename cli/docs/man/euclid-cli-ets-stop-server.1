@@ -1,0 +1,76 @@
+.TH EUCLID-CLI-ETS-STOP-SERVER 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ets-stop-server \- ask the manager to stop a transfer server
+.SH SYNOPSIS
+.B euclid-cli ets stop-server
+.BR \-\-server\-id | \-n
+.I NAME
+.SH DESCRIPTION
+Marks a transfer server as one that should not be running.
+.PP
+As with
+.BR euclid-cli-ets-start-server (1),
+the command records the intent and returns; the Euclid manager stops the
+.BR euclid-ftp (8)
+or
+.BR euclid-sftp (8)
+process on its next reconcile pass, a few seconds later. Clients
+connected at that moment are disconnected.
+.PP
+The definition is kept, so the server can be started again later with
+the same settings - this is the difference from
+.BR euclid-cli-ets-delete-server (1),
+which removes the definition entirely. Stopping is also what
+.BR euclid-cli-ets-update-server (1)
+pairs with to apply a changed setting to a running server.
+.PP
+Nothing in the bucket is affected. Objects uploaded through this server
+remain, and stay reachable through
+.BR euclid-cli-esm (1)
+or any other transfer server pointed at the same bucket.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-server\-id " " \fINAME\fR
+Name of the server to stop. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The desired state was recorded; the server's definition is printed as
+JSON with \fIdesiredState\fR \fISTOPPED\fR. This does
+.I not
+mean the process has exited yet.
+.TP
+.B 1
+Missing or invalid arguments, the caller is not an authenticated
+administrator, the server could not be reached, or no server has that ID
+(HTTP 404).
+.SH EXAMPLES
+Stop a server:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ets stop-server \e
+    --server-id sftp1
+.fi
+.RE
+.PP
+Apply a changed setting to a running server:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ets update-server \e
+    --server-id sftp1 --port 2223
+euclid-cli --endpoint http://localhost:5566 ets stop-server \e
+    --server-id sftp1
+euclid-cli --endpoint http://localhost:5566 ets start-server \e
+    --server-id sftp1
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ets (1),
+.BR euclid-cli-ets-start-server (1),
+.BR euclid-cli-ets-update-server (1),
+.BR euclid-cli-ets-delete-server (1),
+.BR euclid-cli-ets-list-servers (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

@@ -161,10 +161,12 @@ namespace Euclid::Database {
          *
          * @paranm bucketErn bucket ERN
          * @paranm prefix object key prefix
+         * @param includeDirectories whether directory keys (see Entity::ESM::IsDirectoryKey())
+         * are counted; they are left out by default, so a bucket counts the files it holds
          * @return The total number of messages as a long integer.
          */
         [[nodiscard]]
-        virtual long countObjects(const std::string &bucketErn, const std::string &prefix) const = 0;
+        virtual long countObjects(const std::string &bucketErn, const std::string &prefix, bool includeDirectories = false) const = 0;
 
         /**
          * @brief Finds and retrieves all objects of a bucket, optionally filtered, paged and sorted.
@@ -175,10 +177,12 @@ namespace Euclid::Database {
          * @param pageIndex zero-based page index, applied when pageSize is set
          * @param sortColumn field to sort by (e.g. "name", "ern"); empty means unsorted
          * @param sortDirection "asc" or "desc"; anything else is treated as "desc"
+         * @param includeDirectories whether directory keys (see Entity::ESM::IsDirectoryKey())
+         * are returned; they are left out by default, so a listing shows the files a bucket holds
          * @return matching, paged and sorted list of buckets
          */
         [[nodiscard]]
-        virtual std::vector<Entity::ESM::Object> listObjects(const std::string &bucketErn, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const = 0;
+        virtual std::vector<Entity::ESM::Object> listObjects(const std::string &bucketErn, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc", bool includeDirectories = false) const = 0;
 
         /**
          * @brief Removes a object by its ERN.

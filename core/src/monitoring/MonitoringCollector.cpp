@@ -28,6 +28,9 @@ namespace Euclid::Core::Monitoring {
         bus.sigMetricRate.connect([this](const std::string &name, const std::string &labelName, const std::string &labelValue) {
             increment(name, labelName, labelValue);
         });
+        bus.sigMetricCounter.connect([this](const std::string &name, const std::string &labelName, const std::string &labelValue, const double amount) {
+            increment(name, labelName, labelValue, amount);
+        });
     }
 
     void MonitoringCollector::setGauge(const std::string &name, const std::string &labelName, const std::string &labelValue, const double value) {
@@ -41,12 +44,16 @@ namespace Euclid::Core::Monitoring {
         entry.isRate = false;
     }
 
-    void MonitoringCollector::increment(const std::string &name, const std::string &labelName, const std::string &labelValue) {
+    // A plain occurrence is an amount of one, so counting occurrences and summing amounts are the
+    // same accumulation - which is why both live in sum, and why Collect() reports it for every
+    // rate metric regardless of how it was recorded.
+    void MonitoringCollector::increment(const std::string &name, const std::string &labelName, const std::string &labelValue, const double amount) {
         std::lock_guard lock(_mutex);
         auto &entry = _entries[key(name, labelName, labelValue)];
         entry.name = name;
         entry.labelName = labelName;
         entry.labelValue = labelValue;
+        entry.sum += amount;
         entry.count++;
         entry.isRate = true;
     }
@@ -65,7 +72,7 @@ namespace Euclid::Core::Monitoring {
             result.push_back({.name = entry.name,
                                .labelName = entry.labelName,
                                .labelValue = entry.labelValue,
-                               .value = entry.isRate ? static_cast<double>(entry.count) : entry.sum / static_cast<double>(entry.count),
+                               .value = entry.isRate ? entry.sum : entry.sum / static_cast<double>(entry.count),
                                .isRate = entry.isRate});
         }
         return result;

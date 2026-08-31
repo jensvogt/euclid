@@ -16,6 +16,7 @@
 #include <euclid/cli/ens/EnsCli.h>
 #include <euclid/cli/eqs/EqsCli.h>
 #include <euclid/cli/esm/EsmCli.h>
+#include <euclid/cli/ets/EtsCli.h>
 #include <euclid/core/Configuration.h>
 #include <euclid/core/Version.h>
 
@@ -49,7 +50,8 @@ int main(const int argc, char *argv[]) {
             "\tENS Euclid notifications system (pub/sub topics, messages\n"
             "\tEKM Euclid key management (cryptographic keys, encryption, decryption)\n"
             "\tEMM Euclid module management (start, stop, restart, auto-scaler)\n"
-            "\tEMO Euclid monitoring (modules, system)\n";
+            "\tEMO Euclid monitoring (modules, system)\n"
+            "\tETS Euclid transfer server (FTP/SFTP endpoints onto ESM buckets)\n";
 
     // Global options are only recognized before <module> - the first token that isn't one of
     // them (or a value for one) starts <module> <action> [args...], which is taken verbatim from
@@ -157,6 +159,11 @@ int main(const int argc, char *argv[]) {
         const auto authToken = Euclid::CLI::Credentials::Load();
         const Euclid::CLI::EmmCli emm(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), pretty, caCert);
         return emm.process(action, args);
+    }
+    if (module == "ets") {
+        const auto authToken = Euclid::CLI::Credentials::Load();
+        const Euclid::CLI::EtsCli ets(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), pretty, caCert);
+        return ets.process(action, args);
     }
     if (module == "ekm") {
         const auto authToken = Euclid::CLI::Credentials::Load();

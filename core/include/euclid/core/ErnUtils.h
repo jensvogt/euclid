@@ -181,6 +181,17 @@ namespace Euclid::Core {
     }
 
     /**
+     * @brief Creates an ERN for an ETS transfer server.
+     *
+     * @param accountId account ID
+     * @param name server ID
+     * @return the transfer server's ERN
+     */
+    inline std::string createEtsServerErn(const std::string &accountId, const std::string &name) {
+        return createErn("ets", accountId, "transferServer:" + name);
+    }
+
+    /**
      * @brief Extracts the account ID from an ERN, i.e. the fourth colon-separated field of
      * "ern:{service}:{region}:{accountId}:{resourceId}" (createErn()'s format - resourceId
      * itself is "{resourceType}:{resourceName}", already a single field here). accountId sits at

@@ -512,8 +512,7 @@ namespace Euclid::Database {
         message.contentType = Core::ContentTypeUtils::fromContent(message.body);
         message.attributes = attributes;
         message.md5Attributes = Entity::ENS::Message::ComputeAttributesMd5(attributes);
-        // TOdo: fix status
-        //        message.status = Entity::ENS::MessageStatus::AVAILABLE;
+        message.status = "PUBLISHED";
 
         try {
 
