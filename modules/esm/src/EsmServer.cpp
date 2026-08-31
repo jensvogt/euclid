@@ -439,7 +439,8 @@ namespace Euclid::ESM {
         const auto request = boost::json::value_to<Dto::ESM::CreateUploadRequest>(jv);
 
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
-        if (!repo->findBucketByErn(request.bucketErn).has_value()) {
+        const auto bucket = repo->findBucketByErn(request.bucketErn);
+        if (!bucket.has_value()) {
             return EsmServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.bucketErn);
         }
 
@@ -455,6 +456,15 @@ namespace Euclid::ESM {
         }
         object.bucketErn = request.bucketErn;
         object.key = request.key;
+        // The object collection carries a non-sparse unique index on "ern", so a row seeded without
+        // one holds ern:"" - and any second upload created while the first is still CREATED collides
+        // on that empty value with a duplicate-key error, which surfaces as a 500 on create-upload.
+        // Assigning the ERN here (same derivation complete-upload uses) keeps every in-flight upload
+        // distinct under the index. Only filled when empty, so a re-upload keeps the ERN its still
+        // valid previous version was published under until complete-upload replaces it.
+        if (object.ern.empty()) {
+            object.ern = Core::createEsmObjectErn(auth.user->accountId, bucket->nameSpace, bucket->name + "/" + request.key);
+        }
         object.owner = auth.user->userId;
         object.region = auth.user->region;
         object.accountId = auth.user->accountId;
