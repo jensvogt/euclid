@@ -26,12 +26,13 @@ namespace {
 
     constexpr auto kJwtSecret = "test-jwt-secret-at-least-32-bytes-long-for-hs256";
 
-    boost::beast::http::request<boost::beast::http::string_body> buildRequest(const std::string &token, const std::string &accountId, const std::string &ns) {
+    boost::beast::http::request<boost::beast::http::string_body> buildRequest(const std::string &token, const std::string &accountId, const std::string &ns, const std::string &region = "") {
         namespace http = boost::beast::http;
         http::request<http::string_body> req(http::verb::post, "/", 11);
         req.set(http::field::authorization, "Bearer " + token);
         if (!accountId.empty()) req.set("x-euclid-account-id", accountId);
         if (!ns.empty()) req.set("x-euclid-namespace", ns);
+        if (!region.empty()) req.set("x-euclid-region", region);
         req.prepare_payload();
         return req;
     }
@@ -111,4 +112,32 @@ BOOST_AUTO_TEST_CASE(RequestsWithNoAccountIdBypassGrantCheck) {
 
     HttpActionServer::SetScopeLookup({});
     HttpActionServer::SetGrantLookup({});
+}
+
+BOOST_AUTO_TEST_CASE(ConfiguredRegionRequiresMatchingRegionHeader) {
+    // The region check precedes everything else in CheckScope() and is not conditional on the
+    // request naming an account, so any caller that omits x-euclid-region is denied outright once
+    // euclid.region is set - which is what a module-to-module caller (e.g. a transfer server
+    // reaching ESM) has to send along with its bearer token.
+    HttpActionServer::SetScopeLookup({});
+    HttpActionServer::SetGrantLookup({});
+    Configuration::instance().set<std::string>("euclid.region", "eu-central-1");
+
+    const auto token = JwtUtils::CreateToken("alice", kJwtSecret);
+
+    const auto noRegion = HttpActionServer::Authenticate(buildRequest(token, "", ""));
+    BOOST_TEST(!noRegion.subject.has_value());
+    BOOST_TEST(!noRegion.denialReason.empty());
+
+    const auto wrongRegion = HttpActionServer::Authenticate(buildRequest(token, "", "", "us-east-1"));
+    BOOST_TEST(!wrongRegion.subject.has_value());
+    BOOST_TEST(!wrongRegion.denialReason.empty());
+
+    const auto matching = HttpActionServer::Authenticate(buildRequest(token, "", "", "eu-central-1"));
+    BOOST_TEST_REQUIRE(matching.subject.has_value());
+    BOOST_TEST(*matching.subject == "alice");
+
+    // Process-wide configuration, so it has to go back the way it was found for any case after
+    // this one.
+    Configuration::instance().set<std::string>("euclid.region", "");
 }

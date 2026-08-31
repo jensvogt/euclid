@@ -1,0 +1,92 @@
+.TH EUCLID-CLI-ETS-LIST-SERVERS 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ets-list-servers \- list the defined transfer servers
+.SH SYNOPSIS
+.B euclid-cli ets list-servers
+[\fB\-\-prefix\fR|\fB\-x\fR \fIPREFIX\fR]
+.SH DESCRIPTION
+Lists the defined transfer servers, ordered by server ID, each with its
+protocol, address and port, the bucket it fronts, the EAM users and
+groups allowed to log in, and its state.
+.PP
+Each entry carries two states, and the difference between them is the
+point of this command:
+.TP
+.I desiredState
+What
+.BR euclid-cli-ets-start-server (1)
+or
+.BR euclid-cli-ets-stop-server (1)
+last asked for - \fIRUNNING\fR or \fISTOPPED\fR.
+.TP
+.I state
+What the manager currently has running, read from its own pool of
+processes.
+.PP
+The two differ for a few seconds while a server is coming up or going
+down. A server whose
+.I desiredState
+stays
+.I RUNNING
+while its
+.I state
+stays
+.I STOPPED
+is failing to start - the usual causes are a port already in use, a
+missing or unreadable SSH host key, or an unwritable spool directory.
+The reason is logged by the
+.BR euclid-ftp (8)
+or
+.BR euclid-sftp (8)
+process itself.
+.SH OPTIONS
+.TP
+.BR \-x ", " \-\-prefix " " \fIPREFIX\fR
+Only list servers whose ID starts with this prefix. Defaults to empty,
+which lists every server.
+.SH EXIT STATUS
+.TP
+.B 0
+The list was retrieved; the servers are printed as JSON under
+\fIservers\fR. An empty list is still a success.
+.TP
+.B 1
+Invalid arguments, the caller is not an authenticated administrator, or
+the server could not be reached.
+.SH EXAMPLES
+List every server:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ets list-servers
+.fi
+.RE
+.PP
+List only the SFTP ones, given a naming convention:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ets list-servers \e
+    --prefix sftp
+.fi
+.RE
+.PP
+Watch a server come up after starting it:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ets start-server \e
+    --server-id sftp1
+sleep 10
+euclid-cli --endpoint http://localhost:5566 ets list-servers \e
+    --prefix sftp1
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ets (1),
+.BR euclid-cli-ets-get-server (1),
+.BR euclid-cli-ets-start-server (1),
+.BR euclid-cli-ets-stop-server (1),
+.BR euclid-cli-emm-list-modules (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

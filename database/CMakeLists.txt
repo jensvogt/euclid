@@ -7,7 +7,8 @@ set(SOURCES src/Database.cpp src/EventBus.cpp src/entity/com/Variant.cpp src/ent
         src/entity/emo/MonitoringData.cpp src/repository/emo/MongoEmoRepository.cpp src/entity/esm/Bucket.cpp
         src/entity/esm/Object.cpp src/entity/esm/Subscription.cpp src/repository/esm/MongoEsmRepository.cpp
         src/entity/ens/Topic.cpp src/entity/ens/Subscription.cpp src/repository/ens/MongoEnsRepository.cpp
-        src/repository/ekm/MongoEkmRepository.cpp src/entity/ekm/Key.cpp)
+        src/repository/ekm/MongoEkmRepository.cpp src/entity/ekm/Key.cpp
+        src/entity/ets/TransferServer.cpp src/repository/ets/MongoEtsRepository.cpp)
 
 add_library(${LIBRARY} STATIC ${SOURCES})
 target_include_directories(${LIBRARY} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/../core/include)

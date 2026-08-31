@@ -110,4 +110,21 @@ namespace Euclid::Database::Entity::ESM {
         static Object fromDocument(const std::optional<bsoncxx::document::view> &document);
     };
 
+    /**
+     * @brief Whether an object key names a directory rather than a file.
+     *
+     * @par
+     * A bucket is flat, so a directory exists only as a zero-byte object whose key ends in "/" -
+     * the marker an FTP/SFTP transfer server writes on MKD, the same convention S3-style clients
+     * use. Listings and the bucket's object counters leave these out, so a bucket reports the
+     * files it holds and nothing else; whoever manages directories (i.e. a transfer server) asks
+     * for them explicitly.
+     *
+     * @param key object key
+     * @return true if the key names a directory.
+     */
+    inline bool IsDirectoryKey(const std::string &key) {
+        return !key.empty() && key.back() == '/';
+    }
+
 }// namespace Euclid::Database::Entity::ESM

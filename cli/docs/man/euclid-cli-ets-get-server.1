@@ -1,0 +1,53 @@
+.TH EUCLID-CLI-ETS-GET-SERVER 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ets-get-server \- show one transfer server's definition
+.SH SYNOPSIS
+.B euclid-cli ets get-server
+.BR \-\-server\-id | \-n
+.I NAME
+.SH DESCRIPTION
+Shows one transfer server's full definition as JSON: its protocol,
+address and port, the ERN and name of the bucket it fronts, the EAM
+users and groups allowed to log in, the SSH host key or passive port
+range as applicable, and both its desired and observed state.
+.PP
+This is
+.BR euclid-cli-ets-list-servers (1)
+narrowed to a single server, and reports the same two states - see that
+page for what a persistent disagreement between them means.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-server\-id " " \fINAME\fR
+Name of the server to show. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The server was found; its definition is printed as JSON.
+.TP
+.B 1
+Missing or invalid arguments, the caller is not an authenticated
+administrator, the server could not be reached, or no server has that ID
+(HTTP 404).
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 ets get-server \e
+    --server-id sftp1
+.fi
+.RE
+.PP
+Check which users a server currently admits, without pretty-printing:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 --pretty false \e
+    ets get-server --server-id sftp1
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ets (1),
+.BR euclid-cli-ets-list-servers (1),
+.BR euclid-cli-ets-update-server (1),
+.BR euclid-cli-ets-delete-server (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

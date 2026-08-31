@@ -68,7 +68,22 @@ namespace Euclid::Monitoring {
         static void flush();
 
         /**
-         * @brief Deletes monitoring data older than euclid.monitoring.retention days.
+         * @brief Aggregates one resolution tier into the next coarser one, covering the target
+         * bucket currently in progress and the one before it.
+         *
+         * @par
+         * Scheduled twice, RAW into HOUR and HOUR into DAY, so each pass only ever reads the tier
+         * directly above its target. This is what keeps a year of history affordable: the tiers
+         * are retained for 7 days, 90 days and 5 years respectively, so a series costs a couple of
+         * thousand rows instead of the half million an undownsampled five-minute history would.
+         *
+         * @param from tier to read.
+         * @param to tier to write.
+         */
+        static void rollup(Database::Entity::Monitoring::Resolution from, Database::Entity::Monitoring::Resolution to);
+
+        /**
+         * @brief Deletes monitoring data whose per-tier retention has elapsed.
          */
         static void prune();
 
@@ -80,10 +95,12 @@ namespace Euclid::Monitoring {
         static void collectCpuUsage();
 
         /**
-         * @brief Ids of the scheduled flush/prune/cpu-usage tasks, used to cancel them on destruction.
+         * @brief Ids of the scheduled flush/rollup/prune/cpu-usage tasks, used to cancel them on destruction.
          */
         std::string _flushTaskId;
         std::string _pruneTaskId;
+        std::string _hourRollupTaskId;
+        std::string _dayRollupTaskId;
         std::string _cpuUsageTaskId;
     };
 

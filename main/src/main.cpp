@@ -18,6 +18,8 @@
 #include <euclid/core/SystemUtils.h>
 #include <euclid/core/Version.h>
 #include <euclid/core/Configuration.h>
+#include <euclid/core/monitoring/MetricsPusher.h>
+#include <euclid/core/monitoring/MonitoringCollector.h>
 #include <euclid/database/Database.h>
 #include <euclid/database/RepositoryFactory.h>
 #include <euclid/manager/Controller.h>
@@ -372,10 +374,18 @@ static int RunManager(const CliOptions &opts, [[maybe_unused]] const bool report
     Euclid::Database::WireAccessKeyLookup();
     Euclid::Database::WireScopeLookup();
     Euclid::Database::WireGrantLookup();
+    Euclid::Database::WireModuleSocketLookup();
 
     // Module records track this manager's own child processes, so anything left over from a
     // previous run is stale (those pids/sockets no longer exist) - start from a clean slate.
     Euclid::Database::RepositoryFactory::instance().emmRepository()->clear();
+
+    // The manager isn't built on Core::HttpActionServer (each module process is, which is where
+    // every other module's MonitoringCollector::Start() call lives), so it has to start its own
+    // collector here - otherwise GatewayServer's per-request MonitoringTimer would report to a
+    // bus nothing is listening on, and "gateway-service-time"/"gateway-service-count" would never
+    // reach the emo module.
+    Euclid::Core::Monitoring::MonitoringCollector::instance().Start();
 
     log_info << "Euclid starting, config: " << opts.configFile;
     log_info << "Gateway port: " << cfg.getOr<int>("euclid.gateway.http.port", DEFAULT_HTTP_PORT);
@@ -391,6 +401,12 @@ static int RunManager(const CliOptions &opts, [[maybe_unused]] const bool report
 
     ctrl.startAll();
     ctrl.startWatchdog();
+
+    // Periodically pushes this process' own collected metrics (currently just
+    // "gateway-service-time"/"gateway-service-count", recorded per request in GatewayServer's
+    // route()) to the emo module - same mechanism every other module uses for its own metrics,
+    // see Core::Monitoring::MetricsPusher's doc comment. Kept alive for the process lifetime.
+    Euclid::Core::Monitoring::MetricsPusher metricsPusher("gateway");
 
     // Start HTTP gateway
     const auto httpPort = static_cast<unsigned short>(cfg.getOr<int>("euclid.gateway.http.port", DEFAULT_HTTP_PORT));
