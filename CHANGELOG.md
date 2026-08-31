@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.50](https://github.com/jensvogt/euclid/compare/1.0.49...v1.0.50) (2026-08-31)
+
+
+### Bug Fixes
+
+* version of man pages ([2fbf43e](https://github.com/jensvogt/euclid/commit/2fbf43ecbbe4df5f6cf182b63d34c73c67409ca4))
+
 ## [1.0.49](https://github.com/jensvogt/euclid/compare/v1.0.48...v1.0.49) (2026-08-31)
 
 
