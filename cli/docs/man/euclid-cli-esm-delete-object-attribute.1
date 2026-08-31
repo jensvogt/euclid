@@ -1,0 +1,49 @@
+.TH EUCLID-CLI-ESM-DELETE-OBJECT-ATTRIBUTE 1 "August 2026" "euclid-cli 1.0.33" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-delete-object-attribute \- remove an attribute from a storage object
+.SH SYNOPSIS
+.B euclid-cli esm delete-object-attribute
+.BR \-\-ern | \-e
+.I ERN
+.BR \-\-name | \-n
+.I NAME
+.SH DESCRIPTION
+Removes one user-defined attribute from a storage object. The object
+itself and its bytes are untouched; only the named attribute is
+dropped.
+.PP
+The attribute must exist: deleting one that was never stored is
+reported as an error rather than silently succeeding, for the same
+reason adding and setting are strict about the name.
+.SH OPTIONS
+.TP
+.BR \-e ", " \-\-ern " " \fIERN\fR
+Euclid resource name of the object. Required.
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+Name of the attribute to remove. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The attribute was removed. No output is printed.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, no object
+with that ERN exists, the object belongs to another account, or the
+object has no attribute of that name.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm delete-object-attribute \e
+    --ern ern:esm:eu-central-1:000000000000:development:object:mix/PIM-4269.xml \e
+    --name revision
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-add-object-attribute (1),
+.BR euclid-cli-esm-set-object-attribute (1),
+.BR euclid-cli-esm-list-object-attributes (1),
+.BR euclid-cli-esm-delete-object (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

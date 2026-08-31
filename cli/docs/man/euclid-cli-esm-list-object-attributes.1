@@ -1,0 +1,62 @@
+.TH EUCLID-CLI-ESM-LIST-OBJECT-ATTRIBUTES 1 "August 2026" "euclid-cli 1.0.33" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-list-object-attributes \- list the attributes of a storage object
+.SH SYNOPSIS
+.B euclid-cli esm list-object-attributes
+.BR \-\-ern | \-e
+.I ERN
+.SH DESCRIPTION
+Lists every user-defined attribute of a storage object, each with its
+value and the type that value is stored as. An object with no
+attributes lists an empty set rather than failing.
+.PP
+Attributes set by an FTP or SFTP transfer server record where an
+uploaded object came from:
+.I transferServer
+names the transfer server that took the upload and
+.I transferUser
+the user that was logged in to it. See
+.BR euclid-cli-ets (1).
+.SH OPTIONS
+.TP
+.BR \-e ", " \-\-ern " " \fIERN\fR
+Euclid resource name of the object. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The attributes are printed as JSON: the object's ERN, the attributes
+by name, and their count.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, no object
+with that ERN exists, or the object belongs to another account.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm list-object-attributes \e
+    --ern ern:esm:eu-central-1:000000000000:development:object:mix/PIM-4269.xml
+.fi
+.RE
+.PP
+Output:
+.RS
+.nf
+{
+  "ern": "ern:esm:eu-central-1:000000000000:development:object:mix/PIM-4269.xml",
+  "attributes": {
+    "revision": { "type": "long", "value": 7 },
+    "transferServer": { "type": "string", "value": "ftp-server" },
+    "transferUser": { "type": "string", "value": "admin" }
+  },
+  "total": 3
+}
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-add-object-attribute (1),
+.BR euclid-cli-esm-set-object-attribute (1),
+.BR euclid-cli-esm-delete-object-attribute (1),
+.BR euclid-cli-esm-list-objects (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

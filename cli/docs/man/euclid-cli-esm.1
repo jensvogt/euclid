@@ -1,4 +1,4 @@
-.TH EUCLID-CLI-ESM 1 "August 2026" "euclid-cli 1.18.37" "Euclid CLI Manual"
+.TH EUCLID-CLI-ESM 1 "August 2026" "euclid-cli 1.0.33" "Euclid CLI Manual"
 .SH NAME
 euclid-cli-esm \- manage Euclid S3-compatible storage buckets and objects
 .SH SYNOPSIS
@@ -90,6 +90,23 @@ object key prefix. See
 .B delete-object
 Deletes an object by its ERN. See
 .BR euclid-cli-esm-delete-object (1).
+.TP
+.B add-object-attribute
+Adds a user-defined attribute to an object, which must not have one of
+that name yet. See
+.BR euclid-cli-esm-add-object-attribute (1).
+.TP
+.B set-object-attribute
+Changes the value of an attribute an object already carries. See
+.BR euclid-cli-esm-set-object-attribute (1).
+.TP
+.B list-object-attributes
+Lists every attribute of an object, with each value's type. See
+.BR euclid-cli-esm-list-object-attributes (1).
+.TP
+.B delete-object-attribute
+Removes one attribute from an object. See
+.BR euclid-cli-esm-delete-object-attribute (1).
 .TP
 .B purge-bucket
 Removes all objects from a bucket, leaving the bucket itself in place.
@@ -275,6 +292,10 @@ euclid-cli --endpoint http://localhost:5566 esm unsubscribe \e
 .BR euclid-cli-esm-list-objects (1),
 .BR euclid-cli-esm-get-object-count (1),
 .BR euclid-cli-esm-delete-object (1),
+.BR euclid-cli-esm-add-object-attribute (1),
+.BR euclid-cli-esm-set-object-attribute (1),
+.BR euclid-cli-esm-list-object-attributes (1),
+.BR euclid-cli-esm-delete-object-attribute (1),
 .BR euclid-cli-esm-purge-bucket (1),
 .BR euclid-cli-esm-subscribe (1),
 .BR euclid-cli-esm-unsubscribe (1),

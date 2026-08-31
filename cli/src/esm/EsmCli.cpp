@@ -76,6 +76,10 @@ namespace Euclid::CLI {
                                            {"set-bucket-tag", "Sets the value of an existing bucket tag"},
                                            {"delete-bucket-tag", "Deletes a tag from a bucket"},
                                            {"delete-object", "Deletes an object by ERN"},
+                                           {"add-object-attribute", "Adds an attribute to an object"},
+                                           {"set-object-attribute", "Sets the value of an existing object attribute"},
+                                           {"list-object-attributes", "Lists the attributes of an object"},
+                                           {"delete-object-attribute", "Deletes an attribute from an object"},
                                            {"subscribe", "Subscribes a target resource (an EQS queue or an ENS topic) to a bucket's object-created events"},
                                            {"unsubscribe", "Deletes a subscription"},
                                            {"list-subscriptions", "Lists the subscriptions of a bucket"},
@@ -128,6 +132,18 @@ namespace Euclid::CLI {
         }
         if (action == "delete-bucket-tag") {
             return deleteBucketTag(args);
+        }
+        if (action == "add-object-attribute") {
+            return addObjectAttribute(args);
+        }
+        if (action == "set-object-attribute") {
+            return setObjectAttribute(args);
+        }
+        if (action == "list-object-attributes") {
+            return listObjectAttributes(args);
+        }
+        if (action == "delete-object-attribute") {
+            return deleteObjectAttribute(args);
         }
         if (action == "subscribe") {
             return subscribe(args);
@@ -1355,6 +1371,174 @@ namespace Euclid::CLI {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
             if (const HttpResponse response = client.Post("esm", "delete-bucket-tag", boost::json::value_from(request)); !response.IsSuccess()) {
                 std::cerr << "error: delete-bucket-tag failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EsmCli::addObjectAttribute(const std::vector<std::string> &args) const {
+        po::options_description desc("add object attribute options");
+        desc.add_options()
+                ("ern,e", po::value<std::string>()->required(), "object ERN")
+                ("name,n", po::value<std::string>()->required(), "attribute name")
+                ("value,v", po::value<std::string>()->required(), "attribute value")
+                ("type,t", po::value<std::string>()->default_value("string"), "attribute type");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", "add-object-attribute", "--ern <ern> --name <name> --value <value> [--type <type>]",
+                                   "Adds an attribute to an object. The object must not have an attribute of that name yet - use "
+                                   "set-object-attribute to change one that exists. The type can be one of int, long, double, float, "
+                                   "bool, string, binary, and defaults to string.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ESM::ObjectAttributeRequest request;
+        request.ern = vm["ern"].as<std::string>();
+        request.name = vm["name"].as<std::string>();
+        request.value = optionToVariant(vm["value"].as<std::string>(), vm["type"].as<std::string>());
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("esm", "add-object-attribute", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: add-object-attribute failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EsmCli::setObjectAttribute(const std::vector<std::string> &args) const {
+        po::options_description desc("set object attribute options");
+        desc.add_options()
+                ("ern,e", po::value<std::string>()->required(), "object ERN")
+                ("name,n", po::value<std::string>()->required(), "attribute name")
+                ("value,v", po::value<std::string>()->required(), "attribute value")
+                ("type,t", po::value<std::string>()->default_value("string"), "attribute type");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", "set-object-attribute", "--ern <ern> --name <name> --value <value> [--type <type>]",
+                                   "Sets the value of an existing object attribute. The attribute must exist already - use "
+                                   "add-object-attribute to create one. The type can be one of int, long, double, float, bool, "
+                                   "string, binary, and defaults to string.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ESM::ObjectAttributeRequest request;
+        request.ern = vm["ern"].as<std::string>();
+        request.name = vm["name"].as<std::string>();
+        request.value = optionToVariant(vm["value"].as<std::string>(), vm["type"].as<std::string>());
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("esm", "set-object-attribute", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: set-object-attribute failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EsmCli::listObjectAttributes(const std::vector<std::string> &args) const {
+        po::options_description desc("list object attributes options");
+        desc.add_options()
+                ("ern,e", po::value<std::string>()->required(), "object ERN");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", "list-object-attributes", "--ern <ern>",
+                                   "Lists every attribute of an object, with each value's type. An object with no attributes "
+                                   "lists an empty set rather than failing.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ESM::ListObjectAttributesRequest request;
+        request.ern = vm["ern"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("esm", "list-object-attributes", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: list-object-attributes failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EsmCli::deleteObjectAttribute(const std::vector<std::string> &args) const {
+        po::options_description desc("delete object attribute options");
+        desc.add_options()
+                ("ern,e", po::value<std::string>()->required(), "object ERN")
+                ("name,n", po::value<std::string>()->required(), "attribute name");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", "delete-object-attribute", "--ern <ern> --name <name>",
+                                   "Deletes an attribute from an object. The attribute must exist; deleting one that was never "
+                                   "stored is reported as an error rather than silently succeeding.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ESM::DeleteObjectAttributeRequest request;
+        request.ern = vm["ern"].as<std::string>();
+        request.name = vm["name"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            if (const HttpResponse response = client.Post("esm", "delete-object-attribute", boost::json::value_from(request)); !response.IsSuccess()) {
+                std::cerr << "error: delete-object-attribute failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             return 0;
