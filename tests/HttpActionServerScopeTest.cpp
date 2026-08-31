@@ -4,6 +4,7 @@
 // Euclid includes
 #include <euclid/core/Configuration.h>
 #include <euclid/core/HttpActionServer.h>
+#include <euclid/core/HttpSignature.h>
 #include <euclid/core/JwtUtils.h>
 
 using Euclid::Core::Configuration;
@@ -112,6 +113,41 @@ BOOST_AUTO_TEST_CASE(RequestsWithNoAccountIdBypassGrantCheck) {
 
     HttpActionServer::SetScopeLookup({});
     HttpActionServer::SetGrantLookup({});
+}
+
+BOOST_AUTO_TEST_CASE(Rfc9421SignedRequestAuthenticatesAsTheKeyOwner) {
+    // The third way in, alongside a bearer token and a SigV4 signature: an RFC 9421 signature
+    // carries no Authorization header at all, so Authenticate() has to notice it on its own.
+    HttpActionServer::SetScopeLookup({});
+    HttpActionServer::SetGrantLookup({});
+    HttpActionServer::SetAccessKeyLookup([](const std::string &accessKeyId) -> std::optional<HttpActionServer::AccessKeyRecord> {
+        if (accessKeyId != "AKIAEXAMPLE") return std::nullopt;
+        return HttpActionServer::AccessKeyRecord{.secretAccessKey = "topsecret", .userId = "alice"};
+    });
+
+    namespace http = boost::beast::http;
+    http::request<http::string_body> req(http::verb::post, "/", 11);
+    req.set(http::field::host, "localhost:5566");
+    req.set("x-euclid-target", "esm");
+    req.set("x-euclid-action", "list-objects");
+    req.set("x-euclid-region", "eu-central-1");
+    req.set("x-euclid-account-id", "000000000000");
+    req.set("x-euclid-user-id", "alice");
+    req.body() = R"({"bucketErn":"ern:esm:x"})";
+    req.prepare_payload();
+    Euclid::Core::HttpSignature::Sign(req, "AKIAEXAMPLE", "topsecret");
+
+    const auto auth = HttpActionServer::Authenticate(req);
+    BOOST_TEST_REQUIRE(auth.subject.has_value());
+    BOOST_TEST(*auth.subject == "alice");
+
+    // A signature the key store cannot resolve is refused, not waved through as unsigned.
+    HttpActionServer::SetAccessKeyLookup([](const std::string &) -> std::optional<HttpActionServer::AccessKeyRecord> { return std::nullopt; });
+    const auto denied = HttpActionServer::Authenticate(req);
+    BOOST_TEST(!denied.subject.has_value());
+    BOOST_TEST(!denied.denialReason.empty());
+
+    HttpActionServer::SetAccessKeyLookup({});
 }
 
 BOOST_AUTO_TEST_CASE(ConfiguredRegionRequiresMatchingRegionHeader) {
