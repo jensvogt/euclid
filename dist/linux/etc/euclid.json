@@ -157,7 +157,9 @@
         "executable": "/usr/local/euclid/bin/euclid-ets",
         "socket-dir": "/var/run/euclid",
         "minInstances": 1,
-        "maxInstances": 1
+        "maxInstances": 1,
+        "inline-max": 67108864,
+        "part-size": 8388608
       },
       "lambda": {
         "active": false,

@@ -30,12 +30,8 @@ namespace Euclid::Transfer {
         return TransferContext(*server);
     }
 
-    ModuleResponse CallModule(const std::string &moduleName, const std::string &action, const std::string &token,
-                              const std::vector<std::pair<std::string, std::string> > &headers, const std::string &body) {
+    std::vector<std::string> ModuleSockets(const std::string &moduleName) {
 
-        // Every currently running instance of the target module, newest state as published by
-        // euclid-mgr. More than one is normal for an autoscaled module; any of them can serve
-        // the request, so the first reachable one wins.
         std::vector<std::string> sockets;
         for (const auto &module: Database::RepositoryFactory::instance().emmRepository()->findAll()) {
             if (module.name != moduleName) continue;
@@ -43,35 +39,59 @@ namespace Euclid::Transfer {
                 if (instance.state == Database::Entity::ModuleState::RUNNING) sockets.push_back(instance.socketPath);
             }
         }
+        return sockets;
+    }
 
+    ModuleResponse CallModuleAt(const std::string &socketPath, const std::string &action, const std::string &token,
+                                const std::vector<std::pair<std::string, std::string> > &headers, const std::string &body) {
+
+        try {
+            boost::asio::io_context ioc;
+            local::stream_protocol::socket sock(ioc);
+            sock.connect(local::stream_protocol::endpoint(socketPath));
+
+            http::request<http::string_body> req{http::verb::post, "/", 11};
+            req.set("x-euclid-action", action);
+            if (!token.empty()) req.set(http::field::authorization, "Bearer " + token);
+            for (const auto &[name, value]: headers) req.set(name, value);
+            req.body() = body;
+            req.prepare_payload();
+
+            write(sock, req);
+
+            // Beast caps a response body at 1MB unless told otherwise, which an object download
+            // passes as soon as the file is bigger than a text file - the read then fails and the
+            // call looks like an unreachable module. The peer is a local module answering over a
+            // Unix socket with a size it has already bounded itself, so there is nothing left for
+            // a limit here to protect against.
+            beast::flat_buffer buffer;
+            http::response_parser<http::string_body> parser;
+            parser.body_limit(boost::none);
+            read(sock, buffer, parser);
+
+            return {.status = static_cast<int>(parser.get().result_int()), .body = std::move(parser.get().body())};
+
+        } catch (const std::exception &e) {
+            log_warning << "Call to action '" << action << "' at " << socketPath << " failed, error: " << e.what();
+            return {};
+        }
+    }
+
+    ModuleResponse CallModule(const std::string &moduleName, const std::string &action, const std::string &token,
+                              const std::vector<std::pair<std::string, std::string> > &headers, const std::string &body) {
+
+        // Every currently running instance of the target module, newest state as published by
+        // euclid-mgr. More than one is normal for an autoscaled module; any of them can serve
+        // the request, so the first reachable one wins.
+        const auto sockets = ModuleSockets(moduleName);
         if (sockets.empty()) {
             log_warning << "No running instance of module '" << moduleName << "' to call action '" << action << "'";
             return {};
         }
 
         for (const auto &socketPath: sockets) {
-            try {
-                boost::asio::io_context ioc;
-                local::stream_protocol::socket sock(ioc);
-                sock.connect(local::stream_protocol::endpoint(socketPath));
-
-                http::request<http::string_body> req{http::verb::post, "/", 11};
-                req.set("x-euclid-action", action);
-                if (!token.empty()) req.set(http::field::authorization, "Bearer " + token);
-                for (const auto &[name, value]: headers) req.set(name, value);
-                req.body() = body;
-                req.prepare_payload();
-
-                write(sock, req);
-
-                beast::flat_buffer buffer;
-                http::response<http::string_body> res;
-                read(sock, buffer, res);
-
-                return {.status = static_cast<int>(res.result_int()), .body = res.body()};
-
-            } catch (const std::exception &e) {
-                log_warning << "Call to module '" << moduleName << "' at " << socketPath << " failed, error: " << e.what();
+            if (auto response = CallModuleAt(socketPath, action, token, headers, body); response.status != 0) {
+                return response;
             }
         }
 

@@ -3,6 +3,8 @@
 // C++ includes
 #include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
 // Euclid includes
 #include <euclid/database/entity/ets/TransferServer.h>
@@ -66,6 +68,41 @@ namespace Euclid::Transfer {
          */
         [[nodiscard]] bool ok() const { return status >= 200 && status < 300; }
     };
+
+    /**
+     * @brief Socket paths of every currently running instance of a module.
+     *
+     * @par
+     * Resolved through the module repository, the same way Core::Monitoring::MetricsPusher finds
+     * the monitoring module: euclid-mgr publishes each live instance's socket path there, so
+     * addressing a module means asking which of its processes are currently up rather than
+     * assuming the single base socket from the config.
+     *
+     * @param moduleName module to look up, e.g. "esm".
+     * @return the sockets, in no particular order; empty if no instance is running.
+     */
+    [[nodiscard]]
+    std::vector<std::string> ModuleSockets(const std::string &moduleName);
+
+    /**
+     * @brief Calls one action on one specific module instance.
+     *
+     * @par
+     * Used directly when a sequence of calls has to reach the *same* instance - a multipart
+     * upload stages its parts next to the instance that created it, so spreading the parts over
+     * whatever instance answers first would assemble an object out of a fraction of its bytes.
+     * A single call has no such constraint and should use CallModule().
+     *
+     * @param socketPath instance socket, as returned by ModuleSockets().
+     * @param action value for the x-euclid-action header.
+     * @param token bearer token to authenticate as.
+     * @param headers additional request headers, e.g. x-euclid-bucket-ern.
+     * @param body request body, raw.
+     * @return the module's response, or a zero status if the instance could not be reached.
+     */
+    [[nodiscard]]
+    ModuleResponse CallModuleAt(const std::string &socketPath, const std::string &action, const std::string &token,
+                                const std::vector<std::pair<std::string, std::string> > &headers, const std::string &body);
 
     /**
      * @brief Calls one action on a running instance of another module.
