@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.53](https://github.com/jensvogt/euclid/compare/1.0.52...v1.0.53) (2026-09-01)
+
+
+### Bug Fixes
+
+* add first eap module ([60c7c3e](https://github.com/jensvogt/euclid/commit/60c7c3e4102d86dc9c899f52337038caea0ec697))
+* installs a non-root user ([fb7280b](https://github.com/jensvogt/euclid/commit/fb7280b33ace8a5f250332af98cb5212796b2fb1))
+
 ## [1.0.52](https://github.com/jensvogt/euclid/compare/1.0.51...v1.0.52) (2026-09-01)
 
 
