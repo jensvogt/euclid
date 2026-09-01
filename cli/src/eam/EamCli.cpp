@@ -277,6 +277,7 @@ namespace Euclid::CLI {
         request.pageSize = vm["page-size"].as<long>();
         request.pageIndex = vm["page-index"].as<long>();
         request.sortColumn = vm["sort-column"].as<std::string>();
+        request.sortDirection = vm["sort-direction"].as<std::string>();
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
