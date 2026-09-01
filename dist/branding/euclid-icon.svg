@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256"
+     role="img" aria-label="Euclid">
+  <title>Euclid</title>
+
+  <!--
+    Elements, Book I, Proposition 1: on a given segment AB, two circles of radius AB
+    centred at A and B meet at C, and ABC is equilateral. The first construction in
+    the Elements, and the reason the mark is two arcs and a triangle.
+
+    The arcs are the construction, drawn light; the triangle is the result, drawn
+    solid. That weight difference is what lets the mark survive being shrunk - the
+    triangle reads first and the arcs become texture rather than noise.
+  -->
+
+  <g fill="none" stroke="#7C4DFF" stroke-linejoin="round" stroke-linecap="round">
+    <!-- the two compass arcs -->
+    <g opacity="0.38" stroke-width="5">
+      <circle cx="91" cy="149.36" r="74"/>
+      <circle cx="165" cy="149.36" r="74"/>
+    </g>
+
+    <!-- the equilateral triangle the construction yields -->
+    <path d="M 91 149.36 L 165 149.36 L 128 85.28 Z" stroke-width="12"/>
+  </g>
+</svg>

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256"
+     role="img" aria-label="Euclid">
+  <title>Euclid</title>
+
+  <!--
+    Single-colour variant: inherits currentColor, so it takes the surrounding text
+    colour and works unchanged on light and dark backgrounds.
+  -->
+
+  <g fill="none" stroke="currentColor" stroke-linejoin="round" stroke-linecap="round">
+    <g opacity="0.38" stroke-width="5">
+      <circle cx="91" cy="149.36" r="74"/>
+      <circle cx="165" cy="149.36" r="74"/>
+    </g>
+    <path d="M 91 149.36 L 165 149.36 L 128 85.28 Z" stroke-width="12"/>
+  </g>
+</svg>

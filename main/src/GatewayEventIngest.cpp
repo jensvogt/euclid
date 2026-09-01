@@ -50,9 +50,22 @@ namespace Euclid::main {
         boost::json::object body;
         if (const auto *b = obj.if_contains("body"); b && b->is_object()) body = b->as_object();
 
-        GatewayWsRegistry::instance().Broadcast(std::string(topic->as_string()), std::string(accountId->as_string()), std::string(region->as_string()), body);
+        // Always addressed to a subscriber: who receives an event is decided where it is
+        // published, by the subscription that matched it, and a push with nobody to deliver to
+        // is a bug in the caller rather than something to broadcast at every connection.
+        std::string subscriber;
+        if (const auto *s = obj.if_contains("subscriber"); s && s->is_string()) subscriber = std::string(s->as_string());
+        if (subscriber.empty()) {
+            return ErrorResponse(req, http::status::bad_request, "Missing subscriber");
+        }
 
-        return JsonResponse(req, http::status::ok);
+        const auto delivered = GatewayWsRegistry::instance().DeliverToSubscriber(
+                subscriber, std::string(topic->as_string()), std::string(accountId->as_string()), std::string(region->as_string()), body);
+
+        // Reported back so the publisher can tell "nobody was connected" from "delivered" - for a
+        // durable subscription that is the difference between a client that will be told and one
+        // that will have to come and ask.
+        return JsonResponse(req, http::status::ok, boost::json::serialize(boost::json::object{{"delivered", delivered}}));
     }
 
 }// namespace Euclid::main

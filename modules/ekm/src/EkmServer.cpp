@@ -90,16 +90,20 @@ namespace Euclid::EKM {
 
         const auto saved = Database::RepositoryFactory::instance().ekmRepository()->upsertKey(key);
 
-        // Reference wiring of Core::EventPusher for websocket clients (e.g. Euclid-JDK) that
-        // want to be told about key lifecycle changes as they happen, instead of polling
-        // list-keys. Fire-and-forget - see EventPusher's doc comment for why a slow/unreachable
-        // gateway never delays this response.
-        Core::EventPusher::Push("ekm.key.created", saved.accountId, saved.region,
-                                 boost::json::object{
-                                         {"ern", saved.ern},
-                                         {"algorithm", saved.algorithm},
-                                         {"length", saved.length},
-                                 });
+        // Published to the bus like every other domain event, so a client subscribed through EES
+        // is told about a new key as it happens instead of polling list-keys - live over a
+        // websocket, or durably if it asked for that.
+        Database::EventBus::instance().Publish(
+                "ekm.key.created",
+                boost::json::value{
+                        {"ern", saved.ern},
+                        {"name", saved.name},
+                        {"algorithm", saved.algorithm},
+                        {"length", saved.length},
+                        {"accountId", saved.accountId},
+                        {"region", saved.region},
+                },
+                "ekm");
 
         Dto::EKM::CreateKeyResponse response;
         response.name = saved.name;

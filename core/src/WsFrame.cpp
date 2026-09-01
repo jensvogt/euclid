@@ -118,7 +118,11 @@ namespace Euclid::Core {
 
         const auto *id = obj.if_contains("id");
         const auto *topic = obj.if_contains("topic");
-        if (!id || !id->is_string() || !topic || !topic->is_string()) {
+        const auto *name = obj.if_contains("name");
+        const bool named = name != nullptr && name->is_string() && !name->as_string().empty();
+        // A topic is what there is to subscribe to, so it is required - except on a frame that
+        // names an existing subscription, which is attaching to one rather than describing one.
+        if (!id || !id->is_string() || ((!topic || !topic->is_string()) && !named)) {
             error = "Subscription frame missing id/topic";
             return std::nullopt;
         }
@@ -126,18 +130,28 @@ namespace Euclid::Core {
         ParsedSubscription r;
         r.id = std::string(id->as_string());
         r.type = std::string(type->as_string());
-        r.topic = std::string(topic->as_string());
+        if (topic && topic->is_string()) r.topic = std::string(topic->as_string());
         if (const auto *filter = obj.if_contains("filter"); filter && filter->is_object()) {
             r.filter = filter->as_object();
+        }
+        // Optional: naming an EES subscriber attaches this connection to it, so what arrives is
+        // what that subscription matched rather than what this frame's topic/filter did.
+        if (named) r.name = std::string(name->as_string());
+        if (const auto *mode = obj.if_contains("mode"); mode && mode->is_string()) {
+            r.mode = std::string(mode->as_string());
         }
         return r;
     }
 
-    std::string WsFrame::BuildSubscriptionAckFrame(const std::string &id, const std::string &ackType) {
-        return boost::json::serialize(boost::json::object{
+    std::string WsFrame::BuildSubscriptionAckFrame(const std::string &id, const std::string &ackType, const std::string &name) {
+        boost::json::object frame{
                 {"type", ackType},
                 {"id", id},
-        });
+        };
+        // Echoed because a client that named nothing still has a subscription, and this is the
+        // only place it learns the name its events arrive under.
+        if (!name.empty()) frame["name"] = name;
+        return boost::json::serialize(frame);
     }
 
 }// namespace Euclid::Core

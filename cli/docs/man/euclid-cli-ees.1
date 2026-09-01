@@ -77,6 +77,92 @@ leaves behind.
 Subscriptions are scoped to the caller's account. An event whose payload
 names a different account is never stored for a subscriber at all, which
 is why account\-scoped events cannot leak across a shared installation.
+.SH DELIVERY
+A subscription is either
+.I durable
+(the default) or
+.IR live .
+.PP
+A durable subscription stores every matching event and keeps it until
+the subscriber acknowledges it. A live one stores nothing: its events
+are pushed to whatever sessions are attached and are then gone, which
+costs no database write and is what a view - a UI showing a bucket -
+actually wants.
+.PP
+Either way, a client that holds a websocket to the gateway is told the
+moment something happens rather than asking on a timer. A subscribe
+frame on that connection is an EES subscription \- the same names,
+filters and modes this module takes over HTTP \- so a stream is
+described once and can be attached to from anywhere:
+.PP
+.RS
+.nf
+{"type":"subscribe","id":"1","name":"invoice-import",
+ "topic":"esm.object.created","filter":{"bucketName":"inbox"}}
+
+{"type":"subscribe","id":"2","name":"invoice-import"}
+
+{"type":"subscribe","id":"3","topic":"esm.object.created"}
+.fi
+.RE
+.PP
+The first registers a subscription and attaches this connection to it,
+exactly as
+.BR euclid-cli-ees-subscribe-events (1)
+would; a named subscription defaults to durable. The second names one
+and says no more, which attaches without redefining it \- the way to
+listen to a subscription somebody else set up. The third names nobody:
+the gateway makes a subscription for the connection, tells the client
+its name in the ack, keeps it live, and removes it when the connection
+ends, because a subscription that only one socket knows about cannot
+outlive it.
+.PP
+Unsubscribing follows the same shape: with a topic it removes that event
+type from the subscription, with only a name it detaches this connection
+and leaves the subscription \- and whatever a durable one has collected
+\- alone.
+.PP
+What arrives then differs by mode, and the difference is deliberate. A
+live session receives the event itself, since nothing else will ever
+carry it. A durable session receives only a notice that something is
+waiting - two instances share a name, and both acting on one event is
+exactly what the claim below prevents - so it claims with
+.B receive-events
+and the store decides which instance gets it.
+.PP
+.B receive-events
+therefore stops being the normal path for a connected client and becomes
+what it should be: catching up after a disconnect, and the way in for
+clients that cannot hold a socket open.
+.SH KEEPING UP
+A connection that stops reading is not allowed to grow the gateway without
+limit: each one has a bounded outbox
+.RI ( euclid.gateway.websocket.max\-outbox\-frames
+and
+.IR \-bytes ),
+and when it fills, pushed events are dropped rather than responses \- a
+response has a caller blocked on it, while an event a durable subscriber
+misses is still in the store. The client is then sent
+.PP
+.RS
+.nf
+{"type":"lag","dropped":12}
+.fi
+.RE
+.PP
+once it starts reading again. For a durable subscription that is an
+instruction rather than a loss: call
+.B receive-events
+and claim what was missed. For a live one it is what it says \- those
+events are gone, which is the bargain a live subscription makes.
+.PP
+In the other direction, a burst does not become a burst of notices. A
+durable subscriber is told once and then not again until
+.I euclid.eventbus.notify\-interval\-ms
+has passed, so purging a bucket of ten thousand objects wakes a listener a
+handful of times rather than ten thousand \- a notice carries no payload,
+so collapsing them loses nothing. The first one is always sent
+immediately, so a single event is never delayed by the interval.
 .SH CLAIMS
 .B receive-events
 does not delete anything: it takes a lease. A claimed event is invisible

@@ -192,6 +192,35 @@ BOOST_AUTO_TEST_CASE(ParseSubscription_MissingTopic_ReturnsNullopt) {
     BOOST_CHECK(!parsed.has_value());
 }
 
+BOOST_AUTO_TEST_CASE(ParseSubscription_NameWithoutTopic_IsAnAttach) {
+    std::string error;
+    const auto parsed = WsFrame::ParseSubscription(R"({"type":"subscribe","id":"1","name":"invoice-import"})", error);
+
+    // Naming a subscription and saying nothing else means "send me what this one gets" - the
+    // subscription already exists, so there is nothing to describe and a topic would be a second,
+    // conflicting definition of it.
+    BOOST_REQUIRE(parsed.has_value());
+    BOOST_CHECK_EQUAL(parsed->name, "invoice-import");
+    BOOST_CHECK(parsed->topic.empty());
+}
+
+BOOST_AUTO_TEST_CASE(ParseSubscription_ModeIsCarried) {
+    std::string error;
+    const auto parsed = WsFrame::ParseSubscription(
+            R"({"type":"subscribe","id":"1","topic":"esm.object.created","name":"ui","mode":"live"})", error);
+
+    BOOST_REQUIRE(parsed.has_value());
+    BOOST_CHECK_EQUAL(parsed->mode, "live");
+}
+
+BOOST_AUTO_TEST_CASE(ParseSubscription_NoNameNoTopic_ReturnsNullopt) {
+    std::string error;
+    const auto parsed = WsFrame::ParseSubscription(R"({"type":"subscribe","id":"1","filter":{"a":1}})", error);
+
+    // Neither a subscription to describe nor one to attach to.
+    BOOST_CHECK(!parsed.has_value());
+}
+
 // ── BuildSubscriptionAckFrame() ───────────────────────────────────────────────
 
 BOOST_AUTO_TEST_CASE(BuildSubscriptionAckFrame_HasExpectedShape) {
@@ -200,37 +229,16 @@ BOOST_AUTO_TEST_CASE(BuildSubscriptionAckFrame_HasExpectedShape) {
 
     BOOST_CHECK_EQUAL(jv.at("type").as_string(), "subscribed");
     BOOST_CHECK_EQUAL(jv.at("id").as_string(), "abc");
+    // No name was involved, so none is claimed - a client that named its own subscription does
+    // not need to be told what it called it.
+    BOOST_CHECK(!jv.as_object().if_contains("name"));
 }
 
-// ── WsFrame::Subscription::Matches() ──────────────────────────────────────────
+BOOST_AUTO_TEST_CASE(BuildSubscriptionAckFrame_CarriesTheName) {
+    const auto frame = WsFrame::BuildSubscriptionAckFrame("abc", "subscribed", "ws-1234");
+    const auto jv = boost::json::parse(frame);
 
-BOOST_AUTO_TEST_CASE(SubscriptionMatches_SameTopicNoFilter_MatchesAnyBody) {
-    const WsFrame::Subscription sub{.topic = "eqs.message.sent", .filter = {}};
-
-    BOOST_CHECK(sub.Matches("eqs.message.sent", boost::json::object{{"queueErn", "queue/orders"}}));
-    BOOST_CHECK(sub.Matches("eqs.message.sent", boost::json::object{}));
-}
-
-BOOST_AUTO_TEST_CASE(SubscriptionMatches_DifferentTopic_NeverMatches) {
-    const WsFrame::Subscription sub{.topic = "eqs.message.sent", .filter = {}};
-
-    BOOST_CHECK(!sub.Matches("ekm.key.created", boost::json::object{}));
-}
-
-BOOST_AUTO_TEST_CASE(SubscriptionMatches_FilterKeyEqual_Matches) {
-    const WsFrame::Subscription sub{.topic = "eqs.message.sent", .filter = {{"queueErn", "queue/orders"}}};
-
-    BOOST_CHECK(sub.Matches("eqs.message.sent", boost::json::object{{"queueErn", "queue/orders"}, {"messageId", "m1"}}));
-}
-
-BOOST_AUTO_TEST_CASE(SubscriptionMatches_FilterKeyDifferentValue_DoesNotMatch) {
-    const WsFrame::Subscription sub{.topic = "eqs.message.sent", .filter = {{"queueErn", "queue/orders"}}};
-
-    BOOST_CHECK(!sub.Matches("eqs.message.sent", boost::json::object{{"queueErn", "queue/other"}}));
-}
-
-BOOST_AUTO_TEST_CASE(SubscriptionMatches_FilterKeyMissingFromBody_DoesNotMatch) {
-    const WsFrame::Subscription sub{.topic = "eqs.message.sent", .filter = {{"queueErn", "queue/orders"}}};
-
-    BOOST_CHECK(!sub.Matches("eqs.message.sent", boost::json::object{{"messageId", "m1"}}));
+    // The one place a client that named nothing learns the name the gateway gave its
+    // subscription, which is what it would need to attach a second connection to the same one.
+    BOOST_CHECK_EQUAL(jv.at("name").as_string(), "ws-1234");
 }

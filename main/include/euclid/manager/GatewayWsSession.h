@@ -12,12 +12,14 @@
 #include <boost/asio/ssl/stream.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
+#include <boost/asio/strand.hpp>
 #include <boost/beast/ssl.hpp>
 #include <boost/beast/websocket.hpp>
 #include <boost/beast/websocket/ssl.hpp>
 
 // Euclid includes
 #include <euclid/core/WsFrame.h>
+#include <euclid/manager/Outbox.h>
 #include <euclid/manager/Controller.h>
 
 namespace Euclid::main {
@@ -33,10 +35,18 @@ namespace Euclid::main {
         virtual ~IWsSession() = default;
 
         /**
-         * @brief Queues a frame (a response or a pushed event) for delivery, serialized with
-         * every other write on this connection - safe to call from any thread.
+         * @brief Queues a frame the client is waiting for - a response, an ack, an error -
+         * serialized with every other write on this connection, and safe to call from any thread.
+         *
+         * These are never dropped: something on the other side is blocked until one arrives.
          */
         virtual void PostFrame(std::string frame) = 0;
+
+        /**
+         * @brief Queues a pushed event, which unlike a response may be dropped when the client
+         * is not reading fast enough - see the outbox bounds in GatewayWsSession.
+         */
+        virtual void PostEvent(std::string frame) = 0;
 
         /**
          * @brief Account this session authenticated for at handshake time - events are only
@@ -50,13 +60,14 @@ namespace Euclid::main {
         [[nodiscard]] virtual const std::string &region() const = 0;
 
         /**
-         * @brief Whether this session currently wants to receive an event with this topic/body,
-         * i.e. whether at least one of its active subscriptions (registered via "subscribe"
-         * frames - see WsFrame::Subscription) matches - GatewayWsRegistry::Broadcast() only
-         * PostFrame()s to sessions where this returns true, so a session with no matching
-         * subscription receives nothing even though it's in scope for accountId/region.
+         * @brief EES subscriber name this session is attached to, or empty if it only uses the
+         * per-connection topic/filter subscriptions.
+         *
+         * A session attaches by sending a subscribe frame carrying a "name" - see
+         * WsFrame::ParsedSubscription::name. Events addressed to that name are delivered here
+         * what belongs to the subscription having been decided when the event was published.
          */
-        [[nodiscard]] virtual bool WantsEvent(const std::string &topic, const boost::json::object &body) const = 0;
+        [[nodiscard]] virtual std::string subscriberName() const = 0;
     };
 
     /**
@@ -96,6 +107,12 @@ namespace Euclid::main {
                           std::string authorization, std::string accountId, std::string region, std::string ns);
 
         /**
+         * @brief Removes the subscription this connection created for itself, if it made one -
+         * see the ephemeral subscriptions in Database::EventBus.
+         */
+        ~GatewayWsSession() override;
+
+        /**
          * @brief Completes the websocket handshake against the already-read HTTP upgrade
          * request, registers this session with GatewayWsRegistry for event delivery, and starts
          * the read loop.
@@ -103,9 +120,10 @@ namespace Euclid::main {
         void run(boost::beast::http::request<boost::beast::http::string_body> req);
 
         void PostFrame(std::string frame) override;
+        void PostEvent(std::string frame) override;
         [[nodiscard]] const std::string &accountId() const override { return _accountId; }
         [[nodiscard]] const std::string &region() const override { return _region; }
-        [[nodiscard]] bool WantsEvent(const std::string &topic, const boost::json::object &body) const override;
+        [[nodiscard]] std::string subscriberName() const override;
 
     private:
         void onAccept(const boost::beast::error_code &ec);
@@ -115,6 +133,11 @@ namespace Euclid::main {
         void handleRequestFrame(const std::string &text);
         void handleSubscriptionFrame(const std::string &text);
         void doWrite();
+        /**
+         * @brief Closes the underlying socket, ending the session - used when a write fails and
+         * when a client's backlog says it is no longer reading at all.
+         */
+        void closeSocket();
 
         boost::beast::websocket::stream<boost::beast::tcp_stream> _ws;
         boost::asio::io_context &_ioc;
@@ -124,9 +147,20 @@ namespace Euclid::main {
         std::string _region;
         std::string _namespace;
         boost::beast::flat_buffer _buffer;
-        std::deque<std::string> _writeQueue;
+        // Every outbox operation runs on this strand: the gateway serves its io_context from
+        // dozens of threads, and events arrive from the ingest listener while the read loop is
+        // running, so "the websocket's executor" is not one thread and never was. The strand is
+        // what actually makes the queue single-threaded, which is also what lets an in-flight
+        // async_write hold a reference into the frame at its front.
+        boost::asio::strand<boost::asio::io_context::executor_type> _strand;
+        Outbox _outbox;
+        // Guarded by _subscriptionsMutex: written by an inbound subscribe frame, read by the
+        // delivery path on an unrelated thread.
         mutable std::mutex _subscriptionsMutex;
-        std::vector<Core::WsFrame::Subscription> _subscriptions;
+        std::string _subscriberName;
+        // Name of the subscription this connection created because the client named none. Empty
+        // until a subscribe frame arrives without a name, and what the destructor removes.
+        std::string _ephemeralName;
     };
 
     /**
@@ -140,12 +174,18 @@ namespace Euclid::main {
         GatewayWsTlsSession(boost::beast::ssl_stream<boost::beast::tcp_stream> stream, boost::asio::io_context &ioc, ServiceController &ctrl,
                              std::string authorization, std::string accountId, std::string region, std::string ns);
 
+        /**
+         * @brief Same as GatewayWsSession's - removes this connection's own subscription.
+         */
+        ~GatewayWsTlsSession() override;
+
         void run(boost::beast::http::request<boost::beast::http::string_body> req);
 
         void PostFrame(std::string frame) override;
+        void PostEvent(std::string frame) override;
         [[nodiscard]] const std::string &accountId() const override { return _accountId; }
         [[nodiscard]] const std::string &region() const override { return _region; }
-        [[nodiscard]] bool WantsEvent(const std::string &topic, const boost::json::object &body) const override;
+        [[nodiscard]] std::string subscriberName() const override;
 
     private:
         void onAccept(const boost::beast::error_code &ec);
@@ -155,6 +195,11 @@ namespace Euclid::main {
         void handleRequestFrame(const std::string &text);
         void handleSubscriptionFrame(const std::string &text);
         void doWrite();
+        /**
+         * @brief Closes the underlying socket, ending the session - used when a write fails and
+         * when a client's backlog says it is no longer reading at all.
+         */
+        void closeSocket();
 
         boost::beast::websocket::stream<boost::beast::ssl_stream<boost::beast::tcp_stream> > _ws;
         boost::asio::io_context &_ioc;
@@ -164,9 +209,16 @@ namespace Euclid::main {
         std::string _region;
         std::string _namespace;
         boost::beast::flat_buffer _buffer;
-        std::deque<std::string> _writeQueue;
+        // See GatewayWsSession's - same rules, same executor discipline.
+        boost::asio::strand<boost::asio::io_context::executor_type> _strand;
+        Outbox _outbox;
+        // Guarded by _subscriptionsMutex: written by an inbound subscribe frame, read by the
+        // delivery path on an unrelated thread.
         mutable std::mutex _subscriptionsMutex;
-        std::vector<Core::WsFrame::Subscription> _subscriptions;
+        std::string _subscriberName;
+        // Name of the subscription this connection created because the client named none. Empty
+        // until a subscribe frame arrives without a name, and what the destructor removes.
+        std::string _ephemeralName;
     };
 
 }// namespace Euclid::main
