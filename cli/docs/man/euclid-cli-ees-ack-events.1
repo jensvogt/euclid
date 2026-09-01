@@ -1,0 +1,72 @@
+.TH EUCLID-CLI-EES-ACK-EVENTS 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ees-ack-events \- acknowledge claimed events, deleting them
+.SH SYNOPSIS
+.B euclid-cli ees ack-events
+.BR \-\-name | \-n
+.I NAME
+.BR \-\-event\-ids | \-i
+.I LIST
+.SH DESCRIPTION
+Deletes events that were claimed by
+.BR euclid-cli-ees-receive-events (1),
+which is what "processed" means here: until an event is acknowledged it
+is only leased, and it comes back for another claimer when that lease
+runs out.
+.PP
+Acknowledge after the work is done, not when the event arrives. That
+ordering is the whole point of the lease: a consumer that dies between
+receiving an event and finishing with it leaves the event to be
+redelivered, whereas one that acknowledged first would have thrown it
+away.
+.PP
+An event that is no longer there is not an error. A redelivery
+acknowledged twice, and one whose seven-day retention ran out, both end
+up here and mean the same thing to the caller \- so the answer reports
+how many were actually deleted
+.RI ( acknowledged )
+and how many are still held for this subscriber
+.RI ( waiting ).
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+Subscriber name the events were claimed under. Required.
+.TP
+.BR \-i ", " \-\-event\-ids " " \fILIST\fR
+Comma-separated event IDs, taken from the
+.I eventId
+of a
+.B receive-events
+answer. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The call succeeded, including when none of the IDs matched anything.
+Counts are printed as JSON.
+.TP
+.B 1
+Missing or invalid arguments, an empty
+.BR \-\-event\-ids ,
+no session, or the server rejected the request.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli ees ack-events --name invoice-import \e
+    --event-ids b1b24dcc-3c78-441e-ab8a-8054a1ceda12
+.fi
+.RE
+.PP
+Receiving and acknowledging in one step, for a consumer that only
+reads:
+.PP
+.RS
+.nf
+euclid-cli ees receive-events --name audit-tail --acknowledge
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ees (1),
+.BR euclid-cli-ees-receive-events (1),
+.BR euclid-cli-ees-list-subscriptions (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

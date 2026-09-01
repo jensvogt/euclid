@@ -1,0 +1,111 @@
+.TH EUCLID-CLI-EES-RECEIVE-EVENTS 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ees-receive-events \- claim a subscriber's waiting events
+.SH SYNOPSIS
+.B euclid-cli ees receive-events
+.BR \-\-name | \-n
+.I NAME
+[\fB\-\-max\-events\fR|\fB\-m\fR \fIN\fR]
+[\fB\-\-wait\-time\fR|\fB\-w\fR \fISECONDS\fR]
+[\fB\-\-visibility\-timeout\fR|\fB\-V\fR \fISECONDS\fR]
+[\fB\-\-acknowledge\fR|\fB\-a\fR]
+.SH DESCRIPTION
+Claims up to
+.I N
+of the events waiting for
+.IR NAME ,
+oldest first.
+.PP
+A claim is a lease, not a delete. The events it returns are invisible to
+every other claimer until the visibility timeout runs out, and come back
+if they are never acknowledged \- which is what makes a consumer that
+crashes halfway through its work harmless: the event it was holding is
+handed to the next claimer instead of being lost with it. Acknowledge
+with
+.BR euclid-cli-ees-ack-events (1)
+once the work is actually done, or pass
+.B \-\-acknowledge
+here for the cases where reading the events is the work.
+.PP
+Each returned event carries its
+.IR eventId ,
+its type, the module that published it, its
+.I payload
+and
+.IR attempts ,
+which is how many times it has been claimed \- a value above one means an
+earlier claimer never acknowledged it.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+Subscriber name to claim events for. Required.
+.TP
+.BR \-m ", " \-\-max\-events " " \fIN\fR
+Largest number of events to claim. Defaults to 10.
+.TP
+.BR \-w ", " \-\-wait\-time " " \fISECONDS\fR
+Seconds to wait for an event before answering with none. Defaults to 0.
+Bounded at 20 by the server, because a waiting call holds a gateway
+worker thread for its duration.
+.TP
+.BR \-V ", " \-\-visibility\-timeout " " \fISECONDS\fR
+How long the claim holds before the events become claimable again.
+Defaults to 300, deliberately more generous than the 30 seconds the bus
+gives its own modules: a consumer here may be doing real work with an
+event, such as downloading the object it describes, and having it
+redelivered underneath itself is worse than waiting.
+.TP
+.BR \-a ", " \-\-acknowledge
+Acknowledge the received events immediately, deleting them. The events
+are printed before the acknowledgement is sent, so they are on screen
+even if that call fails.
+.SH NOTES
+Without
+.BR \-\-acknowledge ,
+events received at a terminal simply reappear once the visibility
+timeout runs out, so an unacknowledged look at a backlog costs nothing
+but a delay.
+.PP
+Claiming under an application's subscriber name takes those events
+.I from
+it, since instances sharing a name are meant to share the work. To watch
+a stream alongside a running application, subscribe under a name of your
+own: both subscriptions then get their own copy of every event.
+.SH EXIT STATUS
+.TP
+.B 0
+The call succeeded. The claimed events are printed as JSON, with
+.I total
+being how many there were \- zero is a normal answer.
+.TP
+.B 1
+Missing or invalid arguments, no session, the server rejected the
+request, or \- with
+.B \-\-acknowledge
+\- the events were received but could not be acknowledged, in which case
+they will be delivered again after the visibility timeout.
+.SH EXAMPLES
+Long-poll for up to twenty seconds, then acknowledge whatever came:
+.PP
+.RS
+.nf
+euclid-cli ees receive-events \e
+    --name invoice-import --wait-time 20 --acknowledge
+.fi
+.RE
+.PP
+Look at what is waiting without taking it out of circulation for long:
+.PP
+.RS
+.nf
+euclid-cli ees receive-events \e
+    --name invoice-import --max-events 5 --visibility-timeout 5
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ees (1),
+.BR euclid-cli-ees-ack-events (1),
+.BR euclid-cli-ees-subscribe-events (1),
+.BR euclid-cli-ees-list-subscriptions (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
