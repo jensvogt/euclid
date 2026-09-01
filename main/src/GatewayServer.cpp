@@ -58,14 +58,19 @@ namespace Euclid::main {
     // Detection order:
     //   1. x-euclid-target — "DynamoDB_20120810.PutItem" → "dynamodb"
     //   2. Authorization   — SigV4 credential scope: "<key>/<date>/<region>/<svc>/aws4_request"
-    static std::string detectEuclidService(const http::request<http::string_body> &req) {
+    static std::string detectEuclidService(const http::request<http::string_body> &req, const ServiceController &ctrl) {
         static const std::unordered_set<std::string> kModules{
-                "eam", "esm", "eqs", "ens", "emm", "emo", "ekm", "ets"
+                "eam", "esm", "eqs", "ens", "emm", "emo", "ekm", "ets", "eap"
         };
 
         if (const auto module = std::string(req["x-euclid-target"]); !module.empty()) {
             log_debug << "Euclid service call detected from x-euclid-target: " << module;
             if (kModules.contains(module)) return module;
+            // An application is addressed by the name it was deployed under, which cannot be in
+            // the list above - only the controller knows which pools exist right now. Asking it
+            // is also what keeps this from routing to a name nobody is running: an unknown target
+            // is not a euclid service call and falls through to the plain HTTP handling below.
+            if (ctrl.hasService(module)) return module;
         }
 
         if (const auto auth = Core::SigV4::ParseAuthorizationHeader(std::string(req[http::field::authorization])); auth.has_value()) {
@@ -195,7 +200,7 @@ namespace Euclid::main {
         // around Dispatch() for individual module processes.
         try {
             // ── Euclid service dispatch ─────────────────────────────────────────
-            if (const auto service = detectEuclidService(req); !service.empty()) {
+            if (const auto service = detectEuclidService(req, ctrl); !service.empty()) {
                 const auto action = std::string(req["x-euclid-action"]);
                 if (!isPublicAction(service, action)) {
                     const auto auth = Core::HttpActionServer::Authenticate(req);

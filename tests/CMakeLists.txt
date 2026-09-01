@@ -16,6 +16,15 @@ target_link_libraries(${SCOPE_BINARY} PRIVATE euclidcore Boost::unit_test_framew
 
 add_test(NAME ${SCOPE_BINARY} COMMAND ${SCOPE_BINARY})
 
+set(EAP_APPLICATION_BINARY euclid-eap-application-tests)
+
+add_executable(${EAP_APPLICATION_BINARY} EapApplicationTest.cpp)
+set_target_properties(${EAP_APPLICATION_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${EAP_APPLICATION_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${EAP_APPLICATION_BINARY} COMMAND ${EAP_APPLICATION_BINARY})
+
 set(HTTP_SIGNATURE_BINARY euclid-http-signature-tests)
 
 add_executable(${HTTP_SIGNATURE_BINARY} HttpSignatureTest.cpp)

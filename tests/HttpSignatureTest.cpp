@@ -185,6 +185,45 @@ BOOST_AUTO_TEST_CASE(SignatureBaseMatchesRfc9421Section26) {
                "\"@signature-params\": (\"@method\" \"@authority\" \"@path\" \"content-digest\" \"content-length\" \"content-type\");created=1618884473;keyid=\"test-key-rsa-pss\"");
 }
 
+BOOST_AUTO_TEST_CASE(InteroperatesWithAnIndependentImplementation) {
+    // A request signed by examples/applications/python/euclid_app.py - a few dozen lines of
+    // Python standard library, written against the RFC rather than against this code. Pinning its
+    // output here is what says an application in another language can actually authenticate: the
+    // signature base, the digest and the HMAC all have to agree byte for byte, and none of that
+    // is checked by signing and verifying with the same implementation.
+    //
+    // Verified through BuildSignatureBase() rather than Verify(), because "created" is a fixed
+    // timestamp in a recorded vector and Verify() rightly refuses anything that old.
+    http::request<http::string_body> req(http::verb::post, "/", 11);
+    req.set(http::field::host, "localhost:5566");
+    req.set("x-euclid-account-id", "000000000000");
+    req.set("x-euclid-action", "list-buckets");
+    req.set("x-euclid-region", "eu-central-1");
+    req.set("x-euclid-target", "esm");
+    req.set("x-euclid-user-id", "appuser");
+    req.set("Content-Digest", "sha-256=:0iKG6xLm1EmJVf31IlRq2NUIwWuh2GKuD8una+P3jh8=:");
+    req.body() = R"({"pageSize":10})";
+    req.prepare_payload();
+
+    // The digest the Python side computed over that body.
+    BOOST_TEST(HttpSignature::ContentDigest(req.body()) == "sha-256=:0iKG6xLm1EmJVf31IlRq2NUIwWuh2GKuD8una+P3jh8=:");
+
+    const std::string parameters =
+            R"(("@method" "@path" "@authority" "content-digest" "x-euclid-account-id" "x-euclid-action" "x-euclid-region" "x-euclid-target" "x-euclid-user-id");created=1788255252;keyid="AKIAEXAMPLE";alg="hmac-sha256")";
+
+    const auto parsed = HttpSignature::ParseSignatureInput("sig1=" + parameters);
+    BOOST_TEST_REQUIRE(parsed.has_value());
+    BOOST_TEST(parsed->components == HttpSignature::CoveredComponents());
+
+    const auto base = HttpSignature::BuildSignatureBase(req, parsed->components, parsed->parameters);
+    BOOST_TEST_REQUIRE(base.has_value());
+
+    const std::string secret = "topsecret";
+    const auto signature = CryptoUtils::hmacSha256({secret.begin(), secret.end()}, *base);
+    BOOST_TEST("sig1=:" + CryptoUtils::Base64Encode({signature.begin(), signature.end()}) + ":" ==
+               "sig1=:RmC2h+H6ntZSgvXb6q5XbHqeRvTcBlyipElVGWViv2M=:");
+}
+
 BOOST_AUTO_TEST_CASE(ContentDigestIsTheRfc9530Form) {
     // RFC 9530's own example: the digest of {"hello": "world"} as a base64 SHA-256 in a byte
     // sequence.

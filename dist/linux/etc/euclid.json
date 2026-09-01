@@ -150,6 +150,16 @@
         "data-dir": "/usr/local/euclid/data/sftp",
         "host-key": "/usr/local/euclid/etc/ssh_host_key"
       },
+      "eap": {
+        "active": true,
+        "name": "eap",
+        "socketPath": "/var/run/euclid/euclid-eap.sock",
+        "executable": "/usr/local/euclid/bin/euclid-eap",
+        "socket-dir": "/var/run/euclid",
+        "data-dir": "/usr/local/euclid/data/eap",
+        "minInstances": 1,
+        "maxInstances": 1
+      },
       "ets": {
         "active": true,
         "name": "ets",
