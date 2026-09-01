@@ -224,12 +224,17 @@ jobs:
           # searches. Under euclid/ the pages would install fine and never be found.
           mkdir -p ${{ env.PACKAGE_DIR }}/share/man/man1
 
-          cp ${{ env.BUILD_DIR }}/bin/euclid-mgr ${{ env.PACKAGE_DIR }}/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-cli ${{ env.PACKAGE_DIR }}/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-eam ${{ env.PACKAGE_DIR }}/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-eqs ${{ env.PACKAGE_DIR }}/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-emo ${{ env.PACKAGE_DIR }}/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-esm ${{ env.PACKAGE_DIR }}/euclid/bin/
+          # Everything the build produced, rather than a list that has to be extended by hand
+          # whenever a module is added - which is how ekm, ens, emm, ets, eap, ftp and sftp came
+          # to be missing from the macOS package while euclid.json still pointed at them, leaving
+          # the manager restart-looping on binaries that were not installed. The test executables
+          # are built into the same directory and are the only thing skipped.
+          for binary in ${{ env.BUILD_DIR }}/bin/euclid-*; do
+            case "$(basename "$binary")" in
+              *-tests) continue ;;
+            esac
+            cp "$binary" ${{ env.PACKAGE_DIR }}/euclid/bin/
+          done
           cp dist/macos/etc/* ${{ env.PACKAGE_DIR }}/euclid/etc
           # euclid statically links vcpkg's own libmagic, whose compiled magic database format
           # isn't guaranteed compatible with any other libmagic's (see Core::ContentTypeUtils) -
@@ -245,6 +250,38 @@ jobs:
           cp cli/docs/man/*.1 ${{ env.PACKAGE_DIR }}/share/man/man1/
           gzip -9n ${{ env.PACKAGE_DIR }}/share/man/man1/*.1
           cp -R ${{ github.workspace }}/frontend/euclid-ui/dist/euclid-ui/browser/* ${{ env.PACKAGE_DIR }}/euclid/frontend/ 2>/dev/null || true
+
+      - name: Verify macOS package contents
+        run: |
+          # The failure this guards against is a package whose euclid.json names a module binary
+          # it does not ship: the manager then restart-loops on an exec that cannot succeed, with
+          # nothing in the log but "did not become ready". Cheap to check here, painful to find
+          # on an installed system.
+          python3 - <<'PYEOF'
+          import json, os, sys
+
+          root = "${{ env.PACKAGE_DIR }}"
+          config = os.path.join(root, "euclid/etc", "euclid.json")
+          modules = json.load(open(config))["euclid"]["modules"]
+
+          missing = []
+          for name, module in modules.items():
+              if not isinstance(module, dict) or not module.get("active"):
+                  continue
+              executable = module.get("executable")
+              if not executable:
+                  continue
+              packaged = os.path.join(root, executable.lstrip("/").replace("usr/local/euclid/", "euclid/", 1))
+              if not os.path.exists(packaged):
+                  missing.append("%s -> %s" % (name, executable))
+
+          if missing:
+              print("::error::package is missing binaries its configuration names:")
+              for entry in missing:
+                  print("  " + entry)
+              sys.exit(1)
+          print("every active module's binary is packaged")
+          PYEOF
 
       - name: Package Service Files
         run: |
@@ -346,12 +383,17 @@ jobs:
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man1
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/etc/systemd/system
 
-          cp ${{ env.BUILD_DIR }}/bin/euclid-mgr ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-cli ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-eam ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-eqs ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-emo ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-esm ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
+          # Everything the build produced, rather than a list that has to be extended by hand
+          # whenever a module is added - which is how ekm, ens, emm, ets, eap, ftp and sftp came
+          # to be missing from the DEB package while euclid.json still pointed at them, leaving
+          # the manager restart-looping on binaries that were not installed. The test executables
+          # are built into the same directory and are the only thing skipped.
+          for binary in ${{ env.BUILD_DIR }}/bin/euclid-*; do
+            case "$(basename "$binary")" in
+              *-tests) continue ;;
+            esac
+            cp "$binary" ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
+          done
           cp dist/linux/etc/* ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/etc/
           # euclid statically links vcpkg's own libmagic, whose compiled magic database format
           # isn't guaranteed compatible with the system's /usr/lib/file/magic.mgc (see
@@ -415,6 +457,38 @@ jobs:
 
           chmod +x ${{ github.workspace }}/deb-scripts/postinstall.sh ${{ github.workspace }}/deb-scripts/postremove.sh
 
+      - name: Verify DEB package contents
+        run: |
+          # The failure this guards against is a package whose euclid.json names a module binary
+          # it does not ship: the manager then restart-loops on an exec that cannot succeed, with
+          # nothing in the log but "did not become ready". Cheap to check here, painful to find
+          # on an installed system.
+          python3 - <<'PYEOF'
+          import json, os, sys
+
+          root = "${{ env.PACKAGE_DIR_DEB }}"
+          config = os.path.join(root, "usr/local/euclid/etc", "euclid.json")
+          modules = json.load(open(config))["euclid"]["modules"]
+
+          missing = []
+          for name, module in modules.items():
+              if not isinstance(module, dict) or not module.get("active"):
+                  continue
+              executable = module.get("executable")
+              if not executable:
+                  continue
+              packaged = os.path.join(root, executable.lstrip("/").replace("usr/local/euclid/", "usr/local/euclid/", 1))
+              if not os.path.exists(packaged):
+                  missing.append("%s -> %s" % (name, executable))
+
+          if missing:
+              print("::error::package is missing binaries its configuration names:")
+              for entry in missing:
+                  print("  " + entry)
+              sys.exit(1)
+          print("every active module's binary is packaged")
+          PYEOF
+
       - name: Build DEB with fpm
         run: |
           fpm -s dir -t deb --name "${{ env.APP_NAME }}" \
@@ -454,12 +528,17 @@ jobs:
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man1
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/etc/systemd/system
 
-          cp ${{ env.BUILD_DIR }}/bin/euclid-mgr ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-cli ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-eam ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-eqs ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-emo ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
-          cp ${{ env.BUILD_DIR }}/bin/euclid-esm ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
+          # Everything the build produced, rather than a list that has to be extended by hand
+          # whenever a module is added - which is how ekm, ens, emm, ets, eap, ftp and sftp came
+          # to be missing from the RPM package while euclid.json still pointed at them, leaving
+          # the manager restart-looping on binaries that were not installed. The test executables
+          # are built into the same directory and are the only thing skipped.
+          for binary in ${{ env.BUILD_DIR }}/bin/euclid-*; do
+            case "$(basename "$binary")" in
+              *-tests) continue ;;
+            esac
+            cp "$binary" ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
+          done
           cp dist/linux/etc/* ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc/
           # See the DEB step above for why this is bundled rather than relying on the system's.
           cp ${{ env.BUILD_DIR }}/vcpkg_installed/x64-linux/share/libmagic/misc/magic.mgc ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc/magic.mgc
@@ -516,6 +595,38 @@ jobs:
           EOF
 
           chmod +x ${{ github.workspace }}/rpm-scripts/postinstall.sh ${{ github.workspace }}/rpm-scripts/postremove.sh
+
+      - name: Verify RPM package contents
+        run: |
+          # The failure this guards against is a package whose euclid.json names a module binary
+          # it does not ship: the manager then restart-loops on an exec that cannot succeed, with
+          # nothing in the log but "did not become ready". Cheap to check here, painful to find
+          # on an installed system.
+          python3 - <<'PYEOF'
+          import json, os, sys
+
+          root = "${{ env.PACKAGE_DIR_RPM }}"
+          config = os.path.join(root, "usr/local/euclid/etc", "euclid.json")
+          modules = json.load(open(config))["euclid"]["modules"]
+
+          missing = []
+          for name, module in modules.items():
+              if not isinstance(module, dict) or not module.get("active"):
+                  continue
+              executable = module.get("executable")
+              if not executable:
+                  continue
+              packaged = os.path.join(root, executable.lstrip("/").replace("usr/local/euclid/", "usr/local/euclid/", 1))
+              if not os.path.exists(packaged):
+                  missing.append("%s -> %s" % (name, executable))
+
+          if missing:
+              print("::error::package is missing binaries its configuration names:")
+              for entry in missing:
+                  print("  " + entry)
+              sys.exit(1)
+          print("every active module's binary is packaged")
+          PYEOF
 
       - name: Build RPM with fpm
         run: |

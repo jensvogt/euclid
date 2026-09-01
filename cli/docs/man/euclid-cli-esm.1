@@ -108,6 +108,18 @@ Lists every attribute of an object, with each value's type. See
 Removes one attribute from an object. See
 .BR euclid-cli-esm-delete-object-attribute (1).
 .TP
+.B copy-object
+Copies an object to another key or bucket, bytes and all. See
+.BR euclid-cli-esm-copy-object (1).
+.TP
+.B move-object
+Moves an object to another key or bucket, without copying its bytes. See
+.BR euclid-cli-esm-move-object (1).
+.TP
+.B rename-object
+Renames an object within its bucket. See
+.BR euclid-cli-esm-rename-object (1).
+.TP
 .B purge-bucket
 Removes all objects from a bucket, leaving the bucket itself in place.
 See
@@ -305,6 +317,9 @@ euclid-cli --endpoint http://localhost:5566 esm unsubscribe \e
 .BR euclid-cli-esm-list-objects (1),
 .BR euclid-cli-esm-get-object-count (1),
 .BR euclid-cli-esm-delete-object (1),
+.BR euclid-cli-esm-copy-object (1),
+.BR euclid-cli-esm-move-object (1),
+.BR euclid-cli-esm-rename-object (1),
 .BR euclid-cli-esm-add-object-attribute (1),
 .BR euclid-cli-esm-set-object-attribute (1),
 .BR euclid-cli-esm-list-object-attributes (1),

@@ -7,7 +7,9 @@
 // Euclid includes
 #include <euclid/database/entity/esm/Object.h>
 #include <euclid/dto/esm/EsmMapper.h>
+#include <euclid/dto/esm/CopyObjectRequest.h>
 #include <euclid/dto/esm/ListObjectAttributesResponse.h>
+#include <euclid/dto/esm/RenameObjectRequest.h>
 #include <euclid/dto/esm/ObjectAttributeRequest.h>
 #include <euclid/dto/esm/ObjectAttributeResponse.h>
 #include <euclid/dto/esm/model/Object.h>
@@ -169,4 +171,38 @@ BOOST_AUTO_TEST_CASE(AnObjectWithoutAttributesStaysEmpty) {
 
     const auto dto = Euclid::Dto::ESM::Object::fromJson(EsmMapper::toDto(restored).toJson());
     BOOST_TEST(dto.attributes.empty());
+}
+
+BOOST_AUTO_TEST_CASE(CopyAndMoveShareOneRequestShape) {
+    // copy-object and move-object differ in what happens to the source, not in what is asked for,
+    // so both parse the same request - and a rename says the same thing with one bucket.
+    Euclid::Dto::ESM::CopyObjectRequest request;
+    request.sourceBucketErn = "ern:esm:eu-central-1:000000000000::bucket:inbox";
+    request.sourceKey = "report.csv";
+    request.targetBucketErn = "ern:esm:eu-central-1:000000000000::bucket:archive";
+    request.targetKey = "2026/report.csv";
+
+    const auto restored = Euclid::Dto::ESM::CopyObjectRequest::fromJson(request.toJson());
+    BOOST_TEST(restored.sourceBucketErn == request.sourceBucketErn);
+    BOOST_TEST(restored.sourceKey == "report.csv");
+    BOOST_TEST(restored.targetBucketErn == request.targetBucketErn);
+    BOOST_TEST(restored.targetKey == "2026/report.csv");
+
+    // A request naming no target bucket parses as empty rather than as the source, because the
+    // defaulting is the CLI's business - the module is told exactly which two buckets to use.
+    const auto partial = Euclid::Dto::ESM::CopyObjectRequest::fromJson(
+            R"({"sourceBucketErn":"ern:esm:x","sourceKey":"a","targetKey":"b"})");
+    BOOST_TEST(partial.targetBucketErn.empty());
+}
+
+BOOST_AUTO_TEST_CASE(RenameNamesOneBucketAndTwoKeys) {
+    Euclid::Dto::ESM::RenameObjectRequest request;
+    request.bucketErn = "ern:esm:eu-central-1:000000000000::bucket:inbox";
+    request.key = "report.csv";
+    request.newKey = "report-2026-09-01.csv";
+
+    const auto restored = Euclid::Dto::ESM::RenameObjectRequest::fromJson(request.toJson());
+    BOOST_TEST(restored.bucketErn == request.bucketErn);
+    BOOST_TEST(restored.key == "report.csv");
+    BOOST_TEST(restored.newKey == "report-2026-09-01.csv");
 }

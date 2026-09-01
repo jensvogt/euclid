@@ -30,6 +30,7 @@
 #include <euclid/dto/esm/AddBucketTagRequest.h>
 #include <euclid/dto/esm/CompleteDownloadRequest.h>
 #include <euclid/dto/esm/CompleteUploadRequest.h>
+#include <euclid/dto/esm/CopyObjectRequest.h>
 #include <euclid/dto/esm/CreateBucketRequest.h>
 #include <euclid/dto/esm/CreateDownloadRequest.h>
 #include <euclid/dto/esm/CreateDownloadResponse.h>
@@ -48,6 +49,7 @@
 #include <euclid/dto/esm/ListSubscriptionsRequest.h>
 #include <euclid/dto/esm/ObjectAttributeRequest.h>
 #include <euclid/dto/esm/PurgeBucketRequest.h>
+#include <euclid/dto/esm/RenameObjectRequest.h>
 #include <euclid/dto/esm/SetBucketTagRequest.h>
 #include <euclid/dto/esm/SubscribeRequest.h>
 #include <euclid/dto/esm/UnsubscribeRequest.h>
@@ -254,6 +256,43 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int deleteBucketTag(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Copies or moves an object; the two differ only in whether the source survives.
+         *
+         * @param args command line arguments
+         * @param keepSource true to copy, false to move
+         * @return ok
+         */
+        [[nodiscard]]
+        int transferObject(const std::vector<std::string> &args, bool keepSource) const;
+
+        /**
+         * @brief Copies an object to another key or bucket
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int copyObject(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Moves an object to another key or bucket
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int moveObject(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Renames an object within its bucket
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int renameObject(const std::vector<std::string> &args) const;
 
         /**
          * @brief Adds an attribute to an object, which must not have one of that name yet
