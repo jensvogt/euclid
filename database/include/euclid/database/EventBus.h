@@ -3,7 +3,10 @@
 // C++ includes
 #include <chrono>
 #include <functional>
+#include <map>
+#include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -175,6 +178,24 @@ namespace Euclid::Database {
         // the events it asked for rather than everything of that type in the installation.
 
         /**
+         * @brief How a subscriber's events reach it.
+         *
+         * @par
+         * DURABLE stores an envelope per event and keeps it until the subscriber acknowledges
+         * it, so nothing is lost while the subscriber is away. When a websocket session is
+         * attached to the name, a notification is pushed as well - not the event itself, because
+         * two instances sharing a name must not both act on it, and the atomic claim in
+         * ClaimEvents() is what decides which one does.
+         *
+         * @par
+         * LIVE stores nothing: the event is pushed to whatever sessions are attached and is gone.
+         * That is what a view wants - a UI showing a bucket has no use for the hour of events it
+         * missed while nobody was looking at it, and paying a database write per event for them
+         * is worse than not having them.
+         */
+        enum class DeliveryMode { Durable, Live };
+
+        /**
          * @brief One external subscription, as returned by ListSubscriptions().
          */
         struct Subscription {
@@ -182,6 +203,7 @@ namespace Euclid::Database {
             std::string eventType;
             boost::json::object filter;
             std::string accountId;
+            DeliveryMode mode = DeliveryMode::Durable;
             system_clock::time_point createdAt;
             system_clock::time_point lastSeenAt;
         };
@@ -196,9 +218,41 @@ namespace Euclid::Database {
          * receives every event of this type.
          * @param accountId account the subscriber belongs to - an event whose payload names a
          * different account is never stored for it.
+         * @param mode whether events are kept until acknowledged or only pushed to whoever is
+         * connected - see DeliveryMode.
          */
         void SubscribeExternal(const std::string &subscriber, const std::string &eventType,
-                               const boost::json::object &filter, const std::string &accountId);
+                               const boost::json::object &filter, const std::string &accountId,
+                               DeliveryMode mode = DeliveryMode::Durable, bool ephemeral = false);
+
+        /**
+         * @brief Removes every ephemeral subscription, i.e. every one that belonged to a
+         * websocket connection rather than to a client that named itself.
+         *
+         * @par
+         * Called by the manager as the gateway starts. An ephemeral subscription exists only for
+         * as long as the connection that created it, and no connection can outlive the gateway
+         * process - so any left in the database are from a previous run that ended without
+         * cleaning up, and none can belong to a live session. They store nothing (ephemeral
+         * subscriptions are live-mode), so this is tidiness rather than a leak, but a listing
+         * full of dead names is its own kind of cost.
+         *
+         * @return number of subscriptions removed.
+         */
+        long PurgeEphemeralSubscriptions();
+
+        /**
+         * @brief The string a DeliveryMode is stored and reported as ("durable"/"live").
+         */
+        [[nodiscard]]
+        static std::string_view DeliveryModeToString(DeliveryMode mode);
+
+        /**
+         * @brief Reads a DeliveryMode back, defaulting to durable for anything unrecognized -
+         * losing events because a mode was misspelled would be the worse failure.
+         */
+        [[nodiscard]]
+        static DeliveryMode DeliveryModeFromString(std::string_view mode);
 
         /**
          * @brief Removes an external subscription, and every event still waiting for it.
@@ -266,6 +320,67 @@ namespace Euclid::Database {
 
         void pruneStaleSubscriptions(const std::string &moduleType);
 
+        /**
+         * @brief One subscription as Publish() needs it: the filter already parsed, the mode
+         * already decoded, no BSON left.
+         */
+        struct SubscriberRecord {
+            std::string target;// moduleType, or "client:<name>" for an external subscriber
+            bool external = false;
+            boost::json::object filter;
+            std::string accountId;
+            DeliveryMode mode = DeliveryMode::Durable;
+        };
+
+        /**
+         * @brief The subscribers of one event type, as of shortly ago.
+         *
+         * @par
+         * Disabled by default (euclid.eventbus.subscription-cache-seconds = 0), because it was
+         * not worth its cost when measured: publishing queries the subscription collection every
+         * time, and at ~800 messages/second against a local database that query did not show up
+         * next to the send itself. Enabling it trades immediacy for fewer queries - a change made
+         * in this process still takes effect at once (the entry is dropped), but one made in
+         * another process takes up to the configured lifetime to be seen, which for a client that
+         * subscribes and immediately triggers an event means missing it.
+         * @par
+         * Handed out as a shared_ptr to an immutable list rather than as a reference into the
+         * cache: another thread refreshing the same event type would otherwise replace the
+         * vector a publisher is still walking.
+         */
+        [[nodiscard]]
+        std::shared_ptr<const std::vector<SubscriberRecord> > subscribersOf(const std::string &eventType);
+
+        void invalidateSubscribers(const std::string &eventType);
+
+        void pushToSessions(const std::string &eventType, const boost::json::object &payload,
+                            const std::set<std::string> &durableTargets, const std::set<std::string> &liveTargets);
+
+        /**
+         * @brief One pending "you have events" notice, and what it needs to be delivered.
+         */
+        struct PendingNotify {
+            std::string subscriber;
+            std::string eventType;
+            std::string accountId;
+            std::string region;
+        };
+
+        /**
+         * @brief Sends a durable subscriber's notice now, or remembers it for the next flush.
+         *
+         * @par
+         * A notice carries no payload - it says only that something is waiting - so collapsing a
+         * thousand of them into one loses nothing at all, and a purge of a bucket with a durable
+         * subscriber attached is exactly that thousand. The first is sent immediately, because a
+         * client should hear about a single event without waiting for a timer; further ones for
+         * the same subscriber and event type are held until the flush interval passes, which is
+         * what turns a burst into one notice rather than one per event.
+         */
+        void notifySubscriber(const PendingNotify &pending);
+
+        void flushNotifications();
+
         void pollOnce(const std::string &moduleType);
 
         void watchLoop(const std::string &moduleType);
@@ -301,6 +416,18 @@ namespace Euclid::Database {
 
         std::once_flag _indexesOnce;
         std::string _instanceId;
+
+        std::mutex _cacheMutex;
+        struct CacheEntry {
+            std::chrono::steady_clock::time_point refreshedAt;
+            std::shared_ptr<const std::vector<SubscriberRecord> > subscribers;
+        };
+        std::unordered_map<std::string, CacheEntry> _subscriberCache;
+
+        std::mutex _notifyMutex;
+        std::map<std::string, PendingNotify> _pendingNotifications;// keyed by subscriber + event type
+        std::map<std::string, std::chrono::steady_clock::time_point> _lastNotifiedAt;
+        std::once_flag _notifyFlushOnce;
 
         std::mutex _handlersMutex;
         std::unordered_map<std::string, std::function<bool(const EventEnvelope &)> > _handlers;// keyed by eventType

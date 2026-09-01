@@ -275,18 +275,25 @@ namespace Euclid::EQS {
         const Database::Entity::EQS::Message message = repo->sendMessage(messageId, ern, request.queueErn, request.body, attributes, priority);
         recordMessagesSent(request.queueErn, 1, message.size);
 
-        // Second reference wiring of Core::EventPusher (see modules/ekm/src/EkmServer.cpp's
-        // handleCreateKey() for the first) - lets websocket clients (e.g. Euclid-JDK) subscribed
-        // to this queue's account/region learn about new messages as they arrive, instead of
-        // polling receive-messages/list-messages. Scoped by the queue's own accountId/region
-        // (messages don't carry these directly) since that's what a websocket session
-        // authenticates against - see GatewayWsRegistry. Fire-and-forget, same as EKM's.
-        Core::EventPusher::Push("eqs.message.sent", queue->accountId, queue->region,
-                                 boost::json::object{
-                                         {"ern", message.ern},
-                                         {"queueErn", message.queueErn},
-                                         {"messageId", message.messageId},
-                                 });
+        // Published, not pushed: a client that wants to know about new messages subscribes to
+        // this event type through EES like it would to any other, and the bus decides who gets it
+        // - so a listener can be told live over its websocket, or have the events kept for it
+        // while it is away, without EQS knowing which. accountId and region come from the queue
+        // because a message does not carry them, and they are what scopes the event to an
+        // account; queueName is here so a subscriber can filter on the queue it cares about
+        // rather than receiving every queue's traffic.
+        Database::EventBus::instance().Publish(
+                "eqs.message.sent",
+                boost::json::value{
+                        {"ern", message.ern},
+                        {"queueErn", message.queueErn},
+                        {"queueName", queue->name},
+                        {"messageId", message.messageId},
+                        {"size", message.size},
+                        {"accountId", queue->accountId},
+                        {"region", queue->region},
+                },
+                "eqs");
 
         Dto::EQS::SendMessageResponse response;
         response.messageId = message.messageId;

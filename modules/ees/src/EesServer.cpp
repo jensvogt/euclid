@@ -64,6 +64,7 @@ namespace Euclid::EES {
                     {"eventType", subscription.eventType},
                     {"filter", subscription.filter},
                     {"accountId", subscription.accountId},
+                    {"mode", std::string(Database::EventBus::DeliveryModeToString(subscription.mode))},
                     {"created", Core::DateTimeUtils::ToISO8601(subscription.createdAt)},
                     {"lastSeen", Core::DateTimeUtils::ToISO8601(subscription.lastSeenAt)}};
         }
@@ -118,15 +119,31 @@ namespace Euclid::EES {
         // these types.
         const auto filter = objectField(obj, "filter");
 
+        // Durable unless the caller says otherwise: a subscriber that asked for events and was
+        // not connected when one arrived should find it waiting, and anything else has to be
+        // chosen deliberately.
+        const auto modeField = stringField(obj, "mode", "durable");
+        if (modeField != "durable" && modeField != "live") {
+            return EesServer::ErrorResponse(req, status::bad_request, "mode must be \"durable\" or \"live\"");
+        }
+        const auto mode = Database::EventBus::DeliveryModeFromString(modeField);
+
+        // Set by the gateway for a subscription that belongs to one websocket connection: it is
+        // removed when that connection ends, and any that survive a crash are cleared when the
+        // gateway next starts. Nothing stops a client setting it, and nothing goes wrong if one
+        // does - the subscription simply does not outlive this gateway process.
+        const auto *ephemeralValue = obj.if_contains("ephemeral");
+        const auto ephemeral = ephemeralValue != nullptr && ephemeralValue->is_bool() && ephemeralValue->as_bool();
+
         auto &bus = Database::EventBus::instance();
         for (const auto &eventType: eventTypes) {
-            bus.SubscribeExternal(subscriber, eventType, filter, auth.user->accountId);
+            bus.SubscribeExternal(subscriber, eventType, filter, auth.user->accountId, mode, ephemeral);
         }
 
         boost::json::array subscriptions;
         for (const auto &subscription: bus.ListSubscriptions(subscriber)) subscriptions.push_back(toJson(subscription));
 
-        log_info << "EES subscribed, subscriber: " << subscriber << ", eventTypes: " << eventTypes.size();
+        log_info << "EES subscribed, subscriber: " << subscriber << ", eventTypes: " << eventTypes.size() << ", mode: " << modeField;
 
         return EesServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{{"subscriptions", subscriptions}}));
     }

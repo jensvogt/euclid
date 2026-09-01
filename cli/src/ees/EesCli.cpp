@@ -64,11 +64,12 @@ namespace Euclid::CLI {
         desc.add_options()
                 ("name,n", po::value<std::string>()->required(), "subscriber name events are stored and claimed under")
                 ("event-types,e", po::value<std::string>()->required(), "comma-separated event types, e.g. esm.object.created,esm.object.deleted")
-                ("filter,f", po::value<std::string>(), "JSON object of payload fields that must match exactly, e.g. '{\"bucketName\":\"inbox\"}'");
+                ("filter,f", po::value<std::string>(), "JSON object of payload fields that must match exactly, e.g. '{\"bucketName\":\"inbox\"}'")
+                ("mode,m", po::value<std::string>()->default_value("durable"), "durable (events are kept until acknowledged) or live (pushed to connected sessions only)");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("ees", "subscribe-events",
-                                   "--name <name> --event-types <list> [--filter <json>]",
+                                   "--name <name> --event-types <list> [--filter <json>] [--mode durable|live]",
                                    "Registers a durable subscription. From then on, every matching event is stored "
                                    "for this name whether or not anything is connected, and stays there until it is "
                                    "acknowledged - so an application misses nothing while it restarts. Two consumers "
@@ -80,7 +81,11 @@ namespace Euclid::CLI {
                                    "busy the installation is; ESM's object events carry bucketName, key, prefix and "
                                    "directory for exactly this purpose. Subscribing again with the same name and event "
                                    "type replaces the filter rather than adding a second subscription. "
-                                   "An unclaimed event is kept for seven days.",
+                                   "An unclaimed event is kept for seven days. "
+                                   "A live subscription stores nothing at all: its events are pushed to whatever "
+                                   "websocket sessions are attached to the name and are then gone, which is what a "
+                                   "view wants - a screen showing a bucket has no use for the hour of events it "
+                                   "missed while nobody was looking at it.",
                                    desc);
         }
 
@@ -99,9 +104,16 @@ namespace Euclid::CLI {
             return 1;
         }
 
+        const auto mode = vm["mode"].as<std::string>();
+        if (mode != "durable" && mode != "live") {
+            std::cerr << "error: subscribe-events failed: --mode must be \"durable\" or \"live\"\n";
+            return 1;
+        }
+
         boost::json::object request{
                 {"name", vm["name"].as<std::string>()},
-                {"eventTypes", eventTypes}
+                {"eventTypes", eventTypes},
+                {"mode", mode}
         };
 
         // Parsed here rather than passed through as a string, so a mistyped filter is a message
