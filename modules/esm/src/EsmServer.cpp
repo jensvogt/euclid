@@ -139,13 +139,78 @@ namespace Euclid::ESM {
         }
     }
 
+    // ── Object events ────────────────────────────────────────────────────────
+    // The three events that say what happened to an object, published from every path that changes
+    // one: an upload, a multipart completion, a copy, a move, an attribute change, a delete, a
+    // purge. Clients subscribe to these through EES, which is why they are emitted through one
+    // function rather than written out at each call site - a listener that never hears about the
+    // objects a purge removed holds a view of the bucket that is quietly wrong, and the way to
+    // keep that from happening is for there to be a single place that says what an object event
+    // is and a single list of the places that have to send one.
+    //
+    // The payload is flat, and its values are strings, numbers and booleans, because a
+    // subscription filter matches a payload field by equality (EventBus::Publish). That is what
+    // makes "every object in this bucket", "everything under this prefix" and "no directory
+    // markers" expressible without a subscriber receiving everything and discarding most of it.
+    // "accountId" is the field that decides an event is never stored for another account at all,
+    // so it is always present.
+    constexpr auto kObjectCreated = "esm.object.created";
+    constexpr auto kObjectUpdated = "esm.object.updated";
+    constexpr auto kObjectDeleted = "esm.object.deleted";
+
+    // userId is who asked for the change, which is not always the object's owner - a move made by
+    // an operator does not change who uploaded the thing being moved, and a listener usually wants
+    // to know both.
+    static void publishObjectEvent(const std::string &eventType, const Database::Entity::ESM::Object &object,
+                                   const std::optional<Database::Entity::ESM::Bucket> &bucket, const std::string &userId) {
+
+        // A key is a path by convention only. A subscriber watching one "directory" has to be able
+        // to name it, so that convention is spelled out once, here, instead of by each of them.
+        const auto slash = object.key.rfind('/');
+        const auto prefix = slash == std::string::npos ? std::string() : object.key.substr(0, slash + 1);
+
+        // Falls back to the bucket's account for objects written before ESM recorded one per
+        // object: an event with no accountId reaches every subscriber of every account, which is
+        // the one failure here that would not be visible as a missing event.
+        const auto accountId = !object.accountId.empty() ? object.accountId
+                               : bucket.has_value()      ? bucket->accountId
+                                                         : std::string();
+
+        Database::EventBus::instance().Publish(
+                eventType,
+                boost::json::value{
+                        {"ern", object.ern},
+                        {"bucketErn", object.bucketErn},
+                        {"bucketName", bucket.has_value() ? bucket->name : std::string()},
+                        {"key", object.key},
+                        {"prefix", prefix},
+                        {"directory", Database::Entity::ESM::IsDirectoryKey(object.key)},
+                        {"size", object.size},
+                        {"contentType", object.contentType},
+                        {"md5Sum", object.md5Sum},
+                        {"owner", object.owner},
+                        {"userId", userId},
+                        {"accountId", accountId},
+                        {"region", object.region},
+                        {"namespace", object.nameSpace},
+                        {"eventTime", Core::DateTimeUtils::ToISO8601(std::chrono::system_clock::now())}},
+                "esm");
+    }
+
+    // ── Bucket subscriptions ─────────────────────────────────────────────────
     // Fans out to every subscription of bucketErn - one EventBus event per subscription, so a
     // subscribing instance (any one of them, via the claim mechanism) delivers it. Type SQS goes
-    // straight to an EQS queue (event "esm.object.created", consumed by EqsServer's
-    // handleSubscriptionDelivery); type SNS goes to an ENS topic (event "esm.object.published",
-    // consumed by EnsServer's handleObjectPublishedNotification, which publishes it as a regular
-    // topic message and lets ENS's own subscription fan-out take it from there).
-    static void publishObjectCreated(const std::string &bucketErn, const std::string &key, const std::string &ern, const long size, const std::string &contentType, const std::string &md5Sum) {
+    // straight to an EQS queue (event "esm.subscription.delivery", consumed by EqsServer's
+    // handleSubscriptionDelivery); type SNS goes to an ENS topic (event
+    // "esm.subscription.publication", consumed by EnsServer's handleObjectPublishedNotification,
+    // which publishes it as a regular topic message and lets ENS's own subscription fan-out take
+    // it from there).
+    //
+    // These two are named for the delivery rather than for the object because that is what they
+    // are: each carries a queue or topic to put a notification into, and is addressed to the one
+    // module that can do it. The object events above are the domain events, which anything - a
+    // module, an application - may subscribe to.
+    static void notifyBucketSubscriptions(const std::string &bucketErn, const std::string &key, const std::string &ern, const long size, const std::string &contentType, const std::string &md5Sum) {
 
         const auto subscriptions = Database::RepositoryFactory::instance().esmRepository()->listSubscriptionsBySourceErn(bucketErn);
         if (subscriptions.empty()) return;
@@ -169,14 +234,14 @@ namespace Euclid::ESM {
                         {"targetErn", subscription.targetErn},
                         {"body", body},
                 };
-                Database::EventBus::instance().Publish("esm.object.created", payload, "esm");
+                Database::EventBus::instance().Publish("esm.subscription.delivery", payload, "esm");
             } else if (subscription.type == "SNS") {
                 const boost::json::value payload = {
                         {"sourceErn", bucketErn},
                         {"targetErn", subscription.targetErn},
                         {"body", body},
                 };
-                Database::EventBus::instance().Publish("esm.object.published", payload, "esm");
+                Database::EventBus::instance().Publish("esm.subscription.publication", payload, "esm");
             }
         }
     }
@@ -421,9 +486,11 @@ namespace Euclid::ESM {
 
         log_info << "ESM put object, bucket: " << bucketErn << ", key: " << key << ", internalName: " << internalName << ", size: " << data.size();
 
-        Database::EventBus::instance().Publish(
-                "esm.object.modified", boost::json::value{{"ern", ern}, {"bucketErn", bucketErn}, {"key", key}, {"size", object.size}}, "esm");
-        publishObjectCreated(bucketErn, key, ern, object.size, contentType, md5Sum);
+        // Uploading to a key that already held an object replaces it, which is an update of that
+        // key rather than a second creation of it - a listener that treats "created" as "this key
+        // is new" should not be told twice.
+        publishObjectEvent(existingObject ? kObjectUpdated : kObjectCreated, object, bucket, auth.user->userId);
+        notifyBucketSubscriptions(bucketErn, key, ern, object.size, contentType, md5Sum);
 
         Dto::ESM::CompleteUploadResponse response;
         response.bucketErn = bucketErn;
@@ -467,7 +534,8 @@ namespace Euclid::ESM {
         // its internalName/ern/size - and thus the still-valid previous file on disk - survive
         // until complete-upload actually replaces them.
         Database::Entity::ESM::Object object;
-        if (const auto existing = repo->findObjectByBucketAndKey(request.bucketErn, request.key); existing.has_value()) {
+        const auto existing = repo->findObjectByBucketAndKey(request.bucketErn, request.key);
+        if (existing.has_value()) {
             object = *existing;
         }
         object.bucketErn = request.bucketErn;
@@ -500,10 +568,15 @@ namespace Euclid::ESM {
 
         // Records the upload's target bucket/key alongside the staged parts, so "complete-upload"
         // can assemble them into the right place using only the upload ID the client carries.
+        // "replaces" is recorded here because complete-upload cannot work it out for itself: the
+        // row seeded above means it always finds an object at this key, whether or not one was
+        // there before the upload started - and the difference is exactly what decides whether it
+        // publishes a created or an updated event.
         const boost::json::value meta = {
                 {"bucketErn", request.bucketErn},
                 {"key", request.key},
                 {"owner", auth.user->userId},
+                {"replaces", existing.has_value()},
                 {"created", Core::DateTimeUtils::ToISO8601(std::chrono::system_clock::now())},
         };
         std::ofstream metaFile(uploadDir / kUploadMetaFile);
@@ -632,6 +705,10 @@ namespace Euclid::ESM {
         }
         const auto bucketErn = std::string(meta.at("bucketErn").as_string());
         const auto key = std::string(meta.at("key").as_string());
+        // Written by create-upload; absent from an upload started by an older ESM, in which case
+        // the object counts as new - which is what it is in all but the overwrite case.
+        const auto *replacesValue = meta.is_object() ? meta.as_object().if_contains("replaces") : nullptr;
+        const auto replaces = replacesValue != nullptr && replacesValue->is_bool() && replacesValue->as_bool();
 
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
 
@@ -696,7 +773,7 @@ namespace Euclid::ESM {
         // detached thread's entry function calls std::terminate() and takes down the entire
         // process, unlike an exception in a normal request handler which route()/Dispatch() would
         // otherwise catch.
-        std::thread([repo, uploadDir, parts, dataDir, destPath, internalName, ern, bucketErn, key, owner, region, accountId, ns, existingObject, attributes = *attributes, uploadId = request.uploadId] {
+        std::thread([repo, uploadDir, parts, dataDir, destPath, internalName, ern, bucketErn, bucket, key, owner, region, accountId, ns, existingObject, replaces, attributes = *attributes, uploadId = request.uploadId] {
             try {
                 std::error_code ec;
                 std::filesystem::create_directories(dataDir, ec);
@@ -766,7 +843,13 @@ namespace Euclid::ESM {
                 }
 
                 log_info << "Completed upload, id: " << uploadId << ", key: " << key << ", internalName: " << internalName << ", size: " << assembledSize;
-                publishObjectCreated(bucketErn, key, ern, object.size, contentType, md5Sum);
+
+                // Published here, at the end of the background pass, rather than when the handler
+                // accepted the upload: until the file is assembled and hashed the object exists
+                // only as an UPLOADED row, and a listener that fetched it then would get an
+                // incomplete object.
+                publishObjectEvent(replaces ? kObjectUpdated : kObjectCreated, object, bucket, owner);
+                notifyBucketSubscriptions(bucketErn, key, ern, object.size, contentType, md5Sum);
             } catch (const std::exception &e) {
                 log_error << "Post-processing failed, upload id: " << uploadId << ", error: " << e.what();
             } catch (...) {
@@ -1107,12 +1190,17 @@ namespace Euclid::ESM {
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
 
         // Looked up before deleting so the bucket's aggregate size/objects can be adjusted -
-        // without this, a bucket's stats would only ever grow, never reflecting deletions.
-        if (const auto object = repo->findObjectByErn(request.ern); object.has_value()) {
+        // without this, a bucket's stats would only ever grow, never reflecting deletions. The
+        // object is also what the event below is made of, and after the delete there is nothing
+        // left to describe it with.
+        const auto object = repo->findObjectByErn(request.ern);
+        std::optional<Database::Entity::ESM::Bucket> bucket;
+        if (object.has_value()) {
             // Addressed by object ERN, so which bucket it belongs to is only known now - and that
             // is what a grant is written in terms of.
             if (const auto denied = denyUngrantedBucket(req, auth, object->bucketErn)) return *denied;
-            if (auto bucket = repo->findBucketByErn(object->bucketErn); bucket.has_value()) {
+            bucket = repo->findBucketByErn(object->bucketErn);
+            if (bucket.has_value()) {
                 bucket->size = std::max<long>(0, bucket->size - object->size);
                 // Mirrors put-object: a directory was never counted, so removing one must not
                 // decrement anything either.
@@ -1129,7 +1217,9 @@ namespace Euclid::ESM {
 
         repo->deleteObjectByErn(request.ern);
 
-        Database::EventBus::instance().Publish("esm.object.deleted", boost::json::value{{"ern", request.ern}}, "esm");
+        // No event for a delete of something that was not there: an ERN that named no object is a
+        // caller's mistake, not a change to the bucket.
+        if (object.has_value()) publishObjectEvent(kObjectDeleted, *object, bucket, auth.user->userId);
 
         return JsonResponse(req, status::ok);
     }
@@ -1174,6 +1264,13 @@ namespace Euclid::ESM {
             repo->deleteObjectByErn(object.ern);
             purgedSize += object.size;
             if (!Database::Entity::ESM::IsDirectoryKey(object.key)) purgedObjects++;
+
+            // One event per object, the same as if each had been deleted on its own. A purge is
+            // the cheapest way to make a listener's view of a bucket wrong, and "the bucket was
+            // purged" would not tell it which of the objects it was tracking are gone - so it
+            // pays for a publish per object, which is the same order of work as the delete and
+            // the file removal it already does for each one.
+            publishObjectEvent(kObjectDeleted, object, bucket, auth.user->userId);
         }
         log_info << "ESM bucket purged, ern: " << request.bucketErn << ", count: " << purgedObjects;
 
@@ -1209,6 +1306,9 @@ namespace Euclid::ESM {
         // or the response explaining why the caller cannot have it.
         struct ResolvedObject {
             std::optional<Database::Entity::ESM::Object> object;
+            // Carried out with it because it was looked up here anyway (the account check below
+            // is what needs it), and an object event names the bucket the object is in.
+            std::optional<Database::Entity::ESM::Bucket> bucket;
             std::optional<response<string_body> > error;
         };
 
@@ -1226,7 +1326,7 @@ namespace Euclid::ESM {
 
             // Same check list-objects makes: a syntactically valid ERN from another account must
             // not expose - or let anyone write to - that account's objects.
-            const auto bucket = repo->findBucketByErn(object->bucketErn);
+            auto bucket = repo->findBucketByErn(object->bucketErn);
             if (!bucket.has_value()) {
                 return {.error = EsmServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + object->bucketErn)};
             }
@@ -1237,15 +1337,7 @@ namespace Euclid::ESM {
                 return {.error = EsmServer::ErrorResponse(req, status::forbidden, "Not authorized for this bucket: " + object->bucketErn)};
             }
 
-            return {.object = std::move(object)};
-        }
-
-        // An attribute change is a change to the object, and anything watching the object (the
-        // RUI's live view, a subscriber) has no other way to learn about it.
-        void publishObjectModified(const Database::Entity::ESM::Object &object) {
-            Database::EventBus::instance().Publish(
-                    "esm.object.modified",
-                    boost::json::value{{"ern", object.ern}, {"bucketErn", object.bucketErn}, {"key", object.key}, {"size", object.size}}, "esm");
+            return {.object = std::move(object), .bucket = std::move(bucket)};
         }
 
     }// namespace
@@ -1352,15 +1444,16 @@ namespace Euclid::ESM {
             }
         }
 
-        Database::EventBus::instance().Publish(
-                "esm.object.modified",
-                boost::json::value{{"ern", stored.ern}, {"bucketErn", stored.bucketErn}, {"key", stored.key}, {"size", stored.size}}, "esm");
+        // A move is a creation and a deletion, told in that order: a listener that keeps an index
+        // of keys can apply them in the order it receives them and never have the object missing
+        // from both places. A copy is only the creation.
+        publishObjectEvent(kObjectCreated, stored, targetBucket, auth.user->userId);
         if (!keepSource) {
-            Database::EventBus::instance().Publish("esm.object.deleted", boost::json::value{{"ern", source->ern}}, "esm");
+            publishObjectEvent(kObjectDeleted, *source, sourceBucket, auth.user->userId);
         }
         // Subscribers of the target bucket see an object appear, which is what happened as far as
         // anything watching that bucket is concerned - however it got there.
-        publishObjectCreated(targetBucketErn, targetKey, stored.ern, stored.size, stored.contentType, stored.md5Sum);
+        notifyBucketSubscriptions(targetBucketErn, targetKey, stored.ern, stored.size, stored.contentType, stored.md5Sum);
 
         log_info << "ESM " << action << ", from: " << sourceBucketErn << "/" << sourceKey
                 << ", to: " << targetBucketErn << "/" << targetKey << ", size: " << stored.size;
@@ -1415,7 +1508,7 @@ namespace Euclid::ESM {
         }
         log_info << "ESM AddObjectAttribute, ern: " << request.ern << ", name: " << request.name;
 
-        auto [object, error] = resolveObject(req, auth, request.ern);
+        auto [object, bucket, error] = resolveObject(req, auth, request.ern);
         if (error.has_value()) return *error;
 
         if (object->attributes.contains(request.name)) {
@@ -1424,7 +1517,9 @@ namespace Euclid::ESM {
 
         object->attributes[request.name] = Dto::ESM::EsmMapper::toEntity(request.value);
         const auto stored = Database::RepositoryFactory::instance().esmRepository()->upsertObject(*object);
-        publishObjectModified(stored);
+        // An attribute change is a change to the object, and anything watching it has no other
+        // way to learn about it.
+        publishObjectEvent(kObjectUpdated, stored, bucket, auth.user->userId);
 
         Dto::ESM::ObjectAttributeResponse response;
         response.ern = stored.ern;
@@ -1450,7 +1545,7 @@ namespace Euclid::ESM {
         }
         log_info << "ESM SetObjectAttribute, ern: " << request.ern << ", name: " << request.name;
 
-        auto [object, error] = resolveObject(req, auth, request.ern);
+        auto [object, bucket, error] = resolveObject(req, auth, request.ern);
         if (error.has_value()) return *error;
 
         if (!object->attributes.contains(request.name)) {
@@ -1459,7 +1554,9 @@ namespace Euclid::ESM {
 
         object->attributes[request.name] = Dto::ESM::EsmMapper::toEntity(request.value);
         const auto stored = Database::RepositoryFactory::instance().esmRepository()->upsertObject(*object);
-        publishObjectModified(stored);
+        // An attribute change is a change to the object, and anything watching it has no other
+        // way to learn about it.
+        publishObjectEvent(kObjectUpdated, stored, bucket, auth.user->userId);
 
         Dto::ESM::ObjectAttributeResponse response;
         response.ern = stored.ern;
@@ -1482,7 +1579,7 @@ namespace Euclid::ESM {
         const auto request = boost::json::value_to<Dto::ESM::ListObjectAttributesRequest>(jv);
         log_info << "ESM ListObjectAttributes, ern: " << request.ern;
 
-        auto [object, error] = resolveObject(req, auth, request.ern);
+        auto [object, bucket, error] = resolveObject(req, auth, request.ern);
         if (error.has_value()) return *error;
 
         Dto::ESM::ListObjectAttributesResponse response;
@@ -1511,7 +1608,7 @@ namespace Euclid::ESM {
         }
         log_info << "ESM DeleteObjectAttribute, ern: " << request.ern << ", name: " << request.name;
 
-        auto [object, error] = resolveObject(req, auth, request.ern);
+        auto [object, bucket, error] = resolveObject(req, auth, request.ern);
         if (error.has_value()) return *error;
 
         // Reported rather than ignored, for the same reason add and set are strict: a delete that
@@ -1523,7 +1620,9 @@ namespace Euclid::ESM {
 
         object->attributes.erase(request.name);
         const auto stored = Database::RepositoryFactory::instance().esmRepository()->upsertObject(*object);
-        publishObjectModified(stored);
+        // An attribute change is a change to the object, and anything watching it has no other
+        // way to learn about it.
+        publishObjectEvent(kObjectUpdated, stored, bucket, auth.user->userId);
 
         return EsmServer::JsonResponse(req, status::ok);
     }

@@ -1,0 +1,53 @@
+.TH EUCLID-CLI-EES-LIST-SUBSCRIPTIONS 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ees-list-subscriptions \- show a subscriber's subscriptions and backlog
+.SH SYNOPSIS
+.B euclid-cli ees list-subscriptions
+.BR \-\-name | \-n
+.I NAME
+.SH DESCRIPTION
+Shows what
+.I NAME
+is subscribed to \- its event types, filters and account \- together with
+.IR waiting ,
+the number of events currently held for it, claimed or not.
+.PP
+.I waiting
+is the number to watch. A backlog that only grows is the sign of a
+consumer that receives without acknowledging, or one that stopped
+running while its subscription stayed behind; in the second case the
+events are being kept for something that will never come for them, and
+.BR euclid-cli-ees-unsubscribe-events (1)
+is what clears them.
+.PP
+.I lastSeen
+is when the subscriber last claimed anything, which distinguishes those
+two cases: a consumer that is running but never acknowledges keeps
+moving it forward.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+Subscriber name. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The call succeeded. Subscriptions and the waiting count are printed as
+JSON; a name that is not subscribed to anything prints an empty list
+rather than failing.
+.TP
+.B 1
+Missing or invalid arguments, no session, or the server rejected the
+request.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli ees list-subscriptions --name invoice-import
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ees (1),
+.BR euclid-cli-ees-subscribe-events (1),
+.BR euclid-cli-ees-unsubscribe-events (1),
+.BR euclid-cli-ees-receive-events (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

@@ -1,4 +1,4 @@
-.TH EUCLID-CLI-EKM 1 "August 2026" "euclid-cli 1.0.33" "Euclid CLI Manual"
+.TH EUCLID-CLI-EKM 1 "August 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
 .SH NAME
 euclid-cli-ekm \- manage Euclid encryption keys
 .SH SYNOPSIS
@@ -112,9 +112,9 @@ commands are authenticated using the session created by
 loaded from
 .IR $HOME/.euclid/credentials .
 Like
-.BR eqs (1)
+.BR euclid-cli-eqs (1)
 and
-.BR esm (1)
+.BR euclid-cli-esm (1)
 requests, they are signed with SigV4 using the stored access key ID and
 secret if present, falling back to the bearer token otherwise.
 .PP

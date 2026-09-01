@@ -77,6 +77,64 @@ covering less could be stripped down in transit and still verify.
 side is `Core::HttpSignature`, and `tests/HttpSignatureTest.cpp` pins the two against each other
 with a recorded vector produced by that Python code.
 
+## Being told when a bucket changes
+
+An application that has to react to objects rather than poll for them subscribes to ESM's object
+events. There are three, and every path that changes an object publishes one — an upload, a
+multipart completion, a copy, a move, a rename, an attribute change, a delete, and a purge (one per
+object it removed):
+
+| Event | Published when |
+| --- | --- |
+| `esm.object.created` | an object appears at a key that held none |
+| `esm.object.updated` | an existing key is re-uploaded, or an attribute changes |
+| `esm.object.deleted` | an object is removed, including the source side of a move |
+
+A move is a `created` followed by a `deleted`, in that order, so a listener keeping its own index of
+keys never has the object missing from both places.
+
+The payload is flat, and every field can be filtered on:
+
+```json
+{
+  "ern": "ern:esm:eu-central-1:000000000000:development:object:inbox/reports/q3.csv",
+  "bucketErn": "ern:esm:eu-central-1:000000000000:development:bucket:inbox",
+  "bucketName": "inbox", "key": "reports/q3.csv", "prefix": "reports/", "directory": false,
+  "size": 4211, "contentType": "text/csv", "md5Sum": "2aacead6864fa88adab90b825464f87c",
+  "owner": "admin", "userId": "admin", "accountId": "000000000000",
+  "region": "eu-central-1", "namespace": "development",
+  "eventTime": "2026-09-01T14:57:20.842631687Z"
+}
+```
+
+Subscribing is four actions on the `ees` module — `subscribe-events`, `receive-events` (long-polls,
+up to 20 seconds), `ack-events`, `unsubscribe-events`:
+
+```json
+{"name": "invoice-import",
+ "eventTypes": ["esm.object.created", "esm.object.updated"],
+ "filter": {"bucketName": "inbox", "prefix": "reports/", "directory": false}}
+```
+
+A filter is exact-match, and is applied when the event is published rather than when it is
+delivered — so a subscriber's backlog is proportional to what it asked for, not to how busy the
+installation is. `prefix` is what makes "this directory" expressible; `directory: false` keeps the
+zero-byte markers an FTP `MKD` leaves behind out of it.
+
+Three things follow from events being stored per subscriber rather than in a queue you create:
+
+- **Nothing is lost while you are down.** An event waits until the subscriber claims it, and is
+  removed only when it acks. Redeploying an application does not miss the objects that arrived
+  during the restart.
+- **Two applications watching the same bucket both get it.** One acking its copy does not take the
+  event from the other, so no queue per consumer is needed.
+- **Two instances of one application share the work.** They use the same subscriber name, and a
+  claim is atomic, so exactly one of them handles each event. An unacked claim becomes visible
+  again when its lease runs out, which is what makes a consumer crashing mid-work harmless.
+
+An unclaimed event expires after seven days, so an application that never comes back cannot fill the
+database.
+
 ## Deploying one
 
 The artifact lives in an ESM bucket, so deployment is an ordinary upload — through the CLI, an

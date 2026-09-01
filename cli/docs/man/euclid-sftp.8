@@ -1,0 +1,135 @@
+.TH EUCLID-SFTP 8 "September 2026" "euclid 1.0.53" "Euclid System Manager's Manual"
+.SH NAME
+euclid-sftp \- Euclid SFTP service process
+.SH SYNOPSIS
+.B euclid-sftp
+.BR \-\-transfer\-server | \-t
+.I ID
+[\fB\-\-config\fR|\fB\-c\fR \fIPATH\fR]
+[\fB\-\-socket\fR|\fB\-s\fR \fIPATH\fR]
+[\fB\-\-loglevel\fR|\fB\-l\fR \fILEVEL\fR]
+[\fB\-\-console\-log\fR \fIBOOL\fR]
+[\fB\-\-file\-log\fR \fIBOOL\fR]
+.SH DESCRIPTION
+.B euclid-sftp
+serves one SFTP transfer server: it listens on that server's port,
+authenticates clients against
+.BR euclid-cli-eam (1)
+credentials, and stores whatever they upload as objects in the server's
+.BR euclid-cli-esm (1)
+bucket. It is the SSH-based counterpart of
+.BR euclid-ftp (8),
+and differs from it in the transport only \- the same definitions, the
+same bucket, the same accounts.
+.PP
+It is not normally started by hand. The Euclid manager
+.RB ( euclid-mgr )
+runs exactly the transfer servers whose definitions are marked running,
+so the way to start and stop one is
+.BR euclid-cli-ets-start-server (1)
+and
+.BR euclid-cli-ets-stop-server (1);
+the manager spawns and reaps this process to match. Starting it directly
+is useful for debugging a definition, and for reading an error that the
+manager would otherwise only report as a service that did not become
+ready.
+.PP
+The bucket is what a client actually sees. A directory listing is a
+listing of keys, an upload becomes an object, and a download reads one
+back \- so two servers pointed at the same bucket show the same
+contents, as does anything put there through ESM, an SDK or another
+transfer server.
+.SH OPTIONS
+.TP
+.BR \-t ", " \-\-transfer\-server " " \fIID\fR
+Serve the ETS transfer server with this ID. Required: address, port,
+bucket, host key and the users and groups allowed to log in all come
+from that definition, and there is nothing to serve without one. A
+definition is created with
+.BR euclid-cli-ets-create-server (1).
+.TP
+.BR \-c ", " \-\-config " " \fIPATH\fR
+JSON configuration file. Defaults to
+.IR /usr/local/euclid/etc/euclid.json .
+.TP
+.BR \-s ", " \-\-socket " " \fIPATH\fR
+Unix domain socket this process listens on for its own control requests.
+Defaults to
+.IR /var/run/euclid-sftp.sock .
+.TP
+.BR \-l ", " \-\-loglevel " " \fILEVEL\fR
+Log level: one of \fItrace\fR, \fIdebug\fR, \fIinfo\fR, \fIwarning\fR,
+\fIerror\fR, \fIfatal\fR. Defaults to \fIinfo\fR.
+.TP
+.BR \-\-console\-log " " \fIBOOL\fR
+Log to standard output. Defaults to \fItrue\fR, which is what puts the
+log into the manager's journal when it runs this process.
+.TP
+.BR \-\-file\-log " " \fIBOOL\fR
+Log to a file. Defaults to \fIfalse\fR.
+.TP
+.BR \-h ", " \-\-help
+Print usage and exit.
+.TP
+.BR \-v ", " \-\-version
+Print the version and exit.
+.SH HOST KEY
+A server's definition may name its own private host key
+.RB ( "ets create-server \-\-host\-key" ).
+One is generated on first start if the file is not there, which is
+convenient but worth knowing about: clients pin the key they first saw,
+so a key regenerated after a reinstall makes every one of them refuse to
+connect until its record of the host is cleared. Keeping the key file
+across upgrades avoids that, which is why it lives outside the spool
+directory.
+.SH CONFIGURATION
+The transfer server's definition decides everything that distinguishes
+one server from another, and overrides the configuration file where they
+overlap. Only installation-wide settings are read here:
+.TP
+.I euclid.modules.sftp.host\-key
+Host key used when a definition names none. Defaults to
+.IR /usr/local/euclid/etc/ssh_host_key .
+.TP
+.I euclid.modules.sftp.data\-dir
+Root of the spool directory, used for files in flight. Defaults to
+.IR /usr/local/euclid/data/sftp .
+.SH EXIT STATUS
+.TP
+.B 0
+The process stopped normally.
+.TP
+.B 1
+Startup failed and the reason is on standard error: no
+.BR \-\-transfer\-server ,
+a server ID that is not defined, a definition with no bucket or an
+invalid address, a host key that could not be read or generated, or a
+port that could not be bound.
+.SH FILES
+.TP
+.I /usr/local/euclid/etc/euclid.json
+Default configuration file.
+.TP
+.I /usr/local/euclid/etc/ssh_host_key
+Default private host key.
+.TP
+.I /usr/local/euclid/data/sftp
+Spool directory for in-flight files.
+.SH EXAMPLES
+Run a defined server in the foreground to see why it will not start:
+.PP
+.RS
+.nf
+euclid-sftp --transfer-server sftp1 --loglevel debug
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-ftp (8),
+.BR euclid-cli-ets (1),
+.BR euclid-cli-ets-create-server (1),
+.BR euclid-cli-ets-start-server (1),
+.BR euclid-cli-ets-stop-server (1),
+.BR euclid-cli-esm (1),
+.BR euclid-cli (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
