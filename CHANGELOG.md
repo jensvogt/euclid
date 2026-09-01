@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.55](https://github.com/jensvogt/euclid/compare/1.0.54...v1.0.55) (2026-09-01)
+
+
+### Bug Fixes
+
+* eem module ([33848e8](https://github.com/jensvogt/euclid/commit/33848e874644c8dce224766c78517881a672610b))
+
 ## [1.0.54](https://github.com/jensvogt/euclid/compare/1.0.53...v1.0.54) (2026-09-01)
 
 
