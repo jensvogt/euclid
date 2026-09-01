@@ -48,7 +48,7 @@ namespace Euclid::main {
         long delivered = 0;
         std::string frame;
         for (const auto &session: live) {
-            if (session->subscriberName() != subscriber) continue;
+            if (!session->IsAttachedTo(subscriber)) continue;
             if (!accountId.empty() && session->accountId() != accountId) continue;
             if (!region.empty() && session->region() != region) continue;
             if (frame.empty()) frame = Core::WsFrame::BuildEventFrame(topic, accountId, region, body);

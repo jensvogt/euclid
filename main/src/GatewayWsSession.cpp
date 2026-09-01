@@ -194,7 +194,7 @@ namespace Euclid::main {
         template<class SessionPtr>
         void HandleSubscriptionFrame(SessionPtr self, asio::io_context &ioc, ServiceController &ctrl, const std::string &authorization,
                                      const std::string &accountId, const std::string &region, const std::string &ns,
-                                     std::mutex &mutex, std::string &subscriberName, std::string &ephemeralName,
+                                     std::mutex &mutex, std::set<std::string> &subscriberNames, std::string &ephemeralName,
                                      const std::string &text) {
 
             std::string error;
@@ -221,12 +221,15 @@ namespace Euclid::main {
                 }
 
                 if (subscribing) {
-                    subscriberName = name;
+                    // Added rather than replacing what was there: one connection commonly carries
+                    // several listeners, and attaching to a second subscription must not silently
+                    // stop the first from being delivered.
+                    subscriberNames.insert(name);
                 } else if (parsed->topic.empty()) {
                     // A name and no topic: stop receiving, leave the subscription alone. That is
                     // what detaching means, and it is the only way to stop listening without also
                     // throwing away what a durable subscription has collected.
-                    subscriberName.clear();
+                    subscriberNames.erase(name);
                 }
             }
 
@@ -324,16 +327,16 @@ namespace Euclid::main {
 
     void GatewayWsSession::handleSubscriptionFrame(const std::string &text) {
         HandleSubscriptionFrame(shared_from_this(), _ioc, _ctrl, _authorization, _accountId, _region, _namespace,
-                                _subscriptionsMutex, _subscriberName, _ephemeralName, text);
+                                _subscriptionsMutex, _subscriberNames, _ephemeralName, text);
     }
 
     GatewayWsSession::~GatewayWsSession() {
         RemoveEphemeralSubscription(_ioc, _ctrl, _authorization, _accountId, _region, _namespace, _ephemeralName);
     }
 
-    std::string GatewayWsSession::subscriberName() const {
+    bool GatewayWsSession::IsAttachedTo(const std::string &name) const {
         std::lock_guard lock(_subscriptionsMutex);
-        return _subscriberName;
+        return _subscriberNames.contains(name);
     }
 
 
@@ -423,16 +426,16 @@ namespace Euclid::main {
 
     void GatewayWsTlsSession::handleSubscriptionFrame(const std::string &text) {
         HandleSubscriptionFrame(shared_from_this(), _ioc, _ctrl, _authorization, _accountId, _region, _namespace,
-                                _subscriptionsMutex, _subscriberName, _ephemeralName, text);
+                                _subscriptionsMutex, _subscriberNames, _ephemeralName, text);
     }
 
     GatewayWsTlsSession::~GatewayWsTlsSession() {
         RemoveEphemeralSubscription(_ioc, _ctrl, _authorization, _accountId, _region, _namespace, _ephemeralName);
     }
 
-    std::string GatewayWsTlsSession::subscriberName() const {
+    bool GatewayWsTlsSession::IsAttachedTo(const std::string &name) const {
         std::lock_guard lock(_subscriptionsMutex);
-        return _subscriberName;
+        return _subscriberNames.contains(name);
     }
 
 
