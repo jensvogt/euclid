@@ -256,7 +256,7 @@ namespace Euclid::ENS {
 
     // ── EventBus ─────────────────────────────────────────────────────────────
     // Consumer side of ESM's SNS-type bucket subscriptions: an object-created notification
-    // targeting an ENS topic (EsmServer::publishObjectCreated, event "esm.object.published") is
+    // targeting an ENS topic (EsmServer::notifyBucketSubscriptions, event "esm.subscription.publication") is
     // published as a regular topic message here, so it flows through the topic's own subscription
     // fan-out (publishToTopic above) exactly like a client-published message would.
 
@@ -883,7 +883,7 @@ namespace Euclid::ENS {
         //                                                   },
         //                                                   std::chrono::seconds(30));
 
-        Database::EventBus::instance().Subscribe("ens", "esm.object.published", handleObjectPublishedNotification);
+        Database::EventBus::instance().Subscribe("ens", "esm.subscription.publication", handleObjectPublishedNotification);
         Database::EventBus::instance().Start("ens");
     }
 

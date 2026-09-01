@@ -1,0 +1,257 @@
+.TH EUCLID-CLI 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli \- command-line client for a Euclid installation
+.SH SYNOPSIS
+.B euclid-cli
+[\fIglobal-options\fR]
+.I module action
+[\fIaction-options\fR...]
+.PP
+.B euclid-cli
+.IR module " help"
+.PP
+.B euclid-cli
+.I module action
+.B \-\-help
+.SH DESCRIPTION
+.B euclid-cli
+is the command-line client for Euclid. Every command names a
+.I module
+and an
+.I action
+on it \- \fBeuclid-cli esm list-buckets\fR, \fBeuclid-cli eqs
+send-message\fR \- which mirrors how the installation itself is built:
+each module is a separate service behind the gateway, and an action is
+one request to it.
+.PP
+A command sends a single JSON request to the gateway
+(\fB\-\-endpoint\fR, default \fIhttps://localhost:5566\fR) and prints
+the JSON response, so its output can be piped into
+.BR jq (1)
+or any other JSON reader. The exceptions are the ESM transfer actions,
+which stream raw bytes rather than JSON in one direction \- see
+.BR euclid-cli-esm-upload-file (1)
+and
+.BR euclid-cli-esm-download-file (1).
+.PP
+There is no command that changes anything locally: the CLI holds a
+session and nothing else, so anything it can do can equally be done by
+an SDK or by an HTTP client that signs its requests the same way.
+.SH MODULES
+.TP
+.B eam
+Access management: users, groups, accounts, namespaces, and the login
+that every other module's session comes from. See
+.BR euclid-cli-eam (1).
+.TP
+.B esm
+Storage: buckets, objects, uploads and downloads, object attributes, and
+subscriptions that notify a queue or topic. See
+.BR euclid-cli-esm (1).
+.TP
+.B eqs
+Queueing: queues and messages. See
+.BR euclid-cli-eqs (1).
+.TP
+.B ens
+Notifications: publish/subscribe topics and their messages. See
+.BR euclid-cli-ens (1).
+.TP
+.B ees
+Events: subscribe to what modules publish, and receive it durably
+without a queue of your own. See
+.BR euclid-cli-ees (1).
+.TP
+.B ekm
+Key management: cryptographic keys, encryption and decryption. See
+.BR euclid-cli-ekm (1).
+.TP
+.B emm
+Module management: what the manager is running, and export/import of a
+module's collections. See
+.BR euclid-cli-emm (1).
+.TP
+.B ets
+Transfer servers: FTP and SFTP endpoints onto an ESM bucket. See
+.BR euclid-cli-ets (1).
+.TP
+.B eap
+Applications: Java, Python, Node.js, Rust or C++ processes that Euclid
+runs and scales. See
+.BR euclid-cli-eap (1).
+.SH GLOBAL OPTIONS
+Global options are recognized only
+.I before
+the module name. The first token that is not one of them (or a value for
+one) starts \fImodule action \fR[\fIaction-options\fR...], which is
+passed on verbatim \- so an action option never has to be escaped to
+keep the CLI from claiming it.
+.TP
+.BR \-e ", " \-\-endpoint " " \fIURL\fR
+Euclid gateway endpoint to talk to. Defaults to
+.IR https://localhost:5566 .
+.TP
+.BR \-t ", " \-\-ca\-cert " " \fIPATH\fR
+Path to a PEM CA certificate to trust in addition to the system trust
+store, for the self-signed certificate a development installation
+generates. Defaults to
+.IR /usr/local/euclid/etc/euclid_cert.crt .
+.TP
+.BR \-c ", " \-\-config " " \fIPATH\fR
+JSON configuration file providing defaults for action options \- see
+.B CONFIGURATION
+below. Silently ignored if it does not exist, since the CLI is often run
+from a machine that has no installation of its own. Defaults to
+.IR /usr/local/euclid/etc/euclid.json .
+.TP
+.BR \-s ", " \-\-signature " " \fISCHEME\fR
+Signature scheme for signed service calls:
+.I sigv4
+(the default) or
+.I rfc9421
+for RFC 9421 HTTP Message Signatures. Both prove the request with the
+same access key; RFC 9421 puts the signature in
+.IR Signature / Signature\-Input
+headers and binds the body through
+.I Content\-Digest
+(RFC 9530) instead of using AWS's Authorization header. Overrides
+.I euclid.cli.signature
+from the configuration file. Ignored for
+.BR euclid-cli-eam (1)
+commands, which authenticate with the session's bearer token.
+.TP
+.BR \-p ", " \-\-pretty " " \fIBOOL\fR
+Pretty-print the JSON response. Defaults to \fItrue\fR; pass
+\fB\-\-pretty 0\fR for single-line output.
+.TP
+.BR \-l ", " \-\-loglevel " " \fILEVEL\fR
+Log level: one of \fItrace\fR, \fIdebug\fR, \fIinfo\fR, \fIwarning\fR,
+\fIerror\fR, \fIfatal\fR. Defaults to \fIinfo\fR.
+.TP
+.BR \-h ", " \-\-help
+Print usage and the module list, then exit.
+.TP
+.BR \-v ", " \-\-version
+Print the euclid-cli version and exit.
+.SH HELP
+Every module and every action documents itself, which is the fastest way
+to find an option's exact name:
+.PP
+.RS
+.nf
+euclid-cli esm help              list the module's actions
+euclid-cli esm put-object help   one action's synopsis and options
+euclid-cli esm put-object --help the same thing
+.fi
+.RE
+.PP
+Help never requires a session, so it works before logging in.
+.SH AUTHENTICATION
+.BR euclid-cli-eam-login (1)
+authenticates against the access module and writes the session to
+.IR $HOME/.euclid/credentials ,
+which every later command reads. One login per machine is enough until
+the session expires or the namespace is changed.
+.PP
+The session holds two things: a bearer token, used for
+.B eam
+commands, and a SigV4 access key provisioned on first login, used to
+sign every other module's requests. Which of the two is used is decided
+per module, not per command, so nothing has to be passed on the command
+line.
+.PP
+Some modules are administrator-only \-
+.BR euclid-cli-ets (1)
+and
+.BR euclid-cli-eap (1)
+among them, since they decide what runs and which network listeners
+exist. The CLI checks this before sending, for a clearer message than a
+bare 401; the server checks independently on every request and is the
+actual boundary.
+.PP
+If a command fails with
+.IR "HTTP 401" ,
+the session has expired: run
+.B euclid-cli eam login
+again.
+.SH CONFIGURATION
+The file named by
+.B \-\-config
+supplies defaults for options that would otherwise be typed on every
+invocation:
+.TP
+.I euclid.cli.signature
+Signature scheme, as for
+.BR \-\-signature .
+.TP
+.IR euclid.modules.storage.part-size ", " euclid.modules.storage.concurrency
+Part size and parallelism used by
+.BR euclid-cli-esm-upload-file (1)
+and
+.BR euclid-cli-esm-download-file (1),
+so a deployment can tune transfers once rather than per command.
+.SH EXIT STATUS
+.TP
+.B 0
+The action completed successfully.
+.TP
+.B 1
+Argument parsing failed, the module or action is unknown, there is no
+session or it lacks the required privileges, the request could not be
+sent, or the server rejected it. Details are printed to standard error,
+so standard output stays parseable.
+.SH FILES
+.TP
+.I $HOME/.euclid/credentials
+The current session: bearer token, SigV4 access key, user, account,
+region and active namespace. Written by
+.B euclid-cli eam login
+and read by every other command.
+.TP
+.I /usr/local/euclid/etc/euclid.json
+Default configuration file; see
+.BR CONFIGURATION .
+.TP
+.I /usr/local/euclid/etc/euclid_cert.crt
+Default additional CA certificate; see
+.BR \-\-ca\-cert .
+.SH EXAMPLES
+Log in, then store and read back a file:
+.PP
+.RS
+.nf
+euclid-cli eam login --user admin --password admin --namespace development
+euclid-cli esm create-bucket --name inbox
+euclid-cli esm upload-file \e
+    --bucket ern:esm:eu-central-1:000000000000:development:bucket:inbox \e
+    --key reports/q3.csv --file ./q3.csv
+euclid-cli esm list-objects \e
+    --bucket ern:esm:eu-central-1:000000000000:development:bucket:inbox
+.fi
+.RE
+.PP
+Talk to a remote installation with a self-signed certificate, printing
+compact JSON for a script:
+.PP
+.RS
+.nf
+euclid-cli --endpoint https://euclid.example.com:5566 \e
+    --ca-cert ./euclid_cert.crt --pretty 0 \e
+    eqs list-queues | jq -r '.queues[].name'
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-esm (1),
+.BR euclid-cli-eqs (1),
+.BR euclid-cli-ens (1),
+.BR euclid-cli-ees (1),
+.BR euclid-cli-ekm (1),
+.BR euclid-cli-emm (1),
+.BR euclid-cli-ets (1),
+.BR euclid-cli-eap (1),
+.BR euclid-ftp (8),
+.BR euclid-sftp (8)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

@@ -223,6 +223,7 @@ jobs:
           # /usr/local/share/man/man1 - which macOS lists in /etc/manpaths and man therefore
           # searches. Under euclid/ the pages would install fine and never be found.
           mkdir -p ${{ env.PACKAGE_DIR }}/share/man/man1
+          mkdir -p ${{ env.PACKAGE_DIR }}/share/man/man8
 
           # Everything the build produced, rather than a list that has to be extended by hand
           # whenever a module is added - which is how ekm, ens, emm, ets, eap, ftp and sftp came
@@ -248,7 +249,18 @@ jobs:
           # is wrong with the build, and a package that silently ships no documentation is worse
           # than a red build. Compressed because that is what every man reader expects to find.
           cp cli/docs/man/*.1 ${{ env.PACKAGE_DIR }}/share/man/man1/
-          gzip -9n ${{ env.PACKAGE_DIR }}/share/man/man1/*.1
+          # Section 8 is for the daemons the manager runs (euclid-ftp, euclid-sftp), which are
+          # administered rather than invoked - a reader looking one up expects it there.
+          cp cli/docs/man/*.8 ${{ env.PACKAGE_DIR }}/share/man/man8/
+          # The pages carry a version in their .TH line, and nothing bumps it when release-please
+          # bumps version.txt - so stamp the version being built rather than shipping whatever the
+          # last hand edit left behind. Read from version.txt rather than SEMVER because that file
+          # is what the build itself was versioned from, so the pages cannot disagree with the
+          # binary they document.
+          MAN_VERSION="$(tr -d '[:space:]' < version.txt)"
+          sed -i '' -E "1s/(euclid(-cli)? )[0-9]+\.[0-9]+\.[0-9]+/\1${MAN_VERSION}/" \
+            ${{ env.PACKAGE_DIR }}/share/man/man1/*.1 ${{ env.PACKAGE_DIR }}/share/man/man8/*.8
+          gzip -9n ${{ env.PACKAGE_DIR }}/share/man/man1/*.1 ${{ env.PACKAGE_DIR }}/share/man/man8/*.8
           cp -R ${{ github.workspace }}/frontend/euclid-ui/dist/euclid-ui/browser/* ${{ env.PACKAGE_DIR }}/euclid/frontend/ 2>/dev/null || true
 
       - name: Verify macOS package contents
@@ -381,6 +393,7 @@ jobs:
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/data/esm
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/data/eap
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man1
+          mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man8
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/etc/systemd/system
 
           # Everything the build produced, rather than a list that has to be extended by hand
@@ -405,7 +418,18 @@ jobs:
           # are found without any configuration. Compressed, as Debian policy requires, and not
           # "|| true": these ship from the repository and a missing copy is a build problem.
           cp cli/docs/man/*.1 ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man1/
-          gzip -9n ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man1/*.1
+          # Section 8 is for the daemons the manager runs (euclid-ftp, euclid-sftp), which are
+          # administered rather than invoked - a reader looking one up expects it there.
+          cp cli/docs/man/*.8 ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man8/
+          # The pages carry a version in their .TH line, and nothing bumps it when release-please
+          # bumps version.txt - so stamp the version being built rather than shipping whatever the
+          # last hand edit left behind. Read from version.txt rather than SEMVER because that file
+          # is what the build itself was versioned from, so the pages cannot disagree with the
+          # binary they document.
+          MAN_VERSION="$(tr -d '[:space:]' < version.txt)"
+          sed -i -E "1s/(euclid(-cli)? )[0-9]+\.[0-9]+\.[0-9]+/\1${MAN_VERSION}/" \
+            ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man1/*.1 ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man8/*.8
+          gzip -9n ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man1/*.1 ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man8/*.8
           cp -R ${{ github.workspace }}/frontend/euclid-ui/dist/euclid-ui/browser/* ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/frontend/ 2>/dev/null || true
 
           # Maintainer scripts live OUTSIDE PACKAGE_DIR_DEB - that whole tree gets mapped
@@ -526,6 +550,7 @@ jobs:
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/data/esm
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/data/eap
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man1
+          mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man8
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/etc/systemd/system
 
           # Everything the build produced, rather than a list that has to be extended by hand
@@ -546,7 +571,18 @@ jobs:
           # Same placement and compression as the DEB above; rpmbuild would compress man pages by
           # itself, but fpm packs the tree verbatim, so it is done here.
           cp cli/docs/man/*.1 ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man1/
-          gzip -9n ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man1/*.1
+          # Section 8 is for the daemons the manager runs (euclid-ftp, euclid-sftp), which are
+          # administered rather than invoked - a reader looking one up expects it there.
+          cp cli/docs/man/*.8 ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man8/
+          # The pages carry a version in their .TH line, and nothing bumps it when release-please
+          # bumps version.txt - so stamp the version being built rather than shipping whatever the
+          # last hand edit left behind. Read from version.txt rather than SEMVER because that file
+          # is what the build itself was versioned from, so the pages cannot disagree with the
+          # binary they document.
+          MAN_VERSION="$(tr -d '[:space:]' < version.txt)"
+          sed -i -E "1s/(euclid(-cli)? )[0-9]+\.[0-9]+\.[0-9]+/\1${MAN_VERSION}/" \
+            ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man1/*.1 ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man8/*.8
+          gzip -9n ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man1/*.1 ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man8/*.8
           cp -R ${{ github.workspace }}/frontend/euclid-ui/dist/euclid-ui/browser/* ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/frontend/ 2>/dev/null || true
 
           # Maintainer scripts live OUTSIDE PACKAGE_DIR_RPM - see the matching comment in the
