@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.54](https://github.com/jensvogt/euclid/compare/1.0.53...v1.0.54) (2026-09-01)
+
+
+### Bug Fixes
+
+* eem module ([f42811d](https://github.com/jensvogt/euclid/commit/f42811d7eceb96dde0928c7fda691b2fd6712130))
+* eem module ([d4bd48f](https://github.com/jensvogt/euclid/commit/d4bd48f90fe02559821c706d5f605bd8c6e64982))
+* move, copy and rename for ESM object ([5526afb](https://github.com/jensvogt/euclid/commit/5526afbc41e99632113adb182291152e7040d425))
+
 ## [1.0.53](https://github.com/jensvogt/euclid/compare/1.0.52...v1.0.53) (2026-09-01)
 
 
