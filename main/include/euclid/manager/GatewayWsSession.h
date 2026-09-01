@@ -3,6 +3,7 @@
 // C++ includes
 #include <deque>
 #include <memory>
+#include <set>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -60,14 +61,16 @@ namespace Euclid::main {
         [[nodiscard]] virtual const std::string &region() const = 0;
 
         /**
-         * @brief EES subscriber name this session is attached to, or empty if it only uses the
-         * per-connection topic/filter subscriptions.
+         * @brief Whether this session is attached to an EES subscriber, i.e. whether events
+         * addressed to that name should be delivered here.
          *
          * A session attaches by sending a subscribe frame carrying a "name" - see
-         * WsFrame::ParsedSubscription::name. Events addressed to that name are delivered here
-         * what belongs to the subscription having been decided when the event was published.
+         * WsFrame::ParsedSubscription::name - and may be attached to several at once: one
+         * connection commonly carries more than one listener, and each of them names the
+         * subscription it is there for. What belongs to a subscription was decided when the event
+         * was published, so nothing is matched here beyond the name itself.
          */
-        [[nodiscard]] virtual std::string subscriberName() const = 0;
+        [[nodiscard]] virtual bool IsAttachedTo(const std::string &name) const = 0;
     };
 
     /**
@@ -123,7 +126,7 @@ namespace Euclid::main {
         void PostEvent(std::string frame) override;
         [[nodiscard]] const std::string &accountId() const override { return _accountId; }
         [[nodiscard]] const std::string &region() const override { return _region; }
-        [[nodiscard]] std::string subscriberName() const override;
+        [[nodiscard]] bool IsAttachedTo(const std::string &name) const override;
 
     private:
         void onAccept(const boost::beast::error_code &ec);
@@ -157,7 +160,7 @@ namespace Euclid::main {
         // Guarded by _subscriptionsMutex: written by an inbound subscribe frame, read by the
         // delivery path on an unrelated thread.
         mutable std::mutex _subscriptionsMutex;
-        std::string _subscriberName;
+        std::set<std::string> _subscriberNames;
         // Name of the subscription this connection created because the client named none. Empty
         // until a subscribe frame arrives without a name, and what the destructor removes.
         std::string _ephemeralName;
@@ -185,7 +188,7 @@ namespace Euclid::main {
         void PostEvent(std::string frame) override;
         [[nodiscard]] const std::string &accountId() const override { return _accountId; }
         [[nodiscard]] const std::string &region() const override { return _region; }
-        [[nodiscard]] std::string subscriberName() const override;
+        [[nodiscard]] bool IsAttachedTo(const std::string &name) const override;
 
     private:
         void onAccept(const boost::beast::error_code &ec);
@@ -215,7 +218,7 @@ namespace Euclid::main {
         // Guarded by _subscriptionsMutex: written by an inbound subscribe frame, read by the
         // delivery path on an unrelated thread.
         mutable std::mutex _subscriptionsMutex;
-        std::string _subscriberName;
+        std::set<std::string> _subscriberNames;
         // Name of the subscription this connection created because the client named none. Empty
         // until a subscribe frame arrives without a name, and what the destructor removes.
         std::string _ephemeralName;
