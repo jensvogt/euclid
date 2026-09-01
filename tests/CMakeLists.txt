@@ -70,6 +70,16 @@ target_link_libraries(${ESM_ATTRIBUTES_BINARY} PRIVATE eucliddto euclidtransfer 
 
 add_test(NAME ${ESM_ATTRIBUTES_BINARY} COMMAND ${ESM_ATTRIBUTES_BINARY})
 
+set(OUTBOX_BINARY euclid-gateway-outbox-tests)
+
+add_executable(${OUTBOX_BINARY} GatewayOutboxTest.cpp)
+set_target_properties(${OUTBOX_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${OUTBOX_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/main/include)
+target_link_libraries(${OUTBOX_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${OUTBOX_BINARY} COMMAND ${OUTBOX_BINARY})
+
 set(WS_FRAME_BINARY euclid-gateway-ws-frame-tests)
 
 add_executable(${WS_FRAME_BINARY} GatewayWsFrameTest.cpp)

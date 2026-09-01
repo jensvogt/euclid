@@ -14,6 +14,8 @@
 #include <mongocxx/pipeline.hpp>
 
 // Euclid includes
+#include <euclid/core/Configuration.h>
+#include <euclid/core/EventPusher.h>
 #include <euclid/core/LogStream.h>
 #include <euclid/core/Scheduler.h>
 #include <euclid/core/UuidUtils.h>
@@ -77,6 +79,7 @@ namespace Euclid::Database {
             auto collection = (*entry)[Database::instance().databaseName()][SUBSCRIPTION_COLLECTION];
             collection.update_one(filter.view(), update.view(), opts);
 
+            invalidateSubscribers(eventType);
             log_info << "EventBus subscription registered, moduleType: " << moduleType << ", eventType: " << eventType;
 
         } catch (const std::exception &e) {
@@ -84,34 +87,99 @@ namespace Euclid::Database {
         }
     }
 
+    std::shared_ptr<const std::vector<EventBus::SubscriberRecord> > EventBus::subscribersOf(const std::string &eventType) {
+
+        // Off by default, deliberately. Caching the subscriber list was meant to keep a busy
+        // publisher (eqs.message.sent fires on every message send) from querying the subscription
+        // collection every time, but measured against a local database at ~800 messages/second it
+        // made no difference at all - the collection is small and the query is cheap next to the
+        // work the send itself does. What it does cost is immediacy: a subscription created in
+        // another process would not be seen for the length of the cache. So it stays available
+        // for an installation that measures a need, and stays out of the way until then.
+        const auto ttl = std::chrono::seconds(
+                Core::Configuration::instance().getOr<long>("euclid.eventbus.subscription-cache-seconds", 0));
+        const auto now = std::chrono::steady_clock::now();
+
+        {
+            std::lock_guard lock(_cacheMutex);
+            if (const auto it = _subscriberCache.find(eventType); it != _subscriberCache.end() && now - it->second.refreshedAt < ttl) {
+                return it->second.subscribers;
+            }
+        }
+
+        // Queried with the lock released: holding it here would make every publishing thread in
+        // this process wait out one database round trip, which costs more than the occasional
+        // duplicate refresh two threads may do when an entry expires under both of them.
+        auto subscribers = std::make_shared<std::vector<SubscriberRecord> >();
+        try {
+            const auto client = Database::instance().client();
+            const auto db = (*client)[Database::instance().databaseName()];
+
+            for (const auto selector = make_document(kvp("eventType", eventType));
+                 auto doc: db[SUBSCRIPTION_COLLECTION].find(selector.view())) {
+
+                SubscriberRecord record;
+                record.target = std::string(doc["moduleType"].get_string().value);
+                record.external = record.target.starts_with(kExternalPrefix);
+                if (!record.external) {
+                    subscribers->push_back(std::move(record));
+                    continue;
+                }
+
+                if (doc["accountId"] && doc["accountId"].type() == bsoncxx::type::k_string) {
+                    record.accountId = std::string(doc["accountId"].get_string().value);
+                }
+                if (doc["mode"] && doc["mode"].type() == bsoncxx::type::k_string) {
+                    record.mode = DeliveryModeFromString(std::string_view(doc["mode"].get_string().value));
+                }
+                // Parsed once here rather than on every publish. A filter that cannot be parsed
+                // is treated as no filter, which errs towards delivering too much - the opposite
+                // would silently drop the events a subscriber asked for.
+                if (doc["filter"] && doc["filter"].type() == bsoncxx::type::k_string) {
+                    try {
+                        if (const auto parsed = boost::json::parse(std::string(doc["filter"].get_string().value)); parsed.is_object()) {
+                            record.filter = parsed.as_object();
+                        }
+                    } catch (const std::exception &) {
+                    }
+                }
+                subscribers->push_back(std::move(record));
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "EventBus subscriber lookup failed, eventType: " << eventType << ", error: " << e.what();
+            return std::make_shared<const std::vector<SubscriberRecord> >();
+        }
+
+        std::shared_ptr<const std::vector<SubscriberRecord> > result = std::move(subscribers);
+        {
+            std::lock_guard lock(_cacheMutex);
+            _subscriberCache.insert_or_assign(eventType, CacheEntry{.refreshedAt = now, .subscribers = result});
+        }
+        return result;
+    }
+
+    void EventBus::invalidateSubscribers(const std::string &eventType) {
+        std::lock_guard lock(_cacheMutex);
+        if (eventType.empty()) _subscriberCache.clear();
+        else _subscriberCache.erase(eventType);
+    }
+
     void EventBus::Publish(const std::string &eventType, const boost::json::value &payload, const std::string &sourceModule) {
 
         ensureIndexes();
 
         try {
-            const auto entry = Database::instance().client();
-            const auto db = (*entry)[Database::instance().databaseName()];
-
             // A module type subscribes to everything of a type; an external subscriber may have
             // asked for a subset, so its filter is applied here rather than at delivery. Storing
             // an envelope only to drop it later would make a consumer's backlog depend on how
             // busy the whole installation is instead of on what it asked for.
             const auto &payloadObject = payload.is_object() ? payload.as_object() : boost::json::object{};
 
-            const auto matchesFilter = [&payloadObject](const bsoncxx::document::view &subscription) {
-                const auto element = subscription["filter"];
-                if (!element || element.type() != bsoncxx::type::k_string) return true;
-                const auto text = std::string(element.get_string().value);
-                if (text.empty()) return true;
-                try {
-                    const auto parsed = boost::json::parse(text);
-                    if (!parsed.is_object()) return true;
-                    for (const auto &[key, expected]: parsed.as_object()) {
-                        const auto *actual = payloadObject.if_contains(key);
-                        if (actual == nullptr || *actual != expected) return false;
-                    }
-                } catch (const std::exception &) {
-                    return true;
+            const auto matchesFilter = [&payloadObject](const SubscriberRecord &record) {
+                for (const auto &[key, expected]: record.filter) {
+                    const auto *actual = payloadObject.if_contains(key);
+                    if (actual == nullptr || *actual != expected) return false;
                 }
                 return true;
             };
@@ -121,30 +189,32 @@ namespace Euclid::Database {
             // delivered as before - which is why a module publishing user-visible events should
             // put accountId in the payload.
             const auto *eventAccount = payloadObject.if_contains("accountId");
-            const auto matchesAccount = [&](const bsoncxx::document::view &subscription) {
+            const auto matchesAccount = [&](const SubscriberRecord &record) {
                 if (eventAccount == nullptr || !eventAccount->is_string()) return true;
-                const auto element = subscription["accountId"];
-                if (!element || element.type() != bsoncxx::type::k_string) return true;
-                const auto subscriberAccount = std::string(element.get_string().value);
-                return subscriberAccount.empty() || subscriberAccount == std::string(eventAccount->as_string().c_str());
+                if (record.accountId.empty()) return true;
+                return record.accountId == std::string(eventAccount->as_string().c_str());
             };
 
             std::set<std::string> targets;
-            std::set<std::string> externalTargets;
-            const auto filter = make_document(kvp("eventType", eventType));
-            for (auto cursor = db[SUBSCRIPTION_COLLECTION].find(filter.view()); auto doc: cursor) {
-                const auto target = std::string(doc["moduleType"].get_string().value);
-                if (!target.starts_with(kExternalPrefix)) {
-                    targets.insert(target);
+            std::set<std::string> externalTargets;// durable: an envelope is stored for each
+            std::set<std::string> liveTargets;    // live: pushed to whoever is connected, stored nowhere
+            for (const auto subscribers = subscribersOf(eventType); const auto &record: *subscribers) {
+                if (!record.external) {
+                    targets.insert(record.target);
                     continue;
                 }
-                if (matchesFilter(doc) && matchesAccount(doc)) externalTargets.insert(target);
+                if (!matchesFilter(record) || !matchesAccount(record)) continue;
+                if (record.mode == DeliveryMode::Live) liveTargets.insert(record.target);
+                else externalTargets.insert(record.target);
             }
 
-            if (targets.empty() && externalTargets.empty()) {
+            if (targets.empty() && externalTargets.empty() && liveTargets.empty()) {
                 log_debug << "EventBus publish, no subscribers, eventType: " << eventType;
                 return;
             }
+
+            const auto entry = Database::instance().client();
+            const auto db = (*entry)[Database::instance().databaseName()];
 
             const auto now = std::chrono::system_clock::now();
             const auto payloadJson = boost::json::serialize(payload);
@@ -181,11 +251,108 @@ namespace Euclid::Database {
                 eventCollection.insert_one(doc.view());
             }
 
+            // Pushed after the writes, never instead of them: for a durable subscriber the store
+            // is the truth and this only saves it the trouble of asking. A push that fails costs
+            // latency - the subscriber finds the event on its next receive-events - which is why
+            // nothing here is retried or waited on.
+            pushToSessions(eventType, payloadObject, externalTargets, liveTargets);
+
             log_info << "EventBus published, eventType: " << eventType << ", modules: " << targets.size()
-                    << ", subscribers: " << externalTargets.size();
+                    << ", subscribers: " << externalTargets.size() << ", live: " << liveTargets.size();
 
         } catch (const std::exception &e) {
             log_error << "EventBus publish failed, eventType: " << eventType << ", error: " << e.what();
+        }
+    }
+
+    // The live end of a subscription: the gateway holds the websocket connections, so a push goes
+    // to it over the same one-shot ingest socket a module already uses, addressed to a subscriber
+    // name rather than broadcast. A subscriber with nothing connected simply gets no push.
+    //
+    // What is sent differs by mode, and the difference is not cosmetic. A live subscriber gets the
+    // event, because nothing else will ever carry it. A durable subscriber gets only a notice that
+    // something is waiting, because two instances share a name and both would otherwise act on the
+    // same event - the atomic claim in ClaimEvents() is what makes exactly one of them process it,
+    // and a push that carried the payload would go around it.
+    void EventBus::pushToSessions(const std::string &eventType, const boost::json::object &payload,
+                                  const std::set<std::string> &durableTargets, const std::set<std::string> &liveTargets) {
+
+        if (durableTargets.empty() && liveTargets.empty()) return;
+
+        const auto stringField = [&payload](const char *key) {
+            const auto *value = payload.if_contains(key);
+            return value != nullptr && value->is_string() ? std::string(value->as_string().c_str()) : std::string();
+        };
+        const auto accountId = stringField("accountId");
+        const auto region = stringField("region");
+
+        const auto nameOf = [](const std::string &target) {
+            return target.substr(std::string_view(kExternalPrefix).size());
+        };
+
+        for (const auto &target: liveTargets) {
+            auto body = payload;
+            body["delivery"] = "live";
+            Core::EventPusher::PushToSubscriber(nameOf(target), eventType, accountId, region, body);
+        }
+
+        for (const auto &target: durableTargets) {
+            notifySubscriber(PendingNotify{.subscriber = nameOf(target), .eventType = eventType,
+                                           .accountId = accountId, .region = region});
+        }
+    }
+
+    void EventBus::notifySubscriber(const PendingNotify &pending) {
+
+        const auto interval = std::chrono::milliseconds(
+                Core::Configuration::instance().getOr<long>("euclid.eventbus.notify-interval-ms", 100));
+        const auto now = std::chrono::steady_clock::now();
+        const auto key = pending.subscriber + "|" + pending.eventType;
+
+        {
+            std::lock_guard lock(_notifyMutex);
+            if (const auto it = _lastNotifiedAt.find(key); it != _lastNotifiedAt.end() && now - it->second < interval) {
+                // Already told about this recently: remember that there is more, and let the
+                // flush say so once. A notice carries nothing, so the one that goes out stands
+                // for all of them.
+                _pendingNotifications.insert_or_assign(key, pending);
+                return;
+            }
+            _lastNotifiedAt.insert_or_assign(key, now);
+        }
+
+        // Started on first use rather than in Start(): a module that only publishes - esm, for
+        // one - never calls Start(), and it is exactly the module that produces bursts.
+        std::call_once(_notifyFlushOnce, [this, interval] {
+            auto &scheduler = Core::Scheduler::instance();
+            scheduler.Start();
+            scheduler.SchedulePeriodic("eventbus-notify-flush", [this] { flushNotifications(); }, interval);
+        });
+
+        Core::EventPusher::PushToSubscriber(pending.subscriber, pending.eventType, pending.accountId, pending.region,
+                                            boost::json::object{{"delivery", "notify"}, {"eventType", pending.eventType}});
+    }
+
+    void EventBus::flushNotifications() {
+
+        std::map<std::string, PendingNotify> pending;
+        {
+            std::lock_guard lock(_notifyMutex);
+            pending.swap(_pendingNotifications);
+
+            const auto now = std::chrono::steady_clock::now();
+            for (const auto &[key, notify]: pending) _lastNotifiedAt.insert_or_assign(key, now);
+
+            // Subscribers that have gone quiet are forgotten, so this does not grow with every
+            // name that ever received one.
+            std::erase_if(_lastNotifiedAt, [&now](const auto &entry) {
+                return now - entry.second > std::chrono::minutes(5);
+            });
+        }
+
+        for (const auto &[key, notify]: pending) {
+            Core::EventPusher::PushToSubscriber(notify.subscriber, notify.eventType, notify.accountId, notify.region,
+                                                boost::json::object{{"delivery", "notify"}, {"eventType", notify.eventType}});
         }
     }
 
@@ -200,8 +367,17 @@ namespace Euclid::Database {
         }
     }// namespace
 
+    std::string_view EventBus::DeliveryModeToString(const DeliveryMode mode) {
+        return mode == DeliveryMode::Live ? "live" : "durable";
+    }
+
+    EventBus::DeliveryMode EventBus::DeliveryModeFromString(const std::string_view mode) {
+        return mode == "live" ? DeliveryMode::Live : DeliveryMode::Durable;
+    }
+
     void EventBus::SubscribeExternal(const std::string &subscriber, const std::string &eventType,
-                                     const boost::json::object &filter, const std::string &accountId) {
+                                     const boost::json::object &filter, const std::string &accountId,
+                                     const DeliveryMode mode, const bool ephemeral) {
 
         ensureIndexes();
 
@@ -217,7 +393,9 @@ namespace Euclid::Database {
                     kvp("$set", make_document(
                                 kvp("filter", boost::json::serialize(filter)),
                                 kvp("accountId", accountId),
+                                kvp("mode", std::string(DeliveryModeToString(mode))),
                                 kvp("external", true),
+                                kvp("ephemeral", ephemeral),
                                 kvp("lastSeenAt", bsoncxx::types::b_date{now}))),
                     kvp("$setOnInsert", make_document(
                                 kvp("moduleType", target),
@@ -230,7 +408,9 @@ namespace Euclid::Database {
             const auto entry = Database::instance().client();
             (*entry)[Database::instance().databaseName()][SUBSCRIPTION_COLLECTION].update_one(selector.view(), update.view(), opts);
 
-            log_info << "EventBus external subscription registered, subscriber: " << subscriber << ", eventType: " << eventType;
+            invalidateSubscribers(eventType);
+            log_info << "EventBus external subscription registered, subscriber: " << subscriber << ", eventType: " << eventType
+                    << ", mode: " << DeliveryModeToString(mode);
 
         } catch (const std::exception &e) {
             log_error << "EventBus external subscribe failed, subscriber: " << subscriber << ", error: " << e.what();
@@ -260,12 +440,49 @@ namespace Euclid::Database {
             if (!eventType.empty()) eventSelector.append(kvp("eventType", eventType));
             db[EVENT_COLLECTION].delete_many(eventSelector.view());
 
+            invalidateSubscribers(eventType);
             const auto count = removed ? static_cast<long>(removed->deleted_count()) : 0;
             log_info << "EventBus external subscription removed, subscriber: " << subscriber << ", count: " << count;
             return count;
 
         } catch (const std::exception &e) {
             log_error << "EventBus external unsubscribe failed, subscriber: " << subscriber << ", error: " << e.what();
+            return 0;
+        }
+    }
+
+    long EventBus::PurgeEphemeralSubscriptions() {
+
+        ensureIndexes();
+
+        try {
+            const auto entry = Database::instance().client();
+            const auto db = (*entry)[Database::instance().databaseName()];
+
+            // The events go too, for the same reason UnsubscribeExternal() takes them: a
+            // subscription that no longer exists must not leave a backlog behind. An ephemeral
+            // one should have none - it is live-mode, so nothing was ever stored for it - but a
+            // subscription that was switched to durable while attached would.
+            std::vector<std::string> targets;
+            for (const auto selector = make_document(kvp("ephemeral", true));
+                 auto doc: db[SUBSCRIPTION_COLLECTION].find(selector.view())) {
+                targets.emplace_back(doc["moduleType"].get_string().value);
+            }
+            if (targets.empty()) return 0;
+
+            bsoncxx::builder::basic::array names;
+            for (const auto &target: targets) names.append(target);
+
+            const auto removed = db[SUBSCRIPTION_COLLECTION].delete_many(make_document(kvp("ephemeral", true)).view());
+            db[EVENT_COLLECTION].delete_many(make_document(kvp("targetModule", make_document(kvp("$in", names)))).view());
+
+            const auto count = removed ? static_cast<long>(removed->deleted_count()) : 0;
+            invalidateSubscribers("");
+            if (count > 0) log_info << "EventBus removed ephemeral subscriptions left by a previous run, count: " << count;
+            return count;
+
+        } catch (const std::exception &e) {
+            log_error << "EventBus purge of ephemeral subscriptions failed, error: " << e.what();
             return 0;
         }
     }
@@ -295,6 +512,9 @@ namespace Euclid::Database {
                         // A filter that cannot be parsed is reported as none rather than failing
                         // the listing.
                     }
+                }
+                if (doc["mode"] && doc["mode"].type() == bsoncxx::type::k_string) {
+                    subscription.mode = DeliveryModeFromString(std::string_view(doc["mode"].get_string().value));
                 }
                 if (doc["createdAt"]) subscription.createdAt = system_clock::time_point{doc["createdAt"].get_date().value};
                 if (doc["lastSeenAt"]) subscription.lastSeenAt = system_clock::time_point{doc["lastSeenAt"].get_date().value};
@@ -426,6 +646,7 @@ namespace Euclid::Database {
             const auto entry = Database::instance().client();
             if (const auto removed = (*entry)[Database::instance().databaseName()][SUBSCRIPTION_COLLECTION].delete_many(selector.view());
                 removed && removed->deleted_count() > 0) {
+                invalidateSubscribers("");
                 log_info << "EventBus removed stale subscriptions, moduleType: " << moduleType << ", count: " << removed->deleted_count();
             }
 

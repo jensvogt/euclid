@@ -163,6 +163,43 @@ BOOST_AUTO_TEST_CASE(AnEventForAnotherAccountIsNeverStored) {
     BOOST_TEST(bus.CountEvents(fixture.subscriber) == 1);
 }
 
+BOOST_AUTO_TEST_CASE(ALiveSubscriptionStoresNothing) {
+    if (!databaseAvailable()) return;
+    Fixture fixture;
+
+    auto &bus = EventBus::instance();
+    bus.SubscribeExternal(fixture.subscriber, fixture.eventType, {}, "000000000000", EventBus::DeliveryMode::Live);
+
+    // A live subscriber is delivered to over its websocket or not at all, so an event published
+    // while nothing is attached leaves no trace - that is the whole difference from durable, and
+    // the reason a view can subscribe without costing a database write per event.
+    bus.Publish(fixture.eventType, boost::json::value{{"key", "a.csv"}, {"accountId", "000000000000"}}, "test");
+    BOOST_TEST(bus.CountEvents(fixture.subscriber) == 0);
+
+    const auto subscriptions = bus.ListSubscriptions(fixture.subscriber);
+    BOOST_TEST_REQUIRE(subscriptions.size() == 1U);
+    BOOST_TEST((subscriptions[0].mode == EventBus::DeliveryMode::Live));
+}
+
+BOOST_AUTO_TEST_CASE(ResubscribingChangesTheMode) {
+    if (!databaseAvailable()) return;
+    Fixture fixture;
+
+    auto &bus = EventBus::instance();
+    bus.SubscribeExternal(fixture.subscriber, fixture.eventType, {}, "000000000000", EventBus::DeliveryMode::Live);
+    bus.SubscribeExternal(fixture.subscriber, fixture.eventType, {}, "000000000000", EventBus::DeliveryMode::Durable);
+
+    // Subscribing again with the same name and event type changes the subscription rather than
+    // adding a second one - the same rule the filter follows, and what makes a redeployed
+    // application that switched modes actually switch.
+    const auto subscriptions = bus.ListSubscriptions(fixture.subscriber);
+    BOOST_TEST_REQUIRE(subscriptions.size() == 1U);
+    BOOST_TEST((subscriptions[0].mode == EventBus::DeliveryMode::Durable));
+
+    bus.Publish(fixture.eventType, boost::json::value{{"n", 1}}, "test");
+    BOOST_TEST(bus.CountEvents(fixture.subscriber) == 1);
+}
+
 BOOST_AUTO_TEST_CASE(UnsubscribingTakesTheBacklogWithIt) {
     if (!databaseAvailable()) return;
     Fixture fixture;

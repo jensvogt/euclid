@@ -21,6 +21,7 @@
 #include <euclid/core/monitoring/MetricsPusher.h>
 #include <euclid/core/monitoring/MonitoringCollector.h>
 #include <euclid/database/Database.h>
+#include <euclid/database/EventBus.h>
 #include <euclid/database/RepositoryFactory.h>
 #include <euclid/manager/Controller.h>
 #include <euclid/manager/ControllerPlatform.h>
@@ -423,12 +424,18 @@ static int RunManager(const CliOptions &opts, [[maybe_unused]] const bool report
     auto &gateway = *gatewayOpt;
     gateway.start();
 
-    // Receiving end of Core::EventPusher - every module process pushes business events (e.g.
-    // EKM key lifecycle) here over a fixed configured Unix domain socket, the same one-shot-push
-    // idiom MetricsPusher already uses for the "emo" module, just event-driven instead of
-    // scheduled. Only started if a path is actually configured, so deployments that haven't set
-    // euclid.gateway.event-socket-path yet are unaffected - Core::EventPusher::Push() is
-    // similarly a no-op on the sending side until a module configures the same key.
+    // A websocket connection that names no subscriber gets one created for it, marked ephemeral
+    // and removed when the connection ends. None can have survived this point: no session exists
+    // before the gateway starts, so anything still in the database belongs to a previous run that
+    // ended without cleaning up.
+    Euclid::Database::EventBus::instance().PurgeEphemeralSubscriptions();
+
+    // Receiving end of Core::EventPusher - when Database::EventBus publishes an event that an
+    // EES subscriber matched, the publishing process pushes it here over a fixed configured Unix
+    // domain socket, and it is handed to whatever websocket sessions are attached to that
+    // subscriber. Only started if a path is actually configured, so a deployment that has not set
+    // euclid.gateway.event-socket-path is unaffected - pushing is a no-op on the sending side
+    // while the same key is empty, and a durable subscriber still has its events waiting.
     std::optional<Euclid::main::GatewayEventIngest> eventIngestOpt;
     if (const auto eventSocketPath = cfg.getOr<std::string>("euclid.gateway.event-socket-path", ""); !eventSocketPath.empty()) {
         try {

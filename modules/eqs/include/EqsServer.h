@@ -11,7 +11,6 @@
 // Euclid includes
 #include <euclid/core/DateTimeUtils.h>
 #include <euclid/core/ErnUtils.h>
-#include <euclid/core/EventPusher.h>
 #include <euclid/core/HttpActionServer.h>
 #include <euclid/core/LogStream.h>
 #include <euclid/core/Scheduler.h>

@@ -16,11 +16,10 @@ namespace Euclid::Core {
      * request/response action calls, subscribe/unsubscribe control frames, and server-pushed
      * events over one persistent connection, alongside the gateway's existing one-shot HTTP path.
      *
-     * Event delivery is opt-in: a session receives nothing until it sends a "subscribe" frame,
-     * and only events matching a subscription's topic and filter after that (see
-     * GatewayWsSession::WantsEvent()) - otherwise every session scoped to an account/region would
-     * see every event pushed for it (e.g. every queue's "eqs.message.sent"), most of which it has
-     * no use for.
+     * Event delivery is opt-in: a session receives nothing until it sends a "subscribe" frame.
+     * That frame registers (or attaches to) an EES subscription - see Database::EventBus's
+     * external subscribers - and what the session then receives is what that subscription
+     * matched, decided when the event was published rather than per connection here.
      *
      * Pure, socket-free (de)serialization only - main's GatewayWsSession/GatewayWsTlsSession own
      * the actual websocket::stream and call into this for every frame they send/receive, so the
@@ -112,43 +111,11 @@ namespace Euclid::Core {
 
         /**
          * @brief Builds an unsolicited "event" frame, pushed by Core::EventPusher via the
-         * gateway's event-ingest listener to every websocket session subscribed to a matching
-         * topic/filter (see WantsEvent()) and scoped to accountId/region.
+         * gateway's event-ingest listener to the sessions attached to the EES subscriber the
+         * event was matched for.
          */
         [[nodiscard]]
         static std::string BuildEventFrame(const std::string &topic, const std::string &accountId, const std::string &region, const boost::json::object &body);
-
-        /**
-         * @brief One active subscription a session has registered via a "subscribe" frame - what
-         * a session actually stores and matches incoming events against; see ParsedSubscription
-         * for the transient, just-off-the-wire form a "subscribe"/"unsubscribe" frame parses to.
-         */
-        struct Subscription {
-            /**
-             * @brief Event topic to match, e.g. "eqs.message.sent".
-             */
-            std::string topic;
-
-            /**
-             * @brief Exact-match sub-object against the event's body - every key present here
-             * must be present and equal in the event's body for a match. Empty matches every
-             * event of this topic, e.g. for a client that wants all of them regardless of the
-             * specific resource (queue, key, ...) each concerns.
-             */
-            boost::json::object filter;
-
-            /**
-             * @brief Whether an event with this topic/body satisfies this subscription.
-             */
-            [[nodiscard]] bool Matches(const std::string &eventTopic, const boost::json::object &body) const {
-                if (topic != eventTopic) return false;
-                for (const auto &[key, value]: filter) {
-                    const auto *actual = body.if_contains(key);
-                    if (!actual || *actual != value) return false;
-                }
-                return true;
-            }
-        };
 
         /**
          * @brief A parsed inbound "subscribe"/"unsubscribe" frame - see ParseSubscription().
@@ -168,10 +135,34 @@ namespace Euclid::Core {
             std::string type;
 
             /**
-             * @brief The subscription's topic and filter - see Subscription's doc comment.
+             * @brief What to subscribe to: an event type, and the payload fields that must match
+             * exactly for an event of that type to be delivered. Both are handed to EES as they
+             * stand - the filter is evaluated when the event is published, not here.
              */
             std::string topic;
             boost::json::object filter;
+
+            /**
+             * @brief EES subscriber name this connection wants events delivered under, or empty
+             * for the per-connection topic/filter matching that came first.
+             *
+             * A name is what turns a connection into the live end of a durable subscription: the
+             * events it receives are the ones EES decided belong to that name (its filter, its
+             * account), rather than ones this connection asked for and only it knows about. That
+             * is also what makes them survive a disconnect - see Database::EventBus's external
+             * subscribers.
+             */
+            std::string name;
+
+            /**
+             * @brief Requested delivery mode, "durable" or "live", or empty for the default.
+             *
+             * A frame that names no subscriber gets a live subscription of its own, since it
+             * cannot outlive the connection that asked for it. A named one defaults to durable:
+             * naming a subscription is how a client says it wants what happened while it was
+             * away.
+             */
+            std::string mode;
         };
 
         /**
@@ -192,8 +183,14 @@ namespace Euclid::Core {
          * @param text  raw frame payload
          * @param error set to a human-readable message when parsing fails
          * @return the parsed subscription, or std::nullopt if text isn't a well-formed
-         * {"type":"subscribe"|"unsubscribe",...} frame (malformed JSON, wrong/missing "type", or
-         * missing id/topic). A missing "filter" defaults to an empty object.
+         * {"type":"subscribe"|"unsubscribe",...} frame (malformed JSON, wrong/missing "type",
+         * missing id, or missing topic on a frame that names no subscriber either). A missing
+         * "filter" defaults to an empty object.
+         *
+         * @par
+         * A frame carrying a "name" but no "topic" is an attach: it says which existing
+         * subscription's events this connection wants, without redefining it. That is the one
+         * case where a subscription frame describes nothing to subscribe to.
          */
         [[nodiscard]]
         static std::optional<ParsedSubscription> ParseSubscription(const std::string &text, std::string &error);
@@ -206,7 +203,7 @@ namespace Euclid::Core {
          * @param ackType "subscribed" or "unsubscribed"
          */
         [[nodiscard]]
-        static std::string BuildSubscriptionAckFrame(const std::string &id, const std::string &ackType);
+        static std::string BuildSubscriptionAckFrame(const std::string &id, const std::string &ackType, const std::string &name = {});
     };
 
 }// namespace Euclid::Core
