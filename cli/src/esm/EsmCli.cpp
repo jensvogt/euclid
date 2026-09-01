@@ -78,6 +78,9 @@ namespace Euclid::CLI {
                                            {"set-bucket-tag", "Sets the value of an existing bucket tag"},
                                            {"delete-bucket-tag", "Deletes a tag from a bucket"},
                                            {"delete-object", "Deletes an object by ERN"},
+                                           {"copy-object", "Copies an object to another key or bucket"},
+                                           {"move-object", "Moves an object to another key or bucket"},
+                                           {"rename-object", "Renames an object within its bucket"},
                                            {"add-object-attribute", "Adds an attribute to an object"},
                                            {"set-object-attribute", "Sets the value of an existing object attribute"},
                                            {"list-object-attributes", "Lists the attributes of an object"},
@@ -134,6 +137,15 @@ namespace Euclid::CLI {
         }
         if (action == "delete-bucket-tag") {
             return deleteBucketTag(args);
+        }
+        if (action == "copy-object") {
+            return copyObject(args);
+        }
+        if (action == "move-object") {
+            return moveObject(args);
+        }
+        if (action == "rename-object") {
+            return renameObject(args);
         }
         if (action == "add-object-attribute") {
             return addObjectAttribute(args);
@@ -1443,6 +1455,115 @@ namespace Euclid::CLI {
                 std::cerr << "error: delete-bucket-tag failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    // copy-object and move-object take the same arguments and differ only in what becomes of the
+    // source, so they are one implementation with a flag - the same way the module handles them.
+    int EsmCli::transferObject(const std::vector<std::string> &args, const bool keepSource) const {
+        const std::string action = keepSource ? "copy-object" : "move-object";
+
+        po::options_description desc(keepSource ? "copy object options" : "move object options");
+        desc.add_options()
+                ("source-bucket,b", po::value<std::string>()->required(), "ERN of the bucket the object is in")
+                ("source-key,k", po::value<std::string>()->required(), "key of the object within that bucket")
+                ("target-bucket,B", po::value<std::string>(), "ERN of the bucket it should end up in; defaults to the source bucket")
+                ("target-key,K", po::value<std::string>()->required(), "key it should have there");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", action,
+                                   "--source-bucket <ern> --source-key <key> --target-key <key> [--target-bucket <ern>]",
+                                   keepSource
+                                           ? "Copies an object to another key, in the same bucket or a different one. The copy gets its own "
+                                             "bytes and its own lifetime, so deleting either object leaves the other intact, and it starts with "
+                                             "the source's content type, checksum and attributes. Refuses rather than overwriting if something "
+                                             "is already stored at the target key."
+                                           : "Moves an object to another key, in the same bucket or a different one. Nothing is copied - an "
+                                             "object's bytes are addressed internally, so a move is a change of key however large the object is. "
+                                             "Refuses rather than overwriting if something is already stored at the target key.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        const auto sourceBucket = vm["source-bucket"].as<std::string>();
+        Dto::ESM::CopyObjectRequest request;
+        request.sourceBucketErn = sourceBucket;
+        request.sourceKey = vm["source-key"].as<std::string>();
+        request.targetBucketErn = vm.contains("target-bucket") ? vm["target-bucket"].as<std::string>() : sourceBucket;
+        request.targetKey = vm["target-key"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("esm", action, boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: " << action << " failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EsmCli::copyObject(const std::vector<std::string> &args) const {
+        return transferObject(args, true);
+    }
+
+    int EsmCli::moveObject(const std::vector<std::string> &args) const {
+        return transferObject(args, false);
+    }
+
+    int EsmCli::renameObject(const std::vector<std::string> &args) const {
+        po::options_description desc("rename object options");
+        desc.add_options()
+                ("bucket,b", po::value<std::string>()->required(), "ERN of the bucket the object is in")
+                ("key,k", po::value<std::string>()->required(), "current key of the object")
+                ("new-key,n", po::value<std::string>()->required(), "key it should have");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", "rename-object", "--bucket <ern> --key <key> --new-key <key>",
+                                   "Renames an object within its bucket. The same thing as \"move-object\" with one bucket, said the way it "
+                                   "is usually meant: nothing is copied, and the object keeps its content type, checksum and attributes. "
+                                   "Refuses rather than overwriting if something is already stored under the new key.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ESM::RenameObjectRequest request;
+        request.bucketErn = vm["bucket"].as<std::string>();
+        request.key = vm["key"].as<std::string>();
+        request.newKey = vm["new-key"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("esm", "rename-object", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: rename-object failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
             return 0;
         } catch (const std::exception &ex) {
             std::cerr << "error: " << ex.what() << std::endl;

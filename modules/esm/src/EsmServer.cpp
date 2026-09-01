@@ -1250,6 +1250,155 @@ namespace Euclid::ESM {
 
     }// namespace
 
+    // copy-object, move-object and rename-object, which are three ways of asking for the same two
+    // decisions: does the target get its own bytes, and does the source survive.
+    //
+    // A move does not touch the bytes at all. An object's data lives in a flat file named after
+    // its internalName, and only the database row says which key that file answers to - so moving
+    // is a row edit, whatever the object's size. A copy is the one that has to duplicate the file,
+    // because the two objects have to be able to outlive each other: deleting either one removes
+    // the file it names.
+    static response<string_body> transferObject(const request<string_body> &req, const std::string &action,
+                                                const std::string &sourceBucketErn, const std::string &sourceKey,
+                                                const std::string &targetBucketErn, const std::string &targetKey,
+                                                const bool keepSource) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", action);
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        if (sourceBucketErn.empty() || sourceKey.empty()) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "source bucket and key are required");
+        }
+        if (targetBucketErn.empty() || targetKey.empty()) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "target bucket and key are required");
+        }
+        if (sourceBucketErn == targetBucketErn && sourceKey == targetKey) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "source and target are the same object");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+
+        const auto sourceBucket = repo->findBucketByErn(sourceBucketErn);
+        if (!sourceBucket.has_value()) {
+            return EsmServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + sourceBucketErn);
+        }
+        const auto targetBucket = repo->findBucketByErn(targetBucketErn);
+        if (!targetBucket.has_value()) {
+            return EsmServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + targetBucketErn);
+        }
+
+        // Both ends are checked: reading out of a bucket and writing into one are separate
+        // permissions, and this action does both.
+        if (sourceBucket->accountId != auth.user->accountId || targetBucket->accountId != auth.user->accountId) {
+            return EsmServer::ErrorResponse(req, status::forbidden, "Bucket does not belong to the caller's account");
+        }
+        if (const auto denied = denyUngrantedBucket(req, auth, sourceBucketErn)) return *denied;
+        if (const auto denied = denyUngrantedBucket(req, auth, targetBucketErn)) return *denied;
+
+        const auto source = repo->findObjectByBucketAndKey(sourceBucketErn, sourceKey);
+        if (!source.has_value()) {
+            return EsmServer::ErrorResponse(req, status::not_found, "Object not found, bucket: " + sourceBucketErn + ", key: " + sourceKey);
+        }
+
+        // Refused rather than silently replacing: an operator who meant to overwrite can delete
+        // the target first and say so, and one who mistyped a key gets told.
+        if (repo->findObjectByBucketAndKey(targetBucketErn, targetKey).has_value()) {
+            return EsmServer::ErrorResponse(req, status::conflict, "Object already exists, bucket: " + targetBucketErn + ", key: " + targetKey);
+        }
+
+        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
+
+        Database::Entity::ESM::Object target = *source;
+        target.oid.clear();// a new row, not an edit of the source's
+        target.bucketErn = targetBucketErn;
+        target.key = targetKey;
+        target.ern = Core::createEsmObjectErn(auth.user->accountId, targetBucket->nameSpace, targetBucket->name + "/" + targetKey);
+        target.created = std::chrono::system_clock::now();
+
+        if (keepSource) {
+            // Its own copy of the bytes, under its own internal name.
+            target.internalName = Core::UuidUtils::CreateRandomUuid();
+            std::error_code ec;
+            std::filesystem::copy_file(std::filesystem::path(dataDir) / source->internalName,
+                                       std::filesystem::path(dataDir) / target.internalName,
+                                       std::filesystem::copy_options::overwrite_existing, ec);
+            if (ec) {
+                log_error << "ESM could not copy object file, key: " << sourceKey << ", error: " << ec.message();
+                return EsmServer::ErrorResponse(req, status::internal_server_error, "Could not copy object");
+            }
+        } else {
+            // The move: the same file, answering to a different key from now on. The source row
+            // goes away below, so nothing is left pointing at it.
+            repo->deleteObjectByErn(source->ern);
+        }
+
+        const auto stored = repo->upsertObject(target);
+
+        // Directory markers are not counted anywhere, so they must not move counters either.
+        if (!Database::Entity::ESM::IsDirectoryKey(targetKey)) {
+            if (auto bucket = repo->findBucketByErn(targetBucketErn); bucket.has_value()) {
+                bucket->size += stored.size;
+                bucket->objects++;
+                repo->upsertBucket(*bucket);
+            }
+        }
+        if (!keepSource && !Database::Entity::ESM::IsDirectoryKey(sourceKey)) {
+            if (auto bucket = repo->findBucketByErn(sourceBucketErn); bucket.has_value()) {
+                bucket->size = std::max<long>(0, bucket->size - stored.size);
+                bucket->objects = std::max<long>(0, bucket->objects - 1);
+                repo->upsertBucket(*bucket);
+            }
+        }
+
+        Database::EventBus::instance().Publish(
+                "esm.object.modified",
+                boost::json::value{{"ern", stored.ern}, {"bucketErn", stored.bucketErn}, {"key", stored.key}, {"size", stored.size}}, "esm");
+        if (!keepSource) {
+            Database::EventBus::instance().Publish("esm.object.deleted", boost::json::value{{"ern", source->ern}}, "esm");
+        }
+        // Subscribers of the target bucket see an object appear, which is what happened as far as
+        // anything watching that bucket is concerned - however it got there.
+        publishObjectCreated(targetBucketErn, targetKey, stored.ern, stored.size, stored.contentType, stored.md5Sum);
+
+        log_info << "ESM " << action << ", from: " << sourceBucketErn << "/" << sourceKey
+                << ", to: " << targetBucketErn << "/" << targetKey << ", size: " << stored.size;
+
+        return EsmServer::JsonResponse(req, status::ok, Dto::ESM::EsmMapper::toDto(stored).toJson());
+    }
+
+    static response<string_body> handleCopyObject(const request<string_body> &req) {
+
+        boost::json::value jv;
+        if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ESM::CopyObjectRequest>(jv);
+        return transferObject(req, "copy-object", request.sourceBucketErn, request.sourceKey,
+                              request.targetBucketErn, request.targetKey, true);
+    }
+
+    static response<string_body> handleMoveObject(const request<string_body> &req) {
+
+        boost::json::value jv;
+        if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ESM::CopyObjectRequest>(jv);
+        return transferObject(req, "move-object", request.sourceBucketErn, request.sourceKey,
+                              request.targetBucketErn, request.targetKey, false);
+    }
+
+    static response<string_body> handleRenameObject(const request<string_body> &req) {
+
+        boost::json::value jv;
+        if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ESM::RenameObjectRequest>(jv);
+        // A move that cannot leave the bucket, which is the whole difference between the two.
+        return transferObject(req, "rename-object", request.bucketErn, request.key,
+                              request.bucketErn, request.newKey, false);
+    }
+
     static response<string_body> handleAddObjectAttribute(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "add-object-attribute");
@@ -1590,6 +1739,9 @@ namespace Euclid::ESM {
             CompleteDownload,
             GetObjectCount,
             ListObjects,
+            CopyObject,
+            MoveObject,
+            RenameObject,
             AddObjectAttribute,
             SetObjectAttribute,
             ListObjectAttributes,
@@ -1619,6 +1771,9 @@ namespace Euclid::ESM {
         if (action == "complete-download") return Command::CompleteDownload;
         if (action == "list-objects") return Command::ListObjects;
         if (action == "get-object-count") return Command::GetObjectCount;
+        if (action == "copy-object") return Command::CopyObject;
+        if (action == "move-object") return Command::MoveObject;
+        if (action == "rename-object") return Command::RenameObject;
         if (action == "add-object-attribute") return Command::AddObjectAttribute;
         if (action == "set-object-attribute") return Command::SetObjectAttribute;
         if (action == "list-object-attributes") return Command::ListObjectAttributes;
@@ -1698,6 +1853,15 @@ namespace Euclid::ESM {
 
             case Command::GetObjectCount:
                 return handleGetObjectCount(req);
+
+            case Command::CopyObject:
+                return handleCopyObject(req);
+
+            case Command::MoveObject:
+                return handleMoveObject(req);
+
+            case Command::RenameObject:
+                return handleRenameObject(req);
 
             case Command::AddObjectAttribute:
                 return handleAddObjectAttribute(req);
