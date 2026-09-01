@@ -18,9 +18,9 @@ namespace Euclid::CLI {
         // the hot path (thousands of calls for a large file), so they're the ones most likely to
         // hit a transient failure - e.g. a request landing on a storage instance the gateway's
         // autoscaler is mid-way through killing. A handful of quick retries turns that into a brief
-        // stall instead of aborting the whole upload. create-upload/complete-upload are called once
-        // each, but bracket every part: giving up on the first transient 5xx there throws away the
-        // entire file, so they retry on the same terms.
+        // stall instead of aborting the whole upload. create-upload/complete-upload - and their
+        // download counterparts - are called once each, but bracket every part: giving up on the
+        // first transient 5xx there throws away the entire file, so they retry on the same terms.
         constexpr int kMaxPartAttempts = 4;
         constexpr std::chrono::milliseconds kPartRetryBaseDelay{500};
 
@@ -532,18 +532,35 @@ namespace Euclid::CLI {
                 {"x-euclid-expected-concurrency", std::to_string(concurrency)},
         };
 
-        try {
-            const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("esm", "create-download", boost::json::value_from(request), headers);
-            if (!response.IsSuccess()) {
-                std::cerr << "error: create-download failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
-                return std::nullopt;
+        // Retried on 5xx exactly like createUpload() and downloadPart(). Safe to repeat: the
+        // download session it opens is server-side scratch state keyed by a fresh download ID, so a
+        // retried attempt starts a new one and the abandoned session is simply never used.
+        for (int attempt = 1; attempt <= kMaxPartAttempts; ++attempt) {
+            const bool lastAttempt = attempt == kMaxPartAttempts;
+
+            try {
+                const HttpClient client(_endpoint, _authentication, _caCertPath);
+                const HttpResponse response = client.Post("esm", "create-download", boost::json::value_from(request), headers);
+                if (response.IsSuccess()) {
+                    return boost::json::value_to<Dto::ESM::CreateDownloadResponse>(response.body);
+                }
+
+                if (response.statusCode < 500 || lastAttempt) {
+                    std::cerr << "error: create-download failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                    return std::nullopt;
+                }
+                std::cerr << "warning: create-download failed (attempt " << attempt << "/" << kMaxPartAttempts << ", HTTP " << response.statusCode << "), retrying..." << std::endl;
+            } catch (const std::exception &ex) {
+                if (lastAttempt) {
+                    std::cerr << "error: " << ex.what() << std::endl;
+                    return std::nullopt;
+                }
+                std::cerr << "warning: create-download failed (attempt " << attempt << "/" << kMaxPartAttempts << "): " << ex.what() << ", retrying..." << std::endl;
             }
-            return boost::json::value_to<Dto::ESM::CreateDownloadResponse>(response.body);
-        } catch (const std::exception &ex) {
-            std::cerr << "error: " << ex.what() << std::endl;
-            return std::nullopt;
+
+            std::this_thread::sleep_for(kPartRetryBaseDelay * attempt);
         }
+        return std::nullopt;// unreachable
     }
 
     // download-part does NOT conform to the JSON in/out convention every other action uses here -
@@ -609,17 +626,33 @@ namespace Euclid::CLI {
         Dto::ESM::CompleteDownloadRequest request;
         request.downloadId = downloadId;
 
-        try {
-            const HttpClient client(_endpoint, _authentication, _caCertPath);
-            if (const HttpResponse response = client.Post("esm", "complete-download", boost::json::value_from(request)); !response.IsSuccess()) {
-                std::cerr << "error: complete-download failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
-                return false;
+        // Retried on 5xx like completeUpload(), and for the same reason: failing here throws away
+        // every part already downloaded. Safe to repeat - it only releases the session's server-side
+        // scratch state, and a session already released fails a retry with 404, which is not retried.
+        for (int attempt = 1; attempt <= kMaxPartAttempts; ++attempt) {
+            const bool lastAttempt = attempt == kMaxPartAttempts;
+
+            try {
+                const HttpClient client(_endpoint, _authentication, _caCertPath);
+                const HttpResponse response = client.Post("esm", "complete-download", boost::json::value_from(request));
+                if (response.IsSuccess()) return true;
+
+                if (response.statusCode < 500 || lastAttempt) {
+                    std::cerr << "error: complete-download failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                    return false;
+                }
+                std::cerr << "warning: complete-download failed (attempt " << attempt << "/" << kMaxPartAttempts << ", HTTP " << response.statusCode << "), retrying..." << std::endl;
+            } catch (const std::exception &ex) {
+                if (lastAttempt) {
+                    std::cerr << "error: " << ex.what() << std::endl;
+                    return false;
+                }
+                std::cerr << "warning: complete-download failed (attempt " << attempt << "/" << kMaxPartAttempts << "): " << ex.what() << ", retrying..." << std::endl;
             }
-            return true;
-        } catch (const std::exception &ex) {
-            std::cerr << "error: " << ex.what() << std::endl;
-            return false;
+
+            std::this_thread::sleep_for(kPartRetryBaseDelay * attempt);
         }
+        return false;// unreachable
     }
 
     int EsmCli::uploadOneFile(const std::string &bucketErn, const std::string &key, const std::string &filePath, const long partSize, const int concurrency, boost::json::value &outResult) const {

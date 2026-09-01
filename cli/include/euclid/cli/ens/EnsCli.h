@@ -34,7 +34,7 @@
 #include <euclid/dto/ens/PurgeAllTopicsRequest.h>
 #include <euclid/dto/ens/PurgeTopicRequest.h>
 #include <euclid/dto/ens/SetMessageAttributeRequest.h>
-#include <euclid/dto/ens/SetQueueTagRequest.h>
+#include <euclid/dto/ens/SetTopicTagRequest.h>
 #include <euclid/dto/ens/ListSubscriptionsRequest.h>
 #include <euclid/dto/ens/SubscribeRequest.h>
 #include <euclid/dto/ens/UnsubscribeRequest.h>
