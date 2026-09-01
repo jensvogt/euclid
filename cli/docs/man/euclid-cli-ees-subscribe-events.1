@@ -1,0 +1,109 @@
+.TH EUCLID-CLI-EES-SUBSCRIBE-EVENTS 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ees-subscribe-events \- register a durable subscription to euclid events
+.SH SYNOPSIS
+.B euclid-cli ees subscribe-events
+.BR \-\-name | \-n
+.I NAME
+.BR \-\-event\-types | \-e
+.I LIST
+[\fB\-\-filter\fR|\fB\-f\fR \fIJSON\fR]
+.SH DESCRIPTION
+Registers a subscription under
+.IR NAME .
+From then on every matching event is stored for that name whether or not
+anything is connected to receive it, and stays there until it is
+acknowledged \- which is what lets an application restart, or be down for
+an hour, without missing what happened meanwhile.
+.PP
+The name is the identity of the consumer, not of a process. Two
+consumers that use different names each get their own copy of an event,
+so both can act on it; two instances that share a name share the work,
+because a claim is atomic and only one of them gets any given event.
+.PP
+Subscribing again with the same name and event type replaces that
+subscription's filter rather than adding a second one, so redeploying an
+application with a narrower filter really does narrow it.
+.PP
+The subscription is scoped to the caller's account: an event whose
+payload names a different account is never stored for it.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+Subscriber name events are stored and claimed under. Required.
+.TP
+.BR \-e ", " \-\-event\-types " " \fILIST\fR
+Comma-separated event types, e.g.
+.IR esm.object.created,esm.object.deleted .
+Required. See
+.BR euclid-cli-ees (1)
+for the types that exist.
+.TP
+.BR \-f ", " \-\-filter " " \fIJSON\fR
+JSON object of payload fields that must match exactly. Omitted means
+every event of these types.
+.SH FILTERS
+A filter is applied when the event is published, not when it is
+delivered, so a subscriber's backlog is proportional to what it asked
+for rather than to how busy the installation is.
+.PP
+ESM's object events carry
+.IR bucketName ,
+.IR key ,
+.I prefix
+and
+.I directory
+for exactly this purpose:
+.PP
+.RS
+.nf
+{"bucketName":"inbox"}                    one bucket
+{"bucketName":"inbox","prefix":"in/"}     one "directory" of it
+{"directory":false}                       no FTP MKD markers
+.fi
+.RE
+.PP
+A key is a path by convention only, which is why
+.I prefix
+is a field of its own: it is the key up to and including its last
+slash, so it can be matched exactly like anything else.
+.SH EXIT STATUS
+.TP
+.B 0
+The subscription was registered. All of the subscriber's subscriptions
+are printed as JSON.
+.TP
+.B 1
+Missing or invalid arguments, a
+.B \-\-filter
+that is not a JSON object, no session, or the server rejected the
+request.
+.SH EXAMPLES
+Every upload into one bucket, excluding directory markers:
+.PP
+.RS
+.nf
+euclid-cli ees subscribe-events \e
+    --name invoice-import \e
+    --event-types esm.object.created \e
+    --filter '{"bucketName":"inbox","directory":false}'
+.fi
+.RE
+.PP
+Everything that happens to one directory of one bucket:
+.PP
+.RS
+.nf
+euclid-cli ees subscribe-events \e
+    --name report-index \e
+    --event-types esm.object.created,esm.object.updated,esm.object.deleted \e
+    --filter '{"bucketName":"reports","prefix":"2026/"}'
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ees (1),
+.BR euclid-cli-ees-receive-events (1),
+.BR euclid-cli-ees-list-subscriptions (1),
+.BR euclid-cli-ees-unsubscribe-events (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

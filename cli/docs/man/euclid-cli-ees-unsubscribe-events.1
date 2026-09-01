@@ -1,0 +1,65 @@
+.TH EUCLID-CLI-EES-UNSUBSCRIBE-EVENTS 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ees-unsubscribe-events \- remove a subscription and the events waiting for it
+.SH SYNOPSIS
+.B euclid-cli ees unsubscribe-events
+.BR \-\-name | \-n
+.I NAME
+[\fB\-\-event\-type\fR|\fB\-e\fR \fITYPE\fR]
+.SH DESCRIPTION
+Removes a subscription, and every event still waiting for it.
+.PP
+The events go with it deliberately. Keeping a backlog for something
+nobody is listening to any more is what the seven-day retention exists
+to prevent, and unsubscribing says that in so many words \- so it is
+done now rather than a week from now.
+.PP
+Naming no event type removes the subscriber entirely, which is what
+decommissioning an application wants. Naming one narrows the subscriber
+and leaves its other subscriptions, and their backlogs, alone.
+.PP
+Note that this is not how to pause a consumer: a subscription that is
+removed and re-created misses everything published in between, because
+between the two there was nothing to store the events for. To stop
+processing for a while, simply stop receiving \- the events wait.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+Subscriber name. Required.
+.TP
+.BR \-e ", " \-\-event\-type " " \fITYPE\fR
+Event type to stop receiving. Omitted removes all of this subscriber's
+subscriptions.
+.SH EXIT STATUS
+.TP
+.B 0
+The call succeeded. The number of subscriptions removed is printed as
+JSON; removing something that was not subscribed reports zero rather
+than failing.
+.TP
+.B 1
+Missing or invalid arguments, no session, or the server rejected the
+request.
+.SH EXAMPLES
+Stop watching deletions, keep watching uploads:
+.PP
+.RS
+.nf
+euclid-cli ees unsubscribe-events \e
+    --name invoice-import --event-type esm.object.deleted
+.fi
+.RE
+.PP
+Decommission a consumer entirely:
+.PP
+.RS
+.nf
+euclid-cli ees unsubscribe-events --name invoice-import
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ees (1),
+.BR euclid-cli-ees-subscribe-events (1),
+.BR euclid-cli-ees-list-subscriptions (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

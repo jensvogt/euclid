@@ -1,0 +1,207 @@
+.TH EUCLID-CLI-EES 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ees \- subscribe to the events euclid modules publish
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+[\fB\-\-loglevel\fR \fILEVEL\fR]
+.B ees
+.I action
+[\fIaction-options\fR...]
+.SH DESCRIPTION
+The
+.B ees
+module lets something outside euclid \- an application, an SDK, a shell
+script \- receive the events euclid's modules publish among themselves,
+so it can react to a change instead of polling for it.
+.PP
+The events themselves are named
+.IR producer . object . change ,
+and the ones that exist today come from
+.BR euclid-cli-esm (1):
+.PP
+.RS
+.nf
+esm.object.created   an object appears at a key that held none
+esm.object.updated   a key is re\-uploaded, or an attribute changes
+esm.object.deleted   an object is removed
+.fi
+.RE
+.PP
+Every path that changes an object publishes one \- an upload, a
+multipart completion, a copy, a move, a rename, an attribute change, a
+delete, and a purge, which publishes one event per object it removed. A
+move is a
+.I created
+followed by a
+.IR deleted ,
+in that order, so a subscriber keeping its own index of keys never has
+the object missing from both places.
+.SH SUBSCRIPTIONS
+A subscription is a
+.I name
+plus an event type plus an optional filter. The name is what makes this
+different from a queue: events are stored per subscriber, so
+.PP
+.RS
+.IP \(bu 3
+nothing is lost while a consumer is down \- an event waits until it is
+claimed, and is removed only when it is acknowledged, so restarting an
+application does not miss what arrived meanwhile;
+.IP \(bu 3
+two consumers watching the same thing each get their own copy, and one
+acknowledging does not take the event from the other, so no queue per
+consumer is needed;
+.IP \(bu 3
+two instances of one consumer share the work by sharing a name, since a
+claim is atomic and exactly one of them gets any given event.
+.RE
+.PP
+A filter is a JSON object of payload fields that must match exactly, and
+it is evaluated when the event is published rather than when it is
+delivered \- so a subscriber's backlog is proportional to what it asked
+for, not to how busy the installation is. ESM's object events carry
+.IR bucketName ,
+.IR key ,
+.I prefix
+and
+.I directory
+for this purpose:
+.I prefix
+is what makes "this directory" expressible, and
+.I directory
+false keeps out the zero\-byte markers an FTP
+.B MKD
+leaves behind.
+.PP
+Subscriptions are scoped to the caller's account. An event whose payload
+names a different account is never stored for a subscriber at all, which
+is why account\-scoped events cannot leak across a shared installation.
+.SH CLAIMS
+.B receive-events
+does not delete anything: it takes a lease. A claimed event is invisible
+to every other claimer until its visibility timeout runs out, and comes
+back if it is never acknowledged \- which is what makes a consumer
+crashing halfway through its work harmless. Acknowledging with
+.B ack-events
+is what finally deletes it.
+.PP
+An event that is never claimed is kept for seven days and then expires,
+so a consumer that never comes back cannot fill the database.
+.SH ACTIONS
+.TP
+.B subscribe-events
+Registers a durable subscription for a name, or narrows an existing one.
+See
+.BR euclid-cli-ees-subscribe-events (1).
+.TP
+.B unsubscribe-events
+Removes a subscription, and the events still waiting for it. See
+.BR euclid-cli-ees-unsubscribe-events (1).
+.TP
+.B list-subscriptions
+Shows what a subscriber is subscribed to and how much is waiting. See
+.BR euclid-cli-ees-list-subscriptions (1).
+.TP
+.B receive-events
+Claims a subscriber's waiting events, optionally long\-polling for one.
+See
+.BR euclid-cli-ees-receive-events (1).
+.TP
+.B ack-events
+Acknowledges claimed events, which deletes them. See
+.BR euclid-cli-ees-ack-events (1).
+.SH GLOBAL OPTIONS
+These options are given to
+.B euclid-cli
+itself, before the
+.I ees
+module name.
+.TP
+.BR \-e ", " \-\-endpoint " " \fIURL\fR
+Euclid gateway endpoint to talk to, e.g. \fIhttps://localhost:5566\fR.
+.TP
+.BR \-\-ca\-cert " " \fIPATH\fR
+Path to a PEM CA certificate to trust in addition to the system trust
+store, e.g. for self-signed development certificates.
+.TP
+.BR \-p ", " \-\-pretty " " \fIBOOL\fR
+Pretty-print the JSON response. Defaults to \fItrue\fR.
+.TP
+.BR \-s ", " \-\-signature " " \fISCHEME\fR
+Signature scheme used for signed service calls: \fIsigv4\fR (the
+default) or \fIrfc9421\fR for RFC 9421 HTTP Message Signatures.
+Overrides
+.I euclid.cli.signature
+from the configuration file.
+.TP
+.BR \-l ", " \-\-loglevel " " \fILEVEL\fR
+Log level: one of \fItrace\fR, \fIdebug\fR, \fIinfo\fR, \fIwarning\fR,
+\fIerror\fR, \fIfatal\fR. Defaults to \fIinfo\fR.
+.TP
+.BR \-h ", " \-\-help
+Print top-level usage and exit.
+.TP
+.BR \-v ", " \-\-version
+Print the euclid-cli version and exit.
+.SH AUTHENTICATION
+.B ees
+commands are authenticated using the session created by
+.BR euclid-cli-eam-login (1),
+loaded from
+.IR $HOME/.euclid/credentials .
+.PP
+Unlike
+.BR euclid-cli-ets (1)
+or
+.BR euclid-cli-eap (1),
+no action here is administrator-only. A subscriber only ever sees events
+of its own account, and the principal that needs to subscribe is usually
+an application's own technical user rather than an operator.
+.PP
+Requesting help for an action does not require a session, so
+.B "euclid-cli ees <action> \-\-help"
+works before logging in.
+.SH EXIT STATUS
+.TP
+.B 0
+The action completed successfully.
+.TP
+.B 1
+Argument parsing failed, there is no session, the request could not be
+sent, or the server rejected it. Details are printed to standard error.
+.SH FILES
+.TP
+.I $HOME/.euclid/credentials
+JSON file holding the current session's bearer token and/or SigV4 access
+key, created by
+.B euclid-cli eam login
+and read by every
+.B ees
+action.
+.SH EXAMPLES
+Watch one bucket's uploads, ignoring directory markers, and drain what
+has arrived:
+.PP
+.RS
+.nf
+euclid-cli ees subscribe-events \e
+    --name invoice-import \e
+    --event-types esm.object.created,esm.object.deleted \e
+    --filter '{"bucketName":"inbox","directory":false}'
+
+euclid-cli ees receive-events --name invoice-import --wait-time 20
+euclid-cli ees ack-events --name invoice-import --event-ids <id>,<id>
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli (1),
+.BR euclid-cli-ees-subscribe-events (1),
+.BR euclid-cli-ees-unsubscribe-events (1),
+.BR euclid-cli-ees-list-subscriptions (1),
+.BR euclid-cli-ees-receive-events (1),
+.BR euclid-cli-ees-ack-events (1),
+.BR euclid-cli-esm (1),
+.BR euclid-cli-eam-login (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

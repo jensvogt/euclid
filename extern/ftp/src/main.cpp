@@ -47,8 +47,8 @@ static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
             ("socket,s", po::value<std::string>(&opts.socketPath)->default_value(DEFAULT_SOCKET_PATH), "Unix domain socket path")
             ("transfer-server,t", po::value<std::string>(&opts.transferServerId)->default_value(""),
              "Run as the named ETS transfer server: take address/port/passive range from its definition, "
-             "authenticate against EAM and store files in its ESM bucket. Without it the server runs "
-             "standalone from euclid.modules.ftp.*");
+             "authenticate against EAM and store files in its ESM bucket. Required - there is nothing to "
+             "serve without a definition; create one with 'euclid-cli ets create-server'");
 
     po::options_description logging("Logging options", 120, 50);
     logging.add_options()

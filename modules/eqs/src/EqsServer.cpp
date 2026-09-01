@@ -837,7 +837,7 @@ namespace Euclid::EQS {
     // ── EventBus ─────────────────────────────────────────────────────────────
     // Consumer side of every EQS-type subscription in the system - ENS topics
     // (EnsServer::handlePublishMessage, event "ens.message.published") and ESM buckets
-    // (EsmServer::publishObjectCreated, event "esm.object.created") both fan out through the same
+    // (EsmServer::notifyBucketSubscriptions, event "esm.subscription.delivery") both fan out through the same
     // payload shape (targetErn + body [+ attributes]), so one handler, registered for both event
     // types below, covers both: one delivery per subscribed queue, claimed by exactly one eqs
     // instance, turned into a real queue message here.
@@ -887,7 +887,7 @@ namespace Euclid::EQS {
                                                           std::chrono::seconds(30));
 
         Database::EventBus::instance().Subscribe("eqs", "ens.message.published", handleSubscriptionDelivery);
-        Database::EventBus::instance().Subscribe("eqs", "esm.object.created", handleSubscriptionDelivery);
+        Database::EventBus::instance().Subscribe("eqs", "esm.subscription.delivery", handleSubscriptionDelivery);
         Database::EventBus::instance().Start("eqs");
     }
 

@@ -16,6 +16,15 @@ target_link_libraries(${SCOPE_BINARY} PRIVATE euclidcore Boost::unit_test_framew
 
 add_test(NAME ${SCOPE_BINARY} COMMAND ${SCOPE_BINARY})
 
+set(EVENTBUS_BINARY euclid-eventbus-external-tests)
+
+add_executable(${EVENTBUS_BINARY} EventBusExternalTest.cpp)
+set_target_properties(${EVENTBUS_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${EVENTBUS_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${EVENTBUS_BINARY} COMMAND ${EVENTBUS_BINARY})
+
 set(EAP_APPLICATION_BINARY euclid-eap-application-tests)
 
 add_executable(${EAP_APPLICATION_BINARY} EapApplicationTest.cpp)

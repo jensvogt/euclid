@@ -11,6 +11,7 @@
 // Euclid includes
 #include <euclid/cli/credentials/Credentials.h>
 #include <euclid/cli/eam/EamCli.h>
+#include <euclid/cli/ees/EesCli.h>
 #include <euclid/cli/ekm/EkmCli.h>
 #include <euclid/cli/emm/EmmCli.h>
 #include <euclid/cli/ens/EnsCli.h>
@@ -49,10 +50,11 @@ int main(const int argc, char *argv[]) {
             "Modules:\n"
             "\tEAM Euclid access management (user, user groups, accounts, namespaces)\n"
             "\tEQS Euclid queueing system (queues, messages)\n"
-            "\tENS Euclid notifications system (pub/sub topics, messages\n"
+            "\tESM Euclid storage module (buckets, objects)\n"
+            "\tEES Euclid event service (subscribe to what other modules publish)\n"
+            "\tENS Euclid notifications system (pub/sub topics, messages)\n"
             "\tEKM Euclid key management (cryptographic keys, encryption, decryption)\n"
             "\tEMM Euclid module management (start, stop, restart, auto-scaler)\n"
-            "\tEMO Euclid monitoring (modules, system)\n"
             "\tETS Euclid transfer server (FTP/SFTP endpoints onto ESM buckets)\n"
             "\tEAP Euclid applications (Java, Python, Node.js, Rust or C++ processes euclid runs and scales)\n";
 
@@ -178,6 +180,11 @@ int main(const int argc, char *argv[]) {
         const auto authToken = Euclid::CLI::Credentials::Load();
         const Euclid::CLI::EtsCli ets(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), pretty, caCert);
         return ets.process(action, args);
+    }
+    if (module == "ees") {
+        const auto authToken = Euclid::CLI::Credentials::Load();
+        const Euclid::CLI::EesCli ees(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), pretty, caCert);
+        return ees.process(action, args);
     }
     if (module == "ekm") {
         const auto authToken = Euclid::CLI::Credentials::Load();

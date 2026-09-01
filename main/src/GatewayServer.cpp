@@ -60,7 +60,7 @@ namespace Euclid::main {
     //   2. Authorization   — SigV4 credential scope: "<key>/<date>/<region>/<svc>/aws4_request"
     static std::string detectEuclidService(const http::request<http::string_body> &req, const ServiceController &ctrl) {
         static const std::unordered_set<std::string> kModules{
-                "eam", "esm", "eqs", "ens", "emm", "emo", "ekm", "ets", "eap"
+                "eam", "esm", "eqs", "ens", "emm", "emo", "ekm", "ets", "eap", "ees"
         };
 
         if (const auto module = std::string(req["x-euclid-target"]); !module.empty()) {

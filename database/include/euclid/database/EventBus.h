@@ -5,7 +5,9 @@
 #include <functional>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <unordered_map>
+#include <vector>
 
 // Boost includes
 #include <boost/json.hpp>
@@ -155,11 +157,114 @@ namespace Euclid::Database {
          */
         void Publish(const std::string &eventType, const boost::json::value &payload, const std::string &sourceModule);
 
+        // ── External subscribers ─────────────────────────────────────────────
+        //
+        // The same bus, for consumers that are not euclid modules: an application, an SDK, a
+        // Spring service. They differ from a module type in three ways and in nothing else.
+        //
+        // They register a durable *name* rather than a module type, and get their own envelope
+        // per event exactly as a module type does - so two applications watching the same bucket
+        // both receive it, while two instances of one application share a name and whichever
+        // claims it first processes it. That is what makes a queue per consumer unnecessary.
+        //
+        // They pull rather than being called: no handler exists in any process, so an envelope
+        // waits until ClaimEvents() takes it and AckEvent() deletes it. Nothing else removes it,
+        // and an unacked claim becomes visible again when its lease runs out.
+        //
+        // And they carry a filter, evaluated at publish time, so a subscriber only ever stores
+        // the events it asked for rather than everything of that type in the installation.
+
+        /**
+         * @brief One external subscription, as returned by ListSubscriptions().
+         */
+        struct Subscription {
+            std::string subscriber;
+            std::string eventType;
+            boost::json::object filter;
+            std::string accountId;
+            system_clock::time_point createdAt;
+            system_clock::time_point lastSeenAt;
+        };
+
+        /**
+         * @brief Registers a durable external subscription, or updates its filter.
+         *
+         * @param subscriber name the consumer claims events under; instances of one application
+         * share it deliberately, so an event is processed once between them.
+         * @param eventType event type to receive, e.g. "esm.object.created".
+         * @param filter exact-match key/value pairs the event payload must satisfy; empty
+         * receives every event of this type.
+         * @param accountId account the subscriber belongs to - an event whose payload names a
+         * different account is never stored for it.
+         */
+        void SubscribeExternal(const std::string &subscriber, const std::string &eventType,
+                               const boost::json::object &filter, const std::string &accountId);
+
+        /**
+         * @brief Removes an external subscription, and every event still waiting for it.
+         *
+         * @param subscriber subscriber name.
+         * @param eventType event type to stop receiving; empty removes all of this subscriber's.
+         * @return number of subscriptions removed.
+         */
+        long UnsubscribeExternal(const std::string &subscriber, const std::string &eventType);
+
+        /**
+         * @brief Lists a subscriber's subscriptions.
+         *
+         * @param subscriber subscriber name.
+         * @return its subscriptions.
+         */
+        [[nodiscard]]
+        std::vector<Subscription> ListSubscriptions(const std::string &subscriber) const;
+
+        /**
+         * @brief Claims up to maxEvents of a subscriber's waiting events.
+         *
+         * @par
+         * The same atomic claim a module instance makes: an event handed out here is invisible to
+         * any other claimer until the lease expires, and comes back if it is never acked - so a
+         * consumer that crashes mid-work loses nothing.
+         *
+         * @param subscriber subscriber name.
+         * @param maxEvents largest number of events to claim.
+         * @param visibility how long the claim holds before the events become claimable again.
+         * @return the claimed events, oldest first.
+         */
+        [[nodiscard]]
+        std::vector<EventEnvelope> ClaimEvents(const std::string &subscriber, long maxEvents, std::chrono::seconds visibility);
+
+        /**
+         * @brief Deletes a claimed event, which is what "processed" means here.
+         *
+         * @param subscriber subscriber name the event was claimed under.
+         * @param eventId ID from the claimed envelope.
+         * @return true if an event was deleted.
+         */
+        bool AckEvent(const std::string &subscriber, const std::string &eventId);
+
+        /**
+         * @brief Number of events waiting for a subscriber, claimed or not.
+         *
+         * @param subscriber subscriber name.
+         * @return the count.
+         */
+        [[nodiscard]]
+        long CountEvents(const std::string &subscriber) const;
+
+        /**
+         * @brief The prefix an external subscriber's name carries internally - see kExternalPrefix.
+         */
+        [[nodiscard]]
+        static constexpr std::string_view kExternalPrefixValue() { return "client:"; }
+
     private:
 
         EventBus() = default;
 
         void ensureIndexes();
+
+        void pruneStaleSubscriptions(const std::string &moduleType);
 
         void pollOnce(const std::string &moduleType);
 
@@ -172,6 +277,23 @@ namespace Euclid::Database {
         static constexpr auto SUBSCRIPTION_COLLECTION = "internal_event_subscriptions";
         static constexpr auto EVENT_COLLECTION = "internal_events";
         static constexpr auto DLQ_COLLECTION = "internal_events_dlq";
+        /**
+         * @brief Prefix an external subscriber's name carries in an event's targetModule.
+         *
+         * External subscribers share the module fan-out's key space rather than getting one of
+         * their own: a subscription is still (targetModule, eventType), and no module can be
+         * called "client:..." - which keeps publish, claim and reap one code path instead of two.
+         */
+        static constexpr auto kExternalPrefix = "client:";
+
+        /**
+         * @brief How long an unclaimed external event is kept before MongoDB expires it.
+         *
+         * A consumer that never comes back must not accumulate events forever. Module deliveries
+         * carry no expiry field at all and are unaffected by the TTL index.
+         */
+        static constexpr auto kExternalRetentionSeconds = 7 * 24 * 3600;
+
         static constexpr int kMaxAttempts = 5;
         static constexpr int kBatchSize = 10;
         static constexpr auto kVisibilityTimeout = std::chrono::seconds(30);
