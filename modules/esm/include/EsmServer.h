@@ -31,6 +31,7 @@
 #include <euclid/dto/esm/CompleteDownloadRequest.h>
 #include <euclid/dto/esm/CompleteUploadRequest.h>
 #include <euclid/dto/esm/CompleteUploadResponse.h>
+#include <euclid/dto/esm/CopyObjectRequest.h>
 #include <euclid/dto/esm/CreateBucketRequest.h>
 #include <euclid/dto/esm/CreateBucketResponse.h>
 #include <euclid/dto/esm/CreateDownloadRequest.h>
@@ -59,6 +60,7 @@
 #include <euclid/dto/esm/ObjectAttributeResponse.h>
 #include <euclid/dto/esm/PurgeBucketRequest.h>
 #include <euclid/dto/esm/PurgeBucketResponse.h>
+#include <euclid/dto/esm/RenameObjectRequest.h>
 #include <euclid/dto/esm/SubscribeRequest.h>
 #include <euclid/dto/esm/SubscribeResponse.h>
 #include <euclid/dto/esm/UnsubscribeRequest.h>
