@@ -141,6 +141,30 @@ namespace Euclid::Database::Entity::EAM {
         /**
          * @brief Euclid-style access keys owned by this user, used for SigV4-signed service calls.
          */
+        /**
+         * @brief Whether this user may log in with a password.
+         *
+         * @par
+         * False for a technical principal - the identity an application runs as, created by EAP
+         * alongside the application itself. Such a principal has no password worth guessing, no
+         * interactive session and no way in through eam login; all it has is an access key, which
+         * is enough to sign the calls the application makes and nothing else. Existing users
+         * default to true, so this changes nothing for anybody who was here before it.
+         */
+        bool loginEnabled{true};
+
+        /**
+         * @brief ERNs of the resources this user may act on, or empty for no restriction.
+         *
+         * @par
+         * Account and namespace grants say *where* a caller may work; this says *what* it may
+         * touch inside that account - the buckets and queues an application was deployed with,
+         * and nothing else. Empty means unrestricted, which is what every human and every user
+         * written before this field existed is: narrowing a person down to a fixed resource list
+         * is not what this is for.
+         */
+        std::vector<std::string> resourceGrants;
+
         std::vector<AccessKey> accessKeys;
 
         /**

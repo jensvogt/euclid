@@ -130,6 +130,7 @@ int main(const int argc, char *argv[]) {
     Euclid::Database::WireModuleSocketLookup();
     Euclid::Database::WireScopeLookup();
     Euclid::Database::WireGrantLookup();
+    Euclid::Database::WireResourceLookup();
 
     Euclid::Core::Monitoring::MetricsPusher metricsPusher("eqs");
     Euclid::Core::EventPusher::SetGatewaySocketPath(cfg.getOr<std::string>("euclid.gateway.event-socket-path", ""));

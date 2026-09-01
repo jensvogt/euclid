@@ -1,0 +1,166 @@
+.TH EUCLID-CLI-EAP-CREATE-APPLICATION 1 "September 2026" "euclid-cli 1.0.33" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eap-create-application \- define an application from an artifact in a bucket
+.SH SYNOPSIS
+.B euclid-cli eap create-application
+.BR \-\-application\-id | \-n
+.I NAME
+.BR \-\-runtime | \-r
+.I RUNTIME
+.BR \-\-bucket | \-b
+.I BUCKET
+.BR \-\-artifact | \-a
+.I KEY
+[\fB\-\-user\fR|\fB\-u\fR \fIUSER\fR]
+[\fB\-\-buckets\fR \fILIST\fR]
+[\fB\-\-queues\fR \fILIST\fR]
+[\fB\-\-command\fR|\fB\-c\fR \fICMD\fR]
+[\fB\-\-arguments\fR \fILIST\fR]
+[\fB\-\-environment\fR|\fB\-e\fR \fILIST\fR]
+[\fB\-\-min\-instances\fR \fIN\fR]
+[\fB\-\-max\-instances\fR \fIN\fR]
+[\fB\-\-ready\-timeout\fR \fIMS\fR]
+.SH DESCRIPTION
+Defines a new application from an artifact already stored in an
+.BR euclid-cli-esm (1)
+bucket - upload it first with
+.BR euclid-cli-esm-upload-file (1),
+or through a transfer server.
+.PP
+The manager copies the artifact to the host, starts it with the
+runtime's interpreter (or directly, for
+.IR BINARY ),
+and scales it between
+.B \-\-min\-instances
+and
+.B \-\-max\-instances
+like any other module: round-robin across instances, another instance
+when they are all busy, one fewer after a spell of idleness.
+.PP
+The bucket, the artifact and (when given) the user are resolved now
+rather than at start-up, so a typo is reported here instead of surfacing
+later as an application that never comes up.
+.PP
+The application is created
+.IR stopped .
+Use
+.BR euclid-cli-eap-start-application (1)
+to run it.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-application\-id " " \fINAME\fR
+Name identifying the application, unique across the installation. It
+doubles as the manager's module name and as the
+.I x-euclid-target
+requests address it by. Required.
+.TP
+.BR \-r ", " \-\-runtime " " \fIRUNTIME\fR
+What the artifact is started with: \fIJAVA\fR (\fBjava \-jar\fR),
+\fIPYTHON\fR (\fBpython3\fR), \fINODEJS\fR (\fBnode\fR) or \fIBINARY\fR
+(the artifact itself, made executable). The interpreter is resolved
+through \fIPATH\fR; Euclid launches processes and does not manage
+language toolchains. Required.
+.TP
+.BR \-b ", " \-\-bucket " " \fIBUCKET\fR
+Name of the bucket holding the artifact. Required.
+.TP
+.BR \-a ", " \-\-artifact " " \fIKEY\fR
+Object key of the artifact within that bucket, e.g.
+\fIorders/orders-1.4.jar\fR. Required.
+.TP
+.BR \-u ", " \-\-user " " \fIUSER\fR
+Euclid user the application runs as. Omit it - the usual case - and the
+application gets a technical principal of its own that cannot log in,
+created here and deleted with it; see
+.B IDENTITY
+in
+.BR euclid-cli-eap (1).
+Name a user only when an application really should act as somebody who
+already exists; that user must have an access key already.
+.TP
+.B \-\-buckets " " \fILIST\fR
+Comma-separated names of the buckets the application may use. The
+application's principal is granted exactly these and nothing else, so
+the storage module refuses any other bucket it asks for. Omit it and the
+principal keeps account-wide access.
+.TP
+.B \-\-queues " " \fILIST\fR
+Comma-separated names of the queues the application may use, enforced
+the same way by the queueing module.
+.TP
+.BR \-c ", " \-\-command " " \fICMD\fR
+Command to run instead of the runtime's default, for an application that
+needs a wrapper script or an interpreter that is not on \fIPATH\fR. The
+artifact path is passed to it as its first argument.
+.TP
+.B \-\-arguments " " \fILIST\fR
+Comma-separated arguments passed after the artifact path.
+.TP
+.BR \-e ", " \-\-environment " " \fILIST\fR
+Comma-separated \fIKEY=value\fR pairs set on the process, on top of the
+\fIEUCLID_*\fR variables the manager injects - which these cannot
+shadow.
+.TP
+.B \-\-min\-instances " " \fIN\fR
+Smallest number of instances the autoscaler keeps running. Defaults to
+1; there is no scale-to-zero.
+.TP
+.B \-\-max\-instances " " \fIN\fR
+Largest number of instances the autoscaler may scale out to. Defaults to
+1, which pins the application to a single process.
+.TP
+.B \-\-ready\-timeout " " \fIMS\fR
+How long an instance may take to create its socket before the manager
+gives up on it and kills it, in milliseconds. Defaults to 30000. Worth
+raising for a JVM or anything with a framework to load: an instance
+killed for being slow to start is restarted, and starts slowly again.
+.SH EXIT STATUS
+.TP
+.B 0
+The application was defined. Its definition is printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the caller is not an authenticated
+administrator, an application of that name already exists, the runtime
+is not one of the four, the bucket or the artifact does not exist, a
+bucket or queue named by \fB\-\-buckets\fR/\fB\-\-queues\fR does not exist,
+or a named user does not exist or has no access key.
+.SH EXAMPLES
+A Python application, scaling to four instances:
+.RS
+.nf
+euclid-cli eap create-application \e
+    --application-id demo --runtime PYTHON \e
+    --bucket apps --artifact euclid_app.py \e
+    --min-instances 1 --max-instances 4
+.fi
+.RE
+.PP
+An application allowed to use one bucket and one queue, and nothing else:
+.RS
+.nf
+euclid-cli eap create-application \e
+    --application-id inbox --runtime JAVA \e
+    --bucket apps --artifact inbox.jar \e
+    --buckets inbox --queues inbox-queue
+.fi
+.RE
+.PP
+A Java application with a heap setting and a longer start-up window:
+.RS
+.nf
+euclid-cli eap create-application \e
+    --application-id inbox --runtime JAVA \e
+    --bucket apps --artifact inbox.jar \e
+    --environment JAVA_TOOL_OPTIONS=-Xmx512m,INBOX_BUCKET=inbox \e
+    --ready-timeout 45000
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eap (1),
+.BR euclid-cli-eap-start-application (1),
+.BR euclid-cli-eap-update-application (1),
+.BR euclid-cli-eap-delete-application (1),
+.BR euclid-cli-esm-upload-file (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
