@@ -1,6 +1,9 @@
 #if defined(_WIN32)
 
 // C++ includes
+#include <cstring>
+#include <map>
+#include <string_view>
 #include <vector>
 
 // Euclid includes
@@ -117,9 +120,36 @@ namespace Euclid::main::Platform {
         DWORD flags = CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW;
         if (haveAttrs) flags |= EXTENDED_STARTUPINFO_PRESENT;
 
+        // An application's environment (and the socket path, which a foreign runtime reads from
+        // EUCLID_SOCKET rather than off the command line) has to be materialised as one
+        // NUL-separated, double-NUL-terminated block, on top of whatever the manager itself has -
+        // passing only the additions would start the child with nothing else, not even PATH.
+        std::vector<char> environmentBlock;
+        if (!config.environment.empty()) {
+            std::map<std::string, std::string> merged;
+            if (const char *existing = GetEnvironmentStringsA()) {
+                for (const char *entry = existing; *entry != '\0'; entry += std::strlen(entry) + 1) {
+                    if (const std::string_view text(entry); text.find('=') != std::string_view::npos && !text.starts_with('=')) {
+                        const auto split = text.find('=');
+                        merged[std::string(text.substr(0, split))] = std::string(text.substr(split + 1));
+                    }
+                }
+            }
+            for (const auto &[name, value]: config.environment) merged[name] = value;
+            merged["EUCLID_SOCKET"] = instanceSocket;
+
+            for (const auto &[name, value]: merged) {
+                const auto entry = name + "=" + value;
+                environmentBlock.insert(environmentBlock.end(), entry.begin(), entry.end());
+                environmentBlock.push_back('\0');
+            }
+            environmentBlock.push_back('\0');
+        }
+
         const BOOL ok = CreateProcessA(
                 nullptr, cmdLineBuf.data(), nullptr, nullptr, TRUE, flags,
-                nullptr, nullptr, &siex.StartupInfo, &pi);
+                environmentBlock.empty() ? nullptr : environmentBlock.data(),
+                config.workingDir.empty() ? nullptr : config.workingDir.c_str(), &siex.StartupInfo, &pi);
 
         // The child (if created) now holds its own copies of the write ends; the parent's
         // copies must be closed or the pipe's read end never sees EOF once the child exits.
