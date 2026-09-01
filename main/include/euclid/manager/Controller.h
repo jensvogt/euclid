@@ -82,6 +82,20 @@ namespace Euclid::main {
         bool deregisterModule(const std::string &name);
 
         /**
+         * @brief Whether a module pool with this name exists.
+         *
+         * @par
+         * The gateway needs this to route to applications: the modules it can name are a fixed
+         * list compiled into it, but an application's name is whatever it was deployed as, and
+         * only the controller knows which pools exist at this moment.
+         *
+         * @param name module name.
+         * @return true if a pool is registered under that name.
+         */
+        [[nodiscard]]
+        bool hasService(const std::string &name) const;
+
+        /**
          * @brief Makes the running transfer server processes match the definitions ETS holds.
          *
          * @par
@@ -100,6 +114,28 @@ namespace Euclid::main {
          * before it ever needed to be acted on.
          */
         void reconcileTransferServers();
+
+        /**
+         * @brief Brings the running application pools in line with what EAP has defined.
+         *
+         * @par
+         * The same reconcile reconcileTransferServers() performs, for applications: every
+         * application whose desired state is RUNNING gets a module pool, everything else is torn
+         * down. Two things happen here that a transfer server does not need, because an
+         * application is foreign code rather than a euclid binary:
+         *
+         * @par Artifact
+         * The artifact is an object in an ESM bucket, so it is materialised onto local disk
+         * before the first instance starts - which is what lets a manager on a fresh host bring
+         * an application up from nothing but the database and the object store.
+         *
+         * @par Credentials
+         * The application's EAM user's access key is passed in through the environment, so the
+         * process can sign its own calls back into euclid (RFC 9421). Nothing else hands it an
+         * identity: it holds no token, reads no configuration file and never touches the
+         * database.
+         */
+        void reconcileApplications();
 
         /**
          * @brief Starts a service by its name.
@@ -305,7 +341,7 @@ namespace Euclid::main {
         /**
          * @brief Ensures thread-safe access to shared resources.
          */
-        std::recursive_mutex _mutex;
+        mutable std::recursive_mutex _mutex;
 
         /**
          * @brief Thread responsible for monitoring and managing system processes.

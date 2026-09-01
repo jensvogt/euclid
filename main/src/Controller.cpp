@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <ranges>
 #include <set>
 #include <thread>
@@ -152,7 +153,7 @@ namespace Euclid::main {
         std::thread(drainPipe, outFd, false).detach();
         std::thread(drainPipe, errFd, true).detach();
 
-        if (waitForSocket(svc->instanceSocketPath, 5000)) {
+        if (waitForSocket(svc->instanceSocketPath, svc->config.readyTimeoutMs)) {
             svc->state = Database::Entity::ModuleState::RUNNING;
             log_info << "Service ready, name: " << svc->config.name << ", pid: " << svc->pid << ", socket: " << svc->instanceSocketPath;
             persistInstance(svc);
@@ -202,6 +203,19 @@ namespace Euclid::main {
             // both sides can independently compute the same instance socket path with no IPC.
             const std::string instanceSocket = makeInstanceSocketPath(svc->config.socketPath, getpid());
 
+            if (!svc->config.workingDir.empty()) {
+                if (chdir(svc->config.workingDir.c_str()) != 0) _exit(126);
+            }
+
+            for (const auto &[name, value]: svc->config.environment) {
+                setenv(name.c_str(), value.c_str(), 1);
+            }
+
+            // The socket also travels as an environment variable, not only as --socket: an
+            // application written in some other language has no reason to understand euclid's
+            // command line, but every runtime can read its environment.
+            setenv("EUCLID_SOCKET", instanceSocket.c_str(), 1);
+
             std::vector<const char *> argv;
             argv.push_back(svc->config.executable.c_str());
             for (auto &a: svc->config.args) argv.push_back(a.c_str());
@@ -228,7 +242,7 @@ namespace Euclid::main {
         std::thread(drainPipe, outPipe[0], false).detach();
         std::thread(drainPipe, errPipe[0], true).detach();
 
-        if (waitForSocket(svc->instanceSocketPath, 5000)) {
+        if (waitForSocket(svc->instanceSocketPath, svc->config.readyTimeoutMs)) {
             svc->state = Database::Entity::ModuleState::RUNNING;
             log_info << "Service ready, name: " << svc->config.name << ", pid: " << svc->pid << ", socket: " << svc->instanceSocketPath;
             persistInstance(svc);
@@ -277,6 +291,11 @@ namespace Euclid::main {
     bool ServiceController::deregisterModule(const std::string &name) {
         std::lock_guard lock(_mutex);
         return _services.erase(name) > 0;
+    }
+
+    bool ServiceController::hasService(const std::string &name) const {
+        std::lock_guard lock(_mutex);
+        return _services.contains(name);
     }
 
     void ServiceController::reconcileTransferServers() {
@@ -341,6 +360,201 @@ namespace Euclid::main {
         }
         for (const auto &name: orphaned) {
             log_info << "Transfer server removed, serverId: " << name;
+            stop(name);
+            deregisterModule(name);
+        }
+    }
+
+    namespace {
+
+        // Where an application's artifact is materialised, one directory per application.
+        std::filesystem::path applicationDir(const std::string &applicationId) {
+#ifdef _WIN32
+            constexpr auto kDefaultDataDir = R"(C:\Program Files\euclid\data\application)";
+#else
+            constexpr auto kDefaultDataDir = "/usr/local/euclid/data/application";
+#endif
+            const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.eap.data-dir", kDefaultDataDir);
+            return std::filesystem::path(dataDir) / applicationId;
+        }
+
+        // Copies the artifact out of ESM's object storage next to where the application will run.
+        //
+        // Read straight off ESM's data directory rather than through the module: the manager is
+        // on the same host and already has the database, so going out over the gateway to fetch
+        // bytes it can see would only add a dependency on ESM being up at spawn time. The object
+        // row is still the source of truth for which file that is - a key is resolved to an
+        // internal name only there.
+        std::optional<std::filesystem::path> materializeArtifact(const Database::Entity::EAP::Application &application) {
+
+            const auto object = Database::RepositoryFactory::instance().esmRepository()->findObjectByBucketAndKey(application.bucketErn, application.artifactKey);
+            if (!object.has_value()) {
+                log_error << "Application artifact not found, applicationId: " << application.applicationId << ", key: " << application.artifactKey;
+                return std::nullopt;
+            }
+
+#ifdef _WIN32
+            constexpr auto kDefaultStorageDir = R"(C:\Program Files\euclid\data\storage)";
+#else
+            constexpr auto kDefaultStorageDir = "/usr/local/euclid/data/storage";
+#endif
+            const auto storageDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultStorageDir);
+            const auto source = std::filesystem::path(storageDir) / object->internalName;
+
+            std::error_code ec;
+            if (!std::filesystem::exists(source, ec)) {
+                log_error << "Application artifact file missing, applicationId: " << application.applicationId << ", path: " << source.string();
+                return std::nullopt;
+            }
+
+            const auto directory = applicationDir(application.applicationId);
+            std::filesystem::create_directories(directory, ec);
+            if (ec) {
+                log_error << "Could not create application directory, path: " << directory.string() << ", error: " << ec.message();
+                return std::nullopt;
+            }
+
+            const auto target = directory / std::filesystem::path(application.artifactKey).filename();
+
+            // Re-copied whenever the sizes disagree, which covers the case that matters here: a
+            // new build uploaded to the same key. A content check (the object's md5 is right
+            // there) would be stricter, and is what this wants once an application can be
+            // redeployed without changing size.
+            const bool current = std::filesystem::exists(target, ec) && static_cast<long>(std::filesystem::file_size(target, ec)) == object->size;
+            if (!current) {
+                std::filesystem::copy_file(source, target, std::filesystem::copy_options::overwrite_existing, ec);
+                if (ec) {
+                    log_error << "Could not materialize application artifact, applicationId: " << application.applicationId << ", error: " << ec.message();
+                    return std::nullopt;
+                }
+                log_info << "Application artifact materialized, applicationId: " << application.applicationId << ", path: " << target.string()
+                        << ", size: " << object->size;
+            }
+
+            // A BINARY artifact arrives as a plain object with no mode bits worth speaking of, so
+            // it has to be made executable before anything can exec() it.
+            if (application.runtime == Database::Entity::EAP::Runtime::BINARY) {
+                std::filesystem::permissions(target, std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec,
+                                             std::filesystem::perm_options::add, ec);
+            }
+            return target;
+        }
+
+        // Everything the process needs to know about itself, and the credentials it needs to be
+        // anyone. The application's own environment goes on first, so it cannot shadow these.
+        std::map<std::string, std::string> applicationEnvironment(const Database::Entity::EAP::Application &application) {
+
+            auto environment = application.environment;
+            environment["EUCLID_APPLICATION_ID"] = application.applicationId;
+            environment["EUCLID_APPLICATION_ERN"] = application.ern;
+            environment["EUCLID_ACCOUNT_ID"] = application.accountId;
+            environment["EUCLID_REGION"] = application.region;
+            environment["EUCLID_USER_ID"] = application.userId;
+
+            const auto &configuration = Core::Configuration::instance();
+            const auto host = configuration.getOr<std::string>("euclid.gateway.http.host", "localhost");
+            const auto port = configuration.getOr<long>("euclid.gateway.http.port", 5566);
+            const auto scheme = configuration.getOr<bool>("euclid.gateway.tls.enabled", true) ? "https" : "http";
+            environment["EUCLID_ENDPOINT"] = scheme + std::string("://") + host + ":" + std::to_string(port);
+
+            // RFC 9421 rather than SigV4: an application is whatever language its author reached
+            // for, and HTTP Message Signatures is the one of the two schemes with off-the-shelf
+            // libraries in all of them.
+            environment["EUCLID_SIGNATURE"] = "rfc9421";
+
+            if (const auto user = Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(application.userId);
+                user.has_value() && !user->accessKeys.empty()) {
+                environment["EUCLID_ACCESS_KEY_ID"] = user->accessKeys.front().accessKeyId;
+                environment["EUCLID_SECRET_ACCESS_KEY"] = user->accessKeys.front().secretAccessKey;
+            } else {
+                // Not fatal: an application that only serves requests never has to prove who it
+                // is. One that calls back into euclid will get 401s, and this line is what
+                // explains them.
+                log_warning << "Application has no usable access key, applicationId: " << application.applicationId << ", user: " << application.userId;
+            }
+            return environment;
+        }
+
+    }// namespace
+
+    void ServiceController::reconcileApplications() {
+
+        const auto applications = Database::RepositoryFactory::instance().eapRepository()->listApplications("");
+
+        const auto &configuration = Core::Configuration::instance();
+        const auto socketDir = configuration.getOr<std::string>("euclid.modules.eap.socket-dir", "/var/run/euclid");
+
+        std::set<std::string> defined;
+
+        for (const auto &application: applications) {
+            defined.insert(application.applicationId);
+
+            const bool wantRunning = application.desiredState == Database::Entity::EAP::ApplicationState::RUNNING;
+            bool registered;
+            {
+                std::lock_guard lock(_mutex);
+                registered = _services.contains(application.applicationId);
+            }
+
+            if (wantRunning && !registered) {
+
+                const auto artifact = materializeArtifact(application);
+                if (!artifact.has_value()) continue;
+
+                // The runtime decides what actually gets exec'd: an interpreter with the artifact
+                // as its argument, or the artifact itself. An application that spells out its own
+                // command overrides all of it.
+                Dto::ModuleConfig config;
+                config.name = application.applicationId;
+                const auto prefix = Database::Entity::EAP::RuntimeCommandPrefix(application.runtime);
+                if (!application.command.empty()) {
+                    config.executable = application.command;
+                    config.args = {artifact->string()};
+                } else if (!prefix.empty()) {
+                    config.executable = prefix.front();
+                    config.args.assign(prefix.begin() + 1, prefix.end());
+                    config.args.push_back(artifact->string());
+                } else {
+                    config.executable = artifact->string();
+                }
+                for (const auto &argument: application.arguments) config.args.push_back(argument);
+
+                config.environment = applicationEnvironment(application);
+                config.workingDir = applicationDir(application.applicationId).string();
+                config.socketPath = socketDir + "/euclid-application-" + application.applicationId + ".sock";
+                config.readyTimeoutMs = static_cast<int>(application.readyTimeoutMs);
+                config.maxRestarts = -1;
+                config.autoRestart = true;
+                config.minInstances = static_cast<int>(application.minInstances);
+                config.maxInstances = static_cast<int>(application.maxInstances);
+
+                log_info << "Application starting, applicationId: " << application.applicationId
+                        << ", runtime: " << RuntimeToString(application.runtime) << ", command: " << config.executable
+                        << ", instances: " << config.minInstances << "-" << config.maxInstances;
+                registerModule(config);
+                start(application.applicationId);
+
+            } else if (!wantRunning && registered) {
+                log_info << "Application stopping, applicationId: " << application.applicationId;
+                stop(application.applicationId);
+                deregisterModule(application.applicationId);
+            }
+        }
+
+        // Whatever this controller still runs as an application but EAP no longer defines was
+        // deleted while it was up, and has to be torn down. Only pools this function created are
+        // considered, so a config-declared module is never touched by name collision.
+        std::vector<std::string> orphaned;
+        {
+            std::lock_guard lock(_mutex);
+            for (const auto &[name, group]: _services) {
+                if (defined.contains(name)) continue;
+                if (!group.config.environment.contains("EUCLID_APPLICATION_ID")) continue;
+                orphaned.push_back(name);
+            }
+        }
+        for (const auto &name: orphaned) {
+            log_info << "Application removed, applicationId: " << name;
             stop(name);
             deregisterModule(name);
         }
@@ -563,6 +777,13 @@ namespace Euclid::main {
                         reconcileTransferServers();
                     } catch (const std::exception &e) {
                         log_error << "Transfer server reconcile failed, error: " << e.what();
+                    }
+                    // Applications ride the same tick, for the same reasons - and separately, so
+                    // that one reconcile throwing does not stop the other from running.
+                    try {
+                        reconcileApplications();
+                    } catch (const std::exception &e) {
+                        log_error << "Application reconcile failed, error: " << e.what();
                     }
                 }
 

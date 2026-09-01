@@ -335,6 +335,7 @@ jobs:
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/data/tmp
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/data/backup
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/data/esm
+          mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/data/eap
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man1
           mkdir -p ${{ env.PACKAGE_DIR_DEB }}/etc/systemd/system
 
@@ -423,6 +424,8 @@ jobs:
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/init
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/data/tmp
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/data/backup
+          mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/data/esm
+          mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/data/eap
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man1
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/etc/systemd/system
 

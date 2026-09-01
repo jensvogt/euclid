@@ -145,6 +145,16 @@
         "data-dir": "C:\\Program Files\\euclid\\data\\sftp",
         "host-key": "C:\\Program Files\\euclid\\etc\\ssh_host_key"
       },
+      "eap": {
+        "active": true,
+        "name": "eap",
+        "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-eap.sock",
+        "executable": "C:\\Program Files\\euclid\\bin\\euclid-eap.exe",
+        "socket-dir": "C:\\Program Files\\euclid\\data\\run",
+        "data-dir": "C:\\Program Files\\euclid\\data\\eap",
+        "minInstances": 1,
+        "maxInstances": 1
+      },
       "ets": {
         "active": true,
         "name": "ets",

@@ -31,6 +31,8 @@
 #include <euclid/database/repository/eqs/MongoEqsRepository.h>
 #include <euclid/database/repository/esm/IEsmRepository.h>
 #include <euclid/database/repository/esm/MemoryEsmRepository.h>
+#include <euclid/database/repository/eap/MemoryEapRepository.h>
+#include <euclid/database/repository/eap/MongoEapRepository.h>
 #include <euclid/database/repository/ets/MemoryEtsRepository.h>
 #include <euclid/database/repository/ets/MongoEtsRepository.h>
 #include <euclid/database/repository/esm/MongoEsmRepository.h>
@@ -97,6 +99,12 @@ namespace Euclid::Database {
         [[nodiscard]]
         std::shared_ptr<IEtsRepository> etsRepository() const {
             static auto repo = createEtsRepository();
+            return repo;
+        }
+
+        [[nodiscard]]
+        std::shared_ptr<IEapRepository> eapRepository() const {
+            static auto repo = createEapRepository();
             return repo;
         }
 
@@ -168,6 +176,17 @@ namespace Euclid::Database {
                     return std::make_shared<MemoryEtsRepository>();
             }
             return std::make_shared<MemoryEtsRepository>();
+        }
+
+        [[nodiscard]]
+        std::shared_ptr<IEapRepository> createEapRepository() const {
+            switch (_backend) {
+                case BackendType::MONGODB:
+                    return std::make_shared<MongoEapRepository>();
+                case BackendType::MEMORY:
+                    return std::make_shared<MemoryEapRepository>();
+            }
+            return std::make_shared<MemoryEapRepository>();
         }
 
         [[nodiscard]]
