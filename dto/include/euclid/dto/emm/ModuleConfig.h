@@ -7,6 +7,7 @@
 // C++ includes
 #include <chrono>
 #include <cstdint>
+#include <map>
 #include <string>
 #ifdef _WIN32
 #include <windows.h>
@@ -73,5 +74,33 @@ namespace Euclid::Dto {
          * @brief Maximum number of instances the autoscaler may spawn (autoscaler ceiling)
          */
         int maxInstances = 1;
+
+        /**
+         * @brief Environment variables set on the spawned process, on top of the manager's own.
+         *
+         * @par
+         * Empty for the modules declared in euclid.json, which take everything they need from the
+         * configuration file they are pointed at. It is applications that need this: a foreign
+         * runtime cannot be told where its socket is through a euclid-specific command line
+         * switch, and the credentials it signs its own calls with have no business on a command
+         * line at all - see ServiceController::reconcileApplications().
+         */
+        std::map<std::string, std::string> environment;
+
+        /**
+         * @brief Directory the process is started in; empty leaves it inheriting the manager's.
+         */
+        std::string workingDir;
+
+        /**
+         * @brief How long an instance may take to create its socket before the manager gives up
+         * on it and kills it, in milliseconds.
+         *
+         * @par
+         * The euclid modules are listening within milliseconds, but a JVM or an interpreted
+         * application can take seconds to get there, and killing one that was merely still
+         * starting produces a restart loop rather than a slow start.
+         */
+        int readyTimeoutMs = 5000;
     };
 }

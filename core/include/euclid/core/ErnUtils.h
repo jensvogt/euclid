@@ -181,6 +181,17 @@ namespace Euclid::Core {
     }
 
     /**
+     * @brief Creates an ERN for an EAP application.
+     *
+     * @param accountId account ID
+     * @param name application ID
+     * @return the application's ERN
+     */
+    inline std::string createEapApplicationErn(const std::string &accountId, const std::string &name) {
+        return createErn("eap", accountId, "application:" + name);
+    }
+
+    /**
      * @brief Creates an ERN for an ETS transfer server.
      *
      * @param accountId account ID

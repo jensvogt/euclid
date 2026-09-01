@@ -1,0 +1,172 @@
+//
+// Created by vogje01 on 9/1/26.
+//
+
+#pragma once
+
+// C++ includes
+#include <chrono>
+#include <map>
+#include <optional>
+#include <string>
+#include <vector>
+
+// MongoDB includes
+#include <bsoncxx/builder/basic/document.hpp>
+#include <bsoncxx/document/value.hpp>
+#include <bsoncxx/document/view-fwd.hpp>
+
+// Euclid includes
+#include <euclid/database/entity/eap/ApplicationState.h>
+#include <euclid/database/entity/eap/Runtime.h>
+
+namespace Euclid::Database::Entity::EAP {
+
+    using std::chrono::system_clock;
+
+    /**
+     * @brief One deployed application: a process euclid runs on behalf of a user.
+     *
+     * @par
+     * The definition is the whole contract between the modules it ties together, the same way a
+     * transfer server's is. EAP owns it and is the only thing that writes it; euclid-mgr reads it
+     * to decide which processes to run, materialises the artifact out of ESM and hands the
+     * process its credentials; and the application itself only ever sees the environment those
+     * two agreed on.
+     *
+     * @par The artifact lives in ESM
+     * An application is not a path on a host: it is an object in a bucket, named here by bucket
+     * ERN and key. That is what makes a deployment a normal upload - through the CLI, an SDK, or
+     * an FTP transfer server - and what lets a manager on a fresh host bring an application up
+     * with nothing but the database and the object store.
+     *
+     * @author jens.vogt\@opitz-consulting.com
+     */
+    struct Application {
+
+        /**
+         * @brief ID
+         */
+        std::string oid;
+
+        /**
+         * @brief Name identifying this application, unique across the installation.
+         *
+         * Doubles as the manager's module name for the spawned processes, which is why it has to
+         * be unique: two applications sharing a name would share a process pool.
+         */
+        std::string applicationId;
+
+        /**
+         * @brief Euclid resource name
+         */
+        std::string ern;
+
+        /**
+         * @brief Account this application belongs to
+         */
+        std::string accountId;
+
+        /**
+         * @brief Region this application belongs to
+         */
+        std::string region;
+
+        /**
+         * @brief Runtime the artifact is started with - see RuntimeCommandPrefix().
+         */
+        Runtime runtime = Runtime::UNKNOWN;
+
+        /**
+         * @brief ERN of the bucket holding the artifact.
+         */
+        std::string bucketErn;
+
+        /**
+         * @brief Key of the artifact object within that bucket, e.g. "apps/orders-1.4.jar".
+         */
+        std::string artifactKey;
+
+        /**
+         * @brief Command to run instead of the runtime's default.
+         *
+         * @par
+         * Empty for the usual case, where the runtime and the artifact are enough ("java -jar
+         * <artifact>"). Set when an application needs something else entirely - a wrapper script,
+         * an interpreter that isn't on PATH, a module invocation rather than a file.
+         */
+        std::string command;
+
+        /**
+         * @brief Arguments passed after the artifact path.
+         */
+        std::vector<std::string> arguments;
+
+        /**
+         * @brief Environment variables handed to the process, on top of the EUCLID_* ones the
+         * manager injects.
+         */
+        std::map<std::string, std::string> environment;
+
+        /**
+         * @brief EAM user the application runs as.
+         *
+         * @par
+         * Its access key is what the process signs its own calls back into euclid with, so this
+         * is the identity euclid sees when the application talks to ESM, EQS or anything else -
+         * not the identity of whoever deployed it.
+         */
+        std::string userId;
+
+        /**
+         * @brief Smallest number of instances the autoscaler keeps running.
+         */
+        long minInstances = 1;
+
+        /**
+         * @brief Largest number of instances the autoscaler may scale out to.
+         */
+        long maxInstances = 1;
+
+        /**
+         * @brief How long an instance may take to create its socket before the manager gives up
+         * on it, in milliseconds.
+         *
+         * @par
+         * Generous by default because this is where language runtimes differ most: a Rust binary
+         * is listening in milliseconds, a JVM with a framework on top can take ten seconds.
+         */
+        long readyTimeoutMs = 30000;
+
+        /**
+         * @brief What the application should be doing - see ApplicationState.
+         */
+        ApplicationState desiredState = ApplicationState::STOPPED;
+
+        /**
+         * @brief Creation date
+         */
+        system_clock::time_point created = system_clock::now();
+
+        /**
+         * @brief Last modification date
+         */
+        system_clock::time_point modified = system_clock::now();
+
+        /**
+         * @brief Converts the entity to a MongoDB document
+         *
+         * @return entity as a MongoDB document.
+         */
+        [[nodiscard]]
+        bsoncxx::document::value toDocument() const;
+
+        /**
+         * @brief Converts the MongoDB document to an entity
+         *
+         * @param document MongoDB document.
+         */
+        static Application fromDocument(const std::optional<bsoncxx::document::view> &document);
+    };
+
+}// namespace Euclid::Database::Entity::EAP

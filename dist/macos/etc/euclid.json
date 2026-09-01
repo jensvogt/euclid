@@ -137,6 +137,16 @@
         "minInstances": 1,
         "maxInstances": 1
       },
+      "eap": {
+        "active": true,
+        "name": "eap",
+        "socketPath": "/var/run/euclid/euclid-eap.sock",
+        "executable": "/usr/local/euclid/bin/euclid-eap",
+        "socket-dir": "/var/run/euclid",
+        "data-dir": "/usr/local/euclid/data/eap",
+        "minInstances": 1,
+        "maxInstances": 1
+      },
       "lambda": {
         "active": true,
         "backup": {
