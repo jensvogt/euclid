@@ -117,6 +117,14 @@ namespace Euclid::EAM {
             return {};
         }
 
+        // A technical principal is an application's identity, not a person's: it has an access key
+        // to sign with and deliberately no way in through here. Checked after the password so that
+        // a caller cannot tell the two kinds of account apart by how quickly they are refused.
+        if (!user->loginEnabled) {
+            log_warning << "Login refused for technical user, userId: " << user->userId;
+            return {};
+        }
+
         log_info << "Login succeeded, userId: " << user->userId;
 
         auto updatedUser = *user;

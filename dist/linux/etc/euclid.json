@@ -155,6 +155,7 @@
         "name": "eap",
         "socketPath": "/var/run/euclid/euclid-eap.sock",
         "executable": "/usr/local/euclid/bin/euclid-eap",
+        "credentials-ttl-seconds": 3600,
         "socket-dir": "/var/run/euclid",
         "data-dir": "/usr/local/euclid/data/eap",
         "minInstances": 1,

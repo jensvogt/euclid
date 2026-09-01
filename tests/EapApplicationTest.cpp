@@ -2,6 +2,7 @@
 #include <boost/test/unit_test.hpp>
 
 // Euclid includes
+#include <euclid/database/entity/eam/User.h>
 #include <euclid/database/entity/eap/Application.h>
 #include <euclid/database/repository/eap/MemoryEapRepository.h>
 
@@ -29,6 +30,8 @@ namespace {
         application.artifactKey = "orders/orders-1.4.jar";
         application.arguments = {"--profile", "production"};
         application.environment = {{"JAVA_TOOL_OPTIONS", "-Xmx512m"}, {"ORDERS_MODE", "batch"}};
+        application.resources = {"ern:esm:eu-central-1:000000000000:development:bucket:inbox",
+                                 "ern:eqs:eu-central-1:000000000000:development:queue:inbox-queue"};
         application.userId = "appuser";
         application.minInstances = 2;
         application.maxInstances = 8;
@@ -63,6 +66,12 @@ BOOST_AUTO_TEST_CASE(ApplicationSurvivesABsonRoundTrip) {
     BOOST_TEST_REQUIRE(restored.environment.size() == 2U);
     BOOST_TEST(restored.environment.at("JAVA_TOOL_OPTIONS") == "-Xmx512m");
     BOOST_TEST(restored.environment.at("ORDERS_MODE") == "batch");
+
+    // What the application may touch. Mirrored onto its principal's grants, so losing it here
+    // would widen an application rather than break it - which is the failure worth a test.
+    BOOST_TEST_REQUIRE(restored.resources.size() == 2U);
+    BOOST_TEST(restored.resources[0] == "ern:esm:eu-central-1:000000000000:development:bucket:inbox");
+    BOOST_TEST(restored.resources[1] == "ern:eqs:eu-central-1:000000000000:development:queue:inbox-queue");
 }
 
 BOOST_AUTO_TEST_CASE(AnEmptyApplicationRoundTripsToo) {
@@ -102,4 +111,76 @@ BOOST_AUTO_TEST_CASE(RepositoryKeepsOneRowPerApplicationId) {
 
     repository.deleteApplication("orders");
     BOOST_TEST(repository.countApplications() == 0);
+}
+
+BOOST_AUTO_TEST_CASE(TechnicalPrincipalIsAnIdentityThatCannotLogIn) {
+    // The identity an application runs as: created by EAP alongside the application, no password,
+    // no way in through eam login, one access key to sign its calls with. The flag is what the
+    // login handler refuses on, so it has to survive the round trip - a technical principal that
+    // read back as login-enabled would be a person-shaped account with an empty password.
+    Euclid::Database::Entity::EAM::AccessKey key;
+    key.accessKeyId = "AKIAEXAMPLE";
+    key.secretAccessKey = "topsecret";
+    key.active = true;
+
+    Euclid::Database::Entity::EAM::User principal;
+    principal.userId = "app-orders";
+    principal.accountId = "000000000000";
+    principal.region = "eu-central-1";
+    principal.loginEnabled = false;
+    principal.accessKeys.push_back(key);
+
+    // Its own account, and nothing else: without a grant the principal would authenticate fine
+    // and then be refused by every module's GrantLookup, which checks the account a request names
+    // against the grants its caller holds.
+    Euclid::Database::Entity::EAM::AccountGrant grant;
+    grant.accountId = "000000000000";
+    grant.namespaces = {"development"};
+    principal.accountGrants.push_back(grant);
+
+    principal.resourceGrants = {"ern:esm:eu-central-1:000000000000:development:bucket:inbox"};
+
+    const auto restored = Euclid::Database::Entity::EAM::User::fromDocument(principal.toDocument().view());
+    BOOST_TEST(restored.userId == "app-orders");
+    BOOST_TEST(restored.resourceGrants == (std::vector<std::string>{"ern:esm:eu-central-1:000000000000:development:bucket:inbox"}));
+    BOOST_TEST(!restored.loginEnabled);
+    BOOST_TEST(restored.password.empty());
+    BOOST_TEST_REQUIRE(restored.accessKeys.size() == 1U);
+    BOOST_TEST(restored.accessKeys[0].accessKeyId == "AKIAEXAMPLE");
+
+    BOOST_TEST_REQUIRE(restored.accountGrants.size() == 1U);
+    BOOST_TEST(restored.accountGrants[0].accountId == "000000000000");
+    BOOST_TEST(!restored.accountGrants[0].isAdmin);
+    BOOST_TEST(restored.accountGrants[0].namespaces == (std::vector<std::string>{"development"}));
+}
+
+BOOST_AUTO_TEST_CASE(UsersWrittenBeforeTheFlagExistedCanStillLogIn) {
+    // Every human already in the database predates loginEnabled, and their documents have no such
+    // field. Defaulting to true is what keeps them able to log in after this upgrade.
+    const Euclid::Database::Entity::EAM::User user;
+    BOOST_TEST(user.loginEnabled);
+    // And are unrestricted: an empty grant list means no resource restriction, so nobody who
+    // predates this becomes unable to reach their own buckets.
+    BOOST_TEST(user.resourceGrants.empty());
+}
+
+BOOST_AUTO_TEST_CASE(TwoTechnicalPrincipalsCanCoexist) {
+    // eam_user carries a unique index on email. It is sparse, but sparse only skips documents
+    // with no email field at all - an empty string is a value, so a second principal storing ""
+    // collides with the first. Every principal therefore gets an address of its own, under the
+    // domain RFC 2606 reserves for names that must never resolve.
+    const auto address = [](const std::string &applicationId) { return "app-" + applicationId + "@euclid.invalid"; };
+
+    BOOST_TEST(address("inbox") != address("demo"));
+    BOOST_TEST(address("inbox") == "app-inbox@euclid.invalid");
+    BOOST_TEST(!address("inbox").empty());
+
+    // And it survives the round trip, since it is the stored value the index is built on.
+    Euclid::Database::Entity::EAM::User principal;
+    principal.userId = "app-inbox";
+    principal.email = address("inbox");
+    principal.loginEnabled = false;
+
+    const auto restored = Euclid::Database::Entity::EAM::User::fromDocument(principal.toDocument().view());
+    BOOST_TEST(restored.email == "app-inbox@euclid.invalid");
 }

@@ -1,0 +1,108 @@
+.TH EUCLID-CLI-EAP-UPDATE-APPLICATION 1 "September 2026" "euclid-cli 1.0.33" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eap-update-application \- change an application's definition
+.SH SYNOPSIS
+.B euclid-cli eap update-application
+.BR \-\-application\-id | \-n
+.I NAME
+[\fB\-\-runtime\fR|\fB\-r\fR \fIRUNTIME\fR]
+[\fB\-\-artifact\fR|\fB\-a\fR \fIKEY\fR]
+[\fB\-\-command\fR|\fB\-c\fR \fICMD\fR]
+[\fB\-\-arguments\fR \fILIST\fR]
+[\fB\-\-environment\fR|\fB\-e\fR \fILIST\fR]
+[\fB\-\-buckets\fR \fILIST\fR]
+[\fB\-\-queues\fR \fILIST\fR]
+[\fB\-\-min\-instances\fR \fIN\fR]
+[\fB\-\-max\-instances\fR \fIN\fR]
+[\fB\-\-ready\-timeout\fR \fIMS\fR]
+.SH DESCRIPTION
+Changes an existing application's definition. Only the options actually
+given are altered, so one setting can be changed without resending the
+whole definition;
+.B \-\-arguments
+and
+.B \-\-environment
+replace the current values rather than adding to them.
+.PP
+A running application is restarted to pick the change up, within a few
+seconds: the artifact, the command, the environment and the credentials
+a process was handed are all decided when it starts, so there is nothing
+a running process could apply. Redeploying a new build of the same
+artifact key is therefore an upload followed by this command.
+.PP
+The identity an application runs as cannot be changed here - delete it
+and create it again instead. Neither can its bucket; the artifact key
+must name an object in the bucket the application already has.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-application\-id " " \fINAME\fR
+Name of the application to change. Required.
+.TP
+.BR \-r ", " \-\-runtime " " \fIRUNTIME\fR
+What the artifact is started with: \fIJAVA\fR, \fIPYTHON\fR,
+\fINODEJS\fR or \fIBINARY\fR.
+.TP
+.BR \-a ", " \-\-artifact " " \fIKEY\fR
+Object key of the artifact within the application's bucket. Must exist.
+.TP
+.BR \-c ", " \-\-command " " \fICMD\fR
+Command to run instead of the runtime's default.
+.TP
+.B \-\-arguments " " \fILIST\fR
+Comma-separated arguments passed after the artifact path; replaces the
+current list.
+.TP
+.BR \-e ", " \-\-environment " " \fILIST\fR
+Comma-separated \fIKEY=value\fR pairs; replaces the current set.
+.TP
+.B \-\-buckets " " \fILIST\fR
+Comma-separated bucket names the application may use; replaces the
+current list. The application's principal is re-granted, so the change
+takes effect at once - running instances included, since this is
+enforced where a request is served rather than where a process starts.
+.TP
+.B \-\-queues " " \fILIST\fR
+Comma-separated queue names the application may use; replaces the
+current list.
+.TP
+.B \-\-min\-instances " " \fIN\fR
+Smallest number of instances the autoscaler keeps running.
+.TP
+.B \-\-max\-instances " " \fIN\fR
+Largest number of instances the autoscaler may scale out to.
+.TP
+.B \-\-ready\-timeout " " \fIMS\fR
+How long an instance may take to create its socket, in milliseconds.
+.SH EXIT STATUS
+.TP
+.B 0
+The definition was changed. It is printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the caller is not an authenticated
+administrator, no application of that name exists, the runtime is not
+one of the four, the artifact does not exist in the application's
+bucket, or a bucket or queue named by \fB\-\-buckets\fR/\fB\-\-queues\fR
+does not exist.
+.SH EXAMPLES
+Deploy a new build:
+.RS
+.nf
+euclid-cli esm upload-file --bucket apps --key inbox.jar --file target/inbox.jar
+euclid-cli eap update-application --application-id inbox --artifact inbox.jar
+.fi
+.RE
+.PP
+Let it scale further:
+.RS
+.nf
+euclid-cli eap update-application --application-id inbox --max-instances 8
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eap (1),
+.BR euclid-cli-eap-create-application (1),
+.BR euclid-cli-eap-get-application (1),
+.BR euclid-cli-esm-upload-file (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

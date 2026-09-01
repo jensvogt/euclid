@@ -1,0 +1,50 @@
+.TH EUCLID-CLI-EAP-LIST-APPLICATIONS 1 "September 2026" "euclid-cli 1.0.33" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eap-list-applications \- list the defined applications and their state
+.SH SYNOPSIS
+.B euclid-cli eap list-applications
+[\fB\-\-prefix\fR|\fB\-p\fR \fIPREFIX\fR]
+.SH DESCRIPTION
+Lists the defined applications: runtime, artifact, autoscaler bounds, the
+identity each runs as, the state it
+.I should
+be in, and how many instances the manager currently has running.
+.PP
+.I desiredState
+is what
+.BR euclid-cli-eap-start-application (1)
+and
+.BR euclid-cli-eap-stop-application (1)
+write;
+.I state
+and
+.I instances
+are read back from the manager's own pools. The two differ while an
+application is coming up or going down, and stay different if it cannot
+start at all - an application whose desiredState is RUNNING with zero
+instances is one to look for in the Euclid log.
+.SH OPTIONS
+.TP
+.BR \-p ", " \-\-prefix " " \fIPREFIX\fR
+Only list applications whose ID starts with this.
+.SH EXIT STATUS
+.TP
+.B 0
+The list is printed as JSON.
+.TP
+.B 1
+The caller is not an authenticated administrator, or the request could
+not be sent.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli eap list-applications
+euclid-cli eap list-applications --prefix inbox
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eap (1),
+.BR euclid-cli-eap-get-application (1),
+.BR euclid-cli-emm-list-modules (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

@@ -12,6 +12,9 @@ namespace Euclid::Database::Entity::EAP {
         bsoncxx::builder::basic::array argumentsArray;
         for (const auto &argument: arguments) argumentsArray.append(argument);
 
+        bsoncxx::builder::basic::array resourcesArray;
+        for (const auto &resource: resources) resourcesArray.append(resource);
+
         bsoncxx::builder::basic::document environmentDoc;
         for (const auto &[name, value]: environment) environmentDoc.append(bsoncxx::builder::basic::kvp(name, value));
 
@@ -26,6 +29,7 @@ namespace Euclid::Database::Entity::EAP {
                 bsoncxx::builder::basic::kvp("command", command),
                 bsoncxx::builder::basic::kvp("arguments", argumentsArray),
                 bsoncxx::builder::basic::kvp("environment", environmentDoc.extract()),
+                bsoncxx::builder::basic::kvp("resources", resourcesArray),
                 bsoncxx::builder::basic::kvp("userId", userId),
                 bsoncxx::builder::basic::kvp("minInstances", static_cast<std::int64_t>(minInstances)),
                 bsoncxx::builder::basic::kvp("maxInstances", static_cast<std::int64_t>(maxInstances)),
@@ -53,6 +57,8 @@ namespace Euclid::Database::Entity::EAP {
                 for (const auto &elem: field.get_array().value) application.arguments.emplace_back(elem.get_string().value);
             } else if (key == "environment") {
                 for (const auto &elem: field.get_document().value) application.environment[std::string(elem.key())] = std::string(elem.get_string().value);
+            } else if (key == "resources") {
+                for (const auto &elem: field.get_array().value) application.resources.emplace_back(elem.get_string().value);
             } else if (key == "userId") application.userId = std::string(field.get_string().value);
             else if (key == "minInstances") application.minInstances = static_cast<long>(field.get_int64().value);
             else if (key == "maxInstances") application.maxInstances = static_cast<long>(field.get_int64().value);

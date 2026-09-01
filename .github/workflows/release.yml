@@ -219,7 +219,10 @@ jobs:
           mkdir -p ${{ env.PACKAGE_DIR }}/euclid/data/tmp
           mkdir -p ${{ env.PACKAGE_DIR }}/euclid/data/backup
           mkdir -p ${{ env.PACKAGE_DIR }}/euclid/data/esm
-          mkdir -p ${{ env.PACKAGE_DIR }}/euclid/share/man/man1
+          # Tarball root, not under euclid/: it is unpacked at /usr/local, so this lands in
+          # /usr/local/share/man/man1 - which macOS lists in /etc/manpaths and man therefore
+          # searches. Under euclid/ the pages would install fine and never be found.
+          mkdir -p ${{ env.PACKAGE_DIR }}/share/man/man1
 
           cp ${{ env.BUILD_DIR }}/bin/euclid-mgr ${{ env.PACKAGE_DIR }}/euclid/bin/
           cp ${{ env.BUILD_DIR }}/bin/euclid-cli ${{ env.PACKAGE_DIR }}/euclid/bin/
@@ -236,7 +239,11 @@ jobs:
           cp dist/linux/etc/euclid_cert.crt ${{ env.PACKAGE_DIR }}/euclid/etc/euclid_cert.crt
           cp dist/linux/etc/euclid_cert.key ${{ env.PACKAGE_DIR }}/euclid/etc/euclid_cert.key
           cp dist/macos/de.jensvogt.euclid.plist ${{ env.PACKAGE_DIR }}/euclid/etc/
-          cp cli/docs/man/*.1 ${{ env.PACKAGE_DIR }}/euclid/share/man/man1/ 2>/dev/null || true
+          # Not "|| true": the pages are in the repository, so a copy that fails means something
+          # is wrong with the build, and a package that silently ships no documentation is worse
+          # than a red build. Compressed because that is what every man reader expects to find.
+          cp cli/docs/man/*.1 ${{ env.PACKAGE_DIR }}/share/man/man1/
+          gzip -9n ${{ env.PACKAGE_DIR }}/share/man/man1/*.1
           cp -R ${{ github.workspace }}/frontend/euclid-ui/dist/euclid-ui/browser/* ${{ env.PACKAGE_DIR }}/euclid/frontend/ 2>/dev/null || true
 
       - name: Package Service Files
@@ -352,7 +359,11 @@ jobs:
           # path "magic-file" in euclid.json points to.
           cp ${{ env.BUILD_DIR }}/vcpkg_installed/x64-linux/share/libmagic/misc/magic.mgc ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/etc/magic.mgc
           cp dist/linux/systemd/system/euclid.service ${{ env.PACKAGE_DIR_DEB }}/etc/systemd/system/
-          cp cli/docs/man/*.1 ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man1/ 2>/dev/null || true
+          # /usr/local/share/man is a mandatory manpath entry on Debian and Ubuntu, so the pages
+          # are found without any configuration. Compressed, as Debian policy requires, and not
+          # "|| true": these ship from the repository and a missing copy is a build problem.
+          cp cli/docs/man/*.1 ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man1/
+          gzip -9n ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man1/*.1
           cp -R ${{ github.workspace }}/frontend/euclid-ui/dist/euclid-ui/browser/* ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/frontend/ 2>/dev/null || true
 
           # Maintainer scripts live OUTSIDE PACKAGE_DIR_DEB - that whole tree gets mapped
@@ -365,6 +376,20 @@ jobs:
           set -e
           ln -sf /usr/local/euclid/bin/euclid-cli /usr/local/bin/euclid-cli
           ln -sf /usr/local/euclid/bin/euclid-mgr /usr/local/bin/euclid-mgr
+
+          # euclid.service runs as this user, so it has to exist before the service starts, and
+          # the tree it reads and writes has to belong to it. Both are done on every install:
+          # creating the user is a no-op once it exists, and the chown also repairs an upgrade
+          # from a release that ran as root and left root-owned data behind.
+          if ! getent group euclid >/dev/null; then
+            groupadd --system euclid
+          fi
+          if ! getent passwd euclid >/dev/null; then
+            useradd --system --gid euclid --home-dir /usr/local/euclid \
+                    --shell /usr/sbin/nologin --comment "Euclid Cloud Services" euclid
+          fi
+          chown -R euclid:euclid /usr/local/euclid
+
           systemctl daemon-reload
           systemctl enable euclid.service
           systemctl restart euclid.service || true
@@ -424,8 +449,8 @@ jobs:
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/init
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/data/tmp
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/data/backup
-          mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/data/esm
-          mkdir -p ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/data/eap
+          mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/data/esm
+          mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/data/eap
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man1
           mkdir -p ${{ env.PACKAGE_DIR_RPM }}/etc/systemd/system
 
@@ -439,7 +464,10 @@ jobs:
           # See the DEB step above for why this is bundled rather than relying on the system's.
           cp ${{ env.BUILD_DIR }}/vcpkg_installed/x64-linux/share/libmagic/misc/magic.mgc ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc/magic.mgc
           cp dist/linux/systemd/system/euclid.service ${{ env.PACKAGE_DIR_RPM }}/etc/systemd/system
-          cp cli/docs/man/*.1 ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man1/ 2>/dev/null || true
+          # Same placement and compression as the DEB above; rpmbuild would compress man pages by
+          # itself, but fpm packs the tree verbatim, so it is done here.
+          cp cli/docs/man/*.1 ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man1/
+          gzip -9n ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man1/*.1
           cp -R ${{ github.workspace }}/frontend/euclid-ui/dist/euclid-ui/browser/* ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/frontend/ 2>/dev/null || true
 
           # Maintainer scripts live OUTSIDE PACKAGE_DIR_RPM - see the matching comment in the
@@ -451,6 +479,20 @@ jobs:
           set -e
           ln -sf /usr/local/euclid/bin/euclid-cli /usr/local/bin/euclid-cli
           ln -sf /usr/local/euclid/bin/euclid-mgr /usr/local/bin/euclid-mgr
+
+          # euclid.service runs as this user, so it has to exist before the service starts, and
+          # the tree it reads and writes has to belong to it. Both are done on every install:
+          # creating the user is a no-op once it exists, and the chown also repairs an upgrade
+          # from a release that ran as root and left root-owned data behind.
+          if ! getent group euclid >/dev/null; then
+            groupadd --system euclid
+          fi
+          if ! getent passwd euclid >/dev/null; then
+            useradd --system --gid euclid --home-dir /usr/local/euclid \
+                    --shell /usr/sbin/nologin --comment "Euclid Cloud Services" euclid
+          fi
+          chown -R euclid:euclid /usr/local/euclid
+
           systemctl daemon-reload
           systemctl enable euclid.service
           systemctl restart euclid.service || true

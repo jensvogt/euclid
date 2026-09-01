@@ -131,6 +131,7 @@ int main(const int argc, char *argv[]) {
     Euclid::Database::WireModuleSocketLookup();
     Euclid::Database::WireScopeLookup();
     Euclid::Database::WireGrantLookup();
+    Euclid::Database::WireResourceLookup();
 
     Euclid::Core::Monitoring::MetricsPusher metricsPusher("esm");
     try {

@@ -188,6 +188,45 @@ namespace Euclid::Core {
         static void SetGrantLookup(GrantLookup lookup);
 
         /**
+         * @brief Callback IsResourceAllowed() uses to decide whether a caller may act on one
+         * particular resource.
+         *
+         * @param userId authenticated subject.
+         * @param resourceErn ERN of the resource the request names, e.g. a bucket or a queue.
+         * @return true if the caller may act on it.
+         */
+        using ResourceLookup = std::function<bool(const std::string &userId, const std::string &resourceErn)>;
+
+        /**
+         * @brief Registers the resource lookup IsResourceAllowed() consults.
+         *
+         * core doesn't depend on database (database depends on core), so each process wires in
+         * its own Database::RepositoryFactory-backed lookup at startup, once its repository is
+         * initialized. Until this is called, no request is refused on resource grounds - which is
+         * what keeps a module that has not been taught about this behaving as it always did.
+         *
+         * @param lookup resolves whether a user may act on a resource.
+         */
+        static void SetResourceLookup(ResourceLookup lookup);
+
+        /**
+         * @brief Whether an authenticated caller may act on a resource.
+         *
+         * @par
+         * Called by a handler once it has resolved *which* resource the request is about, which
+         * is why this cannot live in Authenticate(): the resource is named in a request body or
+         * a header that only the handler understands. Account and namespace scope are settled
+         * before a handler runs; this is the narrower question of whether this particular bucket
+         * or queue is one the caller was given.
+         *
+         * @param userId authenticated subject.
+         * @param resourceErn ERN of the resource, e.g. "ern:esm:...:bucket:inbox".
+         * @return true if the caller may act on it, and whenever no lookup is wired.
+         */
+        [[nodiscard]]
+        static bool IsResourceAllowed(const std::string &userId, const std::string &resourceErn);
+
+        /**
          * @brief Builds the error response for a failed Authenticate() call: 403 with
          * denialReason if the token verified but the request was out of scope, otherwise 401
          * worded according to whether the token was expired or simply missing/invalid.
