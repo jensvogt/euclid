@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.52](https://github.com/jensvogt/euclid/compare/1.0.51...v1.0.52) (2026-09-01)
+
+
+### Bug Fixes
+
+* some changes from the euclid JDK tests ([c67dee0](https://github.com/jensvogt/euclid/commit/c67dee0f369989e46cf58672fccfeccc293eba61))
+
 ## [1.0.51](https://github.com/jensvogt/euclid/compare/1.0.50...v1.0.51) (2026-08-31)
 
 
