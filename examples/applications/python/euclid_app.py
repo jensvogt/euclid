@@ -11,10 +11,12 @@ file, and this file is that contract spelled out:
   3. Log to stdout/stderr; the manager drains both into its own log.
   4. Exit on SIGTERM.
 
-Calling back into euclid is optional, and the second half of this file shows how: the manager
-passes the application's access key in EUCLID_ACCESS_KEY_ID/EUCLID_SECRET_ACCESS_KEY, and requests
-signed with it (RFC 9421 HTTP Message Signatures) are authenticated as the EAM user the
-application runs as.
+Calling back into euclid is optional, and the second half of this file shows how. The manager
+writes a short-lived token into the file named by EUCLID_CREDENTIALS_FILE and replaces it before
+it expires; requests carrying it are authenticated as the identity the application runs as. An
+application deployed to run as a named user gets that user's access key instead, in
+EUCLID_ACCESS_KEY_ID/EUCLID_SECRET_ACCESS_KEY, and signs with it (RFC 9421 HTTP Message
+Signatures) - which is what sign() below does.
 
 Deploy it with:
 
@@ -86,8 +88,26 @@ def sign(method: str, path: str, authority: str, headers: dict, body: bytes, key
     return headers
 
 
+def credentials() -> dict:
+    """The application's current credentials, re-read every time they are used.
+
+    The manager rewrites this file before the token in it expires, so an application that cached
+    the first token it saw would start getting 401s about an hour in. Reading it per call is the
+    simplest thing that stays correct - it is a small local file, and the alternative is knowing
+    when to look again.
+    """
+    path = os.environ.get("EUCLID_CREDENTIALS_FILE")
+    if not path or not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, ValueError):
+        return {}
+
+
 def call_euclid(target: str, action: str, body: dict) -> dict:
-    """Calls another euclid module through the gateway, signed as this application's user."""
+    """Calls another euclid module through the gateway, as this application's identity."""
     endpoint = os.environ["EUCLID_ENDPOINT"]
     scheme, _, hostport = endpoint.partition("://")
     host, _, port = hostport.partition(":")
@@ -104,8 +124,16 @@ def call_euclid(target: str, action: str, body: dict) -> dict:
         "x-euclid-account-id": os.environ.get("EUCLID_ACCOUNT_ID", ""),
         "x-euclid-user-id": os.environ.get("EUCLID_USER_ID", ""),
     }
-    sign("POST", "/", authority, headers, payload,
-         os.environ["EUCLID_ACCESS_KEY_ID"], os.environ["EUCLID_SECRET_ACCESS_KEY"])
+    # A short-lived bearer token when the manager left one - it expires, so nothing worth
+    # stealing sits in this process for long. An access key is the fallback, for an application
+    # deployed to run as a user whose key its operator manages.
+    token = credentials().get("token")
+    if token:
+        headers["Authorization"] = "Bearer " + token
+        headers["Content-Digest"] = content_digest(payload)
+    else:
+        sign("POST", "/", authority, headers, payload,
+             os.environ["EUCLID_ACCESS_KEY_ID"], os.environ["EUCLID_SECRET_ACCESS_KEY"])
 
     if scheme == "https":
         # Development installations use a self-signed gateway certificate; point this at the real

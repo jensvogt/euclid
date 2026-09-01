@@ -57,6 +57,11 @@ namespace Euclid::Core {
             return lookup;
         }
 
+        HttpActionServer::ResourceLookup &resourceLookup() {
+            static HttpActionServer::ResourceLookup lookup;
+            return lookup;
+        }
+
         // Empty return means "in scope"; otherwise the message to send back as the 403 body.
         // subject is the already-verified caller (from the JWT/SigV4 check just above this call),
         // used for the per-user grant check once GrantLookup is wired.
@@ -227,6 +232,16 @@ namespace Euclid::Core {
 
     void HttpActionServer::SetGrantLookup(GrantLookup lookup) {
         grantLookup() = std::move(lookup);
+    }
+
+    void HttpActionServer::SetResourceLookup(ResourceLookup lookup) {
+        resourceLookup() = std::move(lookup);
+    }
+
+    bool HttpActionServer::IsResourceAllowed(const std::string &userId, const std::string &resourceErn) {
+        if (!resourceLookup()) return true;
+        if (userId.empty() || resourceErn.empty()) return true;
+        return resourceLookup()(userId, resourceErn);
     }
 
     HttpActionServer::AuthResult HttpActionServer::Authenticate(const http::request<http::string_body> &req) {

@@ -150,6 +150,7 @@
         "name": "eap",
         "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-eap.sock",
         "executable": "C:\\Program Files\\euclid\\bin\\euclid-eap.exe",
+        "credentials-ttl-seconds": 3600,
         "socket-dir": "C:\\Program Files\\euclid\\data\\run",
         "data-dir": "C:\\Program Files\\euclid\\data\\eap",
         "minInstances": 1,

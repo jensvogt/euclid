@@ -150,6 +150,33 @@ BOOST_AUTO_TEST_CASE(Rfc9421SignedRequestAuthenticatesAsTheKeyOwner) {
     HttpActionServer::SetAccessKeyLookup({});
 }
 
+BOOST_AUTO_TEST_CASE(ResourceGrantsNarrowACallerToNamedResources) {
+    // The check a handler makes once it knows which bucket or queue a request is about. Account
+    // and namespace scope are settled before a handler runs; this is the narrower question, and
+    // the one an application's principal is held to.
+    HttpActionServer::SetResourceLookup({});
+
+    // Nothing wired: every resource is allowed, which is how a module that has not been taught
+    // about this - and every deployment before it existed - keeps behaving.
+    BOOST_TEST(HttpActionServer::IsResourceAllowed("alice", "ern:esm:eu-central-1:000000000000::bucket:inbox"));
+
+    HttpActionServer::SetResourceLookup([](const std::string &userId, const std::string &resourceErn) {
+        if (userId == "alice") return true;// stands in for a user with no grants at all
+        return resourceErn == "ern:esm:eu-central-1:000000000000::bucket:inbox";
+    });
+
+    BOOST_TEST(HttpActionServer::IsResourceAllowed("app-inbox", "ern:esm:eu-central-1:000000000000::bucket:inbox"));
+    BOOST_TEST(!HttpActionServer::IsResourceAllowed("app-inbox", "ern:esm:eu-central-1:000000000000::bucket:payroll"));
+    BOOST_TEST(HttpActionServer::IsResourceAllowed("alice", "ern:esm:eu-central-1:000000000000::bucket:payroll"));
+
+    // An unnamed resource is not a denial: handlers that have not resolved one yet, and actions
+    // that are about no resource at all, must not be refused by this.
+    BOOST_TEST(HttpActionServer::IsResourceAllowed("app-inbox", ""));
+    BOOST_TEST(HttpActionServer::IsResourceAllowed("", "ern:esm:eu-central-1:000000000000::bucket:payroll"));
+
+    HttpActionServer::SetResourceLookup({});
+}
+
 BOOST_AUTO_TEST_CASE(ConfiguredRegionRequiresMatchingRegionHeader) {
     // The region check precedes everything else in CheckScope() and is not conditional on the
     // request naming an account, so any caller that omits x-euclid-region is denied outright once

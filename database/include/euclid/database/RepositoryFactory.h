@@ -278,6 +278,27 @@ namespace Euclid::Database {
     }
 
     /**
+     * @brief Registers the per-resource lookup Core::HttpActionServer::IsResourceAllowed() uses,
+     * backed by RepositoryFactory::eamRepository().
+     *
+     * core can't depend on database (database depends on core), so this is the glue that closes
+     * the loop, same pattern as WireGrantLookup() - call once per process, after
+     * RepositoryFactory::initialize(), in every module that checks which bucket or queue a
+     * caller may act on.
+     */
+    inline void WireResourceLookup() {
+        Core::HttpActionServer::SetResourceLookup([](const std::string &userId, const std::string &resourceErn) -> bool {
+            const auto repo = RepositoryFactory::instance().eamRepository();
+            const auto user = repo->findUserByUserId(userId);
+            if (!user.has_value()) return false;
+            // No list means no restriction: humans, and every user written before resource grants
+            // existed, are unaffected. A principal that names resources is held to exactly them.
+            if (user->resourceGrants.empty()) return true;
+            return std::ranges::contains(user->resourceGrants, resourceErn);
+        });
+    }
+
+    /**
      * @brief Registers the module-socket lookup Core::Monitoring::MetricsPusher needs to find
      * the monitoring module's live instance(s), backed by RepositoryFactory::moduleRepository().
      *

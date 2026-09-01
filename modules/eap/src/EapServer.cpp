@@ -6,6 +6,7 @@
 
 // Euclid includes
 #include <EapServer.h>
+#include <euclid/core/CryptoUtils.h>
 #include <euclid/core/DateTimeUtils.h>
 #include <euclid/core/ErnUtils.h>
 #include <euclid/core/monitoring/MonitoringTimer.h>
@@ -80,6 +81,107 @@ namespace Euclid::EAP {
             return running;
         }
 
+        // The identity an application runs as, when the caller did not name one of their own.
+        //
+        // A technical principal rather than a person: no password, no login (see
+        // Entity::EAM::User::loginEnabled), one access key. That key is the whole of what the
+        // application can do - it signs the calls it makes, and euclid attributes them to this
+        // principal instead of to whoever happened to deploy it. Nobody has to hand an application
+        // a human's credentials, and nothing an application leaks is a person's.
+        std::string technicalUserId(const std::string &applicationId) {
+            return "app-" + applicationId;
+        }
+
+        // Turns the bucket and queue names a caller deployed the application with into the ERNs the
+        // storage and queueing modules check against. Names are what an operator has in hand;
+        // ERNs are what a grant has to be written in, since a name is only unique within an
+        // account and namespace.
+        //
+        // Returns std::nullopt on the first name that does not resolve, so a typo is reported at
+        // deployment rather than becoming an application that is quietly denied at run time.
+        std::optional<std::vector<std::string> > resolveResources(const std::vector<std::string> &buckets, const std::vector<std::string> &queues, std::string &unresolved) {
+
+            std::vector<std::string> resources;
+
+            for (const auto &name: buckets) {
+                const auto bucket = Database::RepositoryFactory::instance().esmRepository()->findBucketByName(name);
+                if (!bucket.has_value()) {
+                    unresolved = "bucket '" + name + "'";
+                    return std::nullopt;
+                }
+                resources.push_back(bucket->ern);
+            }
+
+            for (const auto &name: queues) {
+                const auto queue = Database::RepositoryFactory::instance().eqsRepository()->findQueueByName(name);
+                if (!queue.has_value()) {
+                    unresolved = "queue '" + name + "'";
+                    return std::nullopt;
+                }
+                resources.push_back(queue->ern);
+            }
+            return resources;
+        }
+
+        Database::Entity::EAM::User createTechnicalUser(const std::string &applicationId, const std::string &accountId,
+                                                        const std::string &region, const std::string &nameSpace,
+                                                        const std::vector<std::string> &resources) {
+
+            const auto now = Core::DateTimeUtils::ToISO8601(Core::DateTimeUtils::UtcDateTimeNow());
+
+            Database::Entity::EAM::AccessKey key;
+            key.accessKeyId = Core::CryptoUtils::GenerateAccessKeyId();
+            key.secretAccessKey = Core::CryptoUtils::GenerateSecretAccessKey();
+            key.active = true;
+            key.created = now;
+
+            // Without a grant the principal can authenticate and do nothing: every module runs the
+            // caller's account through Core::HttpActionServer::GrantLookup, and a user with no
+            // grant for the account it names is refused. So it is granted its own account here -
+            // the same account the application belongs to, and no other - plus the namespace the
+            // application was created in, since a request that names one is checked against the
+            // grant's namespace list rather than the account alone.
+            Database::Entity::EAM::AccountGrant grant;
+            grant.accountId = accountId;
+            grant.isAdmin = false;
+            grant.granted = now;
+            if (!nameSpace.empty()) grant.namespaces.push_back(nameSpace);
+
+            Database::Entity::EAM::User user;
+            user.userId = technicalUserId(applicationId);
+            user.accountId = accountId;
+            user.region = region;
+            user.ern = Core::createEamUserErn(accountId, user.userId);
+            // Not a hash of anything: PasswordUtils::Verify() cannot match an empty stored
+            // password, so there is no password to guess even before loginEnabled is consulted.
+            user.password = "";
+            // A principal has no mailbox, but it cannot have an empty address either: eam_user
+            // carries a unique index on email, and while that index is sparse it only skips
+            // documents with no email field at all - "" is a value, and the second principal to
+            // use it collides with the first. The domain is deliberately under .invalid, which
+            // RFC 2606 reserves so that it can never resolve to anything real.
+            user.email = user.userId + "@euclid.invalid";
+            user.loginEnabled = false;
+            user.accessKeys.push_back(key);
+            user.accountGrants.push_back(grant);
+            // Named resources narrow the principal to exactly them. Naming none leaves it able to
+            // reach everything in its account, which is what an application that was deployed
+            // without saying what it needs has always been able to do.
+            user.resourceGrants = resources;
+
+            const auto stored = Database::RepositoryFactory::instance().eamRepository()->upsertUser(user);
+            log_info << "EAP created technical user, userId: " << user.userId << ", accessKeyId: " << key.accessKeyId;
+            return stored;
+        }
+
+        // Whether this principal is one EAP made for this application, and may therefore be
+        // removed with it. A user the caller named themselves is theirs, and is left alone.
+        bool isOwnedTechnicalUser(const std::string &applicationId, const std::string &userId) {
+            if (userId != technicalUserId(applicationId)) return false;
+            const auto user = Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(userId);
+            return user.has_value() && !user->loginEnabled;
+        }
+
         boost::json::object toJson(const Application &application) {
 
             boost::json::array arguments;
@@ -87,6 +189,9 @@ namespace Euclid::EAP {
 
             boost::json::object environment;
             for (const auto &[name, value]: application.environment) environment[name] = value;
+
+            boost::json::array resources;
+            for (const auto &resource: application.resources) resources.push_back(boost::json::string(resource));
 
             const auto running = runningInstances(application.applicationId);
 
@@ -101,6 +206,7 @@ namespace Euclid::EAP {
                     {"command", application.command},
                     {"arguments", arguments},
                     {"environment", environment},
+                    {"resources", resources},
                     {"userId", application.userId},
                     {"minInstances", application.minInstances},
                     {"maxInstances", application.maxInstances},
@@ -182,20 +288,37 @@ namespace Euclid::EAP {
             return EapServer::ErrorResponse(req, status::not_found, "Artifact not found in bucket '" + bucketName + "': " + artifactKey);
         }
 
-        // The application runs as this user and signs its own calls back into euclid with that
-        // user's access key, so both have to exist before it can do anything useful. Refused here
+        // The application runs as some identity and signs its own calls back into euclid with that
+        // identity's access key. Left unnamed, it gets one of its own: a technical principal
+        // created here and removed with the application, which is what keeps an application from
+        // having to borrow a person's credentials.
+        //
+        // A caller can still name an existing user - for an application that genuinely should act
+        // as somebody - in which case that user has to exist and have a key already. Refused here
         // rather than at start-up for the same reason as the artifact: an application that comes
         // up and then cannot talk to anything is a worse failure than a rejected deployment.
-        const auto userId = stringField(obj, "user");
-        if (userId.empty()) return EapServer::ErrorResponse(req, status::bad_request, "user is required");
-
-        const auto user = Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(userId);
-        if (!user.has_value()) {
-            return EapServer::ErrorResponse(req, status::not_found, "User not found: " + userId);
+        // What this application is allowed to touch, resolved from names to ERNs now so a typo is
+        // a rejected deployment rather than an application that runs and is denied everything.
+        std::string unresolved;
+        const auto resources = resolveResources(stringArray(obj, "buckets"), stringArray(obj, "queues"), unresolved);
+        if (!resources.has_value()) {
+            return EapServer::ErrorResponse(req, status::not_found, "Not found: " + unresolved);
         }
-        if (user->accessKeys.empty()) {
-            return EapServer::ErrorResponse(req, status::bad_request,
-                                            "User '" + userId + "' has no access key - create one with 'euclid-cli eam create-access-key' so the application can authenticate");
+
+        auto userId = stringField(obj, "user");
+        if (userId.empty()) {
+            userId = createTechnicalUser(applicationId, auth.user->accountId, auth.user->region,
+                                         std::string(req["x-euclid-namespace"]), *resources)
+                             .userId;
+        } else {
+            const auto user = Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(userId);
+            if (!user.has_value()) {
+                return EapServer::ErrorResponse(req, status::not_found, "User not found: " + userId);
+            }
+            if (user->accessKeys.empty()) {
+                return EapServer::ErrorResponse(req, status::bad_request,
+                                                "User '" + userId + "' has no access key - create one with 'euclid-cli eam create-access-key' so the application can authenticate");
+            }
         }
 
         Application application;
@@ -209,6 +332,7 @@ namespace Euclid::EAP {
         application.command = stringField(obj, "command");
         application.arguments = stringArray(obj, "arguments");
         application.environment = stringMap(obj, "environment");
+        application.resources = *resources;
         application.userId = userId;
         application.minInstances = std::max(1L, longField(obj, "minInstances", 1));
         application.maxInstances = std::max(application.minInstances, longField(obj, "maxInstances", 1));
@@ -263,6 +387,29 @@ namespace Euclid::EAP {
         if (obj.contains("minInstances")) application->minInstances = std::max(1L, longField(obj, "minInstances", application->minInstances));
         if (obj.contains("maxInstances")) application->maxInstances = std::max(application->minInstances, longField(obj, "maxInstances", application->maxInstances));
         if (obj.contains("readyTimeoutMs")) application->readyTimeoutMs = std::max(1000L, longField(obj, "readyTimeoutMs", application->readyTimeoutMs));
+
+        if (obj.contains("buckets") || obj.contains("queues")) {
+            std::string unresolved;
+            const auto resources = resolveResources(stringArray(obj, "buckets"), stringArray(obj, "queues"), unresolved);
+            if (!resources.has_value()) {
+                return EapServer::ErrorResponse(req, status::not_found, "Not found: " + unresolved);
+            }
+            application->resources = *resources;
+
+            // The grants live on the principal, which is what the other modules read - so a
+            // definition whose resources changed and whose principal did not would go on being
+            // enforced against the old list. Only a principal EAP owns is rewritten; a user the
+            // caller named is theirs to grant.
+            if (isOwnedTechnicalUser(applicationId, application->userId)) {
+                const auto eamRepository = Database::RepositoryFactory::instance().eamRepository();
+                if (auto principal = eamRepository->findUserByUserId(application->userId); principal.has_value()) {
+                    principal->resourceGrants = *resources;
+                    eamRepository->upsertUser(*principal);
+                    log_info << "EAP updated technical user resource grants, userId: " << principal->userId
+                            << ", resources: " << resources->size();
+                }
+            }
+        }
 
         const auto stored = repo->upsertApplication(*application);
         log_info << "EAP updated application, applicationId: " << stored.applicationId;
@@ -330,8 +477,17 @@ namespace Euclid::EAP {
 
         // Deleting the definition is what stops the processes: the reconciler runs whatever is
         // defined and RUNNING, so a definition that no longer exists is torn down on the next tick.
+        const auto application = repo->findApplicationByApplicationId(applicationId);
         repo->deleteApplication(applicationId);
         log_info << "EAP deleted application, applicationId: " << applicationId;
+
+        // The principal goes with the application it was made for - a credential outliving the
+        // thing it was issued to is exactly the orphan this arrangement exists to avoid. A user
+        // the caller named themselves is left alone.
+        if (application.has_value() && isOwnedTechnicalUser(applicationId, application->userId)) {
+            Database::RepositoryFactory::instance().eamRepository()->deleteUser(application->userId);
+            log_info << "EAP deleted technical user, userId: " << application->userId;
+        }
 
         return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{{"applicationId", applicationId}, {"deleted", true}}));
     }

@@ -97,6 +97,20 @@ namespace Euclid::ESM {
         return EsmServer::Unauthorized(req, {.subject = std::nullopt, .tokenExpired = auth.tokenExpired, .denialReason = auth.denialReason});
     }
 
+    // Whether this caller was given this bucket, checked once a handler knows which bucket the
+    // request is actually about - the account and namespace were settled before it ran, but which
+    // bucket inside them is named in a body or a header only the handler understands.
+    //
+    // Nothing changes for a caller with no resource grants at all, which is every human: this is
+    // for principals deployed with a fixed set of buckets, where the point is that a compromised
+    // application reaches those and nothing else.
+    static std::optional<response<string_body> > denyUngrantedBucket(const request<string_body> &req, const AuthResult &auth, const std::string &bucketErn) {
+        if (!auth.user.has_value()) return std::nullopt;
+        if (EsmServer::IsResourceAllowed(auth.user->userId, bucketErn)) return std::nullopt;
+        log_warning << "ESM resource denied, userId: " << auth.user->userId << ", bucketErn: " << bucketErn;
+        return EsmServer::ErrorResponse(req, status::forbidden, "Not authorized for this bucket: " + bucketErn);
+    }
+
     // Attributes travel as a header on put-object, because the body is the object's bytes and has
     // no room for anything else. The JSON is the same shape set-object-attributes takes, so a
     // client has one representation of an attribute map to produce rather than two.
@@ -337,6 +351,7 @@ namespace Euclid::ESM {
         if (!bucket.has_value()) {
             return EsmServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + bucketErn);
         }
+        if (const auto denied = denyUngrantedBucket(req, auth, bucketErn)) return *denied;
 
         const auto &data = req.body();
 
@@ -443,6 +458,7 @@ namespace Euclid::ESM {
         if (!bucket.has_value()) {
             return EsmServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.bucketErn);
         }
+        if (const auto denied = denyUngrantedBucket(req, auth, request.bucketErn)) return *denied;
 
         // Seeds the object row with status CREATED right away, so its lifecycle is observable
         // from the very start of the upload rather than only appearing once complete-upload
@@ -623,6 +639,9 @@ namespace Euclid::ESM {
         if (!bucket.has_value()) {
             return EsmServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + bucketErn);
         }
+        // Checked here rather than at create-upload only: the upload's parts are already staged,
+        // but nothing has been written into the bucket yet, and this is the call that would.
+        if (const auto denied = denyUngrantedBucket(req, auth, bucketErn)) return *denied;
 
         // Zero-padded part filenames sort lexicographically in numeric order.
         std::vector<std::filesystem::path> parts;
@@ -785,7 +804,8 @@ namespace Euclid::ESM {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-object");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         const auto bucketErn = std::string(req["x-euclid-bucket-ern"]);
         if (bucketErn.empty()) {
@@ -807,6 +827,8 @@ namespace Euclid::ESM {
         }
 
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        if (const auto denied = denyUngrantedBucket(req, auth, bucketErn)) return *denied;
+
         const auto object = repo->findObjectByBucketAndKey(bucketErn, key);
         if (!object.has_value()) {
             return ErrorResponse(req, status::not_found, "Object not found, bucket: " + bucketErn + ", key: " + key);
@@ -1032,6 +1054,7 @@ namespace Euclid::ESM {
         if (bucket->accountId != auth.user->accountId) {
             return ErrorResponse(req, status::forbidden, "Bucket does not belong to the caller's account");
         }
+        if (const auto denied = denyUngrantedBucket(req, auth, request.bucketErn)) return *denied;
 
         const std::vector<Database::Entity::ESM::Object> objects = repo->listObjects(request.bucketErn, request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection, request.includeDirectories);
         log_info << "ESM got object list, bucket: " << request.bucketErn << ", count: " << objects.size();
@@ -1072,7 +1095,8 @@ namespace Euclid::ESM {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-object");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = ParseJsonBody(req, jv)) return *err;
@@ -1085,6 +1109,9 @@ namespace Euclid::ESM {
         // Looked up before deleting so the bucket's aggregate size/objects can be adjusted -
         // without this, a bucket's stats would only ever grow, never reflecting deletions.
         if (const auto object = repo->findObjectByErn(request.ern); object.has_value()) {
+            // Addressed by object ERN, so which bucket it belongs to is only known now - and that
+            // is what a grant is written in terms of.
+            if (const auto denied = denyUngrantedBucket(req, auth, object->bucketErn)) return *denied;
             if (auto bucket = repo->findBucketByErn(object->bucketErn); bucket.has_value()) {
                 bucket->size = std::max<long>(0, bucket->size - object->size);
                 // Mirrors put-object: a directory was never counted, so removing one must not
@@ -1115,7 +1142,8 @@ namespace Euclid::ESM {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "purge-bucket");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = ParseJsonBody(req, jv)) return *err;
@@ -1129,6 +1157,7 @@ namespace Euclid::ESM {
         if (!bucket.has_value()) {
             return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.bucketErn);
         }
+        if (const auto denied = denyUngrantedBucket(req, auth, request.bucketErn)) return *denied;
         // Directories are listed here, unlike everywhere else: a purge that left them behind
         // would empty a bucket that still could not be deleted. They are not counted below,
         // though, since they were never counted when they were created.
@@ -1203,6 +1232,9 @@ namespace Euclid::ESM {
             }
             if (bucket->accountId != auth.user->accountId) {
                 return {.error = EsmServer::ErrorResponse(req, status::forbidden, "Object does not belong to the caller's account")};
+            }
+            if (!EsmServer::IsResourceAllowed(auth.user->userId, object->bucketErn)) {
+                return {.error = EsmServer::ErrorResponse(req, status::forbidden, "Not authorized for this bucket: " + object->bucketErn)};
             }
 
             return {.object = std::move(object)};

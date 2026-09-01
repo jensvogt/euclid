@@ -1,0 +1,265 @@
+.TH EUCLID-CLI-EAP 1 "September 2026" "euclid-cli 1.0.33" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eap \- deploy and run applications on Euclid
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+[\fB\-\-loglevel\fR \fILEVEL\fR]
+.B eap
+.I action
+[\fIaction-options\fR...]
+.SH DESCRIPTION
+The
+.B eap
+module talks to the Euclid gateway's eap service to define applications -
+programs Euclid runs, scales and routes requests to - and to start and
+stop them.
+.PP
+An application can be written in any language. Euclid starts it, restarts
+it if it dies, scales it between a minimum and maximum instance count,
+and forwards requests addressed to it through the gateway. It links no
+Euclid library and needs no Euclid header: all it has to do is listen on
+the Unix socket named in its
+.I EUCLID_SOCKET
+environment variable and answer
+.I x-euclid-action
+requests on it, exactly as a Euclid module does. Creating that socket is
+also how it reports that it started.
+.PP
+The artifact is an object in an
+.BR euclid-cli-esm (1)
+bucket rather than a path on a host, so deploying is an ordinary upload -
+through the CLI, an SDK, or an FTP/SFTP transfer server. The manager
+copies it to the host on first start, which is what lets a fresh host
+bring an application up from nothing but the database and the object
+store.
+.PP
+.B eap
+itself never runs anything. It owns the application
+.I definitions
+only, and
+.B start-application
+and
+.B stop-application
+do nothing but record the state an application
+.I should
+be in. The Euclid manager notices within a few seconds and starts or
+stops the processes. This is why every action returns immediately, and
+why
+.B list-applications
+output carries both a
+.I desiredState
+and an observed
+.IR state ,
+alongside the number of instances actually running.
+.PP
+Because the definitions are stored rather than sent as commands, a
+manager restart brings every application marked running back by itself,
+and
+.B eap
+being unreachable at the moment a change is requested does not lose it.
+Changing a definition restarts the application, since the artifact, the
+command, the environment and the credentials a process was handed are
+all decided when it starts.
+.SH IDENTITY
+Every application runs as an Euclid identity, and signs the calls it
+makes back into Euclid with that identity's access key - so what an
+application does is attributable to it and authorized like anything
+else.
+.PP
+Unless
+.B create-application
+is given
+.BR \-\-user ,
+that identity is a
+.I technical principal
+created for the application alone, named \fIapp\-<application\-id>\fR. It
+has no password and cannot log in - see
+.BR euclid-cli-eam-login (1)
+- and holds nothing but one access key and a grant on the account the
+application belongs to. It is deleted with the application, so no
+credential outlives what it was issued to, and no application ever has to
+run on a person's credentials.
+.PP
+Naming
+.B \-\-buckets
+or
+.B \-\-queues
+at creation narrows it further, to exactly those resources: the storage
+and queueing modules refuse anything else that principal asks for, so a
+compromised application reaches what it was deployed with and no more.
+An application that names neither keeps account-wide access.
+.PP
+That key never reaches the application. What the manager hands each process is a short-lived
+bearer token, in the file named by
+.IR EUCLID_CREDENTIALS_FILE ,
+alongside
+.IR EUCLID_ENDPOINT ,
+.IR EUCLID_ACCOUNT_ID ,
+.I EUCLID_REGION
+and
+.IR EUCLID_USER_ID .
+The token is good for
+.I euclid.modules.eap.credentials-ttl-seconds
+(an hour by default) and the manager rewrites the file once less than half
+of that remains, so an application must read it when it needs it rather
+than remember the first one it saw. Nothing long-lived is left in the
+process for anyone to find.
+.PP
+An application deployed with
+.B \-\-user
+is the exception: that user's key is its operator's to manage, so it is
+passed in
+.I EUCLID_ACCESS_KEY_ID
+and
+.I EUCLID_SECRET_ACCESS_KEY
+as before, for signing with RFC 9421 HTTP Message Signatures.
+.PP
+All
+.B eap
+commands require administrator privileges; see
+.B AUTHENTICATION
+below.
+.SH ACTIONS
+.TP
+.B create-application
+Defines a new application from an artifact in a bucket. The application
+is created stopped. See
+.BR euclid-cli-eap-create-application (1).
+.TP
+.B update-application
+Changes an existing application's definition; only the options given are
+altered. See
+.BR euclid-cli-eap-update-application (1).
+.TP
+.B list-applications
+Lists the defined applications with their desired state and how many
+instances are running. See
+.BR euclid-cli-eap-list-applications (1).
+.TP
+.B get-application
+Shows one application's full definition. See
+.BR euclid-cli-eap-get-application (1).
+.TP
+.B delete-application
+Deletes an application definition, stopping it if it is running. See
+.BR euclid-cli-eap-delete-application (1).
+.TP
+.B start-application
+Marks an application as one that should be running. See
+.BR euclid-cli-eap-start-application (1).
+.TP
+.B stop-application
+Marks an application as one that should not be running, keeping its
+definition. See
+.BR euclid-cli-eap-stop-application (1).
+.SH GLOBAL OPTIONS
+These options are given to
+.B euclid-cli
+itself, before the
+.I eap
+module name.
+.TP
+.BR \-e ", " \-\-endpoint " " \fIURL\fR
+Euclid gateway endpoint to talk to, e.g. \fIhttps://localhost:5566\fR.
+.TP
+.BR \-\-ca\-cert " " \fIPATH\fR
+Path to a PEM CA certificate to trust in addition to the system trust
+store, e.g. for self-signed development certificates.
+.TP
+.BR \-p ", " \-\-pretty " " \fIBOOL\fR
+Pretty-print the JSON response. Defaults to \fItrue\fR.
+.TP
+.BR \-s ", " \-\-signature " " \fISCHEME\fR
+Signature scheme used for signed service calls: \fIsigv4\fR (the
+default) or \fIrfc9421\fR for RFC 9421 HTTP Message Signatures.
+Overrides
+.I euclid.cli.signature
+from the configuration file.
+.TP
+.BR \-l ", " \-\-loglevel " " \fILEVEL\fR
+Log level: one of \fItrace\fR, \fIdebug\fR, \fIinfo\fR, \fIwarning\fR,
+\fIerror\fR, \fIfatal\fR. Defaults to \fIinfo\fR.
+.TP
+.BR \-h ", " \-\-help
+Print top-level usage and exit.
+.TP
+.BR \-v ", " \-\-version
+Print the euclid-cli version and exit.
+.SH AUTHENTICATION
+.B eap
+commands are authenticated using the session created by
+.BR euclid-cli-eam-login (1),
+loaded from
+.IR $HOME/.euclid/credentials .
+.PP
+Every action is administrator-only, since each one decides which code
+Euclid executes and under whose identity it runs. The CLI checks this
+before sending a request, to fail with a clearer message, but the server
+checks independently on every request and is the actual boundary.
+.PP
+Requesting help for an action does not require a session, so
+.B "euclid-cli eap <action> \-\-help"
+works before logging in.
+.SH EXIT STATUS
+.TP
+.B 0
+The action completed successfully.
+.TP
+.B 1
+Argument parsing failed, the caller is not an authenticated
+administrator, the request could not be sent, or the server rejected
+it. Details are printed to standard error.
+.SH FILES
+.TP
+.I $HOME/.euclid/credentials
+JSON file holding the current session's bearer token and/or SigV4
+access key, created by
+.B euclid-cli eam login
+and read by every
+.B eap
+action.
+.TP
+.I /usr/local/euclid/data/application/<application-id>
+Where the manager materialises an application's artifact and starts it.
+The directory is the process's working directory.
+.SH EXAMPLES
+Upload an artifact, define an application from it, and start it:
+.PP
+.RS
+.nf
+euclid-cli esm upload-file --bucket apps --key inbox.jar --file target/inbox.jar
+
+euclid-cli eap create-application \e
+    --application-id inbox --runtime JAVA \e
+    --bucket apps --artifact inbox.jar \e
+    --min-instances 1 --max-instances 4 --ready-timeout 30000
+
+euclid-cli eap start-application --application-id inbox
+euclid-cli eap list-applications
+.fi
+.RE
+.PP
+Deploy a new build of the same application:
+.PP
+.RS
+.nf
+euclid-cli esm upload-file --bucket apps --key inbox.jar --file target/inbox.jar
+euclid-cli eap update-application --application-id inbox --artifact inbox.jar
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli (1),
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-esm (1),
+.BR euclid-cli-ets (1),
+.BR euclid-cli-eap-create-application (1),
+.BR euclid-cli-eap-update-application (1),
+.BR euclid-cli-eap-list-applications (1),
+.BR euclid-cli-eap-get-application (1),
+.BR euclid-cli-eap-delete-application (1),
+.BR euclid-cli-eap-start-application (1),
+.BR euclid-cli-eap-stop-application (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
