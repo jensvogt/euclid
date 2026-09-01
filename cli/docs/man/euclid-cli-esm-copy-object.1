@@ -1,0 +1,75 @@
+.TH EUCLID-CLI-ESM-COPY-OBJECT 1 "September 2026" "euclid-cli 1.0.33" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-copy-object \- copy an object to another key or bucket
+.SH SYNOPSIS
+.B euclid-cli esm copy-object
+.BR \-\-source\-bucket | \-b
+.I ERN
+.BR \-\-source\-key | \-k
+.I KEY
+.BR \-\-target\-key | \-K
+.I KEY
+[\fB\-\-target\-bucket\fR|\fB\-B\fR \fIERN\fR]
+.SH DESCRIPTION
+Copies an object to another key, in the same bucket or a different one.
+.PP
+The copy gets its own bytes and its own lifetime: deleting either object
+leaves the other intact. It starts out with the source's content type,
+checksum and attributes, and is a new object in every other respect - its
+own ERN, its own creation time.
+.PP
+Both buckets are checked against the caller's account and, for a caller
+with resource grants, against those grants: reading out of one bucket and
+writing into another are separate permissions, and this needs both.
+.PP
+Unlike a move, this reads and writes the object's bytes, so it costs what
+the object is big.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-source\-bucket " " \fIERN\fR
+Euclid resource name of the bucket the object is in. Required.
+.TP
+.BR \-k ", " \-\-source\-key " " \fIKEY\fR
+Key of the object within that bucket. Required.
+.TP
+.BR \-K ", " \-\-target\-key " " \fIKEY\fR
+Key the copy should have. Required.
+.TP
+.BR \-B ", " \-\-target\-bucket " " \fIERN\fR
+Bucket the copy should be created in. Defaults to the source bucket.
+.SH EXIT STATUS
+.TP
+.B 0
+The object was copied. The new object is printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, no session, either bucket does not exist or
+belongs to another account, the source object does not exist, or
+something is already stored at the target key.
+.SH EXAMPLES
+Keep a copy under a dated key:
+.RS
+.nf
+euclid-cli esm copy-object \e
+    --source-bucket ern:esm:eu-central-1:000000000000::bucket:inbox \e
+    --source-key report.csv --target-key archive/2026-09-01-report.csv
+.fi
+.RE
+.PP
+Copy into another bucket:
+.RS
+.nf
+euclid-cli esm copy-object \e
+    --source-bucket ern:esm:eu-central-1:000000000000::bucket:inbox \e
+    --source-key report.csv \e
+    --target-bucket ern:esm:eu-central-1:000000000000::bucket:archive \e
+    --target-key report.csv
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-move-object (1),
+.BR euclid-cli-esm-rename-object (1),
+.BR euclid-cli-esm-delete-object (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
