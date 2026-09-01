@@ -76,6 +76,9 @@ namespace Euclid::Database::Entity::EAM {
         bsoncxx::builder::basic::array sessionsArray;
         for (const auto &session: sessions) sessionsArray.append(sessionToDocument(session));
 
+        bsoncxx::builder::basic::array resourceGrantsArray;
+        for (const auto &resourceErn: resourceGrants) resourceGrantsArray.append(resourceErn);
+
         bsoncxx::builder::basic::array accountGrantsArray;
         for (const auto &grant: accountGrants) accountGrantsArray.append(accountGrantToDocument(grant));
 
@@ -86,6 +89,8 @@ namespace Euclid::Database::Entity::EAM {
                 bsoncxx::builder::basic::kvp("email", email),
                 bsoncxx::builder::basic::kvp("accountId", accountId),
                 bsoncxx::builder::basic::kvp("region", region),
+                bsoncxx::builder::basic::kvp("loginEnabled", loginEnabled),
+                bsoncxx::builder::basic::kvp("resourceGrants", resourceGrantsArray),
                 bsoncxx::builder::basic::kvp("accessKeys", accessKeysArray),
                 bsoncxx::builder::basic::kvp("sessions", sessionsArray),
                 bsoncxx::builder::basic::kvp("accountGrants", accountGrantsArray),
@@ -106,7 +111,10 @@ namespace Euclid::Database::Entity::EAM {
             else if (key == "email") user.email = std::string(field.get_string().value);
             else if (key == "accountId") user.accountId = std::string(field.get_string().value);
             else if (key == "region") user.region = std::string(field.get_string().value);
-            else if (key == "accessKeys") {
+            else if (key == "loginEnabled") user.loginEnabled = field.get_bool().value;
+            else if (key == "resourceGrants") {
+                for (const auto &elem: field.get_array().value) user.resourceGrants.emplace_back(elem.get_string().value);
+            } else if (key == "accessKeys") {
                 for (const auto &elem: field.get_array().value) user.accessKeys.push_back(accessKeyFromDocument(elem.get_document().value));
             } else if (key == "sessions") {
                 for (const auto &elem: field.get_array().value) user.sessions.push_back(sessionFromDocument(elem.get_document().value));

@@ -1,0 +1,55 @@
+.TH EUCLID-CLI-EAP-START-APPLICATION 1 "September 2026" "euclid-cli 1.0.33" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eap-start-application \- run an application
+.SH SYNOPSIS
+.B euclid-cli eap start-application
+.BR \-\-application\-id | \-n
+.I NAME
+.SH DESCRIPTION
+Records that this application should be running, and returns
+immediately. The Euclid manager picks that up within a few seconds:
+it materialises the artifact from its bucket onto the host, starts it
+with the runtime's interpreter, and from then on runs it between the
+application's minimum and maximum instance counts, restarting it if it
+dies.
+.PP
+An instance is considered started once it creates the socket named in its
+.I EUCLID_SOCKET
+environment variable. One that does not manage that within the
+application's
+.I readyTimeoutMs
+is killed and tried again, so an application that is merely slow to start
+looks exactly like one that is broken - see
+.B \-\-ready\-timeout
+in
+.BR euclid-cli-eap-create-application (1).
+.PP
+Nothing is reported here about whether it actually came up:
+.BR euclid-cli-eap-list-applications (1)
+shows the instance count, and the application's own output goes to the
+Euclid log.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-application\-id " " \fINAME\fR
+Name of the application. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The desired state was recorded. The definition is printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the caller is not an authenticated
+administrator, or no application of that name exists.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli eap start-application --application-id inbox
+euclid-cli eap list-applications --prefix inbox
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eap (1),
+.BR euclid-cli-eap-stop-application (1),
+.BR euclid-cli-eap-list-applications (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

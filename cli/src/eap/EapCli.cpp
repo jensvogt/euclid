@@ -90,7 +90,9 @@ namespace Euclid::CLI {
                 ("runtime,r", po::value<std::string>()->required(), "runtime the artifact is started with: JAVA, PYTHON, NODEJS or BINARY")
                 ("bucket,b", po::value<std::string>()->required(), "name of the ESM bucket holding the artifact")
                 ("artifact,a", po::value<std::string>()->required(), "object key of the artifact within that bucket")
-                ("user,u", po::value<std::string>()->required(), "EAM user the application runs as; its access key is what the application signs its own calls with")
+                ("user,u", po::value<std::string>(), "EAM user the application runs as; defaults to a technical principal created for this application alone")
+                ("buckets", po::value<std::string>(), "comma-separated names of the ESM buckets the application may use; empty means every bucket in its account")
+                ("queues", po::value<std::string>(), "comma-separated names of the EQS queues the application may use; empty means every queue in its account")
                 ("command,c", po::value<std::string>(), "command to run instead of the runtime's default")
                 ("arguments", po::value<std::string>(), "comma-separated arguments passed after the artifact")
                 ("environment,e", po::value<std::string>(), "comma-separated KEY=value environment variables")
@@ -100,15 +102,22 @@ namespace Euclid::CLI {
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eap", "create-application",
-                                   "--application-id <name> --runtime <runtime> --bucket <bucket> --artifact <key> --user <user> "
-                                   "[--command <cmd>] [--arguments <list>] [--environment <list>] [--min-instances <n>] "
+                                   "--application-id <name> --runtime <runtime> --bucket <bucket> --artifact <key> "
+                                   "[--user <user>] [--buckets <list>] [--queues <list>] [--command <cmd>] "
+                                   "[--arguments <list>] [--environment <list>] [--min-instances <n>] "
                                    "[--max-instances <n>] [--ready-timeout <ms>]",
                                    "Defines a new application from an artifact already stored in an ESM bucket - upload it first with "
                                    "\"esm upload-file\", or through a transfer server. The manager copies the artifact to the host, "
                                    "starts it with the runtime's interpreter (java -jar, python3, node) or directly for BINARY, and "
                                    "scales it between --min-instances and --max-instances like any other module. The process is handed "
-                                   "its socket path in EUCLID_SOCKET and the access key of --user in EUCLID_ACCESS_KEY_ID/"
-                                   "EUCLID_SECRET_ACCESS_KEY, which it uses to sign its own calls back into euclid (RFC 9421). "
+                                   "its socket path in EUCLID_SOCKET and an access key in EUCLID_ACCESS_KEY_ID/EUCLID_SECRET_ACCESS_KEY, "
+                                   "which it uses to sign its own calls back into euclid (RFC 9421). Without --user the application gets "
+                                   "a technical principal of its own (\"app-<application-id>\"): an EAM identity that cannot log in and "
+                                   "has nothing but that key, created here and deleted with the application, so no application ever runs "
+                                   "on a person's credentials. Name --user only when an application really should act as an existing user. "
+                                   "Naming --buckets and --queues narrows that principal to exactly those resources: the storage and "
+                                   "queueing modules refuse anything else it asks for, so a compromised application reaches what it was "
+                                   "deployed with and nothing more. Naming neither leaves it able to use everything in its account. "
                                    "The application is created stopped - use \"eap start-application\" to run it.",
                                    desc);
         }
@@ -126,12 +135,14 @@ namespace Euclid::CLI {
                 {"applicationId", vm["application-id"].as<std::string>()},
                 {"runtime", vm["runtime"].as<std::string>()},
                 {"bucket", vm["bucket"].as<std::string>()},
-                {"artifact", vm["artifact"].as<std::string>()},
-                {"user", vm["user"].as<std::string>()}
+                {"artifact", vm["artifact"].as<std::string>()}
         };
+        if (vm.contains("user")) request["user"] = vm["user"].as<std::string>();
         if (vm.contains("command")) request["command"] = vm["command"].as<std::string>();
         if (vm.contains("arguments")) request["arguments"] = SplitList(vm["arguments"].as<std::string>());
         if (vm.contains("environment")) request["environment"] = SplitEnvironment(vm["environment"].as<std::string>());
+        if (vm.contains("buckets")) request["buckets"] = SplitList(vm["buckets"].as<std::string>());
+        if (vm.contains("queues")) request["queues"] = SplitList(vm["queues"].as<std::string>());
         if (vm.contains("min-instances")) request["minInstances"] = vm["min-instances"].as<long>();
         if (vm.contains("max-instances")) request["maxInstances"] = vm["max-instances"].as<long>();
         if (vm.contains("ready-timeout")) request["readyTimeoutMs"] = vm["ready-timeout"].as<long>();
@@ -160,6 +171,8 @@ namespace Euclid::CLI {
                 ("command,c", po::value<std::string>(), "command to run instead of the runtime's default")
                 ("arguments", po::value<std::string>(), "comma-separated arguments; replaces the current list")
                 ("environment,e", po::value<std::string>(), "comma-separated KEY=value environment variables; replaces the current set")
+                ("buckets", po::value<std::string>(), "comma-separated bucket names the application may use; replaces the current list")
+                ("queues", po::value<std::string>(), "comma-separated queue names the application may use; replaces the current list")
                 ("min-instances", po::value<long>(), "smallest number of instances the autoscaler keeps running")
                 ("max-instances", po::value<long>(), "largest number of instances the autoscaler may scale out to")
                 ("ready-timeout", po::value<long>(), "how long an instance may take to create its socket, in milliseconds");
@@ -167,14 +180,16 @@ namespace Euclid::CLI {
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eap", "update-application",
                                    "--application-id <name> [--runtime <runtime>] [--artifact <key>] [--command <cmd>] "
-                                   "[--arguments <list>] [--environment <list>] [--min-instances <n>] [--max-instances <n>] "
-                                   "[--ready-timeout <ms>]",
+                                   "[--arguments <list>] [--environment <list>] [--buckets <list>] [--queues <list>] "
+                                   "[--min-instances <n>] [--max-instances <n>] [--ready-timeout <ms>]",
                                    "Changes an existing application's definition. Only the options actually given are altered, so one "
                                    "setting can be changed without resending the whole definition; --arguments and --environment "
                                    "replace the current values rather than adding to them. A running application keeps running on its "
                                    "old definition until it is restarted - \"eap stop-application\" followed by "
                                    "\"eap start-application\" applies the change, which is also how a newly uploaded artifact is "
-                                   "picked up.",
+                                   "picked up. Changing --buckets or --queues re-grants the application's technical principal, so the "
+                                   "new list takes effect immediately, for running instances too. The identity the application runs as "
+                                   "cannot be changed here - delete it and create it again instead.",
                                    desc);
         }
 
@@ -193,6 +208,8 @@ namespace Euclid::CLI {
         if (vm.contains("command")) request["command"] = vm["command"].as<std::string>();
         if (vm.contains("arguments")) request["arguments"] = SplitList(vm["arguments"].as<std::string>());
         if (vm.contains("environment")) request["environment"] = SplitEnvironment(vm["environment"].as<std::string>());
+        if (vm.contains("buckets")) request["buckets"] = SplitList(vm["buckets"].as<std::string>());
+        if (vm.contains("queues")) request["queues"] = SplitList(vm["queues"].as<std::string>());
         if (vm.contains("min-instances")) request["minInstances"] = vm["min-instances"].as<long>();
         if (vm.contains("max-instances")) request["maxInstances"] = vm["max-instances"].as<long>();
         if (vm.contains("ready-timeout")) request["readyTimeoutMs"] = vm["ready-timeout"].as<long>();
@@ -295,7 +312,8 @@ namespace Euclid::CLI {
             return PrintActionHelp("eap", "delete-application", "--application-id <name>",
                                    "Deletes an application definition. Any instances the manager is running are stopped on its next "
                                    "reconcile - an application that no longer exists is not something it keeps running. The artifact "
-                                   "in the bucket is left alone.",
+                                   "in the bucket is left alone, but the technical principal created for the application - if it "
+                                   "has one - is deleted with it, so no credential outlives what it was issued to.",
                                    desc);
         }
 

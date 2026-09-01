@@ -109,6 +109,17 @@ namespace Euclid::Database::Entity::EAP {
         std::map<std::string, std::string> environment;
 
         /**
+         * @brief ERNs of the buckets and queues this application may act on.
+         *
+         * @par
+         * Mirrored onto the technical principal's resource grants, which is what the storage and
+         * queueing modules actually enforce. Empty means unrestricted within the application's
+         * account - the state stage one left every application in, and still what an application
+         * that names no resources gets.
+         */
+        std::vector<std::string> resources;
+
+        /**
          * @brief EAM user the application runs as.
          *
          * @par

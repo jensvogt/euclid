@@ -7,9 +7,33 @@ StartLimitIntervalSec=0
 Type=simple
 Restart=always
 RestartSec=1
-User=root
+
+# Nothing euclid does needs root: the gateway and the transfer servers listen above 1024, and
+# everything written lives under /usr/local/euclid or the runtime directory below. The manager
+# spawns every module and every application as itself, so this one setting decides what the whole
+# installation runs as. The package's post-install script creates the user and takes ownership of
+# the tree; see AmbientCapabilities below if a transfer server ever has to bind a privileged port.
+User=euclid
+Group=euclid
+
+# Created on start and removed on stop, owned by User= - which is what the module sockets and the
+# gateway's event socket need, since euclid.json points them at /var/run/euclid.
 RuntimeDirectory=euclid
 RuntimeDirectoryMode=0755
+
+# Worth having now that this is not root. ProtectSystem=strict makes the whole filesystem
+# read-only apart from what ReadWritePaths names, which for euclid is its own tree: binaries and
+# configuration in etc/, and everything it writes - log/, data/ and the object store underneath.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/usr/local/euclid
+
+# Uncomment to let a transfer server listen on a privileged port (FTP 21, SFTP 22, FTPS 990).
+# The default ports are 2121 and 2222, which need nothing.
+#AmbientCapabilities=CAP_NET_BIND_SERVICE
+
 ExecStart=/usr/local/euclid/bin/euclid-mgr --loglevel info --config /usr/local/euclid/etc/euclid.json
 KillSignal=SIGTERM
 

@@ -68,6 +68,16 @@ namespace Euclid::EQS {
         return EqsServer::Unauthorized(req, {.subject = std::nullopt, .tokenExpired = auth.tokenExpired, .denialReason = auth.denialReason});
     }
 
+    // Whether this caller was given this queue - the counterpart of ESM's bucket check, and the
+    // same reasoning: which queue a request is about is named in its body, so only a handler can
+    // ask. A caller with no resource grants at all, which is every human, is unaffected.
+    static std::optional<response<string_body> > denyUngrantedQueue(const request<string_body> &req, const AuthResult &auth, const std::string &queueErn) {
+        if (!auth.user.has_value()) return std::nullopt;
+        if (EqsServer::IsResourceAllowed(auth.user->userId, queueErn)) return std::nullopt;
+        log_warning << "EQS resource denied, userId: " << auth.user->userId << ", queueErn: " << queueErn;
+        return EqsServer::ErrorResponse(req, status::forbidden, "Not authorized for this queue: " + queueErn);
+    }
+
     // Fills in the caller identity shared by every response DTO's "metadata" object. The
     // request ID that correlates this response with its request travels as the
     // "x-euclid-request-id" header instead (set centrally in HttpActionServer::JsonResponse).
@@ -244,6 +254,7 @@ namespace Euclid::EQS {
         if (!queue.has_value()) {
             return EqsServer::ErrorResponse(req, status::bad_request, "Queue does not exist");
         }
+        if (const auto denied = denyUngrantedQueue(req, auth, request.queueErn)) return *denied;
 
         const std::string messageId = Core::UuidUtils::CreateRandomUuid();
         const std::string ern = Core::createEqsMessageErn(auth.user.value().accountId, messageId);
@@ -289,13 +300,16 @@ namespace Euclid::EQS {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "receive-messages");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::EQS::ReceiveMessagesRequest>(jv);
         log_info << "EQS ReceiveMessages ern: " << request.queueErn;
+
+        if (const auto denied = denyUngrantedQueue(req, auth, request.queueErn)) return *denied;
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
         std::vector<Database::Entity::EQS::Message> messages = repo->receiveMessages(request.queueErn, request.maxCount, request.waitTime);

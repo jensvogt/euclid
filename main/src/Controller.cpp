@@ -4,16 +4,22 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <ranges>
+#include <sstream>
 #include <set>
 #include <thread>
 
 // Boost includes
 #include <boost/asio/io_context.hpp>
+#include <boost/json.hpp>
 #include <boost/asio/local/stream_protocol.hpp>
 
 // Euclid includes
 #include <euclid/core/Configuration.h>
+#include <euclid/core/DateTimeUtils.h>
+#include <euclid/core/HttpActionServer.h>
+#include <euclid/core/JwtUtils.h>
 #include <euclid/core/LogStream.h>
 #include <euclid/database/Database.h>
 #include <euclid/database/RepositoryFactory.h>
@@ -440,12 +446,101 @@ namespace Euclid::main {
             return target;
         }
 
+        // How long an application's credentials are good for, and how much of that has to be left
+        // before the reconciler bothers rewriting them. An hour is short enough that a token
+        // lifted out of a process is worth little, and long enough that the rewrite is a rare
+        // event rather than a per-request one.
+        std::chrono::seconds credentialsTtl() {
+            constexpr long kDefaultTtlSeconds = 3600;
+            return std::chrono::seconds(std::max(60L, Core::Configuration::instance().getOr<long>("euclid.modules.eap.credentials-ttl-seconds", kDefaultTtlSeconds)));
+        }
+
+        std::filesystem::path credentialsPath(const std::string &applicationId) {
+            return applicationDir(applicationId) / "credentials";
+        }
+
+        // Writes the application's current credentials: a bearer token for the identity it runs
+        // as, and when it stops being valid.
+        //
+        // A file rather than an environment variable, because an environment cannot be rewritten
+        // after exec() and these are meant to be replaced while the process runs - the same
+        // arrangement AWS uses for container and web-identity credentials, and for the same
+        // reason: a long-lived secret sitting in a process is the thing worth getting rid of.
+        // The token is minted here rather than fetched from EAM: it is the same HMAC over the
+        // same secret that a login would produce, and the manager already holds both.
+        bool writeApplicationCredentials(const Database::Entity::EAP::Application &application) {
+
+            const auto expiresAt = std::chrono::system_clock::now() + credentialsTtl();
+            const auto token = Core::JwtUtils::CreateToken(application.userId, Core::HttpActionServer::JwtSecret(), credentialsTtl());
+
+            const auto &configuration = Core::Configuration::instance();
+            const auto host = configuration.getOr<std::string>("euclid.gateway.http.host", "localhost");
+            const auto port = configuration.getOr<long>("euclid.gateway.http.port", 5566);
+            const auto scheme = configuration.getOr<bool>("euclid.gateway.tls.enabled", true) ? "https" : "http";
+
+            const boost::json::value credentials = {
+                    {"token", token},
+                    {"expiresAt", Core::DateTimeUtils::ToISO8601(expiresAt)},
+                    {"userId", application.userId},
+                    {"accountId", application.accountId},
+                    {"region", application.region},
+                    {"endpoint", scheme + std::string("://") + host + ":" + std::to_string(port)},
+            };
+
+            const auto path = credentialsPath(application.applicationId);
+            std::error_code ec;
+            std::filesystem::create_directories(path.parent_path(), ec);
+
+            // Written beside the target and moved into place, so a process reading the file never
+            // sees half of one: rename() within a directory is atomic, a rewrite in place is not.
+            const auto temporary = path.string() + ".new";
+            {
+                std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
+                if (!out) {
+                    log_error << "Could not write application credentials, path: " << temporary;
+                    return false;
+                }
+                out << boost::json::serialize(credentials);
+            }
+            std::filesystem::permissions(temporary, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
+                                         std::filesystem::perm_options::replace, ec);
+            std::filesystem::rename(temporary, path, ec);
+            if (ec) {
+                log_error << "Could not install application credentials, path: " << path.string() << ", error: " << ec.message();
+                return false;
+            }
+            return true;
+        }
+
+        // Whether the credentials on disk are missing, unreadable, or close enough to expiry to be
+        // worth replacing. Half the lifetime is the threshold, so an application always has at
+        // least that long left in hand however unluckily a reconcile tick lands.
+        bool credentialsNeedRefresh(const std::string &applicationId) {
+
+            std::ifstream in(credentialsPath(applicationId));
+            if (!in) return true;
+
+            try {
+                std::ostringstream buffer;
+                buffer << in.rdbuf();
+                const auto parsed = boost::json::parse(buffer.str());
+                const auto expiresAt = Core::DateTimeUtils::FromISO8601(std::string(parsed.at("expiresAt").as_string()));
+                return expiresAt - std::chrono::system_clock::now() < credentialsTtl() / 2;
+            } catch (const std::exception &) {
+                return true;
+            }
+        }
+
         // Everything the process needs to know about itself, and the credentials it needs to be
         // anyone. The application's own environment goes on first, so it cannot shadow these.
         std::map<std::string, std::string> applicationEnvironment(const Database::Entity::EAP::Application &application) {
 
             auto environment = application.environment;
             environment["EUCLID_APPLICATION_ID"] = application.applicationId;
+            // Which version of the definition this process was started from. Also what the
+            // reconciler compares to notice that the definition changed under a running pool -
+            // see reconcileApplications().
+            environment["EUCLID_APPLICATION_REVISION"] = Core::DateTimeUtils::ToISO8601(application.modified);
             environment["EUCLID_APPLICATION_ERN"] = application.ern;
             environment["EUCLID_ACCOUNT_ID"] = application.accountId;
             environment["EUCLID_REGION"] = application.region;
@@ -462,15 +557,23 @@ namespace Euclid::main {
             // libraries in all of them.
             environment["EUCLID_SIGNATURE"] = "rfc9421";
 
-            if (const auto user = Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(application.userId);
-                user.has_value() && !user->accessKeys.empty()) {
+            // Where the short-lived credentials are, and when the process should look again.
+            environment["EUCLID_CREDENTIALS_FILE"] = credentialsPath(application.applicationId).string();
+
+            const auto user = Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(application.userId);
+
+            // A technical principal deliberately gets no key: its long-lived secret stays in EAM,
+            // and the process holds nothing but a token that expires. A user the caller named is
+            // different - the operator owns that key and may well want an application signing
+            // with it, so it is passed through as before.
+            if (user.has_value() && user->loginEnabled && !user->accessKeys.empty()) {
                 environment["EUCLID_ACCESS_KEY_ID"] = user->accessKeys.front().accessKeyId;
                 environment["EUCLID_SECRET_ACCESS_KEY"] = user->accessKeys.front().secretAccessKey;
-            } else {
+            } else if (!user.has_value()) {
                 // Not fatal: an application that only serves requests never has to prove who it
                 // is. One that calls back into euclid will get 401s, and this line is what
                 // explains them.
-                log_warning << "Application has no usable access key, applicationId: " << application.applicationId << ", user: " << application.userId;
+                log_warning << "Application user not found, applicationId: " << application.applicationId << ", user: " << application.userId;
             }
             return environment;
         }
@@ -490,10 +593,46 @@ namespace Euclid::main {
             defined.insert(application.applicationId);
 
             const bool wantRunning = application.desiredState == Database::Entity::EAP::ApplicationState::RUNNING;
+            const auto revision = Core::DateTimeUtils::ToISO8601(application.modified);
+
             bool registered;
+            std::string runningRevision;
             {
                 std::lock_guard lock(_mutex);
-                registered = _services.contains(application.applicationId);
+                if (const auto it = _services.find(application.applicationId); it != _services.end()) {
+                    registered = true;
+                    if (const auto env = it->second.config.environment.find("EUCLID_APPLICATION_REVISION");
+                        env != it->second.config.environment.end()) {
+                        runningRevision = env->second;
+                    }
+                } else {
+                    registered = false;
+                }
+            }
+
+            // A definition that changed while its pool was running has to be picked up, and the
+            // only way to pick it up is to start the processes again: an artifact, a command, an
+            // environment and the credentials it was handed are all decided at spawn time.
+            //
+            // This is not a rare edge: deleting an application and creating it again between two
+            // reconciles looks exactly like one that never changed, and the pool would keep
+            // running with the previous definition's credentials - which by then have been
+            // deleted along with the principal that owned them.
+            if (wantRunning && registered && runningRevision != revision) {
+                log_info << "Application definition changed, restarting, applicationId: " << application.applicationId
+                        << ", revision: " << runningRevision << " -> " << revision;
+                stop(application.applicationId);
+                deregisterModule(application.applicationId);
+                registered = false;
+            }
+
+            // Rewritten while the application runs, not only when it starts: that is the whole
+            // point of putting them in a file. An instance started an hour ago is holding a token
+            // that is about to expire, and the only thing that can replace it is this.
+            if (wantRunning && credentialsNeedRefresh(application.applicationId)) {
+                if (writeApplicationCredentials(application)) {
+                    log_debug << "Application credentials refreshed, applicationId: " << application.applicationId;
+                }
             }
 
             if (wantRunning && !registered) {
