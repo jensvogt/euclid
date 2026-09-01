@@ -41,7 +41,9 @@
       "websocket": {
         "enabled": true,
         "max-message-size": 1048576,
-        "idle-timeout-seconds": 300
+        "idle-timeout-seconds": 300,
+        "max-outbox-frames": 256,
+        "max-outbox-bytes": 8388608
       },
       "event-socket-path": "/var/run/euclid/euclid-gateway-events.sock"
     },
@@ -376,6 +378,10 @@
       "prefix": "euclid",
       "file-size": 10485760,
       "file-count": 5
+    },
+    "eventbus": {
+      "notify-interval-ms": 100,
+      "subscription-cache-seconds": 0
     }
   }
 }

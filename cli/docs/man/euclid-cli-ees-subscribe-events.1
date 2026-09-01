@@ -8,6 +8,7 @@ euclid-cli-ees-subscribe-events \- register a durable subscription to euclid eve
 .BR \-\-event\-types | \-e
 .I LIST
 [\fB\-\-filter\fR|\fB\-f\fR \fIJSON\fR]
+[\fB\-\-mode\fR|\fB\-m\fR \fIdurable\fR|\fIlive\fR]
 .SH DESCRIPTION
 Registers a subscription under
 .IR NAME .
@@ -42,6 +43,35 @@ for the types that exist.
 .BR \-f ", " \-\-filter " " \fIJSON\fR
 JSON object of payload fields that must match exactly. Omitted means
 every event of these types.
+.TP
+.BR \-m ", " \-\-mode " " \fIdurable\fR|\fIlive\fR
+How events reach this subscriber. Defaults to \fIdurable\fR. See
+.B DELIVERY
+below.
+.SH DELIVERY
+.TP
+.B durable
+Every matching event is stored for the name and kept until it is
+acknowledged, so nothing is lost while the subscriber is away. If a
+websocket session is attached to the name, a short notice is pushed as
+well - not the event itself, because two instances sharing a name must
+not both act on it, and the atomic claim behind
+.BR euclid-cli-ees-receive-events (1)
+is what decides which one does. The notice is what removes the polling:
+receive it, then claim.
+.TP
+.B live
+Nothing is stored. The event is pushed to whatever sessions are attached
+to the name and is then gone. That is what a view wants - a screen
+showing a bucket has no use for the hour of events it missed while
+nobody was looking at it, and paying a database write per event for them
+is worse than not having them. A live subscriber with no session
+connected receives nothing at all, and
+.B receive-events
+will always answer with none.
+.PP
+Switching a subscription between the two is a matter of subscribing
+again with the same name and event type.
 .SH FILTERS
 A filter is applied when the event is published, not when it is
 delivered, so a subscriber's backlog is proportional to what it asked

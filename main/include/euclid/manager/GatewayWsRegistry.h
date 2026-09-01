@@ -18,8 +18,8 @@ namespace Euclid::main {
     /**
      * @brief In-process registry of every currently-connected websocket session (see
      * GatewayWsSession/GatewayWsTlsSession), keyed by the accountId/region it authenticated for
-     * at handshake time - lets GatewayEventIngest's Dispatch() fan a pushed
-     * Core::EventPusher::Push() event out to every matching connection.
+     * at handshake time - lets GatewayEventIngest's Dispatch() find the sessions an event
+     * pushed by Database::EventBus should reach.
      *
      * The first working version of the fan-out-to-N-sessions shape only ever sketched, dead and
      * commented-out, in core/include/euclid/core/LogStream.h's WebSocketSessionManager.
@@ -47,18 +47,29 @@ namespace Euclid::main {
         void Register(const std::string &accountId, const std::string &region, const std::weak_ptr<IWsSession> &session);
 
         /**
-         * @brief Delivers a pushed event to every currently-live session registered under
-         * accountId/region AND currently subscribed to a matching topic/filter (see
-         * IWsSession::WantsEvent()) - building the event frame once and posting it onto each
-         * matching session's own write queue. A session with no matching subscription receives
-         * nothing, even though it's in scope for accountId/region.
+         * @brief Delivers a pushed event to the sessions attached to one EES subscriber name.
          *
-         * @param topic     event topic, e.g. "ekm.key.created"
-         * @param accountId account the event belongs to
-         * @param region    region the event belongs to
-         * @param body      event payload
+         * @par
+         * What belongs to a named subscription was decided when the event was published - its
+         * filter and its account were evaluated there - so a session that attached to the name
+         * receives what the subscription matched, not what the connection separately asked for.
+         *
+         * @par
+         * Every attached session is delivered to, rather than one chosen among them: two
+         * instances sharing a name are meant to share the work, and the arbiter for that is the
+         * atomic claim in Database::EventBus, not this fan-out. For a durable subscription the
+         * frame carries the fact that events are waiting and the instances race to claim them;
+         * exactly one wins each event.
+         *
+         * @param subscriber EES subscriber name.
+         * @param topic      event topic.
+         * @param accountId  account the event belongs to.
+         * @param region     region the event belongs to.
+         * @param body       event payload.
+         * @return number of sessions the event was delivered to.
          */
-        void Broadcast(const std::string &topic, const std::string &accountId, const std::string &region, const boost::json::object &body);
+        long DeliverToSubscriber(const std::string &subscriber, const std::string &topic, const std::string &accountId,
+                                 const std::string &region, const boost::json::object &body);
 
     private:
         [[nodiscard]]
