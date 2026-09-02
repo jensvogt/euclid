@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.61](https://github.com/jensvogt/euclid/compare/v1.0.60...v1.0.61) (2026-09-02)
+
+
+### Bug Fixes
+
+* Windows build (ssh.lib and magic.lib both define strndup) ([7e05203](https://github.com/jensvogt/euclid/commit/7e05203d2651f81173b729a66949ef9151a6ac31))
+
 ## [1.0.60](https://github.com/jensvogt/euclid/compare/1.0.59...v1.0.60) (2026-09-02)
 
 
