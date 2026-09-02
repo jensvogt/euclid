@@ -169,7 +169,7 @@
         "socket-dir": "/var/run/euclid",
         "data-dir": "/usr/local/euclid/data/eap",
         "minInstances": 1,
-        "maxInstances": 1
+        "maxInstances": 32
       },
       "ets": {
         "active": true,

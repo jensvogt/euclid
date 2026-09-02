@@ -187,10 +187,15 @@ namespace Euclid::SFTP {
         static std::string longName(const std::string &name, const std::filesystem::path &path);
 
         /**
-         * @brief Maps a virtual path to the bucket key it addresses, i.e. the same path without
-         * its leading slash. Transfer mode only.
+         * @brief Maps a virtual path to the bucket key it addresses: the same path without its
+         * leading slash, below this session's home prefix. Transfer mode only.
+         *
+         * @par
+         * The prefix is the only place the home directory is applied. A client's own view - what
+         * it may reach with ".." included - stays rooted at "/", so the home directory is
+         * invisible to it and confinement is still by construction of the virtual path.
          */
-        [[nodiscard]] static std::string keyOf(const std::string &virtualPath);
+        [[nodiscard]] std::string keyOf(const std::string &virtualPath) const;
 
         /**
          * @brief Local scratch file backing one open handle in transfer mode.
@@ -207,6 +212,14 @@ namespace Euclid::SFTP {
         SftpServerConfig _config;
         std::string _username;
         std::filesystem::path _homeDir;
+
+        /**
+         * @brief Bucket key prefix this session's paths hang below, empty for the bucket root.
+         *
+         * Derived at login from the transfer server's home directory template and the user that
+         * authenticated, so it is fixed for the life of the session.
+         */
+        std::string _keyPrefix;
 
         /**
          * @brief Bucket-backed storage for the logged-in user, present only in transfer mode.

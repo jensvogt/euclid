@@ -11,6 +11,7 @@ euclid-cli-eap-create-application \- define an application from an artifact in a
 .I BUCKET
 .BR \-\-artifact | \-a
 .I KEY
+[\fB\-\-version\fR \fIX.Y.Z\fR]
 [\fB\-\-user\fR|\fB\-u\fR \fIUSER\fR]
 [\fB\-\-buckets\fR \fILIST\fR]
 [\fB\-\-queues\fR \fILIST\fR]
@@ -66,7 +67,19 @@ Name of the bucket holding the artifact. Required.
 .TP
 .BR \-a ", " \-\-artifact " " \fIKEY\fR
 Object key of the artifact within that bucket, e.g.
-\fIorders/orders-1.4.jar\fR. Required.
+\fIorders/orders-1.4.0.jar\fR. Required.
+.TP
+.B \-\-version " " \fIX.Y.Z\fR
+Version this build is. Read out of the artifact's own name when not given
+- \fIorders\-1.4.0.jar\fR is 1.4.0 - and required when the name carries
+no such version: an application whose recorded version was invented is
+worse than one that refused to be created.
+.IP
+It is recorded together with the artifact's MD5, which between them answer
+"which build is running?" from the definition alone, and are what
+.BR euclid-cli-eap-redeploy-application (1)
+checks a new build against. The version is handed to the process too, in
+.IR EUCLID_APPLICATION_VERSION .
 .TP
 .BR \-u ", " \-\-user " " \fIUSER\fR
 Euclid user the application runs as. Omit it - the usual case - and the
@@ -110,10 +123,16 @@ Largest number of instances the autoscaler may scale out to. Defaults to
 1, which pins the application to a single process.
 .TP
 .B \-\-ready\-timeout " " \fIMS\fR
-How long an instance may take to create its socket before the manager
-gives up on it and kills it, in milliseconds. Defaults to 30000. Worth
-raising for a JVM or anything with a framework to load: an instance
-killed for being slow to start is restarted, and starts slowly again.
+Recorded on the definition, and no longer used to decide anything.
+Defaults to 30000.
+.IP
+It dates from when an application had to create the socket named in
+.I EUCLID_SOCKET
+to be considered started, and was killed if it did not manage it in time.
+An application is now judged by whether it is still running shortly after
+it was started, whether or not it ever binds a socket - it is only a
+program that exits during its own startup, for a missing variable or a
+bad artifact, that is restarted with a backoff.
 .SH EXIT STATUS
 .TP
 .B 0
@@ -122,7 +141,8 @@ The application was defined. Its definition is printed as JSON.
 .B 1
 Missing/invalid arguments, the caller is not an authenticated
 administrator, an application of that name already exists, the runtime
-is not one of the four, the bucket or the artifact does not exist, a
+is not one of the four, the bucket or the artifact does not exist, no
+version was given and none could be read from the artifact name, a
 bucket or queue named by \fB\-\-buckets\fR/\fB\-\-queues\fR does not exist,
 or a named user does not exist or has no access key.
 .SH EXAMPLES
@@ -131,7 +151,7 @@ A Python application, scaling to four instances:
 .nf
 euclid-cli eap create-application \e
     --application-id demo --runtime PYTHON \e
-    --bucket apps --artifact euclid_app.py \e
+    --bucket apps --artifact euclid_app.py --version 1.0.0 \e
     --min-instances 1 --max-instances 4
 .fi
 .RE
@@ -141,7 +161,7 @@ An application allowed to use one bucket and one queue, and nothing else:
 .nf
 euclid-cli eap create-application \e
     --application-id inbox --runtime JAVA \e
-    --bucket apps --artifact inbox.jar \e
+    --bucket apps --artifact inbox-1.0.0.jar \e
     --buckets inbox --queues inbox-queue
 .fi
 .RE
@@ -151,7 +171,7 @@ A Java application with a heap setting and a longer start-up window:
 .nf
 euclid-cli eap create-application \e
     --application-id inbox --runtime JAVA \e
-    --bucket apps --artifact inbox.jar \e
+    --bucket apps --artifact inbox-1.0.0.jar \e
     --environment JAVA_TOOL_OPTIONS=-Xmx512m,INBOX_BUCKET=inbox \e
     --ready-timeout 45000
 .fi
@@ -159,6 +179,7 @@ euclid-cli eap create-application \e
 .SH SEE ALSO
 .BR euclid-cli-eap (1),
 .BR euclid-cli-eap-start-application (1),
+.BR euclid-cli-eap-redeploy-application (1),
 .BR euclid-cli-eap-update-application (1),
 .BR euclid-cli-eap-delete-application (1),
 .BR euclid-cli-esm-upload-file (1)

@@ -17,6 +17,7 @@
 
 // Euclid includes
 #include <euclid/core/Configuration.h>
+#include <euclid/core/CryptoUtils.h>
 #include <euclid/core/DateTimeUtils.h>
 #include <euclid/core/HttpActionServer.h>
 #include <euclid/core/JwtUtils.h>
@@ -92,6 +93,36 @@ namespace Euclid::main {
     // Windows (which only gained AF_UNIX support in Windows 10 1803+, via a different
     // header/API surface than POSIX) - boost::asio::local already abstracts that, and
     // UnixSocketServer's accept side uses the same protocol type.
+    // Whether a process is still running after graceMs, which is what "started" means for a
+    // program the manager only supervises rather than routes to.
+#if defined(_WIN32)
+    bool waitAlive(HANDLE processHandle, const int graceMs) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(graceMs);
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (!Platform::IsRunning(processHandle)) {
+                log_error << "Process exited during startup";
+                return false;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        return true;
+    }
+#else
+    // Watches the instance record rather than calling waitpid(): onChildExit() reaps every child
+    // from the SIGCHLD handler, so a second waiter here would race it and lose - waitpid() on an
+    // already-reaped child returns -1/ECHILD, which reads exactly like "still running" and had a
+    // program that died on startup reported as ready. handleExitedInstance() clears the pid when
+    // it reaps, so that is the fact to watch.
+    bool waitAlive(const std::shared_ptr<Dto::ModuleProcess> &svc, const int graceMs) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(graceMs);
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (svc->pid <= 0) return false;
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        return svc->pid > 0;
+    }
+#endif
+
     bool waitForSocket(const std::string &path, const int timeoutMs) {
         namespace local = boost::asio::local;
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
@@ -159,14 +190,18 @@ namespace Euclid::main {
         std::thread(drainPipe, outFd, false).detach();
         std::thread(drainPipe, errFd, true).detach();
 
-        if (waitForSocket(svc->instanceSocketPath, svc->config.readyTimeoutMs)) {
+        const bool liveness = svc->config.readiness == Dto::ModuleConfig::ReadinessCheck::Liveness;
+        if (liveness ? waitAlive(svc->processHandle, svc->config.livenessGraceMs)
+                     : waitForSocket(svc->instanceSocketPath, svc->config.readyTimeoutMs)) {
             svc->state = Database::Entity::ModuleState::RUNNING;
-            log_info << "Service ready, name: " << svc->config.name << ", pid: " << svc->pid << ", socket: " << svc->instanceSocketPath;
+            log_info << "Service ready, name: " << svc->config.name << ", pid: " << svc->pid
+                    << (liveness ? ", running" : ", socket: " + svc->instanceSocketPath);
             persistInstance(svc);
             return true;
         }
 
-        log_error << "Service " << svc->config.name << " did not become ready, killing pid " << svc->pid;
+        log_error << "Service " << svc->config.name
+                << (liveness ? " exited during startup, pid " : " did not become ready, killing pid ") << svc->pid;
         Platform::ForceKill(svc->processHandle);
         ServiceController::waitForExit(svc->pid, 2000);
         if (svc->processHandle) {
@@ -248,16 +283,27 @@ namespace Euclid::main {
         std::thread(drainPipe, outPipe[0], false).detach();
         std::thread(drainPipe, errPipe[0], true).detach();
 
-        if (waitForSocket(svc->instanceSocketPath, svc->config.readyTimeoutMs)) {
+        // An application is judged by whether it is still running, a module by whether it has
+        // created its socket - see ModuleConfig::ReadinessCheck for why the two differ.
+        const bool liveness = svc->config.readiness == Dto::ModuleConfig::ReadinessCheck::Liveness;
+        if (liveness ? waitAlive(svc, svc->config.livenessGraceMs)
+                     : waitForSocket(svc->instanceSocketPath, svc->config.readyTimeoutMs)) {
             svc->state = Database::Entity::ModuleState::RUNNING;
-            log_info << "Service ready, name: " << svc->config.name << ", pid: " << svc->pid << ", socket: " << svc->instanceSocketPath;
+            log_info << "Service ready, name: " << svc->config.name << ", pid: " << svc->pid
+                    << (liveness ? ", running" : ", socket: " + svc->instanceSocketPath);
             persistInstance(svc);
             return true;
         }
 
-        log_error << "Service " << svc->config.name << " did not become ready, killing pid " << svc->pid;
-        kill(svc->pid, SIGKILL);
-        waitpid(svc->pid, nullptr, 0);
+        log_error << "Service " << svc->config.name
+                << (liveness ? " exited during startup, pid " : " did not become ready, killing pid ") << svc->pid;
+        // Guarded because a liveness failure means the child is already gone and its pid has been
+        // cleared: kill(-1, SIGKILL) is not "kill nothing", it is "kill everything this user can
+        // signal", which on an installation running as its own user is every euclid process.
+        if (svc->pid > 0) {
+            kill(svc->pid, SIGKILL);
+            waitpid(svc->pid, nullptr, 0);
+        }
         if (!svc->instanceSocketPath.empty()) unlink(svc->instanceSocketPath.c_str());
         svc->pid = -1;
         svc->instanceSocketPath.clear();
@@ -422,11 +468,28 @@ namespace Euclid::main {
 
             const auto target = directory / std::filesystem::path(application.artifactKey).filename();
 
-            // Re-copied whenever the sizes disagree, which covers the case that matters here: a
-            // new build uploaded to the same key. A content check (the object's md5 is right
-            // there) would be stricter, and is what this wants once an application can be
-            // redeployed without changing size.
-            const bool current = std::filesystem::exists(target, ec) && static_cast<long>(std::filesystem::file_size(target, ec)) == object->size;
+            // Re-copied whenever the local copy is not the object byte for byte, which is the case
+            // that matters here: a new build uploaded to the same key. Compared by content rather
+            // than by size, because a rebuild that happens to land on the same byte count - a
+            // changed string literal of equal length is enough - would otherwise go on running the
+            // previous build, with everything about the deployment looking correct.
+            //
+            // ESM computes md5Sum over the assembled object for both the single-shot and the
+            // multipart path, so it is a plain content hash rather than an S3-style etag; size is
+            // the fallback for an object stored before it was recorded.
+            bool current = false;
+            if (std::filesystem::exists(target, ec)) {
+                try {
+                    current = object->md5Sum.empty()
+                                      ? static_cast<long>(std::filesystem::file_size(target, ec)) == object->size
+                                      : Core::CryptoUtils::md5SumFile(target.string()) == object->md5Sum;
+                } catch (const std::exception &e) {
+                    // Unreadable for whatever reason - copying over it is the safe answer, and the
+                    // copy reports its own failure.
+                    log_warning << "Could not check the artifact already on disk, applicationId: " << application.applicationId
+                            << ", path: " << target.string() << ", error: " << e.what();
+                }
+            }
             if (!current) {
                 std::filesystem::copy_file(source, target, std::filesystem::copy_options::overwrite_existing, ec);
                 if (ec) {
@@ -541,6 +604,10 @@ namespace Euclid::main {
             // reconciler compares to notice that the definition changed under a running pool -
             // see reconcileApplications().
             environment["EUCLID_APPLICATION_REVISION"] = Core::DateTimeUtils::ToISO8601(application.modified);
+            // Which build this is, as the deployment named it. An application that logs this on
+            // start-up answers "what is actually running?" from its own log, without anyone having
+            // to compare checksums.
+            environment["EUCLID_APPLICATION_VERSION"] = application.version;
             environment["EUCLID_APPLICATION_ERN"] = application.ern;
             environment["EUCLID_ACCOUNT_ID"] = application.accountId;
             environment["EUCLID_REGION"] = application.region;
@@ -550,7 +617,13 @@ namespace Euclid::main {
             const auto host = configuration.getOr<std::string>("euclid.gateway.http.host", "localhost");
             const auto port = configuration.getOr<long>("euclid.gateway.http.port", 5566);
             const auto scheme = configuration.getOr<bool>("euclid.gateway.tls.enabled", true) ? "https" : "http";
-            environment["EUCLID_ENDPOINT"] = scheme + std::string("://") + host + ":" + std::to_string(port);
+            const auto endpoint = scheme + std::string("://") + host + ":" + std::to_string(port);
+            environment["EUCLID_ENDPOINT"] = endpoint;
+            // The same value under the name the SDKs bind: euclid-spring reads EUCLID_BASE_URL
+            // (euclid.base-url), and an application that finds neither concludes there is no
+            // euclid to talk to. Two names for one endpoint is a small price for an application
+            // that works whichever convention its framework follows.
+            environment["EUCLID_BASE_URL"] = endpoint;
 
             // RFC 9421 rather than SigV4: an application is whatever language its author reached
             // for, and HTTP Message Signatures is the one of the two schemes with off-the-shelf
@@ -664,6 +737,10 @@ namespace Euclid::main {
                 config.readyTimeoutMs = static_cast<int>(application.readyTimeoutMs);
                 config.maxRestarts = -1;
                 config.autoRestart = true;
+                // An application is supervised, not routed to: nothing asks it for anything over
+                // a socket, so requiring it to create one only kills programs whose authors never
+                // heard of the convention - see ModuleConfig::ReadinessCheck.
+                config.readiness = Dto::ModuleConfig::ReadinessCheck::Liveness;
                 config.minInstances = static_cast<int>(application.minInstances);
                 config.maxInstances = static_cast<int>(application.maxInstances);
 
@@ -1093,7 +1170,15 @@ namespace Euclid::main {
 
     void ServiceController::scheduleRestart(const std::shared_ptr<Dto::ModuleProcess> &svc) {
         svc->lastCrashTime = std::chrono::steady_clock::now();
-        svc->state = Database::Entity::ModuleState::CRASHED;
+        // PENDING_RESTART, not CRASHED: the watchdog's restart pass - backoff, restart budget,
+        // "was stable, resetting backoff" - only ever looks at instances in that state. Leaving a
+        // crashed instance CRASHED told the database the truth and left the module down for good,
+        // so a module that died once stayed unreachable until euclid itself was restarted, with
+        // the gateway answering "service 'x' not registered or not running" in the meantime.
+        //
+        // The crash is still recorded: handleExitedInstance() persists CRASHED before calling
+        // this, and the next state written is the restart's.
+        svc->state = Database::Entity::ModuleState::PENDING_RESTART;
     }
 
     bool ServiceController::stopInstance(const std::shared_ptr<Dto::ModuleProcess> &svc, const int timeoutMs) {

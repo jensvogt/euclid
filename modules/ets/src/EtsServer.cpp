@@ -85,6 +85,7 @@ namespace Euclid::ETS {
                     {"port", server.port},
                     {"bucketName", server.bucketName},
                     {"bucketErn", server.bucketErn},
+                    {"homeDirectory", server.homeDirectory},
                     {"userIds", userIds},
                     {"userGroups", userGroups},
                     {"desiredState", TransferServerStateToString(server.desiredState)},
@@ -183,6 +184,7 @@ namespace Euclid::ETS {
         server.port = port;
         server.bucketName = bucket->name;
         server.bucketErn = bucket->ern;
+        server.homeDirectory = stringField(obj, "homeDirectory");
         server.userIds = stringArray(obj, "userIds");
         server.userGroups = stringArray(obj, "userGroups");
         server.desiredState = TransferServerState::STOPPED;
@@ -192,7 +194,7 @@ namespace Euclid::ETS {
 
         const auto stored = repo->upsertServer(server);
         log_info << "ETS created transfer server, serverId: " << stored.serverId << ", protocol: " << TransferProtocolToString(stored.protocol)
-                << ", port: " << stored.port << ", bucket: " << stored.bucketName;
+                << ", port: " << stored.port << ", bucket: " << stored.bucketName << ", homeDirectory: " << stored.homeDirectory;
 
         return EtsServer::JsonResponse(req, status::ok, boost::json::serialize(toJson(stored)));
     }
@@ -220,6 +222,9 @@ namespace Euclid::ETS {
         // setting without having to resend the whole definition.
         if (obj.contains("address")) server->address = stringField(obj, "address", server->address);
         if (obj.contains("port")) server->port = longField(obj, "port", server->port);
+        // Settable back to empty on purpose: that is how a server is moved back to one shared
+        // key space at the bucket root.
+        if (obj.contains("homeDirectory")) server->homeDirectory = stringField(obj, "homeDirectory", server->homeDirectory);
         if (obj.contains("userIds")) server->userIds = stringArray(obj, "userIds");
         if (obj.contains("userGroups")) server->userGroups = stringArray(obj, "userGroups");
         if (obj.contains("hostKey")) server->hostKey = stringField(obj, "hostKey", server->hostKey);

@@ -297,6 +297,50 @@ namespace Euclid::Database {
             });
         }
 
+        std::optional<Entity::ESM::Bucket> renameBucket(const std::string &ern, const std::string &newName,
+                                                         const std::string &newErn) override {
+            std::lock_guard lock(_mutex);
+            for (auto &bucket: _bucketStore | std::views::values) {
+                if (bucket.ern != ern) continue;
+                bucket.name = newName;
+                bucket.ern = newErn;
+                return bucket;
+            }
+            return std::nullopt;
+        }
+
+        long repointSubscriptions(const std::string &oldSourceErn, const std::string &newSourceErn) override {
+            std::lock_guard lock(_mutex);
+            long repointed = 0;
+            for (auto &subscription: _subscriptionStore | std::views::values) {
+                if (subscription.sourceErn != oldSourceErn) continue;
+                subscription.sourceErn = newSourceErn;
+                ++repointed;
+            }
+            return repointed;
+        }
+
+        long renameBucketObjects(const std::string &oldBucketErn, const std::string &newBucketErn,
+                                  const std::string &oldName, const std::string &newName) override {
+            std::lock_guard lock(_mutex);
+
+            // Only the bucket segment of an object's ERN changes; the key that follows it is the
+            // object's own and is left exactly as it was, spelling and all.
+            const auto oldSegment = ":object:" + oldName + "/";
+            const auto newSegment = ":object:" + newName + "/";
+
+            long renamed = 0;
+            for (auto &object: _objectStore | std::views::values) {
+                if (object.bucketErn != oldBucketErn) continue;
+                object.bucketErn = newBucketErn;
+                if (const auto position = object.ern.find(oldSegment); position != std::string::npos) {
+                    object.ern.replace(position, oldSegment.size(), newSegment);
+                }
+                ++renamed;
+            }
+            return renamed;
+        }
+
         Entity::ESM::Subscription upsertSubscription(Entity::ESM::Subscription &subscription) override {
             std::lock_guard lock(_mutex);
             bool found = false;

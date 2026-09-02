@@ -12,6 +12,7 @@
 // Euclid includes
 #include <TransferAuthenticator.h>
 #include <TransferMetrics.h>
+#include <TransferPaths.h>
 #include <euclid/core/LogStream.h>
 #include <euclid/core/UuidUtils.h>
 
@@ -169,13 +170,14 @@ namespace Euclid::SFTP {
                 if (const auto identity = authenticator.Authenticate(user, password)) {
                     _username = identity->userId;
                     _homeDir = _config.rootDir;
+                    _keyPrefix = Transfer::HomePrefix(_config.transferServer.homeDirectory, identity->userId);
                     _storage.emplace(_config.transferServer.bucketErn, identity->token, _config.transferServer.region, _config.transferServer.accountId,
                                      _config.transferServer.serverId, identity->userId);
                     authenticated = true;
 
                     ssh_message_auth_reply_success(message, 0);
                     log_info << "SFTP login: user=" << _username << ", server=" << _config.transferServer.serverId
-                            << ", bucket=" << _config.transferServer.bucketName;
+                            << ", bucket=" << _config.transferServer.bucketName << ", keyPrefix=" << _keyPrefix;
                 } else {
                     log_warning << "SFTP login failed: user=" << user;
                     ssh_message_auth_set_methods(message, SSH_AUTH_METHOD_PASSWORD);
@@ -851,10 +853,10 @@ namespace Euclid::SFTP {
         return {virtualPath, physical};
     }
 
-    std::string SftpSession::keyOf(const std::string &virtualPath) {
+    std::string SftpSession::keyOf(const std::string &virtualPath) const {
         std::string key = virtualPath;
         while (!key.empty() && key.front() == '/') key.erase(key.begin());
-        return key;
+        return _keyPrefix + key;
     }
 
     std::filesystem::path SftpSession::spoolPathFor(const std::string &key) const {
