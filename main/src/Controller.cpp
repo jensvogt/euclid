@@ -22,6 +22,7 @@
 #include <euclid/core/HttpActionServer.h>
 #include <euclid/core/JwtUtils.h>
 #include <euclid/core/LogStream.h>
+#include <euclid/core/ObjectCipher.h>
 #include <euclid/database/Database.h>
 #include <euclid/database/RepositoryFactory.h>
 #include <euclid/dto/emm/EmmMapper.h>
@@ -491,10 +492,33 @@ namespace Euclid::main {
                 }
             }
             if (!current) {
-                std::filesystem::copy_file(source, target, std::filesystem::copy_options::overwrite_existing, ec);
-                if (ec) {
-                    log_error << "Could not materialize application artifact, applicationId: " << application.applicationId << ", error: " << ec.message();
-                    return std::nullopt;
+                // An artifact stored in a bucket with encryption at rest is on disk as ciphertext,
+                // and what has to end up here is something the runtime can exec() or hand to a JVM.
+                // The object names the key it was written under (empty for one written in the
+                // clear), so this decrypts exactly the artifacts that need it - and the md5Sum
+                // compared above is over the plaintext either way, which is what makes the check
+                // mean the same thing for both.
+                if (object->encryptionKeyErn.empty()) {
+                    std::filesystem::copy_file(source, target, std::filesystem::copy_options::overwrite_existing, ec);
+                    if (ec) {
+                        log_error << "Could not materialize application artifact, applicationId: " << application.applicationId << ", error: " << ec.message();
+                        return std::nullopt;
+                    }
+                } else {
+                    const auto key = Database::RepositoryFactory::instance().ekmRepository()->findKeyByErn(object->encryptionKeyErn);
+                    if (!key.has_value() || key->keyMaterial.empty()) {
+                        log_error << "Application artifact is encrypted under a key that is gone, applicationId: " << application.applicationId
+                                << ", keyErn: " << object->encryptionKeyErn;
+                        return std::nullopt;
+                    }
+                    try {
+                        Core::ObjectCipher::Transcode(Core::CryptoUtils::Base64Decode(key->keyMaterial), source, {}, target);
+                    } catch (const std::exception &e) {
+                        log_error << "Could not decrypt application artifact, applicationId: " << application.applicationId << ", error: " << e.what();
+                        std::error_code partialEc;
+                        std::filesystem::remove(target, partialEc);
+                        return std::nullopt;
+                    }
                 }
                 log_info << "Application artifact materialized, applicationId: " << application.applicationId << ", path: " << target.string()
                         << ", size: " << object->size;

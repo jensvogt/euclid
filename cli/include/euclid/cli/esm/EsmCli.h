@@ -39,6 +39,8 @@
 #include <euclid/dto/esm/DeleteBucketRequest.h>
 #include <euclid/dto/esm/DeleteObjectAttributeRequest.h>
 #include <euclid/dto/esm/DeleteObjectRequest.h>
+#include <euclid/dto/esm/DisableEncryptionRequest.h>
+#include <euclid/dto/esm/EnableEncryptionRequest.h>
 #include <euclid/dto/esm/GetBucketErnRequest.h>
 #include <euclid/dto/esm/GetBucketSizeRequest.h>
 #include <euclid/dto/esm/GetObjectCountRequest.h>
@@ -149,6 +151,25 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int renameBucket(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Turns on encryption at rest for a bucket, under a named or newly created EKM key.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int enableEncryption(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Stops encrypting the objects written to a bucket. Applies to new uploads and puts
+         * only - what is already stored stays encrypted, and its EKM key is left untouched.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int disableEncryption(const std::vector<std::string> &args) const;
 
         /**
          * @brief List buckets

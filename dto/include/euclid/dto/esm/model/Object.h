@@ -53,6 +53,11 @@ namespace Euclid::Dto::ESM {
         std::string md5Sum;
 
         /**
+         * @brief Whether this object's bytes are stored encrypted at rest
+         */
+        bool encrypted{};
+
+        /**
          * @brief User-defined attributes, as a JSON object of typed values
          */
         std::map<std::string, COM::Variant> attributes;
@@ -93,6 +98,7 @@ namespace Euclid::Dto::ESM {
             r.status = Core::GetStringValue(v, "status");
             r.contentType = Core::GetStringValue(v, "contentType");
             r.md5Sum = Core::GetStringValue(v, "md5Sum");
+            r.encrypted = Core::GetBoolValue(v, "encrypted");
             r.attributes = Core::GetMapFromObject<std::string, COM::Variant>(v, "attributes");
             r.created = Core::GetDatetimeValue(v, "created");
             r.modified = Core::GetDatetimeValue(v, "modified");
@@ -108,6 +114,7 @@ namespace Euclid::Dto::ESM {
                     {"status", obj.status},
                     {"contentType", obj.contentType},
                     {"md5Sum", obj.md5Sum},
+                    {"encrypted", obj.encrypted},
                     {"attributes", boost::json::value_from(obj.attributes)},
                     {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},

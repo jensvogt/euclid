@@ -8,6 +8,7 @@ euclid-cli-emm-export \- export one or more modules' MongoDB data to a local JSO
 (\fB\-\-module\fR|\fB\-m\fR \fIMODULE\fR[,\fIMODULE\fR...] | \fB\-\-all\fR)
 [\fB\-\-full\fR]
 [\fB\-\-file\fR|\fB\-f\fR \fIPATH\fR]
+[\fB\-\-passphrase\fR [\fIPHRASE\fR]]
 .SH DESCRIPTION
 Exports one or more modules' own MongoDB collections to a single local
 JSON file - a lightweight backup/inspection tool, not a full
@@ -44,6 +45,26 @@ or the module registry
 additionally includes the bulk child data each resource owns - EQS/ENS
 messages and ESM objects - which is opt-in because it can dwarf the
 container records around it.
+.PP
+An export holds everything those collections hold - access-key secrets
+among it, and for
+.I ekm
+the key material itself - and then lives wherever it was written, on a
+laptop or a backup share, with none of the protection the database it
+came from has.
+.B \-\-passphrase
+seals it: the contents are encrypted with AES-256-GCM under a key derived
+from the passphrase (PBKDF2-HMAC-SHA256, 600000 iterations, a fresh salt
+per archive), and only the envelope - which modules, when, and how to
+derive the key - stays readable. Exporting
+.I ekm
+requires one.
+.PP
+There is no recovery. Nothing keeps a copy of the passphrase, and an
+archive whose passphrase is lost is lost with it - which is why giving
+.B \-\-passphrase
+without a value, and being asked for it twice, is the better way to use
+it.
 .PP
 Each document is rendered using MongoDB's relaxed Extended JSON (ISO
 date strings, plain numbers,
@@ -84,6 +105,16 @@ is the requested module names joined with
 when
 .B \-\-all
 was given).
+.TP
+.B \-\-passphrase " " [\fIPHRASE\fR]
+Encrypt the archive under this passphrase.
+.IP
+Given without a value, the passphrase is asked for on the terminal
+instead - twice, and without echoing - which is what keeps it out of the
+shell's history and out of every
+.BR ps (1)
+listing for as long as the export runs. Reading it from a pipe works too,
+for a script that has it somewhere safer than its own command line.
 .SH OUTPUT
 The written file is a single JSON object:
 .RS
@@ -105,6 +136,20 @@ from every requested module are merged into this one object (their
 names already carry the module prefix, so there's no collision).
 .RE
 .PP
+A sealed archive carries the same
+.IR modules ", " full " and " exportedAt
+in the clear, plus
+.IR encrypted ", " cipher ", " kdf ", " iterations " and " salt
+- everything needed to ask for the right passphrase and derive its key -
+and instead of
+.I collections
+an array of
+.IR frames ,
+each an encrypted export payload. Several modules are exported one frame
+at a time under a shared key, so no single frame has to hold an entire
+installation.
+.RE
+.PP
 On success, a small JSON summary
 .RI ( modules ", " full ", " file )
 is printed to standard output - not the exported data itself, which
@@ -120,7 +165,10 @@ Missing/invalid arguments (including giving both or neither of
 .BR \-\-module " and " \-\-all ),
 an unknown module name, the stored session is missing or not an
 administrator's, the request could not be sent, the server rejected it,
-or the output file could not be opened for writing.
+or the output file could not be opened for writing. A passphrase that was
+asked for and left empty, or whose confirmation did not match, also stops
+here - before anything is exported, since the alternative is a file
+nobody can open.
 .SH EXAMPLES
 Export just the queues known to EQS:
 .PP
@@ -155,8 +203,19 @@ Export every module, including bulk child data:
 euclid-cli --endpoint http://localhost:5566 emm export --all --full
 .fi
 .RE
+.PP
+Seal an export, being asked for the passphrase rather than typing it into
+the command line:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm export \e
+    --all --full --passphrase --file euclid-backup.json
+.fi
+.RE
 .SH SEE ALSO
 .BR euclid-cli-emm (1),
+.BR euclid-cli-emm-import (1),
 .BR euclid-cli-emm-list-modules (1),
 .BR euclid-cli-eam-login (1)
 .SH AUTHOR

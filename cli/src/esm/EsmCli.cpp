@@ -69,6 +69,8 @@ namespace Euclid::CLI {
                                            {"purge-bucket", "Removes all objects from a bucket"},
                                            {"delete-bucket", "Delete a bucket"},
                                            {"rename-bucket", "Give a bucket another name"},
+                                           {"enable-encryption", "Encrypt the objects written to a bucket from now on"},
+                                           {"disable-encryption", "Stop encrypting the objects written to a bucket from now on"},
                                            {"upload-file", "Upload a local file to a bucket"},
                                            {"upload-directory", "Upload every file in a local directory to a bucket"},
                                            {"download-file", "Download an object from a bucket to a local file"},
@@ -99,6 +101,12 @@ namespace Euclid::CLI {
         }
         if (action == "rename-bucket") {
             return renameBucket(args);
+        }
+        if (action == "enable-encryption") {
+            return enableEncryption(args);
+        }
+        if (action == "disable-encryption") {
+            return disableEncryption(args);
         }
         if (action == "list-buckets") {
             return listBuckets(args);
@@ -1573,6 +1581,102 @@ namespace Euclid::CLI {
             const HttpResponse response = client.Post("esm", "rename-bucket", boost::json::value_from(request));
             if (!response.IsSuccess()) {
                 std::cerr << "error: rename-bucket failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EsmCli::enableEncryption(const std::vector<std::string> &args) const {
+        po::options_description desc("enable encryption options");
+        desc.add_options()
+                ("bucket,b", po::value<std::string>()->required(), "ERN of the bucket to encrypt")
+                ("key,k", po::value<std::string>(), "ID or ERN of the EKM key to encrypt under; a key is created if this is left out");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", "enable-encryption", "--bucket <ern> [--key <id>]",
+                                   "Encrypts the objects written to a bucket from now on. This applies to new uploads and puts only. "
+                                   "Each one is encrypted with the bucket's "
+                                   "EKM key before it reaches the disk and decrypted on the way back out, so uploads and downloads "
+                                   "are unchanged - what changes is that the files under the storage directory are no longer the "
+                                   "objects. Without --key a fresh AES-256 key is created for the bucket and belongs to EKM like any "
+                                   "other: \"ekm list-keys\" shows it, and deleting it is what makes the bucket's objects "
+                                   "unrecoverable. "
+                                   "Objects the bucket already holds are left exactly as they are - they stay readable, but they stay "
+                                   "as they were stored, and the answer says how many there are; re-upload or copy them through a new "
+                                   "bucket if they have to be encrypted too. "
+                                   "Enabling it again with another key rotates: new objects go under the new key, existing ones keep "
+                                   "the key they name.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ESM::EnableEncryptionRequest request;
+        request.bucketErn = vm["bucket"].as<std::string>();
+        if (vm.contains("key")) request.keyId = vm["key"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("esm", "enable-encryption", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: enable-encryption failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EsmCli::disableEncryption(const std::vector<std::string> &args) const {
+        po::options_description desc("disable encryption options");
+        desc.add_options()
+                ("bucket,b", po::value<std::string>()->required(), "ERN of the bucket to stop encrypting");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", "disable-encryption", "--bucket <ern>",
+                                   "Stops encrypting the objects written to a bucket. This applies to new uploads and puts only: "
+                                   "from here on they are stored in the clear, and nothing else changes. "
+                                   "Objects already in the bucket are NOT decrypted and NOT rewritten - each one still names the key "
+                                   "it was written under and is still decrypted on the way out, so downloads keep working exactly as "
+                                   "before. The answer says how many objects are still stored encrypted. "
+                                   "The bucket's EKM key is left untouched - not revoked, not scheduled for deletion - because those "
+                                   "objects are under it, and deleting it with \"ekm delete-key\" is what would make them "
+                                   "unrecoverable. Retire it only once nothing in the bucket is encrypted any more.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ESM::DisableEncryptionRequest request;
+        request.bucketErn = vm["bucket"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("esm", "disable-encryption", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: disable-encryption failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);

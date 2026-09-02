@@ -18,11 +18,14 @@
 #include <euclid/core/ErnUtils.h>
 #include <euclid/core/HttpActionServer.h>
 #include <euclid/core/LogStream.h>
+#include <euclid/core/ObjectCipher.h>
 #include <euclid/core/Scheduler.h>
 #include <euclid/core/UuidUtils.h>
 #include <euclid/core/monitoring/MonitoringTimer.h>
 #include <euclid/database/EventBus.h>
 #include <euclid/database/RepositoryFactory.h>
+#include <euclid/database/entity/ekm/Key.h>
+#include <euclid/database/entity/ekm/KeyStatus.h>
 #include <euclid/database/entity/esm/Bucket.h>
 #include <euclid/database/entity/esm/Object.h>
 #include <euclid/database/entity/esm/ObjectStatus.h>
@@ -41,6 +44,10 @@
 #include <euclid/dto/esm/DeleteBucketRequest.h>
 #include <euclid/dto/esm/DeleteObjectAttributeRequest.h>
 #include <euclid/dto/esm/DeleteObjectRequest.h>
+#include <euclid/dto/esm/DisableEncryptionRequest.h>
+#include <euclid/dto/esm/DisableEncryptionResponse.h>
+#include <euclid/dto/esm/EnableEncryptionRequest.h>
+#include <euclid/dto/esm/EnableEncryptionResponse.h>
 #include <euclid/dto/esm/GetBucketErnRequest.h>
 #include <euclid/dto/esm/GetBucketErnResponse.h>
 #include <euclid/dto/esm/GetBucketSizeRequest.h>
