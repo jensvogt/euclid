@@ -1,13 +1,20 @@
 // C++ includes
 #include <atomic>
 #include <cerrno>
+#include <chrono>
 #include <condition_variable>
 #include <csignal>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <mutex>
 #include <optional>
+#include <sstream>
+#include <thread>
 #ifndef _WIN32
+#include <fcntl.h>
+#include <sys/file.h>
 #include <unistd.h>
 #endif
 
@@ -344,6 +351,165 @@ static int initializeDatabase(const Euclid::Core::Configuration &cfg) {
     return 0;
 }
 
+/**
+ * @brief Takes the installation-wide manager lock, held for the life of this process.
+ *
+ * One manager owns one installation: its gateway port, its module sockets, and the child processes
+ * recorded against it. Starting a second one by hand while the service is running ends at the
+ * gateway's bind either way - but killLeftoverInstances() below runs long before that point, and
+ * without this it would read the running manager's instance records as leftovers and kill a healthy
+ * installation's modules on its way to failing itself.
+ *
+ * The lock lives in the data directory, which every installation configures and every manager can
+ * write to, and is released by the kernel when this process ends however it ends - which is exactly
+ * the property needed: a manager that was SIGKILLed leaves no lock behind, and its successor
+ * correctly finds itself alone.
+ *
+ * @param dataDir the configured data directory
+ * @return true if this process now holds the lock, false if another manager holds it
+ */
+static bool takeManagerLock(const std::string &dataDir) {
+#ifndef _WIN32
+    // Deliberately never closed: the lock lasts as long as the process does.
+    static int lockFd = -1;
+
+    std::error_code ec;
+    std::filesystem::create_directories(dataDir, ec);
+
+    // O_CLOEXEC matters more than it looks: a flock belongs to the open file description, so a
+    // module inheriting this descriptor across fork/exec would go on holding the lock after the
+    // manager that took it died - and the next manager would mistake its own orphan for a live
+    // manager and leave it running, which is the exact case this lock exists to allow cleaning up.
+    const std::string lockFile = dataDir + "/euclid-mgr.lock";
+    lockFd = open(lockFile.c_str(), O_CREAT | O_RDWR | O_CLOEXEC, 0644);
+    if (lockFd < 0) {
+        // Not a reason to refuse to start - just a reason not to trust what the records say about
+        // who owns which process.
+        log_warning << "Could not open the manager lock file " << lockFile << ": " << strerror(errno);
+        return false;
+    }
+
+    if (flock(lockFd, LOCK_EX | LOCK_NB) != 0) {
+        return false;
+    }
+    return true;
+#else
+    return true;
+#endif
+}
+
+/**
+ * @brief When the process holding @p pid started, as far as /proc can say.
+ *
+ * Field 22 of /proc/<pid>/stat counts clock ticks from boot to the moment the process started, so
+ * with the boot time from /proc/stat it becomes a wall-clock instant - the one thing that tells a
+ * process apart from a later one that happens to have inherited its pid.
+ *
+ * @param pid the process to ask about
+ * @return the instant the process started, or nothing if /proc cannot answer
+ */
+static std::optional<std::chrono::system_clock::time_point> processStartTime(const int pid) {
+#ifndef _WIN32
+    long bootSeconds = 0;
+    if (std::ifstream stat("/proc/stat"); stat) {
+        for (std::string line; std::getline(stat, line);) {
+            if (line.starts_with("btime ")) {
+                bootSeconds = std::stol(line.substr(6));
+                break;
+            }
+        }
+    }
+    if (bootSeconds == 0) return std::nullopt;
+
+    std::ifstream processStat("/proc/" + std::to_string(pid) + "/stat");
+    if (!processStat) return std::nullopt;
+
+    std::string contents;
+    std::getline(processStat, contents);
+
+    // The second field is the executable name in parentheses and may itself contain spaces, so the
+    // fields are counted from after the last ')' rather than from the start of the line.
+    const auto afterName = contents.rfind(')');
+    if (afterName == std::string::npos) return std::nullopt;
+
+    std::istringstream fields(contents.substr(afterName + 1));
+    std::string field;
+    // Field 3 (state) is the first after the name, so starttime (field 22) is 20 fields further on.
+    for (int i = 0; i < 20; i++) {
+        if (!(fields >> field)) return std::nullopt;
+    }
+
+    const long ticksPerSecond = sysconf(_SC_CLK_TCK);
+    if (ticksPerSecond <= 0) return std::nullopt;
+
+    return std::chrono::system_clock::from_time_t(bootSeconds) + std::chrono::seconds(std::stol(field) / ticksPerSecond);
+#else
+    return std::nullopt;
+#endif
+}
+
+/**
+ * @brief Kills processes this manager started and did not outlive.
+ *
+ * The instance records left in the database name the pids of the previous run's children. An
+ * orderly shutdown stops them and empties the records, so on a normal start there is nothing here
+ * to find; a manager that was SIGKILLed, or whose machine ran out of memory, leaves both the
+ * records and the processes. Those processes keep running, re-parented to init - still bound to
+ * their sockets, still serving requests, and in the case of an application still reading a
+ * credentials file whose only writer is gone, until its token expires and every call it makes
+ * fails with "Bearer token expired".
+ *
+ * A pid alone is not proof: pids are reused, and killing whatever happens to hold one now is far
+ * worse than leaving an orphan - the more so for an application, whose executable is something like
+ * /usr/bin/java that a dozen unrelated processes on the same host may also be running. So a
+ * candidate has to match on two counts, and anything /proc will not answer for (not Linux, not
+ * ours, already gone) is left alone:
+ *
+ * - it is still the executable the record names, and
+ * - it started before the record was last written, which a process that merely inherited the pid
+ *   after the previous manager died cannot have done.
+ */
+static void killLeftoverInstances() {
+#ifndef _WIN32
+    for (const auto modules = Euclid::Database::RepositoryFactory::instance().emmRepository()->findAll(); const auto &module: modules) {
+        for (const auto &instance: module.instances) {
+            if (instance.pid <= 0 || kill(instance.pid, 0) != 0) {
+                continue;
+            }
+
+            std::error_code ec;
+            const auto exe = std::filesystem::read_symlink("/proc/" + std::to_string(instance.pid) + "/exe", ec);
+            // Canonical on both sides: /proc/<pid>/exe is fully resolved, so an installation whose
+            // bin directory is reached through a symlink would otherwise never match.
+            const auto recorded = std::filesystem::weakly_canonical(module.executable, ec);
+            const auto started = processStartTime(instance.pid);
+
+            // The few seconds of slack absorb /proc's one-second resolution on start times: the
+            // record is written just after the process starts, so the two can land in the same
+            // second, and a genuine leftover must not be spared over a rounding difference.
+            const auto startedAfterRecord = started && *started > instance.modified + std::chrono::seconds(5);
+
+            if (ec || exe.empty() || exe != recorded || !started || startedAfterRecord) {
+                // Rare enough to be worth saying out loud: on an orderly shutdown the recorded
+                // pids are -1 and never get here at all.
+                log_info << "Leftover pid belongs to something else now, ignoring, module: " << module.name << ", pid: " << instance.pid;
+                continue;
+            }
+
+            log_warning << "Killing process left over from a previous run, module: " << module.name << ", pid: " << instance.pid;
+
+            kill(instance.pid, SIGTERM);
+            for (int waited = 0; waited < 40 && kill(instance.pid, 0) == 0; waited++) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+            if (kill(instance.pid, 0) == 0) {
+                kill(instance.pid, SIGKILL);
+            }
+        }
+    }
+#endif
+}
+
 // Shared by both the ordinary console path and the Windows Service path (serviceMain below) -
 // the only difference between the two is who calls this and how shutdown gets triggered
 // (console control handler vs. service control handler), both of which just set
@@ -378,8 +544,19 @@ static int RunManager(const CliOptions &opts, [[maybe_unused]] const bool report
     Euclid::Database::WireModuleSocketLookup();
 
     // Module records track this manager's own child processes, so anything left over from a
-    // previous run is stale (those pids/sockets no longer exist) - start from a clean slate.
-    Euclid::Database::RepositoryFactory::instance().emmRepository()->clear();
+    // previous run is stale - but "stale record" is not the same as "dead process": a manager
+    // killed with SIGKILL leaves its children running, re-parented to init, holding their sockets
+    // and (for applications) an ever-staler credentials file nobody refreshes any more. So the
+    // leftovers are killed before the records that name them are dropped.
+    if (takeManagerLock(cfg.getOr<std::string>("euclid.data-dir", "/usr/local/euclid/data"))) {
+        killLeftoverInstances();
+        Euclid::Database::RepositoryFactory::instance().emmRepository()->clear();
+    } else {
+        // A second manager against a running installation: it will not get far - the gateway port
+        // and every module socket are taken - but on its way out it must not disturb the one that
+        // is running, whose processes and records these are.
+        log_warning << "Another manager already owns this installation; leaving its processes and records alone";
+    }
 
     // The manager isn't built on Core::HttpActionServer (each module process is, which is where
     // every other module's MonitoringCollector::Start() call lives), so it has to start its own

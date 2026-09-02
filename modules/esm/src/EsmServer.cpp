@@ -275,7 +275,14 @@ namespace Euclid::ESM {
         const auto saved = Database::RepositoryFactory::instance().esmRepository()->upsertBucket(bucket);
         log_info << "ESM bucket created, ern: " << bucket.ern;
 
-        Database::EventBus::instance().Publish("esm.bucket.modified", boost::json::value{{"ern", saved.ern}, {"name", saved.name}}, "esm");
+        // accountId is what keeps this event inside the account it belongs to: EventBus stores an
+        // event that names no account for every subscriber of every account, so a bucket name
+        // would otherwise be visible across a shared installation.
+        Database::EventBus::instance().Publish(
+                "esm.bucket.modified",
+                boost::json::value{{"ern", saved.ern}, {"name", saved.name},
+                                   {"accountId", saved.accountId}, {"region", saved.region}},
+                "esm");
 
         Dto::ESM::CreateBucketResponse response;
         response.name = saved.name;
@@ -369,9 +376,21 @@ namespace Euclid::ESM {
         const auto request = Dto::ESM::DeleteBucketRequest::fromJson(req.body());
         log_info << "ESM bucket deleted, ern: " << request.ern;
 
-        Database::RepositoryFactory::instance().esmRepository()->deleteBucketByErn(request.ern);
+        // Read before it is gone: the event says which bucket and whose, and after the delete
+        // there is nothing left to say it with - the same reason delete-object looks its object up
+        // first.
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        const auto bucket = repo->findBucketByErn(request.ern);
 
-        Database::EventBus::instance().Publish("esm.bucket.deleted", boost::json::value{{"ern", request.ern}}, "esm");
+        repo->deleteBucketByErn(request.ern);
+
+        Database::EventBus::instance().Publish(
+                "esm.bucket.deleted",
+                boost::json::value{{"ern", request.ern},
+                                   {"name", bucket.has_value() ? bucket->name : std::string()},
+                                   {"accountId", bucket.has_value() ? bucket->accountId : std::string()},
+                                   {"region", bucket.has_value() ? bucket->region : std::string()}},
+                "esm");
 
         return EsmServer::JsonResponse(req, status::ok);
     }
@@ -391,6 +410,96 @@ namespace Euclid::ESM {
     // multipart parts or written in one shot (status here is "COMPLETED" rather than "UPLOADED",
     // since there's no post-processing left to do once this returns - content type/MD5 are already
     // known).
+    // Renaming a bucket is not an edit of one field. A bucket's name is in its ERN, every object
+    // carries that ERN, and every object's own ERN carries the bucket's name as well - so the name
+    // is written in as many places as the bucket has objects, and all of them have to move
+    // together or the bucket stops being findable from its contents.
+    //
+    // What this deliberately does not do is repoint the things outside ESM that name the bucket.
+    // A transfer server points at a bucket ERN, and rewriting another module's definition from
+    // here would leave ETS with a record it never agreed to - so a bucket a transfer server is
+    // serving is refused instead, and the operator moves the server with "ets update-server".
+    response<string_body> EsmServer::handleRenameBucket(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "rename-bucket");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ESM::RenameBucketRequest>(jv);
+        if (request.ern.empty() || request.newName.empty()) {
+            return ErrorResponse(req, status::bad_request, "ern and newName are required");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        const auto bucket = repo->findBucketByErn(request.ern);
+        if (!bucket.has_value()) {
+            return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.ern);
+        }
+        if (bucket->accountId != auth.user->accountId) {
+            return ErrorResponse(req, status::forbidden, "Bucket does not belong to the caller's account");
+        }
+        if (const auto denied = denyUngrantedBucket(req, auth, request.ern)) return *denied;
+
+        if (bucket->name == request.newName) {
+            return ErrorResponse(req, status::bad_request, "The bucket already has that name");
+        }
+        // Refused rather than merged: two buckets cannot share a name, and an operator who meant
+        // to move objects between them has copy-object and move-object for that.
+        if (repo->findBucketByName(request.newName).has_value()) {
+            return ErrorResponse(req, status::conflict, "Bucket already exists, name: " + request.newName);
+        }
+
+        // A transfer server names the bucket it serves, and its clients are mid-session; changing
+        // the bucket underneath it would leave uploads going to an ERN that no longer exists.
+        for (const auto servers = Database::RepositoryFactory::instance().etsRepository()->listServers("");
+             const auto &server: servers) {
+            if (server.bucketErn == request.ern) {
+                return ErrorResponse(req, status::conflict,
+                                      "Bucket is served by transfer server '" + server.serverId
+                                              + "'; stop it or point it at another bucket first");
+            }
+        }
+
+        const auto oldErn = bucket->ern;
+        const auto oldName = bucket->name;
+        const auto newErn = Core::createEsmBucketErn(bucket->accountId, bucket->nameSpace, request.newName);
+
+        // The bucket first: if anything below fails, the objects still point at a bucket that
+        // exists under its new ERN, which is recoverable by running the rename again. The reverse
+        // order would leave objects pointing at an ERN nothing answers to.
+        const auto stored = repo->renameBucket(oldErn, request.newName, newErn);
+        if (!stored.has_value()) {
+            return ErrorResponse(req, status::internal_server_error, "Could not rename bucket, ern: " + oldErn);
+        }
+
+        const auto objects = repo->renameBucketObjects(oldErn, newErn, oldName, request.newName);
+
+        // Subscriptions name the bucket they watch, and a subscription left on the old ERN would
+        // simply stop delivering - silently, since nothing publishes under that ERN any more.
+        const auto subscriptions = repo->repointSubscriptions(oldErn, newErn);
+
+        log_info << "ESM bucket renamed, from: " << oldName << ", to: " << request.newName
+                << ", objects: " << objects << ", subscriptions: " << subscriptions;
+
+        Database::EventBus::instance().Publish(
+                "esm.bucket.modified",
+                boost::json::value{{"ern", stored->ern}, {"name", stored->name}, {"previousErn", oldErn},
+                                   {"previousName", oldName}, {"accountId", stored->accountId}, {"region", stored->region}},
+                "esm");
+
+        Dto::ESM::RenameBucketResponse response;
+        response.name = stored->name;
+        response.ern = stored->ern;
+        response.objects = objects;
+        response.subscriptions = subscriptions;
+
+        return JsonResponse(req, status::ok, response.toJson());
+    }
+
     response<string_body> EsmServer::handlePutObject(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "put-object");
@@ -1822,6 +1931,7 @@ namespace Euclid::ESM {
             Unknown,
             CreateBucket,
             DeleteBucket,
+            RenameBucket,
             ListBuckets,
             GetBucketErn,
             GetBucketSize,
@@ -1873,6 +1983,7 @@ namespace Euclid::ESM {
         if (action == "copy-object") return Command::CopyObject;
         if (action == "move-object") return Command::MoveObject;
         if (action == "rename-object") return Command::RenameObject;
+        if (action == "rename-bucket") return Command::RenameBucket;
         if (action == "add-object-attribute") return Command::AddObjectAttribute;
         if (action == "set-object-attribute") return Command::SetObjectAttribute;
         if (action == "list-object-attributes") return Command::ListObjectAttributes;
@@ -1958,6 +2069,9 @@ namespace Euclid::ESM {
 
             case Command::MoveObject:
                 return handleMoveObject(req);
+
+            case Command::RenameBucket:
+                return handleRenameBucket(req);
 
             case Command::RenameObject:
                 return handleRenameObject(req);

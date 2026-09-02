@@ -93,6 +93,23 @@ namespace Euclid::Database::Entity::ETS {
         std::string bucketName;
 
         /**
+         * @brief Key prefix template each client's session is rooted at, or empty for the bucket
+         * root.
+         *
+         * @par
+         * Expanded per session by Transfer::HomePrefix, with {user} standing for the EAM user ID
+         * that logged in: "{user}" gives every client its own corner of the bucket, the way an
+         * FTP server's per-user home directory always has, while empty - the default, and what
+         * every server defined before this existed has - leaves all of them sharing one flat key
+         * space at the root.
+         *
+         * @par
+         * A template rather than a per-user mapping because a server admits users by group as
+         * well as by name: a map could not name a user who has not logged in yet.
+         */
+        std::string homeDirectory;
+
+        /**
          * @brief EAM user IDs allowed to log in, in addition to any member of userGroups.
          */
         std::vector<std::string> userIds;

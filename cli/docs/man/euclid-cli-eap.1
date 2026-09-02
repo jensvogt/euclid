@@ -16,23 +16,42 @@ programs Euclid runs, scales and routes requests to - and to start and
 stop them.
 .PP
 An application can be written in any language. Euclid starts it, restarts
-it if it dies, scales it between a minimum and maximum instance count,
-and forwards requests addressed to it through the gateway. It links no
-Euclid library and needs no Euclid header: all it has to do is listen on
-the Unix socket named in its
+it if it dies, and scales it between a minimum and maximum instance
+count. It links no Euclid library and needs no Euclid header, and it is
+required to do nothing at all: an instance counts as started once it is
+still running a moment after it was spawned, so a program that just does
+its own work - consuming a queue, watching a bucket - is a valid
+application. One that wants requests routed to it through the gateway can
+listen on the Unix socket named in its
 .I EUCLID_SOCKET
 environment variable and answer
 .I x-euclid-action
-requests on it, exactly as a Euclid module does. Creating that socket is
-also how it reports that it started.
+requests there, exactly as a Euclid module does, but that is an option
+rather than a contract.
 .PP
 The artifact is an object in an
 .BR euclid-cli-esm (1)
 bucket rather than a path on a host, so deploying is an ordinary upload -
 through the CLI, an SDK, or an FTP/SFTP transfer server. The manager
-copies it to the host on first start, which is what lets a fresh host
-bring an application up from nothing but the database and the object
-store.
+copies it to the host when it starts an application, comparing what is
+already there against the object's checksum, which is what lets a fresh
+host bring an application up from nothing but the database and the object
+store. Deploying a new build is therefore an upload followed by a stamp
+on the definition, which
+.BR euclid-cli-eap-redeploy-application (1)
+does in one command.
+.PP
+Every application records which build it is running: a
+.I version
+- given at creation or read out of the artifact's own name - and the
+artifact's
+.IR "MD5" .
+Both appear in
+.BR euclid-cli-eap-get-application (1),
+the version is handed to the process in
+.IR EUCLID_APPLICATION_VERSION ,
+and a redeploy that changes neither is refused, since a deployment that
+cannot be told from the one before it is not one.
 .PP
 .B eap
 itself never runs anything. It owns the application
@@ -131,6 +150,12 @@ is created stopped. See
 Changes an existing application's definition; only the options given are
 altered. See
 .BR euclid-cli-eap-update-application (1).
+.TP
+.B redeploy-application
+Deploys a new build from a local file: uploads it where the application's
+artifact lives and restarts the application onto it, refusing anything
+that is not a new build. See
+.BR euclid-cli-eap-redeploy-application (1).
 .TP
 .B list-applications
 Lists the defined applications with their desired state and how many
@@ -256,6 +281,7 @@ euclid-cli eap update-application --application-id inbox --artifact inbox.jar
 .BR euclid-cli-ets (1),
 .BR euclid-cli-eap-create-application (1),
 .BR euclid-cli-eap-update-application (1),
+.BR euclid-cli-eap-redeploy-application (1),
 .BR euclid-cli-eap-list-applications (1),
 .BR euclid-cli-eap-get-application (1),
 .BR euclid-cli-eap-delete-application (1),
