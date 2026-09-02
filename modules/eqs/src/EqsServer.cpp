@@ -25,6 +25,13 @@ namespace Euclid::EQS {
         constexpr auto kServiceTimer = "eqs-service-time";
         constexpr auto kServiceCounter = "eqs-service-count";
 
+        // How many worker threads may sit in a receive-messages wait at once, always leaving one
+        // over. receiveMessages() holds its thread for the whole waitTime, so without this cap
+        // enough waiting consumers leave nothing to answer a send, a delete or a create - and
+        // those do not fail, they queue behind the waits and are served once one ends, often just
+        // after the caller gave up on them. See Core::LongPollSlots.
+        Core::LongPollSlots longPollSlots;
+
         // Message and byte volume per queue, named after the actions that move them: "sent" is
         // what went into a queue, "received" is what a consumer took back out. One queue is one
         // label, so a deployment's traffic can be read per queue rather than only in total.
@@ -319,7 +326,13 @@ namespace Euclid::EQS {
         if (const auto denied = denyUngrantedQueue(req, auth, request.queueErn)) return *denied;
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
-        std::vector<Database::Entity::EQS::Message> messages = repo->receiveMessages(request.queueErn, request.maxCount, request.waitTime);
+
+        // Without a slot the wait is skipped rather than queued: the queue is checked once and
+        // whatever is in it comes back, which is what a long poll returns anyway when the queue
+        // stays empty. The consumer asks again; a producer gets a thread meanwhile.
+        const auto slot = longPollSlots.acquire();
+        std::vector<Database::Entity::EQS::Message> messages =
+                repo->receiveMessages(request.queueErn, request.maxCount, slot.held() ? request.waitTime : 0);
 
         // Counted per message handed out, so a message received twice (its visibility timeout ran
         // out before it was deleted) counts twice - that redelivery is real traffic, and the gap
@@ -886,6 +899,8 @@ namespace Euclid::EQS {
     // ── EqsServer ────────────────────────────────────────────────────────────
 
     EqsServer::EqsServer(std::string socketPath, const int threads) : HttpActionServer("EQS", std::move(socketPath), threads) {
+        longPollSlots.limit(threads - 1);
+
         auto &scheduler = Core::Scheduler::instance();
         scheduler.Start();
         _resetMessagesTaskId = scheduler.SchedulePeriodic("queues-reset-expired-messages", [] {

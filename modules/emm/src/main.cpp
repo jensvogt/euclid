@@ -7,6 +7,7 @@
 
 // Euclid includes
 #include <euclid/core/Configuration.h>
+#include <euclid/core/HttpActionServer.h>
 #include <euclid/core/LogStream.h>
 #include <euclid/core/Version.h>
 #include <euclid/core/monitoring/MetricsPusher.h>
@@ -132,7 +133,8 @@ int main(const int argc, char *argv[]) {
 
     Euclid::Core::Monitoring::MetricsPusher metricsPusher("emm");
     try {
-        Euclid::EMM::EmmServer server(cliOpts->socketPath);
+        Euclid::EMM::EmmServer server(cliOpts->socketPath,
+                                   Euclid::Core::HttpActionServer::ConfiguredWorkerThreads("emm", 2));
         return server.RunUntilSignal();
     } catch (const std::exception &e) {
         log_error << "Failed to start EMM service: " << e.what();

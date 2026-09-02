@@ -45,8 +45,11 @@ upload. Optional; without it a key is created for the bucket.
 .SH THE KEY
 Without
 .BR \-\-key ,
-a fresh AES\-256 key is created and the bucket is pointed at it. It is
-an ordinary EKM key from that moment on:
+a fresh AES\-256 key is created and the bucket is pointed at it, with a
+description naming the bucket so it is not an anonymous ID in
+.BR euclid-cli-ekm-list-keys (1)
+holding somebody's objects. It is an ordinary EKM key from that moment
+on:
 .BR euclid-cli-ekm (1)
 lists it, tags it, revokes it and schedules it for deletion like any
 other, and it is published as

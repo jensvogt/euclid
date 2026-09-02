@@ -312,6 +312,23 @@ namespace Euclid::Database {
         [[nodiscard]]
         static constexpr std::string_view kExternalPrefixValue() { return "client:"; }
 
+        /**
+         * @brief Does now the setup the first Subscribe/Publish would otherwise do.
+         *
+         * @par
+         * The indexes are ensured lazily, on whichever call happens to be first. That call is a
+         * client's, and it pays for the setup - which is the wrong moment when the client is an
+         * application that has just started and is holding a request timeout open. Called once at
+         * process start, this moves that cost to where nobody is waiting on it, and makes a
+         * module's socket appearing mean rather more than it did.
+         *
+         * @par
+         * Idempotent and cheap after the first call in a process (a std::call_once), and it
+         * swallows a database that is not there - a module whose indexes could not be ensured
+         * still starts, exactly as it did when the first request found out instead.
+         */
+        void Warm() { ensureIndexes(); }
+
     private:
 
         EventBus() = default;

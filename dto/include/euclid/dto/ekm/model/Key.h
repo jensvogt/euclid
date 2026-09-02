@@ -24,6 +24,11 @@ namespace Euclid::Dto::EKM {
         std::string ern;
 
         /**
+         * @brief What the key is for, as given when it was created; empty if none was
+         */
+        std::string description;
+
+        /**
          * @brief Key algorithm
          */
         std::string algorithm;
@@ -81,7 +86,11 @@ namespace Euclid::Dto::EKM {
             Key r;
             r.ern = Core::GetStringValue(v, "ern");
             r.name = Core::GetStringValue(v, "name");
+            r.description = Core::GetStringValue(v, "description");
             r.algorithm = Core::GetStringValue(v, "algorithm");
+            // Written by the serializer below but never read back until now, so a Key that went
+            // through JSON came out with a length of zero.
+            r.length = Core::GetLongValue(v, "length");
             r.tags = Core::GetMapFromObject<std::string, std::string>(v, "tags");
             r.status = Core::GetStringValue(v, "status");
             r.created = Core::GetDatetimeValue(v, "created");
@@ -94,6 +103,7 @@ namespace Euclid::Dto::EKM {
             jv = {
                     {"ern", obj.ern},
                     {"name", obj.name},
+                    {"description", obj.description},
                     {"algorithm", obj.algorithm},
                     {"length", obj.length},
                     {"status", obj.status},

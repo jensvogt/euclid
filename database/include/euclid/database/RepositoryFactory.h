@@ -11,6 +11,7 @@
 // Euclid includes
 #include <euclid/core/HttpActionServer.h>
 #include <euclid/core/monitoring/MetricsPusher.h>
+#include <euclid/database/EventBus.h>
 #include <euclid/database/repository/eam/IEamRepository.h>
 #include <euclid/database/repository/eam/MemoryEamRepository.h>
 #include <euclid/database/repository/eam/MongoEamRepository.h>
@@ -52,6 +53,42 @@ namespace Euclid::Database {
 
         void initialize(const BackendType type) {
             _backend = type;
+            warmUp();
+        }
+
+        /**
+         * @brief Constructs every repository now, rather than on whichever request needs one first.
+         *
+         * @par
+         * A repository is built on first use and ensures its indexes as it is built. That makes
+         * the first request to a freshly started module pay for the setup of every module it
+         * touches - and that request belongs to a client, which is holding a timeout open while
+         * it happens. It is how a module can have a socket, be routed to, and still not answer
+         * within ten seconds.
+         *
+         * @par
+         * Doing it here moves the cost to process startup, where the manager is already waiting
+         * and nobody else is. Ensuring an index that exists is a single cheap command, so this is
+         * a few dozen round trips once, and only for the MongoDB backend - the in-memory one has
+         * nothing to set up. Failures are swallowed by the repositories themselves, so a module
+         * whose database is not there still starts, exactly as before.
+         */
+        void warmUp() const {
+            if (_backend != BackendType::MONGODB) return;
+
+            std::ignore = emmRepository();
+            std::ignore = eqsRepository();
+            std::ignore = ensRepository();
+            std::ignore = eamRepository();
+            std::ignore = emoRepository();
+            std::ignore = esmRepository();
+            std::ignore = ekmRepository();
+            std::ignore = etsRepository();
+            std::ignore = eapRepository();
+
+            // The event bus sets its indexes up the same way, on the first Subscribe or Publish -
+            // which for EES is the subscribe-events call of whichever client got there first.
+            EventBus::instance().Warm();
         }
 
         [[nodiscard]]

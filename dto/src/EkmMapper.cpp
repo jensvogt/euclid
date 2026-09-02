@@ -6,6 +6,7 @@ namespace Euclid::Dto::EKM {
         Key dto;
         dto.ern = entity.ern;
         dto.name = entity.name;
+        dto.description = entity.description;
         dto.algorithm = entity.algorithm;
         dto.length = entity.length;
         dto.tags = entity.tags;
@@ -32,6 +33,7 @@ namespace Euclid::Dto::EKM {
         Database::Entity::EKM::Key entity;
         entity.ern = dto.ern;
         entity.name = dto.name;
+        entity.description = dto.description;
         entity.algorithm = dto.algorithm;
         entity.length = dto.length;
         entity.tags = dto.tags;

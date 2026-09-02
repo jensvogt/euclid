@@ -89,6 +89,34 @@ target_link_libraries(${WS_FRAME_BINARY} PRIVATE euclidcore Boost::unit_test_fra
 
 add_test(NAME ${WS_FRAME_BINARY} COMMAND ${WS_FRAME_BINARY})
 
+set(WORKER_THREADS_BINARY euclid-worker-threads-config-tests)
+
+add_executable(${WORKER_THREADS_BINARY} WorkerThreadsConfigTest.cpp)
+set_target_properties(${WORKER_THREADS_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${WORKER_THREADS_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${WORKER_THREADS_BINARY} COMMAND ${WORKER_THREADS_BINARY})
+
+set(LONG_POLL_BINARY euclid-long-poll-slots-tests)
+
+add_executable(${LONG_POLL_BINARY} LongPollSlotsTest.cpp)
+set_target_properties(${LONG_POLL_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${LONG_POLL_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${LONG_POLL_BINARY} COMMAND ${LONG_POLL_BINARY})
+
+set(START_ORDER_BINARY euclid-module-start-order-tests)
+
+add_executable(${START_ORDER_BINARY} ModuleStartOrderTest.cpp)
+set_target_properties(${START_ORDER_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${START_ORDER_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/main/include)
+target_link_libraries(${START_ORDER_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${START_ORDER_BINARY} COMMAND ${START_ORDER_BINARY})
+
 set(OBJECT_CIPHER_BINARY euclid-object-cipher-tests)
 
 add_executable(${OBJECT_CIPHER_BINARY} ObjectCipherTest.cpp)

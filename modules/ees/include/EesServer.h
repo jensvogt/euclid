@@ -9,6 +9,7 @@
 
 // Euclid includes
 #include <euclid/core/HttpActionServer.h>
+#include <euclid/core/LongPollSlots.h>
 #include <euclid/core/LogStream.h>
 #include <euclid/database/EventBus.h>
 #include <euclid/database/RepositoryFactory.h>
@@ -50,7 +51,18 @@ namespace Euclid::EES {
          * @param socketPath Unix domain socket path to listen on.
          * @param threads    number of io_context worker threads.
          */
-        explicit EesServer(std::string socketPath, int threads = 2);
+        /**
+         * @brief Constructs the server.
+         *
+         * @param socketPath Unix domain socket path to listen on.
+         * @param threads number of io_context worker threads. Higher than the other modules
+         * because this one's busiest action deliberately does nothing for up to twenty seconds
+         * while it waits, holding a thread throughout: two threads means two waiting clients are
+         * all it takes for everything else to queue. Core::LongPollSlots keeps one of these free
+         * for requests that are not waiting, so this figure is how many may wait at once, plus
+         * one.
+         */
+        explicit EesServer(std::string socketPath, int threads = 8);
 
     protected:
 

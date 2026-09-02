@@ -28,6 +28,7 @@
 #include <euclid/dto/emm/EmmMapper.h>
 #include <euclid/manager/Controller.h>
 #include <euclid/manager/ControllerPlatform.h>
+#include <euclid/manager/StartOrder.h>
 
 // ControllerPlatform.h pulls in <sys/wait.h>/<csignal>/<unistd.h>/ on POSIX, and
 // <windows.h>/<process.h>/<io.h> on Windows - so the rest of this file only needs to
@@ -732,6 +733,22 @@ namespace Euclid::main {
                 }
             }
 
+            // An application is a client of the whole installation: it does not declare which
+            // modules it calls, and the first thing many of them do is call one - a
+            // @BucketListener subscribing to EES, say. Starting one while the modules are still
+            // coming up means its first call meets a gateway that answers 503, or a module whose
+            // socket exists but which is still opening its database connection - and a client
+            // that treats that as "the server does not do this" degrades itself for the rest of
+            // its life rather than retrying.
+            //
+            // So applications wait for the installation, and only then start. The wait is bounded
+            // by the reconcile tick that runs this: a module that never comes up is reported by
+            // its own supervision, and this simply keeps saying what it is waiting for.
+            if (wantRunning && !registered && !modulesRunning()) {
+                log_info << "Application waiting for the modules to come up, applicationId: " << application.applicationId;
+                continue;
+            }
+
             if (wantRunning && !registered) {
 
                 const auto artifact = materializeArtifact(application);
@@ -849,12 +866,67 @@ namespace Euclid::main {
         return start(name);
     }
 
-    void ServiceController::startAll() {
-        std::vector<std::string> names;
+    std::vector<std::string> ServiceController::startOrder() const {
+
+        // Snapshot of what depends on what, taken under the lock so the sort below can work
+        // without holding it.
+        std::map<std::string, std::vector<std::string> > dependencies;
         {
             std::lock_guard lock(_mutex);
-            for (const auto &name: _services | std::views::keys) names.push_back(name);
+            for (const auto &[name, group]: _services) dependencies[name] = group.config.dependencies;
         }
+        return topologicalStartOrder(dependencies);
+    }
+
+
+    bool ServiceController::modulesRunning() const {
+        std::lock_guard lock(_mutex);
+        for (const auto &group: _services | std::views::values) {
+            if (!group.config.core) continue;
+            if (std::ranges::none_of(group.instances, [](const auto &svc) {
+                    return svc->state == Database::Entity::ModuleState::RUNNING;
+                })) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool ServiceController::dependenciesRunning(const Dto::ModuleConfig &config) const {
+        if (config.dependencies.empty()) return true;
+
+        std::lock_guard lock(_mutex);
+        for (const auto &dependency: config.dependencies) {
+            const auto group = _services.find(dependency);
+            // Not registered at all: inactive or misspelled. Treated as satisfied rather than
+            // blocking forever - startOrder() has already said so in the log, and a typo should
+            // not be able to stop an application from ever starting.
+            if (group == _services.end()) continue;
+
+            if (std::ranges::none_of(group->second.instances, [](const auto &svc) {
+                    return svc->state == Database::Entity::ModuleState::RUNNING;
+                })) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    void ServiceController::startAll() {
+        const auto names = startOrder();
+
+        std::string order;
+        for (const auto &name: names) {
+            if (!order.empty()) order += " -> ";
+            order += name;
+        }
+        log_info << "Starting modules in dependency order: " << order;
+
+        // start() blocks until the instance is ready (or gives up on it), so by the time this
+        // returns for one module, everything it depends on is already answering - which is the
+        // whole point of the ordering. What it does not guarantee is that a dependency has
+        // finished whatever it does lazily on its first request; a module that must not be called
+        // before it is truly warm should do that work before it creates its socket.
         for (const auto &name: names) start(name);
     }
 

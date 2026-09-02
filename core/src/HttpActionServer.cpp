@@ -165,6 +165,22 @@ namespace Euclid::Core {
         }
     }// namespace
 
+    int HttpActionServer::ConfiguredWorkerThreads(const std::string &module, const int fallback) {
+
+        const auto configured = Configuration::instance().getOr<long>("euclid.modules." + module + ".threads", fallback);
+
+        // Clamped rather than trusted. One is the floor because a module with no thread answers
+        // nothing; the ceiling is there because this is a typo away from a number of OS threads
+        // that will not be created - and a module that fails to start is a worse answer to a
+        // misconfigured thread count than one that runs with a sane one and says so.
+        constexpr long kMaxWorkerThreads = 256;
+        const auto threads = std::clamp(configured, 1L, kMaxWorkerThreads);
+        if (threads != configured) {
+            log_warning << "Module " << module << " asked for " << configured << " worker threads, using " << threads;
+        }
+        return static_cast<int>(threads);
+    }
+
     HttpActionServer::HttpActionServer(const std::string &serviceName, std::string socketPath, const int threads) : UnixSocketServer(serviceName, std::move(socketPath), threads) {
         Monitoring::MonitoringCollector::instance().Start();
 

@@ -167,6 +167,49 @@ namespace Euclid::main {
         bool restart(const std::string &name);
 
         /**
+         * @brief The order registered modules should be started in, dependencies first.
+         *
+         * @par
+         * A topological sort of ModuleConfig::dependencies. Modules that depend on nothing keep
+         * the order they are held in (alphabetical), so an installation that declares no
+         * dependencies behaves exactly as it did before. A dependency naming a module that is not
+         * registered - inactive, misspelled - is reported and ignored rather than waited for, and
+         * a cycle is reported rather than followed.
+         *
+         * @return every registered module's name, each after everything it depends on.
+         */
+        [[nodiscard]]
+        std::vector<std::string> startOrder() const;
+
+
+        /**
+         * @brief Whether every module this configuration depends on has a running instance.
+         *
+         * @par
+         * "Running" means the gateway would route to it. Used to hold an application back until
+         * the installation it is about to call is actually there - see reconcileApplications().
+         *
+         * @param config the module or application configuration to check
+         * @return true if every named dependency has at least one RUNNING instance.
+         */
+        [[nodiscard]]
+        bool dependenciesRunning(const Dto::ModuleConfig &config) const;
+
+        /**
+         * @brief Whether every module the installation is made of has a running instance.
+         *
+         * @par
+         * Only ModuleConfig::core services count - the modules from euclid.json, not the transfer
+         * servers and applications the manager spawns from the database. This is what an
+         * application waits for before it is started, since it does not say which modules it
+         * calls and may call any of them the moment it comes up.
+         *
+         * @return true if every core module has at least one RUNNING instance.
+         */
+        [[nodiscard]]
+        bool modulesRunning() const;
+
+        /**
          * @brief Initiates the startup process for all registered services.
          */
         void startAll();
