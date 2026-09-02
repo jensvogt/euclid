@@ -1,0 +1,146 @@
+.TH EUCLID-CLI-ESM-ENABLE-ENCRYPTION 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-enable-encryption \- encrypt the objects written to a bucket
+.SH SYNOPSIS
+.B euclid-cli esm enable-encryption
+.BR \-\-bucket | \-b
+.I ERN
+[\fB\-\-key\fR|\fB\-k\fR \fIID\fR]
+.SH DESCRIPTION
+Turns on encryption at rest for a bucket.
+.PP
+This applies to
+.B new uploads and puts only.
+From this call onwards, every object written to the bucket is encrypted
+with the bucket's EKM key before it reaches the disk, and decrypted on
+the way back out. Nothing about using the bucket changes: uploads,
+downloads, copies and the checksums and content types reported for
+objects all describe the object, not its ciphertext, and a client cannot
+tell an encrypted bucket from any other. What changes is what is on the
+disk \- the files under the storage directory are no longer the objects,
+so a stolen disk, a backup or a filesystem-level copy yields nothing
+without the key.
+.PP
+Objects the bucket
+.B already
+holds are not touched. They are on disk as they were stored, and they
+stay readable, because every object records the key it was written
+under rather than being read through whatever the bucket says today. The
+answer reports how many such objects there are, which is the number to
+act on if the point of enabling encryption was that nothing in the
+bucket should be readable off the disk \- copy them through a new bucket
+with
+.BR euclid-cli-esm-copy-object (1),
+or upload them again.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-bucket " " \fIERN\fR
+Euclid resource name of the bucket. Required.
+.TP
+.BR \-k ", " \-\-key " " \fIID\fR
+ID or ERN of the EKM key to encrypt under. It must exist, belong to the
+caller's account and still be usable for encryption \- a revoked key or
+one scheduled for deletion is refused here rather than at the first
+upload. Optional; without it a key is created for the bucket.
+.SH THE KEY
+Without
+.BR \-\-key ,
+a fresh AES\-256 key is created and the bucket is pointed at it. It is
+an ordinary EKM key from that moment on:
+.BR euclid-cli-ekm (1)
+lists it, tags it, revokes it and schedules it for deletion like any
+other, and it is published as
+.I ekm.key.created
+the same way.
+.PP
+Which means the key is now the bucket's contents. Deleting it with
+.BR euclid-cli-ekm-delete-key (1)
+makes every object encrypted under it unrecoverable once the pending
+window expires \- that window exists precisely so the data can be
+migrated first. Revoking it stops the bucket accepting new objects
+while leaving everything already in it readable.
+.SH ROTATING
+Running this again with another
+.B \-\-key
+rotates the bucket: objects written from then on go under the new key,
+and the ones already there keep naming the key they were written under,
+so both remain readable. Nothing is re-encrypted, and no object becomes
+unreadable by rotating \- but the old key is still holding the old
+objects, so it is not the moment to delete it.
+.SH WHAT IS REFUSED
+.TP
+.B A key that cannot encrypt
+A key that does not exist, belongs to another account, carries no key
+material, or is revoked or pending deletion. Pointing a bucket at one
+would leave a bucket that refuses every upload.
+.TP
+.B A bucket of another account
+Buckets are named by ERN, and an ERN from another account is refused
+rather than resolved.
+.PP
+Once encryption is on, an upload into the bucket is refused if the key
+has since become unusable, rather than falling back to storing the
+object in the clear: a bucket whose objects are encrypted apart from the
+ones written while nobody was looking is the outcome this exists to
+prevent.
+.SH EVENTS
+Publishes
+.I esm.bucket.modified
+carrying the bucket, the key it is now under and the key it was under
+before, and \- when a key was created here \-
+.I ekm.key.created
+for that key. See
+.BR euclid-cli-ees (1).
+.SH EXIT STATUS
+.TP
+.B 0
+Encryption is on. The bucket, the key, whether the key was created by
+this call and the number of objects the bucket already held are printed
+as JSON.
+.TP
+.B 1
+Missing or invalid arguments, no session, the bucket does not exist or
+belongs to another account, or the named key does not exist or cannot be
+used for encryption.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli esm enable-encryption \e
+    --bucket ern:esm:eu-central-1:000000000000:development:bucket:reports
+.fi
+.RE
+.PP
+prints
+.PP
+.RS
+.nf
+{"ern":"ern:esm:eu-central-1:000000000000:development:bucket:reports",
+ "name":"reports",
+ "keyErn":"ern:ekm:eu-central-1:000000000000:key:9f2c...",
+ "keyId":"9f2c...","algorithm":"AES-256",
+ "keyCreated":true,"existingObjects":2}
+.fi
+.RE
+.PP
+Under a key that already exists:
+.PP
+.RS
+.nf
+euclid-cli esm enable-encryption \e
+    --bucket ern:esm:eu-central-1:000000000000:development:bucket:reports \e
+    --key 9f2c1e40-3b7a-4c19-9a58-1d2e3f4a5b6c
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-disable-encryption (1),
+.BR euclid-cli-esm-create-bucket (1),
+.BR euclid-cli-esm-list-buckets (1),
+.BR euclid-cli-esm-copy-object (1),
+.BR euclid-cli-ekm (1),
+.BR euclid-cli-ekm-create-key (1),
+.BR euclid-cli-ekm-revoke-key (1),
+.BR euclid-cli-ekm-delete-key (1),
+.BR euclid-cli-ees (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

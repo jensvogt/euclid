@@ -373,6 +373,26 @@ namespace Euclid::Database {
         return -1;
     }
 
+    long MongoEsmRepository::countEncryptedObjects(const std::string &bucketErn) const {
+
+        try {
+            // Objects written before encryption at rest existed carry no "encryptionKeyErn" field
+            // at all, so "not encrypted" has to mean missing or empty rather than empty alone -
+            // $nin covers both without a second pass.
+            const auto filter = make_document(
+                    kvp("bucketErn", bucketErn),
+                    kvp("encryptionKeyErn", make_document(kvp("$nin", make_array("", bsoncxx::types::b_null{})))));
+
+            const auto entry = Database::instance().client();
+            auto objectCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
+
+            return objectCollection.count_documents(filter.view());
+        } catch (const std::exception &e) {
+            log_error << "Count encrypted objects failed, ern: " << bucketErn << ", error: " << e.what();
+        }
+        return -1;
+    }
+
     std::vector<Entity::ESM::Object> MongoEsmRepository::listObjects(const std::string &bucketErn, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection, const bool includeDirectories) const {
 
         try {

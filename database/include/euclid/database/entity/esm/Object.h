@@ -65,7 +65,21 @@ namespace Euclid::Database::Entity::ESM {
         std::string ern;
 
         /**
-         * @brief Object size in bytes
+         * @brief ERN of the EKM key this object's bytes are encrypted under, or empty if they are
+         * stored in the clear.
+         *
+         * @par
+         * Recorded per object rather than read off the bucket at download time, because the bucket
+         * answers a different question: it says what happens to the next object written, while
+         * this says what actually happened to this one. They differ for every object a bucket held
+         * before encryption was enabled on it, and for every object still under a previous key -
+         * all of which stay readable precisely because each one names its own key.
+         */
+        std::string encryptionKeyErn;
+
+        /**
+         * @brief Object size in bytes - the size of what a client stored, so for an encrypted
+         * object the plaintext length rather than the size of the file on disk.
          */
         long size = 0;
 

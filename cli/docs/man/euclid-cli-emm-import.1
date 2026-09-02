@@ -8,6 +8,7 @@ euclid-cli-emm-import \- import a JSON file written by "emm export" back into Mo
 .BR \-\-file | \-f
 .I PATH
 [\fB\-\-module\fR|\fB\-m\fR \fIMODULE\fR[,\fIMODULE\fR...]]
+[\fB\-\-passphrase\fR [\fIPHRASE\fR]]
 .SH DESCRIPTION
 Imports a JSON file previously written by
 .BR euclid-cli-emm-export (1)
@@ -57,7 +58,23 @@ Required.
 .BR \-m ", " \-\-module " " \fIMODULE\fR[,\fIMODULE\fR...]
 Comma-separated subset of the file's modules to import, e.g.
 .IR esm,eqs .
-Optional; when omitted, every collection in the file is imported.
+Optional; when omitted, every collection in the file is imported. Applies
+to a sealed archive as well, which is filtered after it is opened.
+.TP
+.B \-\-passphrase " " [\fIPHRASE\fR]
+Passphrase the archive was sealed with, for a file written by
+.B "emm export \-\-passphrase"
+- required for such a file and refused for any other, since a passphrase
+means nothing to an archive that has none.
+.IP
+Given without a value, it is asked for on the terminal without echoing,
+which keeps it out of the shell's history; reading it from a pipe works
+too.
+.IP
+A wrong passphrase and an altered file fail identically - the archive is
+authenticated as it is decrypted, so neither can be told from the other -
+and in both cases nothing is written: an archive is opened whole before
+any of it reaches the database.
 .SH OUTPUT
 The JSON response is printed to standard output:
 .RS
@@ -85,10 +102,15 @@ command - see OUTPUT).
 .TP
 .B 1
 Missing/invalid arguments, the file doesn't exist, isn't valid JSON, or
-has no
+has neither a
 .I collections
-object, the stored session is missing or not an administrator's, or the
-request could not be sent or was rejected by the server.
+object nor
+.IR frames ,
+a sealed archive was given without
+.B \-\-passphrase
+(or an unsealed one with it), the passphrase does not open the archive,
+the stored session is missing or not an administrator's, or the request
+could not be sent or was rejected by the server.
 .SH EXAMPLES
 Round-trip a module through export and import:
 .PP
@@ -104,6 +126,17 @@ Re-import only ENS out of a multi-module export:
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 emm import --file all-backup.json --module ens
+.fi
+.RE
+.PP
+Open an archive sealed by
+.BR euclid-cli-emm-export (1),
+being asked for the passphrase:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm import \e
+    --file euclid-backup.json --passphrase
 .fi
 .RE
 .SH SEE ALSO

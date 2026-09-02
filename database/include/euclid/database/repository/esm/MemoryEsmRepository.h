@@ -251,6 +251,19 @@ namespace Euclid::Database {
         }
 
         /**
+         * @brief Retrieves the number of objects in a bucket whose bytes are stored encrypted.
+         *
+         * @param bucketErn bucket ERN
+         * @return the number of encrypted objects.
+         */
+        long countEncryptedObjects(const std::string &bucketErn) const override {
+            std::lock_guard lock(_mutex);
+            return std::ranges::count_if(_objectStore | std::views::values, [&bucketErn](const auto &object) {
+                return object.bucketErn == bucketErn && !object.encryptionKeyErn.empty();
+            });
+        }
+
+        /**
          * @brief Find all buckets, optionally filtered, paged and sorted.
          *
          * @param bucketErn ERN of the bucket the object belongs to

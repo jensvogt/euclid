@@ -1,0 +1,108 @@
+.TH EUCLID-CLI-ESM-DISABLE-ENCRYPTION 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-disable-encryption \- stop encrypting the objects written to a bucket
+.SH SYNOPSIS
+.B euclid-cli esm disable-encryption
+.BR \-\-bucket | \-b
+.I ERN
+.SH DESCRIPTION
+Turns off encryption at rest for a bucket.
+.PP
+This applies to
+.B new uploads and puts only.
+From this call onwards, an object written to the bucket \- through
+.BR euclid-cli-esm-upload-file (1),
+.BR euclid-cli-esm-upload-directory (1),
+an FTP or SFTP transfer server, or any client calling put\-object \- goes
+to disk in the clear. Nothing else about the bucket changes.
+.PP
+It is not an undo. Objects the bucket
+.B already
+holds are not decrypted, not rewritten and not touched at all. Each one
+still names the key it was written under and is still decrypted on the
+way out, so downloads, copies and checksums go on working exactly as
+they did and no client can tell the difference. The answer reports how
+many objects are still stored encrypted \- if the point was that nothing
+in the bucket should be encrypted any more, that is the number to work
+through, by re-uploading those objects or copying them out with
+.BR euclid-cli-esm-copy-object (1)
+into a bucket that does not encrypt.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-bucket " " \fIERN\fR
+Euclid resource name of the bucket. Required.
+.SH THE KEY IS LEFT ALONE
+The EKM key the bucket was encrypting under is not revoked, not
+scheduled for deletion, and not modified in any way \- it is only read,
+to name it in the answer. It has to stay: every object written while it
+was in force is under it, and
+.BR euclid-cli-ekm-delete-key (1)
+is what would make those objects unrecoverable once the pending window
+expires.
+.PP
+Retiring the key is a separate decision, taken in
+.BR euclid-cli-ekm (1)
+once
+.I encryptedObjects
+has reached zero \- which this command never does on its own.
+.SH REPEATING IT
+Running this on a bucket that was not encrypting is not an error: the
+bucket ends up not encrypting, which is what was asked. The answer says
+so with an empty
+.IR previousKeyErn .
+.PP
+Running
+.BR euclid-cli-esm-enable-encryption (1)
+again afterwards resumes encryption \- under a new key, or under a named
+one, including the key used before. Objects written during each period
+keep naming the key of that period, and all of them stay readable.
+.SH EVENTS
+Publishes
+.I esm.bucket.modified
+carrying the bucket, \fIencrypted\fR as false and the key it was under
+before. No key event is published, because no key changed. See
+.BR euclid-cli-ees (1).
+.SH EXIT STATUS
+.TP
+.B 0
+Encryption is off for new objects. The bucket, the key it was
+encrypting under and the number of objects still stored encrypted are
+printed as JSON.
+.TP
+.B 1
+Missing or invalid arguments, no session, or the bucket does not exist
+or belongs to another account.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli esm disable-encryption \e
+    --bucket ern:esm:eu-central-1:000000000000:development:bucket:reports
+.fi
+.RE
+.PP
+prints
+.PP
+.RS
+.nf
+{"ern":"ern:esm:eu-central-1:000000000000:development:bucket:reports",
+ "name":"reports",
+ "previousKeyErn":"ern:ekm:eu-central-1:000000000000:key:9f2c...",
+ "previousKeyId":"9f2c...",
+ "encryptedObjects":14}
+.fi
+.RE
+.PP
+Fourteen objects still need that key. Uploading to the bucket now stores
+objects in the clear; those fourteen keep decrypting on download until
+they are replaced.
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-enable-encryption (1),
+.BR euclid-cli-esm-list-buckets (1),
+.BR euclid-cli-esm-list-objects (1),
+.BR euclid-cli-esm-copy-object (1),
+.BR euclid-cli-ekm (1),
+.BR euclid-cli-ekm-delete-key (1),
+.BR euclid-cli-ees (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

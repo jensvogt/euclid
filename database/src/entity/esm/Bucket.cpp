@@ -35,6 +35,7 @@ namespace Euclid::Database::Entity::ESM {
                 bsoncxx::builder::basic::kvp("owner", owner),
                 bsoncxx::builder::basic::kvp("name", name),
                 bsoncxx::builder::basic::kvp("ern", ern),
+                bsoncxx::builder::basic::kvp("encryptionKeyErn", encryptionKeyErn),
                 bsoncxx::builder::basic::kvp("tags", tagsDoc),
                 bsoncxx::builder::basic::kvp("size", static_cast<int64_t>(size)),
                 bsoncxx::builder::basic::kvp("objects", static_cast<int64_t>(objects)));
@@ -52,6 +53,7 @@ namespace Euclid::Database::Entity::ESM {
             else if (key == "owner") bucket.owner = std::string(field.get_string().value);
             else if (key == "name") bucket.name = std::string(field.get_string().value);
             else if (key == "ern") bucket.ern = std::string(field.get_string().value);
+            else if (key == "encryptionKeyErn") bucket.encryptionKeyErn = std::string(field.get_string().value);
             else if (key == "size") bucket.size = getBsonInt(field);
             else if (key == "objects") bucket.objects = getBsonInt(field);
             else if (key == "created") bucket.created = system_clock::time_point{field.get_date().value};

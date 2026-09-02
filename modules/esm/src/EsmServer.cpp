@@ -70,6 +70,29 @@ namespace Euclid::ESM {
         // object.
         constexpr std::size_t kContentTypeSniffBytes = 2000;
 
+        // How much of a part file is read at a time while assembling a multipart upload that has
+        // to be encrypted as it goes, where the assembled plaintext must never be a file.
+        constexpr std::size_t kAssemblyBufferSize = 64 * 1024;
+
+        // Removes an object file that was being written when something went wrong. Its internal
+        // name is freshly minted and no database row points at it yet, so what is left behind is
+        // an unreferenced fragment nothing will ever come back for.
+        void discardPartialObject(const std::filesystem::path &path) {
+            std::error_code ec;
+            if (std::filesystem::remove(path, ec); ec) {
+                log_warning << "Could not remove partially written object, path: " << path.string() << ", error: " << ec.message();
+            }
+        }
+
+        // Determines a content type by sniffing the object's first bytes, for the callers that
+        // have those bytes in hand - a single-request upload, or a multipart one being assembled -
+        // rather than a file to read them out of. An encrypted object has no such file: sniffing
+        // what is on disk would describe the ciphertext, which is the same shapeless bytes for
+        // every object there is.
+        std::string contentTypeForBuffer(const std::string_view data) {
+            return Core::ContentTypeUtils::fromContent(std::string(data.substr(0, std::min(data.size(), kContentTypeSniffBytes))));
+        }
+
         // Determines a content type by sniffing the first kContentTypeSniffBytes bytes of the
         // assembled object with libmagic (Core::ContentTypeUtils), rather than trusting the key's
         // file extension.
@@ -110,6 +133,81 @@ namespace Euclid::ESM {
         log_warning << "ESM resource denied, userId: " << auth.user->userId << ", bucketErn: " << bucketErn;
         return EsmServer::ErrorResponse(req, status::forbidden, "Not authorized for this bucket: " + bucketErn);
     }
+
+    // ── Encryption at rest ───────────────────────────────────────────────────
+    // A bucket names the EKM key the next object written to it is encrypted under; an object names
+    // the key its bytes are actually under. Those are two different facts and both are needed: the
+    // bucket's answers "what happens to this upload", the object's answers "how is this file read
+    // back", and they disagree for every object stored before encryption was enabled on the bucket
+    // and for every object still under a key that has since been rotated. Reading follows the
+    // object, writing follows the bucket, and nothing here ever assumes the two agree.
+    //
+    // The key material itself is read straight from the EKM repository rather than fetched through
+    // EKM's encrypt/decrypt actions: those take the payload over HTTP, which for an object means
+    // sending every byte to another module and back, and a multi-GB upload is not something to
+    // move through a request body twice. The keys are EKM's - created, rotated, revoked and
+    // deleted there - and this only ever reads the material to use it.
+
+    namespace {
+
+        // The key an object read or write should use, or the reason it cannot happen.
+        struct KeyLookup {
+            // Raw AES key bytes; empty means the object is stored in the clear, which is not an
+            // error - it is what an unencrypted bucket, and every object written before encryption
+            // was enabled, looks like.
+            std::string material;
+
+            // Non-empty if the key was named but cannot be used, in which case material is empty
+            // and the caller must refuse rather than fall back to storing anything in the clear.
+            std::string error;
+        };
+
+        // Key material a write into this bucket has to use.
+        //
+        // A bucket that names a key that has been revoked, scheduled for deletion or removed
+        // outright fails the write. The alternative - storing the object unencrypted because the
+        // key was unavailable - would leave a bucket whose objects are encrypted apart from the
+        // ones written while nobody was looking, which is the failure mode encryption at rest
+        // exists to rule out.
+        KeyLookup writeKeyForBucket(const Database::Entity::ESM::Bucket &bucket) {
+
+            if (bucket.encryptionKeyErn.empty()) return {};
+
+            const auto key = Database::RepositoryFactory::instance().ekmRepository()->findKeyByErn(bucket.encryptionKeyErn);
+            if (!key.has_value()) {
+                return {.error = "Bucket is encrypted under a key that no longer exists, keyErn: " + bucket.encryptionKeyErn};
+            }
+            if (key->keyMaterial.empty()) {
+                return {.error = "Bucket is encrypted under a key that has no key material, keyErn: " + bucket.encryptionKeyErn};
+            }
+            if (key->status != Database::Entity::EKM::KeyStatus::AVAILABLE) {
+                return {.error = "Bucket is encrypted under a key that is " + Database::Entity::EKM::KeyStatusToString(key->status) +
+                                 " and can no longer encrypt, keyErn: " + bucket.encryptionKeyErn +
+                                 " - point the bucket at another key with \"esm enable-encryption\""};
+            }
+            return {.material = Core::CryptoUtils::Base64Decode(key->keyMaterial)};
+        }
+
+        // Key material needed to read an object back, by the key ERN the object recorded.
+        //
+        // Unlike the write side this does not look at the key's status: EKM blocks a revoked or
+        // pending-deletion key from encrypting anything new but never from decrypting, precisely so
+        // that data already written under it stays recoverable while it is migrated off.
+        KeyLookup readKeyForObject(const std::string &keyErn) {
+
+            if (keyErn.empty()) return {};
+
+            const auto key = Database::RepositoryFactory::instance().ekmRepository()->findKeyByErn(keyErn);
+            if (!key.has_value()) {
+                return {.error = "Object is encrypted under a key that no longer exists, keyErn: " + keyErn};
+            }
+            if (key->keyMaterial.empty()) {
+                return {.error = "Object is encrypted under a key that has no key material, keyErn: " + keyErn};
+            }
+            return {.material = Core::CryptoUtils::Base64Decode(key->keyMaterial)};
+        }
+
+    }// namespace
 
     // Attributes travel as a header on put-object, because the body is the object's bytes and has
     // no room for anything else. The JSON is the same shape set-object-attributes takes, so a
@@ -527,6 +625,13 @@ namespace Euclid::ESM {
         }
         if (const auto denied = denyUngrantedBucket(req, auth, bucketErn)) return *denied;
 
+        // Settled before anything is written: a bucket whose key cannot be used refuses the upload
+        // rather than storing the object in the clear.
+        const auto writeKey = writeKeyForBucket(*bucket);
+        if (!writeKey.error.empty()) {
+            return EsmServer::ErrorResponse(req, status::conflict, writeKey.error);
+        }
+
         const auto &data = req.body();
 
         // Looked up before writing so a re-upload to the same key can be recognized (and the file
@@ -544,19 +649,34 @@ namespace Euclid::ESM {
         }
 
         const std::filesystem::path destPath = std::filesystem::path(dataDir) / internalName;
-        {
+        try {
             std::ofstream dest(destPath, std::ios::binary | std::ios::trunc);
             if (!dest.is_open()) {
                 return EsmServer::ErrorResponse(req, status::internal_server_error, "Could not write object");
             }
-            dest.write(data.data(), static_cast<std::streamsize>(data.size()));
+            // The bytes go to disk exactly once, already encrypted if the bucket says so: there is
+            // no moment at which the plaintext of an encrypted object exists as a file.
+            if (writeKey.material.empty()) {
+                dest.write(data.data(), static_cast<std::streamsize>(data.size()));
+            } else {
+                const auto encrypted = Core::ObjectCipher::Encrypt(writeKey.material, data);
+                dest.write(encrypted.data(), static_cast<std::streamsize>(encrypted.size()));
+            }
+        } catch (const std::exception &ex) {
+            log_error << "ESM could not write object, bucket: " << bucketErn << ", key: " << key << ", error: " << ex.what();
+            discardPartialObject(destPath);
+            return EsmServer::ErrorResponse(req, status::internal_server_error, "Could not write object");
         }
 
         // Small enough to hash/sniff inline rather than handing off to a background thread the way
         // complete-upload does for a potentially huge assembled file - this whole handler only
         // exists for objects under the client's part size in the first place.
-        const auto md5Sum = Core::CryptoUtils::md5SumFile(destPath.string());
-        const auto contentType = contentTypeForFile(destPath);
+        //
+        // Taken from the bytes the client sent rather than read back off the file: identical for an
+        // object stored in the clear, and for an encrypted one the only way to get a checksum and a
+        // content type that describe the object instead of its ciphertext.
+        const auto md5Sum = Core::CryptoUtils::md5Sum(data);
+        const auto contentType = contentTypeForBuffer(data);
 
         Database::Entity::ESM::Object object;
         if (existingObject) object.oid = existingObject->oid;
@@ -572,6 +692,7 @@ namespace Euclid::ESM {
         object.status = Database::Entity::ESM::ObjectStatus::COMPLETED;
         object.contentType = contentType;
         object.md5Sum = md5Sum;
+        object.encryptionKeyErn = bucket->encryptionKeyErn;
         object.attributes = *attributes;
         repo->upsertObject(object);
 
@@ -829,6 +950,14 @@ namespace Euclid::ESM {
         // but nothing has been written into the bucket yet, and this is the call that would.
         if (const auto denied = denyUngrantedBucket(req, auth, bucketErn)) return *denied;
 
+        // Resolved here rather than in the background pass below, so a bucket whose key cannot be
+        // used is reported as a failed completion the caller can act on, instead of leaving the
+        // object stuck at UPLOADED with the reason only in the log.
+        const auto writeKey = writeKeyForBucket(*bucket);
+        if (!writeKey.error.empty()) {
+            return EsmServer::ErrorResponse(req, status::conflict, writeKey.error);
+        }
+
         // Zero-padded part filenames sort lexicographically in numeric order.
         std::vector<std::filesystem::path> parts;
         for (const auto &entry: std::filesystem::directory_iterator(uploadDir)) {
@@ -882,7 +1011,7 @@ namespace Euclid::ESM {
         // detached thread's entry function calls std::terminate() and takes down the entire
         // process, unlike an exception in a normal request handler which route()/Dispatch() would
         // otherwise catch.
-        std::thread([repo, uploadDir, parts, dataDir, destPath, internalName, ern, bucketErn, bucket, key, owner, region, accountId, ns, existingObject, replaces, attributes = *attributes, uploadId = request.uploadId] {
+        std::thread([repo, uploadDir, parts, dataDir, destPath, internalName, ern, bucketErn, bucket, key, owner, region, accountId, ns, existingObject, replaces, attributes = *attributes, encryptionKeyErn = bucket->encryptionKeyErn, keyMaterial = writeKey.material, uploadId = request.uploadId] {
             try {
                 std::error_code ec;
                 std::filesystem::create_directories(dataDir, ec);
@@ -892,27 +1021,60 @@ namespace Euclid::ESM {
                 }
 
                 std::size_t assembledSize = 0;
-                {
-                    std::ofstream dest(destPath, std::ios::binary | std::ios::trunc);
-                    if (!dest.is_open()) {
-                        log_error << "Could not write object, upload id: " << uploadId << ", path: " << destPath.string();
-                        return;
+                std::string md5Sum;
+                std::string contentType;
+
+                if (keyMaterial.empty()) {
+                    {
+                        std::ofstream dest(destPath, std::ios::binary | std::ios::trunc);
+                        if (!dest.is_open()) {
+                            log_error << "Could not write object, upload id: " << uploadId << ", path: " << destPath.string();
+                            return;
+                        }
+                        for (const auto &partPath: parts) {
+                            std::ifstream part(partPath, std::ios::binary);
+                            dest << part.rdbuf();
+                            assembledSize += std::filesystem::file_size(partPath);
+                        }
                     }
+
+                    // Post-processing: MD5 the assembled file and sniff its content type from its
+                    // first bytes before marking the object COMPLETED.
+                    md5Sum = Core::CryptoUtils::md5SumFile(destPath.string());
+                    contentType = contentTypeForFile(destPath);
+
+                } else {
+                    // The same assembly, except that the assembled object is encrypted as it is
+                    // written - so it is never on disk in the clear, not even for the moment it
+                    // would take to encrypt a finished plaintext file afterwards. That rules out
+                    // reading the result back to hash and sniff it, since what is there is
+                    // ciphertext; both are taken from the plaintext as it streams past instead,
+                    // which is also one pass over the parts rather than three.
+                    Core::ObjectEncryptor encryptor(keyMaterial, destPath);
+                    Core::Md5Digest digest;
+                    std::string sniff;
+
+                    std::string buffer(kAssemblyBufferSize, '\0');
                     for (const auto &partPath: parts) {
                         std::ifstream part(partPath, std::ios::binary);
-                        dest << part.rdbuf();
-                        assembledSize += std::filesystem::file_size(partPath);
+                        while (part.read(buffer.data(), static_cast<std::streamsize>(buffer.size())) || part.gcount() > 0) {
+                            const std::string_view chunk(buffer.data(), static_cast<std::size_t>(part.gcount()));
+                            encryptor.write(chunk);
+                            digest.update(chunk);
+                            if (sniff.size() < kContentTypeSniffBytes) {
+                                sniff.append(chunk.substr(0, kContentTypeSniffBytes - sniff.size()));
+                            }
+                        }
                     }
+
+                    assembledSize = static_cast<std::size_t>(encryptor.finish());
+                    md5Sum = digest.hex();
+                    contentType = contentTypeForBuffer(sniff);
                 }
 
                 std::filesystem::remove_all(uploadDir, ec);
                 if (ec)
                     log_warning << "Could not remove upload storage, path: " << uploadDir.string() << ", error: " << ec.message();
-
-                // Post-processing: MD5 the assembled file and sniff its content type from its
-                // first bytes before marking the object COMPLETED.
-                const auto md5Sum = Core::CryptoUtils::md5SumFile(destPath.string());
-                const auto contentType = contentTypeForFile(destPath);
 
                 Database::Entity::ESM::Object object;
                 if (existingObject) object.oid = existingObject->oid;
@@ -928,6 +1090,7 @@ namespace Euclid::ESM {
                 object.status = Database::Entity::ESM::ObjectStatus::COMPLETED;
                 object.contentType = contentType;
                 object.md5Sum = md5Sum;
+                object.encryptionKeyErn = encryptionKeyErn;
                 object.attributes = attributes;
                 repo->upsertObject(object);
 
@@ -961,8 +1124,10 @@ namespace Euclid::ESM {
                 notifyBucketSubscriptions(bucketErn, key, ern, object.size, contentType, md5Sum);
             } catch (const std::exception &e) {
                 log_error << "Post-processing failed, upload id: " << uploadId << ", error: " << e.what();
+                discardPartialObject(destPath);
             } catch (...) {
                 log_error << "Post-processing failed, upload id: " << uploadId << ", unknown error";
+                discardPartialObject(destPath);
             }
         }).detach();
 
@@ -1032,15 +1197,33 @@ namespace Euclid::ESM {
             return ErrorResponse(req, status::payload_too_large, "Object is too large for a single-request download, size: " + std::to_string(object->size));
         }
 
-        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
-        std::ifstream in(std::filesystem::path(dataDir) / object->internalName, std::ios::binary);
-        if (!in.is_open()) {
-            return ErrorResponse(req, status::internal_server_error, "Could not open object file for download, bucket: " + bucketErn + ", key: " + key);
+        // The key the object was actually stored under, which is not necessarily the one the bucket
+        // names today - see readKeyForObject().
+        const auto readKey = readKeyForObject(object->encryptionKeyErn);
+        if (!readKey.error.empty()) {
+            return ErrorResponse(req, status::conflict, readKey.error);
         }
 
-        std::ostringstream buffer;
-        buffer << in.rdbuf();
-        std::string data = buffer.str();
+        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
+        const auto path = std::filesystem::path(dataDir) / object->internalName;
+
+        std::string data;
+        try {
+            if (readKey.material.empty()) {
+                std::ifstream in(path, std::ios::binary);
+                if (!in.is_open()) {
+                    return ErrorResponse(req, status::internal_server_error, "Could not open object file for download, bucket: " + bucketErn + ", key: " + key);
+                }
+                std::ostringstream buffer;
+                buffer << in.rdbuf();
+                data = buffer.str();
+            } else {
+                data = Core::ObjectCipher::DecryptFile(readKey.material, path);
+            }
+        } catch (const std::exception &ex) {
+            log_error << "ESM could not read object, bucket: " << bucketErn << ", key: " << key << ", error: " << ex.what();
+            return ErrorResponse(req, status::internal_server_error, "Could not read object, bucket: " + bucketErn + ", key: " + key);
+        }
 
         log_info << "ESM get object, bucket: " << bucketErn << ", key: " << key << ", size: " << data.size();
 
@@ -1091,10 +1274,15 @@ namespace Euclid::ESM {
         // Records the object being downloaded so download-part can serve byte ranges using only
         // the download ID the client carries, mirroring how create-upload's meta file lets
         // upload-part/complete-upload resolve the target bucket/key.
+        // "encryptionKeyErn" is here for the same reason internalName is: download-part has only the
+        // download ID, and an encrypted object cannot be read a range at a time without the key it
+        // was written under. "size" is the object's plaintext length either way, so the part
+        // offsets download-part computes from it mean the same thing for both.
         const boost::json::value meta = {
                 {"bucketErn", object->bucketErn},
                 {"key", object->key},
                 {"internalName", object->internalName},
+                {"encryptionKeyErn", object->encryptionKeyErn},
                 {"size", object->size},
                 {"owner", auth.user->userId},
                 {"created", Core::DateTimeUtils::ToISO8601(std::chrono::system_clock::now())},
@@ -1170,23 +1358,46 @@ namespace Euclid::ESM {
         }
         const auto internalName = std::string(meta.at("internalName").as_string());
         const auto totalSize = meta.at("size").as_int64();
+        // Absent from a download created by an older ESM, in which case the object predates
+        // encryption at rest and is stored in the clear - which is what an empty key ERN means.
+        const auto *keyErnValue = meta.is_object() ? meta.as_object().if_contains("encryptionKeyErn") : nullptr;
+        const auto encryptionKeyErn = keyErnValue != nullptr && keyErnValue->is_string() ? std::string(keyErnValue->as_string()) : std::string();
 
         const auto offset = (partNumber - 1) * partSize;
         if (offset >= totalSize) {
             return ErrorResponse(req, status::bad_request, "Part number beyond end of object, id: " + downloadId + ", part: " + std::to_string(partNumber));
         }
 
-        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
-        std::ifstream in(std::filesystem::path(dataDir) / internalName, std::ios::binary);
-        if (!in.is_open()) {
-            return ErrorResponse(req, status::internal_server_error, "Could not open object file for download, id: " + downloadId);
+        const auto readKey = readKeyForObject(encryptionKeyErn);
+        if (!readKey.error.empty()) {
+            return ErrorResponse(req, status::conflict, readKey.error);
         }
-        in.seekg(offset);
 
+        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
+        const auto path = std::filesystem::path(dataDir) / internalName;
         const auto readSize = std::min<std::int64_t>(partSize, totalSize - offset);
-        std::string data(static_cast<std::size_t>(readSize), '\0');
-        in.read(data.data(), static_cast<std::streamsize>(readSize));
-        data.resize(static_cast<std::size_t>(in.gcount()));
+
+        std::string data;
+        try {
+            if (readKey.material.empty()) {
+                std::ifstream in(path, std::ios::binary);
+                if (!in.is_open()) {
+                    return ErrorResponse(req, status::internal_server_error, "Could not open object file for download, id: " + downloadId);
+                }
+                in.seekg(offset);
+
+                data.assign(static_cast<std::size_t>(readSize), '\0');
+                in.read(data.data(), static_cast<std::streamsize>(readSize));
+                data.resize(static_cast<std::size_t>(in.gcount()));
+            } else {
+                // The range is in the object's own bytes; only the frames it falls in are read and
+                // decrypted, so a part of an encrypted object costs what a part costs.
+                data = Core::ObjectCipher::DecryptRange(readKey.material, path, offset, readSize);
+            }
+        } catch (const std::exception &ex) {
+            log_error << "ESM could not read object part, id: " << downloadId << ", part: " << partNumber << ", error: " << ex.what();
+            return ErrorResponse(req, status::internal_server_error, "Could not read object part, id: " + downloadId);
+        }
 
         log_debug << "ESM download part, id: " << downloadId << ", part: " << partNumber << ", size: " << data.size();
 
@@ -1509,33 +1720,79 @@ namespace Euclid::ESM {
             return EsmServer::ErrorResponse(req, status::conflict, "Object already exists, bucket: " + targetBucketErn + ", key: " + targetKey);
         }
 
+        // Whether the bytes have to be rewritten rather than left as they are. An object is stored
+        // under the key it names, and a bucket says what its objects are stored under - so an
+        // object landing in a bucket whose encryption differs from its own has to be re-encrypted,
+        // whether that is a plaintext object copied into an encrypted bucket, an encrypted one
+        // moved out into a bucket that is not, or a move between two buckets under different keys.
+        // Without this a bucket could be handed an object it cannot read back, or one sitting in
+        // the clear inside a bucket that is supposed to be encrypted.
+        const auto sourceKeyLookup = readKeyForObject(source->encryptionKeyErn);
+        if (!sourceKeyLookup.error.empty()) {
+            return EsmServer::ErrorResponse(req, status::conflict, sourceKeyLookup.error);
+        }
+        const auto targetKeyLookup = writeKeyForBucket(*targetBucket);
+        if (!targetKeyLookup.error.empty()) {
+            return EsmServer::ErrorResponse(req, status::conflict, targetKeyLookup.error);
+        }
+        const bool reEncrypt = source->encryptionKeyErn != targetBucket->encryptionKeyErn;
+
         const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
+        const auto sourcePath = std::filesystem::path(dataDir) / source->internalName;
 
         Database::Entity::ESM::Object target = *source;
         target.oid.clear();// a new row, not an edit of the source's
         target.bucketErn = targetBucketErn;
         target.key = targetKey;
         target.ern = Core::createEsmObjectErn(auth.user->accountId, targetBucket->nameSpace, targetBucket->name + "/" + targetKey);
+        target.encryptionKeyErn = targetBucket->encryptionKeyErn;
         target.created = std::chrono::system_clock::now();
 
-        if (keepSource) {
+        // The file the move leaves behind when it had to rewrite the bytes after all; dropped once
+        // no row points at it any more.
+        std::string supersededFile;
+
+        if (keepSource || reEncrypt) {
             // Its own copy of the bytes, under its own internal name.
             target.internalName = Core::UuidUtils::CreateRandomUuid();
-            std::error_code ec;
-            std::filesystem::copy_file(std::filesystem::path(dataDir) / source->internalName,
-                                       std::filesystem::path(dataDir) / target.internalName,
-                                       std::filesystem::copy_options::overwrite_existing, ec);
-            if (ec) {
-                log_error << "ESM could not copy object file, key: " << sourceKey << ", error: " << ec.message();
-                return EsmServer::ErrorResponse(req, status::internal_server_error, "Could not copy object");
+            const auto targetPath = std::filesystem::path(dataDir) / target.internalName;
+
+            if (reEncrypt) {
+                try {
+                    // Streamed frame by frame rather than read into memory: this is the path a copy
+                    // of an arbitrarily large object takes.
+                    Core::ObjectCipher::Transcode(sourceKeyLookup.material, sourcePath, targetKeyLookup.material, targetPath);
+                } catch (const std::exception &ex) {
+                    log_error << "ESM could not re-encrypt object, key: " << sourceKey << ", error: " << ex.what();
+                    discardPartialObject(targetPath);
+                    return EsmServer::ErrorResponse(req, status::internal_server_error, "Could not re-encrypt object for the target bucket");
+                }
+            } else {
+                std::error_code ec;
+                std::filesystem::copy_file(sourcePath, targetPath, std::filesystem::copy_options::overwrite_existing, ec);
+                if (ec) {
+                    log_error << "ESM could not copy object file, key: " << sourceKey << ", error: " << ec.message();
+                    return EsmServer::ErrorResponse(req, status::internal_server_error, "Could not copy object");
+                }
             }
-        } else {
-            // The move: the same file, answering to a different key from now on. The source row
-            // goes away below, so nothing is left pointing at it.
+            if (!keepSource) supersededFile = source->internalName;
+        }
+
+        if (!keepSource) {
+            // The move: the same file, answering to a different key from now on - unless the bytes
+            // had to be rewritten above, in which case the file it used to be is dropped below. The
+            // source row goes away either way, so nothing is left pointing at it.
             repo->deleteObjectByErn(source->ern);
         }
 
         const auto stored = repo->upsertObject(target);
+
+        if (!supersededFile.empty()) {
+            std::error_code oldEc;
+            std::filesystem::remove(std::filesystem::path(dataDir) / supersededFile, oldEc);
+            if (oldEc)
+                log_warning << "Could not remove superseded object file, internalName: " << supersededFile << ", error: " << oldEc.message();
+        }
 
         // Directory markers are not counted anywhere, so they must not move counters either.
         if (!Database::Entity::ESM::IsDirectoryKey(targetKey)) {
@@ -1808,6 +2065,221 @@ namespace Euclid::ESM {
         return EsmServer::JsonResponse(req, status::ok);
     }
 
+    // Turns on encryption at rest for a bucket: from here on, every object written to it is
+    // encrypted under an EKM key before it reaches the disk, and read back through the same key.
+    //
+    // What this does not do is touch the objects already in the bucket. Their bytes are on disk as
+    // they were stored, and they stay that way - each object records the key it is under (empty for
+    // "none"), so an encrypted bucket goes on serving what it held before without anything special
+    // happening, and the response says how many such objects there are. Rewriting them would be
+    // re-encrypting an unbounded amount of data inside a request that is otherwise a setting, and
+    // it belongs to whoever decides it is worth doing: copy them through a new bucket, or re-upload
+    // them.
+    //
+    // The key can be named or left to this call. A named key has to exist, belong to the caller's
+    // account and be usable for encryption; an unnamed one is created here as AES-256 and belongs
+    // to EKM from that moment on, with the same lifecycle - "ekm list-keys" shows it, "ekm
+    // delete-key" schedules it, and deleting it is what makes this bucket's objects unrecoverable.
+    static response<string_body> handleEnableEncryption(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "enable-encryption");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ESM::EnableEncryptionRequest>(jv);
+        log_info << "ESM EnableEncryption, bucketErn: " << request.bucketErn << ", keyId: " << (request.keyId.empty() ? "(new key)" : request.keyId);
+
+        if (request.bucketErn.empty()) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "Missing bucketErn");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        auto bucket = repo->findBucketByErn(request.bucketErn);
+        if (!bucket.has_value()) {
+            return EsmServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.bucketErn);
+        }
+        if (bucket->accountId != auth.user->accountId) {
+            return EsmServer::ErrorResponse(req, status::forbidden, "Bucket does not belong to the caller's account");
+        }
+        if (const auto denied = denyUngrantedBucket(req, auth, request.bucketErn)) return *denied;
+
+        const auto ns = std::string(req["x-euclid-namespace"]);
+        const auto ekmRepo = Database::RepositoryFactory::instance().ekmRepository();
+
+        Database::Entity::EKM::Key key;
+        bool keyCreated = false;
+
+        if (!request.keyId.empty()) {
+
+            // An ERN names the key outright; anything else is the key ID "ekm create-key" handed
+            // back, which is only unique within an account and namespace.
+            auto named = request.keyId.starts_with("ern:")
+                                 ? ekmRepo->findKeyByErn(request.keyId)
+                                 : ekmRepo->findKeyByName(auth.user->accountId, ns, request.keyId);
+            if (!named.has_value()) {
+                return EsmServer::ErrorResponse(req, status::not_found, "Key not found, id: " + request.keyId);
+            }
+            if (named->accountId != auth.user->accountId) {
+                return EsmServer::ErrorResponse(req, status::forbidden, "Key does not belong to the caller's account, id: " + request.keyId);
+            }
+            if (named->keyMaterial.empty()) {
+                return EsmServer::ErrorResponse(req, status::bad_request, "Key '" + request.keyId + "' has no key material; create a new key");
+            }
+            // Refused up front rather than at the first upload: a bucket pointed at a key that
+            // cannot encrypt is a bucket that refuses every write, and the operator who pointed it
+            // there should hear about it now.
+            if (named->status != Database::Entity::EKM::KeyStatus::AVAILABLE) {
+                return EsmServer::ErrorResponse(req, status::forbidden,
+                                                "Key '" + request.keyId + "' is " + Database::Entity::EKM::KeyStatusToString(named->status) +
+                                                        " and cannot be used for encryption");
+            }
+            key = *named;
+
+        } else {
+
+            // Minted the way EKM mints keys itself - a random ID for a name, AES-256 material -
+            // so the key this bucket gets is in every respect an ordinary EKM key.
+            const auto keyId = Core::UuidUtils::CreateRandomUuid();
+
+            key.accountId = auth.user->accountId;
+            key.region = auth.user->region;
+            key.nameSpace = ns;
+            key.name = keyId;
+            key.ern = Core::createEkmKeyErn(auth.user->accountId, keyId);
+            key.algorithm = "AES";
+            key.length = 256;
+            key.keyMaterial = Core::CryptoUtils::GenerateAes256Key();
+
+            key = ekmRepo->upsertKey(key);
+            keyCreated = true;
+
+            // The same event EKM publishes for a key created through it: a key that appeared
+            // because a bucket asked for one is still a key, and anything watching for new keys
+            // would otherwise never hear about this one.
+            Database::EventBus::instance().Publish(
+                    "ekm.key.created",
+                    boost::json::value{{"ern", key.ern}, {"name", key.name}, {"algorithm", key.algorithm},
+                                       {"length", key.length}, {"accountId", key.accountId}, {"region", key.region}},
+                    "ekm");
+        }
+
+        // Enabling encryption on a bucket that already has it under another key is a rotation, and
+        // it is allowed: objects written from now on go under the new key, and the ones already
+        // there keep naming the old one, so both stay readable.
+        const auto previousKeyErn = bucket->encryptionKeyErn;
+        bucket->encryptionKeyErn = key.ern;
+        const auto saved = repo->upsertBucket(*bucket);
+
+        // Directory markers are excluded for the same reason the bucket's own counter excludes
+        // them: they hold no bytes, so there is nothing about them to encrypt.
+        const auto existingObjects = repo->countObjects(saved.ern, "", false);
+
+        log_info << "ESM bucket encryption enabled, ern: " << saved.ern << ", keyErn: " << key.ern
+                 << (previousKeyErn.empty() ? "" : ", previousKeyErn: " + previousKeyErn)
+                 << ", existingObjects: " << existingObjects;
+
+        Database::EventBus::instance().Publish(
+                "esm.bucket.modified",
+                boost::json::value{{"ern", saved.ern}, {"name", saved.name}, {"encrypted", true},
+                                   {"encryptionKeyErn", saved.encryptionKeyErn}, {"previousEncryptionKeyErn", previousKeyErn},
+                                   {"accountId", saved.accountId}, {"region", saved.region}},
+                "esm");
+
+        Dto::ESM::EnableEncryptionResponse response;
+        response.ern = saved.ern;
+        response.name = saved.name;
+        response.keyErn = key.ern;
+        response.keyId = key.name;
+        response.algorithm = key.algorithm + "-" + std::to_string(key.length);
+        response.keyCreated = keyCreated;
+        response.existingObjects = existingObjects;
+
+        return EsmServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    // Turns encryption at rest back off for a bucket: objects written to it from now on go to disk
+    // in the clear again.
+    //
+    // The mirror image of enable-encryption in exactly one respect and no other. It is the same
+    // kind of setting - it says what happens to the next upload or put, and nothing else - but it
+    // is not an undo. Nothing already in the bucket is decrypted, or rewritten, or touched at all:
+    // every object still names the key it was written under and is still read back through it, so
+    // the bucket goes on serving what it holds without a client noticing anything, and the response
+    // says how many such objects there are.
+    //
+    // Which is why the key is left strictly alone - not revoked, not scheduled for deletion. Those
+    // objects are under it, and EKM is where a key's life is decided; retiring it here, on the
+    // strength of a bucket setting, is how the data it is holding would be lost.
+    static response<string_body> handleDisableEncryption(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "disable-encryption");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ESM::DisableEncryptionRequest>(jv);
+        log_info << "ESM DisableEncryption, bucketErn: " << request.bucketErn;
+
+        if (request.bucketErn.empty()) {
+            return EsmServer::ErrorResponse(req, status::bad_request, "Missing bucketErn");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        auto bucket = repo->findBucketByErn(request.bucketErn);
+        if (!bucket.has_value()) {
+            return EsmServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.bucketErn);
+        }
+        if (bucket->accountId != auth.user->accountId) {
+            return EsmServer::ErrorResponse(req, status::forbidden, "Bucket does not belong to the caller's account");
+        }
+        if (const auto denied = denyUngrantedBucket(req, auth, request.bucketErn)) return *denied;
+
+        // A bucket that was not encrypting is not an error: the caller asked for it to end up not
+        // encrypting, and it does. The empty previousKeyErn in the answer says nothing changed.
+        const auto previousKeyErn = bucket->encryptionKeyErn;
+        bucket->encryptionKeyErn.clear();
+        const auto saved = repo->upsertBucket(*bucket);
+
+        // Reported whatever the previous setting was, since objects encrypted under an older key
+        // outlive any number of enables and disables.
+        const auto encryptedObjects = repo->countEncryptedObjects(saved.ern);
+
+        // Only to name the key in the answer - it is read, and nothing about it is written.
+        std::string previousKeyId;
+        if (!previousKeyErn.empty()) {
+            if (const auto key = Database::RepositoryFactory::instance().ekmRepository()->findKeyByErn(previousKeyErn); key.has_value()) {
+                previousKeyId = key->name;
+            }
+        }
+
+        log_info << "ESM bucket encryption disabled, ern: " << saved.ern
+                 << (previousKeyErn.empty() ? ", was not encrypted" : ", previousKeyErn: " + previousKeyErn)
+                 << ", encryptedObjects: " << encryptedObjects;
+
+        Database::EventBus::instance().Publish(
+                "esm.bucket.modified",
+                boost::json::value{{"ern", saved.ern}, {"name", saved.name}, {"encrypted", false},
+                                   {"encryptionKeyErn", ""}, {"previousEncryptionKeyErn", previousKeyErn},
+                                   {"accountId", saved.accountId}, {"region", saved.region}},
+                "esm");
+
+        Dto::ESM::DisableEncryptionResponse response;
+        response.ern = saved.ern;
+        response.name = saved.name;
+        response.previousKeyErn = previousKeyErn;
+        response.previousKeyId = previousKeyId;
+        response.encryptedObjects = encryptedObjects;
+
+        return EsmServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
     namespace {
         bool isEsmBucketErn(const std::string &ern) {
             return ern.starts_with("ern:esm:") && ern.find(":bucket:") != std::string::npos;
@@ -1938,6 +2410,8 @@ namespace Euclid::ESM {
             AddBucketTag,
             SetBucketTag,
             DeleteBucketTag,
+            EnableEncryption,
+            DisableEncryption,
             PutObject,
             CreateUpload,
             UploadPart,
@@ -1993,6 +2467,8 @@ namespace Euclid::ESM {
         if (action == "add-bucket-tag") return Command::AddBucketTag;
         if (action == "set-bucket-tag") return Command::SetBucketTag;
         if (action == "delete-bucket-tag") return Command::DeleteBucketTag;
+        if (action == "enable-encryption") return Command::EnableEncryption;
+        if (action == "disable-encryption") return Command::DisableEncryption;
         if (action == "subscribe") return Command::Subscribe;
         if (action == "unsubscribe") return Command::Unsubscribe;
         if (action == "list-subscriptions") return Command::ListSubscriptions;
@@ -2099,6 +2575,12 @@ namespace Euclid::ESM {
 
             case Command::DeleteBucketTag:
                 return handleDeleteBucketTag(req);
+
+            case Command::EnableEncryption:
+                return handleEnableEncryption(req);
+
+            case Command::DisableEncryption:
+                return handleDisableEncryption(req);
 
             case Command::Subscribe:
                 return handleSubscribe(req);

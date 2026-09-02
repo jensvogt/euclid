@@ -169,6 +169,21 @@ namespace Euclid::Database {
         virtual long countObjects(const std::string &bucketErn, const std::string &prefix, bool includeDirectories = false) const = 0;
 
         /**
+         * @brief Retrieves the number of objects in a bucket whose bytes are stored encrypted.
+         *
+         * @par
+         * An object is encrypted if it names the key it was written under, so this counts the
+         * objects that still need that key to be readable - which is what makes it worth asking:
+         * turning encryption off for a bucket does not decrypt anything, and this is the number
+         * that says whether the key can be retired yet.
+         *
+         * @param bucketErn bucket ERN
+         * @return the number of encrypted objects.
+         */
+        [[nodiscard]]
+        virtual long countEncryptedObjects(const std::string &bucketErn) const = 0;
+
+        /**
          * @brief Finds and retrieves all objects of a bucket, optionally filtered, paged and sorted.
          *
          * @param bucketErn The ERN of the bucket the object belongs to.

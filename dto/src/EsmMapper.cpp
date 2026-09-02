@@ -35,6 +35,8 @@ namespace Euclid::Dto::ESM {
         dto.size = static_cast<long>(entity.size);
         dto.objects = static_cast<long>(entity.objects);
         dto.tags = entity.tags;
+        dto.encryptionKeyErn = entity.encryptionKeyErn;
+        dto.encrypted = !entity.encryptionKeyErn.empty();
         dto.created = entity.created;
         dto.modified = entity.modified;
         return dto;
@@ -59,6 +61,9 @@ namespace Euclid::Dto::ESM {
         dto.status = Database::Entity::ESM::ObjectStatusToString(entity.status);
         dto.contentType = entity.contentType;
         dto.md5Sum = entity.md5Sum;
+        // The key ERN itself stays inside the module: which key an object is under is what ESM
+        // needs to read it back, not something a listing has any use for.
+        dto.encrypted = !entity.encryptionKeyErn.empty();
         for (const auto &[name, attribute]: entity.attributes) {
             dto.attributes[name] = toDto(attribute);
         }

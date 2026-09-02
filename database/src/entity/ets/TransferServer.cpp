@@ -7,6 +7,21 @@
 
 namespace Euclid::Database::Entity::ETS {
 
+    namespace {
+        // Ports and passive-port bounds can sit in the collection as either BSON int32 or int64:
+        // toDocument() writes int64, but documents written before that cast existed - and any
+        // inserted by hand, a migration or mongosh - carry int32, which get_int64() rejects with a
+        // type mismatch rather than widening. The exception escaped fromDocument() into the
+        // repository's catch-all, dropping every server from the listing at once while
+        // countServers(), which never parses an entity, kept reporting them - see
+        // MongoEtsRepository::listServers.
+        long getBsonInt(const bsoncxx::document::element &field) {
+            if (field.type() == bsoncxx::type::k_int64) return field.get_int64().value;
+            if (field.type() == bsoncxx::type::k_int32) return field.get_int32().value;
+            return 0;
+        }
+    }// namespace
+
     bsoncxx::document::value TransferServer::toDocument() const {
 
         bsoncxx::builder::basic::array userIdsArray;
@@ -48,7 +63,7 @@ namespace Euclid::Database::Entity::ETS {
             else if (key == "region") server.region = std::string(field.get_string().value);
             else if (key == "protocol") server.protocol = TransferProtocolFromString(std::string(field.get_string().value));
             else if (key == "address") server.address = std::string(field.get_string().value);
-            else if (key == "port") server.port = static_cast<long>(field.get_int64().value);
+            else if (key == "port") server.port = getBsonInt(field);
             else if (key == "bucketErn") server.bucketErn = std::string(field.get_string().value);
             else if (key == "bucketName") server.bucketName = std::string(field.get_string().value);
             else if (key == "homeDirectory") server.homeDirectory = std::string(field.get_string().value);
@@ -58,8 +73,8 @@ namespace Euclid::Database::Entity::ETS {
                 for (const auto &elem: field.get_array().value) server.userGroups.emplace_back(elem.get_string().value);
             } else if (key == "desiredState") server.desiredState = TransferServerStateFromString(std::string(field.get_string().value));
             else if (key == "hostKey") server.hostKey = std::string(field.get_string().value);
-            else if (key == "pasvMin") server.pasvMin = static_cast<long>(field.get_int64().value);
-            else if (key == "pasvMax") server.pasvMax = static_cast<long>(field.get_int64().value);
+            else if (key == "pasvMin") server.pasvMin = getBsonInt(field);
+            else if (key == "pasvMax") server.pasvMax = getBsonInt(field);
             else if (key == "created") server.created = std::chrono::system_clock::time_point{field.get_date().value};
             else if (key == "modified") server.modified = std::chrono::system_clock::time_point{field.get_date().value};
         }
