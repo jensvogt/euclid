@@ -148,7 +148,6 @@ jobs:
           name: cli-installer-windows
           path: ${{ env.CLI_NAME }}-${{ env.SEMVER }}-amd64.exe
           overwrite: true
-          overwrite: true
 
   build-macos:
     name: Build & Package (macOS)
