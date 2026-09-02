@@ -286,6 +286,50 @@ namespace Euclid::EKM {
         return res;
     }
 
+    // Replaces the free text recorded with a key to say what it is for. create-key takes a
+    // description, and until now that was the only moment one could be set - so a key created
+    // without one, or with the wrong one, carried it for the rest of its life.
+    //
+    // Nothing but that text changes: not the key material, not the status, not a date the key's
+    // lifecycle turns on. Which is also why this is allowed whatever state the key is in - a
+    // revoked key, or one already scheduled for deletion, is exactly the kind whose description is
+    // worth correcting to say why.
+    //
+    // An empty description clears the key's own: the caller asked for the key to read that way, and
+    // treating "" as "leave it alone" would leave no way to remove a description at all.
+    static response<string_body> handleSetKeyDescription(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-key-description");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EkmServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EKM::SetKeyDescriptionRequest>(jv);
+        if (request.ern.empty()) {
+            return EkmServer::ErrorResponse(req, status::bad_request, "Missing ERN");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().ekmRepository();
+        auto key = repo->findKeyByErn(request.ern);
+        if (!key.has_value()) {
+            return EkmServer::ErrorResponse(req, status::not_found, "Key not found, ern: " + request.ern);
+        }
+
+        key->description = request.description;
+        const auto saved = repo->upsertKey(*key);
+
+        log_info << "EKM key description set, id: " << saved.name << ", description: "
+                 << (saved.description.empty() ? "(cleared)" : saved.description);
+
+        Dto::EKM::SetKeyDescriptionResponse response;
+        response.ern = saved.ern;
+        response.name = saved.name;
+        response.description = saved.description;
+        return EkmServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
     // Upserts the tag unconditionally - mirrors add-topic-tag/add-queue-tag/add-bucket-tag in the
     // other modules (no set-key-tag counterpart exists here, so there's no "key must already have
     // this tag" variant to distinguish it from).
@@ -374,6 +418,7 @@ namespace Euclid::EKM {
             Decrypt,
             DeleteKey,
             RevokeKey,
+            SetKeyDescription,
             AddKeyTag,
             DeleteKeyTag
         };
@@ -386,6 +431,7 @@ namespace Euclid::EKM {
         if (action == "decrypt") return Command::Decrypt;
         if (action == "delete-key") return Command::DeleteKey;
         if (action == "revoke-key") return Command::RevokeKey;
+        if (action == "set-key-description") return Command::SetKeyDescription;
         if (action == "add-key-tag") return Command::AddKeyTag;
         if (action == "delete-key-tag") return Command::DeleteKeyTag;
         return Command::Unknown;
@@ -418,6 +464,9 @@ namespace Euclid::EKM {
 
             case Command::RevokeKey:
                 return handleRevokeKey(req);
+
+            case Command::SetKeyDescription:
+                return handleSetKeyDescription(req);
 
             case Command::AddKeyTag:
                 return handleAddKeyTag(req);
