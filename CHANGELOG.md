@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.59](https://github.com/jensvogt/euclid/compare/1.0.58...v1.0.59) (2026-09-02)
+
+
+### Bug Fixes
+
+* separated CLI package ([e6b7125](https://github.com/jensvogt/euclid/commit/e6b7125d9fab0c7d1e734c0cdedc3895f00bbad6))
+* separated CLI package ([ee541dc](https://github.com/jensvogt/euclid/commit/ee541dccbb972ec72b0dece3e905e44a35f00fad))
+
 ## [1.0.58](https://github.com/jensvogt/euclid/compare/v1.0.57...v1.0.58) (2026-09-02)
 
 
