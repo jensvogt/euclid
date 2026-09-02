@@ -28,6 +28,7 @@ namespace Euclid::Database::Entity::EKM {
                 bsoncxx::builder::basic::kvp("namespace", nameSpace),
                 bsoncxx::builder::basic::kvp("ern", ern),
                 bsoncxx::builder::basic::kvp("name", name),
+                bsoncxx::builder::basic::kvp("description", description),
                 bsoncxx::builder::basic::kvp("algorithm", algorithm),
                 bsoncxx::builder::basic::kvp("length", static_cast<int64_t>(length)),
                 bsoncxx::builder::basic::kvp("keyMaterial", keyMaterial),
@@ -54,6 +55,7 @@ namespace Euclid::Database::Entity::EKM {
             else if (k == "namespace") key.nameSpace = std::string(field.get_string().value);
             else if (k == "ern") key.ern = std::string(field.get_string().value);
             else if (k == "name") key.name = std::string(field.get_string().value);
+            else if (k == "description") key.description = std::string(field.get_string().value);
             else if (k == "algorithm") key.algorithm = std::string(field.get_string().value);
             else if (k == "length") key.length = getBsonInt(field);
             else if (k == "keyMaterial") key.keyMaterial = std::string(field.get_string().value);

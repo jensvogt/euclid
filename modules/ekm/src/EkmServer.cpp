@@ -83,6 +83,7 @@ namespace Euclid::EKM {
         key.region = auth.user->region;
         key.nameSpace = ns;
         key.name = keyId;
+        key.description = request.description;
         key.ern = Core::createEkmKeyErn(auth.user->accountId, keyId);
         key.algorithm = request.algorithm;
         key.length = request.length;
@@ -98,6 +99,7 @@ namespace Euclid::EKM {
                 boost::json::value{
                         {"ern", saved.ern},
                         {"name", saved.name},
+                        {"description", saved.description},
                         {"algorithm", saved.algorithm},
                         {"length", saved.length},
                         {"accountId", saved.accountId},
@@ -107,7 +109,12 @@ namespace Euclid::EKM {
 
         Dto::EKM::CreateKeyResponse response;
         response.name = saved.name;
+        response.description = saved.description;
         response.ern = saved.ern;
+        // The algorithm and length come back too: a caller that let them default has otherwise no
+        // answer to "what did I just create", and the ID alone does not say.
+        response.algorithm = saved.algorithm;
+        response.length = saved.length;
         response.status = Database::Entity::EKM::KeyStatusToString(saved.status);
         return EkmServer::JsonResponse(req, status::ok, response.toJson());
     }

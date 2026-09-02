@@ -99,7 +99,10 @@ namespace Euclid::Core {
         _acceptor.bind(ep);
         _acceptor.listen(asio::socket_base::max_listen_connections);
 
-        log_info << _serviceName << " service listening on " << _socketPath;
+        // The thread count is here because it is not otherwise visible anywhere: it decides how
+        // many requests this instance can be in the middle of at once, and a module sized too
+        // small does not fail - its callers just wait, which reads as the module being slow.
+        log_info << _serviceName << " service listening on " << _socketPath << ", worker threads: " << _threads;
     }
 
     void UnixSocketServer::start() {

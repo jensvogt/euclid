@@ -27,6 +27,13 @@ namespace Euclid::EES {
         // the caller is holding a gateway worker thread for the duration.
         constexpr long kMaxWaitSeconds = 20;
 
+        // How many of this process's worker threads may be sitting in that wait at once. Set from
+        // the thread count in the constructor, always leaving one thread over: without it, enough
+        // clients waiting for events leave nothing to answer a subscribe, and the subscribe does
+        // not fail - it queues, and is served the moment a wait ends, which is often just after
+        // the client that sent it has given up. See Core::LongPollSlots.
+        Core::LongPollSlots longPollSlots;
+
         struct AuthResult {
             std::optional<Database::Entity::EAM::User> user;
             bool tokenExpired{false};
@@ -220,8 +227,12 @@ namespace Euclid::EES {
 
         // Long-polled the way a queue receive is: an empty answer that took twenty seconds beats
         // a client asking again every hundred milliseconds. The wait is bounded because a gateway
-        // worker thread is held for its duration.
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(waitTime);
+        // worker thread is held for its duration - and capped in number for the same reason, so
+        // that clients waiting for events can never take the last thread away from a client with
+        // something to do. Without a slot this answers with whatever is there right now, which is
+        // what a long poll returns anyway when nothing arrives; the client asks again.
+        const auto slot = longPollSlots.acquire();
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(slot.held() ? waitTime : 0);
         std::vector<Database::EventEnvelope> events;
         while (true) {
             events = bus.ClaimEvents(subscriber, maxEvents, visibility);
@@ -294,7 +305,9 @@ namespace Euclid::EES {
 
     // ── EesServer ────────────────────────────────────────────────────────────
 
-    EesServer::EesServer(std::string socketPath, const int threads) : HttpActionServer("EES", std::move(socketPath), threads) {}
+    EesServer::EesServer(std::string socketPath, const int threads) : HttpActionServer("EES", std::move(socketPath), threads) {
+        longPollSlots.limit(threads - 1);
+    }
 
     response<string_body> EesServer::Dispatch(const request<string_body> &req) {
         return dispatch(req);

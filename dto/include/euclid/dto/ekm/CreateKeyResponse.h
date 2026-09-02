@@ -22,6 +22,11 @@ namespace Euclid::Dto::EKM {
         std::string name;
 
         /**
+         * @brief What the key is for, as it was given; empty if none was
+         */
+        std::string description;
+
+        /**
          * @brief Name of the algorithm
          */
         std::string algorithm;
@@ -56,6 +61,7 @@ namespace Euclid::Dto::EKM {
             CreateKeyResponse r;
             r.ern = Core::GetStringValue(v, "ern");
             r.name = Core::GetStringValue(v, "name");
+            r.description = Core::GetStringValue(v, "description");
             r.algorithm = Core::GetStringValue(v, "algorithm");
             r.length = Core::GetLongValue(v, "length");
             r.status = Core::GetStringValue(v, "status");
@@ -66,6 +72,7 @@ namespace Euclid::Dto::EKM {
             jv = {
                     {"ern", obj.ern},
                     {"name", obj.name},
+                    {"description", obj.description},
                     {"algorithm", obj.algorithm},
                     {"length", obj.length},
                     {"status", obj.status},

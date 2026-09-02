@@ -22,6 +22,11 @@ namespace Euclid::Dto::EKM {
         long length = 128;
 
         /**
+         * @brief What the key is for, kept with it for whoever finds it later. Optional.
+         */
+        std::string description;
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -41,6 +46,7 @@ namespace Euclid::Dto::EKM {
             CreateKeyRequest r;
             r.algorithm = Core::GetStringValue(v, "algorithm");
             r.length = Core::GetLongValue(v, "length");
+            r.description = Core::GetStringValue(v, "description");
             return r;
         }
 
@@ -48,6 +54,7 @@ namespace Euclid::Dto::EKM {
             jv = {
                     {"algorithm", obj.algorithm},
                     {"length", obj.length},
+                    {"description", obj.description},
             };
         }
     };

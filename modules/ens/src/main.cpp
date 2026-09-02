@@ -7,6 +7,7 @@
 
 // Euclid includes
 #include <euclid/core/Configuration.h>
+#include <euclid/core/HttpActionServer.h>
 #include <euclid/core/LogStream.h>
 #include <euclid/core/Version.h>
 #include <euclid/core/monitoring/MetricsPusher.h>
@@ -134,7 +135,8 @@ int main(const int argc, char *argv[]) {
 
     Euclid::Core::Monitoring::MetricsPusher metricsPusher("ens");
     try {
-        Euclid::ENS::EnsServer server(cliOpts->socketPath);
+        Euclid::ENS::EnsServer server(cliOpts->socketPath,
+                                   Euclid::Core::HttpActionServer::ConfiguredWorkerThreads("ens", 2));
         return server.RunUntilSignal();
     } catch (const std::exception &e) {
         log_error << "Failed to start ENS service: " << e.what();
