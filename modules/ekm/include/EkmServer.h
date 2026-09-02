@@ -27,6 +27,8 @@
 #include <euclid/dto/ekm/ListKeysResponse.h>
 #include <euclid/dto/ekm/RevokeKeyRequest.h>
 #include <euclid/dto/ekm/RevokeKeyResponse.h>
+#include <euclid/dto/ekm/SetKeyDescriptionRequest.h>
+#include <euclid/dto/ekm/SetKeyDescriptionResponse.h>
 
 namespace Euclid::EKM {
 

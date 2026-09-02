@@ -54,6 +54,11 @@ Revokes a key: blocks encryption permanently while leaving decryption
 untouched, without scheduling the key for removal. See
 .BR euclid-cli-ekm-revoke-key (1).
 .TP
+.B set-key-description
+Changes what a key says it is for, which is what answers whether it can
+be deleted. See
+.BR euclid-cli-ekm-set-key-description (1).
+.TP
 .B encrypt
 Encrypts a file or stdin with a key, writing the ciphertext to a file
 or stdout. See
@@ -174,6 +179,7 @@ euclid-cli --endpoint http://localhost:5566 ekm delete-key \e
 .BR euclid-cli-ekm-create-key (1),
 .BR euclid-cli-ekm-list-keys (1),
 .BR euclid-cli-ekm-revoke-key (1),
+.BR euclid-cli-ekm-set-key-description (1),
 .BR euclid-cli-ekm-delete-key (1),
 .BR euclid-cli-ekm-encrypt (1),
 .BR euclid-cli-ekm-decrypt (1)
