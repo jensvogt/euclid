@@ -95,7 +95,13 @@ Euclid gateway endpoint to talk to. Defaults to
 Path to a PEM CA certificate to trust in addition to the system trust
 store, for the self-signed certificate a development installation
 generates. Defaults to
-.IR /usr/local/euclid/etc/euclid_cert.crt .
+.IR /usr/local/euclid/etc/euclid_cert.crt ,
+which a server installation puts there and the CLI-only package does
+not \- when the default is not there, only the system trust store is
+used, which is what a client talking to a properly certified server
+needs. A path given explicitly is required rather than optional: if it
+does not exist the command stops and says so, instead of quietly
+falling back to whatever the system happens to trust.
 .TP
 .BR \-c ", " \-\-config " " \fIPATH\fR
 JSON configuration file providing defaults for action options \- see

@@ -123,7 +123,26 @@ int main(const int argc, char *argv[]) {
     }
 
     const std::string endpoint = vm.contains("endpoint") ? vm["endpoint"].as<std::string>() : std::string();
-    const std::string caCert = vm.contains("ca-cert") ? vm["ca-cert"].as<std::string>() : std::string();
+
+    // The default names the certificate a euclid server installs beside itself, which is exactly
+    // what a machine with only the CLI package on it does not have - and loading a file that isn't
+    // there fails the TLS handshake before it starts, so every command would answer "No such file
+    // or directory" without saying which file. Falling back to the system trust store is the right
+    // answer there: a client talking to a server with a publicly-signed certificate needs nothing
+    // else, and one talking to a self-signed server says so with --ca-cert.
+    //
+    // A path somebody typed is different. That is a statement that this certificate is required,
+    // so a missing one is reported rather than quietly ignored - otherwise a typo downgrades the
+    // connection to whatever the system happens to trust, which is the one outcome nobody asking
+    // for a specific CA wants.
+    std::string caCert = vm.contains("ca-cert") ? vm["ca-cert"].as<std::string>() : std::string();
+    if (!caCert.empty() && !std::filesystem::exists(caCert)) {
+        if (!vm["ca-cert"].defaulted()) {
+            std::cerr << "error: --ca-cert '" << caCert << "' does not exist\n";
+            return 1;
+        }
+        caCert.clear();
+    }
     const bool pretty = vm["pretty"].as<bool>();
     const std::string module = rest[0];
     const std::string action = rest[1];
