@@ -44,6 +44,16 @@ namespace Euclid::Dto::ESM {
         std::map<std::string, std::string> tags;
 
         /**
+         * @brief Whether objects written to this bucket from now on are encrypted at rest
+         */
+        bool encrypted{};
+
+        /**
+         * @brief ERN of the EKM key they are encrypted under, empty when the bucket is not encrypted
+         */
+        std::string encryptionKeyErn;
+
+        /**
          * @brief Creation date
          */
         system_clock::time_point created;
@@ -78,6 +88,8 @@ namespace Euclid::Dto::ESM {
             r.size = Core::GetLongValue(v, "size");
             r.objects = Core::GetLongValue(v, "objects");
             r.tags = Core::GetMapFromObject<std::string, std::string>(v, "tags");
+            r.encrypted = Core::GetBoolValue(v, "encrypted");
+            r.encryptionKeyErn = Core::GetStringValue(v, "encryptionKeyErn");
             r.created = Core::GetDatetimeValue(v, "created");
             r.modified = Core::GetDatetimeValue(v, "modified");
             return r;
@@ -91,6 +103,8 @@ namespace Euclid::Dto::ESM {
                     {"size", obj.size},
                     {"objects", obj.objects},
                     {"tags", boost::json::value_from(obj.tags)},
+                    {"encrypted", obj.encrypted},
+                    {"encryptionKeyErn", obj.encryptionKeyErn},
                     {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
             };

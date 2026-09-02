@@ -45,6 +45,32 @@ namespace Euclid::Core {
 
     }// namespace
 
+    struct Md5Digest::Context {
+        EVP_MD_CTX *ctx;
+    };
+
+    Md5Digest::Md5Digest() : _context(new Context{EVP_MD_CTX_new()}, [](Context *context) {
+        EVP_MD_CTX_free(context->ctx);
+        delete context;
+    }) {
+        if (_context->ctx == nullptr) throw std::runtime_error("Failed to create digest context");
+        EVP_DigestInit_ex(_context->ctx, EVP_md5(), nullptr);
+    }
+
+    void Md5Digest::update(const std::string_view data) const {
+        if (data.empty()) return;
+        EVP_DigestUpdate(_context->ctx, data.data(), data.size());
+    }
+
+    std::string Md5Digest::hex() const {
+
+        unsigned char digest[EVP_MAX_MD_SIZE];
+        unsigned int digestLength = 0;
+        EVP_DigestFinal_ex(_context->ctx, digest, &digestLength);
+
+        return toHex(digest, digestLength);
+    }
+
     std::string CryptoUtils::md5Sum(const std::string &str) {
 
         unsigned char digest[EVP_MAX_MD_SIZE];
@@ -111,7 +137,7 @@ namespace Euclid::Core {
         return generateAesKey(256);
     }
 
-    std::string CryptoUtils::AesGcmEncrypt(const std::string &key, const std::string &plaintext) {
+    std::string CryptoUtils::AesGcmEncrypt(const std::string &key, const std::string &plaintext, const std::string &aad) {
 
         constexpr int kIvLength = 12;
         constexpr int kTagLength = 16;
@@ -137,10 +163,20 @@ namespace Euclid::Core {
             throw std::runtime_error("Failed to initialize AES-GCM encryption");
         }
 
+        // AAD goes in before any plaintext does, signalled by a null output buffer - GCM folds it
+        // into the tag without producing ciphertext for it.
+        if (!aad.empty()) {
+            int aadLength = 0;
+            if (EVP_EncryptUpdate(ctx, nullptr, &aadLength,
+                                  reinterpret_cast<const unsigned char *>(aad.data()), static_cast<int>(aad.size())) != 1) {
+                throw std::runtime_error("Failed to add AES-GCM additional authenticated data");
+            }
+        }
+
         std::string ciphertext(plaintext.size(), '\0');
         int updateLength = 0;
         if (EVP_EncryptUpdate(ctx, reinterpret_cast<unsigned char *>(ciphertext.data()), &updateLength,
-                               reinterpret_cast<const unsigned char *>(plaintext.data()), static_cast<int>(plaintext.size())) != 1) {
+                              reinterpret_cast<const unsigned char *>(plaintext.data()), static_cast<int>(plaintext.size())) != 1) {
             throw std::runtime_error("AES-GCM encryption failed");
         }
 
@@ -163,7 +199,7 @@ namespace Euclid::Core {
         return result;
     }
 
-    std::string CryptoUtils::AesGcmDecrypt(const std::string &key, const std::string &ciphertext) {
+    std::string CryptoUtils::AesGcmDecrypt(const std::string &key, const std::string &ciphertext, const std::string &aad) {
 
         constexpr int kIvLength = 12;
         constexpr int kTagLength = 16;
@@ -198,10 +234,20 @@ namespace Euclid::Core {
             throw std::runtime_error("Failed to initialize AES-GCM decryption");
         }
 
+        // Same order as on the encrypting side: AAD first, and the tag check below fails if it
+        // isn't byte for byte what was authenticated then.
+        if (!aad.empty()) {
+            int aadLength = 0;
+            if (EVP_DecryptUpdate(ctx, nullptr, &aadLength,
+                                  reinterpret_cast<const unsigned char *>(aad.data()), static_cast<int>(aad.size())) != 1) {
+                throw std::runtime_error("Failed to add AES-GCM additional authenticated data");
+            }
+        }
+
         std::string plaintext(bodyLength, '\0');
         int updateLength = 0;
         if (EVP_DecryptUpdate(ctx, reinterpret_cast<unsigned char *>(plaintext.data()), &updateLength,
-                               body, static_cast<int>(bodyLength)) != 1) {
+                              body, static_cast<int>(bodyLength)) != 1) {
             throw std::runtime_error("AES-GCM decryption failed");
         }
 
@@ -215,6 +261,27 @@ namespace Euclid::Core {
         }
         plaintext.resize(static_cast<std::size_t>(updateLength + finalLength));
         return plaintext;
+    }
+
+    std::string CryptoUtils::GenerateSalt(const std::size_t length) {
+        const auto random = randomBytes(length);
+        return {random.begin(), random.end()};
+    }
+
+    std::string CryptoUtils::DeriveKeyPbkdf2(const std::string &passphrase, const std::string &salt, const int iterations, const std::size_t keyLength) {
+
+        if (iterations <= 0) {
+            throw std::runtime_error("PBKDF2 iteration count must be positive");
+        }
+
+        std::vector<unsigned char> key(keyLength);
+        if (PKCS5_PBKDF2_HMAC(passphrase.data(), static_cast<int>(passphrase.size()),
+                              reinterpret_cast<const unsigned char *>(salt.data()), static_cast<int>(salt.size()),
+                              iterations, EVP_sha256(),
+                              static_cast<int>(keyLength), key.data()) != 1) {
+            throw std::runtime_error("Failed to derive a key from the passphrase");
+        }
+        return {key.begin(), key.end()};
     }
 
     std::string CryptoUtils::sha256Hex(const std::string &str) {

@@ -89,6 +89,15 @@ target_link_libraries(${WS_FRAME_BINARY} PRIVATE euclidcore Boost::unit_test_fra
 
 add_test(NAME ${WS_FRAME_BINARY} COMMAND ${WS_FRAME_BINARY})
 
+set(OBJECT_CIPHER_BINARY euclid-object-cipher-tests)
+
+add_executable(${OBJECT_CIPHER_BINARY} ObjectCipherTest.cpp)
+set_target_properties(${OBJECT_CIPHER_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${OBJECT_CIPHER_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${OBJECT_CIPHER_BINARY} COMMAND ${OBJECT_CIPHER_BINARY})
+
 set(TRANSFER_HOME_BINARY euclid-transfer-home-prefix-tests)
 
 add_executable(${TRANSFER_HOME_BINARY} TransferHomePrefixTest.cpp)

@@ -9,6 +9,21 @@
 
 namespace Euclid::Database::Entity::EAP {
 
+    namespace {
+        // Instance counts and the ready timeout can sit in the collection as either BSON int32 or
+        // int64: toDocument() writes int64, but documents written before that cast existed - and
+        // any inserted by hand, a migration or mongosh - carry int32, which get_int64() rejects
+        // with a type mismatch rather than widening. The exception escaped fromDocument() into the
+        // repository's catch-all, dropping every application from the listing at once while
+        // countApplications(), which never parses an entity, kept reporting them - see
+        // MongoEapRepository::listApplications.
+        long getBsonInt(const bsoncxx::document::element &field) {
+            if (field.type() == bsoncxx::type::k_int64) return field.get_int64().value;
+            if (field.type() == bsoncxx::type::k_int32) return field.get_int32().value;
+            return 0;
+        }
+    }// namespace
+
     bsoncxx::document::value Application::toDocument() const {
 
         bsoncxx::builder::basic::array argumentsArray;
@@ -69,9 +84,9 @@ namespace Euclid::Database::Entity::EAP {
             } else if (key == "resources") {
                 for (const auto &elem: field.get_array().value) application.resources.emplace_back(elem.get_string().value);
             } else if (key == "userId") application.userId = std::string(field.get_string().value);
-            else if (key == "minInstances") application.minInstances = static_cast<long>(field.get_int64().value);
-            else if (key == "maxInstances") application.maxInstances = static_cast<long>(field.get_int64().value);
-            else if (key == "readyTimeoutMs") application.readyTimeoutMs = static_cast<long>(field.get_int64().value);
+            else if (key == "minInstances") application.minInstances = getBsonInt(field);
+            else if (key == "maxInstances") application.maxInstances = getBsonInt(field);
+            else if (key == "readyTimeoutMs") application.readyTimeoutMs = getBsonInt(field);
             else if (key == "desiredState") application.desiredState = ApplicationStateFromString(std::string(field.get_string().value));
             else if (key == "created") application.created = std::chrono::system_clock::time_point{field.get_date().value};
             else if (key == "modified") application.modified = std::chrono::system_clock::time_point{field.get_date().value};
