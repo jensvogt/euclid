@@ -8,6 +8,7 @@
 // Euclid includes
 #include <EmoServer.h>
 #include <euclid/core/Configuration.h>
+#include <euclid/core/HttpActionServer.h>
 #include <euclid/core/LogStream.h>
 #include <euclid/core/Version.h>
 #include <euclid/database/RepositoryFactory.h>
@@ -131,7 +132,8 @@ int main(const int argc, char *argv[]) {
     Euclid::Database::WireGrantLookup();
 
     try {
-        Euclid::Monitoring::EmoServer server(cliOpts->socketPath);
+        Euclid::Monitoring::EmoServer server(cliOpts->socketPath,
+                                   Euclid::Core::HttpActionServer::ConfiguredWorkerThreads("emo", 2));
         return server.RunUntilSignal();
     } catch (const std::exception &e) {
         log_error << "Failed to start monitoring service: " << e.what();

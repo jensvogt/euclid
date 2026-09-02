@@ -45,6 +45,17 @@ namespace Euclid::Database::Entity::EKM {
         std::string name;
 
         /**
+         * @brief What the key is for, in the words of whoever created it.
+         *
+         * @par
+         * A key is named by a generated ID (see name), which says nothing about what it protects.
+         * Since a key outlives the reason it was made - and deleting the wrong one is not a
+         * recoverable mistake - this is where that reason is kept. Free text, never interpreted,
+         * and empty for keys created before it existed or by a caller that gave none.
+         */
+        std::string description;
+
+        /**
          * @brief Key algorithm name
          */
         std::string algorithm;

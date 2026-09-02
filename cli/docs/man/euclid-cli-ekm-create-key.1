@@ -6,9 +6,18 @@ euclid-cli-ekm-create-key \- create a new encryption key
 .BR \-\-algorithm | \-a
 .I ALGORITHM
 [\fB\-\-length\fR|\fB\-l\fR \fIBITS\fR]
+[\fB\-\-description\fR|\fB\-d\fR \fITEXT\fR]
 .SH DESCRIPTION
 Creates a new key with the given algorithm and key length. Default
 length is 128 bit.
+.PP
+A key is identified by a generated ID, which says nothing about what it
+protects. Since a key outlives the reason it was made, and deleting the
+wrong one is not a recoverable mistake, give it a
+.B \-\-description
+saying what it is for. It is stored with the key and reported by
+.BR euclid-cli-ekm-list-keys (1),
+and it is what answers "can this one go?" months later.
 .SH OPTIONS
 .TP
 .BR \-a ", " \-\-algorithm " " \fIALGORITHM\fR
@@ -16,11 +25,15 @@ Key type, possible values are \fIaes\fR, \fIaes-gcm\fR. Required.
 .TP
 .BR \-l ", " \-\-length " " \fIBITS\fR
 Key length, \fI128\fR or \fI256\fR. Defaults to \fI128\fR.
+.TP
+.BR \-d ", " \-\-description " " \fITEXT\fR
+What the key is for. Free text, never interpreted. Optional, and empty
+if not given.
 .SH EXIT STATUS
 .TP
 .B 0
-The key was created; its ERN, name, algorithm and length are printed as
-JSON.
+The key was created; its ERN, name, description, algorithm and length
+are printed as JSON.
 .TP
 .B 1
 Missing/invalid arguments, the server could not be reached, or the
@@ -32,7 +45,8 @@ euclid-cli --endpoint http://localhost:5566 ekm create-key \e
     --algorithm aes --length 128
 
 euclid-cli --endpoint http://localhost:5566 ekm create-key \e
-    --algorithm aes-gcm --length 256
+    --algorithm aes-gcm --length 256 \e
+    --description "payroll exports, rotated quarterly"
 .fi
 .RE
 .SH SEE ALSO

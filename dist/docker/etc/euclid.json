@@ -94,7 +94,8 @@
           "low": 1
         },
         "minInstances": 1,
-        "maxInstances": 4
+        "maxInstances": 4,
+        "threads": 8
       },
       "ens": {
         "active": false,
