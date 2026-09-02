@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.56](https://github.com/jensvogt/euclid/compare/1.0.55...v1.0.56) (2026-09-02)
+
+
+### Bug Fixes
+
+* EAP add version and MD5sum ([ad0d9e7](https://github.com/jensvogt/euclid/commit/ad0d9e77fc6c0c6a4af4fd6348a4dffaca90176c))
+* websocket support ([d372ef8](https://github.com/jensvogt/euclid/commit/d372ef8d76448c3ad8e789d8ae56d3ac9ebd59e9))
+
 ## [1.0.55](https://github.com/jensvogt/euclid/compare/1.0.54...v1.0.55) (2026-09-01)
 
 
