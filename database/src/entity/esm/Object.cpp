@@ -31,6 +31,7 @@ namespace Euclid::Database::Entity::ESM {
                 bsoncxx::builder::basic::kvp("key", key),
                 bsoncxx::builder::basic::kvp("internalName", internalName),
                 bsoncxx::builder::basic::kvp("ern", ern),
+                bsoncxx::builder::basic::kvp("encryptionKeyErn", encryptionKeyErn),
                 bsoncxx::builder::basic::kvp("size", static_cast<int64_t>(size)),
                 bsoncxx::builder::basic::kvp("status", ObjectStatusToString(status)),
                 bsoncxx::builder::basic::kvp("contentType", contentType),
@@ -52,6 +53,7 @@ namespace Euclid::Database::Entity::ESM {
             else if (fieldKey == "key") object.key = std::string(field.get_string().value);
             else if (fieldKey == "internalName") object.internalName = std::string(field.get_string().value);
             else if (fieldKey == "ern") object.ern = std::string(field.get_string().value);
+            else if (fieldKey == "encryptionKeyErn") object.encryptionKeyErn = std::string(field.get_string().value);
             else if (fieldKey == "size") object.size = getBsonInt(field);
             else if (fieldKey == "status") object.status = ObjectStatusFromString(std::string(field.get_string().value));
             else if (fieldKey == "contentType") object.contentType = std::string(field.get_string().value);

@@ -54,6 +54,19 @@ namespace Euclid::Database::Entity::ESM {
         std::map<std::string, std::string> tags;
 
         /**
+         * @brief ERN of the EKM key objects written to this bucket are encrypted under, or empty
+         * if the bucket stores objects in the clear.
+         *
+         * @par
+         * A bucket-wide setting that applies from the moment it is made: objects already in the
+         * bucket are left exactly as they were stored, and each object records the key it is
+         * actually under (see Object::encryptionKeyErn), so a bucket can hold objects written
+         * before encryption was enabled, after it, and under a previous key, all readable. This
+         * field only ever answers "what happens to the next object written here".
+         */
+        std::string encryptionKeyErn;
+
+        /**
          * @brief Bucket size in bytes
          */
         int64_t size{};

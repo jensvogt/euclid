@@ -40,13 +40,16 @@ See
 .TP
 .B export
 Exports one or more modules' own MongoDB collections to a local JSON
-file. See
+file, optionally sealed with a passphrase - the file holds access-key
+secrets, and with
+.I ekm
+the key material itself. See
 .BR euclid-cli-emm-export (1).
 .TP
 .B import
 Imports a JSON file written by
-.B export
-back into MongoDB. See
+.BR export ,
+sealed or not, back into MongoDB. See
 .BR euclid-cli-emm-import (1).
 .SH GLOBAL OPTIONS
 These options are given to
