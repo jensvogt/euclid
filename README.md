@@ -118,6 +118,48 @@ tar -xzf euclid-<version>-macos.tgz
 Download and run `euclid-<version>-amd64.exe` from the
 [releases page](https://github.com/jensvogt/euclid/releases).
 
+### The CLI on its own
+
+The packages above all contain `euclid-cli`, because a server is usually administered from the
+machine it runs on. For a machine that only ever talks to a euclid somewhere else - a workstation,
+a build agent, a container - there is a package with just the command and its manual pages, and
+none of the module binaries, systemd unit or service account a server needs:
+
+```bash
+sudo apt install euclid-cli          # from the APT repository added above
+```
+
+```bash
+wget https://jensvogt.github.io/euclid/euclid-cli-<version>-amd64.deb
+sudo apt install ./euclid-cli-<version>-amd64.deb
+```
+
+```bash
+wget https://jensvogt.github.io/euclid/euclid-cli-<version>-1.x86_64.rpm
+sudo rpm -i euclid-cli-<version>-1.x86_64.rpm
+```
+
+On Linux both packages install the same command at the same path, so a machine wants one or the
+other: installing `euclid` where `euclid-cli` is present replaces it, and vice versa.
+
+macOS - unpacks straight into `/usr/local`, which puts the command on the PATH and the manual
+pages where `man` looks for them:
+
+```bash
+wget https://jensvogt.github.io/euclid/euclid-cli-<version>-macos.tgz
+sudo tar -xzf euclid-cli-<version>-macos.tgz -C /usr/local
+```
+
+Windows - download and run `euclid-cli-<version>-amd64.exe`, which installs the command and adds
+it to the system PATH. Open a new terminal afterwards; an existing one keeps the PATH it started
+with.
+
+Then point it at the server:
+
+```bash
+euclid-cli --endpoint https://euclid.example.com eam login --user jens --password <secret>
+```
+
 ### Build from source
 
 ```bash
