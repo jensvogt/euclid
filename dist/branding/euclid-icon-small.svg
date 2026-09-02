@@ -3,22 +3,17 @@
   <title>Euclid</title>
 
   <!--
-    Small variant, for 16-24px: favicon, tab, tree node, menu item.
+    Small variant, for 16-24px: favicon, browser tab, tree node, menu row.
 
-    Redrawn rather than scaled. At this size the full circles of the large mark come
-    out under half a pixel wide and turn to grey mush, so only the two construction
-    arcs that Euclid actually draws survive - each running from one endpoint of the
-    base to the apex, which is the whole of Proposition 1 and nothing else.
+    Redrawn rather than scaled. Below about 32px the construction arcs fall under a
+    pixel wide and fuse with the triangle's edges, so they stop reading as arcs and
+    only thicken the silhouette - this drops them and keeps the element the large mark
+    already draws boldest.
+
+    Bowing the sides outward to keep the large mark's silhouette was the other option
+    and was tried; at 16px it reads as an arch rather than a triangle.
   -->
 
-  <g fill="none" stroke="currentColor" stroke-linejoin="round" stroke-linecap="round">
-    <!-- the two compass arcs, B->C about A and A->C about B -->
-    <g opacity="0.45" stroke-width="1.1">
-      <path d="M 20.5 16.91 A 17 17 0 0 0 12 2.19"/>
-      <path d="M 3.5 16.91 A 17 17 0 0 1 12 2.19"/>
-    </g>
-
-    <!-- the equilateral triangle -->
-    <path d="M 3.5 16.91 L 20.5 16.91 L 12 2.19 Z" stroke-width="2"/>
-  </g>
+  <path d="M 2.5 20.2 L 21.5 20.2 L 12 3.75 Z"
+        fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/>
 </svg>

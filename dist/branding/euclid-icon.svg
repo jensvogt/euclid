@@ -3,23 +3,27 @@
   <title>Euclid</title>
 
   <!--
-    Elements, Book I, Proposition 1: on a given segment AB, two circles of radius AB
-    centred at A and B meet at C, and ABC is equilateral. The first construction in
-    the Elements, and the reason the mark is two arcs and a triangle.
+    Euclid, Elements, Book I, Proposition 1 - the first construction in the Elements.
+    On a segment AB, strike two arcs of radius AB from A and from B; where they meet
+    is C, and ABC is equilateral.
 
-    The arcs are the construction, drawn light; the triangle is the result, drawn
-    solid. That weight difference is what lets the mark survive being shrunk - the
-    triangle reads first and the arcs become texture rather than noise.
+    The two arcs are the construction and are drawn light; the triangle is the result
+    and is drawn solid. That weight difference is the whole design: the triangle reads
+    first, the arcs stay texture, and shrinking the mark degrades it gracefully.
+
+    Only the arc each circle actually contributes is drawn, not the full circles - the
+    unused three-quarters of each circle adds a large empty lens below the triangle and
+    pushes the figure off balance.
   -->
 
   <g fill="none" stroke="#7C4DFF" stroke-linejoin="round" stroke-linecap="round">
-    <!-- the two compass arcs -->
-    <g opacity="0.38" stroke-width="5">
-      <circle cx="91" cy="149.36" r="74"/>
-      <circle cx="165" cy="149.36" r="74"/>
+    <!-- construction: arc B->C struck from A, arc A->C struck from B -->
+    <g opacity="0.32" stroke-width="7">
+      <path d="M 230 216 A 204 204 0 0 0 128 39.33"/>
+      <path d="M 26 216 A 204 204 0 0 1 128 39.33"/>
     </g>
 
-    <!-- the equilateral triangle the construction yields -->
-    <path d="M 91 149.36 L 165 149.36 L 128 85.28 Z" stroke-width="12"/>
+    <!-- result: the equilateral triangle -->
+    <path d="M 26 216 L 230 216 L 128 39.33 Z" stroke-width="16"/>
   </g>
 </svg>

@@ -1,8 +1,12 @@
 // C++ includes
+#include <filesystem>
 #include <sstream>
 
 // Euclid includes
 #include <euclid/cli/eap/EapCli.h>
+#include <euclid/cli/esm/EsmCli.h>
+#include <euclid/core/CryptoUtils.h>
+#include <euclid/database/entity/eap/Application.h>
 
 namespace Euclid::CLI {
 
@@ -47,6 +51,7 @@ namespace Euclid::CLI {
             return PrintModuleHelp("eap", {
                                            {"create-application", "Define a new application from an artifact in an ESM bucket"},
                                            {"update-application", "Change an existing application's definition"},
+                                           {"redeploy-application", "Deploy a new build of an application from a local file"},
                                            {"list-applications", "List the defined applications and how many instances are running"},
                                            {"get-application", "Show one application's definition"},
                                            {"delete-application", "Delete an application definition"},
@@ -73,6 +78,7 @@ namespace Euclid::CLI {
 
         if (action == "create-application") return createApplication(args);
         if (action == "update-application") return updateApplication(args);
+        if (action == "redeploy-application") return redeployApplication(args);
         if (action == "list-applications") return listApplications(args);
         if (action == "get-application") return getApplication(args);
         if (action == "delete-application") return deleteApplication(args);
@@ -90,6 +96,7 @@ namespace Euclid::CLI {
                 ("runtime,r", po::value<std::string>()->required(), "runtime the artifact is started with: JAVA, PYTHON, NODEJS or BINARY")
                 ("bucket,b", po::value<std::string>()->required(), "name of the ESM bucket holding the artifact")
                 ("artifact,a", po::value<std::string>()->required(), "object key of the artifact within that bucket")
+                ("version", po::value<std::string>(), "version of this build; read out of the artifact name (x.y.z) when not given")
                 ("user,u", po::value<std::string>(), "EAM user the application runs as; defaults to a technical principal created for this application alone")
                 ("buckets", po::value<std::string>(), "comma-separated names of the ESM buckets the application may use; empty means every bucket in its account")
                 ("queues", po::value<std::string>(), "comma-separated names of the EQS queues the application may use; empty means every queue in its account")
@@ -98,20 +105,24 @@ namespace Euclid::CLI {
                 ("environment,e", po::value<std::string>(), "comma-separated KEY=value environment variables")
                 ("min-instances", po::value<long>(), "smallest number of instances the autoscaler keeps running (default 1)")
                 ("max-instances", po::value<long>(), "largest number of instances the autoscaler may scale out to (default 1)")
-                ("ready-timeout", po::value<long>(), "how long an instance may take to create its socket, in milliseconds (default 30000)");
+                ("ready-timeout", po::value<long>(), "kept on the definition but no longer decides readiness: an application counts as started by surviving its own startup, not by creating a socket");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eap", "create-application",
-                                   "--application-id <name> --runtime <runtime> --bucket <bucket> --artifact <key> "
+                                   "--application-id <name> --runtime <runtime> --bucket <bucket> --artifact <key> [--version <x.y.z>] "
                                    "[--user <user>] [--buckets <list>] [--queues <list>] [--command <cmd>] "
                                    "[--arguments <list>] [--environment <list>] [--min-instances <n>] "
                                    "[--max-instances <n>] [--ready-timeout <ms>]",
                                    "Defines a new application from an artifact already stored in an ESM bucket - upload it first with "
                                    "\"esm upload-file\", or through a transfer server. The manager copies the artifact to the host, "
                                    "starts it with the runtime's interpreter (java -jar, python3, node) or directly for BINARY, and "
-                                   "scales it between --min-instances and --max-instances like any other module. The process is handed "
-                                   "its socket path in EUCLID_SOCKET and an access key in EUCLID_ACCESS_KEY_ID/EUCLID_SECRET_ACCESS_KEY, "
-                                   "which it uses to sign its own calls back into euclid (RFC 9421). Without --user the application gets "
+                                   "scales it between --min-instances and --max-instances like any other module. An instance counts as "
+                                   "started once it is still running a moment after it was spawned, so an application that only does "
+                                   "work of its own is never killed for failing to answer a convention it was not written for; a socket "
+                                   "path is still handed to it in EUCLID_SOCKET for one that does want to serve x-euclid-action requests. "
+                                   "Its endpoint and credentials arrive the same way - EUCLID_BASE_URL, and a rotating token in the file "
+                                   "named by EUCLID_CREDENTIALS_FILE - which it uses to sign its own calls back into euclid (RFC 9421). "
+                                   "Without --user the application gets "
                                    "a technical principal of its own (\"app-<application-id>\"): an EAM identity that cannot log in and "
                                    "has nothing but that key, created here and deleted with the application, so no application ever runs "
                                    "on a person's credentials. Name --user only when an application really should act as an existing user. "
@@ -137,6 +148,7 @@ namespace Euclid::CLI {
                 {"bucket", vm["bucket"].as<std::string>()},
                 {"artifact", vm["artifact"].as<std::string>()}
         };
+        if (vm.contains("version")) request["version"] = vm["version"].as<std::string>();
         if (vm.contains("user")) request["user"] = vm["user"].as<std::string>();
         if (vm.contains("command")) request["command"] = vm["command"].as<std::string>();
         if (vm.contains("arguments")) request["arguments"] = SplitList(vm["arguments"].as<std::string>());
@@ -175,7 +187,7 @@ namespace Euclid::CLI {
                 ("queues", po::value<std::string>(), "comma-separated queue names the application may use; replaces the current list")
                 ("min-instances", po::value<long>(), "smallest number of instances the autoscaler keeps running")
                 ("max-instances", po::value<long>(), "largest number of instances the autoscaler may scale out to")
-                ("ready-timeout", po::value<long>(), "how long an instance may take to create its socket, in milliseconds");
+                ("ready-timeout", po::value<long>(), "kept on the definition but no longer decides readiness: an application counts as started by surviving its own startup, not by creating a socket");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eap", "update-application",
@@ -184,10 +196,13 @@ namespace Euclid::CLI {
                                    "[--min-instances <n>] [--max-instances <n>] [--ready-timeout <ms>]",
                                    "Changes an existing application's definition. Only the options actually given are altered, so one "
                                    "setting can be changed without resending the whole definition; --arguments and --environment "
-                                   "replace the current values rather than adding to them. A running application keeps running on its "
-                                   "old definition until it is restarted - \"eap stop-application\" followed by "
-                                   "\"eap start-application\" applies the change, which is also how a newly uploaded artifact is "
-                                   "picked up. Changing --buckets or --queues re-grants the application's technical principal, so the "
+                                   "replace the current values rather than adding to them. A running application is restarted onto the "
+                                   "new definition by the manager's reconciler within a few seconds - an artifact, a command, an "
+                                   "environment and the credentials a process was handed are all decided when it starts, so there is no "
+                                   "other way to apply them. That also makes this the way to deploy a new build: upload it over the same "
+                                   "key with \"esm upload-file\" and run this command, which re-materialises the artifact even when "
+                                   "nothing about the definition changed. "
+                                   "Changing --buckets or --queues re-grants the application's technical principal, so the "
                                    "new list takes effect immediately, for running instances too. The identity the application runs as "
                                    "cannot be changed here - delete it and create it again instead.",
                                    desc);
@@ -223,6 +238,123 @@ namespace Euclid::CLI {
             }
             Core::WriteJson(std::cout, response.body, _pretty);
             return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EapCli::redeployApplication(const std::vector<std::string> &args) const {
+        po::options_description desc("deploy a new build of an application");
+        desc.add_options()
+                ("application-id,n", po::value<std::string>()->required(), "name of the application to deploy")
+                ("file,f", po::value<std::string>()->required(), "the new build: the jar for JAVA, the script for PYTHON/NODEJS, the executable for BINARY")
+                ("artifact,a", po::value<std::string>(), "object key to store it under; defaults to the key the application already uses")
+                ("version", po::value<std::string>(), "version this build is; read out of the file name (x.y.z) when not given");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eap", "redeploy-application", "--application-id <name> --file <path> [--artifact <key>] [--version <x.y.z>]",
+                                   "Deploys a new build: uploads the local file into the application's own bucket, under the artifact "
+                                   "key the application already uses, and stamps the definition so the manager restarts the running "
+                                   "instances onto it - within a few seconds, since an artifact is decided when a process starts. "
+                                   "The version is read out of the file name (\"orders-1.4.0.jar\" is 1.4.0) unless --version says "
+                                   "otherwise. A redeploy is refused unless it is genuinely a new build: the version has to differ from "
+                                   "the one deployed, and so does the artifact itself - a version bump that ships identical bytes, or "
+                                   "new bytes under the version already running, are both deployments nobody can account for afterwards. "
+                                   "Checked here before the upload, so a refused redeploy leaves the bucket as it was, and again by the "
+                                   "server. \"eap update-application --artifact\" deploys either on purpose. "
+                                   "Give --artifact to deploy under a different key, for a versioned name (\"orders-1.4.0.jar\"); the "
+                                   "application is repointed at it. An application that is stopped stays stopped and comes up on the "
+                                   "new build when it is started.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        const auto applicationId = vm["application-id"].as<std::string>();
+        const auto filePath = vm["file"].as<std::string>();
+
+        // Checked before anything is asked of the server: a mistyped path is the likeliest thing
+        // to be wrong here, and finding out after the definition was stamped would mean a restart
+        // onto the build that is still there.
+        if (std::error_code ec; !std::filesystem::is_regular_file(filePath, ec)) {
+            std::cerr << "error: redeploy-application failed: '" << filePath << "' is not a file\n";
+            return 1;
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+
+            // Where the build has to go is the application's own business, not something the
+            // caller should have to look up and pass in correctly.
+            const HttpResponse current = client.Post("eap", "get-application", boost::json::object{{"applicationId", applicationId}});
+            if (!current.IsSuccess()) {
+                std::cerr << "error: redeploy-application failed (HTTP " << current.statusCode << "): " << boost::json::serialize(current.body) << std::endl;
+                return 1;
+            }
+
+            const auto &definition = current.body.as_object();
+            const auto bucketErn = std::string(definition.at("bucketErn").as_string());
+            const auto artifactKey = vm.count("artifact") ? vm["artifact"].as<std::string>()
+                                                          : std::string(definition.at("artifactKey").as_string());
+
+            // What this build calls itself: what was asked for, else what the file's own name
+            // says, else what the key says - "orders-1.4.0.jar" carries its version either way.
+            auto version = vm.count("version") ? vm["version"].as<std::string>()
+                                               : Database::Entity::EAP::VersionFromArtifactName(std::filesystem::path(filePath).filename().string());
+            if (version.empty()) version = Database::Entity::EAP::VersionFromArtifactName(artifactKey);
+            if (version.empty()) {
+                std::cerr << "error: redeploy-application failed: no version in '" << std::filesystem::path(filePath).filename().string()
+                        << "' (expected something like 1.4.0) - pass --version\n";
+                return 1;
+            }
+
+            // The server refuses a redeploy that is not a new build, and would refuse this one
+            // after the upload had already overwritten the artifact - leaving a build in the
+            // bucket that was rejected but that the next restart would pick up anyway. So the same
+            // two questions are asked here first, against the definition just read.
+            const auto deployedVersion = definition.contains("version") ? std::string(definition.at("version").as_string()) : std::string();
+            const auto deployedMd5 = definition.contains("md5Sum") ? std::string(definition.at("md5Sum").as_string()) : std::string();
+
+            if (const auto refused = Database::Entity::EAP::RedeployRefusal(deployedVersion, deployedMd5, version,
+                                                                            Core::CryptoUtils::md5SumFile(filePath));
+                !refused.empty()) {
+                std::cerr << "error: refusing to redeploy '" << applicationId << "': " << refused
+                        << "\nuse 'eap update-application --application-id " << applicationId << " --artifact " << artifactKey
+                        << "' to deploy it anyway\n";
+                return 1;
+            }
+
+            const EsmCli esm(_endpoint, _authentication, _pretty, _caCertPath);
+            boost::json::value uploaded;
+            if (esm.uploadOneFile(bucketErn, artifactKey, filePath, 0, 0, uploaded) != 0) {
+                // uploadOneFile already said what went wrong, and the definition is untouched -
+                // the application keeps running on the build it has.
+                return 1;
+            }
+
+            // Recording the new version is what makes this a deployment rather than an upload: the
+            // definition is stamped, and the manager reads that as a new revision and restarts the
+            // pool onto the new artifact.
+            const HttpResponse response = client.Post("eap", "redeploy-application",
+                                                      boost::json::object{{"applicationId", applicationId}, {"artifact", artifactKey}, {"version", version}});
+            if (!response.IsSuccess()) {
+                std::cerr << "error: redeploy-application failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body)
+                        << "\nthe new build was uploaded to " << artifactKey << "; run 'eap redeploy-application --application-id " << applicationId
+                        << " --file " << filePath << "' again once that is resolved" << std::endl;
+                return 1;
+            }
+
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+
         } catch (const std::exception &ex) {
             std::cerr << "error: " << ex.what() << std::endl;
             return 1;

@@ -7,6 +7,7 @@ euclid-cli-eap-update-application \- change an application's definition
 .I NAME
 [\fB\-\-runtime\fR|\fB\-r\fR \fIRUNTIME\fR]
 [\fB\-\-artifact\fR|\fB\-a\fR \fIKEY\fR]
+[\fB\-\-version\fR \fIX.Y.Z\fR]
 [\fB\-\-command\fR|\fB\-c\fR \fICMD\fR]
 [\fB\-\-arguments\fR \fILIST\fR]
 [\fB\-\-environment\fR|\fB\-e\fR \fILIST\fR]
@@ -30,6 +31,17 @@ a process was handed are all decided when it starts, so there is nothing
 a running process could apply. Redeploying a new build of the same
 artifact key is therefore an upload followed by this command.
 .PP
+Unlike
+.BR euclid-cli-eap-redeploy-application (1),
+nothing here is checked against the build already deployed: this is how a
+version is deliberately rebuilt in place, or rolled back to bytes already
+seen. Changing
+.B \-\-artifact
+re-reads the artifact's MD5 onto the definition, so what it records is
+always the artifact it points at; the recorded version follows only when
+.B \-\-version
+says so.
+.PP
 The identity an application runs as cannot be changed here - delete it
 and create it again instead. Neither can its bucket; the artifact key
 must name an object in the bucket the application already has.
@@ -44,6 +56,10 @@ What the artifact is started with: \fIJAVA\fR, \fIPYTHON\fR,
 .TP
 .BR \-a ", " \-\-artifact " " \fIKEY\fR
 Object key of the artifact within the application's bucket. Must exist.
+.TP
+.B \-\-version " " \fIX.Y.Z\fR
+Version recorded for the application. Taken as given - this is the one
+place a version can be set to anything, including one already deployed.
 .TP
 .BR \-c ", " \-\-command " " \fICMD\fR
 Command to run instead of the runtime's default.
@@ -72,7 +88,8 @@ Smallest number of instances the autoscaler keeps running.
 Largest number of instances the autoscaler may scale out to.
 .TP
 .B \-\-ready\-timeout " " \fIMS\fR
-How long an instance may take to create its socket, in milliseconds.
+Recorded on the definition, and no longer used to decide anything - see
+.BR euclid-cli-eap-create-application (1).
 .SH EXIT STATUS
 .TP
 .B 0
@@ -101,6 +118,7 @@ euclid-cli eap update-application --application-id inbox --max-instances 8
 .RE
 .SH SEE ALSO
 .BR euclid-cli-eap (1),
+.BR euclid-cli-eap-redeploy-application (1),
 .BR euclid-cli-eap-create-application (1),
 .BR euclid-cli-eap-get-application (1),
 .BR euclid-cli-esm-upload-file (1)

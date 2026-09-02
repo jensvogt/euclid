@@ -25,6 +25,7 @@ namespace Euclid::Database::Entity::ETS {
                 bsoncxx::builder::basic::kvp("port", static_cast<std::int64_t>(port)),
                 bsoncxx::builder::basic::kvp("bucketErn", bucketErn),
                 bsoncxx::builder::basic::kvp("bucketName", bucketName),
+                bsoncxx::builder::basic::kvp("homeDirectory", homeDirectory),
                 bsoncxx::builder::basic::kvp("userIds", userIdsArray),
                 bsoncxx::builder::basic::kvp("userGroups", userGroupsArray),
                 bsoncxx::builder::basic::kvp("desiredState", TransferServerStateToString(desiredState)),
@@ -50,6 +51,7 @@ namespace Euclid::Database::Entity::ETS {
             else if (key == "port") server.port = static_cast<long>(field.get_int64().value);
             else if (key == "bucketErn") server.bucketErn = std::string(field.get_string().value);
             else if (key == "bucketName") server.bucketName = std::string(field.get_string().value);
+            else if (key == "homeDirectory") server.homeDirectory = std::string(field.get_string().value);
             else if (key == "userIds") {
                 for (const auto &elem: field.get_array().value) server.userIds.emplace_back(elem.get_string().value);
             } else if (key == "userGroups") {

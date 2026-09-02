@@ -88,3 +88,12 @@ set_target_properties(${WS_FRAME_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 target_link_libraries(${WS_FRAME_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
 
 add_test(NAME ${WS_FRAME_BINARY} COMMAND ${WS_FRAME_BINARY})
+
+set(TRANSFER_HOME_BINARY euclid-transfer-home-prefix-tests)
+
+add_executable(${TRANSFER_HOME_BINARY} TransferHomePrefixTest.cpp)
+set_target_properties(${TRANSFER_HOME_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${TRANSFER_HOME_BINARY} PRIVATE euclidtransfer Boost::unit_test_framework)
+
+add_test(NAME ${TRANSFER_HOME_BINARY} COMMAND ${TRANSFER_HOME_BINARY})

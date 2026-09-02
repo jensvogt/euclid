@@ -25,6 +25,8 @@ namespace Euclid::EAP {
     using Database::Entity::EAP::Runtime;
     using Database::Entity::EAP::RuntimeFromString;
     using Database::Entity::EAP::RuntimeToString;
+    using Database::Entity::EAP::RedeployRefusal;
+    using Database::Entity::EAP::VersionFromArtifactName;
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -203,6 +205,8 @@ namespace Euclid::EAP {
                     {"runtime", RuntimeToString(application.runtime)},
                     {"bucketErn", application.bucketErn},
                     {"artifactKey", application.artifactKey},
+                    {"version", application.version},
+                    {"md5Sum", application.md5Sum},
                     {"command", application.command},
                     {"arguments", arguments},
                     {"environment", environment},
@@ -284,8 +288,20 @@ namespace Euclid::EAP {
 
         const auto artifactKey = stringField(obj, "artifact");
         if (artifactKey.empty()) return EapServer::ErrorResponse(req, status::bad_request, "artifact is required");
-        if (!esmRepository->findObjectByBucketAndKey(bucket->ern, artifactKey).has_value()) {
+        const auto artifact = esmRepository->findObjectByBucketAndKey(bucket->ern, artifactKey);
+        if (!artifact.has_value()) {
             return EapServer::ErrorResponse(req, status::not_found, "Artifact not found in bucket '" + bucketName + "': " + artifactKey);
+        }
+
+        // Which build this is has to be answerable from the definition alone, so it is settled
+        // here: taken from the artifact's name when it carries one, and asked for when it does
+        // not. Nothing later can supply it - a redeploy is refused unless the version changes, and
+        // there is nothing to compare against if the first one was never recorded.
+        auto version = stringField(obj, "version");
+        if (version.empty()) version = VersionFromArtifactName(artifactKey);
+        if (version.empty()) {
+            return EapServer::ErrorResponse(req, status::bad_request,
+                                            "version is required: it could not be read from the artifact name '" + artifactKey + "' (expected something like 1.4.0)");
         }
 
         // The application runs as some identity and signs its own calls back into euclid with that
@@ -329,6 +345,10 @@ namespace Euclid::EAP {
         application.runtime = runtime;
         application.bucketErn = bucket->ern;
         application.artifactKey = artifactKey;
+        application.version = version;
+        // The checksum is ESM's, not one computed here: it is the same hash the manager compares
+        // the copy on the host against, and the same one a redeploy has to differ from.
+        application.md5Sum = artifact->md5Sum;
         application.command = stringField(obj, "command");
         application.arguments = stringArray(obj, "arguments");
         application.environment = stringMap(obj, "environment");
@@ -341,7 +361,7 @@ namespace Euclid::EAP {
 
         const auto stored = repo->upsertApplication(application);
         log_info << "EAP created application, applicationId: " << stored.applicationId << ", runtime: " << RuntimeToString(stored.runtime)
-                << ", artifact: " << stored.artifactKey << ", user: " << stored.userId;
+                << ", artifact: " << stored.artifactKey << ", version: " << stored.version << ", user: " << stored.userId;
 
         return EapServer::JsonResponse(req, status::ok, boost::json::serialize(toJson(stored)));
     }
@@ -376,11 +396,19 @@ namespace Euclid::EAP {
         }
         if (obj.contains("artifact")) {
             const auto artifactKey = stringField(obj, "artifact");
-            if (!Database::RepositoryFactory::instance().esmRepository()->findObjectByBucketAndKey(application->bucketErn, artifactKey).has_value()) {
+            const auto artifact = Database::RepositoryFactory::instance().esmRepository()->findObjectByBucketAndKey(application->bucketErn, artifactKey);
+            if (!artifact.has_value()) {
                 return EapServer::ErrorResponse(req, status::not_found, "Artifact not found: " + artifactKey);
             }
             application->artifactKey = artifactKey;
+
+            // Deliberately without the checks redeploy-application makes: this is the way to
+            // deploy a build that a redeploy would refuse - the same version rebuilt, a rollback
+            // to a version already seen - and the recorded checksum has to follow the artifact
+            // either way, or the definition would claim a build it no longer points at.
+            application->md5Sum = artifact->md5Sum;
         }
+        if (obj.contains("version")) application->version = stringField(obj, "version");
         if (obj.contains("command")) application->command = stringField(obj, "command");
         if (obj.contains("arguments")) application->arguments = stringArray(obj, "arguments");
         if (obj.contains("environment")) application->environment = stringMap(obj, "environment");
@@ -413,6 +441,74 @@ namespace Euclid::EAP {
 
         const auto stored = repo->upsertApplication(*application);
         log_info << "EAP updated application, applicationId: " << stored.applicationId;
+
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(toJson(stored)));
+    }
+
+    /**
+     * @brief Deploys a new build of an application: a new version, and an artifact that differs.
+     *
+     * Separate from update-application because it is the one change with a rule attached. A
+     * deployment is supposed to move an application from one build to another, and the two ways
+     * that silently fails to happen are worth refusing outright:
+     *
+     * - the version did not change, so nothing downstream - a log line, an incident, an operator
+     *   reading list-applications - can tell which build is actually running;
+     * - the artifact hashes the same, so the "new build" is the build already deployed, and the
+     *   restart it would cause buys nothing.
+     *
+     * update-application remains the way to do either on purpose.
+     */
+    static response<string_body> handleRedeployApplication(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "redeploy-application");
+
+        AuthResult auth;
+        if (const auto denied = requireAdmin(req, auth)) return *denied;
+
+        boost::json::value jv;
+        if (const auto err = EapServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+        const auto &obj = jv.as_object();
+
+        const auto applicationId = stringField(obj, "applicationId");
+        const auto repo = Database::RepositoryFactory::instance().eapRepository();
+        auto application = repo->findApplicationByApplicationId(applicationId);
+        if (!application.has_value()) {
+            return EapServer::ErrorResponse(req, status::not_found, "Application not found: " + applicationId);
+        }
+
+        // A redeploy under the same key is the common case - the build changes, its name does not -
+        // so the artifact is optional and defaults to the one already deployed.
+        const auto artifactKey = stringField(obj, "artifact", application->artifactKey);
+        const auto artifact = Database::RepositoryFactory::instance().esmRepository()->findObjectByBucketAndKey(application->bucketErn, artifactKey);
+        if (!artifact.has_value()) {
+            return EapServer::ErrorResponse(req, status::not_found, "Artifact not found: " + artifactKey);
+        }
+
+        auto version = stringField(obj, "version");
+        if (version.empty()) version = VersionFromArtifactName(artifactKey);
+        if (version.empty()) {
+            return EapServer::ErrorResponse(req, status::bad_request,
+                                            "version is required: it could not be read from the artifact name '" + artifactKey + "' (expected something like 1.4.0)");
+        }
+
+        if (const auto refused = RedeployRefusal(application->version, application->md5Sum, version, artifact->md5Sum); !refused.empty()) {
+            return EapServer::ErrorResponse(req, status::conflict,
+                                            "Refusing to redeploy '" + applicationId + "': " + refused
+                                                    + ". Use 'update-application' to deploy it anyway.");
+        }
+
+        const auto previousVersion = application->version;
+        application->artifactKey = artifactKey;
+        application->version = version;
+        application->md5Sum = artifact->md5Sum;
+
+        // Storing it is what deploys it: upsertApplication stamps `modified`, the manager reads
+        // that as a new revision on its next pass, and restarts the pool onto the new artifact.
+        const auto stored = repo->upsertApplication(*application);
+        log_info << "EAP redeployed application, applicationId: " << stored.applicationId << ", version: "
+                << (previousVersion.empty() ? "(none)" : previousVersion) << " -> " << stored.version << ", artifact: " << stored.artifactKey;
 
         return EapServer::JsonResponse(req, status::ok, boost::json::serialize(toJson(stored)));
     }
@@ -532,6 +628,7 @@ namespace Euclid::EAP {
 
         if (action == "create-application") return handleCreateApplication(req);
         if (action == "update-application") return handleUpdateApplication(req);
+        if (action == "redeploy-application") return handleRedeployApplication(req);
         if (action == "list-applications") return handleListApplications(req);
         if (action == "get-application") return handleGetApplication(req);
         if (action == "delete-application") return handleDeleteApplication(req);

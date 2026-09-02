@@ -1,0 +1,125 @@
+.TH EUCLID-CLI-EAP-REDEPLOY-APPLICATION 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eap-redeploy-application \- deploy a new build of an application
+.SH SYNOPSIS
+.B euclid-cli eap redeploy-application
+.BR \-\-application\-id | \-n
+.I NAME
+.BR \-\-file | \-f
+.I PATH
+[\fB\-\-artifact\fR|\fB\-a\fR \fIKEY\fR]
+[\fB\-\-version\fR \fIX.Y.Z\fR]
+.SH DESCRIPTION
+Deploys a new build of an application from a local file: the jar for a
+.IR JAVA
+application, the script for
+.I PYTHON
+or
+.IR NODEJS ,
+the executable for
+.IR BINARY .
+.PP
+The file is uploaded into the application's own bucket, under the
+artifact key the application already uses, and the definition is then
+stamped so the manager restarts the running instances onto it - within a
+few seconds, since the artifact, the command, the environment and the
+credentials a process was handed are all decided when it starts.
+.PP
+This is
+.BR euclid-cli-esm-upload-file (1)
+followed by
+.BR euclid-cli-eap-update-application (1),
+which is exactly how it is implemented - without having to look up which
+bucket and key the application uses, and without the failure mode of
+running only the first of the two, where the new build sits in the bucket
+while every instance goes on running the old one and nothing looks wrong.
+.PP
+A redeploy has to be a new build, and is refused otherwise:
+.IP \(bu 2
+the version has to differ from the one deployed. Two deployments under one
+version cannot be told apart afterwards - not in a log, not in an
+incident, not in
+.BR euclid-cli-eap-list-applications (1).
+.IP \(bu 2
+the artifact has to differ from the one deployed, by MD5. A version bump
+carrying identical bytes ships nothing, and the restart it would cause
+changes nothing.
+.PP
+Both are checked here, before the upload, so a refused redeploy leaves the
+bucket exactly as it was - and again by the eap module, which is the
+boundary. Deploying either on purpose - the same version rebuilt, a
+rollback to bytes already seen - is what
+.BR euclid-cli-eap-update-application (1)
+is for.
+.PP
+An application that is
+.I stopped
+stays stopped, and comes up on the new build when it is next started.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-application\-id " " \fINAME\fR
+Name of the application to deploy. Required.
+.TP
+.BR \-f ", " \-\-file " " \fIPATH\fR
+The new build, as a local file. Required. Checked before anything is
+sent, so a mistyped path costs nothing.
+.TP
+.B \-\-version " " \fIX.Y.Z\fR
+Version this build is. Read out of the local file's own name when not
+given - \fIorders\-1.4.0.jar\fR is 1.4.0 - then out of the artifact key,
+and required when neither carries one.
+.TP
+.BR \-a ", " \-\-artifact " " \fIKEY\fR
+Object key to store the build under, when it should not be the key the
+application already uses - a versioned name like
+\fIorders\-1.4.jar\fR, say. The application is repointed at it, and the
+object under the old key is left in the bucket.
+.SH EXIT STATUS
+.TP
+.B 0
+The build was uploaded and the definition stamped. The definition is
+printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments,
+.B \-\-file
+is not a file, the caller is not an authenticated administrator, no
+application of that name exists, no version was given and none could be
+read from the file or artifact name, the version or the artifact is the
+one already deployed, or the upload failed. An upload that
+failed leaves the definition untouched, so the application keeps running
+on the build it has; if the upload succeeded and only the definition
+could not be stamped, the error says which key the build reached and what
+to run to deploy it.
+.SH EXAMPLES
+Deploy a freshly built jar, taking the version from its name:
+.RS
+.nf
+mvn package
+euclid-cli eap redeploy-application --application-id file-copy \\
+    --file target/file-copy-service-1.4.0.jar
+.fi
+.RE
+.PP
+Deploy a build whose file name carries no version:
+.RS
+.nf
+euclid-cli eap redeploy-application --application-id file-copy \\
+    --file target/file-copy-service.jar --version 1.4.0
+.fi
+.RE
+.PP
+Deploy under a versioned key:
+.RS
+.nf
+euclid-cli eap redeploy-application --application-id orders \\
+    --file target/orders-1.4.jar --artifact orders-1.4.jar
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eap (1),
+.BR euclid-cli-eap-update-application (1),
+.BR euclid-cli-eap-start-application (1),
+.BR euclid-cli-esm-upload-file (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

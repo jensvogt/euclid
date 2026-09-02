@@ -60,6 +60,8 @@
 #include <euclid/dto/esm/ObjectAttributeResponse.h>
 #include <euclid/dto/esm/PurgeBucketRequest.h>
 #include <euclid/dto/esm/PurgeBucketResponse.h>
+#include <euclid/dto/esm/RenameBucketRequest.h>
+#include <euclid/dto/esm/RenameBucketResponse.h>
 #include <euclid/dto/esm/RenameObjectRequest.h>
 #include <euclid/dto/esm/SubscribeRequest.h>
 #include <euclid/dto/esm/SubscribeResponse.h>
@@ -128,6 +130,19 @@ namespace Euclid::ESM {
 
         [[nodiscard]]
         static response<string_body> handleDeleteBucket(const request<string_body> &req);
+
+        /**
+         * @brief Gives a bucket another name, rewriting everything that names it.
+         *
+         * @par
+         * The bucket's own ERN, every object's reference to it, every object's own ERN and every
+         * subscription watching it. Refused when the new name is taken, or when a transfer server
+         * is serving the bucket - see the implementation for why that one is not repointed here.
+         *
+         * @param req HTTP request
+         * @return HTTP response
+         */
+        static response<string_body> handleRenameBucket(const request<string_body> &req);
 
         [[nodiscard]]
         static response<string_body> handlePutObject(const request<string_body> &req);

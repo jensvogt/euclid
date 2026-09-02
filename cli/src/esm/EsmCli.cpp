@@ -68,6 +68,7 @@ namespace Euclid::CLI {
                                            {"get-bucket-size", "Returns the bucket size in bytes"},
                                            {"purge-bucket", "Removes all objects from a bucket"},
                                            {"delete-bucket", "Delete a bucket"},
+                                           {"rename-bucket", "Give a bucket another name"},
                                            {"upload-file", "Upload a local file to a bucket"},
                                            {"upload-directory", "Upload every file in a local directory to a bucket"},
                                            {"download-file", "Download an object from a bucket to a local file"},
@@ -95,6 +96,9 @@ namespace Euclid::CLI {
         }
         if (action == "delete-bucket") {
             return deleteBucket(args);
+        }
+        if (action == "rename-bucket") {
+            return renameBucket(args);
         }
         if (action == "list-buckets") {
             return listBuckets(args);
@@ -667,7 +671,14 @@ namespace Euclid::CLI {
         return false;// unreachable
     }
 
-    int EsmCli::uploadOneFile(const std::string &bucketErn, const std::string &key, const std::string &filePath, const long partSize, const int concurrency, boost::json::value &outResult) const {
+    int EsmCli::uploadOneFile(const std::string &bucketErn, const std::string &key, const std::string &filePath, long partSize, int concurrency, boost::json::value &outResult) const {
+
+        // A caller that has no opinion about how the file is cut up says so by passing nothing,
+        // and gets the same defaults "esm upload-file" would have applied - the configured ones,
+        // not whatever constant happened to be nearest.
+        if (partSize <= 0) partSize = DefaultPartSize();
+        if (concurrency <= 0) concurrency = DefaultConcurrency();
+
         std::error_code fsEc;
         const auto fileSize = std::filesystem::file_size(filePath, fsEc);
         if (fsEc) {
@@ -1525,6 +1536,51 @@ namespace Euclid::CLI {
 
     int EsmCli::moveObject(const std::vector<std::string> &args) const {
         return transferObject(args, false);
+    }
+
+    int EsmCli::renameBucket(const std::vector<std::string> &args) const {
+        po::options_description desc("rename bucket options");
+        desc.add_options()
+                ("bucket,b", po::value<std::string>()->required(), "ERN of the bucket to rename")
+                ("new-name,n", po::value<std::string>()->required(), "name it should have");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", "rename-bucket", "--bucket <ern> --new-name <name>",
+                                   "Gives a bucket another name. Nothing is copied and no object moves: what changes is the name, and "
+                                   "with it everything that spells it out - the bucket's own ERN, every object's reference to it, every "
+                                   "object's ERN (which carries the bucket name before the key) and every subscription watching it. "
+                                   "The answer says how many of each were rewritten. "
+                                   "Refused if the new name is taken, or if a transfer server is serving the bucket: that server would "
+                                   "keep pointing at an ERN that no longer exists, so stop it or move it with \"ets update-server\" first.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ESM::RenameBucketRequest request;
+        request.ern = vm["bucket"].as<std::string>();
+        request.newName = vm["new-name"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("esm", "rename-bucket", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: rename-bucket failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
     }
 
     int EsmCli::renameObject(const std::vector<std::string> &args) const {

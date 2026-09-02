@@ -81,6 +81,7 @@ namespace Euclid::CLI {
                 ("port,p", po::value<long>()->required(), "TCP port to listen on; must not be used by another transfer server")
                 ("bucket,b", po::value<std::string>()->required(), "name of the ESM bucket this server's clients read and write")
                 ("address,a", po::value<std::string>()->default_value("0.0.0.0"), "address to bind to")
+                ("home-dir,H", po::value<std::string>(), "key prefix each client is rooted at, with {user} standing for the login name, e.g. \"{user}\"; default is the bucket root, shared by every client")
                 ("users,u", po::value<std::string>(), "comma-separated EAM user IDs allowed to log in")
                 ("groups,g", po::value<std::string>(), "comma-separated EAM user groups whose members may log in")
                 ("host-key,k", po::value<std::string>(), "SFTP only: private SSH host key file; generated on first start if absent")
@@ -90,12 +91,17 @@ namespace Euclid::CLI {
         if (IsHelpRequest(args)) {
             return PrintActionHelp("ets", "create-server",
                                    "--server-id <name> --port <port> --bucket <bucket> [--protocol FTP|SFTP] "
-                                   "[--address <addr>] [--users <list>] [--groups <list>] [--host-key <path>] "
-                                   "[--pasv-min <port>] [--pasv-max <port>]",
+                                   "[--address <addr>] [--home-dir <prefix>] [--users <list>] [--groups <list>] "
+                                   "[--host-key <path>] [--pasv-min <port>] [--pasv-max <port>]",
                                    "Defines a new FTP or SFTP transfer server fronting an ESM bucket. Clients "
                                    "authenticate with their EAM credentials and are admitted if they are named by "
                                    "--users or belong to one of --groups; whatever they upload is stored as an object "
                                    "in the bucket, which is what every listing and download then reads back. "
+                                   "Without --home-dir every client shares one flat key space at the bucket root, so "
+                                   "the key of an upload is exactly the path the client typed; --home-dir \"{user}\" "
+                                   "roots each session at a prefix named after the user that logged in, which is what "
+                                   "keeps one client's files out of another's and puts the delivering user into the "
+                                   "object key. "
                                    "The server is created stopped - use \"ets start-server\" to run it.",
                                    desc);
         }
@@ -124,6 +130,7 @@ namespace Euclid::CLI {
                 {"bucket", vm["bucket"].as<std::string>()},
                 {"address", vm["address"].as<std::string>()}
         };
+        if (vm.contains("home-dir")) request["homeDirectory"] = vm["home-dir"].as<std::string>();
         if (vm.contains("users")) request["userIds"] = SplitList(vm["users"].as<std::string>());
         if (vm.contains("groups")) request["userGroups"] = SplitList(vm["groups"].as<std::string>());
         if (vm.contains("host-key")) request["hostKey"] = vm["host-key"].as<std::string>();
@@ -152,6 +159,7 @@ namespace Euclid::CLI {
                 ("port,p", po::value<long>(), "TCP port to listen on")
                 ("bucket,b", po::value<std::string>(), "name of the ESM bucket this server's clients read and write")
                 ("address,a", po::value<std::string>(), "address to bind to")
+                ("home-dir,H", po::value<std::string>(), "key prefix each client is rooted at, with {user} standing for the login name; pass an empty string to move back to the bucket root")
                 ("users,u", po::value<std::string>(), "comma-separated EAM user IDs allowed to log in; replaces the current list")
                 ("groups,g", po::value<std::string>(), "comma-separated EAM user groups whose members may log in; replaces the current list")
                 ("host-key,k", po::value<std::string>(), "SFTP only: private SSH host key file")
@@ -161,11 +169,13 @@ namespace Euclid::CLI {
         if (IsHelpRequest(args)) {
             return PrintActionHelp("ets", "update-server",
                                    "--server-id <name> [--port <port>] [--bucket <bucket>] [--address <addr>] "
-                                   "[--users <list>] [--groups <list>] [--host-key <path>] [--pasv-min <port>] "
-                                   "[--pasv-max <port>]",
+                                   "[--home-dir <prefix>] [--users <list>] [--groups <list>] [--host-key <path>] "
+                                   "[--pasv-min <port>] [--pasv-max <port>]",
                                    "Changes an existing transfer server's settings. Only the options actually given "
                                    "are altered, so one setting can be changed without resending the whole definition; "
-                                   "--users and --groups replace the current list rather than adding to it. A server "
+                                   "--users and --groups replace the current list rather than adding to it. Changing "
+                                   "--home-dir changes where new uploads land and what a client sees, but moves no "
+                                   "object that is already in the bucket. A server "
                                    "that is running keeps running on its old settings until it is restarted - "
                                    "\"ets stop-server\" followed by \"ets start-server\" applies them. "
                                    "The protocol cannot be changed; delete the server and create it again instead.",
@@ -185,6 +195,7 @@ namespace Euclid::CLI {
         if (vm.contains("port")) request["port"] = vm["port"].as<long>();
         if (vm.contains("bucket")) request["bucket"] = vm["bucket"].as<std::string>();
         if (vm.contains("address")) request["address"] = vm["address"].as<std::string>();
+        if (vm.contains("home-dir")) request["homeDirectory"] = vm["home-dir"].as<std::string>();
         if (vm.contains("users")) request["userIds"] = SplitList(vm["users"].as<std::string>());
         if (vm.contains("groups")) request["userGroups"] = SplitList(vm["groups"].as<std::string>());
         if (vm.contains("host-key")) request["hostKey"] = vm["host-key"].as<std::string>();

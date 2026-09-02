@@ -73,6 +73,11 @@ Returns a bucket's total size in bytes. See
 Deletes a bucket by its ERN. See
 .BR euclid-cli-esm-delete-bucket (1).
 .TP
+.B rename-bucket
+Gives a bucket another name, rewriting its ERN and every object and
+subscription that names it. See
+.BR euclid-cli-esm-rename-bucket (1).
+.TP
 .B upload-file
 Uploads a local file to a bucket, transparently as a multipart upload.
 See
@@ -327,6 +332,7 @@ euclid-cli --endpoint http://localhost:5566 esm unsubscribe \e
 .BR euclid-cli-esm-get-bucket-ern (1),
 .BR euclid-cli-esm-get-bucket-size (1),
 .BR euclid-cli-esm-delete-bucket (1),
+.BR euclid-cli-esm-rename-bucket (1),
 .BR euclid-cli-esm-upload-file (1),
 .BR euclid-cli-esm-upload-directory (1),
 .BR euclid-cli-esm-download-file (1),

@@ -2,6 +2,7 @@
 
 // Euclid includes
 #include <TransferMetrics.h>
+#include <TransferPaths.h>
 #include <euclid/core/UuidUtils.h>
 
 namespace Euclid::FTP {
@@ -195,6 +196,7 @@ namespace Euclid::FTP {
 
         _username = identity->userId;
         _homeDir = _config.rootDir;
+        _keyPrefix = Transfer::HomePrefix(_config.transferServer.homeDirectory, identity->userId);
         _storage.emplace(_config.transferServer.bucketErn, identity->token, _config.transferServer.region, _config.transferServer.accountId,
                          _config.transferServer.serverId, identity->userId);
         _cwd = "/";
@@ -202,7 +204,7 @@ namespace Euclid::FTP {
         _pendingUser.clear();
 
         log_info << "FTP login: user=" << _username << ", server=" << _config.transferServer.serverId
-                << ", bucket=" << _config.transferServer.bucketName;
+                << ", bucket=" << _config.transferServer.bucketName << ", keyPrefix=" << _keyPrefix;
         sendReply(230, "Login successful");
     }
 
@@ -651,10 +653,10 @@ namespace Euclid::FTP {
         return _config.rootDir / ("spool-" + Core::UuidUtils::CreateRandomUuid());
     }
 
-    std::string FtpSession::keyOf(const std::string &virtualPath) {
+    std::string FtpSession::keyOf(const std::string &virtualPath) const {
         std::string key = virtualPath;
         while (!key.empty() && key.front() == '/') key.erase(key.begin());
-        return key;
+        return _keyPrefix + key;
     }
 
     FtpSession::ResolvedPath FtpSession::resolve(const std::string &arg) const {

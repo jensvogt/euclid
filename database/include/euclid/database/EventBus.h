@@ -349,7 +349,7 @@ namespace Euclid::Database {
          * vector a publisher is still walking.
          */
         [[nodiscard]]
-        std::shared_ptr<const std::vector<SubscriberRecord> > subscribersOf(const std::string &eventType);
+        std::shared_ptr<const std::vector<SubscriberRecord>> subscribersOf(const std::string &eventType);
 
         void invalidateSubscribers(const std::string &eventType);
 
@@ -389,9 +389,9 @@ namespace Euclid::Database {
 
         static void moveToDlq(const bsoncxx::document::view &doc, const std::string &reason);
 
-        static constexpr auto SUBSCRIPTION_COLLECTION = "internal_event_subscriptions";
-        static constexpr auto EVENT_COLLECTION = "internal_events";
-        static constexpr auto DLQ_COLLECTION = "internal_events_dlq";
+        static constexpr auto SUBSCRIPTION_COLLECTION = "ees_subscriptions";
+        static constexpr auto EVENT_COLLECTION = "ees_events";
+        static constexpr auto DLQ_COLLECTION = "ees_events_dlq";
         /**
          * @brief Prefix an external subscriber's name carries in an event's targetModule.
          *
@@ -418,10 +418,12 @@ namespace Euclid::Database {
         std::string _instanceId;
 
         std::mutex _cacheMutex;
+
         struct CacheEntry {
             std::chrono::steady_clock::time_point refreshedAt;
-            std::shared_ptr<const std::vector<SubscriberRecord> > subscribers;
+            std::shared_ptr<const std::vector<SubscriberRecord>> subscribers;
         };
+
         std::unordered_map<std::string, CacheEntry> _subscriberCache;
 
         std::mutex _notifyMutex;

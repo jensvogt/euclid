@@ -70,6 +70,19 @@ namespace Euclid::CLI {
         int updateApplication(const std::vector<std::string> &args) const;
 
         /**
+         * @brief Deploys a new build of an application from a local file.
+         *
+         * The two commands this replaces - uploading the artifact, then updating the definition so
+         * the manager restarts onto it - are always run together and always in that order, and
+         * doing only the first is a deployment that silently does not happen.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int redeployApplication(const std::vector<std::string> &args) const;
+
+        /**
          * @brief Lists applications, with how many instances of each are actually running.
          *
          * @param args command line arguments

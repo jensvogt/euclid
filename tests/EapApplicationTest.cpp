@@ -9,8 +9,10 @@
 using Euclid::Database::MemoryEapRepository;
 using Euclid::Database::Entity::EAP::Application;
 using Euclid::Database::Entity::EAP::ApplicationState;
+using Euclid::Database::Entity::EAP::RedeployRefusal;
 using Euclid::Database::Entity::EAP::Runtime;
 using Euclid::Database::Entity::EAP::RuntimeCommandPrefix;
+using Euclid::Database::Entity::EAP::VersionFromArtifactName;
 
 // An application definition is the whole contract between EAP, the manager and the process it
 // spawns, and the manager reads it back out of MongoDB rather than being told - so every field
@@ -27,7 +29,9 @@ namespace {
         application.region = "eu-central-1";
         application.runtime = Runtime::JAVA;
         application.bucketErn = "ern:esm:eu-central-1:000000000000:development:bucket:apps";
-        application.artifactKey = "orders/orders-1.4.jar";
+        application.artifactKey = "orders/orders-1.4.0.jar";
+        application.version = "1.4.0";
+        application.md5Sum = "0dc7cdef5e707bae7f7b6bbb5be4c32a";
         application.arguments = {"--profile", "production"};
         application.environment = {{"JAVA_TOOL_OPTIONS", "-Xmx512m"}, {"ORDERS_MODE", "batch"}};
         application.resources = {"ern:esm:eu-central-1:000000000000:development:bucket:inbox",
@@ -53,7 +57,11 @@ BOOST_AUTO_TEST_CASE(ApplicationSurvivesABsonRoundTrip) {
     BOOST_TEST(restored.region == "eu-central-1");
     BOOST_TEST((restored.runtime == Runtime::JAVA));
     BOOST_TEST(restored.bucketErn == application.bucketErn);
-    BOOST_TEST(restored.artifactKey == "orders/orders-1.4.jar");
+    BOOST_TEST(restored.artifactKey == "orders/orders-1.4.0.jar");
+    // Which build is deployed, and which bytes it is. Without these the definition cannot say
+    // what is running, and a redeploy has nothing to compare against.
+    BOOST_TEST(restored.version == "1.4.0");
+    BOOST_TEST(restored.md5Sum == "0dc7cdef5e707bae7f7b6bbb5be4c32a");
     BOOST_TEST(restored.userId == "appuser");
     BOOST_TEST(restored.minInstances == 2);
     BOOST_TEST(restored.maxInstances == 8);
@@ -183,4 +191,39 @@ BOOST_AUTO_TEST_CASE(TwoTechnicalPrincipalsCanCoexist) {
 
     const auto restored = Euclid::Database::Entity::EAM::User::fromDocument(principal.toDocument().view());
     BOOST_TEST(restored.email == "app-inbox@euclid.invalid");
+}
+
+BOOST_AUTO_TEST_CASE(AVersionIsReadOutOfTheArtifactName) {
+    // The ordinary case: builds carry their version in their own name, so nobody has to repeat it.
+    BOOST_TEST(VersionFromArtifactName("orders-1.4.0.jar") == "1.4.0");
+    BOOST_TEST(VersionFromArtifactName("apps/file-copy-service-2.0.11-SNAPSHOT.jar") == "2.0.11");
+    BOOST_TEST(VersionFromArtifactName("euclid_app-0.9.13.py") == "0.9.13");
+
+    // And the cases where it has to be asked for instead of guessed: no version at all, and the
+    // two-component kind that is not one.
+    BOOST_TEST(VersionFromArtifactName("orders.jar").empty());
+    BOOST_TEST(VersionFromArtifactName("orders-1.4.jar").empty());
+}
+
+BOOST_AUTO_TEST_CASE(ARedeployHasToBeANewBuild) {
+    const std::string deployedVersion = "1.4.0";
+    const std::string deployedMd5 = "0dc7cdef5e707bae7f7b6bbb5be4c32a";
+    const std::string otherMd5 = "655d7ed7f70afed3e3e437b71f992611";
+
+    // A new version carrying new bytes: the only thing a deployment is supposed to be.
+    BOOST_TEST(RedeployRefusal(deployedVersion, deployedMd5, "1.5.0", otherMd5).empty());
+
+    // New bytes under the version already running - afterwards nothing can say which build is up.
+    BOOST_TEST(!RedeployRefusal(deployedVersion, deployedMd5, "1.4.0", otherMd5).empty());
+
+    // A version bump that ships the build already deployed: the restart would change nothing.
+    BOOST_TEST(!RedeployRefusal(deployedVersion, deployedMd5, "1.5.0", deployedMd5).empty());
+
+    // An application defined before versions existed carries neither, and its first redeploy is
+    // what fills them in - refusing it would leave it with no way forward at all.
+    BOOST_TEST(RedeployRefusal("", "", "1.0.0", otherMd5).empty());
+
+    // The reasons are what an operator is shown, so they have to name what is actually wrong.
+    BOOST_TEST(RedeployRefusal(deployedVersion, deployedMd5, "1.4.0", otherMd5).find("1.4.0") != std::string::npos);
+    BOOST_TEST(RedeployRefusal(deployedVersion, deployedMd5, "1.5.0", deployedMd5).find("byte for byte") != std::string::npos);
 }
