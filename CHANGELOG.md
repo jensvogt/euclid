@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.57](https://github.com/jensvogt/euclid/compare/1.0.56...v1.0.57) (2026-09-02)
+
+
+### Bug Fixes
+
+* ESM encryption/description ([fc936dd](https://github.com/jensvogt/euclid/commit/fc936ddc114e34be0deb44d8ba191302a2a1b153))
+
 ## [1.0.56](https://github.com/jensvogt/euclid/compare/1.0.55...v1.0.56) (2026-09-02)
 
 
