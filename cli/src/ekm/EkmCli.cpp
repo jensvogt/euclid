@@ -20,6 +20,7 @@ namespace Euclid::CLI {
                                            {"list-keys", "List existing keys"},
                                            {"delete-key", "Schedule a key for deletion"},
                                            {"revoke-key", "Revoke a key (blocks encryption, decryption still works)"},
+                                           {"set-key-description", "Change what a key says it is for"},
                                            {"encrypt", "Encrypt a file or stdin with a key"},
                                            {"decrypt", "Decrypt a file or stdin with a key"},
                                    });
@@ -35,6 +36,9 @@ namespace Euclid::CLI {
         }
         if (action == "revoke-key") {
             return revokeKey(args);
+        }
+        if (action == "set-key-description") {
+            return setKeyDescription(args);
         }
         if (action == "encrypt") {
             return encrypt(args);
@@ -207,6 +211,55 @@ namespace Euclid::CLI {
             const HttpResponse response = client.Post("ekm", "revoke-key", boost::json::value_from(request));
             if (!response.IsSuccess()) {
                 std::cerr << "error: revoke-key failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EkmCli::setKeyDescription(const std::vector<std::string> &args) const {
+        po::options_description desc("set a key's description");
+        desc.add_options()
+                ("key,k", po::value<std::string>()->required(), "ERN of the key to describe")
+                ("description,d", po::value<std::string>()->required(), "what the key is for; an empty string clears it");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ekm", "set-key-description", "--key <ern> --description <text>",
+                                   "Changes what a key says it is for. A key is identified by a generated ID that says "
+                                   "nothing about what it protects, so the description is what answers - months later, "
+                                   "when somebody is deciding whether the key can be deleted - what would be lost. "
+                                   "create-key takes one; this is how it is corrected afterwards, and it is worth "
+                                   "correcting: a key that has been revoked or scheduled for deletion is exactly the "
+                                   "kind whose description should say why. "
+                                   "Passing an empty string clears the description rather than leaving it alone, since "
+                                   "otherwise there would be no way to remove one. "
+                                   "The key is named by ERN, as revoke-key names it; list-keys prints both the ERN and "
+                                   "the ID.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EKM::SetKeyDescriptionRequest request;
+        request.ern = vm["key"].as<std::string>();
+        request.description = vm["description"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ekm", "set-key-description", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: set-key-description failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);

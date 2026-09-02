@@ -1,0 +1,88 @@
+.TH EUCLID-CLI-EKM-SET-KEY-DESCRIPTION 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ekm-set-key-description \- change what a key says it is for
+.SH SYNOPSIS
+.B euclid-cli ekm set-key-description
+.BR \-\-key | \-k
+.I ERN
+.BR \-\-description | \-d
+.I TEXT
+.SH DESCRIPTION
+Replaces a key's description.
+.PP
+A key is identified by a generated ID which says nothing about what it
+protects. The description is what does \- and what answers, months
+later when somebody is deciding whether a key can be deleted, what
+would be lost with it.
+.BR euclid-cli-ekm-create-key (1)
+takes one; this is how it is corrected afterwards.
+.PP
+Worth correcting rather than leaving: a key that has been revoked or
+scheduled for deletion is exactly the kind whose description should say
+why, and it is the last thing anyone reads before
+.BR euclid-cli-ekm-delete-key (1)
+makes the decision permanent.
+.PP
+Only the description changes. The key material, algorithm, length,
+status and any scheduled deletion are untouched, so describing a key
+neither prolongs nor shortens its life, and a key that cannot encrypt
+still cannot after being described.
+.SH OPTIONS
+.TP
+.BR \-k ", " \-\-key " " \fIERN\fR
+Euclid resource name of the key. Required. Named by ERN, as
+.BR euclid-cli-ekm-revoke-key (1)
+names it \-
+.BR euclid-cli-ekm-list-keys (1)
+prints both the ERN and the ID.
+.TP
+.BR \-d ", " \-\-description " " \fITEXT\fR
+What the key is for. Free text, never interpreted. Required, but may be
+empty: passing
+.I ""
+clears the description rather than leaving it alone, since otherwise
+there would be no way to remove one.
+.SH EXIT STATUS
+.TP
+.B 0
+The description was set. The key's ERN, ID and new description are
+printed as JSON.
+.TP
+.B 1
+Missing or invalid arguments, no session, or no key with that ERN.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli ekm set-key-description \e
+    --key ern:ekm:eu-central-1:000000000000:key:9f2c1e40 \e
+    --description "payroll exports, rotated quarterly"
+.fi
+.RE
+.PP
+prints
+.PP
+.RS
+.nf
+{"ern":"ern:ekm:eu-central-1:000000000000:key:9f2c1e40",
+ "name":"9f2c1e40",
+ "description":"payroll exports, rotated quarterly"}
+.fi
+.RE
+.PP
+Clearing a description:
+.PP
+.RS
+.nf
+euclid-cli ekm set-key-description \e
+    --key ern:ekm:eu-central-1:000000000000:key:9f2c1e40 \e
+    --description ""
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ekm (1),
+.BR euclid-cli-ekm-create-key (1),
+.BR euclid-cli-ekm-list-keys (1),
+.BR euclid-cli-ekm-revoke-key (1),
+.BR euclid-cli-ekm-delete-key (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

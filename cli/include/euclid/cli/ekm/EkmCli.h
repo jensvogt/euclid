@@ -20,6 +20,7 @@
 #include <euclid/dto/ekm/CreateKeyRequest.h>
 #include <euclid/dto/ekm/DeleteKeyRequest.h>
 #include <euclid/dto/ekm/RevokeKeyRequest.h>
+#include <euclid/dto/ekm/SetKeyDescriptionRequest.h>
 
 namespace Euclid::CLI {
 
@@ -91,6 +92,15 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int revokeKey(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Replaces what a key says it is for.
+         *
+         * @param args command arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int setKeyDescription(const std::vector<std::string> &args) const;
 
         /**
          * @brief Encrypts a file or stdin with a key, writing the ciphertext to a file or stdout
