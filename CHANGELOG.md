@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.58](https://github.com/jensvogt/euclid/compare/v1.0.57...v1.0.58) (2026-09-02)
+
+
+### Bug Fixes
+
+* windows build ([cae8785](https://github.com/jensvogt/euclid/commit/cae8785b80239d81a4211cab148782399aa2b84f))
+
 ## [1.0.57](https://github.com/jensvogt/euclid/compare/1.0.56...v1.0.57) (2026-09-02)
 
 
