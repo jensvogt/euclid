@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.60](https://github.com/jensvogt/euclid/compare/1.0.59...v1.0.60) (2026-09-02)
+
+
+### Bug Fixes
+
+* EKM key description ([ce28a46](https://github.com/jensvogt/euclid/commit/ce28a465a5d47818249351df6a951d98130cedf2))
+* startup sequence ([1e0d0ed](https://github.com/jensvogt/euclid/commit/1e0d0ed15bebd9c52fc0c9ddc010c93bcfd5d69a))
+
 ## [1.0.59](https://github.com/jensvogt/euclid/compare/1.0.58...v1.0.59) (2026-09-02)
 
 
