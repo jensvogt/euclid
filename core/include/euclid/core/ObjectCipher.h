@@ -119,12 +119,19 @@ namespace Euclid::Core {
          * The whole plaintext ends up in memory, so this is for objects small enough to be served
          * in one response; anything larger is read a range at a time with DecryptRange().
          *
+         * @par
+         * Named for the "whole" rather than the obvious DecryptFile because winbase.h defines
+         * DecryptFile as a macro expanding to DecryptFileA/DecryptFileW. A translation unit that
+         * reaches windows.h - which on Windows is most of them - would call DecryptFileA here while
+         * ObjectCipher.cpp went on defining DecryptFile, and the two would only fail to meet at
+         * link time. It also happens to say what DecryptRange() does not.
+         *
          * @param key raw AES key bytes (16 or 32).
          * @param path encrypted object file.
          * @return the recovered plaintext.
          * @throws std::runtime_error if the file cannot be opened or does not authenticate.
          */
-        static std::string DecryptFile(const std::string &key, const std::filesystem::path &path);
+        static std::string DecryptWholeFile(const std::string &key, const std::filesystem::path &path);
 
         /**
          * @brief Decrypts one byte range of an encrypted object file.

@@ -2,16 +2,10 @@
 #include <algorithm>
 
 // Euclid includes
+#include <EamServer.h>
 #include <euclid/core/Scheduler.h>
 #include <euclid/core/monitoring/MetricEventBus.h>
 #include <euclid/core/monitoring/MonitoringTimer.h>
-#include <EamServer.h>
-
-#include "../../../dto/include/euclid/dto/eam/ListUserGroupsRequest.h"
-#include "euclid/dto/eam/DeleteUserGroupRequest.h"
-#include "euclid/dto/eam/ListUserGroupsResponse.h"
-#include "euclid/dto/eam/UserGroupAddUserRequest.h"
-
 #include <euclid/dto/eam/ChangeNamespaceRequest.h>
 #include <euclid/dto/eam/CreateAccountRequest.h>
 #include <euclid/dto/eam/CreateAccountResponse.h>
@@ -19,12 +13,16 @@
 #include <euclid/dto/eam/CreateNamespaceResponse.h>
 #include <euclid/dto/eam/DeleteAccountRequest.h>
 #include <euclid/dto/eam/DeleteNamespaceRequest.h>
+#include <euclid/dto/eam/DeleteUserGroupRequest.h>
 #include <euclid/dto/eam/GrantNamespaceAccessRequest.h>
 #include <euclid/dto/eam/ListAccountsRequest.h>
 #include <euclid/dto/eam/ListAccountsResponse.h>
 #include <euclid/dto/eam/ListNamespacesRequest.h>
 #include <euclid/dto/eam/ListNamespacesResponse.h>
+#include <euclid/dto/eam/ListUserGroupsRequest.h>
+#include <euclid/dto/eam/ListUserGroupsResponse.h>
 #include <euclid/dto/eam/RevokeNamespaceAccessRequest.h>
+#include <euclid/dto/eam/UserGroupAddUserRequest.h>
 
 namespace Euclid::EAM {
 
