@@ -113,10 +113,16 @@ namespace Euclid::FTP {
         [[nodiscard]] std::optional<boost::asio::ip::tcp::socket> openDataConnection();
 
         /**
-         * @brief Maps a virtual FTP path to the bucket key it addresses, i.e. the same path
-         * without its leading slash. Transfer mode only.
+         * @brief Maps a virtual FTP path to the bucket key it addresses: the same path without
+         * its leading slash, below this session's home prefix. Transfer mode only.
+         *
+         * @par
+         * The prefix is the only place the home directory is applied. A client's own view -
+         * _cwd, what LIST reports, what it may reach with ".." - stays rooted at "/", so the
+         * home directory is invisible to it and confinement is still by construction of the
+         * virtual path.
          */
-        [[nodiscard]] static std::string keyOf(const std::string &virtualPath);
+        [[nodiscard]] std::string keyOf(const std::string &virtualPath) const;
 
         /**
          * @brief Local scratch file backing one in-flight transfer in transfer mode.
@@ -140,6 +146,14 @@ namespace Euclid::FTP {
         std::string _pendingUser;
         std::string _username;
         std::filesystem::path _homeDir;
+
+        /**
+         * @brief Bucket key prefix this session's paths hang below, empty for the bucket root.
+         *
+         * Derived at login from the transfer server's home directory template and the user that
+         * authenticated, so it is fixed for the life of the session.
+         */
+        std::string _keyPrefix;
         std::string _cwd{"/"};
         bool _binaryType{true};
 

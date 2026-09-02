@@ -49,6 +49,7 @@
 #include <euclid/dto/esm/ListSubscriptionsRequest.h>
 #include <euclid/dto/esm/ObjectAttributeRequest.h>
 #include <euclid/dto/esm/PurgeBucketRequest.h>
+#include <euclid/dto/esm/RenameBucketRequest.h>
 #include <euclid/dto/esm/RenameObjectRequest.h>
 #include <euclid/dto/esm/SetBucketTagRequest.h>
 #include <euclid/dto/esm/SubscribeRequest.h>
@@ -94,6 +95,32 @@ namespace Euclid::CLI {
         [[nodiscard]]
         int process(const std::string &action, const std::vector<std::string> &args) const;
 
+        /**
+         * @brief Uploads one local file to one bucket/key - the per-file logic shared by
+         * uploadFile() (its single --file) and uploadDirectory() (every file it finds), so both
+         * pick single-request vs multipart the same way, based on the file's size relative to
+         * partSize; only how the (bucketErn, key, filePath) triple is produced differs between
+         * the two callers.
+         *
+         * Public because uploading a file is not only an "esm" action: "eap redeploy-application"
+         * puts a new build where an application's artifact already lives, and that has to be the
+         * same upload - multipart and all - rather than a second implementation of it.
+         *
+         * @param bucketErn ERN of the target bucket
+         * @param key destination key (path) within the bucket
+         * @param filePath local file to upload
+         * @param partSize files at or above this size are split into parts and sent via
+         * create-upload/upload-part/complete-upload; smaller files go through putObject() instead.
+         * Zero or less selects the configured default
+         * @param concurrency number of parts to upload in parallel, for files that go the
+         * multipart route; zero or less selects the configured default
+         * @param outResult set to the uploaded object's metadata (put-object's or
+         * complete-upload's response) on success; untouched on failure
+         * @return 0 on success, 1 on failure (error already printed to stderr)
+         */
+        [[nodiscard]]
+        int uploadOneFile(const std::string &bucketErn, const std::string &key, const std::string &filePath, long partSize, int concurrency, boost::json::value &outResult) const;
+
     private:
 
         /**
@@ -113,6 +140,15 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int deleteBucket(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Gives a bucket another name, rewriting everything that names it.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int renameBucket(const std::vector<std::string> &args) const;
 
         /**
          * @brief List buckets
@@ -356,27 +392,6 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int listSubscriptions(const std::vector<std::string> &args) const;
-
-        /**
-         * @brief Uploads one local file to one bucket/key - the per-file logic shared by
-         * uploadFile() (its single --file) and uploadDirectory() (every file it finds), so both
-         * pick single-request vs multipart the same way, based on the file's size relative to
-         * partSize; only how the (bucketErn, key, filePath) triple is produced differs between
-         * the two callers.
-         *
-         * @param bucketErn ERN of the target bucket
-         * @param key destination key (path) within the bucket
-         * @param filePath local file to upload
-         * @param partSize files at or above this size are split into parts and sent via
-         * create-upload/upload-part/complete-upload; smaller files go through putObject() instead
-         * @param concurrency number of parts to upload in parallel, for files that go the
-         * multipart route
-         * @param outResult set to the uploaded object's metadata (put-object's or
-         * complete-upload's response) on success; untouched on failure
-         * @return 0 on success, 1 on failure (error already printed to stderr)
-         */
-        [[nodiscard]]
-        int uploadOneFile(const std::string &bucketErn, const std::string &key, const std::string &filePath, long partSize, int concurrency, boost::json::value &outResult) const;
 
         /**
          * @brief Stores a small object in a single request, skipping the

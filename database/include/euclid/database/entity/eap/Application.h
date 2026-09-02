@@ -88,6 +88,28 @@ namespace Euclid::Database::Entity::EAP {
         std::string artifactKey;
 
         /**
+         * @brief Version of the build currently deployed, e.g. "1.4.0".
+         *
+         * @par
+         * Given at creation or read out of the artifact's own name, and changed only by a
+         * redeploy - which is refused unless it changes. That is what makes this worth storing:
+         * without it "which build is running?" can only be answered by looking at a checksum, and
+         * two deployments of the same version are indistinguishable after the fact.
+         */
+        std::string version;
+
+        /**
+         * @brief MD5 of the artifact object as it was when this version was deployed.
+         *
+         * @par
+         * Copied from the ESM object rather than computed here, so it is the same hash the
+         * manager compares against when it decides whether the copy on the host is still the
+         * build it should be running. A redeploy whose artifact hashes the same is the same
+         * build - a version bump that shipped nothing - and is refused.
+         */
+        std::string md5Sum;
+
+        /**
          * @brief Command to run instead of the runtime's default.
          *
          * @par
@@ -179,5 +201,46 @@ namespace Euclid::Database::Entity::EAP {
          */
         static Application fromDocument(const std::optional<bsoncxx::document::view> &document);
     };
+
+    /**
+     * @brief Reads a version out of an artifact's own name.
+     *
+     * @par
+     * Builds carry their version in their file name - orders-1.4.0.jar,
+     * file-copy-service-2.0.11-SNAPSHOT.jar - so in the ordinary case nobody has to repeat what
+     * the name already says. The first "x.y.z" in it is taken, which is what a person reads off
+     * it too.
+     *
+     * @par
+     * A name that says nothing about its build ("orders.jar") gets an empty answer rather than a
+     * guess, and the caller is asked for a version instead: a recorded version that was invented
+     * is worse than none.
+     *
+     * @param name an artifact key or a local file name
+     * @return the version, or empty if the name does not carry one
+     */
+    std::string VersionFromArtifactName(const std::string &name);
+
+    /**
+     * @brief Why deploying this build over the deployed one would not be a deployment, or empty
+     * if it would.
+     *
+     * @par
+     * A deployment is supposed to move an application from one build to another, and there are
+     * two ways that silently fails to happen: the version does not change, so nothing afterwards
+     * can say which build is running; or the artifact is byte for byte the one already deployed,
+     * so the restart it causes changes nothing. Both are refused, and this is the single place
+     * that decides it - the CLI asks before uploading, the eap module asks before storing, and
+     * the answer has to be the same one.
+     *
+     * @param deployedVersion version currently recorded on the application, empty for one defined
+     * before versions existed
+     * @param deployedMd5Sum artifact checksum currently recorded, empty for the same reason
+     * @param version version being deployed
+     * @param md5Sum checksum of the build being deployed
+     * @return the reason to refuse, phrased for whoever is deploying, or empty to go ahead
+     */
+    std::string RedeployRefusal(const std::string &deployedVersion, const std::string &deployedMd5Sum,
+                                const std::string &version, const std::string &md5Sum);
 
 }// namespace Euclid::Database::Entity::EAP

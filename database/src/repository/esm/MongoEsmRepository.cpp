@@ -6,6 +6,8 @@
 #include <chrono>
 
 // Euclid includes
+#include <mongocxx/pipeline.hpp>
+
 #include <euclid/database/repository/esm/MongoEsmRepository.h>
 
 namespace Euclid::Database {
@@ -422,6 +424,84 @@ namespace Euclid::Database {
 
         } catch (const std::exception &e) {
             log_error << "Delete object failed, error: " << e.what();
+        }
+    }
+
+    std::optional<Entity::ESM::Bucket> MongoEsmRepository::renameBucket(const std::string &ern, const std::string &newName,
+                                                                        const std::string &newErn) {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto bucketCollection = (*entry)[Database::instance().databaseName()][BUCKET_COLLECTION];
+
+            const auto update = make_document(
+                    kvp("$set", make_document(kvp("name", newName), kvp("ern", newErn))),
+                    kvp("$currentDate", make_document(kvp("modified", true))));
+
+            mongocxx::options::find_one_and_update opts;
+            opts.return_document(mongocxx::options::return_document::k_after);
+
+            if (auto result = bucketCollection.find_one_and_update(make_document(kvp("ern", ern)).view(), update.view(), opts)) {
+                return Entity::ESM::Bucket::fromDocument(result->view());
+            }
+            return std::nullopt;
+
+        } catch (const std::exception &e) {
+            log_error << "Rename bucket failed, error: " << e.what();
+            return std::nullopt;
+        }
+    }
+
+    long MongoEsmRepository::repointSubscriptions(const std::string &oldSourceErn, const std::string &newSourceErn) {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto subscriptionCollection = (*entry)[Database::instance().databaseName()][SUBSCRIPTION_COLLECTION];
+
+            const auto result = subscriptionCollection.update_many(
+                    make_document(kvp("sourceErn", oldSourceErn)).view(),
+                    make_document(kvp("$set", make_document(kvp("sourceErn", newSourceErn)))).view());
+            return result ? static_cast<long>(result->modified_count()) : 0;
+
+        } catch (const std::exception &e) {
+            log_error << "Repoint subscriptions failed, error: " << e.what();
+            return 0;
+        }
+    }
+
+    long MongoEsmRepository::renameBucketObjects(const std::string &oldBucketErn, const std::string &newBucketErn,
+                                                  const std::string &oldName, const std::string &newName) {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto objectCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
+
+            // An update pipeline rather than a read-modify-write per object: the new bucketErn is
+            // the same for every one of them, and the ERN differs only in the bucket segment,
+            // which the server can rewrite in place. A bucket with a hundred thousand objects is
+            // then one round trip instead of a hundred thousand.
+            //
+            // Only the bucket segment is touched - ":object:<bucket>/" - so a key that happens to
+            // contain the bucket's old name somewhere inside it is left alone.
+            const auto oldSegment = ":object:" + oldName + "/";
+            const auto newSegment = ":object:" + newName + "/";
+
+            mongocxx::pipeline pipeline;
+            pipeline.add_fields(make_document(
+                    kvp("bucketErn", newBucketErn),
+                    kvp("ern", make_document(kvp("$replaceOne", make_document(
+                                                                        kvp("input", "$ern"),
+                                                                        kvp("find", oldSegment),
+                                                                        kvp("replacement", newSegment)))))));
+
+            const auto result = objectCollection.update_many(make_document(kvp("bucketErn", oldBucketErn)), pipeline);
+            const auto renamed = result ? static_cast<long>(result->modified_count()) : 0;
+            log_debug << "Bucket objects renamed, count: " << renamed << ", bucket: " << newName;
+            return renamed;
+
+        } catch (const std::exception &e) {
+            log_error << "Rename bucket objects failed, error: " << e.what();
+            return 0;
         }
     }
 

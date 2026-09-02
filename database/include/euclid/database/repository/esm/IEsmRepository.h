@@ -192,6 +192,52 @@ namespace Euclid::Database {
         virtual void deleteObjectByErn(const std::string &ern) = 0;
 
         /**
+         * @brief Repoints every object of a renamed bucket at its new name.
+         *
+         * @par
+         * A bucket's name is in its ERN, and an object's ERN carries the bucket's name as well
+         * ("...:object:<bucket>/<key>"), so renaming a bucket is not a change to one document but
+         * to every object in it. Done here rather than by reading each object and writing it back
+         * because it is one edit repeated, and a bucket can hold a lot of objects.
+         *
+         * @param oldBucketErn the bucket's ERN before the rename
+         * @param newBucketErn the bucket's ERN after it
+         * @param oldName the bucket's name before the rename
+         * @param newName the bucket's name after it
+         * @return number of objects rewritten
+         */
+        /**
+         * @brief Gives an existing bucket another name and ERN, in place.
+         *
+         * @par
+         * Not upsertBucket(): that one identifies a bucket by its account, namespace and name, so
+         * handing it a changed name inserts a second bucket rather than renaming the first. A
+         * rename has to address the document that already exists, which is what this does.
+         *
+         * @param ern the bucket's current ERN
+         * @param newName the name it should have
+         * @param newErn the ERN that name gives it
+         * @return the bucket as it now is, or nothing if no bucket has that ERN
+         */
+        virtual std::optional<Entity::ESM::Bucket> renameBucket(const std::string &ern, const std::string &newName, const std::string &newErn) = 0;
+
+        /**
+         * @brief Points every subscription of a bucket at its new ERN.
+         *
+         * @par
+         * Also not an upsert, and for the same reason: a subscription is identified by what it
+         * watches, which is exactly what a rename changes.
+         *
+         * @param oldSourceErn the bucket's ERN before the rename
+         * @param newSourceErn the bucket's ERN after it
+         * @return number of subscriptions repointed
+         */
+        virtual long repointSubscriptions(const std::string &oldSourceErn, const std::string &newSourceErn) = 0;
+
+        virtual long renameBucketObjects(const std::string &oldBucketErn, const std::string &newBucketErn,
+                                          const std::string &oldName, const std::string &newName) = 0;
+
+        /**
          * @brief Creates (or, for a matching existing sourceErn/type/targetErn, refreshes) a
          * subscription that fans out object-created notifications from sourceErn to targetErn.
          *

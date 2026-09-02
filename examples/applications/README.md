@@ -2,28 +2,37 @@
 
 An application is a process euclid runs and scales on your behalf. It can be written in any
 language: euclid starts it, restarts it if it dies, scales it between a minimum and maximum
-instance count, routes requests to it through the gateway, and hands it credentials so it can call
-back into euclid. Nothing about it is C++, and it links no euclid library.
+instance count, and hands it credentials so it can call back into euclid. Nothing about it is C++, and it links no euclid library.
 
 ## The contract
 
-1. **Listen on `EUCLID_SOCKET`.** The manager passes a Unix socket path in that environment
-   variable (and, for euclid's own modules, as `--socket`). Creating the socket is the readiness
-   signal: the manager waits for it to appear and kills the process if it does not show up within
-   the application's `readyTimeoutMs`.
-2. **Speak HTTP/1.1 on that socket**, dispatching on the `x-euclid-action` request header, the way
-   every euclid module does. Reply with JSON.
-3. **Log to stdout and stderr.** The manager drains both into euclid's log.
-4. **Exit on SIGTERM.**
+1. **Survive your own startup.** An application is ready when it is still running a couple of
+   seconds after being spawned; one that exits before then - a missing environment variable, a bad
+   artifact - is reported as having exited during startup and restarted with a backoff. Nothing
+   else is required of an application, which is the point: euclid routes requests to its modules,
+   not to your program, so it has nothing to ask you for.
+2. **Log to stdout and stderr.** The manager drains both into euclid's log.
+3. **Exit on SIGTERM.**
 
-That is the whole of it. `python/euclid_app.py` implements it in the standard library.
+That is the whole of it.
+
+**Optionally, listen on `EUCLID_SOCKET`.** The manager passes a Unix socket path in that
+environment variable (and, for euclid's own modules, as `--socket`). An application that binds it
+and speaks HTTP/1.1 there, dispatching on the `x-euclid-action` header the way every euclid module
+does, can answer health and metrics calls; one that ignores it is treated no differently.
+`python/euclid_app.py` shows the whole arrangement, and euclid-spring binds the socket for a Spring
+application without it having to know.
+
+Earlier versions *required* the socket - creating it was the readiness signal - which killed
+perfectly working programs whose authors had never heard of the convention.
 
 ## What the manager puts in the environment
 
 | Variable | Meaning |
 |---|---|
-| `EUCLID_SOCKET` | Unix socket this instance must listen on |
+| `EUCLID_SOCKET` | Unix socket this instance may listen on, if it wants to answer health and metrics calls |
 | `EUCLID_APPLICATION_ID`, `EUCLID_APPLICATION_ERN` | which application this is |
+| `EUCLID_APPLICATION_VERSION` | which build it is — log it on start-up and "what is running?" is answerable from the log |
 | `EUCLID_ACCOUNT_ID`, `EUCLID_REGION`, `EUCLID_USER_ID` | the identity it runs as |
 | `EUCLID_ENDPOINT` | gateway URL to call other modules through |
 | `EUCLID_SIGNATURE` | `rfc9421` — how to sign those calls |
@@ -146,7 +155,7 @@ euclid-cli esm upload-file --bucket apps --key euclid_app.py --file python/eucli
 
 euclid-cli eap create-application \
     --application-id demo --runtime PYTHON \
-    --bucket apps --artifact euclid_app.py \
+    --bucket apps --artifact euclid_app.py --version 1.0.0 \
     --min-instances 1 --max-instances 4
 
 euclid-cli eap start-application --application-id demo
@@ -175,7 +184,7 @@ Name the resources an application needs and the principal is narrowed to exactly
 ```bash
 euclid-cli eap create-application \
     --application-id inbox --runtime JAVA \
-    --bucket apps --artifact euclid-inbox-app.jar \
+    --bucket apps --artifact euclid-inbox-app.jar --version 1.0.0 \
     --buckets inbox --queues inbox-queue
 ```
 
@@ -199,12 +208,36 @@ out when every instance is busy, scale back down after
 Reach it through the gateway the same way you reach a module — `x-euclid-target: demo` with an
 `x-euclid-action` the application implements.
 
-Redeploying is an upload followed by a restart:
+Redeploying a new build is one command:
+
+```bash
+euclid-cli eap redeploy-application --application-id demo --file python/euclid_app-1.1.0.py
+```
+
+It uploads the file where the application's artifact already lives and stamps the definition, which
+is the part that matters: an artifact, a command, an environment and the credentials a process was
+handed are all decided when it starts, so an upload on its own leaves every instance running the
+build it started with — a deployment that looks like it worked and did nothing. The stamp is read
+by the manager as a new revision, and on its next pass — a few seconds — it stops the pool, copies
+the artifact down again (comparing what is on disk against the object's checksum, so a rebuild of
+exactly the same size is not mistaken for the same build) and starts it.
+
+A redeploy has to be a new build, or it is refused: the **version** has to differ from the one
+deployed, and so do the artifact's bytes. Two deployments under one version cannot be told apart
+afterwards — not in a log, not in an incident, not in `list-applications` — and a version bump
+carrying identical bytes ships nothing. The version comes from the file's own name
+(`euclid_app-1.1.0.py` is `1.1.0`), or from `--version`; the checksum is the artifact's MD5, which
+euclid already stores. Both are checked before the upload, so a refused redeploy leaves the bucket
+as it was.
+
+The two commands it stands in for still work, and are the way to deploy something a redeploy
+refuses — the same version rebuilt in place, a rollback to bytes already seen — as well as what to
+reach for when the upload needs tuning or the artifact arrives some other way, through an SDK or an
+FTP/SFTP transfer server:
 
 ```bash
 euclid-cli esm upload-file --bucket apps --key euclid_app.py --file python/euclid_app.py
-euclid-cli eap stop-application  --application-id demo
-euclid-cli eap start-application --application-id demo
+euclid-cli eap update-application --application-id demo --artifact euclid_app.py
 ```
 
 ## The Java example
@@ -220,9 +253,15 @@ mvn package                              # -> target/euclid-inbox-app.jar (one s
 euclid-cli esm upload-file --bucket apps --key euclid-inbox-app.jar --file target/euclid-inbox-app.jar
 euclid-cli eap create-application \
     --application-id inbox --runtime JAVA \
-    --bucket apps --artifact euclid-inbox-app.jar \
-    --ready-timeout 30000
+    --bucket apps --artifact euclid-inbox-app.jar --version 1.0.0
 euclid-cli eap start-application --application-id inbox
+```
+
+Rebuild it later and one command deploys it:
+
+```bash
+mvn package
+euclid-cli eap redeploy-application --application-id inbox --file target/euclid-inbox-app-1.1.0.jar
 ```
 
 Then drop a file in and watch euclid's log:
@@ -273,7 +312,7 @@ its own principal with its own short-lived credentials, whatever uid it happens 
 
 | Runtime | Started as | Notes |
 |---|---|---|
-| `JAVA` | `java -jar <artifact>` | give it a `readyTimeoutMs` that fits JVM start-up |
+| `JAVA` | `java -jar <artifact>` | |
 | `PYTHON` | `python3 <artifact>` | |
 | `NODEJS` | `node <artifact>` | |
 | `BINARY` | `<artifact>` | Rust, C++, Go — anything executable; the manager sets the exec bit |

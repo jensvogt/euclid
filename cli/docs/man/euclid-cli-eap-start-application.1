@@ -13,16 +13,12 @@ with the runtime's interpreter, and from then on runs it between the
 application's minimum and maximum instance counts, restarting it if it
 dies.
 .PP
-An instance is considered started once it creates the socket named in its
-.I EUCLID_SOCKET
-environment variable. One that does not manage that within the
-application's
-.I readyTimeoutMs
-is killed and tried again, so an application that is merely slow to start
-looks exactly like one that is broken - see
-.B \-\-ready\-timeout
-in
-.BR euclid-cli-eap-create-application (1).
+An instance is considered started once it is still running a short while
+after it was spawned. Nothing has to be listened on, answered or
+announced: an application that exits during its own startup - a missing
+environment variable, an artifact that is not what its runtime expected -
+is restarted with a backoff, and one that keeps running is left to do
+whatever it was written to do.
 .PP
 Nothing is reported here about whether it actually came up:
 .BR euclid-cli-eap-list-applications (1)

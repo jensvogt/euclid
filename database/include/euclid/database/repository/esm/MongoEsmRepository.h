@@ -184,6 +184,13 @@ namespace Euclid::Database {
          */
         void deleteObjectByErn(const std::string &ern) override;
 
+        std::optional<Entity::ESM::Bucket> renameBucket(const std::string &ern, const std::string &newName, const std::string &newErn) override;
+
+        long repointSubscriptions(const std::string &oldSourceErn, const std::string &newSourceErn) override;
+
+        long renameBucketObjects(const std::string &oldBucketErn, const std::string &newBucketErn,
+                                  const std::string &oldName, const std::string &newName) override;
+
         /**
          * @brief Creates or refreshes a subscription (upsert keyed on sourceErn/type/targetErn)
          *

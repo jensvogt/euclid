@@ -1,0 +1,103 @@
+.TH EUCLID-CLI-ESM-RENAME-BUCKET 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-rename-bucket \- give a bucket another name
+.SH SYNOPSIS
+.B euclid-cli esm rename-bucket
+.BR \-\-bucket | \-b
+.I ERN
+.BR \-\-new\-name | \-n
+.I NAME
+.SH DESCRIPTION
+Gives a bucket another name.
+.PP
+Nothing is copied and no object moves. What changes is the name \- and
+with it everything that spells the name out, because a bucket's name is
+not stored in one place. It is in the bucket's own ERN, in every object's
+reference to the bucket, in every object's ERN (which carries the bucket
+name ahead of the key), and in every subscription watching the bucket.
+All of them are rewritten together, so the bucket stays reachable from
+its contents and its contents stay reachable from it.
+.PP
+The answer reports how many objects and subscriptions were rewritten, so
+a rename of a large bucket says what it did rather than only that it
+finished.
+.PP
+The bucket is addressed by ERN rather than by its current name, so the
+request cannot be ambiguous about which bucket it means.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-bucket " " \fIERN\fR
+Euclid resource name of the bucket to rename. Required.
+.TP
+.BR \-n ", " \-\-new\-name " " \fINAME\fR
+Name the bucket should have. Required.
+.SH WHAT IS REFUSED
+.TP
+.B A name that is taken
+Two buckets cannot share a name. An operator who meant to merge two
+buckets wants
+.BR euclid-cli-esm-copy-object (1)
+or
+.BR euclid-cli-esm-move-object (1)
+instead.
+.TP
+.B A bucket a transfer server is serving
+An FTP or SFTP server names the bucket it stores uploads in, and renaming
+that bucket would leave it pointing at an ERN nothing answers to \- with
+clients mid-session. The rename is refused and names the server; stop it,
+or point it at another bucket with
+.BR euclid-cli-ets-update-server (1),
+and rename afterwards.
+.PP
+References outside ESM are deliberately not rewritten from here. A
+transfer server's definition belongs to
+.BR euclid-cli-ets (1),
+and editing another module's records behind its back would leave it
+holding a definition it never agreed to.
+.SH EVENTS
+A rename publishes
+.I esm.bucket.modified
+carrying both the new and the previous name and ERN, so a listener that
+keeps its own index can follow the bucket rather than lose sight of it.
+.PP
+No object event is published: the objects did not change, only what they
+are called. A listener that stores object ERNs should treat the bucket
+event as its cue to re-read them \- see
+.BR euclid-cli-ees (1).
+.SH EXIT STATUS
+.TP
+.B 0
+The bucket was renamed. Its new name and ERN are printed as JSON, with
+the number of objects and subscriptions rewritten.
+.TP
+.B 1
+Missing or invalid arguments, no session, the bucket does not exist or
+belongs to another account, the new name is already taken or is the
+bucket's current name, or a transfer server is serving the bucket.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli esm rename-bucket \e
+    --bucket ern:esm:eu-central-1:000000000000:development:bucket:reports \e
+    --new-name archive
+.fi
+.RE
+.PP
+prints
+.PP
+.RS
+.nf
+{"name":"archive",
+ "ern":"ern:esm:eu-central-1:000000000000:development:bucket:archive",
+ "objects":2,"subscriptions":1}
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-create-bucket (1),
+.BR euclid-cli-esm-delete-bucket (1),
+.BR euclid-cli-esm-rename-object (1),
+.BR euclid-cli-ets-update-server (1),
+.BR euclid-cli-ees (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

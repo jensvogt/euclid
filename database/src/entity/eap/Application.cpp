@@ -2,6 +2,8 @@
 // Created by vogje01 on 9/1/26.
 //
 
+#include <regex>
+
 #include <bsoncxx/builder/basic/array.hpp>
 #include <euclid/database/entity/eap/Application.h>
 
@@ -26,6 +28,8 @@ namespace Euclid::Database::Entity::EAP {
                 bsoncxx::builder::basic::kvp("runtime", RuntimeToString(runtime)),
                 bsoncxx::builder::basic::kvp("bucketErn", bucketErn),
                 bsoncxx::builder::basic::kvp("artifactKey", artifactKey),
+                bsoncxx::builder::basic::kvp("version", version),
+                bsoncxx::builder::basic::kvp("md5Sum", md5Sum),
                 bsoncxx::builder::basic::kvp("command", command),
                 bsoncxx::builder::basic::kvp("arguments", argumentsArray),
                 bsoncxx::builder::basic::kvp("environment", environmentDoc.extract()),
@@ -52,6 +56,11 @@ namespace Euclid::Database::Entity::EAP {
             else if (key == "runtime") application.runtime = RuntimeFromString(std::string(field.get_string().value));
             else if (key == "bucketErn") application.bucketErn = std::string(field.get_string().value);
             else if (key == "artifactKey") application.artifactKey = std::string(field.get_string().value);
+            // Absent from every application defined before versions existed, which is why nothing
+            // here insists on it: such an application carries an empty version and md5 until its
+            // next redeploy, and that redeploy is the one that fills them in.
+            else if (key == "version") application.version = std::string(field.get_string().value);
+            else if (key == "md5Sum") application.md5Sum = std::string(field.get_string().value);
             else if (key == "command") application.command = std::string(field.get_string().value);
             else if (key == "arguments") {
                 for (const auto &elem: field.get_array().value) application.arguments.emplace_back(elem.get_string().value);
@@ -68,6 +77,30 @@ namespace Euclid::Database::Entity::EAP {
             else if (key == "modified") application.modified = std::chrono::system_clock::time_point{field.get_date().value};
         }
         return application;
+    }
+
+    std::string VersionFromArtifactName(const std::string &name) {
+        static const std::regex pattern(R"((\d+)\.(\d+)\.(\d+))");
+        if (std::smatch match; std::regex_search(name, match, pattern)) return match.str();
+        return {};
+    }
+
+    std::string RedeployRefusal(const std::string &deployedVersion, const std::string &deployedMd5Sum,
+                                const std::string &version, const std::string &md5Sum) {
+
+        if (!version.empty() && version == deployedVersion) {
+            return "version " + version + " is already deployed - a new build needs a new version";
+        }
+
+        // Only when there is something to compare against: an application defined before versions
+        // existed carries no checksum, and its first redeploy is not going to be refused for it.
+        if (!deployedMd5Sum.empty() && !md5Sum.empty() && md5Sum == deployedMd5Sum) {
+            return "the artifact is byte for byte the build already deployed"
+                   + (deployedVersion.empty() ? std::string() : " as version " + deployedVersion)
+                   + " - nothing would change";
+        }
+
+        return {};
     }
 
 }// namespace Euclid::Database::Entity::EAP
