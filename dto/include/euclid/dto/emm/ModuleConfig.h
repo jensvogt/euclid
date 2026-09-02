@@ -88,6 +88,36 @@ namespace Euclid::Dto {
         std::map<std::string, std::string> environment;
 
         /**
+         * @brief Whether this is one of the modules the installation is made of.
+         *
+         * @par
+         * True for everything declared under "euclid.modules" in the configuration file, false for
+         * the processes the manager spawns from database records: transfer servers and
+         * applications. The distinction is what "wait for the installation to be up" means for an
+         * application - it waits for these, not for every FTP endpoint somebody has defined.
+         */
+        bool core = false;
+
+        /**
+         * @brief Names of the modules that have to be running before this one is started.
+         *
+         * @par
+         * Without this, start order is whatever order the manager happens to hold its services in
+         * - which is alphabetical, because they live in a std::map keyed by name. That works right
+         * up until somebody renames a module, and it is not something anybody chose. A module that
+         * calls another during its own startup should say so here instead of relying on the
+         * alphabet.
+         *
+         * @par
+         * "Running" means the dependency has at least one instance the gateway would route to. It
+         * does not mean the dependency has finished whatever it does lazily on its first request,
+         * so this narrows the window rather than closing it - see ServiceController::startAll().
+         * Empty for a module that depends on nothing, which is most of them: modules reach each
+         * other through the database and the event bus far more often than through the gateway.
+         */
+        std::vector<std::string> dependencies;
+
+        /**
          * @brief Directory the process is started in; empty leaves it inheriting the manager's.
          */
         std::string workingDir;

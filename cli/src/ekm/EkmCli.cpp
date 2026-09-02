@@ -50,11 +50,16 @@ namespace Euclid::CLI {
         po::options_description desc("create a new key");
         desc.add_options()
                 ("algorithm,a", po::value<std::string>()->required(), "key type, possible values are aes, aes-gcm")
-                ("length,l", po::value<long>()->default_value(128), "key length (128 or 256, default:128)");
+                ("length,l", po::value<long>()->default_value(128), "key length (128 or 256, default:128)")
+                ("description,d", po::value<std::string>(), "what the key is for, kept with it and shown by list-keys");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("ekm", "create-key", "--algorithm <algorithm> [--length <length>]",
-                                   "Creates a new key with the given algorithm and the key length. Default length is 128bit",
+            return PrintActionHelp("ekm", "create-key", "--algorithm <algorithm> [--length <length>] [--description <text>]",
+                                   "Creates a new key with the given algorithm and the key length. Default length is 128bit. "
+                                   "A key is identified by a generated ID, which says nothing about what it protects - so "
+                                   "--description is where to record that. It is free text, stored with the key and reported by "
+                                   "list-keys, and it is what tells somebody months later whether a key can be deleted. Deleting "
+                                   "the wrong one is not a recoverable mistake.",
                                    desc);
         }
 
@@ -70,6 +75,7 @@ namespace Euclid::CLI {
         Dto::EKM::CreateKeyRequest request;
         request.algorithm = vm["algorithm"].as<std::string>();
         request.length = vm["length"].as<long>();
+        if (vm.contains("description")) request.description = vm["description"].as<std::string>();
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);

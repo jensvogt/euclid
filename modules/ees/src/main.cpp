@@ -8,6 +8,7 @@
 // Euclid includes
 #include <EesServer.h>
 #include <euclid/core/Configuration.h>
+#include <euclid/core/HttpActionServer.h>
 #include <euclid/core/LogStream.h>
 #include <euclid/core/Version.h>
 #include <euclid/core/monitoring/MetricsPusher.h>
@@ -134,7 +135,8 @@ int main(const int argc, char *argv[]) {
 
     Euclid::Core::Monitoring::MetricsPusher metricsPusher("ees");
     try {
-        Euclid::EES::EesServer server(cliOpts->socketPath);
+        Euclid::EES::EesServer server(cliOpts->socketPath,
+                                   Euclid::Core::HttpActionServer::ConfiguredWorkerThreads("ees", 8));
         return server.RunUntilSignal();
     } catch (const std::exception &e) {
         log_error << "Failed to start application service: " << e.what();

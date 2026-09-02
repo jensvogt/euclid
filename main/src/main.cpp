@@ -322,8 +322,23 @@ static void registerModules(Euclid::main::ServiceController &ctrl) {
         const int minInstances = readInt("minInstances", 1);
         const int maxInstances = readInt("maxInstances", 1);
 
+        // Read from the configuration rather than the props map above: getObjects() flattens a
+        // module's properties to scalars, and a dependency list is an array. Optional, so the
+        // existence check comes first - getArray() throws on a missing path.
+        const auto dependencyPath = "euclid.modules." + name + ".dependencies";
+        const auto dependencies = Euclid::Core::Configuration::instance().has(dependencyPath)
+                                          ? Euclid::Core::Configuration::instance().getArray<std::string>(dependencyPath)
+                                          : std::vector<std::string>{};
+
+        std::string dependencyList;
+        for (const auto &dependency: dependencies) {
+            if (!dependencyList.empty()) dependencyList += ",";
+            dependencyList += dependency;
+        }
+
         log_info << "Module: " << name << " active=" << active << " socketPath=" << socketPath
-                << " minInstances=" << minInstances << " maxInstances=" << maxInstances;
+                << " minInstances=" << minInstances << " maxInstances=" << maxInstances
+                << (dependencyList.empty() ? "" : " dependencies=" + dependencyList);
         ctrl.registerModule({
                 .name = headerName,
                 .executable = executable,
@@ -332,7 +347,9 @@ static void registerModules(Euclid::main::ServiceController &ctrl) {
                 .maxRestarts = -1,
                 .autoRestart = true,
                 .minInstances = minInstances,
-                .maxInstances = maxInstances
+                .maxInstances = maxInstances,
+                .core = true,
+                .dependencies = dependencies
         });
     }
 }

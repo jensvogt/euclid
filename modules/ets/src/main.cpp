@@ -8,6 +8,7 @@
 // Euclid includes
 #include <EtsServer.h>
 #include <euclid/core/Configuration.h>
+#include <euclid/core/HttpActionServer.h>
 #include <euclid/core/LogStream.h>
 #include <euclid/core/Version.h>
 #include <euclid/core/monitoring/MetricsPusher.h>
@@ -134,7 +135,8 @@ int main(const int argc, char *argv[]) {
 
     Euclid::Core::Monitoring::MetricsPusher metricsPusher("ets");
     try {
-        Euclid::ETS::EtsServer server(cliOpts->socketPath);
+        Euclid::ETS::EtsServer server(cliOpts->socketPath,
+                                   Euclid::Core::HttpActionServer::ConfiguredWorkerThreads("ets", 2));
         return server.RunUntilSignal();
     } catch (const std::exception &e) {
         log_error << "Failed to start transfer server service: " << e.what();

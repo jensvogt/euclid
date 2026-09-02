@@ -44,6 +44,29 @@ namespace Euclid::Core {
          * @param threads     number of io_context worker threads.
          */
         HttpActionServer(const std::string &serviceName, std::string socketPath, int threads);
+
+        /**
+         * @brief How many worker threads this module should run, from its configuration.
+         *
+         * @par
+         * Reads "euclid.modules.&lt;module&gt;.threads", alongside the minInstances/maxInstances
+         * that size the pool of processes - this sizes the pool of threads inside one of them.
+         * They answer different questions: instances are how much of a module the manager runs,
+         * threads are how many requests one instance can be in the middle of.
+         *
+         * @par
+         * It matters most for the modules whose busiest action deliberately waits - EES's
+         * receive-events and EQS's receive-messages hold a thread for as long as the caller asked
+         * them to wait - where too few threads means requests that are not waiting queue behind
+         * the ones that are. Core::LongPollSlots keeps one thread out of the waiting, so the
+         * configured figure is how many callers may wait at once, plus one.
+         *
+         * @param module the module's key in the configuration, e.g. "ees"
+         * @param fallback what to use when the key is absent, which is the ordinary case
+         * @return the configured count, clamped to something a machine can actually run
+         */
+        [[nodiscard]]
+        static int ConfiguredWorkerThreads(const std::string &module, int fallback);
         
         /**
          * @brief Cancels the periodic CPU/memory usage collection task.

@@ -2149,6 +2149,10 @@ namespace Euclid::ESM {
             key.region = auth.user->region;
             key.nameSpace = ns;
             key.name = keyId;
+            // A key that appeared because a bucket asked for one is the one most likely to be
+            // found later by somebody with no idea what it protects - so it says so itself,
+            // rather than leaving "ekm list-keys" showing an anonymous ID holding a bucket.
+            key.description = "Encryption at rest for ESM bucket " + bucket->name;
             key.ern = Core::createEkmKeyErn(auth.user->accountId, keyId);
             key.algorithm = "AES";
             key.length = 256;
