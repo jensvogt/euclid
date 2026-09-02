@@ -5,35 +5,35 @@ Origin: Euclid
 Label: Euclid APT Repository
 Suite: stable
 Codename: stable
-Date: Wed, 02 Sep 2026 11:49:14 UTC
+Date: Wed, 02 Sep 2026 14:29:21 UTC
 Architectures: amd64
 Components: main
 Description: APT repository for Euclid - Cloud Services
 MD5Sum:
- ab76cdbd35c01e9450b80aefccf6769f 538 main/binary-amd64/Packages
- 18bcbcde85b84f786584d7710bd36a32 412 main/binary-amd64/Packages.gz
+ 09ed4ccf1f43ba58c20e124c6fce8010 538 main/binary-amd64/Packages
+ 8fd195a7610898fbb638d591352b9a23 410 main/binary-amd64/Packages.gz
  bfcc1390e0c267490f124a866b8e0e16 160 main/binary-amd64/Release
 SHA1:
- a33fdc9ce5e0777941f31500cfc4826371982969 538 main/binary-amd64/Packages
- 09b8b0e91252118eeed94e43c1e5a38cd70c03f8 412 main/binary-amd64/Packages.gz
+ e1b650beeaa41a7405513d2baef55d8b638c838d 538 main/binary-amd64/Packages
+ 6270a7a182654ed0725a6085cbe0ca0f2a0f0b87 410 main/binary-amd64/Packages.gz
  7304f35259e8511c9af36b51ec3fde4a2cffdb40 160 main/binary-amd64/Release
 SHA256:
- f127c25d65b7306792b3be0b0101e89b9ddfd3abe11cde197276b5919da6bae7 538 main/binary-amd64/Packages
- b3c276b0b3a0692b9c9accfcf82b95b3d831d5c86eadd182eb76ce54983fc6f8 412 main/binary-amd64/Packages.gz
+ d519f38edebe7453dedaa6b62cda6b67f65d08e15782bea809add93791effc55 538 main/binary-amd64/Packages
+ 9d9f55eb58d38420f95408a879b3231b3bfd4e08d573d123fd78e8d7f565024a 410 main/binary-amd64/Packages.gz
  b433d6184003253f515285d0bda99ca8526c2ae910e4929a068178ded64d97d6 160 main/binary-amd64/Release
 -----BEGIN PGP SIGNATURE-----
 
-iQIzBAEBCgAdFiEEd496UIEbceO/N+SAmcX4cZD9bkwFAmqYDTwACgkQmcX4cZD9
-bkyUYA/9E/u/YQWdycqIj8xpriZkTUr/RO7PuXG7cLJz3vFGfROVpNq9mp5bmyUF
-DRvoPR5BTlpovjVqo24sXOpEtsf+ryLDGfzPYjF16cx9PJfAar0sP6iSImauU3xe
-GGO+bRre9b173abVeeJN63h5SRU74O5TxxOl84uixdojlCEwYFRQfv8yH0QWRLvp
-tLSzIePrBFTEwEYDjp64A+k+KtzjSceZYa9eT9aJ9MQT+HOSeJK/6ZR+mzs5F/dV
-tBclE1gJe7yDuiyhAYyqVYpX8DhuIoIIOLaBjq58wkwAhKlTmYZ4VIb+x28MH+Yh
-vSbKCih3EqBr7CwNG7nMUSJsYhu10Z98IxYkGojZfXtVBFdombLyQE0SxTr03pp+
-OMcRGU1C6kkQLJvGQ0dykZtjyEO97w/0vqiNk12QKdSam4tTNpdkEcKD+Q0K+/q5
-BKaaqZO7lOq+Sb1mUqYCqh29nxPS8Pv646+em/SpkKTlJwbdoJt2wSOtrQSvoqPG
-x7SNgBQAwvO6vPPMQaJGo9LjvvQLsKi7KEy/TswGuaHQ1rcynuar/CiZH7gQFsuM
-U9xmkQj+QuWJzKdaf2uleo0CQ2Q4KRxpbbuP+cQBj2zt7ybdvl1GVgS5XDl3rSdG
-hhWmRu65LKRwgmigGMtG3IMoyM0Uz+jpbBJVhe+rTOxnBmltqws=
-=4xcm
+iQIzBAEBCgAdFiEEd496UIEbceO/N+SAmcX4cZD9bkwFAmqYMsMACgkQmcX4cZD9
+bkznhg/+N4V5T4sRN+dibvAIxa4rWcpTz/Zk7gJ7tbD4MX6w777DwCdK+SI6GFpV
+UbDO2vMco25t5zz7vsmc1SywVLgtmdT7JOEYo39exPDvFiY9ADpo+ezJv6jXVp3j
+ufKaQGZ5cugZsV3fcFeZgavgxCjF3tJxx3TuFFeUFdEcYHD6mgXYUtg3BeqsKDyA
+DUe5CqvnubWsjFy1r5/S0pmFGeQgk8SXPJrjCrNx350KR4fRsjXIY4+1wLaASHzL
+THmEjRs5C1jpj9oxQOeHt8SxYGRFCIyx9iNooBR8vKPx8Y2kRtGlJ+ZY2AX73JSQ
+19IksMQPPtAuiolIVL2jXhcryx70RH49wP5Ix7KWSzbG1UpHkwdyKE8SRKaLpQYJ
+Ndm3vgYkX5AYXvpvDuGSVuz/7vSHeK1E9gk5L/rSrAFn3FErxyR/H+V13wkFSI5f
+jmt7QQePYaKe7h8qWbPVik7Yb09oHTi/G5jFO3jxiz7mG7IBDg4/mSlVXA5FAxhu
+5uyhYxqvUo+0R65v2+/OOgdJkQILZskD74P+NQyAz5yzgJ94ZgosScfz9YfyD9bC
+ap68isxssnrh57zHKBVqJXGzAcG6JPJMAoObUmKMS/UqTbsOC0ljKDpUwfXGUB1A
+5+F/ABW+FNKNFGYwdGN9/LxMEjIbuBJRJ8L3TCEs0sXYUBv7TQk=
+=ksD2
 -----END PGP SIGNATURE-----
