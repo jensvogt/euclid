@@ -2,9 +2,11 @@
 #include <boost/test/unit_test.hpp>
 
 // C++ includes
+#include <atomic>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <vector>
 
 // Euclid includes
 #include <euclid/core/CryptoUtils.h>
@@ -37,13 +39,21 @@ namespace {
         return out;
     }
 
-    // A path under the system temp directory, removed by the fixture that owns it.
+    // A path under the system temp directory, removed by the fixture that owns it. Numbered rather
+    // than random so a leftover file names the case it came from, and so nothing here depends on a
+    // seeded RNG.
     struct TempFile {
         std::filesystem::path path = std::filesystem::temp_directory_path() /
-                                     ("euclid-object-cipher-" + CryptoUtils::md5Sum(std::to_string(std::rand())).substr(0, 16));
+                                     ("euclid-object-cipher-" + std::to_string(counter().fetch_add(1)));
         ~TempFile() {
             std::error_code ec;
             std::filesystem::remove(path, ec);
+        }
+
+    private:
+        static std::atomic<unsigned> &counter() {
+            static std::atomic<unsigned> next{0};
+            return next;
         }
     };
 
@@ -186,7 +196,7 @@ BOOST_AUTO_TEST_CASE(StreamedInPiecesIsTheSameObject) {
     }
 
     BOOST_TEST(ObjectCipher::PlaintextSize(file.path) == static_cast<std::int64_t>(plaintext.size()));
-    BOOST_TEST(ObjectCipher::DecryptFile(aesKey, file.path) == plaintext);
+    BOOST_TEST(ObjectCipher::DecryptWholeFile(aesKey, file.path) == plaintext);
     BOOST_TEST(ObjectCipher::DecryptRange(aesKey, file.path, static_cast<std::int64_t>(kChunk) + 3, 2000) == plaintext.substr(kChunk + 3, 2000));
 }
 
@@ -201,7 +211,7 @@ BOOST_AUTO_TEST_CASE(StreamsAnEmptyObject) {
     }
 
     BOOST_TEST(std::filesystem::file_size(file.path) == ObjectCipher::kHeaderSize);
-    BOOST_TEST(ObjectCipher::DecryptFile(aesKey, file.path).empty());
+    BOOST_TEST(ObjectCipher::DecryptWholeFile(aesKey, file.path).empty());
 }
 
 BOOST_AUTO_TEST_CASE(TranscodesBetweenEveryCombinationOfKeys) {
@@ -220,14 +230,14 @@ BOOST_AUTO_TEST_CASE(TranscodesBetweenEveryCombinationOfKeys) {
     writeFile(encrypted.path, ObjectCipher::Encrypt(first, plaintext));
 
     BOOST_TEST(ObjectCipher::Transcode({}, plain.path, second, target.path) == static_cast<std::int64_t>(plaintext.size()));
-    BOOST_TEST(ObjectCipher::DecryptFile(second, target.path) == plaintext);
+    BOOST_TEST(ObjectCipher::DecryptWholeFile(second, target.path) == plaintext);
 
     BOOST_TEST(ObjectCipher::Transcode(first, encrypted.path, {}, target.path) == static_cast<std::int64_t>(plaintext.size()));
     BOOST_TEST(readFile(target.path) == plaintext);
 
     BOOST_TEST(ObjectCipher::Transcode(first, encrypted.path, second, target.path) == static_cast<std::int64_t>(plaintext.size()));
-    BOOST_TEST(ObjectCipher::DecryptFile(second, target.path) == plaintext);
-    BOOST_CHECK_THROW(auto opened = ObjectCipher::DecryptFile(first, target.path), std::exception);
+    BOOST_TEST(ObjectCipher::DecryptWholeFile(second, target.path) == plaintext);
+    BOOST_CHECK_THROW(auto opened = ObjectCipher::DecryptWholeFile(first, target.path), std::exception);
 
     BOOST_TEST(ObjectCipher::Transcode({}, plain.path, {}, target.path) == static_cast<std::int64_t>(plaintext.size()));
     BOOST_TEST(readFile(target.path) == plaintext);

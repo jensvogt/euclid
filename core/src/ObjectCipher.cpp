@@ -190,7 +190,7 @@ namespace Euclid::Core {
         return readHeader(in, path).plaintextSize;
     }
 
-    std::string ObjectCipher::DecryptFile(const std::string &key, const std::filesystem::path &path) {
+    std::string ObjectCipher::DecryptWholeFile(const std::string &key, const std::filesystem::path &path) {
 
         std::string plaintext;
         streamPlaintext(key, path, [&plaintext](const std::string_view chunk) { plaintext.append(chunk); });

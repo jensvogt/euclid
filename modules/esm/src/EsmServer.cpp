@@ -1218,7 +1218,7 @@ namespace Euclid::ESM {
                 buffer << in.rdbuf();
                 data = buffer.str();
             } else {
-                data = Core::ObjectCipher::DecryptFile(readKey.material, path);
+                data = Core::ObjectCipher::DecryptWholeFile(readKey.material, path);
             }
         } catch (const std::exception &ex) {
             log_error << "ESM could not read object, bucket: " << bucketErn << ", key: " << key << ", error: " << ex.what();
