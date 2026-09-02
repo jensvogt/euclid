@@ -1,6 +1,6 @@
 //#include <awsmock/core/config/Configuration.h>
-#include <../include/euclid/core/LogStream.h>
-#include <../include/euclid/core/Configuration.h>
+#include <euclid/core/LogStream.h>
+#include <euclid/core/Configuration.h>
 //#include <awsmock/core/logging/LoggingServer.h>
 
 namespace Euclid::Core {
@@ -17,7 +17,7 @@ namespace Euclid::Core {
     // boost::shared_ptr<LogWebsocketSink> LogStream::webSocketBackend(new LogWebsocketSink(_ws));
     // boost::shared_ptr<webSocketSink_t> LogStream::webSocketSink(new webSocketSink_t(webSocketBackend));
 
-    inline std::string processFuncName(const char *func) {
+    static inline std::string processFuncName(const char *func) {
 #if (defined(_WIN32) && !defined(__MINGW32__)) || defined(__OBJC__)
         return std::string(func);
 #else
@@ -29,7 +29,7 @@ namespace Euclid::Core {
             return {func};
         }
 
-        for (const char *i = funcEnd - 1; i >= funcBegin; --i) // search backwards for the first space char
+        for (const char *i = funcEnd - 1; i >= funcBegin; --i)// search backwards for the first space char
         {
             if (*i == '>') {
                 foundTemplate++;
@@ -49,7 +49,7 @@ namespace Euclid::Core {
 #endif
     }
 
-    void LogFormatter(boost::log::record_view const &rec, boost::log::formatting_ostream &strm) {
+    static void LogFormatter(boost::log::record_view const &rec, boost::log::formatting_ostream &strm) {
 
         std::string func = processFuncName(boost::log::extract<std::string>("Function", rec)->c_str());
 
@@ -111,22 +111,22 @@ namespace Euclid::Core {
     void LogStream::AddFile(const std::string &dir, const std::string &prefix, long size, int count) {
 #ifdef _WIN32
         _fileSink = add_file_log(
-            boost::log::keywords::file_name = dir + "\\" + prefix + ".log ", boost::log::keywords::rotation_size = size,
-            boost::log::keywords::target_file_name = dir + "\\" + prefix + "_ % N.log ", boost::log::keywords::format = &LogFormatter);
+                boost::log::keywords::file_name = dir + "\\" + prefix + ".log ", boost::log::keywords::rotation_size = size,
+                boost::log::keywords::target_file_name = dir + "\\" + prefix + "_ % N.log ", boost::log::keywords::format = &LogFormatter);
 #else
         _fileSink = add_file_log(
-            boost::log::keywords::file_name = dir + "/" + prefix + ".log",
-            boost::log::keywords::rotation_size = size,
-            boost::log::keywords::target_file_name = dir + "/" + prefix + "_%N.log",
-            boost::log::keywords::format = &LogFormatter);
+                boost::log::keywords::file_name = dir + "/" + prefix + ".log",
+                boost::log::keywords::rotation_size = size,
+                boost::log::keywords::target_file_name = dir + "/" + prefix + "_%N.log",
+                boost::log::keywords::format = &LogFormatter);
 #endif
 
         // Set level
         _fileSink->set_filter(boost::log::trivial::severity >= _severity);
 
         _fileSink->locked_backend()->set_file_collector(boost::log::sinks::file::make_collector(
-            boost::log::keywords::target = dir,
-            boost::log::keywords::max_files = count));
+                boost::log::keywords::target = dir,
+                boost::log::keywords::max_files = count));
 
         _fileSink->locked_backend()->scan_for_files();
 
@@ -174,4 +174,4 @@ namespace Euclid::Core {
         std::cout << message << '\n';
         std::cout.flush();
     }
-} // namespace Euclid::Core
+}// namespace Euclid::Core

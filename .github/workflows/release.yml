@@ -7,6 +7,9 @@ on:
 
 env:
   APP_NAME: "euclid"
+  # The CLI ships twice: inside APP_NAME, for the machine that runs a euclid, and on its own
+  # under this name for every machine that only talks to one.
+  CLI_NAME: "euclid-cli"
   INSTALLER_ID: "de.jensvogt.euclid"
   VCPKG_BUILD_TYPE: release
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -131,6 +134,20 @@ jobs:
         with:
           name: installer-windows
           path: ${{ env.APP_NAME }}-${{ env.SEMVER }}-amd64.exe
+
+      # The CLI on its own, from the same euclid-cli.exe the installer above contains - see
+      # dist/win32/msi/cli.nsi.
+      - name: Build NSIS CLI installer
+        env:
+          SRCDIR: ${{ github.workspace }}
+        run: makensis /DSRCDIR=${{ github.workspace }} /DBUILDDIR="${{ env.BUILD_DIR }}" /DVERSION=${{ env.SEMVER }} dist\win32\msi\cli.nsi
+
+      - name: Upload Windows CLI installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-installer-windows
+          path: ${{ env.CLI_NAME }}-${{ env.SEMVER }}-amd64.exe
+          overwrite: true
           overwrite: true
 
   build-macos:
@@ -145,6 +162,7 @@ jobs:
       VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkg-bincache,readwrite"
       BUILD_DIR: "${{ github.workspace }}/build-macos"
       PACKAGE_DIR: "${{ github.workspace }}/package-macos"
+      PACKAGE_DIR_CLI: "${{ github.workspace }}/package-macos-cli"
       SEMVER: ${{ needs.release-please.outputs.tag_name }}
       SERVICE_NAME: de.jensvogt.euclid
       HOMEBREW_NO_AUTO_UPDATE: 1
@@ -305,6 +323,45 @@ jobs:
           name: installer-macos
           path: ${{ env.APP_NAME }}-${{ env.SEMVER }}-macos.tgz
 
+      # ── CLI-only tarball ───────────────────────────────────────────────────
+      # The tarball above unpacks under /usr/local and puts the CLI in
+      # /usr/local/euclid/bin, which is where a server keeps it and is not on anybody's PATH.
+      # This one is for a Mac that only talks to a euclid elsewhere, so it puts the command in
+      # /usr/local/bin and its pages in /usr/local/share/man - both of which macOS already
+      # searches, so unpacking it is the whole installation.
+      - name: Prepare macOS CLI package
+        run: |
+          mkdir -p ${{ env.PACKAGE_DIR_CLI }}/bin
+          mkdir -p ${{ env.PACKAGE_DIR_CLI }}/share/man/man1
+
+          cp ${{ env.BUILD_DIR }}/bin/euclid-cli ${{ env.PACKAGE_DIR_CLI }}/bin/
+
+          # Section 1 only - section 8 documents the daemons a server runs, which are not here.
+          cp cli/docs/man/*.1 ${{ env.PACKAGE_DIR_CLI }}/share/man/man1/
+          # Same version stamping as the server package above, with BSD sed's -i argument.
+          MAN_VERSION="$(tr -d '[:space:]' < version.txt)"
+          sed -i '' -E "1s/(euclid(-cli)? )[0-9]+\.[0-9]+\.[0-9]+/\1${MAN_VERSION}/" \
+            ${{ env.PACKAGE_DIR_CLI }}/share/man/man1/*.1
+          gzip -9n ${{ env.PACKAGE_DIR_CLI }}/share/man/man1/*.1
+
+          test -x ${{ env.PACKAGE_DIR_CLI }}/bin/euclid-cli \
+            || { echo "::error::euclid-cli is missing or not executable in the macOS CLI package"; exit 1; }
+          expected=$(ls cli/docs/man/*.1 | wc -l)
+          packaged=$(ls ${{ env.PACKAGE_DIR_CLI }}/share/man/man1/*.1.gz | wc -l)
+          if [ "$expected" -ne "$packaged" ]; then
+            echo "::error::macOS CLI package has ${packaged} man pages, the repository has ${expected}"
+            exit 1
+          fi
+
+          tar -czf ${{ env.CLI_NAME }}-${{ env.SEMVER }}-macos.tgz -C ${{ env.PACKAGE_DIR_CLI }} .
+
+      - name: Upload macOS CLI tarball
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-installer-macos
+          path: ${{ env.CLI_NAME }}-${{ env.SEMVER }}-macos.tgz
+          overwrite: true
+
   build-linux:
     name: Build & Package (Linux DEB + RPM)
     runs-on: ubuntu-latest
@@ -319,6 +376,7 @@ jobs:
       BUILD_DIR: "${{ github.workspace }}/build-linux"
       PACKAGE_DIR_DEB: "${{ github.workspace }}/package-deb"
       PACKAGE_DIR_RPM: "${{ github.workspace }}/package-rpm"
+      PACKAGE_DIR_CLI: "${{ github.workspace }}/package-cli"
       SEMVER: "${{ needs.release-please.outputs.tag_name }}"
     steps:
       - name: Checkout
@@ -524,6 +582,9 @@ jobs:
           --category utils \
           --depends systemd \
           --depends libmagic1 \
+          --depends "libgoogle-perftools4 | libgoogle-perftools4t64" \
+          --depends libunwind8 \
+          --depends liblzma5 \
           --after-install ${{ github.workspace }}/deb-scripts/postinstall.sh \
           --after-remove ${{ github.workspace }}/deb-scripts/postremove.sh \
           --package "${{ env.APP_NAME }}-${{ env.SEMVER }}-amd64.deb" \
@@ -675,6 +736,9 @@ jobs:
           --license "GPL-3.0-or-later" \
           --depends systemd \
           --depends file-libs \
+          --depends gperftools-libs \
+          --depends libunwind \
+          --depends xz-libs \
           --prefix / \
           --after-install ${{ github.workspace }}/rpm-scripts/postinstall.sh \
           --after-remove ${{ github.workspace }}/rpm-scripts/postremove.sh \
@@ -685,6 +749,164 @@ jobs:
         with:
           name: rpm-package-linux
           path: ${{ env.APP_NAME }}-${{ env.SEMVER }}-1.x86_64.rpm
+          overwrite: true
+
+      # ── CLI-only packages ──────────────────────────────────────────────────
+      # The euclid package above already contains euclid-cli, because a server is administered
+      # from the machine it runs on. These are for the machine it does not: a workstation, a build
+      # agent, a container that talks to a euclid somewhere else and has no business installing a
+      # dozen module binaries, a systemd unit and a service account to do it.
+      #
+      # Built from the same binaries the server packages were built from, in this job rather than
+      # a separate one, so the CLI a release ships standalone is byte for byte the one it ships
+      # inside the server package.
+
+      - name: Prepare CLI package structure
+        run: |
+          # One tree for both the DEB and the RPM: unlike the server, the CLI installs no service
+          # unit and nothing else a distribution has an opinion about, so there is nothing to
+          # differ between them.
+          mkdir -p ${{ env.PACKAGE_DIR_CLI }}/usr/local/euclid/bin
+          mkdir -p ${{ env.PACKAGE_DIR_CLI }}/usr/local/share/man/man1
+
+          cp ${{ env.BUILD_DIR }}/bin/euclid-cli ${{ env.PACKAGE_DIR_CLI }}/usr/local/euclid/bin/
+
+          # Section 1 only. The section 8 pages document euclid-ftp and euclid-sftp, which are
+          # daemons the manager runs - they belong to a server, and shipping them to a machine
+          # that has no euclid to run would document commands that are not there.
+          cp cli/docs/man/*.1 ${{ env.PACKAGE_DIR_CLI }}/usr/local/share/man/man1/
+          # Same version stamping and compression as the server packages above, and for the same
+          # reasons - see the DEB step.
+          MAN_VERSION="$(tr -d '[:space:]' < version.txt)"
+          sed -i -E "1s/(euclid(-cli)? )[0-9]+\.[0-9]+\.[0-9]+/\1${MAN_VERSION}/" \
+            ${{ env.PACKAGE_DIR_CLI }}/usr/local/share/man/man1/*.1
+          gzip -9n ${{ env.PACKAGE_DIR_CLI }}/usr/local/share/man/man1/*.1
+
+          # Maintainer scripts live OUTSIDE PACKAGE_DIR_CLI - see the matching comment in the
+          # server DEB step for why.
+          mkdir -p ${{ github.workspace }}/cli-scripts
+          cat << EOF > ${{ github.workspace }}/cli-scripts/postinstall.sh
+          #!/bin/bash
+          set -e
+          # The same symlink the server package makes, so "euclid-cli" is the command either way
+          # and a script written against one installation works against the other.
+          ln -sf /usr/local/euclid/bin/euclid-cli /usr/local/bin/euclid-cli
+          EOF
+
+          # No service, no account, no data directory: this package installs a command and its
+          # manual, and removing it leaves nothing behind but the symlink it made.
+          cat << EOF > ${{ github.workspace }}/cli-scripts/postremove-deb.sh
+          #!/bin/bash
+          set -e
+          # Only on a real removal - dpkg runs the old package's postrm partway through every
+          # upgrade, after the new one's files are already unpacked, so removing the symlink
+          # unconditionally would delete the one postinst had just created.
+          if [ "\$1" = "remove" ] || [ "\$1" = "purge" ]; then
+            rm -f /usr/local/bin/euclid-cli
+          fi
+          EOF
+
+          cat << EOF > ${{ github.workspace }}/cli-scripts/postremove-rpm.sh
+          #!/bin/bash
+          # \$1 is the number of instances left installed after this action: >=1 during an
+          # upgrade, 0 only on a genuine removal. Same guard as the DEB above.
+          if [ "\$1" -eq 0 ]; then
+            rm -f /usr/local/bin/euclid-cli
+          fi
+          EOF
+
+          chmod +x ${{ github.workspace }}/cli-scripts/postinstall.sh \
+                   ${{ github.workspace }}/cli-scripts/postremove-deb.sh \
+                   ${{ github.workspace }}/cli-scripts/postremove-rpm.sh
+
+      - name: Verify CLI package contents
+        run: |
+          # A CLI package that ships no runnable CLI, or a CLI with no manual, is worth catching
+          # here rather than on somebody's workstation.
+          test -x ${{ env.PACKAGE_DIR_CLI }}/usr/local/euclid/bin/euclid-cli \
+            || { echo "::error::euclid-cli is missing or not executable in the CLI package"; exit 1; }
+          test -s ${{ env.PACKAGE_DIR_CLI }}/usr/local/share/man/man1/euclid-cli.1.gz \
+            || { echo "::error::euclid-cli.1 is missing from the CLI package"; exit 1; }
+
+          # Every man page the repository ships for the CLI has to be in the package: they are
+          # generated by hand alongside each command, and a command whose page was forgotten is
+          # invisible to anyone who looks it up rather than guessing.
+          expected=$(ls cli/docs/man/*.1 | wc -l)
+          packaged=$(ls ${{ env.PACKAGE_DIR_CLI }}/usr/local/share/man/man1/*.1.gz | wc -l)
+          if [ "$expected" -ne "$packaged" ]; then
+            echo "::error::CLI package has ${packaged} man pages, the repository has ${expected}"
+            exit 1
+          fi
+          echo "euclid-cli and ${packaged} manual pages are packaged"
+
+          # The server package still carries the CLI - that is the whole point of it being in
+          # both - so a change that removes it from there would be a regression this catches.
+          test -x ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/euclid-cli \
+            || { echo "::error::the server DEB no longer contains euclid-cli"; exit 1; }
+          test -x ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/euclid-cli \
+            || { echo "::error::the server RPM no longer contains euclid-cli"; exit 1; }
+
+      - name: Build CLI DEB with fpm
+        run: |
+          # Conflicts/Replaces rather than a shared file: both packages install
+          # /usr/local/euclid/bin/euclid-cli, so they are two ways of getting the same command
+          # and a machine wants one of them. Declared on this side only - apt then removes
+          # whichever is installed before installing the other, in either direction.
+          #
+          # libgoogle-perftools4 is named libgoogle-perftools4t64 from Ubuntu 24.04 on (the
+          # 64-bit time_t transition), so both names are accepted. Every euclid binary links
+          # tcmalloc when the build host has it, which on a server is pulled in by everything
+          # else - a workstation installing the CLI alone has nothing else to pull it in.
+          fpm -s dir -t deb --name "${{ env.CLI_NAME }}" \
+          --version "${{ env.SEMVER }}" \
+          --architecture amd64 \
+          --license "GPL-3.0-or-later" \
+          --maintainer "Jens Vogt <jens.vogt@opitz-consulting.com>" \
+          --description "Euclid command line interface" \
+          --url "https://github.com/jensvogt/euclid" \
+          --category utils \
+          --depends "libgoogle-perftools4 | libgoogle-perftools4t64" \
+          --depends libunwind8 \
+          --depends liblzma5 \
+          --conflicts "${{ env.APP_NAME }}" \
+          --replaces "${{ env.APP_NAME }}" \
+          --after-install ${{ github.workspace }}/cli-scripts/postinstall.sh \
+          --after-remove ${{ github.workspace }}/cli-scripts/postremove-deb.sh \
+          --package "${{ env.CLI_NAME }}-${{ env.SEMVER }}-amd64.deb" \
+          ${{ env.PACKAGE_DIR_CLI }}/=/
+
+      - name: Upload CLI .deb
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-deb-package-linux
+          path: ${{ env.CLI_NAME }}-${{ env.SEMVER }}-amd64.deb
+          overwrite: true
+
+      - name: Build CLI RPM with fpm
+        run: |
+          # RPM has no Replaces, so this is Conflicts alone: rpm refuses to have both installed
+          # and says which one is in the way, rather than silently swapping them the way apt does.
+          fpm -s dir -t rpm \
+          -n "${{ env.CLI_NAME }}" \
+          -v ${SEMVER} \
+          --description "Euclid command line interface" \
+          --url "https://github.com/jensvogt/euclid" \
+          --vendor "Euclid Project" \
+          --license "GPL-3.0-or-later" \
+          --depends gperftools-libs \
+          --depends libunwind \
+          --depends xz-libs \
+          --conflicts "${{ env.APP_NAME }}" \
+          --prefix / \
+          --after-install ${{ github.workspace }}/cli-scripts/postinstall.sh \
+          --after-remove ${{ github.workspace }}/cli-scripts/postremove-rpm.sh \
+          ${{ env.PACKAGE_DIR_CLI }}/=/
+
+      - name: Upload CLI .rpm
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-rpm-package-linux
+          path: ${{ env.CLI_NAME }}-${{ env.SEMVER }}-1.x86_64.rpm
           overwrite: true
 
   build-apt-repo:
@@ -702,6 +924,15 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           name: deb-package-linux
+          path: artifacts
+
+      # Into the same repository and the same distribution as the server package: "apt install
+      # euclid-cli" on a workstation is the point of it, and it is the same archive and the same
+      # signing key that already has to be trusted for "apt install euclid".
+      - name: Download CLI .deb package
+        uses: actions/download-artifact@v7
+        with:
+          name: cli-deb-package-linux
           path: artifacts
 
       - name: Import GPG signing key
@@ -827,6 +1058,18 @@ jobs:
           name: installer-macos
           path: artifacts/macos
 
+      - name: Download macOS CLI tarball
+        uses: actions/download-artifact@v7
+        with:
+          name: cli-installer-macos
+          path: artifacts/macos
+
+      - name: Download Windows CLI installer
+        uses: actions/download-artifact@v7
+        with:
+          name: cli-installer-windows
+          path: artifacts/windows
+
       - name: Download Linux Debian package
         uses: actions/download-artifact@v7
         with:
@@ -839,6 +1082,21 @@ jobs:
           name: rpm-package-linux
           path: artifacts/linux
 
+      - name: Download Linux CLI Debian package
+        uses: actions/download-artifact@v7
+        with:
+          name: cli-deb-package-linux
+          path: artifacts/linux
+
+      - name: Download Linux CLI RPM package
+        uses: actions/download-artifact@v7
+        with:
+          name: cli-rpm-package-linux
+          path: artifacts/linux
+
+      # The CLI packages land in artifacts/linux alongside the server ones, so the globs below
+      # pick them up without naming each file - which is also what keeps a future package from
+      # being released only because somebody remembered to add a line here.
       - name: Create GitHub Release (attach installers)
         uses: softprops/action-gh-release@v2
         with:
@@ -877,8 +1135,12 @@ jobs:
           mkdir public
           cp ./artifacts/installer-windows/*.exe public/ || true
           cp ./artifacts/installer-macos/*.tgz public/ || true
+          cp ./artifacts/cli-installer-windows/*.exe public/ || true
+          cp ./artifacts/cli-installer-macos/*.tgz public/ || true
           cp ./artifacts/deb-package-linux/*.deb public/ || true
           cp ./artifacts/rpm-package-linux/*.rpm public/ || true
+          cp ./artifacts/cli-deb-package-linux/*.deb public/ || true
+          cp ./artifacts/cli-rpm-package-linux/*.rpm public/ || true
           cp .github/pages/index.html public/index.html || true
           mkdir -p public/apt
           cp -R ./artifacts/apt-repo-site/dists public/apt/
