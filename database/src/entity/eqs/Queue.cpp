@@ -44,6 +44,7 @@ namespace Euclid::Database::Entity::EQS {
                 bsoncxx::builder::basic::kvp("deadLetterQueueErn", deadLetterQueueErn),
                 bsoncxx::builder::basic::kvp("priority", MessagePriorityToString(priority)),
                 bsoncxx::builder::basic::kvp("internal", internal),
+                bsoncxx::builder::basic::kvp("status", QueueStatusToString(status)),
                 bsoncxx::builder::basic::kvp("tags", tagsDoc.extract()));
         // bsoncxx::builder::basic::kvp("defaultMessageAttributes", defaultMessageAttributesDoc.extract()));
     }
@@ -73,6 +74,10 @@ namespace Euclid::Database::Entity::EQS {
             else if (key == "maxReceiveCount") queue.maxReceiveCount = getBsonInt(field);
             else if (key == "deadLetterQueueErn") queue.deadLetterQueueErn = std::string(field.get_string().value);
             else if (key == "priority") queue.priority = MessagePriorityFromString(std::string(field.get_string().value));
+            // Absent on every queue created before the status existed, and those were all
+            // receivable - QueueStatusFromString() reads a missing or unrecognised value as
+            // AVAILABLE for exactly that reason.
+            else if (key == "status") queue.status = QueueStatusFromString(std::string(field.get_string().value));
             else if (key == "created") queue.created = system_clock::time_point{field.get_date().value};
             else if (key == "modified") queue.modified = system_clock::time_point{field.get_date().value};
             else if (key == "tags") {

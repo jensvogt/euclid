@@ -42,6 +42,7 @@ namespace Euclid::Dto::EQS {
         dto.maxReceiveCount = entity.maxReceiveCount;
         dto.deadLetterQueueArn = entity.deadLetterQueueErn;
         dto.priority = Database::Entity::EQS::MessagePriorityToString(entity.priority);
+        dto.status = Database::Entity::EQS::QueueStatusToString(entity.status);
         dto.created = entity.created;
         dto.modified = entity.modified;
         return dto;
@@ -71,6 +72,7 @@ namespace Euclid::Dto::EQS {
         entity.maxReceiveCount = dto.maxReceiveCount;
         entity.deadLetterQueueErn = dto.deadLetterQueueArn;
         entity.priority = Database::Entity::EQS::MessagePriorityFromString(dto.priority);
+        entity.status = Database::Entity::EQS::QueueStatusFromString(dto.status);
         entity.tags = dto.tags;
         entity.created = dto.created;
         entity.modified = dto.modified;

@@ -1,0 +1,78 @@
+.TH EUCLID-CLI-EQS-START-QUEUE 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eqs-start-queue \- let a stopped queue be received from again
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B eqs start-queue
+.BR \-\-queue | \-q
+.I ERN
+.SH DESCRIPTION
+Clears what
+.BR euclid-cli-eqs-stop-queue (1)
+recorded, so
+.BR euclid-cli-eqs-receive-messages (1)
+is answered normally again.
+.PP
+Consumers that have been polling and failing pick up on their next
+attempt \- nothing has to be restarted \- and whatever accumulated while
+the queue was stopped is delivered in the ordinary way, oldest first
+within each priority.
+.PP
+Starting a queue that was never stopped changes nothing and is not an
+error, so this is safe to run without checking first.
+.PP
+Be aware of what has built up: a queue stopped for an hour under load
+has an hour of messages in it, and every consumer resumes at once
+against that backlog. Check with
+.BR euclid-cli-eqs-get-message-count (1)
+before starting if the answer might matter.
+.SH OPTIONS
+.TP
+.BR \-q ", " \-\-queue " " \fIERN\fR
+ERN of the queue to start. Required. Resolve a name to its ERN with
+.BR euclid-cli-eqs-get-queue-ern (1).
+.SH OUTPUT
+The JSON response is printed to standard output:
+.RS
+.TP
+.I ern
+The queue that was started.
+.TP
+.I status
+.I AVAILABLE
+\- what is now recorded for it.
+.TP
+.I available
+How many messages are receivable at this moment, i.e. the backlog
+consumers are about to be handed.
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+The queue is recorded as running again.
+.TP
+.B 1
+The queue ERN is missing or names no queue, the caller is not authorized
+for it, the request could not be sent, or the server rejected it.
+Details are printed to standard error.
+.SH EXAMPLES
+Check the backlog, then let consumers back in:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eqs get-message-count \e
+    --queue ern:eqs:eu-central-1:000000000000:development:queue:onix-queue
+
+euclid-cli --endpoint http://localhost:5566 eqs start-queue \e
+    --queue ern:eqs:eu-central-1:000000000000:development:queue:onix-queue
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eqs (1),
+.BR euclid-cli-eqs-stop-queue (1),
+.BR euclid-cli-eqs-receive-messages (1),
+.BR euclid-cli-eqs-get-message-count (1),
+.BR euclid-cli-eam-login (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

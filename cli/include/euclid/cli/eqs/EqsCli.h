@@ -37,6 +37,7 @@
 #include <euclid/dto/eqs/SendMessageRequest.h>
 #include <euclid/dto/eqs/SetMessageAttributeRequest.h>
 #include <euclid/dto/eqs/SetMessageVisibilityRequest.h>
+#include <euclid/dto/eqs/SetQueueVisibilityRequest.h>
 #include <euclid/dto/eqs/SetQueueTagRequest.h>
 
 namespace Euclid::CLI {
@@ -171,6 +172,31 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int setVisibility(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Sets a queue's default visibility timeout: the figure every message received
+         * from it starts with, as opposed to setVisibility(), which changes it for one message
+         * that has already been received. Messages already in flight keep the window they were
+         * given; the new value applies from the next receive onwards.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int setQueueVisibility(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Stops receiving from a queue, or lets it be received from again.
+         *
+         * Sending is unaffected either way: only receive-messages is refused, so producers keep
+         * writing and messages accumulate while consumption is held.
+         *
+         * @param args command line arguments
+         * @param stopped true for "stop-queue", false for "start-queue"
+         * @return ok
+         */
+        [[nodiscard]]
+        int setQueueStopped(const std::vector<std::string> &args, bool stopped) const;
 
         /**
          * @brief Deletes a single message, either by receipt handle or, for a message that has
