@@ -6,6 +6,7 @@ euclid-cli-esm-purge-bucket \- remove all objects from a bucket
 .BR \-\-bucket | \-b
 .I ERN
 [\fB\-\-prefix\fR|\fB\-p\fR \fIPREFIX\fR]
+[\fB\-\-async\fR]
 .SH DESCRIPTION
 Removes objects from a bucket identified by its Euclid resource name
 (ERN), leaving the bucket itself in place; see
@@ -24,6 +25,24 @@ Euclid resource name of the bucket to purge. Required.
 .BR \-p ", " \-\-prefix " " \fIPREFIX\fR
 Only remove objects whose key starts with this prefix. Optional; if
 omitted, every object in the bucket is removed.
+.TP
+.B \-\-async
+Answer at once and remove the objects in the background, for a bucket
+large enough that emptying it takes minutes.
+.PP
+Without it the whole purge happens inside the request: with a million
+objects that is a million round trips, far longer than the gateway's
+backend timeout, so the call fails with a timeout while the purge
+carries on unseen behind the abandoned request. With it the answer is
+.I "HTTP 202"
+carrying the object count at the time of asking, and a thread inside ESM
+does the work.
+.PP
+The bucket's counters are adjusted when the removal finishes, from a
+freshly read document rather than the one the thread started with \-
+minutes pass, and anything uploaded meanwhile must still be counted.
+Watch the progress with
+.BR euclid-cli-esm-get-bucket-size (1).
 .SH EXIT STATUS
 .TP
 .B 0

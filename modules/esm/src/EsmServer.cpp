@@ -4,6 +4,7 @@
 #include "euclid/dto/esm/AddBucketTagRequest.h"
 #include "euclid/dto/esm/DeleteBucketTagRequest.h"
 
+#include <atomic>
 #include <thread>
 
 namespace Euclid::ESM {
@@ -352,6 +353,64 @@ namespace Euclid::ESM {
         return removed;
     }
 
+    // How many background removals are running, so the answer to an --async request can say
+    // whether it joined a queue and so a shutdown could be made to wait for them later.
+    std::atomic<int> backgroundRemovals{0};
+
+    // Runs removeBucketObjects() on a detached thread, optionally deleting the bucket afterwards.
+    //
+    // A bucket with a million objects takes a million round trips to empty, which is minutes to
+    // hours - far longer than the gateway's backend timeout, let alone a client's patience. Doing
+    // it inline means the caller waits for all of it and then gets a timeout anyway, with the
+    // removal continuing invisibly behind the abandoned request. Handing it to a thread makes that
+    // honest: the request is answered at once, and the work is what it always was.
+    //
+    // The bucket document is deleted last, not first, so the operation is resumable: if the
+    // process is stopped or scaled down halfway, the bucket is still there and asking again picks
+    // up where this left off. The alternative - remove the bucket first - would leave objects
+    // nothing could ever reach, which is exactly the orphaning this cascade exists to prevent.
+    static void removeBucketObjectsInBackground(const std::string &bucketErn, const std::string &prefix,
+                                                const std::optional<Database::Entity::ESM::Bucket> &bucket,
+                                                const std::string &userId, const bool deleteBucket) {
+
+        backgroundRemovals++;
+        std::thread([bucketErn, prefix, bucket, userId, deleteBucket] {
+            try {
+                log_info << "ESM background removal started, ern: " << bucketErn << (deleteBucket ? ", deleting the bucket afterwards" : "");
+                const auto removed = removeBucketObjects(bucketErn, prefix, bucket, userId);
+
+                const auto repo = Database::RepositoryFactory::instance().esmRepository();
+                if (deleteBucket) {
+                    repo->deleteBucketByErn(bucketErn);
+                    Database::EventBus::instance().Publish(
+                            "esm.bucket.deleted",
+                            boost::json::value{{"ern", bucketErn},
+                                               {"name", bucket.has_value() ? bucket->name : std::string()},
+                                               {"accountId", bucket.has_value() ? bucket->accountId : std::string()},
+                                               {"region", bucket.has_value() ? bucket->region : std::string()}},
+                            "esm");
+                } else if (bucket.has_value()) {
+                    // Re-read rather than adjusted from the copy this thread started with: minutes
+                    // have passed, and anything uploaded meanwhile is counted in the stored figure
+                    // but not in what was removed.
+                    if (auto fresh = repo->findBucketByErn(bucketErn)) {
+                        fresh->size = std::max<long>(0, fresh->size - removed.size);
+                        fresh->objects = std::max<long>(0, fresh->objects - removed.count);
+                        repo->upsertBucket(*fresh);
+                    }
+                }
+                log_info << "ESM background removal finished, ern: " << bucketErn << ", count: " << removed.count << ", size: " << removed.size;
+
+            } catch (const std::exception &e) {
+                // Nothing above this catch: an exception escaping a detached thread's entry
+                // function calls std::terminate() and takes the whole module down. The bucket is
+                // left as it is, which is what makes asking again the way to finish the job.
+                log_error << "ESM background removal failed, ern: " << bucketErn << ", error: " << e.what();
+            }
+            backgroundRemovals--;
+        }).detach();
+    }
+
     // ── Bucket subscriptions ─────────────────────────────────────────────────
     // Fans out to every subscription of bucketErn - one EventBus event per subscription, so a
     // subscribing instance (any one of them, via the claim mechanism) delivers it. Type SQS goes
@@ -568,6 +627,17 @@ namespace Euclid::ESM {
         // first.
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
         const auto bucket = repo->findBucketByErn(request.ern);
+
+        // A bucket big enough to be worth emptying in the background is emptied in the background,
+        // and the bucket itself goes when that finishes - so it stays listed, and still deletable,
+        // until it is genuinely gone.
+        if (Core::GetBoolValue(jv, "async")) {
+            removeBucketObjectsInBackground(request.ern, "", bucket, auth.user->userId, true);
+            return EsmServer::JsonResponse(req, status::accepted, boost::json::serialize(boost::json::object{
+                                                                          {"ern", request.ern},
+                                                                          {"async", true},
+                                                                          {"objects", bucket.has_value() ? bucket->objects : 0}}));
+        }
 
         // The objects go with it. Nothing else ever would: an object is only ever reached through
         // its bucket, so a row left behind here is unreachable for good, and the file it names is
@@ -1676,6 +1746,14 @@ namespace Euclid::ESM {
             return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.bucketErn);
         }
         if (const auto denied = denyUngrantedBucket(req, auth, request.bucketErn)) return *denied;
+        if (Core::GetBoolValue(jv, "async")) {
+            removeBucketObjectsInBackground(request.bucketErn, request.prefix, bucket, auth.user->userId, false);
+            return JsonResponse(req, status::accepted, boost::json::serialize(boost::json::object{
+                                                               {"ern", request.bucketErn},
+                                                               {"async", true},
+                                                               {"objects", bucket->objects}}));
+        }
+
         const auto removed = removeBucketObjects(request.bucketErn, request.prefix, bucket, auth.user->userId);
         const auto purgedSize = removed.size;
         const auto purgedObjects = removed.count;

@@ -16,7 +16,7 @@ namespace Euclid::CLI {
         boost::json::array SplitList(const std::string &value) {
             boost::json::array entries;
             std::stringstream ss(value);
-            for (std::string part; std::getline(ss, part, ','); ) {
+            for (std::string part; std::getline(ss, part, ',');) {
                 const auto first = part.find_first_not_of(" \t");
                 const auto last = part.find_last_not_of(" \t");
                 if (first == std::string::npos) continue;
@@ -33,12 +33,12 @@ namespace Euclid::CLI {
         if (action == "help" || action == "--help" || action == "-h") {
             return PrintModuleHelp("ets", {
                                            {"create-server", "Define a new FTP or SFTP transfer server for an ESM bucket"},
-                                           {"update-server", "Change an existing transfer server's settings"},
-                                           {"list-servers", "List the defined transfer servers and their state"},
-                                           {"get-server", "Show one transfer server's definition"},
                                            {"delete-server", "Delete a transfer server definition"},
+                                           {"get-server", "Show one transfer server's definition"},
+                                           {"list-servers", "List the defined transfer servers and their state"},
                                            {"start-server", "Ask the manager to start a transfer server"},
                                            {"stop-server", "Ask the manager to stop a transfer server"},
+                                           {"update-server", "Change an existing transfer server's settings"},
                                    });
         }
 
@@ -120,7 +120,7 @@ namespace Euclid::CLI {
         // certainly a mistake rather than an intentionally unreachable server.
         if (!vm.contains("users") && !vm.contains("groups")) {
             std::cerr << "error: create-server failed: at least one of --users or --groups is required, "
-                         "otherwise nobody can log in\n";
+                    "otherwise nobody can log in\n";
             return 1;
         }
 
@@ -351,13 +351,13 @@ namespace Euclid::CLI {
             return PrintActionHelp("ets", action, "--server-id <name>",
                                    starting
                                        ? "Marks a transfer server as one that should be running. The command returns "
-                                         "as soon as that intent is recorded, not once the server is up: the manager "
-                                         "notices within a few seconds and spawns the process. Use \"ets list-servers\" "
-                                         "to see when its observed state catches up with the desired one."
+                                       "as soon as that intent is recorded, not once the server is up: the manager "
+                                       "notices within a few seconds and spawns the process. Use \"ets list-servers\" "
+                                       "to see when its observed state catches up with the desired one."
                                        : "Marks a transfer server as one that should not be running. As with "
-                                         "start-server the command records the intent and returns; the manager stops "
-                                         "the process shortly afterwards. The definition is kept, so the server can be "
-                                         "started again later with the same settings.",
+                                       "start-server the command records the intent and returns; the manager stops "
+                                       "the process shortly afterwards. The definition is kept, so the server can be "
+                                       "started again later with the same settings.",
                                    desc);
         }
 

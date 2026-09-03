@@ -1,0 +1,123 @@
+.TH EUCLID-CLI-EQS-STOP-QUEUE 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eqs-stop-queue \- stop receiving from a queue, without stopping sends
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B eqs stop-queue
+.BR \-\-queue | \-q
+.I ERN
+.SH DESCRIPTION
+Stops consumption of a queue while leaving production untouched.
+.PP
+Producers are unaffected: the queue goes on accepting everything sent to
+it, and messages accumulate exactly as they would while no consumer
+happened to be running.
+.BR euclid-cli-eqs-receive-messages (1)
+is refused with
+.I "HTTP 409"
+until
+.BR euclid-cli-eqs-start-queue (1)
+lifts it.
+.PP
+Being a property of the queue rather than an access rule, it stops every
+consumer at once rather than one identity at a time \- which is what
+makes it usable for a maintenance window, where the point is that
+.I nothing
+takes work out, not that a particular caller may not.
+.SH WHY IT REFUSES RATHER THAN RETURNING EMPTY
+A stopped queue could just as easily answer a receive with an empty list,
+and that would keep consumer logs quiet. It deliberately does not.
+.PP
+A queue that reads as empty is indistinguishable from a queue nobody is
+writing to, and telling those two apart is exactly what whoever stopped
+it needs to do. So expect consumers to log errors for as long as the
+queue is stopped \- that noise is the signal that consumption is being
+held, and its absence would be the bug.
+.SH MESSAGES ALREADY IN FLIGHT
+Left alone. A consumer that received a message before the stop is still
+entitled to finish and delete it: deleting is not receiving, and
+stopping a queue should not turn every lease consumers are holding into
+a redelivery.
+.PP
+Their visibility timeouts run as normal, so a message whose consumer
+does die comes back to the queue and then stays there \- nothing can
+receive it \- until the queue is started again.
+.SH OPTIONS
+.TP
+.BR \-q ", " \-\-queue " " \fIERN\fR
+ERN of the queue to stop. Required. Resolve a name to its ERN with
+.BR euclid-cli-eqs-get-queue-ern (1).
+.SH OUTPUT
+The JSON response is printed to standard output:
+.RS
+.TP
+.I ern
+The queue that was stopped.
+.TP
+.I status
+.I STOPPED
+\- what is now recorded for it. A queue that may be received from reads
+.IR AVAILABLE ,
+which is also what every queue created before this existed reads as.
+.TP
+.I available
+How many messages are receivable at this moment, which is what will have
+accumulated by the time it is started again, plus whatever arrives
+meanwhile.
+.RE
+.PP
+Stopping a queue that is already stopped changes nothing, answers the
+same way, and is not an error.
+.BR euclid-cli-eqs-list-queues (1)
+reports the flag for every queue.
+.SH EXIT STATUS
+.TP
+.B 0
+The queue is recorded as stopped.
+.TP
+.B 1
+The queue ERN is missing or names no queue, the caller is not authorized
+for it, the request could not be sent, or the server rejected it.
+Details are printed to standard error.
+.SH EXAMPLES
+Hold consumption while a broken handler is fixed, leaving producers
+running:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eqs stop-queue \e
+    --queue ern:eqs:eu-central-1:000000000000:development:queue:onix-queue
+.fi
+.RE
+.PP
+See what has piled up, then let consumers back in:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eqs get-message-count \e
+    --queue ern:eqs:eu-central-1:000000000000:development:queue:onix-queue
+
+euclid-cli --endpoint http://localhost:5566 eqs start-queue \e
+    --queue ern:eqs:eu-central-1:000000000000:development:queue:onix-queue
+.fi
+.RE
+.PP
+Inspect the messages without consuming them, which stays allowed while
+the queue is stopped:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eqs list-messages \e
+    --queue ern:eqs:eu-central-1:000000000000:development:queue:onix-queue
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eqs (1),
+.BR euclid-cli-eqs-start-queue (1),
+.BR euclid-cli-eqs-receive-messages (1),
+.BR euclid-cli-eqs-list-messages (1),
+.BR euclid-cli-eqs-get-queue-ern (1),
+.BR euclid-cli-eam-login (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

@@ -17,6 +17,7 @@
 
 // Euclid includes
 #include "MessagePriority.h"
+#include "QueueStatus.h"
 
 #include <euclid/database/entity/BaseEntity.h>
 #include <euclid/database/entity/eqs/QueueAttribute.h>
@@ -128,6 +129,23 @@ namespace Euclid::Database::Entity::EQS {
          * what the component that created it does.
          */
         bool internal = false;
+
+        /**
+         * @brief Whether this queue may be received from.
+         *
+         * @par
+         * Sending is unaffected: a STOPPED queue still accepts everything producers write to it,
+         * and messages accumulate exactly as they would while no consumer happened to be running.
+         * Only receive-messages is refused, so a consumer cannot take work out while somebody is
+         * fixing, draining or investigating it - and, being a queue-level status rather than an
+         * access rule, it stops every consumer at once rather than one identity at a time.
+         *
+         * @par
+         * Refused rather than answered with an empty list, deliberately: a stopped queue that read
+         * as empty would be indistinguishable from a queue nobody is writing to, which is exactly
+         * the distinction whoever stopped it needs to be able to make.
+         */
+        QueueStatus status = QueueStatus::AVAILABLE;
 
         /**
          * @brief Creation date

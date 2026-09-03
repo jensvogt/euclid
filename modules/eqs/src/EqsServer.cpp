@@ -331,6 +331,14 @@ namespace Euclid::EQS {
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
 
+        // Checked before the long poll, not after: waiting twenty seconds to be told the queue is
+        // stopped would be twenty seconds a consumer spends holding a slot for an answer that was
+        // already known.
+        if (const auto queue = repo->findQueueByErn(request.queueErn);
+            queue.has_value() && queue->status == Database::Entity::EQS::QueueStatus::STOPPED) {
+            return EqsServer::ErrorResponse(req, status::conflict, "Queue is stopped, ern: " + request.queueErn);
+        }
+
         // Without a slot the wait is skipped rather than queued: the queue is checked once and
         // whatever is in it comes back, which is what a long poll returns anyway when the queue
         // stays empty. The consumer asks again; a producer gets a thread meanwhile.
@@ -669,6 +677,92 @@ namespace Euclid::EQS {
         return EqsServer::JsonResponse(req, status::ok);
     }
 
+    // Shared by stop-queue and start-queue, which differ only in the value they record.
+    static response<string_body> handleSetQueueStopped(const request<string_body> &req, const bool stopped) {
+
+        const auto action = stopped ? "stop-queue" : "start-queue";
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", action);
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto ern = Core::GetStringValue(jv, "ern");
+        if (ern.empty()) {
+            return EqsServer::ErrorResponse(req, status::bad_request, "Queue ERN missing");
+        }
+        if (const auto denied = denyUngrantedQueue(req, auth, ern)) return *denied;
+
+        const auto repo = Database::RepositoryFactory::instance().eqsRepository();
+        std::optional<Database::Entity::EQS::Queue> queue = repo->findQueueByErn(ern);
+        if (!queue.has_value()) {
+            return EqsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + ern);
+        }
+
+        log_info << "EQS " << action << ", ern: " << ern << ", available: " << queue->available;
+
+        // Messages already in flight are left alone. Their consumer took them before the queue was
+        // stopped and is still entitled to finish: deleting one is not a receive, and stopping a
+        // queue should not turn every lease a consumer is holding into a redelivery.
+        queue->status = stopped ? Database::Entity::EQS::QueueStatus::STOPPED : Database::Entity::EQS::QueueStatus::AVAILABLE;
+        queue = repo->upsertQueue(queue.value());
+
+        return EqsServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"ern", ern},
+                                                                {"status", Database::Entity::EQS::QueueStatusToString(queue->status)},
+                                                                {"available", queue->available}}));
+    }
+
+    static response<string_body> handleStopQueue(const request<string_body> &req) {
+        return handleSetQueueStopped(req, true);
+    }
+
+    static response<string_body> handleStartQueue(const request<string_body> &req) {
+        return handleSetQueueStopped(req, false);
+    }
+
+    static response<string_body> handleSetQueueVisibility(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-queue-visibility");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EQS::SetQueueVisibilityRequest>(jv);
+        if (request.ern.empty()) {
+            return EqsServer::ErrorResponse(req, status::bad_request, "Queue ERN missing");
+        }
+        // The same bounds handleSetVisibility() holds a single message to, and AWS SQS holds both
+        // to: a queue default outside the range a message may be given would be a figure no
+        // message could ever actually take.
+        if (request.visibility < 0 || request.visibility > 43200) {
+            return EqsServer::ErrorResponse(req, status::bad_request, "Visibility must be between 0 and 43200 seconds");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().eqsRepository();
+        std::optional<Database::Entity::EQS::Queue> queue = repo->findQueueByErn(request.ern);
+        if (!queue.has_value()) {
+            return EqsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + request.ern);
+        }
+
+        log_info << "EQS SetQueueVisibility, ern: " << request.ern << ", visibility: " << queue->visibility << " -> " << request.visibility;
+
+        // Only the default changes. Messages already in flight keep the window they were given
+        // when they were received - shortening it here would make a consumer's lease expire
+        // under it while it is still working, and lengthening it would hold a message back that
+        // its consumer has already given up on.
+        queue->visibility = request.visibility;
+        queue = repo->upsertQueue(queue.value());
+
+        return EqsServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"ern", request.ern},
+                                                                {"visibility", queue->visibility}}));
+    }
+
     static response<string_body> handleSetQueueTag(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-queue-tag");
@@ -737,6 +831,9 @@ namespace Euclid::EQS {
             SendMessage,
             ReceiveMessages,
             SetVisibility,
+            SetQueueVisibility,
+            StopQueue,
+            StartQueue,
             DeleteMessage,
             PurgeQueue,
             PurgeAllQueues,
@@ -757,7 +854,14 @@ namespace Euclid::EQS {
         if (action == "list-messages") return Command::ListMessages;
         if (action == "send-message") return Command::SendMessage;
         if (action == "receive-messages") return Command::ReceiveMessages;
-        if (action == "set-visibility") return Command::SetVisibility;
+        // Two spellings, one command. "set-message-visibility" is the name that says what it
+        // changes, and pairs with "set-queue-visibility"; "set-visibility" is what it was called
+        // first and what euclid-jdk still sends, so it keeps working rather than breaking every
+        // client built against it.
+        if (action == "set-visibility" || action == "set-message-visibility") return Command::SetVisibility;
+        if (action == "set-queue-visibility") return Command::SetQueueVisibility;
+        if (action == "stop-queue") return Command::StopQueue;
+        if (action == "start-queue") return Command::StartQueue;
         if (action == "delete-message") return Command::DeleteMessage;
         if (action == "purge-queue") return Command::PurgeQueue;
         if (action == "purge-all-queues") return Command::PurgeAllQueues;
@@ -808,6 +912,15 @@ namespace Euclid::EQS {
 
             case Command::SetVisibility:
                 return handleSetVisibility(req);
+
+            case Command::SetQueueVisibility:
+                return handleSetQueueVisibility(req);
+
+            case Command::StopQueue:
+                return handleStopQueue(req);
+
+            case Command::StartQueue:
+                return handleStartQueue(req);
 
             case Command::DeleteMessage:
                 return handleDeleteMessage(req);

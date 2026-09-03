@@ -31,27 +31,24 @@ namespace Euclid::CLI {
     int EnsCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
             return PrintModuleHelp("ens", {
+                                           {"add-topic-tag", "Adds a tag to a topic"},
                                            {"create-topic", "Create a new topic"},
-                                           {"list-topics", "List all available topics"},
+                                           {"delete-topic", "Delete an existing topic"},
+                                           {"delete-topic-tag", "Deletes a tag from a topic"},
+                                           {"get-message-attribute", "Returns a message attribute"},
+                                           {"get-message-count", "Returns the number of messages in a topic"},
                                            {"get-topic-ern", "Returns the ERN for a topic"},
                                            {"get-topic-metadata", "Returns the metadata of a topics"},
-                                           {"add-topic-tag", "Adds a tag to the topic"},
-                                           {"set-topic-tag", "Sets the value of an existing topic tag"},
-                                           {"delete-topic-tag", "Delete an existing topic tag"},
-                                           {"purge-topic", "Purge a topic by deleting all messages"},
-                                           {"purge-all-topic", "Purge all topics by deleting all messages"},
-                                           {"publish-message", "Publish a message to a topic"},
-                                           {"get-message-count", "Returns the number of messages in a topic"},
-                                           {"get-message-attribute", "Returns a message attribute"},
-                                           {"set-message-attribute", "Sets the value of a message attribute"},
-                                           {"delete-topic", "Delete an existing topic"},
                                            {"list-messages", "List available messages"},
-                                           {"add-topic-tag", "Adds a tag to a topic"},
+                                           {"list-subscriptions", "Lists the subscriptions of a topic"},
+                                           {"list-topics", "List all available topics"},
+                                           {"publish-message", "Publish a message to a topic"},
+                                           {"purge-all-topic", "Purge all topics by deleting all messages"},
+                                           {"purge-topic", "Purge a topic by deleting all messages"},
+                                           {"set-message-attribute", "Sets the value of a message attribute"},
                                            {"set-topic-tag", "Sets the value of an existing topic tag"},
-                                           {"delete-topic-tag", "Deletes a tag from a topic"},
                                            {"subscribe", "Subscribes a target resource (an EQS queue) to a topic"},
                                            {"unsubscribe", "Deletes a subscription"},
-                                           {"list-subscriptions", "Lists the subscriptions of a topic"},
                                    });
         }
         if (action == "create-topic") {
