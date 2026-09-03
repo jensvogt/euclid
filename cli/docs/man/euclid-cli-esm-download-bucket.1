@@ -108,7 +108,7 @@ multipart rather than in a single request - applied per object, same
 as
 .BR euclid-cli-esm-download-file (1)
 \&'s option of the same name. Defaults to \fI5242880\fR (5 MiB), or the
-value of \fIeuclid.modules.storage.part-size\fR in the loaded
+value of \fIeuclid.modules.esm.part-size\fR in the loaded
 configuration file if set - see
 .BR \-\-config
 in
@@ -117,7 +117,7 @@ in
 .BR \-j ", " \-\-concurrency " " \fIN\fR
 Number of parts to download in parallel, for any object that goes the
 multipart route. Defaults to \fI4\fR, or the value of
-\fIeuclid.modules.storage.concurrency\fR in the loaded configuration
+\fIeuclid.modules.esm.concurrency\fR in the loaded configuration
 file if set; values less than \fI1\fR are treated as \fI1\fR.
 .TP
 .BR \-z ", " \-\-zip " " \fIPATH\fR
@@ -162,7 +162,7 @@ Download only the direct contents of a bucket under a prefix:
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 esm download-bucket \e
-    --bucket-ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports \e
+    --bucket-ern ern:esm:eu-central-1:000000000000:bucket:reports \e
     --dir ./reports --prefix 2026-08/
 .fi
 .RE
@@ -172,7 +172,7 @@ concurrency:
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 esm download-bucket \e
-    --bucket-ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports \e
+    --bucket-ern ern:esm:eu-central-1:000000000000:bucket:reports \e
     --dir ./archive --prefix archive/ --recursive \e
     --part-size 8388608 --concurrency 8
 .fi
@@ -182,7 +182,7 @@ Download a prefix's tree and also pack it into a single archive:
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 esm download-bucket \e
-    --bucket-ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports \e
+    --bucket-ern ern:esm:eu-central-1:000000000000:bucket:reports \e
     --dir ./archive --prefix archive/ --recursive \e
     --zip ./archive.zip
 .fi

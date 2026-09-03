@@ -103,6 +103,11 @@ namespace Euclid::CLI {
         if (action == "help" || action == "--help" || action == "-h") {
             return PrintModuleHelp("emm", {
                                            {"list-modules", "List modules known to the manager"},
+                                           {"set-instances", "Sets a module's minimum and maximum instance count"},
+                                           {"set-threads", "Sets the number of worker threads a module's processes run"},
+                                           {"stop-module", "Stops a module and keeps it stopped"},
+                                           {"start-module", "Lets a stopped module run again"},
+                                           {"restart-module", "Restarts a module's instances, one at a time"},
                                            {"export", "Exports a module's MongoDB collections to a JSON file"},
                                            {"import", "Imports a JSON file written by \"emm export\" back into MongoDB"},
                                    });
@@ -124,6 +129,21 @@ namespace Euclid::CLI {
 
         if (action == "list-modules") {
             return listModules(args);
+        }
+        if (action == "set-instances") {
+            return setInstances(args);
+        }
+        if (action == "set-threads") {
+            return setThreads(args);
+        }
+        if (action == "stop-module") {
+            return setModuleStopped(args, true);
+        }
+        if (action == "start-module") {
+            return setModuleStopped(args, false);
+        }
+        if (action == "restart-module") {
+            return restartModule(args);
         }
         if (action == "export") {
             return exportModule(args);
@@ -149,6 +169,210 @@ namespace Euclid::CLI {
             const HttpResponse response = client.Post("emm", "list-modules", boost::json::object{});
             if (!response.IsSuccess()) {
                 std::cerr << "error: list-modules failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EmmCli::setInstances(const std::vector<std::string> &args) const {
+        po::options_description desc("set instances options");
+        desc.add_options()
+                ("module,m", po::value<std::string>()->required(), "module to set the limits for, e.g. esm")
+                ("min", po::value<int>(), "minimum number of instances kept running (0 or more)")
+                ("max", po::value<int>(), "maximum number of instances the autoscaler may run (1 or more)");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("emm", "set-instances", "--module <module> [--min <n>] [--max <n>]",
+                                   "Sets the instance limits the autoscaler works within for one module. --min is the "
+                                   "floor kept running at all times, --max the ceiling it may scale up to under load; "
+                                   "either may be given on its own, and the one left out keeps whatever is in force. "
+                                   "The change takes effect on the manager's next reconcile, within a few seconds: "
+                                   "raising the minimum starts instances up to the new floor immediately, while "
+                                   "lowering the maximum lets the pool shrink through the ordinary scale-down rather "
+                                   "than stopping an instance in the middle of a request. The limits are persisted and "
+                                   "applied over what euclid.json configures, so they survive a manager restart and "
+                                   "stay in force until they are set again.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        if (!vm.contains("min") && !vm.contains("max")) {
+            std::cerr << "error: at least one of --min or --max is required\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        boost::json::object request{{"name", vm["module"].as<std::string>()}};
+        if (vm.contains("min")) request["minInstances"] = vm["min"].as<int>();
+        if (vm.contains("max")) request["maxInstances"] = vm["max"].as<int>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("emm", "set-instances", request);
+            if (!response.IsSuccess()) {
+                std::cerr << "error: set-instances failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EmmCli::setThreads(const std::vector<std::string> &args) const {
+        po::options_description desc("set threads options");
+        desc.add_options()
+                ("module,m", po::value<std::string>()->required(), "module to set the thread count for, e.g. eqs")
+                ("threads,t", po::value<int>()->required(), "number of worker threads each instance runs (1 to 256)");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("emm", "set-threads", "--module <module> --threads <n>",
+                                   "Sets how many worker threads each of a module's processes serves requests with. "
+                                   "This is the companion to \"emm set-instances\": instances are how many processes "
+                                   "of a module the manager runs, threads are how many requests one of those processes "
+                                   "can be in the middle of. It matters most for the modules whose busiest action "
+                                   "deliberately waits - EES's receive-events and EQS's receive-messages hold a thread "
+                                   "for as long as the caller asked them to wait - where too few threads means requests "
+                                   "that are not waiting queue behind the ones that are. "
+                                   "A thread count is fixed when a process starts, so the manager applies it by "
+                                   "restarting the module's instances, one per reconcile tick, so the rest of the pool "
+                                   "keeps serving while it works through them; a module running a single instance is "
+                                   "briefly unavailable while that one restarts. The setting is persisted and takes "
+                                   "precedence over euclid.modules.<module>.threads in euclid.json, so it survives a "
+                                   "restart and does not have to be applied to every host's configuration file.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("emm", "set-threads", boost::json::object{
+                                                                                    {"name", vm["module"].as<std::string>()},
+                                                                                    {"threads", vm["threads"].as<int>()},
+                                                                            });
+            if (!response.IsSuccess()) {
+                std::cerr << "error: set-threads failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EmmCli::setModuleStopped(const std::vector<std::string> &args, const bool stopped) const {
+        const std::string action = stopped ? "stop-module" : "start-module";
+
+        po::options_description desc(action + " options");
+        desc.add_options()
+                ("module,m", po::value<std::string>()->required(), std::string(stopped ? "module to stop" : "module to start again").append(", e.g. ftp").c_str());
+
+        if (IsHelpRequest(args)) {
+            const std::string description = stopped
+                    ? "Stops a module and keeps it stopped. This records desired state rather than issuing "
+                      "a one-off stop, which is the difference that matters: an instance that is merely "
+                      "stopped is one the manager brings straight back, whereas a module stopped here stays "
+                      "down through crashes, scale events and manager restarts until \"emm start-module\" "
+                      "brings it back. Its instances are stopped on the manager's next reconcile tick, within "
+                      "a few seconds, and its pool slots are kept so it can be started again as it was. "
+                      "Requests routed to a stopped module fail while it is down, and a module that other "
+                      "modules declare as a dependency will keep those from starting - check the dependencies "
+                      "before stopping something in the middle of the graph. Only euclid's own modules can be "
+                      "stopped this way: applications and transfer servers have their own desired state, held "
+                      "by EAP and ETS, so use \"eap stop-application\" or \"ets stop-server\" for those. "
+                      "emm cannot stop itself, since there would be nothing left to start it again."
+                    : "Lets a module that was stopped with \"emm stop-module\" run again. Its instances are "
+                      "started on the manager's next reconcile tick, within a few seconds, back up to the "
+                      "module's minimum instance count, after which the autoscaler takes over as usual. "
+                      "Starting a module that was never stopped changes nothing and is not an error.";
+
+            return PrintActionHelp("emm", action, "--module <module>", description, desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("emm", action, boost::json::object{{"name", vm["module"].as<std::string>()}});
+            if (!response.IsSuccess()) {
+                std::cerr << "error: " << action << " failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EmmCli::restartModule(const std::vector<std::string> &args) const {
+        po::options_description desc("restart-module options");
+        desc.add_options()
+                ("module,m", po::value<std::string>()->required(), "module to restart, e.g. esm");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("emm", "restart-module", "--module <module>",
+                                   "Restarts every instance of a module, one per reconcile tick (roughly one every "
+                                   "five seconds), so the rest of the pool keeps serving while it works through them; "
+                                   "a module running a single instance is briefly unavailable while that one restarts. "
+                                   "Nothing about the module changes - this is for picking up a new binary after an "
+                                   "upgrade, clearing whatever state a process has accumulated, or making a module read "
+                                   "its configuration file again. "
+                                   "Unlike \"emm stop-module\" this records no desired state, so it also works for "
+                                   "applications and transfer servers: the same instances come straight back, and there "
+                                   "is nothing for EAP's or ETS's own reconcile to disagree with. A module that is "
+                                   "stopped has nothing to restart and is refused - use \"emm start-module\" for that. "
+                                   "Asking twice restarts twice; the request is carried out once and not repeated at "
+                                   "the next manager start.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("emm", "restart-module", boost::json::object{{"name", vm["module"].as<std::string>()}});
+            if (!response.IsSuccess()) {
+                std::cerr << "error: restart-module failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);

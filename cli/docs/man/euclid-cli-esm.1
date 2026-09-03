@@ -186,9 +186,9 @@ store, e.g. for self-signed development certificates.
 .BR \-c ", " \-\-config " " \fIPATH\fR
 Path to a JSON configuration file providing defaults for action
 options - currently
-.I euclid.modules.storage.part-size
+.I euclid.modules.esm.part-size
 and
-.I euclid.modules.storage.concurrency
+.I euclid.modules.esm.concurrency
 , used by
 .BR euclid-cli-esm-upload-file (1)
 and
@@ -274,11 +274,11 @@ euclid-cli --endpoint http://localhost:5566 esm create-bucket \e
     --name reports
 
 euclid-cli --endpoint http://localhost:5566 esm upload-file \e
-    --bucket-ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports \e
+    --bucket-ern ern:esm:eu-central-1:000000000000:bucket:reports \e
     --key 2026-08.csv --file ./2026-08.csv
 
 euclid-cli --endpoint http://localhost:5566 esm list-objects \e
-    --bucket ern:euclid:storage:eu-central-1:000000000000:bucket:reports
+    --bucket ern:esm:eu-central-1:000000000000:bucket:reports
 .fi
 .RE
 .PP
@@ -287,7 +287,7 @@ Download that file back down under a different name:
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 esm download-file \e
-    --bucket-ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports \e
+    --bucket-ern ern:esm:eu-central-1:000000000000:bucket:reports \e
     --key 2026-08.csv --file ./2026-08-restored.csv
 .fi
 .RE
@@ -297,13 +297,13 @@ Check a bucket's size, then delete an object and the bucket:
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 esm get-bucket-size \e
-    --ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports
+    --ern ern:esm:eu-central-1:000000000000:bucket:reports
 
 euclid-cli --endpoint http://localhost:5566 esm delete-object \e
-    --ern ern:euclid:storage:eu-central-1:000000000000:object:2026-08.csv
+    --ern ern:esm:eu-central-1:000000000000:object:2026-08.csv
 
 euclid-cli --endpoint http://localhost:5566 esm delete-bucket \e
-    --ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports
+    --ern ern:esm:eu-central-1:000000000000:bucket:reports
 .fi
 .RE
 .PP
@@ -312,7 +312,7 @@ Empty a bucket without deleting it:
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 esm purge-bucket \e
-    --bucket ern:euclid:storage:eu-central-1:000000000000:bucket:reports
+    --bucket ern:esm:eu-central-1:000000000000:bucket:reports
 .fi
 .RE
 .PP

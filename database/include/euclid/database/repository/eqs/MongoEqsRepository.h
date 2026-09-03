@@ -4,6 +4,13 @@
 
 #pragma once
 
+// C++ includes
+#include <atomic>
+#include <chrono>
+#include <mutex>
+#include <string>
+#include <unordered_map>
+
 // Euclid includes
 #include <euclid/core/LogStream.h>
 #include <euclid/database/Database.h>
@@ -261,6 +268,18 @@ namespace Euclid::Database {
          */
         long resetExpiredMessages() override;
 
+        /**
+         * @brief Recounts every queue's messages in one grouped scan and stores the totals.
+         *
+         * @par
+         * One aggregation for the whole installation rather than a count per queue: grouping the
+         * message collection by (queueErn, status) is a single index scan, and at any queue count
+         * above one that beats counting each queue separately. Summing the bytes is the expensive
+         * half - "size" is not in the index, so that part fetches documents - which is why this
+         * runs on a timer rather than on a read.
+         */
+        void recountQueues() override;
+
     private:
 
         static constexpr auto DATABASE_NAME = "euclid";
@@ -274,6 +293,49 @@ namespace Euclid::Database {
          * scans over sqs_message as it grows, which under concurrent load causes receives to stall.
          */
         static void ensureIndexes();
+
+        /**
+         * @brief The parts of a queue that decide what happens to a message, cached per queue.
+         *
+         * @par
+         * Every send and every receive needs these four values, and reading them cost one round
+         * trip per message - the most frequent query in the module. They can be cached because EQS
+         * has no action that changes them: visibility, delay, the retry limit and the dead letter
+         * queue are fixed when a queue is created, and only its tags and counters change
+         * afterwards. Counters are deliberately NOT cached - findQueueByErn() still reads the
+         * queue for anything that shows them.
+         */
+        struct QueueConfig {
+            long visibility{};
+            long delay{};
+            long maxReceiveCount{};
+            std::string deadLetterQueueErn;
+            std::chrono::steady_clock::time_point readAt;
+        };
+
+        /**
+         * @brief Reads a queue's configuration, from the cache when it is there.
+         *
+         * @par
+         * Returns nothing for a queue that does not exist, and does not remember that answer - a
+         * queue created by another instance has to become visible without waiting for anything to
+         * expire. Entries do expire, so that a queue deleted by another instance stops being used
+         * here within kQueueConfigTtl rather than for the life of the process.
+         */
+        static std::optional<QueueConfig> queueConfig(const std::string &ern);
+
+        /**
+         * @brief Drops one queue's cached configuration, for the deletes that happen here.
+         */
+        static void forgetQueueConfig(const std::string &ern);
+
+        // Short enough that another instance's create/delete converges quickly, long enough that
+        // a queue's configuration is read once per queue rather than once per message.
+        static constexpr auto kQueueConfigTtl = std::chrono::seconds(30);
+
+        static inline std::mutex _queueConfigMutex;
+        static inline std::unordered_map<std::string, QueueConfig> _queueConfigs;
+
     };
 
 }// namespace Euclid::Database

@@ -128,6 +128,7 @@ int main(const int argc, char *argv[]) {
     // ── Initialize Database ─────────────────────────────
     if (const int error = initializeDatabase(cfg); error != 0) return error;
     Euclid::Database::WireAccessKeyLookup();
+    Euclid::Database::WireWorkerThreadsLookup();
     Euclid::Database::WireScopeLookup();
     Euclid::Database::WireGrantLookup();
 

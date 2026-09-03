@@ -57,7 +57,7 @@
 #include <euclid/dto/esm/SubscribeRequest.h>
 #include <euclid/dto/esm/UnsubscribeRequest.h>
 
-// Fallbacks used when euclid.modules.storage.part-size/concurrency aren't set in the loaded
+// Fallbacks used when euclid.modules.esm.part-size/concurrency aren't set in the loaded
 // configuration file (see main.cpp's --config) - so upload-file/download-file still have sane
 // defaults when running against a bare install with no config, or none of these keys set.
 // Every part but the last must be at least 5MB, which also keeps the default part count - and
@@ -68,7 +68,7 @@
 namespace Euclid::CLI {
 
     /**
-     * @brief Processes commands for the "storage" module (e.g. "storage uploadFile --local ./file.txt --key file.txt").
+     * @brief Processes commands for the "esm" module (e.g. "esm uploadFile --local ./file.txt --key file.txt").
      *
      * @author jens.vogt\@opitz-consulting.com
      */

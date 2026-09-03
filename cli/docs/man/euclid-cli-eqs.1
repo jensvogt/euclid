@@ -202,10 +202,10 @@ euclid-cli --endpoint http://localhost:5566 eqs get-queue-ern \e
     --name orders
 
 euclid-cli --endpoint http://localhost:5566 eqs send-message \e
-    --ern ern:euclid:queues:eu-central-1:000000000000:queue:orders --body 'hello'
+    --ern ern:queues:eu-central-1:000000000000:queue:orders --body 'hello'
 
 euclid-cli --endpoint http://localhost:5566 eqs receive-messages \e
-    --ern ern:euclid:queues:eu-central-1:000000000000:queue:orders
+    --ern ern:queues:eu-central-1:000000000000:queue:orders
 .fi
 .RE
 .PP
@@ -214,10 +214,10 @@ Purge and delete a queue:
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 eqs purge-queue \e
-    --ern ern:euclid:queues:eu-central-1:000000000000:queue:orders
+    --ern ern:queues:eu-central-1:000000000000:queue:orders
 
 euclid-cli --endpoint http://localhost:5566 eqs delete-queue \e
-    --ern ern:euclid:queues:eu-central-1:000000000000:queue:orders
+    --ern ern:queues:eu-central-1:000000000000:queue:orders
 .fi
 .RE
 .SH SEE ALSO

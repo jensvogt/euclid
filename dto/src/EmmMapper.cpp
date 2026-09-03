@@ -8,6 +8,7 @@ namespace Euclid::Dto {
         m.executable = svc.config.executable;
         m.socketPath = svc.config.socketPath;
         m.active = true;
+        m.core = svc.config.core;
         m.args = svc.config.args;
         m.autoRestart = svc.config.autoRestart;
         m.maxRestarts = svc.config.maxRestarts;

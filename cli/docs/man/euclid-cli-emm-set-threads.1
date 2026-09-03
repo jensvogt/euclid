@@ -1,0 +1,125 @@
+.TH EUCLID-CLI-EMM-SET-THREADS 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-emm-set-threads \- set the number of worker threads a module's processes run
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B emm set-threads
+.BR \-\-module " " \fIMODULE\fR
+.BR \-\-threads " " \fIN\fR
+.SH DESCRIPTION
+Sets how many worker threads each of a module's processes serves
+requests with.
+.PP
+This is the companion to
+.BR euclid-cli-emm-set-instances (1),
+and the two answer different questions: instances are how many processes
+of a module the manager runs, threads are how many requests one of those
+processes can be in the middle of.
+.PP
+It matters most for the modules whose busiest action deliberately waits.
+.IR ees "'s " receive-events " and " eqs "'s " receive-messages
+hold a thread for as long as the caller asked them to wait, so with too
+few threads the requests that are not waiting queue behind the ones that
+are. One thread is kept out of the waiting for exactly this reason, so
+the configured figure is how many callers may wait at once, plus one.
+.SH APPLYING THE CHANGE
+A thread count is fixed when a process starts \- the threads are created
+once, as the module builds its I/O context \- so unlike an instance
+limit it cannot be applied to a process that is already running. The
+manager therefore restarts the module's instances to put it into effect,
+.B one per reconcile tick
+(roughly one every five seconds), so the rest of the pool keeps serving
+while it works through them.
+.PP
+A module running a single instance is briefly unavailable while that one
+instance restarts. Raise its minimum with
+.BR euclid-cli-emm-set-instances (1)
+first if that matters.
+.PP
+The setting is persisted in the module repository and read by the module
+process itself as it starts, taking precedence over
+.I euclid.modules.<module>.threads
+in
+.IR euclid.json .
+It therefore survives a manager restart and a package upgrade, and does
+not have to be applied to every host's configuration file. A module that
+cannot reach the database as it starts falls back to the configuration
+file rather than refusing to start.
+.SH OPTIONS
+.TP
+.BR \-m ", " \-\-module " " \fIMODULE\fR
+Module to set the thread count for, e.g. \fIeqs\fR. Required. Must be a
+module the manager knows about \- an unknown name is rejected with
+.I "HTTP 404"
+rather than silently recorded.
+.TP
+.BR \-t ", " \-\-threads " " \fIN\fR
+Number of worker threads each instance runs, between 1 and 256.
+Required. One is the floor because a module with no thread answers
+nothing; the ceiling is there because this is a typo away from a number
+of OS threads that will not be created. A value outside the range is
+refused rather than quietly corrected.
+.SH OUTPUT
+The JSON response is printed to standard output:
+.RS
+.TP
+.I name
+The module the thread count was set for.
+.TP
+.I threads
+The count now in force.
+.TP
+.I runningInstances
+How many instances the manager still has to cycle through before every
+one of them is running with the new count.
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+The thread count was accepted and recorded.
+.TP
+.B 1
+The stored session is missing or not an administrator's, the module is
+unknown, the count is out of range, the request could not be sent, or
+the server rejected it. Details are printed to standard error.
+.SH EXAMPLES
+Give each EQS instance sixteen worker threads, so more callers can
+long-poll for messages at once:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm set-threads \e
+    --module eqs --threads 16
+.fi
+.RE
+.PP
+The same for EES, whose \fIreceive-events\fR holds a thread per waiting
+subscriber:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm set-threads \e
+    --module ees --threads 16
+.fi
+.RE
+.PP
+Make sure ESM has more than one instance before changing its threads, so
+the restart is not an outage:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm set-instances \e
+    --module esm --min 2
+
+euclid-cli --endpoint http://localhost:5566 emm set-threads \e
+    --module esm --threads 8
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-emm (1),
+.BR euclid-cli-emm-set-instances (1),
+.BR euclid-cli-emm-list-modules (1),
+.BR euclid-cli-eam-login (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

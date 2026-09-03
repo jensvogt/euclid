@@ -12,14 +12,133 @@
 #include <euclid/core/ContentTypeUtils.h>
 #include <euclid/core/CryptoUtils.h>
 #include <euclid/core/UuidUtils.h>
+#include <euclid/core/monitoring/MonitoringTimer.h>
 #include <euclid/database/repository/eqs/MongoEqsRepository.h>
 
 #include <boost/chrono/system_clocks.hpp>
 
 namespace Euclid::Database {
 
+    namespace {
+        // Where this repository's time actually goes, one series per operation - the same pair of
+        // metrics the modules record for their actions ("eqs-service-time"/"eqs-service-count",
+        // labelled by method), one layer down and labelled by repository operation instead.
+        //
+        // The point of measuring here rather than at the action is that an action's cost is not
+        // its database cost: "receive-messages" spends most of a long poll asleep, and what it
+        // does against the database in between is several queries per 100ms attempt. Only the
+        // operations below are timed, never the waiting.
+        constexpr auto kRepositoryTimer = "eqs-repository-time";
+        constexpr auto kRepositoryCounter = "eqs-repository-count";
+    }
+
     MongoEqsRepository::MongoEqsRepository() {
         ensureIndexes();
+    }
+
+    std::optional<MongoEqsRepository::QueueConfig> MongoEqsRepository::queueConfig(const std::string &ern) {
+
+        const auto now = std::chrono::steady_clock::now();
+        {
+            std::lock_guard lock(_queueConfigMutex);
+            if (const auto it = _queueConfigs.find(ern); it != _queueConfigs.end() && now - it->second.readAt < kQueueConfigTtl) {
+                return it->second;
+            }
+        }
+
+        // Timed like any other read, so the cache's effect is visible as this operation's count
+        // falling rather than as time disappearing from the module.
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "queueConfigRead");
+
+        const auto entry = Database::instance().client();
+        auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+        const auto result = queueCollection.find_one(make_document(kvp("ern", ern)));
+        if (!result) return std::nullopt;
+
+        const auto queue = Entity::EQS::Queue::fromDocument(result->view());
+        QueueConfig config{
+                .visibility = queue.visibility,
+                .delay = queue.delay,
+                .maxReceiveCount = queue.maxReceiveCount,
+                .deadLetterQueueErn = queue.deadLetterQueueErn,
+                .readAt = now};
+        {
+            std::lock_guard lock(_queueConfigMutex);
+            _queueConfigs[ern] = config;
+        }
+        return config;
+    }
+
+    void MongoEqsRepository::recountQueues() {
+
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "recountQueues");
+
+        try {
+            const auto entry = Database::instance().client();
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+
+            mongocxx::pipeline pipeline;
+            pipeline.group(make_document(
+                    kvp("_id", make_document(kvp("queueErn", "$queueErn"), kvp("status", "$status"))),
+                    kvp("messages", make_document(kvp("$sum", 1))),
+                    kvp("bytes", make_document(kvp("$sum", "$size")))));
+
+            struct Counts {
+                long available{};
+                long delayed{};
+                long invisible{};
+                long size{};
+            };
+            std::unordered_map<std::string, Counts> counted;
+
+            for (auto cursor = messageCollection.aggregate(pipeline); auto doc: cursor) {
+                const auto id = doc["_id"].get_document().value;
+                const auto ern = std::string(id["queueErn"].get_string().value);
+                const auto status = std::string(id["status"].get_string().value);
+                const auto messages = doc["messages"].get_int32().value;
+                const auto bytes = doc["bytes"].type() == bsoncxx::type::k_int64
+                                           ? doc["bytes"].get_int64().value
+                                           : static_cast<int64_t>(doc["bytes"].get_int32().value);
+
+                auto &counts = counted[ern];
+                counts.size += static_cast<long>(bytes);
+                if (status == MessageStatusToString(Entity::EQS::MessageStatus::AVAILABLE)) counts.available += messages;
+                else if (status == MessageStatusToString(Entity::EQS::MessageStatus::DELAYED)) counts.delayed += messages;
+                else if (status == MessageStatusToString(Entity::EQS::MessageStatus::INVISIBLE)) counts.invisible += messages;
+            }
+
+            // Every queue is written, including the ones the grouping did not mention: a queue
+            // that has just been emptied is absent from it, and leaving its last non-zero counters
+            // standing is exactly the drift this replaces.
+            long queues = 0;
+            for (auto cursor = queueCollection.find({}); auto doc: cursor) {
+                const auto ernField = doc["ern"];
+                if (!ernField || ernField.type() != bsoncxx::type::k_string) continue;
+                const auto ern = std::string(ernField.get_string().value);
+
+                const auto it = counted.find(ern);
+                const Counts counts = it != counted.end() ? it->second : Counts{};
+                queueCollection.update_one(make_document(kvp("ern", ern)).view(),
+                                           make_document(kvp("$set", make_document(
+                                                                            kvp("available", static_cast<int64_t>(counts.available)),
+                                                                            kvp("delayed", static_cast<int64_t>(counts.delayed)),
+                                                                            kvp("invisible", static_cast<int64_t>(counts.invisible)),
+                                                                            kvp("size", static_cast<int64_t>(counts.size)))))
+                                                   .view());
+                ++queues;
+            }
+
+            log_debug << "Queue counts recounted, queues: " << queues;
+
+        } catch (const std::exception &e) {
+            log_error << "Queue recount failed, error: " << e.what();
+        }
+    }
+
+    void MongoEqsRepository::forgetQueueConfig(const std::string &ern) {
+        std::lock_guard lock(_queueConfigMutex);
+        _queueConfigs.erase(ern);
     }
 
     void MongoEqsRepository::ensureIndexes() {
@@ -64,6 +183,7 @@ namespace Euclid::Database {
     }
 
     bool MongoEqsRepository::queueExists(const std::string &name) const {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "queueExists");
 
         try {
 
@@ -86,6 +206,7 @@ namespace Euclid::Database {
     }
 
     std::optional<Entity::EQS::Queue> MongoEqsRepository::findQueueById(const std::string &oid) const {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "findQueueById");
 
         try {
 
@@ -106,6 +227,7 @@ namespace Euclid::Database {
     }
 
     std::optional<Entity::EQS::Queue> MongoEqsRepository::findQueueByName(const std::string &name) const {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "findQueueByName");
 
         try {
 
@@ -123,6 +245,7 @@ namespace Euclid::Database {
     }
 
     std::optional<Entity::EQS::Queue> MongoEqsRepository::findQueueByErn(const std::string &ern) const {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "findQueueByErn");
 
         try {
 
@@ -140,6 +263,7 @@ namespace Euclid::Database {
     }
 
     std::vector<Entity::EQS::Queue> MongoEqsRepository::listQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "listQueues");
 
         try {
 
@@ -178,6 +302,7 @@ namespace Euclid::Database {
     }
 
     Entity::EQS::Queue MongoEqsRepository::upsertQueue(Entity::EQS::Queue &queue) {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "upsertQueue");
 
         try {
 
@@ -213,6 +338,7 @@ namespace Euclid::Database {
     }
 
     long MongoEqsRepository::countQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix) const {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "countQueues");
 
         try {
 
@@ -240,6 +366,7 @@ namespace Euclid::Database {
     }
 
     void MongoEqsRepository::removeQueueByName(const std::string &name) {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "removeQueueByName");
 
         try {
             const auto entry = Database::instance().client();
@@ -255,6 +382,7 @@ namespace Euclid::Database {
 
             const auto result = queueCollection.delete_many(make_document(kvp("name", name)));
             log_debug << "EQS deleted, count: " << result->deleted_count();
+            for (const auto &ern: erns) forgetQueueConfig(ern);
 
             if (!erns.empty()) {
                 array ernArray;
@@ -271,6 +399,8 @@ namespace Euclid::Database {
     }
 
     void MongoEqsRepository::deleteQueueByErn(const std::string &ern) {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "deleteQueueByErn");
+        forgetQueueConfig(ern);
 
         try {
             const auto entry = Database::instance().client();
@@ -291,6 +421,11 @@ namespace Euclid::Database {
     }
 
     void MongoEqsRepository::clearQueues() {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "clearQueues");
+        {
+            std::lock_guard lock(_queueConfigMutex);
+            _queueConfigs.clear();
+        }
 
         try {
             const auto entry = Database::instance().client();
@@ -305,6 +440,7 @@ namespace Euclid::Database {
     }
 
     bool MongoEqsRepository::messageExists(const std::string &messageId) const {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "messageExists");
 
         try {
             const auto query = make_document(
@@ -321,6 +457,7 @@ namespace Euclid::Database {
     }
 
     std::optional<Entity::EQS::Message> MongoEqsRepository::findMessageById(const std::string &oid) const {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "findMessageById");
 
         try {
             const auto query = make_document(
@@ -340,6 +477,7 @@ namespace Euclid::Database {
     }
 
     std::optional<Entity::EQS::Message> MongoEqsRepository::findMessageByName(const std::string &messageId) const {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "findMessageByName");
 
         try {
             const auto query = make_document(
@@ -359,6 +497,7 @@ namespace Euclid::Database {
     }
 
     std::vector<Entity::EQS::Message> MongoEqsRepository::findAllMessages() const {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "findAllMessages");
 
         try {
             std::vector<Entity::EQS::Message> messages;
@@ -378,6 +517,7 @@ namespace Euclid::Database {
     }
 
     std::vector<Entity::EQS::Message> MongoEqsRepository::listMessages(const std::string &queueErn, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "listMessages");
 
         std::vector<Entity::EQS::Message> messages;
         try {
@@ -408,6 +548,7 @@ namespace Euclid::Database {
     }
 
     void MongoEqsRepository::upsertMessage(const Entity::EQS::Message &message) {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "upsertMessage");
 
         try {
             const auto filter = make_document(kvp("messageId", message.messageId));
@@ -434,6 +575,7 @@ namespace Euclid::Database {
     }
 
     Entity::EQS::Message MongoEqsRepository::sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes, const Entity::EQS::MessagePriority priority) {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "sendMessage");
 
         Entity::EQS::Message message;
         message.ern = ern;
@@ -456,23 +598,19 @@ namespace Euclid::Database {
             auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
             auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
 
-            const auto queueFilter = make_document(kvp("ern", queueErn));
-            if (auto queueResult = queueCollection.find_one(queueFilter.view())) {
-                const auto queue = Entity::EQS::Queue::fromDocument(queueResult->view());
-                message.visibilityTimeout = queue.visibility;
-                if (queue.delay > 0) {
+            // The queue's own row is read once per queue rather than once per message: the four
+            // fields a send needs cannot change after the queue is created (see queueConfig()).
+            // What is left here are the two writes that genuinely differ per message.
+            // The queue's counters are not written here any more - they are recounted on a timer
+            // (see recountQueues()). What is left is the insert, so a send is one round trip
+            // rather than three, and the queue document is no longer written by every producer at
+            // once.
+            if (const auto queue = queueConfig(queueErn)) {
+                message.visibilityTimeout = queue->visibility;
+                if (queue->delay > 0) {
                     message.status = Entity::EQS::MessageStatus::DELAYED;
-                    message.delayUntil = std::chrono::system_clock::now() + std::chrono::seconds(queue.delay);
+                    message.delayUntil = std::chrono::system_clock::now() + std::chrono::seconds(queue->delay);
                 }
-
-                const auto update = make_document(
-                        kvp("$inc", make_document(
-                                    kvp("size", static_cast<int64_t>(message.size)),
-                                    kvp("available", static_cast<int64_t>(queue.delay > 0 ? 0 : 1)),
-                                    kvp("delayed", static_cast<int64_t>(queue.delay > 0 ? 1 : 0)))),
-                        kvp("$currentDate", make_document(
-                                    kvp("modified", true))));
-                queueCollection.update_one(queueFilter.view(), update.view());
             }
 
             messageCollection.insert_one(message.ToDocument());
@@ -494,14 +632,9 @@ namespace Euclid::Database {
         try {
             long maxReceiveCount = 0;
             std::string deadLetterQueueErn;
-            {
-                const auto entry = Database::instance().client();
-                auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
-                if (const auto queueResult = queueCollection.find_one(make_document(kvp("ern", queueErn)))) {
-                    const auto queue = Entity::EQS::Queue::fromDocument(queueResult->view());
-                    maxReceiveCount = queue.maxReceiveCount;
-                    deadLetterQueueErn = queue.deadLetterQueueErn;
-                }
+            if (const auto queue = queueConfig(queueErn)) {
+                maxReceiveCount = queue->maxReceiveCount;
+                deadLetterQueueErn = queue->deadLetterQueueErn;
             }
 
             while (true) {
@@ -513,6 +646,7 @@ namespace Euclid::Database {
 
                 std::map<Entity::EQS::MessagePriority, long> availableCounts;
                 for (const auto priority: priorityOrder) {
+                    Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "receiveMessages.priorityCount");
                     availableCounts[priority] = messageCollection.count_documents(make_document(
                             kvp("queueErn", queueErn),
                             kvp("status", MessageStatusToString(Entity::EQS::MessageStatus::AVAILABLE)),
@@ -544,7 +678,10 @@ namespace Euclid::Database {
                         mongocxx::options::find_one_and_update opts;
                         opts.return_document(mongocxx::options::return_document::k_after);
 
-                        const auto claimed = messageCollection.find_one_and_update(filter.view(), update.view(), opts);
+                        const auto claimed = [&] {
+                            Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "receiveMessages.claim");
+                            return messageCollection.find_one_and_update(filter.view(), update.view(), opts);
+                        }();
                         if (!claimed) break;
 
                         Entity::EQS::Message message;
@@ -552,6 +689,7 @@ namespace Euclid::Database {
 
                         // Move to dead letter queue if existing
                         if (!deadLetterQueueErn.empty() && message.receivedCount > maxReceiveCount) {
+                            Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "receiveMessages.redrive");
                             const auto moveUpdate = make_document(
                                     kvp("$set", make_document(
                                                 kvp("queueErn", deadLetterQueueErn),
@@ -560,23 +698,9 @@ namespace Euclid::Database {
                                                 kvp("receiptHandle", ""))),
                                     kvp("$currentDate", make_document(
                                                 kvp("modified", true))));
+                            // One write, not three: the message's own queueErn is what moves it,
+                            // and both queues' counters come from the next scan.
                             messageCollection.update_one(make_document(kvp("messageId", message.messageId)).view(), moveUpdate.view());
-
-                            const auto sourceUpdate = make_document(
-                                    kvp("$inc", make_document(
-                                                kvp("size", static_cast<int64_t>(-message.size)),
-                                                kvp("available", static_cast<int64_t>(-1)))),
-                                    kvp("$currentDate", make_document(
-                                                kvp("modified", true))));
-                            queueCollection.update_one(make_document(kvp("ern", queueErn)).view(), sourceUpdate.view());
-
-                            const auto targetUpdate = make_document(
-                                    kvp("$inc", make_document(
-                                                kvp("size", static_cast<int64_t>(message.size)),
-                                                kvp("available", static_cast<int64_t>(1)))),
-                                    kvp("$currentDate", make_document(
-                                                kvp("modified", true))));
-                            queueCollection.update_one(make_document(kvp("ern", deadLetterQueueErn)).view(), targetUpdate.view());
 
                             log_debug << "Message moved to dead letter queue, ern: " << queueErn << ", dlqErn: " << deadLetterQueueErn << ", messageId: " << message.messageId;
                             continue;
@@ -589,14 +713,8 @@ namespace Euclid::Database {
 
                 // Update queue counters
                 if (!result.empty()) {
-                    const auto queueFilter = make_document(kvp("ern", queueErn));
-                    const auto queueUpdate = make_document(
-                            kvp("$inc", make_document(
-                                        kvp("invisible", static_cast<int64_t>(result.size())),
-                                        kvp("available", -static_cast<int64_t>(result.size())))),
-                            kvp("$currentDate", make_document(
-                                        kvp("modified", true))));
-                    queueCollection.update_one(queueFilter.view(), queueUpdate.view());
+                    // The messages' own status is what moved; the queue's counters follow from a
+                    // scan rather than from a write here.
                     log_debug << "Messages received, ern: " << queueErn << ", count: " << result.size();
                     return result;
                 }
@@ -613,6 +731,7 @@ namespace Euclid::Database {
     }
 
     void MongoEqsRepository::deleteMessage(const std::string &receiptHandle) {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "deleteMessage");
 
         try {
             const auto filter = make_document(
@@ -622,32 +741,25 @@ namespace Euclid::Database {
             auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
             auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
 
+            // One round trip, not two: the document has to be read for its size and status
+            // before the queue's counters can be adjusted, and find_one_and_delete returns exactly
+            // that while deleting it. A receipt handle names one message, so the delete_many this
+            // replaces was never deleting more than one anyway.
             Entity::EQS::Message message;
-            if (auto mResult = messageCollection.find_one(filter.view())) {
-                message.FromDocument(mResult->view());
+            const auto deleted = messageCollection.find_one_and_delete(filter.view());
+            if (deleted) {
+                message.FromDocument(deleted->view());
+                log_debug << "Message deleted, messageId: " << message.messageId;
             }
 
-            const auto result = messageCollection.delete_many(filter.view());
-            log_debug << "Message deleted, count: " << result->deleted_count();
-
-            if (result && result->deleted_count() > 0 && !message.queueErn.empty()) {
-                const auto queueFilter = make_document(kvp("ern", message.queueErn));
-                const auto update = make_document(
-                        kvp("$inc", make_document(
-                                    kvp("size", static_cast<int64_t>(-message.size)),
-                                    kvp("available", static_cast<int64_t>(message.status == Entity::EQS::MessageStatus::AVAILABLE ? -1 : 0)),
-                                    kvp("delayed", static_cast<int64_t>(message.status == Entity::EQS::MessageStatus::DELAYED ? -1 : 0)),
-                                    kvp("invisible", static_cast<int64_t>(message.status == Entity::EQS::MessageStatus::INVISIBLE ? -1 : 0)))),
-                        kvp("$currentDate", make_document(
-                                    kvp("modified", true))));
-                queueCollection.update_one(queueFilter.view(), update.view());
-            }
+            // No counter write to follow it: the delete is the operation.
         } catch (const std::exception &e) {
             log_error << "Delete message failed, error: " << e.what();
         }
     }
 
     void MongoEqsRepository::deleteMessageById(const std::string &messageId) {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "deleteMessageById");
 
         try {
             const auto filter = make_document(
@@ -657,25 +769,10 @@ namespace Euclid::Database {
             auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
             auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
 
-            Entity::EQS::Message message;
-            if (auto mResult = messageCollection.find_one(filter.view())) {
-                message.FromDocument(mResult->view());
-            }
-
-            const auto result = messageCollection.delete_many(filter.view());
-            log_debug << "Message deleted, count: " << result->deleted_count();
-
-            if (result && result->deleted_count() > 0 && !message.queueErn.empty()) {
-                const auto queueFilter = make_document(kvp("ern", message.queueErn));
-                const auto update = make_document(
-                        kvp("$inc", make_document(
-                                    kvp("size", static_cast<int64_t>(-message.size)),
-                                    kvp("available", static_cast<int64_t>(message.status == Entity::EQS::MessageStatus::AVAILABLE ? -1 : 0)),
-                                    kvp("delayed", static_cast<int64_t>(message.status == Entity::EQS::MessageStatus::DELAYED ? -1 : 0)),
-                                    kvp("invisible", static_cast<int64_t>(message.status == Entity::EQS::MessageStatus::INVISIBLE ? -1 : 0)))),
-                        kvp("$currentDate", make_document(
-                                    kvp("modified", true))));
-                queueCollection.update_one(queueFilter.view(), update.view());
+            // One round trip, and no counter write to follow it - the same shape as
+            // deleteMessage(), for the same reasons.
+            if (const auto deleted = messageCollection.find_one_and_delete(filter.view())) {
+                log_debug << "Message deleted, messageId: " << messageId;
             }
         } catch (const std::exception &e) {
             log_error << "Delete message by ID failed, messageId: " << messageId << ", error: " << e.what();
@@ -683,6 +780,7 @@ namespace Euclid::Database {
     }
 
     void MongoEqsRepository::purgeQueue(const std::string &queueErn) {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "purgeQueue");
 
         try {
             const auto filter = make_document(
@@ -711,6 +809,7 @@ namespace Euclid::Database {
     }
 
     void MongoEqsRepository::purgeAllQueues(const std::string &region, const std::string &accountId) {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "purgeAllQueues");
 
         try {
             const auto entry = Database::instance().client();
@@ -752,6 +851,7 @@ namespace Euclid::Database {
     }
 
     long MongoEqsRepository::countMessages() const {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "countMessages");
 
         try {
             const auto entry = Database::instance().client();
@@ -765,20 +865,19 @@ namespace Euclid::Database {
     }
 
     long MongoEqsRepository::countMessages(const std::string &queueErn) const {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "countMessagesForQueue");
 
-        try {
-            const auto filter = make_document(kvp("queueErn", queueErn));
-            const auto entry = Database::instance().client();
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
-
-            return messageCollection.count_documents(filter.view());
-        } catch (const std::exception &e) {
-            log_error << "Count messages failed, ern: " << queueErn << ", error: " << e.what();
-        }
-        return -1;
+        // Served from the last scan rather than counted here. This ran once per receive-messages
+        // and its cost grew with the backlog - 8ms early in a load test, 29ms an hour in - for a
+        // number that is reported as approximate.
+        Entity::EQS::Queue queue;
+        queue.ern = queueErn;
+        return queue.available + queue.delayed + queue.invisible;
     }
 
+
     void MongoEqsRepository::clearMessages() {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "clearMessages");
 
         try {
             const auto entry = Database::instance().client();
@@ -792,6 +891,7 @@ namespace Euclid::Database {
     }
 
     long MongoEqsRepository::resetExpiredMessages() {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "resetExpiredMessages");
 
         long resetCount = 0;
         try {
@@ -853,25 +953,9 @@ namespace Euclid::Database {
                 log_debug << "Message delay expired, messageId: " << message.messageId << ", queueErn: " << message.queueErn;
             }
 
-            for (const auto &[queueErn, count]: resetCountByQueue) {
-                const auto queueUpdate = make_document(
-                        kvp("$inc", make_document(
-                                    kvp("invisible", -static_cast<int64_t>(count)),
-                                    kvp("available", static_cast<int64_t>(count)))),
-                        kvp("$currentDate", make_document(
-                                    kvp("modified", true))));
-                queueCollection.update_one(make_document(kvp("ern", queueErn)).view(), queueUpdate.view());
-            }
-
-            for (const auto &[queueErn, count]: delayedResetCountByQueue) {
-                const auto queueUpdate = make_document(
-                        kvp("$inc", make_document(
-                                    kvp("delayed", -static_cast<int64_t>(count)),
-                                    kvp("available", static_cast<int64_t>(count)))),
-                        kvp("$currentDate", make_document(
-                                    kvp("modified", true))));
-                queueCollection.update_one(make_document(kvp("ern", queueErn)).view(), queueUpdate.view());
-            }
+            // The per-queue tallies above are only logged now: a message that became visible
+            // again changed its own status, and the queue's counters follow from the next scan
+            // rather than from a write per queue here.
 
             if (resetCount > 0)
                 log_debug << "Reset expired messages, count: " << resetCount;

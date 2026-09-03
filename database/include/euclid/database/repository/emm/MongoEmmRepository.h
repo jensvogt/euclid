@@ -48,6 +48,14 @@ namespace Euclid::Database {
         /**
          * @brief Permanently removes one instance from a module's live instance pool. See IEmmRepository.
          */
+        bool setDesiredInstances(const std::string &name, int minInstances, int maxInstances) override;
+
+        bool setDesiredThreads(const std::string &name, int threads) override;
+
+        bool setDesiredStopped(const std::string &name, bool stopped) override;
+
+        bool requestRestart(const std::string &name) override;
+
         void removeInstance(const std::string &moduleName, const std::string &instanceId) override;
 
         /**

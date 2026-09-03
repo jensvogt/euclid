@@ -1,0 +1,125 @@
+.TH EUCLID-CLI-EMM-STOP-MODULE 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-emm-stop-module \- stop a euclid module and keep it stopped
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B emm stop-module
+.BR \-\-module " " \fIMODULE\fR
+.SH DESCRIPTION
+Stops every instance of a module and keeps them stopped.
+.PP
+This records
+.I desired state
+rather than issuing a one-off stop, and that is the difference that
+matters. An instance that is merely stopped is one the manager brings
+straight back: crashed instances are restarted, the autoscaler spawns up
+to the module's minimum, and a manager restart starts everything the
+configuration declares. A module stopped here is left alone by all
+three, and stays down until
+.BR euclid-cli-emm-start-module (1)
+brings it back \- including across a restart of
+.IR euclid-mgr .
+.PP
+The instances are stopped on the manager's next reconcile tick, within a
+few seconds, not at the moment the command returns. The module's pool
+slots are kept, marked stopped, so
+.B start-module
+brings the module back as it was rather than having to remember how big
+the pool used to be.
+.SH BEFORE YOU STOP SOMETHING
+.TP
+.B Requests fail while it is down
+Nothing queues them and nothing routes around them: a request for a
+stopped module has no instance to go to.
+.TP
+.B Dependants will not start
+A module that names the stopped one in its
+.I dependencies
+waits for it, so stopping something in the middle of the dependency
+graph keeps everything below it from coming up at the next manager
+start. Check
+.I euclid.json
+before stopping a module others are declared to depend on.
+.TP
+.B Applications keep running
+An application is not held back by a stopped module the way it is held
+back by one that has not come up yet \- a module nobody wants running is
+not one to wait for.
+.SH WHAT CANNOT BE STOPPED
+.TP
+.B emm
+refuses to stop itself. There would be nothing left to start it again,
+and a door that locks behind you is worse than an error.
+.TP
+.B Applications and transfer servers
+are modules as far as the manager is concerned, but their desired state
+belongs to EAP and ETS and is reconciled from there, so anything
+recorded here would be undone within seconds. Use
+.B eap stop-application
+or
+.B ets stop-server
+for those; this command refuses them rather than pretending.
+.SH OPTIONS
+.TP
+.BR \-m ", " \-\-module " " \fIMODULE\fR
+Module to stop, e.g. \fIftp\fR. Required. Must be a module the manager
+knows about \- an unknown name is rejected with
+.I "HTTP 404"
+rather than silently recorded.
+.SH OUTPUT
+The JSON response is printed to standard output:
+.RS
+.TP
+.I name
+The module that was stopped.
+.TP
+.I stopped
+.I true
+\- what is now recorded for it.
+.TP
+.I runningInstances
+How many instances the pool held when the request was answered. The
+manager stops them on its next reconcile, so immediately afterwards this
+is still the count from before.
+.RE
+.PP
+Stopping a module that is already stopped changes nothing, answers the
+same way, and is not an error.
+.SH EXIT STATUS
+.TP
+.B 0
+The module is recorded as stopped.
+.TP
+.B 1
+The stored session is missing or not an administrator's, the module is
+unknown, it is
+.I emm
+itself or not a euclid module, the request could not be sent, or the
+server rejected it. Details are printed to standard error.
+.SH EXAMPLES
+Stop the FTP transfer front end:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm stop-module --module ftp
+.fi
+.RE
+.PP
+Confirm it is down, then bring it back:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm list-modules
+
+euclid-cli --endpoint http://localhost:5566 emm start-module --module ftp
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-emm (1),
+.BR euclid-cli-emm-start-module (1),
+.BR euclid-cli-emm-list-modules (1),
+.BR euclid-cli-emm-set-instances (1),
+.BR euclid-cli-eam-login (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

@@ -55,6 +55,7 @@
         "executable": "C:\\Program Files\\euclid\\bin\\euclid-eam",
         "minInstances": 1,
         "maxInstances": 2,
+        "threads": 2,
         "jwt-secret": "04cb52d1fdd9e1b68388a5919709d5eec8f271b88b5af0925b4a73ea123fd1f4"
       },
       "esm": {
@@ -70,6 +71,7 @@
         "data-dir": "C:\\Program Files\\euclid\\data\\esm",
         "minInstances": 1,
         "maxInstances": 4,
+        "threads": 2,
         "counter-period": 60,
         "sync-period": 3600,
         "archive-timeout": 300
@@ -104,7 +106,8 @@
           "count": 5
         },
         "minInstances": 1,
-        "maxInstances": 4
+        "maxInstances": 4,
+        "threads": 2
       },
       "emo": {
         "active": true,
@@ -112,7 +115,8 @@
         "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-emo.sock",
         "executable": "C:\\Program Files\\euclid\\bin\\euclid-emo",
         "minInstances": 1,
-        "maxInstances": 1
+        "maxInstances": 1,
+        "threads": 2
       },
       "ekm": {
         "active": true,
@@ -121,6 +125,7 @@
         "executable": "/usr/local/euclid/bin/euclid-ekm",
         "minInstances": 1,
         "maxInstances": 4,
+        "threads": 2,
         "backup": {
           "active": true,
           "cron": "0 0 0 * * ?",
@@ -133,7 +138,8 @@
         "socketPath": "/var/run/euclid/euclid-emm.sock",
         "executable": "/usr/local/euclid/bin/euclid-emm",
         "minInstances": 1,
-        "maxInstances": 1
+        "maxInstances": 1,
+        "threads": 2
       },
       "ftp": {
         "active": false,
@@ -166,7 +172,8 @@
         "socket-dir": "C:\\Program Files\\euclid\\data\\run",
         "data-dir": "C:\\Program Files\\euclid\\data\\eap",
         "minInstances": 1,
-        "maxInstances": 1
+        "maxInstances": 1,
+        "threads": 2
       },
       "ets": {
         "active": true,
@@ -176,6 +183,7 @@
         "socket-dir": "C:\\Program Files\\euclid\\data\\run",
         "minInstances": 1,
         "maxInstances": 1,
+        "threads": 2,
         "inline-max": 67108864,
         "part-size": 8388608
       },

@@ -61,6 +61,65 @@ namespace Euclid::Database {
          *
          * @param name The name of the module to be removed.
          */
+        /**
+         * @brief Records the instance limits somebody asked for, without disturbing anything else.
+         *
+         * @par
+         * Writes only Entity::Module::desiredMinInstances/desiredMaxInstances. It has to be its own
+         * call rather than a read-modify-write of the whole document: upsertInstance() rewrites the
+         * module's fields from the manager's own configuration on every instance state change, so a
+         * limit stored through that path would last until the next crash or scale event. These two
+         * fields are the one thing it does not touch.
+         *
+         * @param name module name
+         * @param minInstances the floor asked for, or -1 to leave the current request alone
+         * @param maxInstances the ceiling asked for, or -1 to leave the current request alone
+         * @return true if a module of that name exists and was updated
+         */
+        virtual bool setDesiredInstances(const std::string &name, int minInstances, int maxInstances) = 0;
+
+        /**
+         * @brief Records the worker thread count somebody asked for.
+         *
+         * @par
+         * Writes only Entity::Module::desiredThreads. Separate from setDesiredInstances() because
+         * the two answer different questions - how many processes the pool runs, and how many
+         * threads each of those processes serves requests with - and are set independently.
+         *
+         * @param name module name
+         * @param threads number of worker threads the module should start with
+         * @return true if a module of that name exists and was updated
+         */
+        virtual bool setDesiredThreads(const std::string &name, int threads) = 0;
+
+        /**
+         * @brief Records that a module should be stopped, or should run again.
+         *
+         * @par
+         * Desired state, not an instruction: the manager acts on it every reconcile tick, so a
+         * module stopped here stays stopped through crashes, scale events and manager restarts
+         * until it is set back. Nothing else writes this field.
+         *
+         * @param name module name
+         * @param stopped true to stop the module and keep it stopped, false to let it run again
+         * @return true if a module of that name exists and was updated
+         */
+        virtual bool setDesiredStopped(const std::string &name, bool stopped) = 0;
+
+        /**
+         * @brief Records that a module should be restarted, stamping Module::restartRequestedAt
+         * with the current time.
+         *
+         * @par
+         * The one EMM call that is an event rather than a setting. The manager acts on it once and
+         * remembers it has, so asking again restarts the module again - which is the whole point of
+         * a timestamp rather than a flag somebody would have to clear.
+         *
+         * @param name module name
+         * @return true if a module of that name exists and was updated
+         */
+        virtual bool requestRestart(const std::string &name) = 0;
+
         virtual void remove(const std::string &name) = 0;
 
         /**

@@ -3,6 +3,7 @@
 // C++ includes
 #include <algorithm>
 #include <memory>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -43,6 +44,32 @@ namespace Euclid::main {
     [[nodiscard]]
     boost::beast::http::response<boost::beast::http::string_body>
     forwardToService(const boost::beast::http::request<boost::beast::http::string_body> &req, const std::string &socketPath);
+
+    /**
+     * @brief What a routed request is answered through, rather than by returning.
+     */
+    using RouteCompletion = std::function<void(boost::beast::http::response<boost::beast::http::string_body>)>;
+
+    /**
+     * @brief Proxies req over a Unix-domain socket at socketPath and hands the backend's response
+     * to done, without holding the calling thread while the backend produces it.
+     *
+     * The HTTP request path uses this so that waiting on a module costs memory rather than a
+     * worker thread. Forwarding synchronously put a ceiling on the gateway equal to its worker
+     * count (euclid.gateway.http.max-thread), whatever the modules behind it could handle - and
+     * long-polling actions, which deliberately wait up to twenty seconds, each held one of those
+     * threads for the whole wait.
+     *
+     * @param ioc the io_context the exchange runs on - the gateway's own, so its worker threads
+     *            pick the continuations up as they become runnable
+     * @param req the request to forward; must stay alive until done is called
+     * @param socketPath the module instance's Unix domain socket
+     * @param done called exactly once, with the backend's response or a 502 describing why there
+     *             is none
+     */
+    void forwardToServiceAsync(boost::asio::io_context &ioc,
+                               const boost::beast::http::request<boost::beast::http::string_body> &req,
+                               const std::string &socketPath, RouteCompletion done);
 
     /**
      * @brief Represents a server that manages gateway connections.
