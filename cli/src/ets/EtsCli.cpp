@@ -84,6 +84,7 @@ namespace Euclid::CLI {
                 ("home-dir,H", po::value<std::string>(), "key prefix each client is rooted at, with {user} standing for the login name, e.g. \"{user}\"; default is the bucket root, shared by every client")
                 ("users,u", po::value<std::string>(), "comma-separated EAM user IDs allowed to log in")
                 ("groups,g", po::value<std::string>(), "comma-separated EAM user groups whose members may log in")
+                ("directories,D", po::value<std::string>(), "comma-separated directories every session should find under its home, e.g. incoming/mix,incoming/split,feedback; created at login, relative to --home-dir")
                 ("host-key,k", po::value<std::string>(), "SFTP only: private SSH host key file; generated on first start if absent")
                 ("pasv-min", po::value<long>(), "FTP only: lowest passive data port (default 6000)")
                 ("pasv-max", po::value<long>(), "FTP only: highest passive data port (default 6100)");
@@ -133,6 +134,7 @@ namespace Euclid::CLI {
         if (vm.contains("home-dir")) request["homeDirectory"] = vm["home-dir"].as<std::string>();
         if (vm.contains("users")) request["userIds"] = SplitList(vm["users"].as<std::string>());
         if (vm.contains("groups")) request["userGroups"] = SplitList(vm["groups"].as<std::string>());
+        if (vm.contains("directories")) request["directories"] = SplitList(vm["directories"].as<std::string>());
         if (vm.contains("host-key")) request["hostKey"] = vm["host-key"].as<std::string>();
         if (vm.contains("pasv-min")) request["pasvMin"] = vm["pasv-min"].as<long>();
         if (vm.contains("pasv-max")) request["pasvMax"] = vm["pasv-max"].as<long>();
@@ -162,6 +164,7 @@ namespace Euclid::CLI {
                 ("home-dir,H", po::value<std::string>(), "key prefix each client is rooted at, with {user} standing for the login name; pass an empty string to move back to the bucket root")
                 ("users,u", po::value<std::string>(), "comma-separated EAM user IDs allowed to log in; replaces the current list")
                 ("groups,g", po::value<std::string>(), "comma-separated EAM user groups whose members may log in; replaces the current list")
+                ("directories,D", po::value<std::string>(), "comma-separated directories every session should find under its home, e.g. incoming/mix,incoming/split,feedback; created at login, relative to --home-dir")
                 ("host-key,k", po::value<std::string>(), "SFTP only: private SSH host key file")
                 ("pasv-min", po::value<long>(), "FTP only: lowest passive data port")
                 ("pasv-max", po::value<long>(), "FTP only: highest passive data port");
@@ -198,6 +201,7 @@ namespace Euclid::CLI {
         if (vm.contains("home-dir")) request["homeDirectory"] = vm["home-dir"].as<std::string>();
         if (vm.contains("users")) request["userIds"] = SplitList(vm["users"].as<std::string>());
         if (vm.contains("groups")) request["userGroups"] = SplitList(vm["groups"].as<std::string>());
+        if (vm.contains("directories")) request["directories"] = SplitList(vm["directories"].as<std::string>());
         if (vm.contains("host-key")) request["hostKey"] = vm["host-key"].as<std::string>();
         if (vm.contains("pasv-min")) request["pasvMin"] = vm["pasv-min"].as<long>();
         if (vm.contains("pasv-max")) request["pasvMax"] = vm["pasv-max"].as<long>();

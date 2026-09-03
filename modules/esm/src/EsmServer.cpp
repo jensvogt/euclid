@@ -259,6 +259,10 @@ namespace Euclid::ESM {
     // userId is who asked for the change, which is not always the object's owner - a move made by
     // an operator does not change who uploaded the thing being moved, and a listener usually wants
     // to know both.
+    static void notifyBucketSubscriptions(const std::string &eventType, const std::string &bucketErn, const std::string &key,
+                                          const std::string &ern, long size, const std::string &contentType,
+                                          const std::string &md5Sum, bool directory);
+
     static void publishObjectEvent(const std::string &eventType, const Database::Entity::ESM::Object &object,
                                    const std::optional<Database::Entity::ESM::Bucket> &bucket, const std::string &userId) {
 
@@ -275,6 +279,14 @@ namespace Euclid::ESM {
                                    : bucket.has_value()
                                    ? bucket->accountId
                                    : std::string();
+
+        // Bucket subscriptions are fed from here for the same reason: this is the one place that
+        // sees every object event. Before, only the three paths that create an object notified
+        // them, so a subscriber never heard about a delete - which the event service did report,
+        // and which anything replacing it has to.
+        notifyBucketSubscriptions(eventType, object.bucketErn, object.key, object.ern, object.size,
+                                  object.contentType, object.md5Sum,
+                                  Database::Entity::ESM::IsDirectoryKey(object.key));
 
         Database::EventBus::instance().Publish(
                 eventType,
@@ -353,13 +365,21 @@ namespace Euclid::ESM {
     // are: each carries a queue or topic to put a notification into, and is addressed to the one
     // module that can do it. The object events above are the domain events, which anything - a
     // module, an application - may subscribe to.
-    static void notifyBucketSubscriptions(const std::string &bucketErn, const std::string &key, const std::string &ern, const long size, const std::string &contentType, const std::string &md5Sum) {
+    // Delivers one object event to the bucket's subscriptions, to whichever of them asked for it.
+    //
+    // Filtered here, where the event is published, rather than by the subscriber: a subscription
+    // that wants one directory of one bucket should not have every other object queued up in front
+    // of it and thrown away on arrival. That is what the event service did for its subscribers, and
+    // it is what a queue-backed subscription needs in order to replace it.
+    static void notifyBucketSubscriptions(const std::string &eventType, const std::string &bucketErn, const std::string &key,
+                                          const std::string &ern, const long size, const std::string &contentType,
+                                          const std::string &md5Sum, const bool directory) {
 
         const auto subscriptions = Database::RepositoryFactory::instance().esmRepository()->listSubscriptionsBySourceErn(bucketErn);
         if (subscriptions.empty()) return;
 
         const boost::json::value notification = {
-                {"eventType", "esm:ObjectCreated:Put"},
+                {"eventType", eventType},
                 {"bucketErn", bucketErn},
                 {"key", key},
                 {"ern", ern},
@@ -370,6 +390,21 @@ namespace Euclid::ESM {
         const auto body = boost::json::serialize(notification);
 
         for (const auto &subscription: subscriptions) {
+
+            // Empty means every event type, which is what a subscription written before these
+            // filters existed carries - and what it already behaved like.
+            if (!subscription.eventTypes.empty()
+                && std::ranges::find(subscription.eventTypes, eventType) == subscription.eventTypes.end()) {
+                continue;
+            }
+            if (!subscription.prefix.empty() && !key.starts_with(subscription.prefix)) {
+                continue;
+            }
+            // A directory marker is an object like any other to ESM, and noise to most subscribers.
+            if (directory && !subscription.directories) {
+                continue;
+            }
+
             if (subscription.type == "SQS") {
                 const boost::json::value payload = {
                         {"messageId", Core::UuidUtils::CreateRandomUuid()},
@@ -781,7 +816,6 @@ namespace Euclid::ESM {
         // key rather than a second creation of it - a listener that treats "created" as "this key
         // is new" should not be told twice.
         publishObjectEvent(existingObject ? kObjectUpdated : kObjectCreated, object, bucket, auth.user->userId);
-        notifyBucketSubscriptions(bucketErn, key, ern, object.size, contentType, md5Sum);
 
         Dto::ESM::CompleteUploadResponse response;
         response.bucketErn = bucketErn;
@@ -1152,7 +1186,21 @@ namespace Euclid::ESM {
                 object.contentType = contentType;
                 object.md5Sum = md5Sum;
                 object.encryptionKeyErn = encryptionKeyErn;
-                object.attributes = attributes;
+
+                // Merged onto whatever the row carries now, rather than assigned over it. This
+                // pass runs in the background after complete-upload has already answered, so a
+                // client that adds an attribute the moment its upload returns writes it to a row
+                // this would otherwise replace - the attribute is accepted, stored, and then
+                // silently lost. Re-reading here is the same reason the bucket is re-fetched
+                // below: the snapshot taken before assembly may be stale by now. The upload's own
+                // attributes still win on a conflict, since they are what this upload was told to
+                // store.
+                if (const auto current = repo->findObjectByBucketAndKey(bucketErn, key); current.has_value()) {
+                    object.attributes = current->attributes;
+                }
+                for (const auto &[name, value]: attributes) {
+                    object.attributes[name] = value;
+                }
                 repo->upsertObject(object);
 
                 // Re-fetches the bucket rather than reusing the snapshot from before assembly
@@ -1182,7 +1230,6 @@ namespace Euclid::ESM {
                 // only as an UPLOADED row, and a listener that fetched it then would get an
                 // incomplete object.
                 publishObjectEvent(replaces ? kObjectUpdated : kObjectCreated, object, bucket, owner);
-                notifyBucketSubscriptions(bucketErn, key, ern, object.size, contentType, md5Sum);
             } catch (const std::exception &e) {
                 log_error << "Post-processing failed, upload id: " << uploadId << ", error: " << e.what();
                 discardPartialObject(destPath);
@@ -1859,7 +1906,6 @@ namespace Euclid::ESM {
         }
         // Subscribers of the target bucket see an object appear, which is what happened as far as
         // anything watching that bucket is concerned - however it got there.
-        notifyBucketSubscriptions(targetBucketErn, targetKey, stored.ern, stored.size, stored.contentType, stored.md5Sum);
 
         log_info << "ESM " << action << ", from: " << sourceBucketErn << "/" << sourceKey
                 << ", to: " << targetBucketErn << "/" << targetKey << ", size: " << stored.size;
@@ -2389,6 +2435,9 @@ namespace Euclid::ESM {
         subscription.sourceErn = request.sourceErn;
         subscription.type = request.type;
         subscription.targetErn = request.targetErn;
+        subscription.eventTypes = request.eventTypes;
+        subscription.prefix = request.prefix;
+        subscription.directories = request.directories;
 
         const auto saved = repo->upsertSubscription(subscription);
 

@@ -78,13 +78,11 @@ namespace Euclid::Database {
 
         try {
 
-            // const auto entry = Database::instance().client();
-            // auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
-            // if (auto mResult = _moduleCollection.find_one(make_document(kvp("name", name)))) {
-            //     Entity::Module modules;
-            //     modules.FromDocument(mResult->view());
-            //     return modules;
-            // }
+            const auto entry = Database::instance().client();
+            auto _moduleCollection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            if (auto mResult = _moduleCollection.find_one(bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("name", name)))) {
+                return Entity::Module::fromDocument(mResult->view());
+            }
 
         } catch (const std::exception &e) {
 
@@ -156,7 +154,7 @@ namespace Euclid::Database {
                 }
                 if (!anyOtherRunning) {
                     moduleFieldsDoc.append(bsoncxx::builder::basic::kvp("lastStartTime", bsoncxx::types::b_date{
-                                                                                 std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())}));
+                                                                                std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())}));
                 }
             }
             const auto moduleFields = moduleFieldsDoc.extract();

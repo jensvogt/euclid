@@ -55,6 +55,11 @@ namespace Euclid::Dto::ENS {
         std::string md5Attributes;
 
         /**
+         * @brief Content type
+         */
+        std::string contentType;
+
+        /**
          * @brief Last received timestamp
          */
         system_clock::time_point lastReceived;
@@ -96,6 +101,7 @@ namespace Euclid::Dto::ENS {
             r.md5Body = Core::GetStringValue(v, "md5Body");
             r.attributes = Core::GetMapFromObject<std::string, COM::Variant>(v, "attributes");
             r.md5Attributes = Core::GetStringValue(v, "md5Attributes");
+            r.contentType = Core::GetStringValue(v, "contentType");
             r.lastReceived = Core::GetDatetimeValue(v, "lastReceived");
             r.created = Core::GetDatetimeValue(v, "created");
             r.modified = Core::GetDatetimeValue(v, "modified");
@@ -112,6 +118,7 @@ namespace Euclid::Dto::ENS {
                     {"md5Body", obj.md5Body},
                     {"attributes", boost::json::value_from(obj.attributes)},
                     {"md5Attributes", obj.md5Attributes},
+                    {"contentType", obj.contentType},
                     {"lastReceived", Core::DateTimeUtils::ToISO8601(obj.lastReceived)},
                     {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},

@@ -475,6 +475,21 @@ namespace Euclid::Transfer {
         return true;
     }
 
+    long TransferStorage::EnsureDirectories(const std::vector<std::string> &keys) const {
+
+        long created = 0;
+        for (const auto &key: keys) {
+            if (Stat(key).has_value()) continue;
+            if (!MakeDirectory(key)) {
+                log_warning << "Could not create home directory, key: " << key;
+                continue;
+            }
+            log_info << "Home directory created, key: " << key;
+            created++;
+        }
+        return created;
+    }
+
     bool TransferStorage::MakeDirectory(const std::string &directory) const {
 
         const auto prefix = asPrefix(directory);

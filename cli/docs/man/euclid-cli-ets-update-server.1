@@ -64,6 +64,25 @@ list.
 Comma-separated EAM user groups whose members may log in. Replaces the
 current list.
 .TP
+.BR \-D ", " \-\-directories " " \fILIST\fR
+Comma-separated directories every session should find under its home,
+e.g. \fIincoming/mix,incoming/split,feedback\fR. Whichever of them do
+not exist yet are created when a client logs in, relative to
+.BR \-\-home\-dir ,
+so under a \fI{user}\fR home the same list gives \fIjvo/incoming/mix/\fR
+to one client and \fIoju/incoming/mix/\fR to another. Intermediate
+levels are created too, since a directory is a marker object and a
+client cannot walk into \fIincoming/mix\fR without \fIincoming\fR
+existing in its own right. Existing directories are left untouched, so
+this costs one listing per login and nothing after the first. Empty
+creates nothing, which is what every server did before.
+.PP
+This exists because a client cannot be asked to create the shape it
+delivers into \- it uploads to a folder that has to already be there \-
+and doing it per login means adding a supplier to
+.B \-\-users
+is the whole of onboarding them.
+.TP
 .BR \-k ", " \-\-host\-key " " \fIPATH\fR
 SFTP only. Private SSH host key file. Pointing a server at a different
 key changes the identity clients see, and clients that pinned the old

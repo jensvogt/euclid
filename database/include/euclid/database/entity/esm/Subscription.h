@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <vector>
+
 // C++ includes
 #include <chrono>
 #include <optional>
@@ -58,6 +60,30 @@ namespace Euclid::Database::Entity::ESM {
          * @brief ERN of the delivery target. For type "SQS", an EQS queue ERN.
          */
         std::string targetErn;
+
+        /**
+         * @brief Which object events to deliver, empty for all of them.
+         *
+         * @par
+         * The event bus names - "esm.object.created", "esm.object.updated", "esm.object.deleted" -
+         * so a subscriber asks for the same things it would have asked the event service for.
+         */
+        std::vector<std::string> eventTypes;
+
+        /**
+         * @brief Only deliver objects whose key starts with this, empty for the whole bucket.
+         */
+        std::string prefix;
+
+        /**
+         * @brief Whether directory markers count as objects worth delivering.
+         *
+         * @par
+         * A bucket is flat: a directory exists only as a zero-byte object whose key ends in "/".
+         * Most subscribers want files and would have to discard those themselves, so they are left
+         * out unless asked for.
+         */
+        bool directories = false;
 
         /**
          * @brief Creation date

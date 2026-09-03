@@ -113,6 +113,23 @@ namespace Euclid::Database::Entity::EQS {
         MessagePriority priority = MessagePriority::MIDDLE;
 
         /**
+         * @brief Whether this queue is euclid's own plumbing rather than a user's queue.
+         *
+         * @par
+         * An internal queue is an ordinary queue in every respect that matters - messages are sent,
+         * received, made invisible, redriven and deleted exactly the same way - except that it is
+         * left out of list-queues and the queue count, so nothing offers it to somebody who did not
+         * create it and cannot act on it. It exists because a delivery has to land somewhere: a
+         * bucket subscription, for instance, needs a queue to fan out into, and that queue is an
+         * implementation detail of whoever registered the subscription.
+         *
+         * @par
+         * Hidden, not protected. A caller that knows the ERN can still use it, which is exactly
+         * what the component that created it does.
+         */
+        bool internal = false;
+
+        /**
          * @brief Creation date
          */
         system_clock::time_point created = system_clock::now();

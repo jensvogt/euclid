@@ -15,10 +15,10 @@ namespace Euclid::SFTP {
     namespace {
 
 #ifdef _WIN32
-        constexpr std::string_view kDefaultDataDir = "C:\\Program Files\\euclid\\data\\sftp";
+        constexpr std::string_view kDefaultDataDir = "C:\\Program Files\\euclid\\data\\ets";
         constexpr std::string_view kDefaultHostKey = "C:\\Program Files\\euclid\\etc\\ssh_host_key";
 #else
-        constexpr std::string_view kDefaultDataDir = "/usr/local/euclid/data/sftp";
+        constexpr std::string_view kDefaultDataDir = "/usr/local/euclid/data/ets";
         constexpr std::string_view kDefaultHostKey = "/usr/local/euclid/etc/ssh_host_key";
 #endif
 
@@ -119,8 +119,8 @@ namespace Euclid::SFTP {
         // Only installation-wide defaults live here. Everything that distinguishes one transfer
         // server from another - address, port, bucket, who may log in - comes from its ETS
         // definition, and is applied over these by the constructor.
-        _config.hostKey = cfg.getOr<std::string>("euclid.modules.sftp.host-key", std::string(kDefaultHostKey));
-        _config.rootDir = cfg.getOr<std::string>("euclid.modules.sftp.data-dir", std::string(kDefaultDataDir));
+        _config.hostKey = cfg.getOr<std::string>("euclid.modules.ets.host-key", std::string(kDefaultHostKey));
+        _config.rootDir = cfg.getOr<std::string>("euclid.modules.ets.data-dir", std::string(kDefaultDataDir));
 
         std::error_code fsEc;
         std::filesystem::create_directories(_config.rootDir, fsEc);
@@ -173,7 +173,7 @@ namespace Euclid::SFTP {
         while (_running.load()) {
             boost::system::error_code ec;
             tcp::socket socket(_sftpIoc);
-            _acceptor.accept(socket, ec);
+            std::ignore = _acceptor.accept(socket, ec);
             if (ec) {
                 // Expected once on shutdown: the destructor closes _acceptor to unblock this
                 // accept() call, which is how the loop is asked to stop.

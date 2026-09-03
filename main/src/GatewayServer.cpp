@@ -336,6 +336,18 @@ namespace Euclid::main {
                 return;
             }
 
+            // The deadline armed in doRead() was there to bound the wait for a request, but it
+            // keeps running once one arrives, so until here it also had to cover the module
+            // producing the answer. A long poll - receive-messages and receive-events deliberately
+            // wait up to twenty seconds - could spend what was left of it and have this connection
+            // closed under it while the module was still working, which the client sees as an EOF
+            // while it waits for response headers rather than as any kind of answer. Re-armed here
+            // so waiting for a request and doing the work behind it are budgeted separately, and
+            // deliberately more generous than BackendTimeout(): that timer is the one meant to end
+            // a slow exchange, and it can only do so if this one has not already killed the
+            // connection its answer would travel back over.
+            _stream.expires_after(BackendTimeout() + std::chrono::seconds(5));
+
             // The response arrives through the completion rather than being returned: while the
             // module is being waited on, this worker thread is free for other connections. self
             // is what keeps the parser - and so req, which the forward is still reading from -
@@ -433,6 +445,18 @@ namespace Euclid::main {
                 handleUpgrade();
                 return;
             }
+
+            // The deadline armed in doRead() was there to bound the wait for a request, but it
+            // keeps running once one arrives, so until here it also had to cover the module
+            // producing the answer. A long poll - receive-messages and receive-events deliberately
+            // wait up to twenty seconds - could spend what was left of it and have this connection
+            // closed under it while the module was still working, which the client sees as an EOF
+            // while it waits for response headers rather than as any kind of answer. Re-armed here
+            // so waiting for a request and doing the work behind it are budgeted separately, and
+            // deliberately more generous than BackendTimeout(): that timer is the one meant to end
+            // a slow exchange, and it can only do so if this one has not already killed the
+            // connection its answer would travel back over.
+            beast::get_lowest_layer(_stream).expires_after(BackendTimeout() + std::chrono::seconds(5));
 
             // See the plain session: the answer comes back through the completion so this worker
             // is not held while the module produces it.
