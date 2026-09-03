@@ -6,7 +6,23 @@ euclid-cli-esm-delete-bucket \- delete a storage bucket
 .BR \-\-ern | \-e
 .I ERN
 .SH DESCRIPTION
-Deletes a storage bucket identified by its Euclid resource name (ERN).
+Deletes a storage bucket identified by its Euclid resource name (ERN),
+along with every object it contains.
+.PP
+The objects go with the bucket because nothing else could ever remove
+them: an object is only reachable through its bucket, so a row left
+behind would be unreachable for good, and the file it names would be
+disk nothing accounts for. Each object's stored file is removed and one
+.I esm.object.deleted
+event is published per object, exactly as if each had been deleted on
+its own \- so anything listening for objects in the bucket learns which
+of them went, rather than only that the bucket is gone.
+.PP
+To empty a bucket while keeping it \- optionally only under a key prefix
+\- use
+.BR euclid-cli-esm-purge-bucket (1)
+instead.
+.PP
 This cannot be undone.
 .SH OPTIONS
 .TP
@@ -24,7 +40,7 @@ bucket with that ERN exists.
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 esm delete-bucket \e
-    --ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports
+    --ern ern:esm:eu-central-1:000000000000:bucket:reports
 .fi
 .RE
 .SH SEE ALSO

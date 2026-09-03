@@ -102,6 +102,7 @@ namespace Euclid::Monitoring {
         std::string _hourRollupTaskId;
         std::string _dayRollupTaskId;
         std::string _cpuUsageTaskId;
+        std::string _queueCountsTaskId;
     };
 
 }// namespace Euclid::Monitoring

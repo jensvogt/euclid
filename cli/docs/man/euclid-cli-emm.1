@@ -38,6 +38,38 @@ with its live pool of instances (pid, state, socket, restart count).
 See
 .BR euclid-cli-emm-list-modules (1).
 .TP
+.B set-instances
+Sets the minimum and maximum number of instances the autoscaler keeps
+running for one module. Persisted, and applied over what
+.I euclid.json
+configures, so the setting survives a manager restart. See
+.BR euclid-cli-emm-set-instances (1).
+.TP
+.B set-threads
+Sets how many worker threads each of a module's processes serves
+requests with \- the companion to
+.BR set-instances ,
+which sizes the pool of processes rather than the pool of threads
+inside one. Applied by restarting the module's instances, one at a
+time. See
+.BR euclid-cli-emm-set-threads (1).
+.TP
+.B stop-module
+Stops a module and keeps it stopped \- through crashes, scale events and
+manager restarts \- rather than issuing a one-off stop the manager would
+undo. See
+.BR euclid-cli-emm-stop-module (1).
+.TP
+.B start-module
+Lets a module stopped that way run again. See
+.BR euclid-cli-emm-start-module (1).
+.TP
+.B restart-module
+Restarts a module's instances one at a time, changing nothing about it
+\- for picking up a new binary or making a module read its
+configuration again. See
+.BR euclid-cli-emm-restart-module (1).
+.TP
 .B export
 Exports one or more modules' own MongoDB collections to a local JSON
 file, optionally sealed with a passphrase - the file holds access-key
@@ -156,6 +188,43 @@ euclid-cli --endpoint http://localhost:5566 emm list-modules
 .fi
 .RE
 .PP
+Keep four ESM instances running at all times, and allow up to
+thirty-two under load:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm set-instances \e
+    --module esm --min 4 --max 32
+.fi
+.RE
+.PP
+Give each EQS instance sixteen worker threads:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm set-threads \e
+    --module eqs --threads 16
+.fi
+.RE
+.PP
+Take the FTP front end down, and later bring it back:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm stop-module --module ftp
+
+euclid-cli --endpoint http://localhost:5566 emm start-module --module ftp
+.fi
+.RE
+.PP
+Cycle ESM's instances after replacing its binary:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm restart-module --module esm
+.fi
+.RE
+.PP
 Export EQS's queues (and, with \fB\-\-full\fR, its messages too) to a
 JSON file:
 .PP
@@ -181,6 +250,11 @@ euclid-cli --endpoint http://localhost:5566 emm import --file eqs-backup.json
 .BR euclid-cli-eap (1),
 .BR euclid-cli-eam-login (1),
 .BR euclid-cli-emm-list-modules (1),
+.BR euclid-cli-emm-set-instances (1),
+.BR euclid-cli-emm-set-threads (1),
+.BR euclid-cli-emm-stop-module (1),
+.BR euclid-cli-emm-start-module (1),
+.BR euclid-cli-emm-restart-module (1),
 .BR euclid-cli-emm-export (1),
 .BR euclid-cli-emm-import (1)
 .SH AUTHOR

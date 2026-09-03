@@ -46,10 +46,10 @@ with that ERN exists.
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 eqs receive-messages \e
-    --ern ern:euclid:queues:eu-central-1:000000000000:queue:orders
+    --ern ern:queues:eu-central-1:000000000000:queue:orders
 
 euclid-cli --endpoint http://localhost:5566 eqs receive-messages \e
-    --ern ern:euclid:queues:eu-central-1:000000000000:queue:orders \e
+    --ern ern:queues:eu-central-1:000000000000:queue:orders \e
     --maxCount 5 --waitTime 10
 .fi
 .RE

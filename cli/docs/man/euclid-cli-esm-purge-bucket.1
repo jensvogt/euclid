@@ -41,7 +41,7 @@ Remove every object from a bucket:
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 esm purge-bucket \e
-    --bucket ern:euclid:storage:eu-central-1:000000000000:bucket:reports
+    --bucket ern:esm:eu-central-1:000000000000:bucket:reports
 .fi
 .RE
 .PP
@@ -49,7 +49,7 @@ Remove only objects under a given key prefix:
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 esm purge-bucket \e
-    --bucket ern:euclid:storage:eu-central-1:000000000000:bucket:reports \e
+    --bucket ern:esm:eu-central-1:000000000000:bucket:reports \e
     --prefix 2025/
 .fi
 .RE

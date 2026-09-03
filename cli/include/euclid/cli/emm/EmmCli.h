@@ -60,6 +60,55 @@ namespace Euclid::CLI {
         int listModules(const std::vector<std::string> &args) const;
 
         /**
+         * @brief Sets the instance limits the autoscaler works within for one module.
+         *
+         * Either limit may be given on its own; the one left out keeps whatever is in force. The
+         * setting is persisted and applied to the running manager, so it outlives a restart rather
+         * than reverting to what the configuration file says.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int setInstances(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Sets the number of worker threads one module's processes serve requests with.
+         *
+         * The setting is persisted and takes precedence over euclid.json. A thread count is fixed
+         * when a process starts, so the manager restarts the module's instances - one at a time,
+         * so the pool keeps serving - to put it into effect.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int setThreads(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Stops a module and keeps it stopped, or lets it run again.
+         *
+         * Records desired state rather than issuing a one-off stop: an instance that is merely
+         * stopped is one the manager brings straight back, so this is what makes a stop hold
+         * across crashes, scale events and manager restarts.
+         *
+         * @param args command line arguments
+         * @param stopped true for "stop-module", false for "start-module"
+         * @return ok
+         */
+        [[nodiscard]]
+        int setModuleStopped(const std::vector<std::string> &args, bool stopped) const;
+
+        /**
+         * @brief Restarts a module's instances, one at a time, without changing anything about it.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int restartModule(const std::vector<std::string> &args) const;
+
+        /**
          * @brief Exports one or more modules' own MongoDB collections to a local JSON file.
          * --module takes a comma-separated list; --all exports every module instead - exactly one
          * of the two is required. By default only each module's top-level resource collection(s)

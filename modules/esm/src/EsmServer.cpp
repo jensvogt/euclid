@@ -27,11 +27,11 @@ namespace Euclid::ESM {
         constexpr auto kServiceTimer = "esm-service-time";
         constexpr auto kServiceCounter = "esm-service-count";
 
-        // Fallback for "euclid.modules.storage.data-dir", matching the default in dist/etc/euclid*.json.
+        // Fallback for "euclid.modules.esm.data-dir", matching the default in dist/etc/euclid*.json.
 #ifdef _WIN32
         constexpr auto kDefaultDataDir = R"(C:\Program Files\euclid\data\esm)";
 #else
-        constexpr auto kDefaultDataDir = "/usr/local/euclid/data/storage";
+        constexpr auto kDefaultDataDir = "/usr/local/euclid/data/esm";
 #endif
 
         // Name of the per-upload file recording the upload's target bucket/key, written by
@@ -41,7 +41,7 @@ namespace Euclid::ESM {
 
         // Directory a multipart upload's parts are staged in until the upload is completed or aborted.
         std::filesystem::path uploadDirFor(const std::string &uploadId) {
-            const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
+            const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
             return std::filesystem::path(dataDir) / "uploads" / uploadId;
         }
 
@@ -53,7 +53,7 @@ namespace Euclid::ESM {
 
         // Directory a multipart download's metadata is staged in until the download is completed or aborted.
         std::filesystem::path downloadDirFor(const std::string &downloadId) {
-            const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
+            const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
             return std::filesystem::path(dataDir) / "downloads" / downloadId;
         }
 
@@ -270,9 +270,11 @@ namespace Euclid::ESM {
         // Falls back to the bucket's account for objects written before ESM recorded one per
         // object: an event with no accountId reaches every subscriber of every account, which is
         // the one failure here that would not be visible as a missing event.
-        const auto accountId = !object.accountId.empty() ? object.accountId
-                               : bucket.has_value()      ? bucket->accountId
-                                                         : std::string();
+        const auto accountId = !object.accountId.empty()
+                                   ? object.accountId
+                                   : bucket.has_value()
+                                   ? bucket->accountId
+                                   : std::string();
 
         Database::EventBus::instance().Publish(
                 eventType,
@@ -293,6 +295,49 @@ namespace Euclid::ESM {
                         {"namespace", object.nameSpace},
                         {"eventTime", Core::DateTimeUtils::ToISO8601(std::chrono::system_clock::now())}},
                 "esm");
+    }
+
+    // What removeBucketObjects() actually removed, so a caller that keeps the bucket can adjust
+    // its counters by that rather than zeroing them - a prefix-scoped purge leaves everything
+    // outside the prefix in place, and those objects still have to be reflected.
+    struct RemovedObjects {
+        long size = 0;
+        long count = 0;
+    };
+
+    // Removes every object of a bucket under a prefix: its file, its row, and one delete event
+    // each. Shared by purge-bucket and delete-bucket so the two cannot drift - a bucket's objects
+    // outlive it otherwise, as rows nothing can reach and files nothing accounts for.
+    //
+    // Directories are included, unlike most listings here: leaving them would empty a bucket that
+    // still could not be deleted. They are not counted, though, since they were never counted when
+    // they were created.
+    static RemovedObjects removeBucketObjects(const std::string &bucketErn, const std::string &prefix,
+                                              const std::optional<Database::Entity::ESM::Bucket> &bucket,
+                                              const std::string &userId) {
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        const auto objects = repo->listObjects(bucketErn, prefix, -1, -1, "", "asc", true);
+        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
+
+        RemovedObjects removed;
+        for (const auto &object: objects) {
+            std::error_code ec;
+            std::filesystem::remove(std::filesystem::path(dataDir) / object.internalName, ec);
+            if (ec)
+                log_warning << "Could not remove object file, internalName: " << object.internalName << ", error: " << ec.message();
+            repo->deleteObjectByErn(object.ern);
+            removed.size += object.size;
+            if (!Database::Entity::ESM::IsDirectoryKey(object.key)) removed.count++;
+
+            // One event per object, the same as if each had been deleted on its own. A bulk delete
+            // is the cheapest way to make a listener's view of a bucket wrong, and "the bucket is
+            // gone" would not tell it which of the objects it was tracking went with it - so it
+            // pays for a publish per object, which is the same order of work as the row delete and
+            // the file removal it already does for each one.
+            publishObjectEvent(kObjectDeleted, object, bucket, userId);
+        }
+        return removed;
     }
 
     // ── Bucket subscriptions ─────────────────────────────────────────────────
@@ -466,12 +511,21 @@ namespace Euclid::ESM {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-bucket");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = Dto::ESM::DeleteBucketRequest::fromJson(req.body());
+
+        // Checked here for the same reason purge-bucket checks it, and more so: this is the most
+        // destructive thing a caller can ask ESM for, and it now takes the bucket's objects with
+        // it. A principal whose grants name particular buckets is held to them; one that names no
+        // resources at all is unrestricted, as everywhere else, so nothing that worked before
+        // stops working.
+        if (const auto denied = denyUngrantedBucket(req, auth, request.ern)) return *denied;
+
         log_info << "ESM bucket deleted, ern: " << request.ern;
 
         // Read before it is gone: the event says which bucket and whose, and after the delete
@@ -479,6 +533,13 @@ namespace Euclid::ESM {
         // first.
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
         const auto bucket = repo->findBucketByErn(request.ern);
+
+        // The objects go with it. Nothing else ever would: an object is only ever reached through
+        // its bucket, so a row left behind here is unreachable for good, and the file it names is
+        // disk nothing accounts for. No counters to adjust, unlike purge-bucket - the bucket whose
+        // counters they are is about to be deleted.
+        const auto removed = removeBucketObjects(request.ern, "", bucket, auth.user->userId);
+        if (removed.count > 0) log_info << "ESM bucket objects deleted, ern: " << request.ern << ", count: " << removed.count << ", size: " << removed.size;
 
         repo->deleteBucketByErn(request.ern);
 
@@ -557,8 +618,8 @@ namespace Euclid::ESM {
              const auto &server: servers) {
             if (server.bucketErn == request.ern) {
                 return ErrorResponse(req, status::conflict,
-                                      "Bucket is served by transfer server '" + server.serverId
-                                              + "'; stop it or point it at another bucket first");
+                                     "Bucket is served by transfer server '" + server.serverId
+                                     + "'; stop it or point it at another bucket first");
             }
         }
 
@@ -640,7 +701,7 @@ namespace Euclid::ESM {
         const auto internalName = Core::UuidUtils::CreateRandomUuid();
         const auto ern = Core::createEsmObjectErn(auth.user->accountId, bucket->nameSpace, bucket->name + "/" + key);
 
-        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
+        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
         std::error_code ec;
         std::filesystem::create_directories(dataDir, ec);
         if (ec) {
@@ -996,7 +1057,7 @@ namespace Euclid::ESM {
             repo->upsertObject(uploaded);
         }
 
-        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
+        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
         const std::filesystem::path destPath = std::filesystem::path(dataDir) / internalName;
         const auto owner = auth.user->userId;
         const auto region = auth.user->region;
@@ -1204,7 +1265,7 @@ namespace Euclid::ESM {
             return ErrorResponse(req, status::conflict, readKey.error);
         }
 
-        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
+        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
         const auto path = std::filesystem::path(dataDir) / object->internalName;
 
         std::string data;
@@ -1373,7 +1434,7 @@ namespace Euclid::ESM {
             return ErrorResponse(req, status::conflict, readKey.error);
         }
 
-        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
+        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
         const auto path = std::filesystem::path(dataDir) / internalName;
         const auto readSize = std::min<std::int64_t>(partSize, totalSize - offset);
 
@@ -1528,7 +1589,7 @@ namespace Euclid::ESM {
                 repo->upsertBucket(*bucket);
             }
 
-            const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
+            const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
             std::error_code ec;
             std::filesystem::remove(std::filesystem::path(dataDir) / object->internalName, ec);
             if (ec)
@@ -1568,30 +1629,9 @@ namespace Euclid::ESM {
             return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.bucketErn);
         }
         if (const auto denied = denyUngrantedBucket(req, auth, request.bucketErn)) return *denied;
-        // Directories are listed here, unlike everywhere else: a purge that left them behind
-        // would empty a bucket that still could not be deleted. They are not counted below,
-        // though, since they were never counted when they were created.
-        const auto objects = repo->listObjects(request.bucketErn, request.prefix, -1, -1, "", "asc", true);
-
-        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
-        long purgedSize = 0;
-        long purgedObjects = 0;
-        for (const auto &object: objects) {
-            std::error_code ec;
-            std::filesystem::remove(std::filesystem::path(dataDir) / object.internalName, ec);
-            if (ec)
-                log_warning << "Could not remove object file, internalName: " << object.internalName << ", error: " << ec.message();
-            repo->deleteObjectByErn(object.ern);
-            purgedSize += object.size;
-            if (!Database::Entity::ESM::IsDirectoryKey(object.key)) purgedObjects++;
-
-            // One event per object, the same as if each had been deleted on its own. A purge is
-            // the cheapest way to make a listener's view of a bucket wrong, and "the bucket was
-            // purged" would not tell it which of the objects it was tracking are gone - so it
-            // pays for a publish per object, which is the same order of work as the delete and
-            // the file removal it already does for each one.
-            publishObjectEvent(kObjectDeleted, object, bucket, auth.user->userId);
-        }
+        const auto removed = removeBucketObjects(request.bucketErn, request.prefix, bucket, auth.user->userId);
+        const auto purgedSize = removed.size;
+        const auto purgedObjects = removed.count;
         log_info << "ESM bucket purged, ern: " << request.bucketErn << ", count: " << purgedObjects;
 
         // Adjust counters by what was actually deleted rather than zeroing them out - a prefix-scoped
@@ -1737,7 +1777,7 @@ namespace Euclid::ESM {
         }
         const bool reEncrypt = source->encryptionKeyErn != targetBucket->encryptionKeyErn;
 
-        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultDataDir);
+        const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
         const auto sourcePath = std::filesystem::path(dataDir) / source->internalName;
 
         Database::Entity::ESM::Object target = *source;
@@ -2118,8 +2158,8 @@ namespace Euclid::ESM {
             // An ERN names the key outright; anything else is the key ID "ekm create-key" handed
             // back, which is only unique within an account and namespace.
             auto named = request.keyId.starts_with("ern:")
-                                 ? ekmRepo->findKeyByErn(request.keyId)
-                                 : ekmRepo->findKeyByName(auth.user->accountId, ns, request.keyId);
+                             ? ekmRepo->findKeyByErn(request.keyId)
+                             : ekmRepo->findKeyByName(auth.user->accountId, ns, request.keyId);
             if (!named.has_value()) {
                 return EsmServer::ErrorResponse(req, status::not_found, "Key not found, id: " + request.keyId);
             }
@@ -2135,7 +2175,7 @@ namespace Euclid::ESM {
             if (named->status != Database::Entity::EKM::KeyStatus::AVAILABLE) {
                 return EsmServer::ErrorResponse(req, status::forbidden,
                                                 "Key '" + request.keyId + "' is " + Database::Entity::EKM::KeyStatusToString(named->status) +
-                                                        " and cannot be used for encryption");
+                                                " and cannot be used for encryption");
             }
             key = *named;
 
