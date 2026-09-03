@@ -80,6 +80,7 @@ namespace Euclid::Dto::ENS {
         dto.md5Attributes = entity.md5Attributes;
         dto.status = entity.status;
         dto.lastReceived = entity.lastReceived;
+        dto.contentType = entity.contentType;
         dto.created = entity.created;
         dto.modified = entity.modified;
         return dto;
@@ -103,6 +104,7 @@ namespace Euclid::Dto::ENS {
         entity.md5Body = dto.md5Body;
         entity.md5Attributes = dto.md5Attributes;
         entity.status = dto.status;
+        entity.contentType = dto.contentType;
         for (const auto &[key, variant]: dto.attributes) {
             entity.attributes[key] = toEntity(variant);
         }

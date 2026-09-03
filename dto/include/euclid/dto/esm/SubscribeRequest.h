@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <vector>
+
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
 
@@ -27,6 +29,23 @@ namespace Euclid::Dto::ESM {
         std::string targetErn;
 
         /**
+         * @brief Which object events to deliver, empty for all of them: "esm.object.created",
+         * "esm.object.updated", "esm.object.deleted".
+         */
+        std::vector<std::string> eventTypes;
+
+        /**
+         * @brief Only deliver objects whose key starts with this, empty for the whole bucket.
+         */
+        std::string prefix;
+
+        /**
+         * @brief Whether directory markers - the zero-byte objects whose key ends in "/" - count
+         * as objects worth delivering. Off by default: most subscribers want files.
+         */
+        bool directories = false;
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -47,6 +66,9 @@ namespace Euclid::Dto::ESM {
             r.sourceErn = Core::GetStringValue(v, "sourceErn");
             r.type = Core::GetStringValue(v, "type");
             r.targetErn = Core::GetStringValue(v, "targetErn");
+            r.eventTypes = Core::GetStringArrayValue(v, "eventTypes");
+            r.prefix = Core::GetStringValue(v, "prefix");
+            r.directories = Core::GetBoolValue(v, "directories");
             return r;
         }
 
@@ -55,6 +77,9 @@ namespace Euclid::Dto::ESM {
                     {"sourceErn", obj.sourceErn},
                     {"type", obj.type},
                     {"targetErn", obj.targetErn},
+                    {"eventTypes", boost::json::value_from(obj.eventTypes)},
+                    {"prefix", obj.prefix},
+                    {"directories", obj.directories},
             };
         }
     };

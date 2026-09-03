@@ -1,9 +1,14 @@
 #define BOOST_TEST_MODULE TransferHomePrefixTest
 #include <boost/test/unit_test.hpp>
 
+// C++ includes
+#include <string>
+#include <vector>
+
 // Euclid includes
 #include <TransferPaths.h>
 
+using Euclid::Transfer::HomeDirectoryKeys;
 using Euclid::Transfer::HomePrefix;
 
 // A transfer server fronts one bucket, so without a home directory every client of it shares one
@@ -56,4 +61,57 @@ BOOST_AUTO_TEST_CASE(DotSegmentsCannotEscape) {
 BOOST_AUTO_TEST_CASE(EmptyUserLeavesNoPlaceholderBehind) {
     BOOST_CHECK_EQUAL(HomePrefix("{user}", ""), "");
     BOOST_CHECK_EQUAL(HomePrefix("lieferanten/{user}", ""), "lieferanten/");
+}
+
+// ── HomeDirectoryKeys ───────────────────────────────────────────────────────
+// The folder skeleton a session finds under its home. Every intermediate level is a key of its
+// own, because a directory marker is one object: without "incoming/" standing for itself, a
+// client has nothing to walk into on its way to "incoming/mix".
+
+BOOST_AUTO_TEST_CASE(NestedDirectoriesIncludeTheirParents) {
+    const std::vector<std::string> expected{"jvo/incoming/", "jvo/incoming/mix/"};
+    BOOST_TEST(HomeDirectoryKeys("jvo/", {"incoming/mix"}) == expected);
+}
+
+// Two siblings name their shared parent once between them, rather than each asking for it.
+BOOST_AUTO_TEST_CASE(SharedParentsAreNotRepeated) {
+    const std::vector<std::string> expected{"jvo/incoming/", "jvo/incoming/mix/", "jvo/incoming/split/", "jvo/feedback/"};
+    BOOST_TEST(HomeDirectoryKeys("jvo/", {"incoming/mix", "incoming/split", "feedback"}) == expected);
+}
+
+// Parents before children: they are created in this order, and a marker cannot be walked into
+// before the one above it exists.
+BOOST_AUTO_TEST_CASE(ParentsComeBeforeChildren) {
+    const auto keys = HomeDirectoryKeys("", {"a/b/c"});
+    const std::vector<std::string> expected{"a/", "a/b/", "a/b/c/"};
+    BOOST_TEST(keys == expected);
+}
+
+// An empty home is the bucket root, which is what every installation had before a home directory
+// was configured - the skeleton is still created, just not under anything.
+BOOST_AUTO_TEST_CASE(EmptyHomeIsTheBucketRoot) {
+    const std::vector<std::string> expected{"feedback/"};
+    BOOST_TEST(HomeDirectoryKeys("", {"feedback"}) == expected);
+}
+
+// Nothing configured creates nothing, which is the default for every installation that has not
+// asked for a skeleton.
+BOOST_AUTO_TEST_CASE(NothingConfiguredCreatesNothing) {
+    BOOST_TEST(HomeDirectoryKeys("jvo/", {}).empty());
+}
+
+// Normalised exactly as a home template is, so an admin does not have to guess the spelling.
+BOOST_AUTO_TEST_CASE(SlashesAreNormalisedLikeHomePrefix) {
+    const std::vector<std::string> expected{"jvo/incoming/"};
+    BOOST_TEST(HomeDirectoryKeys("jvo/", {"/incoming/"}) == expected);
+    BOOST_TEST(HomeDirectoryKeys("jvo/", {"//incoming//"}) == expected);
+}
+
+// A configured directory cannot climb out of the home it belongs to - the same guarantee
+// HomePrefix gives its template, and for the same reason.
+BOOST_AUTO_TEST_CASE(ConfiguredDirectoriesCannotEscapeTheHome) {
+    const std::vector<std::string> expected{"jvo/etc/"};
+    BOOST_TEST(HomeDirectoryKeys("jvo/", {"../../etc"}) == expected);
+    BOOST_TEST(HomeDirectoryKeys("jvo/", {"."}).empty());
+    BOOST_TEST(HomeDirectoryKeys("jvo/", {".."}).empty());
 }

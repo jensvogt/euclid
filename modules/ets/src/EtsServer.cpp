@@ -75,6 +75,9 @@ namespace Euclid::ETS {
             boost::json::array userGroups;
             for (const auto &group: server.userGroups) userGroups.push_back(boost::json::string(group));
 
+            boost::json::array directories;
+            for (const auto &directory: server.directories) directories.push_back(boost::json::string(directory));
+
             return boost::json::object{
                     {"serverId", server.serverId},
                     {"ern", server.ern},
@@ -88,6 +91,7 @@ namespace Euclid::ETS {
                     {"homeDirectory", server.homeDirectory},
                     {"userIds", userIds},
                     {"userGroups", userGroups},
+                    {"directories", directories},
                     {"desiredState", TransferServerStateToString(server.desiredState)},
                     {"state", observedState(server.serverId)},
                     {"hostKey", server.hostKey},
@@ -187,6 +191,7 @@ namespace Euclid::ETS {
         server.homeDirectory = stringField(obj, "homeDirectory");
         server.userIds = stringArray(obj, "userIds");
         server.userGroups = stringArray(obj, "userGroups");
+        server.directories = stringArray(obj, "directories");
         server.desiredState = TransferServerState::STOPPED;
         server.hostKey = stringField(obj, "hostKey");
         server.pasvMin = longField(obj, "pasvMin", 6000);
@@ -227,6 +232,7 @@ namespace Euclid::ETS {
         if (obj.contains("homeDirectory")) server->homeDirectory = stringField(obj, "homeDirectory", server->homeDirectory);
         if (obj.contains("userIds")) server->userIds = stringArray(obj, "userIds");
         if (obj.contains("userGroups")) server->userGroups = stringArray(obj, "userGroups");
+        if (obj.contains("directories")) server->directories = stringArray(obj, "directories");
         if (obj.contains("hostKey")) server->hostKey = stringField(obj, "hostKey", server->hostKey);
         if (obj.contains("pasvMin")) server->pasvMin = longField(obj, "pasvMin", server->pasvMin);
         if (obj.contains("pasvMax")) server->pasvMax = longField(obj, "pasvMax", server->pasvMax);

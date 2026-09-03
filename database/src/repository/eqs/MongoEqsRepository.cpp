@@ -275,6 +275,10 @@ namespace Euclid::Database {
             if (!prefix.empty()) {
                 filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
             }
+            // euclid's own plumbing is not somebody's queue to look at. "$ne: true" rather than
+            // "false" so a queue stored before the flag existed - which carries no such field -
+            // is still listed.
+            filter.append(kvp("internal", make_document(kvp("$ne", true))));
 
             mongocxx::options::find opts;
             if (!sortColumn.empty()) {
@@ -350,6 +354,10 @@ namespace Euclid::Database {
             if (!prefix.empty()) {
                 filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
             }
+            // euclid's own plumbing is not somebody's queue to look at. "$ne: true" rather than
+            // "false" so a queue stored before the flag existed - which carries no such field -
+            // is still listed.
+            filter.append(kvp("internal", make_document(kvp("$ne", true))));
 
             const auto entry = Database::instance().client();
             auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];

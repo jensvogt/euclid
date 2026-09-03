@@ -123,6 +123,23 @@ namespace Euclid::Database::Entity::ETS {
         std::vector<std::string> userGroups;
 
         /**
+         * @brief Directories every session should find under its home, created at login.
+         *
+         * @par
+         * A transfer workflow expects a shape - an inbox to deliver into, somewhere feedback comes
+         * back - and a client cannot be asked to create it: it delivers into a folder that has to
+         * be there already. Held here rather than in euclid.json because it belongs with
+         * homeDirectory, which decides where these end up, and because an inbound supplier server
+         * and an outbound distribution server want different shapes on the same host.
+         *
+         * @par
+         * Relative to each session's home prefix, so "incoming/mix" under a "{user}" home is
+         * "jvo/incoming/mix/" for one client and "oju/incoming/mix/" for another. Intermediate
+         * levels are created too. Empty creates nothing, which is what every server did before.
+         */
+        std::vector<std::string> directories;
+
+        /**
          * @brief Whether this server should be running. Reconciled by euclid-mgr, never set by
          * the manager itself - see TransferServerState.
          */

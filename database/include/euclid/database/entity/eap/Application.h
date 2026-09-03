@@ -226,12 +226,17 @@ namespace Euclid::Database::Entity::EAP {
      * if it would.
      *
      * @par
-     * A deployment is supposed to move an application from one build to another, and there are
-     * two ways that silently fails to happen: the version does not change, so nothing afterwards
-     * can say which build is running; or the artifact is byte for byte the one already deployed,
-     * so the restart it causes changes nothing. Both are refused, and this is the single place
-     * that decides it - the CLI asks before uploading, the eap module asks before storing, and
-     * the answer has to be the same one.
+     * A deployment is supposed to move an application from one build to another, and there is one
+     * way that silently fails to happen: the artifact is byte for byte the one already deployed,
+     * so the restart it causes changes nothing. That is refused, and this is the single place that
+     * decides it - the CLI asks before uploading, the eap module asks before storing, and the
+     * answer has to be the same one.
+     *
+     * @par
+     * The version is not part of the decision. Deploying the same version with different bytes is
+     * ordinary - a rebuilt snapshot, a fix that keeps the number - and it is the bytes that say
+     * whether anything is actually being deployed. `deployedVersion` is still taken, because the
+     * refusal names it when it can.
      *
      * @param deployedVersion version currently recorded on the application, empty for one defined
      * before versions existed
