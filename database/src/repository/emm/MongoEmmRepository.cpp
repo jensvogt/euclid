@@ -125,6 +125,7 @@ namespace Euclid::Database {
                     bsoncxx::builder::basic::kvp("executable", module.executable),
                     bsoncxx::builder::basic::kvp("socketPath", module.socketPath),
                     bsoncxx::builder::basic::kvp("active", module.active),
+                    bsoncxx::builder::basic::kvp("core", module.core),
                     bsoncxx::builder::basic::kvp("autoRestart", module.autoRestart),
                     bsoncxx::builder::basic::kvp("maxRestarts", module.maxRestarts),
                     bsoncxx::builder::basic::kvp("minInstances", module.minInstances),
@@ -210,6 +211,102 @@ namespace Euclid::Database {
         } catch (const std::exception &e) {
             log_error << "Upsert module instance failed, error: " << e.what();
         }
+    }
+
+    bool MongoEmmRepository::setDesiredInstances(const std::string &name, const int minInstances, const int maxInstances) {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+
+            // Only the two fields, and only the ones actually being set: -1 means "leave the
+            // standing request alone", so raising a ceiling does not silently drop a floor.
+            bsoncxx::builder::basic::document setDoc;
+            if (minInstances >= 0) setDoc.append(bsoncxx::builder::basic::kvp("desiredMinInstances", minInstances));
+            if (maxInstances >= 0) setDoc.append(bsoncxx::builder::basic::kvp("desiredMaxInstances", maxInstances));
+            if (setDoc.view().empty()) return exists(name);
+
+            const auto filter = bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("name", name));
+            const auto update = bsoncxx::builder::basic::make_document(
+                    bsoncxx::builder::basic::kvp("$set", setDoc.extract()),
+                    bsoncxx::builder::basic::kvp("$currentDate", bsoncxx::builder::basic::make_document(
+                                                         bsoncxx::builder::basic::kvp("modified", true))));
+
+            const auto result = collection.update_one(filter.view(), update.view());
+            return result && result->matched_count() > 0;
+
+        } catch (const std::exception &e) {
+            log_error << "Set desired instances failed, name: " << name << ", error: " << e.what();
+        }
+        return false;
+    }
+
+    bool MongoEmmRepository::setDesiredThreads(const std::string &name, const int threads) {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+
+            const auto filter = bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("name", name));
+            const auto update = bsoncxx::builder::basic::make_document(
+                    bsoncxx::builder::basic::kvp("$set", bsoncxx::builder::basic::make_document(
+                                                         bsoncxx::builder::basic::kvp("desiredThreads", threads))),
+                    bsoncxx::builder::basic::kvp("$currentDate", bsoncxx::builder::basic::make_document(
+                                                         bsoncxx::builder::basic::kvp("modified", true))));
+
+            const auto result = collection.update_one(filter.view(), update.view());
+            return result && result->matched_count() > 0;
+
+        } catch (const std::exception &e) {
+            log_error << "Set desired threads failed, name: " << name << ", error: " << e.what();
+        }
+        return false;
+    }
+
+    bool MongoEmmRepository::setDesiredStopped(const std::string &name, const bool stopped) {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+
+            const auto filter = bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("name", name));
+            const auto update = bsoncxx::builder::basic::make_document(
+                    bsoncxx::builder::basic::kvp("$set", bsoncxx::builder::basic::make_document(
+                                                         bsoncxx::builder::basic::kvp("desiredStopped", stopped))),
+                    bsoncxx::builder::basic::kvp("$currentDate", bsoncxx::builder::basic::make_document(
+                                                         bsoncxx::builder::basic::kvp("modified", true))));
+
+            const auto result = collection.update_one(filter.view(), update.view());
+            return result && result->matched_count() > 0;
+
+        } catch (const std::exception &e) {
+            log_error << "Set desired stopped failed, name: " << name << ", error: " << e.what();
+        }
+        return false;
+    }
+
+    bool MongoEmmRepository::requestRestart(const std::string &name) {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+
+            const auto filter = bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("name", name));
+            // $currentDate for both, so the moment recorded is the server's - the manager compares
+            // it against what it has already acted on, and two clocks disagreeing by a few seconds
+            // is not something that comparison should have to survive.
+            const auto update = bsoncxx::builder::basic::make_document(
+                    bsoncxx::builder::basic::kvp("$currentDate", bsoncxx::builder::basic::make_document(
+                                                         bsoncxx::builder::basic::kvp("restartRequestedAt", true),
+                                                         bsoncxx::builder::basic::kvp("modified", true))));
+
+            const auto result = collection.update_one(filter.view(), update.view());
+            return result && result->matched_count() > 0;
+
+        } catch (const std::exception &e) {
+            log_error << "Request restart failed, name: " << name << ", error: " << e.what();
+        }
+        return false;
     }
 
     void MongoEmmRepository::removeInstance(const std::string &moduleName, const std::string &instanceId) {

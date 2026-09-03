@@ -231,7 +231,7 @@ static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
             ("config,c", po::value<std::string>(&opts.configFile)->default_value(DEFAULT_CONFIGURATION_FILE), "Path to JSON configuration file")
 #if defined(_WIN32)
             ("install", po::bool_switch(&opts.install), "Register this executable as the Windows service \"euclid\" (SERVICE_AUTO_START), then exit; requires an elevated (Administrator) prompt")
-            ("foreground", po::bool_switch(&opts.foreground), "Run as an ordinary console process instead of dispatching through the Service Control Manager; for interactive/dev use")
+                    ("foreground", po::bool_switch(&opts.foreground), "Run as an ordinary console process instead of dispatching through the Service Control Manager; for interactive/dev use")
 #endif
             ;
 
@@ -327,8 +327,8 @@ static void registerModules(Euclid::main::ServiceController &ctrl) {
         // existence check comes first - getArray() throws on a missing path.
         const auto dependencyPath = "euclid.modules." + name + ".dependencies";
         const auto dependencies = Euclid::Core::Configuration::instance().has(dependencyPath)
-                                          ? Euclid::Core::Configuration::instance().getArray<std::string>(dependencyPath)
-                                          : std::vector<std::string>{};
+                                      ? Euclid::Core::Configuration::instance().getArray<std::string>(dependencyPath)
+                                      : std::vector<std::string>{};
 
         std::string dependencyList;
         for (const auto &dependency: dependencies) {
@@ -429,9 +429,9 @@ static std::optional<std::chrono::system_clock::time_point> processStartTime(con
 #ifndef _WIN32
     long bootSeconds = 0;
     if (std::ifstream stat("/proc/stat"); stat) {
-        for (std::string line; std::getline(stat, line);) {
-            if (line.starts_with("btime ")) {
-                bootSeconds = std::stol(line.substr(6));
+        for (std::string sline; std::getline(stat, sline);) {
+            if (sline.starts_with("btime ")) {
+                bootSeconds = std::stol(sline.substr(6));
                 break;
             }
         }
@@ -691,8 +691,8 @@ int main(const int argc, char *argv[]) {
             return 1;
         }
         std::cout << "Service 'euclid' installed (start type: automatic). Start it with:\n"
-                     "  sc start euclid\n"
-                     "or from services.msc.\n";
+                "  sc start euclid\n"
+                "or from services.msc.\n";
         return 0;
     }
 
@@ -708,8 +708,8 @@ int main(const int argc, char *argv[]) {
         if (!StartServiceCtrlDispatcherA(table)) {
             if (GetLastError() == ERROR_FAILED_SERVICE_CONTROLLER_CONNECT) {
                 std::cerr << "euclid-manager is not running under the Service Control Manager.\n"
-                             "Use --foreground to run it as an ordinary console process, or start\n"
-                             "the installed service instead: sc start euclid\n";
+                        "Use --foreground to run it as an ordinary console process, or start\n"
+                        "the installed service instead: sc start euclid\n";
             } else {
                 std::cerr << "StartServiceCtrlDispatcher failed (error " << GetLastError() << ")\n";
             }

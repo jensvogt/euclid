@@ -39,10 +39,10 @@ with that ERN exists.
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 eqs list-messages \e
-    --queue-ern ern:euclid:queues:eu-central-1:000000000000:queue:orders
+    --queue-ern ern:queues:eu-central-1:000000000000:queue:orders
 
 euclid-cli --endpoint http://localhost:5566 eqs list-messages \e
-    --queue-ern ern:euclid:queues:eu-central-1:000000000000:queue:orders \e
+    --queue-ern ern:queues:eu-central-1:000000000000:queue:orders \e
     --page-size 25 --page-index 1 --sort-column created
 .fi
 .RE

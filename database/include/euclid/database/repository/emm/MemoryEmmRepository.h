@@ -78,6 +78,43 @@ namespace Euclid::Database {
             it->second.modified = std::chrono::system_clock::now();
         }
 
+        bool setDesiredInstances(const std::string &name, const int minInstances, const int maxInstances) override {
+            std::lock_guard lock(_mutex);
+            const auto it = _store.find(name);
+            if (it == _store.end()) return false;
+            if (minInstances >= 0) it->second.desiredMinInstances = minInstances;
+            if (maxInstances >= 0) it->second.desiredMaxInstances = maxInstances;
+            it->second.modified = std::chrono::system_clock::now();
+            return true;
+        }
+
+        bool setDesiredThreads(const std::string &name, const int threads) override {
+            std::lock_guard lock(_mutex);
+            const auto it = _store.find(name);
+            if (it == _store.end()) return false;
+            it->second.desiredThreads = threads;
+            it->second.modified = std::chrono::system_clock::now();
+            return true;
+        }
+
+        bool setDesiredStopped(const std::string &name, const bool stopped) override {
+            std::lock_guard lock(_mutex);
+            const auto it = _store.find(name);
+            if (it == _store.end()) return false;
+            it->second.desiredStopped = stopped;
+            it->second.modified = std::chrono::system_clock::now();
+            return true;
+        }
+
+        bool requestRestart(const std::string &name) override {
+            std::lock_guard lock(_mutex);
+            const auto it = _store.find(name);
+            if (it == _store.end()) return false;
+            it->second.restartRequestedAt = std::chrono::system_clock::now();
+            it->second.modified = it->second.restartRequestedAt;
+            return true;
+        }
+
         void remove(const std::string &name) override {
             std::lock_guard lock(_mutex);
             _store.erase(name);

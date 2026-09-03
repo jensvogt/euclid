@@ -1,0 +1,85 @@
+.TH EUCLID-CLI-EMM-START-MODULE 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-emm-start-module \- let a stopped euclid module run again
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B emm start-module
+.BR \-\-module " " \fIMODULE\fR
+.SH DESCRIPTION
+Clears what
+.BR euclid-cli-emm-stop-module (1)
+recorded, so the manager runs the module again.
+.PP
+Its instances are started on the manager's next reconcile tick, within a
+few seconds, back up to the module's minimum instance count \- the same
+number a manager start would bring up. From then on the module is
+ordinary again: the autoscaler grows and shrinks its pool under load,
+crashed instances are restarted, and a manager restart starts it with
+everything else.
+.PP
+Starting a module that was never stopped changes nothing and is not an
+error, so this is safe to run without checking first.
+.PP
+This is only about the stopped state. A module that is down for another
+reason \- inactive in
+.IR euclid.json ,
+crashing on startup, exceeding its restart limit \- is not brought back
+by this;
+.BR euclid-cli-emm-list-modules (1)
+shows which of those it is.
+.SH OPTIONS
+.TP
+.BR \-m ", " \-\-module " " \fIMODULE\fR
+Module to start again, e.g. \fIftp\fR. Required. Must be a module the
+manager knows about \- an unknown name is rejected with
+.I "HTTP 404"
+rather than silently recorded.
+.SH OUTPUT
+The JSON response is printed to standard output:
+.RS
+.TP
+.I name
+The module that was started.
+.TP
+.I stopped
+.I false
+\- what is now recorded for it.
+.TP
+.I runningInstances
+How many instances the pool held when the request was answered, which
+for a module that was stopped is the number of slots waiting to be
+filled rather than the number running.
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+The module is recorded as running again.
+.TP
+.B 1
+The stored session is missing or not an administrator's, the module is
+unknown or not a euclid module, the request could not be sent, or the
+server rejected it. Details are printed to standard error.
+.SH EXAMPLES
+Bring the FTP transfer front end back:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm start-module --module ftp
+.fi
+.RE
+.PP
+Watch it come up:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm list-modules
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-emm (1),
+.BR euclid-cli-emm-stop-module (1),
+.BR euclid-cli-emm-list-modules (1),
+.BR euclid-cli-eam-login (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

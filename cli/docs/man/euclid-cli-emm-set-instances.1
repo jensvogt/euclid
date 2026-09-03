@@ -1,0 +1,139 @@
+.TH EUCLID-CLI-EMM-SET-INSTANCES 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-emm-set-instances \- set a module's minimum and maximum instance count
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B emm set-instances
+.BR \-\-module " " \fIMODULE\fR
+[\fB\-\-min\fR \fIN\fR]
+[\fB\-\-max\fR \fIN\fR]
+.SH DESCRIPTION
+Sets the instance limits the manager's autoscaler works within for one
+module.
+.I \-\-min
+is the floor kept running at all times,
+.I \-\-max
+the ceiling the pool may grow to under load. Either may be given on its
+own; the one left out keeps whatever limit is currently in force, so a
+ceiling can be raised without having to restate the floor.
+.PP
+The limits are persisted in the module repository and applied over what
+.I euclid.json
+configures, so a limit set here survives a manager restart and stays in
+force until it is set again. They are held separately from the values the
+manager writes back as instances start and stop, which are rewritten from
+its own configuration on every instance state change and would otherwise
+overwrite anything set here.
+.PP
+The change takes effect on the manager's next reconcile tick, within a
+few seconds \- not at the moment the command returns:
+.RS
+.TP
+.B Raising the minimum
+starts instances immediately, until the pool reaches the new floor.
+Without this the pool would sit below its minimum indefinitely, since
+the autoscaler otherwise only grows a pool that is saturated, and an
+idle one never is.
+.TP
+.B Lowering the maximum
+starts nothing and stops nothing. The pool shrinks back below the new
+ceiling through the ordinary idle scale-down (see
+.IR euclid.manager.scale-down-idle-seconds ),
+rather than an instance being stopped in the middle of a request to
+satisfy a number that was just changed.
+.RE
+.PP
+The caller must be authenticated as an administrator; see
+.BR euclid-cli-emm (1)
+for how that is checked.
+.SH OPTIONS
+.TP
+.BR \-m ", " \-\-module " " \fIMODULE\fR
+Module to set the limits for, e.g. \fIesm\fR. Required. Must be a module
+the manager knows about \- an unknown name is rejected with
+.I "HTTP 404"
+rather than silently recorded.
+.TP
+.BR \-\-min " " \fIN\fR
+Minimum number of instances kept running, 0 or more. Zero is allowed and
+meaningful: it lets a module scale away entirely while it is idle.
+.TP
+.BR \-\-max " " \fIN\fR
+Maximum number of instances the autoscaler may run, 1 or more.
+.PP
+At least one of
+.B \-\-min
+and
+.B \-\-max
+must be given. The two are checked against each other using whichever
+limit is not being changed, so a minimum can never be left above a
+maximum.
+.SH OUTPUT
+The JSON response is printed to standard output:
+.RS
+.TP
+.I name
+The module the limits were set for.
+.TP
+.I minInstances ", " maxInstances
+The limits now in force \- including the one that was not given on this
+call.
+.TP
+.I runningInstances
+How many instances the pool holds at this moment. The manager moves this
+toward the limits above on its next reconcile, so immediately after
+raising a minimum it is still the old count.
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+The limits were accepted and recorded.
+.TP
+.B 1
+The stored session is missing or not an administrator's, neither limit
+was given, the module is unknown, the limits are crossed, the request
+could not be sent, or the server rejected it. Details are printed to
+standard error.
+.SH EXAMPLES
+Keep four ESM instances running at all times, and allow up to thirty-two
+under load:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm set-instances \e
+    --module esm --min 4 --max 32
+.fi
+.RE
+.PP
+Raise only EQS's ceiling, leaving its floor as it is:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm set-instances \e
+    --module eqs --max 16
+.fi
+.RE
+.PP
+Let ENS scale away completely while nothing is publishing:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm set-instances \e
+    --module ens --min 0
+.fi
+.RE
+.PP
+Check what the pool actually looks like afterwards:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm list-modules
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-emm (1),
+.BR euclid-cli-emm-list-modules (1),
+.BR euclid-cli-eam-login (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

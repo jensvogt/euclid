@@ -57,6 +57,11 @@ namespace Euclid::Core {
             return lookup;
         }
 
+        HttpActionServer::WorkerThreadsLookup &workerThreadsLookup() {
+            static HttpActionServer::WorkerThreadsLookup lookup;
+            return lookup;
+        }
+
         HttpActionServer::ResourceLookup &resourceLookup() {
             static HttpActionServer::ResourceLookup lookup;
             return lookup;
@@ -167,7 +172,21 @@ namespace Euclid::Core {
 
     int HttpActionServer::ConfiguredWorkerThreads(const std::string &module, const int fallback) {
 
-        const auto configured = Configuration::instance().getOr<long>("euclid.modules." + module + ".threads", fallback);
+        // What was asked for at runtime, if anything, in preference to the configuration file: a
+        // count set through "emm set-threads" is the more recent statement of intent, and is the
+        // only one an operator can change without editing a file on every host.
+        long configured = -1;
+        if (workerThreadsLookup()) {
+            try {
+                configured = workerThreadsLookup()(module);
+            } catch (const std::exception &e) {
+                // Never fatal. A module that cannot reach the database has a configuration file to
+                // fall back on, and refusing to start over a tuning parameter would be the worse
+                // of the two outcomes.
+                log_warning << "Could not read the configured worker threads for " << module << ", using the configuration file, error: " << e.what();
+            }
+        }
+        if (configured < 0) configured = Configuration::instance().getOr<long>("euclid.modules." + module + ".threads", fallback);
 
         // Clamped rather than trusted. One is the floor because a module with no thread answers
         // nothing; the ceiling is there because this is a typo away from a number of OS threads
@@ -252,6 +271,10 @@ namespace Euclid::Core {
 
     void HttpActionServer::SetResourceLookup(ResourceLookup lookup) {
         resourceLookup() = std::move(lookup);
+    }
+
+    void HttpActionServer::SetWorkerThreadsLookup(WorkerThreadsLookup lookup) {
+        workerThreadsLookup() = std::move(lookup);
     }
 
     bool HttpActionServer::IsResourceAllowed(const std::string &userId, const std::string &resourceErn) {

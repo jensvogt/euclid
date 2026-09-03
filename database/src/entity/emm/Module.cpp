@@ -58,6 +58,12 @@ namespace Euclid::Database::Entity {
                 bsoncxx::builder::basic::kvp("maxRestarts", maxRestarts),
                 bsoncxx::builder::basic::kvp("minInstances", minInstances),
                 bsoncxx::builder::basic::kvp("maxInstances", maxInstances),
+                bsoncxx::builder::basic::kvp("desiredMinInstances", desiredMinInstances),
+                bsoncxx::builder::basic::kvp("desiredMaxInstances", desiredMaxInstances),
+                bsoncxx::builder::basic::kvp("desiredThreads", desiredThreads),
+                bsoncxx::builder::basic::kvp("core", core),
+                bsoncxx::builder::basic::kvp("desiredStopped", desiredStopped),
+                bsoncxx::builder::basic::kvp("restartRequestedAt", bsoncxx::types::b_date{std::chrono::duration_cast<std::chrono::milliseconds>(restartRequestedAt.time_since_epoch())}),
                 bsoncxx::builder::basic::kvp("args", [this](bsoncxx::builder::basic::sub_array sa) {
                     for (const auto &arg: args) sa.append(arg);
                 }),
@@ -80,6 +86,14 @@ namespace Euclid::Database::Entity {
             else if (key == "maxRestarts") module.maxRestarts = static_cast<int>(getBsonInt(field));
             else if (key == "minInstances") module.minInstances = static_cast<int>(getBsonInt(field));
             else if (key == "maxInstances") module.maxInstances = static_cast<int>(getBsonInt(field));
+            // Absent from a document written before set-instances existed, which reads as "nothing
+            // was asked for" - the field's own default.
+            else if (key == "desiredMinInstances") module.desiredMinInstances = static_cast<int>(getBsonInt(field));
+            else if (key == "desiredMaxInstances") module.desiredMaxInstances = static_cast<int>(getBsonInt(field));
+            else if (key == "desiredThreads") module.desiredThreads = static_cast<int>(getBsonInt(field));
+            else if (key == "core") module.core = field.get_bool().value;
+            else if (key == "desiredStopped") module.desiredStopped = field.get_bool().value;
+            else if (key == "restartRequestedAt") module.restartRequestedAt = std::chrono::system_clock::time_point{field.get_date().value};
             else if (key == "args") {
                 for (const auto &elem: field.get_array().value) module.args.push_back(std::string(elem.get_string().value));
             } else if (key == "instances") {

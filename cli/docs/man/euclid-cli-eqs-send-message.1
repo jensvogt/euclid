@@ -62,10 +62,10 @@ path could not be read, the message body exceeds the queue's
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 eqs send-message \e
-    --ern ern:euclid:queues:eu-central-1:000000000000:queue:orders --body 'hello world'
+    --ern ern:queues:eu-central-1:000000000000:queue:orders --body 'hello world'
 
 euclid-cli --endpoint http://localhost:5566 eqs send-message \e
-    --ern ern:euclid:queues:eu-central-1:000000000000:queue:orders \e
+    --ern ern:queues:eu-central-1:000000000000:queue:orders \e
     --body file://./payload.json \e
     --attributes '{"orderId": {"type": "string", "value": "42"}}' \e
     --priority HIGH

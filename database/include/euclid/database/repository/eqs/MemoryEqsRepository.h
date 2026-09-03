@@ -435,6 +435,27 @@ namespace Euclid::Database {
             _messageStore.clear();
         }
 
+        void recountQueues() override {
+            std::lock_guard lock(_mutex);
+            for (auto &queue: _queueStore | std::views::values) {
+                long available = 0, delayed = 0, invisible = 0, size = 0;
+                for (const auto &message: _messageStore | std::views::values) {
+                    if (message.queueErn != queue.ern) continue;
+                    size += message.size;
+                    switch (message.status) {
+                        case Entity::EQS::MessageStatus::AVAILABLE: ++available; break;
+                        case Entity::EQS::MessageStatus::DELAYED: ++delayed; break;
+                        case Entity::EQS::MessageStatus::INVISIBLE: ++invisible; break;
+                        default: break;
+                    }
+                }
+                queue.available = available;
+                queue.delayed = delayed;
+                queue.invisible = invisible;
+                queue.size = size;
+            }
+        }
+
         long resetExpiredMessages() override {
             std::lock_guard lock(_mutex);
 

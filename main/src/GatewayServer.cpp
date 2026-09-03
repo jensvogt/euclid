@@ -88,15 +88,17 @@ namespace Euclid::main {
         return kPublic.contains(service + ":" + action);
     }
 
-    // Proxies req over a Unix-domain socket at socketPath and returns the
-    // backend's response.  Runs synchronously on the calling worker thread.
+    // Proxies req over a Unix-domain socket at socketPath and hands the backend's response to
+    // done, without occupying the calling worker thread while the backend thinks about it.
     // Declared in GatewayServer.h so GatewayWsSession.cpp can reuse it too.
-    http::response<http::string_body> forwardToService(const http::request<http::string_body> &req, const std::string &socketPath) {
+    void forwardToServiceAsync(asio::io_context &ioc, const http::request<http::string_body> &req, const std::string &socketPath, RouteCompletion done) {
         namespace local = asio::local;
-        auto errorResponse = [&](const http::status st, const std::string_view msg) {
-            http::response<http::string_body> r{st, req.version()};
+        const auto version = req.version();
+        const auto keepAlive = req.keep_alive();
+        auto errorResponse = [version, keepAlive](const http::status st, const std::string_view msg) {
+            http::response<http::string_body> r{st, version};
             r.set(http::field::content_type, "application/json");
-            r.keep_alive(req.keep_alive());
+            r.keep_alive(keepAlive);
             r.body() = boost::json::serialize(boost::json::object{{"error", msg}});
             r.prepare_payload();
             return r;
@@ -111,53 +113,90 @@ namespace Euclid::main {
             r.set("Access-Control-Max-Age", "86400");
             r.keep_alive(req.keep_alive());
             r.prepare_payload();
-            return r;
+            done(std::move(r));
+            return;
         }
 
-        // Chained as a single async pipeline (connect -> write -> read) under one ioc.run() so
-        // BackendTimeout() actually bounds the whole exchange - beast::basic_stream's timeout
-        // support, like tcp_stream's, only takes effect for asynchronous operations. The
-        // synchronous connect/write/read this replaced ignored the timeout entirely and could
-        // hang the calling gateway worker thread forever on a backend that never responds.
+        // Chained on the GATEWAY'S OWN io_context and completed through a handler, rather than on
+        // a private one this function runs to exhaustion. The distinction is the whole point: a
+        // private ioc.run() is synchronous however asynchronous its insides are, so the worker
+        // thread that called this sat here for as long as the module took to answer. That put a
+        // hard ceiling on the gateway equal to its worker count - 64 by default - no matter how
+        // many instances of a module were running behind it, and made scaling a module pointless
+        // once the gateway itself was the queue.
+        //
+        // It was also unfairly spent: receive-events and receive-messages deliberately wait up to
+        // twenty seconds for something to arrive, so every long-polling consumer parked one of
+        // those 64 threads for its whole wait, and a handful of them starved every other module's
+        // traffic. Handing the wait to the io_context frees the thread to serve somebody else and
+        // leaves only memory - one small state object per request in flight - as the limit.
+        //
+        // BackendTimeout() still bounds the exchange: beast::basic_stream's timeout support, like
+        // tcp_stream's, only ever applied to asynchronous operations anyway.
         try {
-            asio::io_context ioc;
-            beast::basic_stream<local::stream_protocol> stream(ioc);
-            stream.expires_after(BackendTimeout());
+            // Held together so the stream, the buffer being read into and the response outlive
+            // this function and stay alive for exactly as long as the chain below needs them.
+            struct Exchange {
+                explicit Exchange(asio::io_context &ioc) : stream(ioc) {}
+                beast::basic_stream<local::stream_protocol> stream;
+                beast::flat_buffer buf;
+                http::response<http::string_body> res;
+            };
+            auto exchange = std::make_shared<Exchange>(ioc);
+            exchange->stream.expires_after(BackendTimeout());
 
-            beast::error_code opEc;
-            beast::flat_buffer buf;
-            http::response<http::string_body> res;
-
-            stream.async_connect(local::stream_protocol::endpoint(socketPath), [&](const beast::error_code &ec) {
-                if (ec) {
-                    opEc = ec;
-                    return;
-                }
-                http::async_write(stream, req, [&](const beast::error_code &writeEc, std::size_t) {
-                    if (writeEc) {
-                        opEc = writeEc;
-                        return;
-                    }
-                    http::async_read(stream, buf, res, [&](const beast::error_code &readEc, std::size_t) {
-                        opEc = readEc;
+            // req is captured by reference, which is safe for exactly one reason: done owns the
+            // session (it captures its shared_ptr), the session owns the parser, and the parser
+            // owns req - so every handler below that holds done also keeps req alive.
+            exchange->stream.async_connect(
+                    local::stream_protocol::endpoint(socketPath),
+                    [exchange, &req, done, errorResponse](const beast::error_code &ec) mutable {
+                        if (ec) {
+                            done(errorResponse(http::status::bad_gateway, ec.message()));
+                            return;
+                        }
+                        http::async_write(
+                                exchange->stream, req,
+                                [exchange, done, errorResponse](const beast::error_code &writeEc, std::size_t) mutable {
+                                    if (writeEc) {
+                                        done(errorResponse(http::status::bad_gateway, writeEc.message()));
+                                        return;
+                                    }
+                                    http::async_read(
+                                            exchange->stream, exchange->buf, exchange->res,
+                                            [exchange, done, errorResponse](const beast::error_code &readEc, std::size_t) mutable {
+                                                if (readEc) {
+                                                    done(errorResponse(http::status::bad_gateway, readEc.message()));
+                                                    return;
+                                                }
+                                                done(std::move(exchange->res));
+                                            });
+                                });
                     });
-                });
-            });
-
-            ioc.run();
-
-            if (opEc) return errorResponse(http::status::bad_gateway, opEc.message());
-            return res;
+            return;
         } catch (const std::exception &ex) {
-            return errorResponse(http::status::bad_gateway, ex.what());
+            done(errorResponse(http::status::bad_gateway, ex.what()));
         }
+    }
+
+    // The websocket path still forwards synchronously: a GatewayWsSession handles one connection's
+    // frames in order on its own thread, so there is no shared pool for a wait to starve, and the
+    // frame-by-frame flow has nothing to hand a completion to. Implemented on top of the async
+    // form so both transports go through exactly one piece of forwarding logic.
+    http::response<http::string_body> forwardToService(const http::request<http::string_body> &req, const std::string &socketPath) {
+        asio::io_context ioc;
+        http::response<http::string_body> out;
+        forwardToServiceAsync(ioc, req, socketPath, [&out](http::response<http::string_body> res) { out = std::move(res); });
+        ioc.run();
+        return out;
     }
 
     // ── Router ───────────────────────────────────────────────────────────────
     // Shared by both GatewaySession and GatewayTlsSession - routing doesn't depend
     // on the underlying stream type.
 
-    static http::response<http::string_body> route(const http::request<http::string_body> &req, ServiceController &ctrl) {
+    static void routeAsync(const http::request<http::string_body> &req, ServiceController &ctrl,
+                           asio::io_context &ioc, RouteCompletion done) {
 
         // Labelled by HTTP method rather than per-action (unlike each module's own
         // "<module>-service-time"/"-service-count", recorded per action inside that module) -
@@ -205,7 +244,8 @@ namespace Euclid::main {
                 if (!isPublicAction(service, action)) {
                     const auto auth = Core::HttpActionServer::Authenticate(req);
                     if (!auth.subject.has_value()) {
-                        return Core::HttpActionServer::Unauthorized(req, auth);
+                        done(Core::HttpActionServer::Unauthorized(req, auth));
+                        return;
                     }
                 }
 
@@ -217,33 +257,45 @@ namespace Euclid::main {
                 if (const auto concurrency = req["x-euclid-expected-concurrency"]; !concurrency.empty()) {
                     if (int desired = 0; std::from_chars(concurrency.data(), concurrency.data() + concurrency.size(), desired).ec == std::errc{} && desired > 0) {
                         if (!ctrl.declareExpectedConcurrency(service, desired)) {
-                            return err(http::status::bad_request, "requested concurrency (" + std::to_string(desired) + ") exceeds configured max instances for service '" + service + "'");
+                            done(err(http::status::bad_request, "requested concurrency (" + std::to_string(desired) + ") exceeds configured max instances for service '" + service + "'"));
+                            return;
                         }
                     }
                 }
 
                 const auto handle = ctrl.acquireInstance(service);
-                if (!handle) return err(http::status::service_unavailable, "service '" + service + "' not registered or not running");
+                if (!handle) {
+                    done(err(http::status::service_unavailable, "service '" + service + "' not registered or not running"));
+                    return;
+                }
 
-                // Guarantees the autoscaler's active-request count is released on every exit path
-                // below, however forwardToService() returns.
+                // Releases the autoscaler's active-request count when the exchange ends, however
+                // it ends. Held by shared_ptr and captured into the completion because the forward
+                // now outlives this function - and the name is stored by value rather than by
+                // reference for the same reason: "service" is a local that is long gone by the
+                // time the module answers.
                 struct ReleaseGuard {
                     ServiceController &ctrl;
-                    const std::string &name;
+                    std::string name;
                     pid_t pid;
                     ~ReleaseGuard() { ctrl.releaseInstance(name, pid); }
-                } guard{.ctrl = ctrl, .name = service, .pid = handle->pid};
+                };
+                auto guard = std::make_shared<ReleaseGuard>(ctrl, service, handle->pid);
 
-                return forwardToService(req, handle->socketPath);
+                forwardToServiceAsync(ioc, req, handle->socketPath,
+                                      [done, guard](http::response<http::string_body> res) mutable {
+                                          done(std::move(res));
+                                      });
+                return;
             }
 
-            return err(http::status::not_found, "not found");
+            done(err(http::status::not_found, "not found"));
         } catch (const std::exception &ex) {
-            log_error << "route() threw, error: " << ex.what();
-            return err(http::status::internal_server_error, ex.what());
+            log_error << "routeAsync() threw, error: " << ex.what();
+            done(err(http::status::internal_server_error, ex.what()));
         } catch (...) {
-            log_error << "route() threw a non-std::exception";
-            return err(http::status::internal_server_error, "internal server error");
+            log_error << "routeAsync() threw a non-std::exception";
+            done(err(http::status::internal_server_error, "internal server error"));
         }
     }
 
@@ -284,7 +336,16 @@ namespace Euclid::main {
                 return;
             }
 
-            auto res = route(req, _ctrl);
+            // The response arrives through the completion rather than being returned: while the
+            // module is being waited on, this worker thread is free for other connections. self
+            // is what keeps the parser - and so req, which the forward is still reading from -
+            // alive until the answer comes back.
+            routeAsync(req, _ctrl, _ioc, [self = shared_from_this()](http::response<http::string_body> res) {
+                self->writeResponse(std::move(res));
+            });
+        }
+
+        void writeResponse(http::response<http::string_body> res) {
             auto sp = std::make_shared<http::response<http::string_body> >(std::move(res));
             const bool keepAlive = sp->keep_alive();
             http::async_write(
@@ -373,7 +434,14 @@ namespace Euclid::main {
                 return;
             }
 
-            auto res = route(req, _ctrl);
+            // See the plain session: the answer comes back through the completion so this worker
+            // is not held while the module produces it.
+            routeAsync(req, _ctrl, _ioc, [self = shared_from_this()](http::response<http::string_body> res) {
+                self->writeResponse(std::move(res));
+            });
+        }
+
+        void writeResponse(http::response<http::string_body> res) {
             auto sp = std::make_shared<http::response<http::string_body> >(std::move(res));
             const bool keepAlive = sp->keep_alive();
             http::async_write(

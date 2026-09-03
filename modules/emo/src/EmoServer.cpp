@@ -37,6 +37,10 @@ namespace Euclid::Monitoring {
 
         constexpr auto kPrunePeriod = std::chrono::hours(24);
         constexpr auto kCpuUsagePeriod = std::chrono::seconds(60);
+        // How stale a queue's message counts may get. Short enough that a queue draining is
+        // visibly draining, long enough that the scan is rare next to the traffic it replaces
+        // (one grouped scan against a write per message on the queue document).
+        constexpr auto kQueueCountPeriod = std::chrono::seconds(15);
 
         // Rollups run several times per target bucket rather than once, so the bucket currently in
         // progress is always readable, just incomplete. Cheap because each pass only reads the tier
@@ -293,6 +297,17 @@ namespace Euclid::Monitoring {
         const auto dayRollupPeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.monitoring.rollup-day-period", std::chrono::seconds(kDayRollupPeriod).count()));
         _dayRollupTaskId = scheduler.SchedulePeriodic("monitoring-rollup-day", [] { rollup(Resolution::HOUR, Resolution::DAY); },
                                                       std::chrono::duration_cast<std::chrono::milliseconds>(dayRollupPeriod));
+
+        // EQS reports how many messages a queue holds by counting them here rather than by
+        // tracking them per message. It lives in this module for two reasons: counting on a timer
+        // is what this module does, and it runs as a single instance - the queueing module runs
+        // as many, and each of them would otherwise repeat the same scan. See
+        // IEqsRepository::recountQueues() for why the counters are measured rather than
+        // maintained.
+        const auto queueCountPeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.monitoring.queue-count-period", kQueueCountPeriod.count()));
+        _queueCountsTaskId = scheduler.SchedulePeriodic("monitoring-queue-counts",
+                                                        [] { Database::RepositoryFactory::instance().eqsRepository()->recountQueues(); },
+                                                        std::chrono::duration_cast<std::chrono::milliseconds>(queueCountPeriod));
 
 #ifdef __linux__
         // collectCpuUsage() reads /proc/stat, which only exists on Linux.
