@@ -47,6 +47,17 @@ namespace Euclid::Dto::EQS {
         std::string priority = "MIDDLE";
 
         /**
+         * @brief Whether this queue is euclid's own plumbing rather than a user's queue.
+         *
+         * @par
+         * An internal queue is left out of list-queues and the queue count; it behaves like any
+         * other in every other respect. For a delivery that has to land somewhere - a bucket
+         * subscription's target, say - where the queue is an implementation detail of whoever
+         * registered it. See Database::Entity::EQS::Queue::internal.
+         */
+        bool internal = false;
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -71,6 +82,7 @@ namespace Euclid::Dto::EQS {
             r.dlqName = Core::GetStringValue(v, "dlqName");
             r.delay = Core::GetLongValue(v, "delay");
             r.priority = Core::GetStringValue(v, "priority");
+            r.internal = Core::GetBoolValue(v, "internal");
             return r;
         }
 
@@ -83,6 +95,7 @@ namespace Euclid::Dto::EQS {
                     {"dlqName", obj.dlqName},
                     {"delay", obj.delay},
                     {"priority", obj.priority},
+                    {"internal", obj.internal},
             };
         }
     };

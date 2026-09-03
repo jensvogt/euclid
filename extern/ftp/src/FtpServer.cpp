@@ -15,9 +15,9 @@ namespace Euclid::FTP {
     namespace {
 
 #ifdef _WIN32
-        constexpr std::string_view kDefaultDataDir = "C:\\Program Files\\euclid\\data\\ftp";
+        constexpr std::string_view kDefaultDataDir = "C:\\Program Files\\euclid\\data\\ets";
 #else
-        constexpr std::string_view kDefaultDataDir = "/usr/local/euclid/data/ftp";
+        constexpr std::string_view kDefaultDataDir = "/usr/local/euclid/data/ets";
 #endif
 
     }// namespace
@@ -87,22 +87,23 @@ namespace Euclid::FTP {
     FtpServer::~FtpServer() {
         _running.store(false);
         boost::system::error_code ec;
-        _acceptor.close(ec);
+        std::ignore = _acceptor.close(ec);
         if (_acceptThread.joinable()) {
             _acceptThread.join();
         }
     }
 
     void FtpServer::loadConfig() {
-        auto &cfg = Core::Configuration::instance();
+
+        const auto &cfg = Core::Configuration::instance();
 
         // Only installation-wide defaults live here. Everything that distinguishes one transfer
         // server from another - address, port, passive range, bucket, who may log in - comes from
         // its ETS definition, and is applied over these by the constructor. advertisedAddress is
         // the exception: it describes the host's own NAT situation, not the server's, so it stays
         // a per-installation setting.
-        _config.advertisedAddress = cfg.getOr<std::string>("euclid.modules.ftp.advertised-address", "");
-        _config.rootDir = cfg.getOr<std::string>("euclid.modules.ftp.data-dir", std::string(kDefaultDataDir));
+        _config.advertisedAddress = cfg.getOr<std::string>("euclid.modules.ets.advertised-address", "");
+        _config.rootDir = cfg.getOr<std::string>("euclid.modules.ets.data-dir", std::string(kDefaultDataDir));
 
         std::error_code fsEc;
         std::filesystem::create_directories(_config.rootDir, fsEc);
@@ -116,7 +117,7 @@ namespace Euclid::FTP {
         while (_running.load()) {
             boost::system::error_code ec;
             tcp::socket socket(_ftpIoc);
-            _acceptor.accept(socket, ec);
+            std::ignore = _acceptor.accept(socket, ec);
             if (ec) {
                 // Expected once on shutdown: the destructor closes _acceptor to unblock this
                 // accept() call, which is how the loop is asked to stop.

@@ -210,20 +210,21 @@ BOOST_AUTO_TEST_CASE(ARedeployHasToBeANewBuild) {
     const std::string deployedMd5 = "0dc7cdef5e707bae7f7b6bbb5be4c32a";
     const std::string otherMd5 = "655d7ed7f70afed3e3e437b71f992611";
 
-    // A new version carrying new bytes: the only thing a deployment is supposed to be.
+    // A new version carrying new bytes: the plain case.
     BOOST_TEST(RedeployRefusal(deployedVersion, deployedMd5, "1.5.0", otherMd5).empty());
 
-    // New bytes under the version already running - afterwards nothing can say which build is up.
-    BOOST_TEST(!RedeployRefusal(deployedVersion, deployedMd5, "1.4.0", otherMd5).empty());
+    // New bytes under the version already running - allowed. A rebuilt snapshot keeps its number,
+    // and it is the bytes that make it a different build.
+    BOOST_TEST(RedeployRefusal(deployedVersion, deployedMd5, "1.4.0", otherMd5).empty());
 
-    // A version bump that ships the build already deployed: the restart would change nothing.
+    // The build already deployed, whatever it is called: the restart would change nothing.
     BOOST_TEST(!RedeployRefusal(deployedVersion, deployedMd5, "1.5.0", deployedMd5).empty());
+    BOOST_TEST(!RedeployRefusal(deployedVersion, deployedMd5, "1.4.0", deployedMd5).empty());
 
     // An application defined before versions existed carries neither, and its first redeploy is
     // what fills them in - refusing it would leave it with no way forward at all.
     BOOST_TEST(RedeployRefusal("", "", "1.0.0", otherMd5).empty());
 
-    // The reasons are what an operator is shown, so they have to name what is actually wrong.
-    BOOST_TEST(RedeployRefusal(deployedVersion, deployedMd5, "1.4.0", otherMd5).find("1.4.0") != std::string::npos);
+    // The reason is what an operator is shown, so it has to name what is actually wrong.
     BOOST_TEST(RedeployRefusal(deployedVersion, deployedMd5, "1.5.0", deployedMd5).find("byte for byte") != std::string::npos);
 }

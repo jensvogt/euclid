@@ -103,10 +103,12 @@ namespace Euclid::Database::Entity::EAP {
     std::string RedeployRefusal(const std::string &deployedVersion, const std::string &deployedMd5Sum,
                                 const std::string &version, const std::string &md5Sum) {
 
-        if (!version.empty() && version == deployedVersion) {
-            return "version " + version + " is already deployed - a new build needs a new version";
-        }
-
+        // The version is deliberately not checked. Redeploying the same version with different
+        // bytes is a normal thing to do - a rebuilt snapshot, a fix that keeps the number - and
+        // refusing it only meant reaching for update-application to do the same thing without the
+        // safeguard below. What the artifact is, rather than what it is called, is what decides
+        // whether this is a deployment.
+        //
         // Only when there is something to compare against: an application defined before versions
         // existed carries no checksum, and its first redeploy is not going to be refused for it.
         if (!deployedMd5Sum.empty() && !md5Sum.empty() && md5Sum == deployedMd5Sum) {

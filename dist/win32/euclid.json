@@ -181,11 +181,17 @@
         "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-ets.sock",
         "executable": "C:\\Program Files\\euclid\\bin\\euclid-ets",
         "socket-dir": "C:\\Program Files\\euclid\\data\\run",
+        "data-dir": "C:\\Program Files\\euclid\\data\\ets",
         "minInstances": 1,
         "maxInstances": 1,
         "threads": 2,
         "inline-max": 67108864,
-        "part-size": 8388608
+        "part-size": 8388608,
+        "directories": [
+          "incoming/mix",
+          "incoming/split",
+          "feedback"
+        ]
       },
       "lambda": {
         "active": true,

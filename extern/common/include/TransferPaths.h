@@ -2,6 +2,7 @@
 
 // C++ includes
 #include <string>
+#include <vector>
 
 namespace Euclid::Transfer {
 
@@ -35,5 +36,28 @@ namespace Euclid::Transfer {
      * @return the key prefix, ending in "/", or empty for the bucket root
      */
     [[nodiscard]] std::string HomePrefix(const std::string &homeDirectory, const std::string &userId);
+
+    /**
+     * @brief The full object keys of the directory skeleton a session should find under its home.
+     *
+     * @par
+     * A transfer server's clients expect the same folders to be there - an inbox to deliver into,
+     * somewhere feedback comes back - and under a per-user home ("{user}") those folders live
+     * below each user's own prefix rather than at the bucket root. This turns the configured list
+     * into the keys that have to exist for one session.
+     *
+     * @par
+     * Every intermediate level is included and parents come before their children, because a
+     * directory marker is one object and "incoming/mix" needs both "incoming/" and
+     * "incoming/mix/" for a client to be able to walk to it. Duplicates are collapsed, so
+     * "incoming/mix" and "incoming/split" name "incoming/" once between them. Each entry is
+     * normalised exactly as HomePrefix() normalises its template - no leading slash, one trailing
+     * slash, "." and ".." dropped - so no configured value can name anything outside the home.
+     *
+     * @param homePrefix the session's home prefix, as returned by HomePrefix()
+     * @param directories the configured directories, e.g. {"incoming/mix", "feedback"}
+     * @return the keys to create, parents first, e.g. {"jvo/incoming/", "jvo/incoming/mix/", "jvo/feedback/"}
+     */
+    [[nodiscard]] std::vector<std::string> HomeDirectoryKeys(const std::string &homePrefix, const std::vector<std::string> &directories);
 
 }// namespace Euclid::Transfer
