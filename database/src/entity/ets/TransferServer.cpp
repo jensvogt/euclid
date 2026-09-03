@@ -30,6 +30,9 @@ namespace Euclid::Database::Entity::ETS {
         bsoncxx::builder::basic::array userGroupsArray;
         for (const auto &group: userGroups) userGroupsArray.append(group);
 
+        bsoncxx::builder::basic::array directoriesArray;
+        for (const auto &directory: directories) directoriesArray.append(directory);
+
         return bsoncxx::builder::basic::make_document(
                 bsoncxx::builder::basic::kvp("serverId", serverId),
                 bsoncxx::builder::basic::kvp("ern", ern),
@@ -43,6 +46,7 @@ namespace Euclid::Database::Entity::ETS {
                 bsoncxx::builder::basic::kvp("homeDirectory", homeDirectory),
                 bsoncxx::builder::basic::kvp("userIds", userIdsArray),
                 bsoncxx::builder::basic::kvp("userGroups", userGroupsArray),
+                bsoncxx::builder::basic::kvp("directories", directoriesArray),
                 bsoncxx::builder::basic::kvp("desiredState", TransferServerStateToString(desiredState)),
                 bsoncxx::builder::basic::kvp("hostKey", hostKey),
                 bsoncxx::builder::basic::kvp("pasvMin", static_cast<std::int64_t>(pasvMin)),
@@ -71,6 +75,8 @@ namespace Euclid::Database::Entity::ETS {
                 for (const auto &elem: field.get_array().value) server.userIds.emplace_back(elem.get_string().value);
             } else if (key == "userGroups") {
                 for (const auto &elem: field.get_array().value) server.userGroups.emplace_back(elem.get_string().value);
+            } else if (key == "directories") {
+                for (const auto &elem: field.get_array().value) server.directories.emplace_back(elem.get_string().value);
             } else if (key == "desiredState") server.desiredState = TransferServerStateFromString(std::string(field.get_string().value));
             else if (key == "hostKey") server.hostKey = std::string(field.get_string().value);
             else if (key == "pasvMin") server.pasvMin = getBsonInt(field);

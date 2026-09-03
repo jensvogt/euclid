@@ -156,6 +156,24 @@
         "maxInstances": 1,
         "threads": 2
       },
+      "ets": {
+        "active": true,
+        "name": "ets",
+        "socketPath": "/var/run/euclid/euclid-ets.sock",
+        "executable": "/usr/local/euclid/bin/euclid-ets",
+        "socket-dir": "/var/run/euclid",
+        "data-dir": "/usr/local/euclid/data/ets",
+        "minInstances": 1,
+        "maxInstances": 1,
+        "threads": 2,
+        "inline-max": 67108864,
+        "part-size": 8388608,
+        "directories": [
+          "incoming/mix",
+          "incoming/split",
+          "feedback"
+        ]
+      },
       "lambda": {
         "active": true,
         "backup": {

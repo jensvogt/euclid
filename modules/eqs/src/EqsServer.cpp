@@ -141,6 +141,10 @@ namespace Euclid::EQS {
         queue.region = auth.user->region;
         queue.owner = auth.user->userId;
         queue.deadLetterQueueErn = dlqSaved.ern;
+        // Kept out of list-queues and the queue count when asked for; see Queue::internal. A dead
+        // letter queue created alongside an internal queue inherits nothing here on purpose - it
+        // is named by the caller and is theirs to see.
+        queue.internal = request.internal;
         queue.delay = request.delay;
         queue.created = std::chrono::system_clock::now();
         queue.modified = std::chrono::system_clock::now();

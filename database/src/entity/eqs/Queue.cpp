@@ -43,6 +43,7 @@ namespace Euclid::Database::Entity::EQS {
                 bsoncxx::builder::basic::kvp("maxReceiveCount", static_cast<int64_t>(maxReceiveCount)),
                 bsoncxx::builder::basic::kvp("deadLetterQueueErn", deadLetterQueueErn),
                 bsoncxx::builder::basic::kvp("priority", MessagePriorityToString(priority)),
+                bsoncxx::builder::basic::kvp("internal", internal),
                 bsoncxx::builder::basic::kvp("tags", tagsDoc.extract()));
         // bsoncxx::builder::basic::kvp("defaultMessageAttributes", defaultMessageAttributesDoc.extract()));
     }
@@ -58,6 +59,9 @@ namespace Euclid::Database::Entity::EQS {
             else if (key == "namespace") queue.nameSpace = std::string(field.get_string().value);
             else if (key == "owner") queue.owner = std::string(field.get_string().value);
             else if (key == "name") queue.name = std::string(field.get_string().value);
+            // Absent on every queue created before internal queues existed, which is what the
+            // default covers: those are all somebody's own.
+            else if (key == "internal") queue.internal = field.get_bool().value;
             else if (key == "ern") queue.ern = std::string(field.get_string().value);
             else if (key == "size") queue.size = getBsonInt(field);
             else if (key == "delay") queue.delay = getBsonInt(field);

@@ -156,6 +156,25 @@ namespace Euclid::Transfer {
         bool MakeDirectory(const std::string &directory) const;
 
         /**
+         * @brief Creates whichever of these directories does not exist yet.
+         *
+         * @par
+         * Called once per login to give a session the folder skeleton its clients expect (see
+         * Transfer::HomeDirectoryKeys). Existing directories are left alone rather than written
+         * over: a marker rewritten on every connection would publish an object event each time,
+         * and every listener of the bucket would see a change that did not happen.
+         *
+         * @par
+         * Best effort. A directory that cannot be created is logged and skipped rather than
+         * failing the login - a client that cannot see its inbox is a smaller problem than one
+         * that cannot log in at all, and the next connection tries again.
+         *
+         * @param keys full object keys, each ending in "/", parents before their children.
+         * @return how many were actually created.
+         */
+        long EnsureDirectories(const std::vector<std::string> &keys) const;
+
+        /**
          * @brief Removes an empty directory by deleting its marker object.
          *
          * @par

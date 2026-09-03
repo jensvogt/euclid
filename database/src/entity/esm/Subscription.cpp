@@ -2,6 +2,7 @@
 // Created by vogje01 on 8/27/26.
 //
 
+#include <bsoncxx/builder/basic/array.hpp>
 #include <euclid/database/entity/esm/Subscription.h>
 
 namespace Euclid::Database::Entity::ESM {
@@ -16,7 +17,14 @@ namespace Euclid::Database::Entity::ESM {
                 bsoncxx::builder::basic::kvp("ern", ern),
                 bsoncxx::builder::basic::kvp("sourceErn", sourceErn),
                 bsoncxx::builder::basic::kvp("type", type),
-                bsoncxx::builder::basic::kvp("targetErn", targetErn));
+                bsoncxx::builder::basic::kvp("targetErn", targetErn),
+                bsoncxx::builder::basic::kvp("eventTypes", [this] {
+                    bsoncxx::builder::basic::array types;
+                    for (const auto &eventType: eventTypes) types.append(eventType);
+                    return types.extract();
+                }()),
+                bsoncxx::builder::basic::kvp("prefix", prefix),
+                bsoncxx::builder::basic::kvp("directories", directories));
     }
 
     Subscription Subscription::fromDocument(const std::optional<bsoncxx::document::view> &document) {
@@ -33,6 +41,12 @@ namespace Euclid::Database::Entity::ESM {
             else if (key == "sourceErn") subscription.sourceErn = std::string(field.get_string().value);
             else if (key == "type") subscription.type = std::string(field.get_string().value);
             else if (key == "targetErn") subscription.targetErn = std::string(field.get_string().value);
+            // All three are absent on a subscription stored before filtering existed, and their
+            // defaults are what that subscription already behaved like: everything, no prefix.
+            else if (key == "eventTypes") {
+                for (const auto &element: field.get_array().value) subscription.eventTypes.emplace_back(element.get_string().value);
+            } else if (key == "prefix") subscription.prefix = std::string(field.get_string().value);
+            else if (key == "directories") subscription.directories = field.get_bool().value;
             else if (key == "created") subscription.created = system_clock::time_point{field.get_date().value};
             else if (key == "modified") subscription.modified = system_clock::time_point{field.get_date().value};
         }

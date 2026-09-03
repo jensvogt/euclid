@@ -446,18 +446,18 @@ namespace Euclid::EAP {
     }
 
     /**
-     * @brief Deploys a new build of an application: a new version, and an artifact that differs.
+     * @brief Deploys a new build of an application: an artifact that differs from the one running.
      *
      * Separate from update-application because it is the one change with a rule attached. A
-     * deployment is supposed to move an application from one build to another, and the two ways
-     * that silently fails to happen are worth refusing outright:
+     * deployment is supposed to move an application from one build to another, and there is one
+     * way that silently fails to happen: the artifact hashes the same, so the "new build" is the
+     * build already deployed and the restart it would cause buys nothing. That is refused.
      *
-     * - the version did not change, so nothing downstream - a log line, an incident, an operator
-     *   reading list-applications - can tell which build is actually running;
-     * - the artifact hashes the same, so the "new build" is the build already deployed, and the
-     *   restart it would cause buys nothing.
+     * The version is not part of the rule. Redeploying the same version with different bytes is
+     * ordinary - a rebuilt snapshot, a fix that keeps the number - and it is the artifact, not its
+     * name, that says whether anything is being deployed.
      *
-     * update-application remains the way to do either on purpose.
+     * update-application remains the way to repoint an application without this check.
      */
     static response<string_body> handleRedeployApplication(const request<string_body> &req) {
 

@@ -175,6 +175,12 @@ namespace Euclid::SFTP {
                                      _config.transferServer.serverId, identity->userId);
                     authenticated = true;
 
+                    // The folder skeleton this session's clients expect, created on the way in rather than by
+                    // a provisioning step somebody has to remember: adding a supplier to the server's userIds
+                    // is then the whole of onboarding them. Existing directories are left alone, so this costs
+                    // one listing per login and nothing after the first.
+                    _storage->EnsureDirectories(Transfer::HomeDirectoryKeys(_keyPrefix, _config.transferServer.directories));
+
                     ssh_message_auth_reply_success(message, 0);
                     log_info << "SFTP login: user=" << _username << ", server=" << _config.transferServer.serverId
                             << ", bucket=" << _config.transferServer.bucketName << ", keyPrefix=" << _keyPrefix;
