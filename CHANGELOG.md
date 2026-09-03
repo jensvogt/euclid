@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.63](https://github.com/jensvogt/euclid/compare/1.0.62...v1.0.63) (2026-09-03)
+
+
+### Bug Fixes
+
+* start/stop queues ([c9f5abe](https://github.com/jensvogt/euclid/commit/c9f5abe15e4d8aa4dc4f21550ec388cb3116321f))
+
 ## [1.0.62](https://github.com/jensvogt/euclid/compare/1.0.61...v1.0.62) (2026-09-03)
 
 
