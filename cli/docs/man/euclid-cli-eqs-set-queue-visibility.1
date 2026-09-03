@@ -1,0 +1,109 @@
+.TH EUCLID-CLI-EQS-SET-QUEUE-VISIBILITY 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eqs-set-queue-visibility \- set a queue's default visibility timeout
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B eqs set-queue-visibility
+.BR \-\-queue | \-q
+.I ERN
+.BR \-\-visibility | \-v
+.I SECONDS
+.SH DESCRIPTION
+Sets a queue's default visibility timeout: how long a message received
+from it stays invisible to other consumers before it becomes available
+again.
+.PP
+This is the figure every receive starts from, and the queue-level
+counterpart to
+.BR euclid-cli-eqs-set-message-visibility (1),
+which changes the timeout of one message that has already been received.
+A queue created without one gets 30 seconds.
+.PP
+The timeout is what makes a receive a lease rather than a handover: a
+consumer that takes a message and then dies has not lost it, because the
+message reappears once its window expires and another consumer gets it.
+Sizing it is therefore a judgement about the slowest handler you are
+willing to wait for \- too short and a message is redelivered while it is
+still being processed, too long and a crashed consumer's messages sit
+idle until the window runs out.
+.SH IN-FLIGHT MESSAGES ARE NOT CHANGED
+Only the default changes. Messages already in flight keep the window
+they were given when they were received, and the new value applies from
+the next receive onwards.
+.PP
+That is deliberate in both directions: shortening the timeout here would
+make a consumer's lease expire under it while it is still working, and
+lengthening it would hold back a message whose consumer has already
+given up on it. To change one message that is currently in flight, use
+.BR euclid-cli-eqs-set-message-visibility (1)
+instead.
+.SH OPTIONS
+.TP
+.BR \-q ", " \-\-queue " " \fIERN\fR
+ERN of the queue to change. Required. Resolve a name to its ERN with
+.BR euclid-cli-eqs-get-queue-ern (1).
+.TP
+.BR \-v ", " \-\-visibility " " \fISECONDS\fR
+The new default, between 0 and 43200 seconds (12 hours) \- the same
+range AWS SQS allows, and the same range one message may be given, so a
+queue default can never be a figure no message could actually take.
+Required.
+.PP
+Zero is legal and means a received message becomes available again
+immediately, which is occasionally what a fan-out test wants and almost
+never what a consumer does.
+.SH OUTPUT
+The JSON response is printed to standard output:
+.RS
+.TP
+.I ern
+The queue that was changed.
+.TP
+.I visibility
+The default now in force, in seconds.
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+The timeout was changed.
+.TP
+.B 1
+The queue ERN is missing or names no queue, the value is outside 0\-43200,
+the request could not be sent, or the server rejected it. Details are
+printed to standard error.
+.SH EXAMPLES
+Give a queue whose handler does slow work a five-minute lease:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eqs set-queue-visibility \e
+    --queue ern:eqs:eu-central-1:000000000000:development:queue:onix-queue \e
+    --visibility 300
+.fi
+.RE
+.PP
+Look the ERN up first if you only know the name:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eqs get-queue-ern --name onix-queue
+.fi
+.RE
+.PP
+Check what a queue currently uses:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eqs get-queue-metadata \e
+    --queue ern:eqs:eu-central-1:000000000000:development:queue:onix-queue
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eqs (1),
+.BR euclid-cli-eqs-set-message-visibility (1),
+.BR euclid-cli-eqs-create-queue (1),
+.BR euclid-cli-eqs-get-queue-ern (1),
+.BR euclid-cli-eam-login (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

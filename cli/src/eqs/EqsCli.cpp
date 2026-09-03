@@ -31,25 +31,28 @@ namespace Euclid::CLI {
     int EqsCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
             return PrintModuleHelp("eqs", {
-                                           {"create-queue", "Create a new queue"},
-                                           {"list-queues", "List queues"},
-                                           {"list-messages", "List a queue's messages without receiving them"},
-                                           {"get-queue-ern", "Resolve a queue's ERN by name"},
-                                           {"get-message-count", "Returns the message counters"},
-                                           {"purge-queue", "Delete all messages from a queue"},
-                                           {"purge-all-queues", "Delete all messages from every queue in a region/account"},
-                                           {"delete-queue", "Delete a queue"},
-                                           {"send-message", "Send a message to a queue"},
-                                           {"receive-messages", "Send a message to a queue"},
-                                           {"set-visibility", "Send a messages visibility"},
-                                           {"delete-message", "Deletes a single message, by receipt handle or message ID"},
-                                           {"get-message-attribute", "Return a message attribute by name"},
-                                           {"set-message-attribute", "Sets the value of a message attribute"},
-                                           {"get-queue-metadata", "Return the metadata for a queue"},
-                                           {"get-message-metadata", "Return the metadata for a message"},
                                            {"add-queue-tag", "Adds a tag to queue"},
-                                           {"set-queue-tag", "Sets the value of an existing queue tag"},
+                                           {"create-queue", "Create a new queue"},
+                                           {"delete-message", "Deletes a single message, by receipt handle or message ID"},
+                                           {"delete-queue", "Delete a queue"},
                                            {"delete-queue-tag", "Deletes a tag from the queue"},
+                                           {"get-message-attribute", "Return a message attribute by name"},
+                                           {"get-message-count", "Returns the message counters"},
+                                           {"get-message-metadata", "Return the metadata for a message"},
+                                           {"get-queue-ern", "Resolve a queue's ERN by name"},
+                                           {"get-queue-metadata", "Return the metadata for a queue"},
+                                           {"list-messages", "List a queue's messages without receiving them"},
+                                           {"list-queues", "List queues"},
+                                           {"purge-all-queues", "Delete all messages from every queue in a region/account"},
+                                           {"purge-queue", "Delete all messages from a queue"},
+                                           {"receive-messages", "Receive messages from a queue"},
+                                           {"send-message", "Send a message to a queue"},
+                                           {"set-message-attribute", "Sets the value of a message attribute"},
+                                           {"set-message-visibility", "Sets the visibility timeout of a single message"},
+                                           {"set-queue-tag", "Sets the value of an existing queue tag"},
+                                           {"set-queue-visibility", "Sets a queue's default visibility timeout"},
+                                           {"start-queue", "Lets a stopped queue be received from again"},
+                                           {"stop-queue", "Stops receiving from a queue; sending is unaffected"},
                                    });
         }
         if (action == "create-queue") {
@@ -79,8 +82,19 @@ namespace Euclid::CLI {
         if (action == "receive-messages") {
             return receiveMessages(args);
         }
-        if (action == "set-visibility") {
+        // "set-visibility" is the name this had before "set-queue-visibility" existed to be
+        // confused with. Still accepted, undocumented, so nobody's scripts break.
+        if (action == "set-message-visibility" || action == "set-visibility") {
             return setVisibility(args);
+        }
+        if (action == "set-queue-visibility") {
+            return setQueueVisibility(args);
+        }
+        if (action == "stop-queue") {
+            return setQueueStopped(args, true);
+        }
+        if (action == "start-queue") {
+            return setQueueStopped(args, false);
         }
         if (action == "delete-message") {
             return deleteMessage(args);
@@ -555,8 +569,15 @@ namespace Euclid::CLI {
                 ("visibility,v", po::value<long>()->default_value(10), "visibility in seconds");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "set-visibility", "--message-id <messageId> --visibility <seconds>",
-                                   "Sets the visibility timeout for an individual message.",
+            return PrintActionHelp("eqs", "set-message-visibility", "--message-id <messageId> --visibility <seconds>",
+                                   "Sets the visibility timeout for one message that has already been received: how much "
+                                   "longer it stays invisible to other consumers, counted from now. Use it to extend a lease "
+                                   "a handler is going to overrun, or to shorten one so a message comes back sooner. "
+                                   "To change the figure every receive starts from, rather than this one message, use "
+                                   "\"eqs set-queue-visibility\". Must be between 0 and 43200 seconds (12 hours), the same "
+                                   "range AWS SQS allows for ChangeMessageVisibility. "
+                                   "This action was called \"set-visibility\" before its queue-level counterpart existed; "
+                                   "that name still works.",
                                    desc);
         }
 
@@ -575,10 +596,110 @@ namespace Euclid::CLI {
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            if (const HttpResponse response = client.Post("eqs", "set-visibility", boost::json::value_from(request)); !response.IsSuccess()) {
-                std::cerr << "error: set-visibility failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+            if (const HttpResponse response = client.Post("eqs", "set-message-visibility", boost::json::value_from(request)); !response.IsSuccess()) {
+                std::cerr << "error: set-message-visibility failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EqsCli::setQueueVisibility(const std::vector<std::string> &args) const {
+        po::options_description desc("sets the queue visibility");
+        desc.add_options()
+                ("queue,q", po::value<std::string>()->required(), "queue ERN")
+                ("visibility,v", po::value<long>()->required(), "visibility in seconds (0 to 43200)");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eqs", "set-queue-visibility", "--queue <ern> --visibility <seconds>",
+                                   "Sets a queue's default visibility timeout: how long a message received from it stays "
+                                   "invisible to other consumers before it becomes available again. This is the figure every "
+                                   "receive starts from, whereas \"eqs set-visibility\" changes it for one message that has "
+                                   "already been received. "
+                                   "Messages already in flight keep the window they were given - shortening it here would make "
+                                   "a consumer's lease expire under it while it is still working, and lengthening it would hold "
+                                   "back a message its consumer has already given up on - so the new value applies from the next "
+                                   "receive onwards. Must be between 0 and 43200 seconds (12 hours), the same range AWS SQS "
+                                   "allows.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EQS::SetQueueVisibilityRequest request;
+        request.ern = vm["queue"].as<std::string>();
+        request.visibility = vm["visibility"].as<long>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eqs", "set-queue-visibility", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: set-queue-visibility failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EqsCli::setQueueStopped(const std::vector<std::string> &args, const bool stopped) const {
+        const std::string action = stopped ? "stop-queue" : "start-queue";
+
+        po::options_description desc(action + " options");
+        desc.add_options()
+                ("queue,q", po::value<std::string>()->required(), "queue ERN");
+
+        if (IsHelpRequest(args)) {
+            const std::string description = stopped
+                    ? "Stops receiving from a queue. Producers are unaffected - the queue goes on accepting "
+                      "everything sent to it, and messages accumulate exactly as they would while no consumer "
+                      "happened to be running - but \"eqs receive-messages\" is refused with HTTP 409 until "
+                      "\"eqs start-queue\" lifts it. Being a property of the queue rather than an access rule, "
+                      "it stops every consumer at once rather than one identity at a time. "
+                      "Refused rather than answered with an empty list, deliberately: a stopped queue that read "
+                      "as empty would look exactly like a queue nobody is writing to, which is the distinction "
+                      "whoever stopped it needs to be able to make - so expect consumers to log errors while it "
+                      "is stopped, which is the point. "
+                      "Messages already in flight are left alone: their consumer took them before the stop and "
+                      "is still entitled to delete them, since deleting is not receiving."
+                    : "Lets a queue that was stopped with \"eqs stop-queue\" be received from again. Consumers "
+                      "that have been polling and failing pick up on their next attempt, and whatever accumulated "
+                      "while it was stopped is delivered in the ordinary way. Starting a queue that was never "
+                      "stopped changes nothing and is not an error.";
+
+            return PrintActionHelp("eqs", action, "--queue <ern>", description, desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eqs", action, boost::json::object{{"ern", vm["queue"].as<std::string>()}});
+            if (!response.IsSuccess()) {
+                std::cerr << "error: " << action << " failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
             return 0;
         } catch (const std::exception &ex) {
             std::cerr << "error: " << ex.what() << std::endl;

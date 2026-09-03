@@ -17,12 +17,12 @@ namespace Euclid::CLI {
         if (action == "help" || action == "--help" || action == "-h") {
             return PrintModuleHelp("ekm", {
                                            {"create-key", "Create a new key"},
-                                           {"list-keys", "List existing keys"},
+                                           {"decrypt", "Decrypt a file or stdin with a key"},
                                            {"delete-key", "Schedule a key for deletion"},
+                                           {"encrypt", "Encrypt a file or stdin with a key"},
+                                           {"list-keys", "List existing keys"},
                                            {"revoke-key", "Revoke a key (blocks encryption, decryption still works)"},
                                            {"set-key-description", "Change what a key says it is for"},
-                                           {"encrypt", "Encrypt a file or stdin with a key"},
-                                           {"decrypt", "Decrypt a file or stdin with a key"},
                                    });
         }
         if (action == "create-key") {

@@ -23,7 +23,7 @@ namespace Euclid::CLI {
         std::vector<std::string> SplitModules(const std::string &value) {
             std::vector<std::string> modules;
             std::stringstream ss(value);
-            for (std::string part; std::getline(ss, part, ','); ) {
+            for (std::string part; std::getline(ss, part, ',');) {
                 const auto first = part.find_first_not_of(" \t");
                 const auto last = part.find_last_not_of(" \t");
                 if (first == std::string::npos) continue;
@@ -102,14 +102,14 @@ namespace Euclid::CLI {
     int EmmCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
             return PrintModuleHelp("emm", {
+                                           {"export", "Exports a module's MongoDB collections to a JSON file"},
+                                           {"import", "Imports a JSON file written by \"emm export\" back into MongoDB"},
                                            {"list-modules", "List modules known to the manager"},
+                                           {"restart-module", "Restarts a module's instances, one at a time"},
                                            {"set-instances", "Sets a module's minimum and maximum instance count"},
                                            {"set-threads", "Sets the number of worker threads a module's processes run"},
                                            {"stop-module", "Stops a module and keeps it stopped"},
                                            {"start-module", "Lets a stopped module run again"},
-                                           {"restart-module", "Restarts a module's instances, one at a time"},
-                                           {"export", "Exports a module's MongoDB collections to a JSON file"},
-                                           {"import", "Imports a JSON file written by \"emm export\" back into MongoDB"},
                                    });
         }
 
@@ -269,9 +269,9 @@ namespace Euclid::CLI {
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
             const HttpResponse response = client.Post("emm", "set-threads", boost::json::object{
-                                                                                    {"name", vm["module"].as<std::string>()},
-                                                                                    {"threads", vm["threads"].as<int>()},
-                                                                            });
+                                                              {"name", vm["module"].as<std::string>()},
+                                                              {"threads", vm["threads"].as<int>()},
+                                                      });
             if (!response.IsSuccess()) {
                 std::cerr << "error: set-threads failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
@@ -293,22 +293,22 @@ namespace Euclid::CLI {
 
         if (IsHelpRequest(args)) {
             const std::string description = stopped
-                    ? "Stops a module and keeps it stopped. This records desired state rather than issuing "
-                      "a one-off stop, which is the difference that matters: an instance that is merely "
-                      "stopped is one the manager brings straight back, whereas a module stopped here stays "
-                      "down through crashes, scale events and manager restarts until \"emm start-module\" "
-                      "brings it back. Its instances are stopped on the manager's next reconcile tick, within "
-                      "a few seconds, and its pool slots are kept so it can be started again as it was. "
-                      "Requests routed to a stopped module fail while it is down, and a module that other "
-                      "modules declare as a dependency will keep those from starting - check the dependencies "
-                      "before stopping something in the middle of the graph. Only euclid's own modules can be "
-                      "stopped this way: applications and transfer servers have their own desired state, held "
-                      "by EAP and ETS, so use \"eap stop-application\" or \"ets stop-server\" for those. "
-                      "emm cannot stop itself, since there would be nothing left to start it again."
-                    : "Lets a module that was stopped with \"emm stop-module\" run again. Its instances are "
-                      "started on the manager's next reconcile tick, within a few seconds, back up to the "
-                      "module's minimum instance count, after which the autoscaler takes over as usual. "
-                      "Starting a module that was never stopped changes nothing and is not an error.";
+                                                ? "Stops a module and keeps it stopped. This records desired state rather than issuing "
+                                                "a one-off stop, which is the difference that matters: an instance that is merely "
+                                                "stopped is one the manager brings straight back, whereas a module stopped here stays "
+                                                "down through crashes, scale events and manager restarts until \"emm start-module\" "
+                                                "brings it back. Its instances are stopped on the manager's next reconcile tick, within "
+                                                "a few seconds, and its pool slots are kept so it can be started again as it was. "
+                                                "Requests routed to a stopped module fail while it is down, and a module that other "
+                                                "modules declare as a dependency will keep those from starting - check the dependencies "
+                                                "before stopping something in the middle of the graph. Only euclid's own modules can be "
+                                                "stopped this way: applications and transfer servers have their own desired state, held "
+                                                "by EAP and ETS, so use \"eap stop-application\" or \"ets stop-server\" for those. "
+                                                "emm cannot stop itself, since there would be nothing left to start it again."
+                                                : "Lets a module that was stopped with \"emm stop-module\" run again. Its instances are "
+                                                "started on the manager's next reconcile tick, within a few seconds, back up to the "
+                                                "module's minimum instance count, after which the autoscaler takes over as usual. "
+                                                "Starting a module that was never stopped changes nothing and is not an error.";
 
             return PrintActionHelp("emm", action, "--module <module>", description, desc);
         }
@@ -433,9 +433,10 @@ namespace Euclid::CLI {
         }
 
         const auto full = vm["full"].as<bool>();
-        const auto filePath = vm.contains("file") ? vm["file"].as<std::string>()
-                                                   : (all ? std::string("all") : JoinModules(modules)) + "-export-" +
-                                                             std::to_string(Core::DateTimeUtils::UnixTimestamp(std::chrono::system_clock::now())) + ".json";
+        const auto filePath = vm.contains("file")
+                                  ? vm["file"].as<std::string>()
+                                  : (all ? std::string("all") : JoinModules(modules)) + "-export-" +
+                                    std::to_string(Core::DateTimeUtils::UnixTimestamp(std::chrono::system_clock::now())) + ".json";
 
         const auto passphrase = ResolvePassphrase(vm, true);
         if (!passphrase.has_value()) return 1;

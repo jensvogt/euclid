@@ -16,7 +16,7 @@ namespace Euclid::CLI {
         boost::json::array SplitList(const std::string &value) {
             boost::json::array entries;
             std::stringstream ss(value);
-            for (std::string part; std::getline(ss, part, ','); ) {
+            for (std::string part; std::getline(ss, part, ',');) {
                 const auto first = part.find_first_not_of(" \t");
                 const auto last = part.find_last_not_of(" \t");
                 if (first == std::string::npos) continue;
@@ -32,11 +32,11 @@ namespace Euclid::CLI {
     int EesCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
             return PrintModuleHelp("ees", {
-                                           {"subscribe-events", "Subscribe a name to one or more event types"},
-                                           {"unsubscribe-events", "Remove a subscription and the events waiting for it"},
-                                           {"list-subscriptions", "Show a subscriber's subscriptions and backlog"},
-                                           {"receive-events", "Claim a subscriber's waiting events"},
                                            {"ack-events", "Acknowledge claimed events, deleting them"},
+                                           {"list-subscriptions", "Show a subscriber's subscriptions and backlog"},
+                                           {"subscribe-events", "Subscribe a name to one or more event types"},
+                                           {"receive-events", "Claim a subscriber's waiting events"},
+                                           {"unsubscribe-events", "Remove a subscription and the events waiting for it"},
                                    });
         }
 

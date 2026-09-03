@@ -84,6 +84,12 @@ namespace Euclid::Dto::EQS {
         std::string priority;
 
         /**
+         * @brief Whether this queue may be received from: "AVAILABLE" or "STOPPED". Sending is
+         * unaffected either way.
+         */
+        std::string status;
+
+        /**
          * @brief Creation date
          */
         system_clock::time_point created;
@@ -126,6 +132,7 @@ namespace Euclid::Dto::EQS {
             r.maxReceiveCount = Core::GetLongValue(v, "maxReceiveCount", 3);
             r.deadLetterQueueArn = Core::GetStringValue(v, "deadLetterQueueArn");
             r.priority = Core::GetStringValue(v, "priority");
+            r.status = Core::GetStringValue(v, "status");
             r.created = Core::GetDatetimeValue(v, "created");
             r.modified = Core::GetDatetimeValue(v, "modified");
             return r;
@@ -147,6 +154,7 @@ namespace Euclid::Dto::EQS {
                     {"maxReceiveCount", obj.maxReceiveCount},
                     {"deadLetterQueueArn", obj.deadLetterQueueArn},
                     {"priority", obj.priority},
+                    {"status", obj.status},
                     {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
             };

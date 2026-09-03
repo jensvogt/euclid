@@ -21,7 +21,7 @@ Each received message becomes invisible to other receivers for its
 visibility timeout (set at queue creation, see
 .BR euclid-cli-eqs-create-queue (1),
 or per-message via
-.BR euclid-cli-eqs-set-visibility (1)),
+.BR euclid-cli-eqs-set-message-visibility (1)),
 until it is deleted or the timeout expires.
 .SH OPTIONS
 .TP
@@ -57,6 +57,6 @@ euclid-cli --endpoint http://localhost:5566 eqs receive-messages \e
 .BR euclid-cli-eqs (1),
 .BR euclid-cli-eqs-send-message (1),
 .BR euclid-cli-eqs-list-messages (1),
-.BR euclid-cli-eqs-set-visibility (1)
+.BR euclid-cli-eqs-set-message-visibility (1)
 .SH AUTHOR
 Jens Vogt <jens.vogt@opitz-consulting.com>

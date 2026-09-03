@@ -57,41 +57,40 @@ namespace Euclid::CLI {
 
     }
 
-    EsmCli::EsmCli(std::string endpoint, Credentials::Entry authentication, const bool pretty, std::string caCertPath) : _endpoint(std::move(endpoint)), _authentication(std::move(authentication)), _pretty(pretty), _caCertPath(std::move(caCertPath)) {
-    }
+    EsmCli::EsmCli(std::string endpoint, Credentials::Entry authentication, const bool pretty, std::string caCertPath) : _endpoint(std::move(endpoint)), _authentication(std::move(authentication)), _pretty(pretty), _caCertPath(std::move(caCertPath)) {}
 
     int EsmCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
             return PrintModuleHelp("esm", {
-                                       {"create-bucket", "Create a new bucket"},
-                                       {"list-buckets", "List buckets"},
-                                       {"get-bucket-ern", "Resolve a bucket's ERN by name"},
-                                       {"get-bucket-size", "Returns the bucket size in bytes"},
-                                       {"purge-bucket", "Removes all objects from a bucket"},
-                                       {"delete-bucket", "Delete a bucket"},
-                                       {"rename-bucket", "Give a bucket another name"},
-                                       {"enable-encryption", "Encrypt the objects written to a bucket from now on"},
-                                       {"disable-encryption", "Stop encrypting the objects written to a bucket from now on"},
-                                       {"upload-file", "Upload a local file to a bucket"},
-                                       {"upload-directory", "Upload every file in a local directory to a bucket"},
-                                       {"download-file", "Download an object from a bucket to a local file"},
-                                       {"download-bucket", "Download a bucket's objects to a local directory"},
-                                       {"list-objects", "List objects"},
-                                       {"get-object-count", "Return the number of objects in a bucket"},
-                                       {"add-bucket-tag", "Adds a tag to a bucket"},
-                                       {"set-bucket-tag", "Sets the value of an existing bucket tag"},
-                                       {"delete-bucket-tag", "Deletes a tag from a bucket"},
-                                       {"delete-object", "Deletes an object by ERN"},
-                                       {"copy-object", "Copies an object to another key or bucket"},
-                                       {"move-object", "Moves an object to another key or bucket"},
-                                       {"rename-object", "Renames an object within its bucket"},
-                                       {"add-object-attribute", "Adds an attribute to an object"},
-                                       {"set-object-attribute", "Sets the value of an existing object attribute"},
-                                       {"list-object-attributes", "Lists the attributes of an object"},
-                                       {"delete-object-attribute", "Deletes an attribute from an object"},
-                                       {"subscribe", "Subscribes a target resource (an EQS queue or an ENS topic) to a bucket's object-created events"},
-                                       {"unsubscribe", "Deletes a subscription"},
-                                       {"list-subscriptions", "Lists the subscriptions of a bucket"},
+                                           {"add-bucket-tag", "Adds a tag to a bucket"},
+                                           {"add-object-attribute", "Adds an attribute to an object"},
+                                           {"copy-object", "Copies an object to another key or bucket"},
+                                           {"create-bucket", "Create a new bucket"},
+                                           {"delete-bucket", "Delete a bucket"},
+                                           {"delete-bucket-tag", "Deletes a tag from a bucket"},
+                                           {"delete-object", "Deletes an object by ERN"},
+                                           {"delete-object-attribute", "Deletes an attribute from an object"},
+                                           {"disable-encryption", "Stop encrypting the objects written to a bucket from now on"},
+                                           {"download-file", "Download an object from a bucket to a local file"},
+                                           {"download-bucket", "Download a bucket's objects to a local directory"},
+                                           {"enable-encryption", "Encrypt the objects written to a bucket from now on"},
+                                           {"get-bucket-ern", "Resolve a bucket's ERN by name"},
+                                           {"get-bucket-size", "Returns the bucket size in bytes"},
+                                           {"get-object-count", "Return the number of objects in a bucket"},
+                                           {"list-buckets", "List buckets"},
+                                           {"list-objects", "List objects"},
+                                           {"list-object-attributes", "Lists the attributes of an object"},
+                                           {"list-subscriptions", "Lists the subscriptions of a bucket"},
+                                           {"move-object", "Moves an object to another key or bucket"},
+                                           {"purge-bucket", "Removes all objects from a bucket"},
+                                           {"rename-bucket", "Give a bucket another name"},
+                                           {"rename-object", "Renames an object within its bucket"},
+                                           {"set-bucket-tag", "Sets the value of an existing bucket tag"},
+                                           {"set-object-attribute", "Sets the value of an existing object attribute"},
+                                           {"subscribe", "Subscribes a target resource (an EQS queue or an ENS topic) to a bucket's object-created events"},
+                                           {"unsubscribe", "Deletes a subscription"},
+                                           {"upload-file", "Upload a local file to a bucket"},
+                                           {"upload-directory", "Upload every file in a local directory to a bucket"},
                                    });
         }
         if (action == "create-bucket") {
@@ -226,16 +225,21 @@ namespace Euclid::CLI {
     int EsmCli::deleteBucket(const std::vector<std::string> &args) const {
         po::options_description desc("delete bucket options");
         desc.add_options()
-                ("bucket,b", po::value<std::string>()->required(), "bucketERN");
+                ("bucket,b", po::value<std::string>()->required(), "bucketERN")
+                ("async", po::bool_switch()->default_value(false), "return at once and remove the objects in the background; for buckets too large to empty within one request");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "delete-bucket", "--bucket <ern>",
+            return PrintActionHelp("esm", "delete-bucket", "--bucket <ern> [--async]",
                                    "Deletes a storage bucket identified by its Euclid resource name (ERN), "
                                    "along with every object it contains - their stored files are removed and one "
                                    "\"esm.object.deleted\" event is published per object, exactly as if each had been "
                                    "deleted on its own, so anything listening for objects in the bucket learns what "
                                    "went. Use \"esm purge-bucket\" to empty a bucket while keeping it, optionally "
-                                   "restricted to a key prefix. This cannot be undone.",
+                                   "restricted to a key prefix. "
+                                   "Give --async for a bucket large enough that emptying it takes minutes: the request is answered at once "
+                                   "with HTTP 202, and a background thread inside ESM removes the objects and then the bucket - which stays "
+                                   "listed, and still deletable, until it is genuinely gone. Without it the call sits there until the "
+                                   "gateway times out while the removal carries on unseen behind it. This cannot be undone.",
                                    desc);
         }
 
@@ -251,9 +255,12 @@ namespace Euclid::CLI {
         Dto::ESM::DeleteBucketRequest request;
         request.ern = vm["bucket"].as<std::string>();
 
+        auto body = boost::json::value_from(request);
+        if (vm["async"].as<bool>()) body.as_object()["async"] = true;
+
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            if (const HttpResponse response = client.Post("esm", "delete-bucket", boost::json::value_from(request)); !response.IsSuccess()) {
+            if (const HttpResponse response = client.Post("esm", "delete-bucket", body); !response.IsSuccess()) {
                 std::cerr << "error: delete-bucket failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
@@ -390,8 +397,8 @@ namespace Euclid::CLI {
 
     std::optional<boost::json::value> EsmCli::putObject(const std::string &bucketErn, const std::string &key, const std::string &data) const {
         const std::vector<std::pair<std::string, std::string> > headers{
-            {"x-euclid-bucket-ern", bucketErn},
-            {"x-euclid-key", key},
+                {"x-euclid-bucket-ern", bucketErn},
+                {"x-euclid-key", key},
         };
 
         try {
@@ -418,7 +425,7 @@ namespace Euclid::CLI {
         // see ServiceController::declareExpectedConcurrency()'s doc comment for why that reactive
         // sampling alone falls short for this workload (many short-lived part uploads).
         const std::vector<std::pair<std::string, std::string> > headers{
-            {"x-euclid-expected-concurrency", std::to_string(concurrency)},
+                {"x-euclid-expected-concurrency", std::to_string(concurrency)},
         };
 
         // Retried on 5xx exactly like uploadPart() below. Safe to repeat: the object row the server
@@ -450,7 +457,7 @@ namespace Euclid::CLI {
 
             std::this_thread::sleep_for(kPartRetryBaseDelay * attempt);
         }
-        return std::nullopt; // unreachable
+        return std::nullopt;// unreachable
     }
 
     // upload-part does NOT conform to the JSON in/out convention every other action uses here -
@@ -460,8 +467,8 @@ namespace Euclid::CLI {
     // client relying on a stable JSON schema for it.
     bool EsmCli::uploadPart(const std::string &uploadId, const long partNumber, const std::string &data) const {
         const std::vector<std::pair<std::string, std::string> > headers{
-            {"x-euclid-upload-id", uploadId},
-            {"x-euclid-part-number", std::to_string(partNumber)},
+                {"x-euclid-upload-id", uploadId},
+                {"x-euclid-part-number", std::to_string(partNumber)},
         };
 
         for (int attempt = 1; attempt <= kMaxPartAttempts; ++attempt) {
@@ -493,7 +500,7 @@ namespace Euclid::CLI {
 
             std::this_thread::sleep_for(kPartRetryBaseDelay * attempt);
         }
-        return false; // unreachable
+        return false;// unreachable
     }
 
     std::optional<boost::json::value> EsmCli::completeUpload(const std::string &uploadId) const {
@@ -528,14 +535,14 @@ namespace Euclid::CLI {
 
             std::this_thread::sleep_for(kPartRetryBaseDelay * attempt);
         }
-        return std::nullopt; // unreachable
+        return std::nullopt;// unreachable
     }
 
     BinaryHttpResponse EsmCli::getObject(const std::string &bucketErn, const std::string &key, const long maxInlineSize) const {
         const std::vector<std::pair<std::string, std::string> > headers{
-            {"x-euclid-bucket-ern", bucketErn},
-            {"x-euclid-key", key},
-            {"x-euclid-part-size", std::to_string(maxInlineSize)},
+                {"x-euclid-bucket-ern", bucketErn},
+                {"x-euclid-key", key},
+                {"x-euclid-part-size", std::to_string(maxInlineSize)},
         };
 
         try {
@@ -559,7 +566,7 @@ namespace Euclid::CLI {
         // thrashing (spinning up an instance, letting it go idle, tearing it down, repeat) instead
         // of holding a steady pool sized for the declared concurrency.
         const std::vector<std::pair<std::string, std::string> > headers{
-            {"x-euclid-expected-concurrency", std::to_string(concurrency)},
+                {"x-euclid-expected-concurrency", std::to_string(concurrency)},
         };
 
         // Retried on 5xx exactly like createUpload() and downloadPart(). Safe to repeat: the
@@ -590,7 +597,7 @@ namespace Euclid::CLI {
 
             std::this_thread::sleep_for(kPartRetryBaseDelay * attempt);
         }
-        return std::nullopt; // unreachable
+        return std::nullopt;// unreachable
     }
 
     // download-part does NOT conform to the JSON in/out convention every other action uses here -
@@ -600,9 +607,9 @@ namespace Euclid::CLI {
     // a stable JSON schema for it.
     bool EsmCli::downloadPart(const std::string &downloadId, const long partNumber, const long partSize, const std::string &filePath) const {
         const std::vector<std::pair<std::string, std::string> > headers{
-            {"x-euclid-download-id", downloadId},
-            {"x-euclid-part-number", std::to_string(partNumber)},
-            {"x-euclid-part-size", std::to_string(partSize)},
+                {"x-euclid-download-id", downloadId},
+                {"x-euclid-part-number", std::to_string(partNumber)},
+                {"x-euclid-part-size", std::to_string(partSize)},
         };
 
         for (int attempt = 1; attempt <= kMaxPartAttempts; ++attempt) {
@@ -649,7 +656,7 @@ namespace Euclid::CLI {
 
             std::this_thread::sleep_for(kPartRetryBaseDelay * attempt);
         }
-        return false; // unreachable
+        return false;// unreachable
     }
 
     bool EsmCli::completeDownload(const std::string &downloadId) const {
@@ -682,7 +689,7 @@ namespace Euclid::CLI {
 
             std::this_thread::sleep_for(kPartRetryBaseDelay * attempt);
         }
-        return false; // unreachable
+        return false;// unreachable
     }
 
     int EsmCli::uploadOneFile(const std::string &bucketErn, const std::string &key, const std::string &filePath, long partSize, int concurrency, boost::json::value &outResult) const {
@@ -927,7 +934,7 @@ namespace Euclid::CLI {
         // object turned out to be too large, and the multipart path below takes over instead.
         constexpr int kPayloadTooLarge = 413;
         if (const auto inlineResponse = getObject(bucketErn, key, partSize); inlineResponse.statusCode != kPayloadTooLarge) {
-            if (inlineResponse.statusCode == 0) return 1; // network failure, already printed
+            if (inlineResponse.statusCode == 0) return 1;// network failure, already printed
             if (!inlineResponse.IsSuccess()) {
                 std::cerr << "error: get-object failed (HTTP " << inlineResponse.statusCode << "): " << boost::json::serialize(inlineResponse.errorBody) << std::endl;
                 return 1;
@@ -942,10 +949,10 @@ namespace Euclid::CLI {
             out.close();
 
             outResult = boost::json::value{
-                {"bucketErn", bucketErn},
-                {"key", key},
-                {"size", static_cast<long>(inlineResponse.data.size())},
-                {"file", filePath},
+                    {"bucketErn", bucketErn},
+                    {"key", key},
+                    {"size", static_cast<long>(inlineResponse.data.size())},
+                    {"file", filePath},
             };
             return 0;
         }
@@ -1011,12 +1018,12 @@ namespace Euclid::CLI {
         if (!completeDownload(downloadId)) return 1;
 
         outResult = boost::json::value{
-            {"bucketErn", created->bucketErn},
-            {"key", created->key},
-            {"ern", created->ern},
-            {"size", created->size},
-            {"contentType", created->contentType},
-            {"file", filePath},
+                {"bucketErn", created->bucketErn},
+                {"key", created->key},
+                {"ern", created->ern},
+                {"size", created->size},
+                {"contentType", created->contentType},
+                {"file", filePath},
         };
         return 0;
     }
@@ -1329,12 +1336,17 @@ namespace Euclid::CLI {
         po::options_description desc("purge bucket options");
         desc.add_options()
                 ("bucket,b", po::value<std::string>()->required(), "bucket ERN")
-                ("prefix,p", po::value<std::string>(), "object key prefix");
+                ("prefix,p", po::value<std::string>(), "object key prefix")
+                ("async", po::bool_switch()->default_value(false), "return at once and remove the objects in the background; for buckets too large to empty within one request");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "purge-bucket", "--bucket <ern> [--prefix <value>]",
+            return PrintActionHelp("esm", "purge-bucket", "--bucket <ern> [--prefix <value>] [--async]",
                                    "Removes all objects from a bucket identified by its Euclid resource name (ERN), leaving the (empty) "
-                                   "bucket itself in place, optionally filtered by object key prefix. It returns the ERN and the number of remaining objects.",
+                                   "bucket itself in place, optionally filtered by object key prefix. It returns the ERN and the number of remaining objects. "
+                                   "Give --async for a bucket large enough that emptying it takes minutes: the request is answered at once "
+                                   "with HTTP 202 and the object count at the time of asking, and the objects are removed by a background "
+                                   "thread inside ESM, instead of the call sitting there until the gateway times out while the removal "
+                                   "carries on unseen behind it. Watch the progress with \"esm get-bucket-size\".",
                                    desc);
         }
 
@@ -1353,9 +1365,15 @@ namespace Euclid::CLI {
             request.prefix = vm["prefix"].as<std::string>();
         }
 
+        // Added to the serialized request rather than carried on the DTO: "async" says how the
+        // caller wants to be answered, not what it wants done, and every other field here
+        // describes the latter.
+        auto body = boost::json::value_from(request);
+        if (vm["async"].as<bool>()) body.as_object()["async"] = true;
+
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("esm", "purge-bucket", boost::json::value_from(request));
+            const HttpResponse response = client.Post("esm", "purge-bucket", body);
             if (!response.IsSuccess()) {
                 std::cerr << "error: purge-bucket failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;

@@ -20,7 +20,7 @@ namespace Euclid::CLI {
         boost::json::object SplitEnvironment(const std::string &value) {
             boost::json::object environment;
             std::stringstream ss(value);
-            for (std::string part; std::getline(ss, part, ','); ) {
+            for (std::string part; std::getline(ss, part, ',');) {
                 const auto first = part.find_first_not_of(" \t");
                 if (first == std::string::npos) continue;
                 const auto equals = part.find('=', first);
@@ -33,7 +33,7 @@ namespace Euclid::CLI {
         boost::json::array SplitList(const std::string &value) {
             boost::json::array entries;
             std::stringstream ss(value);
-            for (std::string part; std::getline(ss, part, ','); ) {
+            for (std::string part; std::getline(ss, part, ',');) {
                 const auto first = part.find_first_not_of(" \t");
                 const auto last = part.find_last_not_of(" \t");
                 if (first == std::string::npos) continue;
@@ -50,13 +50,13 @@ namespace Euclid::CLI {
         if (action == "help" || action == "--help" || action == "-h") {
             return PrintModuleHelp("eap", {
                                            {"create-application", "Define a new application from an artifact in an ESM bucket"},
-                                           {"update-application", "Change an existing application's definition"},
-                                           {"redeploy-application", "Deploy a new build of an application from a local file"},
+                                           {"delete-application", "Delete an application definition"},
                                            {"list-applications", "List the defined applications and how many instances are running"},
                                            {"get-application", "Show one application's definition"},
-                                           {"delete-application", "Delete an application definition"},
+                                           {"redeploy-application", "Deploy a new build of an application from a local file"},
                                            {"start-application", "Ask the manager to start an application"},
                                            {"stop-application", "Ask the manager to stop an application"},
+                                           {"update-application", "Change an existing application's definition"},
                                    });
         }
 
@@ -301,13 +301,15 @@ namespace Euclid::CLI {
 
             const auto &definition = current.body.as_object();
             const auto bucketErn = std::string(definition.at("bucketErn").as_string());
-            const auto artifactKey = vm.count("artifact") ? vm["artifact"].as<std::string>()
-                                                          : std::string(definition.at("artifactKey").as_string());
+            const auto artifactKey = vm.count("artifact")
+                                         ? vm["artifact"].as<std::string>()
+                                         : std::string(definition.at("artifactKey").as_string());
 
             // What this build calls itself: what was asked for, else what the file's own name
             // says, else what the key says - "orders-1.4.0.jar" carries its version either way.
-            auto version = vm.count("version") ? vm["version"].as<std::string>()
-                                               : Database::Entity::EAP::VersionFromArtifactName(std::filesystem::path(filePath).filename().string());
+            auto version = vm.count("version")
+                               ? vm["version"].as<std::string>()
+                               : Database::Entity::EAP::VersionFromArtifactName(std::filesystem::path(filePath).filename().string());
             if (version.empty()) version = Database::Entity::EAP::VersionFromArtifactName(artifactKey);
             if (version.empty()) {
                 std::cerr << "error: redeploy-application failed: no version in '" << std::filesystem::path(filePath).filename().string()
@@ -481,12 +483,13 @@ namespace Euclid::CLI {
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eap", action, "--application-id <name>",
-                                   start ? "Records that this application should be running. The manager's reconciler picks that up "
-                                           "within a few seconds, materialises the artifact from its bucket and starts it; from then "
-                                           "on the autoscaler runs between the application's minimum and maximum instance counts."
-                                         : "Records that this application should be stopped. The manager's reconciler stops every "
-                                           "instance on its next pass. The definition and the artifact are left in place, so "
-                                           "\"start-application\" brings it back as it was.",
+                                   start
+                                       ? "Records that this application should be running. The manager's reconciler picks that up "
+                                       "within a few seconds, materialises the artifact from its bucket and starts it; from then "
+                                       "on the autoscaler runs between the application's minimum and maximum instance counts."
+                                       : "Records that this application should be stopped. The manager's reconciler stops every "
+                                       "instance on its next pass. The definition and the artifact are left in place, so "
+                                       "\"start-application\" brings it back as it was.",
                                    desc);
         }
 

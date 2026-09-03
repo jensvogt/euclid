@@ -69,9 +69,32 @@ Lists a queue's messages without receiving them, i.e. without changing
 their status or visibility. See
 .BR euclid-cli-eqs-list-messages (1).
 .TP
-.B set-visibility
-Sets the visibility timeout for an individual message. See
-.BR euclid-cli-eqs-set-visibility (1).
+.B set-message-visibility
+Sets the visibility timeout for one message that has already been
+received, counted from now. Still accepted under its older name
+.BR set-visibility .
+See
+.BR euclid-cli-eqs-set-message-visibility (1).
+.TP
+.B stop-queue
+Stops receiving from a queue while leaving sending untouched \- producers
+go on writing and messages accumulate, but every receive is refused. The
+queue's
+.I status
+reads
+.I STOPPED
+until it is started again. See
+.BR euclid-cli-eqs-stop-queue (1).
+.TP
+.B start-queue
+Lets a stopped queue be received from again. See
+.BR euclid-cli-eqs-start-queue (1).
+.TP
+.B set-queue-visibility
+Sets a queue's default visibility timeout \- the figure every receive
+starts from, as opposed to one message that has already been received.
+See
+.BR euclid-cli-eqs-set-queue-visibility (1).
 .TP
 .B get-message-count
 Returns a queue's message counters (total, invisible, delayed). See
@@ -235,7 +258,10 @@ euclid-cli --endpoint http://localhost:5566 eqs delete-queue \e
 .BR euclid-cli-eqs-send-message (1),
 .BR euclid-cli-eqs-receive-messages (1),
 .BR euclid-cli-eqs-list-messages (1),
-.BR euclid-cli-eqs-set-visibility (1),
+.BR euclid-cli-eqs-set-message-visibility (1),
+.BR euclid-cli-eqs-set-queue-visibility (1),
+.BR euclid-cli-eqs-stop-queue (1),
+.BR euclid-cli-eqs-start-queue (1),
 .BR euclid-cli-eqs-get-message-count (1),
 .BR euclid-cli-eqs-get-message-attribute (1),
 .BR euclid-cli-eqs-set-message-attribute (1),
