@@ -41,7 +41,7 @@ int main(const int argc, char *argv[]) {
             ("pretty,p", po::value<bool>()->default_value(true), "pretty print output")
             ("endpoint,e", po::value<std::string>()->default_value(DEFAULT_ENDPOINT), "service endpoint URL")
             ("ca-cert,t", po::value<std::string>()->default_value(DEFAULT_CERT), "path to a PEM CA certificate to trust in addition to the system trust store (e.g. for self-signed development certificates)")
-            ("config,c", po::value<std::string>()->default_value(DEFAULT_CONFIG_FILE), "path to a JSON configuration file providing defaults for action options (e.g. euclid.modules.storage.part-size/concurrency for esm's upload-file/download-file); silently ignored if the file doesn't exist")
+            ("config,c", po::value<std::string>()->default_value(DEFAULT_CONFIG_FILE), "path to a JSON configuration file providing defaults for action options (e.g. euclid.modules.esm.part-size/concurrency for esm's upload-file/download-file); silently ignored if the file doesn't exist")
             ("signature,s", po::value<std::string>(), "signature scheme for signed service calls: sigv4 (default) or rfc9421 (HTTP Message Signatures); overrides euclid.cli.signature from the config file")
             ("loglevel,l", po::value<std::string>()->default_value("info"), "log level (trace|debug|info|warning|error|fatal)");
 

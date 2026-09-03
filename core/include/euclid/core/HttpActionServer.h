@@ -61,12 +61,39 @@ namespace Euclid::Core {
          * the ones that are. Core::LongPollSlots keeps one thread out of the waiting, so the
          * configured figure is how many callers may wait at once, plus one.
          *
+         * @par
+         * A count set through "euclid-cli emm set-threads" wins over the configuration file, so
+         * the figure can be changed without editing euclid.json on every host and without the
+         * change being lost at the next package upgrade. Nothing is read from the database until
+         * SetWorkerThreadsLookup() has been wired, so a process that never wires it - or one whose
+         * repository is not up yet - behaves exactly as it did before.
+         *
          * @param module the module's key in the configuration, e.g. "ees"
          * @param fallback what to use when the key is absent, which is the ordinary case
          * @return the configured count, clamped to something a machine can actually run
          */
         [[nodiscard]]
         static int ConfiguredWorkerThreads(const std::string &module, int fallback);
+
+        /**
+         * @brief Callback ConfiguredWorkerThreads() uses to find a thread count set at runtime.
+         *
+         * @param module the module's name, e.g. "ees"
+         * @return the count somebody asked for, or -1 if nobody has.
+         */
+        using WorkerThreadsLookup = std::function<int(const std::string &module)>;
+
+        /**
+         * @brief Registers the runtime thread-count lookup ConfiguredWorkerThreads() consults.
+         *
+         * core doesn't depend on database (database depends on core), so each module process wires
+         * in its own repository-backed lookup at startup - see Database::WireWorkerThreadsLookup()
+         * - after RepositoryFactory::initialize() and before it constructs its server. Until this
+         * is called only the configuration file is consulted.
+         *
+         * @param lookup resolves the thread count set for a module, or -1 for none.
+         */
+        static void SetWorkerThreadsLookup(WorkerThreadsLookup lookup);
         
         /**
          * @brief Cancels the periodic CPU/memory usage collection task.

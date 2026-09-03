@@ -336,6 +336,25 @@ namespace Euclid::Database {
     }
 
     /**
+     * @brief Registers the worker-thread lookup Core::HttpActionServer::ConfiguredWorkerThreads()
+     * consults, backed by RepositoryFactory::emmRepository().
+     *
+     * core can't depend on database (database depends on core), so this is the glue that closes
+     * the loop, same pattern as WireResourceLookup() - call once per process, after
+     * RepositoryFactory::initialize() and before the module constructs its server, in every module
+     * whose thread count "euclid-cli emm set-threads" should be able to change. Modules that never
+     * call this keep reading euclid.json alone.
+     */
+    inline void WireWorkerThreadsLookup() {
+        Core::HttpActionServer::SetWorkerThreadsLookup([](const std::string &moduleName) -> int {
+            const auto module = RepositoryFactory::instance().emmRepository()->findByName(moduleName);
+            // -1 both when nobody has asked for a count and when the module has no document yet,
+            // which is the ordinary case the first time a module ever starts.
+            return module.has_value() ? module->desiredThreads : -1;
+        });
+    }
+
+    /**
      * @brief Registers the module-socket lookup Core::Monitoring::MetricsPusher needs to find
      * the monitoring module's live instance(s), backed by RepositoryFactory::moduleRepository().
      *

@@ -1,0 +1,111 @@
+.TH EUCLID-CLI-EMM-RESTART-MODULE 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-emm-restart-module \- restart a module's instances, one at a time
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B emm restart-module
+.BR \-\-module " " \fIMODULE\fR
+.SH DESCRIPTION
+Restarts every instance of a module without changing anything about it.
+Useful for picking up a new binary after an upgrade, clearing whatever
+state a long-running process has accumulated, or making a module read
+its configuration file again.
+.PP
+Instances are restarted
+.B one per reconcile tick
+(roughly one every five seconds), so the rest of the pool keeps serving
+while the manager works through them. A module running a single instance
+is briefly unavailable while that one restarts; raise its minimum with
+.BR euclid-cli-emm-set-instances (1)
+first if that matters.
+.PP
+This is the one
+.B emm
+request that is an event rather than a setting, and it behaves like one:
+asking twice restarts the module twice, and the request is carried out
+once and not repeated at the next manager start. Nothing has to be
+cleared afterwards.
+.SH WHAT IT DOES NOT CHANGE
+.TP
+.B Desired state
+Nothing about the module is recorded \- not its instance limits, not its
+thread count, not whether it should be running. It is exactly the pool
+it was, restarted.
+.TP
+.B Applications and transfer servers
+are allowed here, unlike
+.BR euclid-cli-emm-stop-module (1).
+Because no desired state changes, there is nothing for EAP's or ETS's
+own reconcile to disagree with \- the same instances come straight back.
+.TP
+.B A stopped module
+has nothing to restart, and starting it would undo what
+.B stop-module
+asked for, so this is refused rather than silently ignored. Use
+.BR euclid-cli-emm-start-module (1)
+instead.
+.SH OPTIONS
+.TP
+.BR \-m ", " \-\-module " " \fIMODULE\fR
+Module to restart, e.g. \fIesm\fR. Required. Must be a module the
+manager knows about \- an unknown name is rejected with
+.I "HTTP 404"
+rather than silently recorded.
+.SH OUTPUT
+The JSON response is printed to standard output:
+.RS
+.TP
+.I name
+The module that will be restarted.
+.TP
+.I runningInstances
+How many instances the manager will cycle through, one per reconcile
+tick, starting on the next one.
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+The restart was accepted.
+.TP
+.B 1
+The stored session is missing or not an administrator's, the module is
+unknown or stopped, the request could not be sent, or the server
+rejected it. Details are printed to standard error.
+.SH EXAMPLES
+Cycle ESM's instances after replacing its binary:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm restart-module --module esm
+.fi
+.RE
+.PP
+Watch the pids change as it works through the pool:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm list-modules
+.fi
+.RE
+.PP
+Make sure a single-instance module has a second instance first, so the
+restart is not an outage:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm set-instances \e
+    --module ets --min 2
+
+euclid-cli --endpoint http://localhost:5566 emm restart-module --module ets
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-emm (1),
+.BR euclid-cli-emm-stop-module (1),
+.BR euclid-cli-emm-start-module (1),
+.BR euclid-cli-emm-set-instances (1),
+.BR euclid-cli-emm-list-modules (1),
+.BR euclid-cli-eam-login (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

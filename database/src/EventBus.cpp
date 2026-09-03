@@ -46,6 +46,33 @@ namespace Euclid::Database {
                 db[SUBSCRIPTION_COLLECTION].create_index(make_document(kvp("moduleType", 1), kvp("eventType", 1)), subscriptionOpts);
                 db[EVENT_COLLECTION].create_index(make_document(kvp("targetModule", 1), kvp("status", 1), kvp("visibleAt", 1)));
 
+                // ClaimEvents takes the OLDEST event a subscriber has, so its query sorts by
+                // createdAt - and the index above stops at visibleAt. Without createdAt in an
+                // index, the sort is a blocking one: Mongo matches every pending event the
+                // subscriber has, sorts all of them, and returns one. Claiming a single event
+                // therefore costs a scan of the whole backlog, which is fine at ten events and
+                // ruinous at a hundred thousand - measured at ~400ms and 290,000 keys examined per
+                // claim on a subscriber that had fallen behind. Worse, it compounds: the further
+                // behind a consumer falls the slower each claim gets, so it falls further behind.
+                //
+                // With this, the common branch (status PENDING) is equality on targetModule and
+                // status followed by createdAt in index order, so the first entry examined is the
+                // answer. The visibleAt index above still serves the other branch - reclaiming an
+                // event whose visibility timeout lapsed - where the candidate set is small.
+                db[EVENT_COLLECTION].create_index(make_document(kvp("targetModule", 1), kvp("status", 1), kvp("createdAt", 1)));
+
+                // Acknowledging deletes by eventId (see AckEvent), and nothing above indexes that
+                // field: the targetModule prefix narrows the delete to one subscriber and then
+                // every event it has is examined to find the one being acknowledged. A consumer
+                // acknowledging fifty events in a batch therefore does fifty scans of its own
+                // backlog - measured at a 33 SECOND average for ack-events against a backlog of
+                // half a million, while every other action in the installation stayed under 20ms.
+                //
+                // It is also self-reinforcing in the worst way: acknowledging is how the backlog
+                // shrinks, so the slower it gets the less it drains, and the less it drains the
+                // slower it gets. An eventId is a UUID, so this seeks straight to the one document.
+                db[EVENT_COLLECTION].create_index(make_document(kvp("eventId", 1)));
+
                 // Only external envelopes carry expiresAt, so this expires an abandoned
                 // consumer's backlog and leaves module deliveries - which have no such field -
                 // untouched.

@@ -193,8 +193,9 @@ namespace Euclid::main {
         std::thread(drainPipe, errFd, true).detach();
 
         const bool liveness = svc->config.readiness == Dto::ModuleConfig::ReadinessCheck::Liveness;
-        if (liveness ? waitAlive(svc->processHandle, svc->config.livenessGraceMs)
-                     : waitForSocket(svc->instanceSocketPath, svc->config.readyTimeoutMs)) {
+        if (liveness
+                ? waitAlive(svc->processHandle, svc->config.livenessGraceMs)
+                : waitForSocket(svc->instanceSocketPath, svc->config.readyTimeoutMs)) {
             svc->state = Database::Entity::ModuleState::RUNNING;
             log_info << "Service ready, name: " << svc->config.name << ", pid: " << svc->pid
                     << (liveness ? ", running" : ", socket: " + svc->instanceSocketPath);
@@ -288,8 +289,9 @@ namespace Euclid::main {
         // An application is judged by whether it is still running, a module by whether it has
         // created its socket - see ModuleConfig::ReadinessCheck for why the two differ.
         const bool liveness = svc->config.readiness == Dto::ModuleConfig::ReadinessCheck::Liveness;
-        if (liveness ? waitAlive(svc, svc->config.livenessGraceMs)
-                     : waitForSocket(svc->instanceSocketPath, svc->config.readyTimeoutMs)) {
+        if (liveness
+                ? waitAlive(svc, svc->config.livenessGraceMs)
+                : waitForSocket(svc->instanceSocketPath, svc->config.readyTimeoutMs)) {
             svc->state = Database::Entity::ModuleState::RUNNING;
             log_info << "Service ready, name: " << svc->config.name << ", pid: " << svc->pid
                     << (liveness ? ", running" : ", socket: " + svc->instanceSocketPath);
@@ -448,11 +450,11 @@ namespace Euclid::main {
             }
 
 #ifdef _WIN32
-            constexpr auto kDefaultStorageDir = R"(C:\Program Files\euclid\data\storage)";
+            constexpr auto kDefaultStorageDir = R"(C:\Program Files\euclid\data\esm)";
 #else
-            constexpr auto kDefaultStorageDir = "/usr/local/euclid/data/storage";
+            constexpr auto kDefaultStorageDir = "/usr/local/euclid/data/esm";
 #endif
-            const auto storageDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.storage.data-dir", kDefaultStorageDir);
+            const auto storageDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultStorageDir);
             const auto source = std::filesystem::path(storageDir) / object->internalName;
 
             std::error_code ec;
@@ -483,8 +485,8 @@ namespace Euclid::main {
             if (std::filesystem::exists(target, ec)) {
                 try {
                     current = object->md5Sum.empty()
-                                      ? static_cast<long>(std::filesystem::file_size(target, ec)) == object->size
-                                      : Core::CryptoUtils::md5SumFile(target.string()) == object->md5Sum;
+                                  ? static_cast<long>(std::filesystem::file_size(target, ec)) == object->size
+                                  : Core::CryptoUtils::md5SumFile(target.string()) == object->md5Sum;
                 } catch (const std::exception &e) {
                     // Unreadable for whatever reason - copying over it is the safe answer, and the
                     // copy reports its own failure.
@@ -879,13 +881,207 @@ namespace Euclid::main {
     }
 
 
+    void ServiceController::reconcileModuleSettings() {
+
+        // Read outside the lock: this is a database call, and holding _mutex across one would
+        // stall acquireInstance() for every request the gateway is routing.
+        const auto modules = Database::RepositoryFactory::instance().emmRepository()->findAll();
+
+        std::vector<std::shared_ptr<Dto::ModuleProcess> > toSpawn;
+        std::vector<std::shared_ptr<Dto::ModuleProcess> > toStop;
+        {
+            std::lock_guard lock(_mutex);
+
+            // Stopped first, so a module being stopped is not also spawned up to a floor on the
+            // same tick - and so one being started again is sized by the limits below.
+            for (const auto &module: modules) {
+                auto *group = getGroup(module.name);
+                if (!group || group->stopped == module.desiredStopped) continue;
+
+                group->stopped = module.desiredStopped;
+                if (group->stopped) {
+                    log_info << "Module stopped, module: " << module.name << ", instances: " << group->instances.size();
+                    for (auto &svc: group->instances) {
+                        if (svc->pid > 0) toStop.push_back(svc);
+                    }
+                    // The slots stay in the pool, marked STOPPED, exactly as an ordinary stop()
+                    // leaves them - so start-module has something to bring back, and nothing here
+                    // has to remember how big the pool used to be.
+                    group->pendingRoll.clear();
+                } else {
+                    log_info << "Module started, module: " << module.name;
+                    while (static_cast<int>(group->instances.size()) < group->config.minInstances) {
+                        auto svc = std::make_shared<Dto::ModuleProcess>();
+                        svc->config = group->config;
+                        group->instances.push_back(svc);
+                    }
+                    for (auto &svc: group->instances) {
+                        if (svc->pid <= 0) toSpawn.push_back(svc);
+                    }
+                }
+            }
+
+            for (const auto &module: modules) {
+                if (module.desiredMinInstances < 0 && module.desiredMaxInstances < 0) continue;
+
+                auto *group = getGroup(module.name);
+                if (!group) continue;
+
+                const auto wantedMin = module.desiredMinInstances >= 0 ? module.desiredMinInstances : group->config.minInstances;
+                const auto wantedMax = module.desiredMaxInstances >= 0 ? module.desiredMaxInstances : group->config.maxInstances;
+                if (wantedMin == group->config.minInstances && wantedMax == group->config.maxInstances) continue;
+
+                log_info << "Instance limits changed, module: " << module.name
+                         << ", minInstances: " << group->config.minInstances << " -> " << wantedMin
+                         << ", maxInstances: " << group->config.maxInstances << " -> " << wantedMax;
+
+                group->config.minInstances = wantedMin;
+                group->config.maxInstances = wantedMax;
+
+                // Raising the floor has to bring instances up by itself: evaluateScaling() only
+                // spawns on saturation or to reach desiredCount, and an idle pool is neither. A
+                // lowered ceiling needs nothing here - the pool shrinks as instances go idle,
+                // rather than killing one mid-request to obey a new number.
+                group->desiredCount = std::max(group->desiredCount, wantedMin);
+                if (group->stopped) continue;// nothing runs for a stopped module, floor or no floor
+                while (static_cast<int>(group->instances.size()) < wantedMin) {
+                    auto svc = std::make_shared<Dto::ModuleProcess>();
+                    svc->config = group->config;
+                    group->instances.push_back(svc);
+                    toSpawn.push_back(svc);
+                }
+            }
+        }
+
+        // Stopped and spawned outside the lock, like every other one here: both wait on a process,
+        // and nothing else can route a request while _mutex is held.
+        for (auto &svc: toStop) {
+            log_info << "Stopping " << svc->config.name << " (pid " << svc->pid << "), module stopped";
+            stopInstance(svc);
+        }
+
+        for (auto &svc: toSpawn) {
+            spawnInstance(svc);
+        }
+
+        reconcileWorkerThreads(modules);
+        reconcileRestarts(modules);
+
+        // Both of the above only queue; this is the one that acts, so a thread change and a
+        // restart asked for on the same tick cost one restart between them rather than two.
+        rollQueuedInstance();
+    }
+
+    void ServiceController::reconcileWorkerThreads(const std::vector<Database::Entity::Module> &modules) {
+
+        std::lock_guard lock(_mutex);
+        for (const auto &module: modules) {
+            auto *group = getGroup(module.name);
+            if (!group) continue;
+
+            // The first time a module is seen, whatever is stored is already what its running
+            // instances started with - they read it themselves as they came up - so it is
+            // recorded and nothing is restarted. Without this, every manager start would roll
+            // every module that has ever had its thread count set.
+            if (group->appliedThreads == ServiceGroup::kThreadsUnobserved) {
+                group->appliedThreads = module.desiredThreads;
+                continue;
+            }
+            if (module.desiredThreads == group->appliedThreads) continue;
+
+            log_info << "Worker threads changed, module: " << module.name
+                     << ", threads: " << group->appliedThreads << " -> " << module.desiredThreads
+                     << ", restarting " << group->instances.size() << " instance(s)";
+
+            // A thread count is fixed when the io_context's threads are created, so the only way
+            // to apply a new one is to start the process again.
+            group->appliedThreads = module.desiredThreads;
+            queueRoll(*group);
+        }
+    }
+
+    void ServiceController::reconcileRestarts(const std::vector<Database::Entity::Module> &modules) {
+
+        std::lock_guard lock(_mutex);
+        for (const auto &module: modules) {
+            auto *group = getGroup(module.name);
+            if (!group) continue;
+
+            // Same first-observation rule as the thread count, and for a stronger reason: a
+            // request made before this manager started has already been satisfied by it starting.
+            // Without this, one restart-module would restart the module again after every manager
+            // start, forever.
+            if (!group->restartObserved) {
+                group->restartObserved = true;
+                group->appliedRestartAt = module.restartRequestedAt;
+                continue;
+            }
+            if (module.restartRequestedAt <= group->appliedRestartAt) continue;
+
+            group->appliedRestartAt = module.restartRequestedAt;
+            if (group->stopped) {
+                // Nothing to restart, and starting it would undo what stop-module asked for. The
+                // request is still recorded as handled, so it is not carried out later on.
+                log_info << "Restart requested for a stopped module, ignoring, module: " << module.name;
+                continue;
+            }
+
+            log_info << "Restart requested, module: " << module.name << ", restarting " << group->instances.size() << " instance(s)";
+            queueRoll(*group);
+        }
+    }
+
+    void ServiceController::queueRoll(ServiceGroup &group) {
+        // Replaces rather than appends: whatever the pool looks like now is what should be
+        // cycled, and an instance left over from a superseded request would be restarted twice.
+        group.pendingRoll.clear();
+        for (auto &svc: group.instances) {
+            if (svc->pid > 0) group.pendingRoll.push_back(svc);
+        }
+    }
+
+    void ServiceController::rollQueuedInstance() {
+
+        std::shared_ptr<Dto::ModuleProcess> toRoll;
+        int restartDelayMs = 1000;
+        {
+            std::lock_guard lock(_mutex);
+
+            // One instance per tick, across all modules: this runs on the watchdog thread, and
+            // stopping and starting a process is not quick. A pool of any size keeps serving from
+            // its other instances while it is worked through.
+            for (auto &group: _services | std::views::values) {
+                while (!group.pendingRoll.empty() && !toRoll) {
+                    auto candidate = group.pendingRoll.back();
+                    group.pendingRoll.pop_back();
+                    // Skip anything that has since been scaled down or given up on: the slot is
+                    // gone, and starting it again would put back an instance nobody wants.
+                    if (!std::ranges::contains(group.instances, candidate)) continue;
+                    toRoll = std::move(candidate);
+                    restartDelayMs = group.config.restartDelayMs;
+                }
+                if (toRoll) break;
+            }
+        }
+
+        if (!toRoll) return;
+
+        log_info << "Restarting " << toRoll->config.name << " instance, pid: " << toRoll->pid;
+        stopInstance(toRoll);
+        std::this_thread::sleep_for(std::chrono::milliseconds(restartDelayMs));
+        spawnInstance(toRoll);
+    }
+
     bool ServiceController::modulesRunning() const {
         std::lock_guard lock(_mutex);
         for (const auto &group: _services | std::views::values) {
             if (!group.config.core) continue;
+            // A module nobody wants running is not one to wait for - otherwise stopping any one
+            // of them would keep every application from ever starting.
+            if (group.stopped) continue;
             if (std::ranges::none_of(group.instances, [](const auto &svc) {
-                    return svc->state == Database::Entity::ModuleState::RUNNING;
-                })) {
+                return svc->state == Database::Entity::ModuleState::RUNNING;
+            })) {
                 return false;
             }
         }
@@ -904,8 +1100,8 @@ namespace Euclid::main {
             if (group == _services.end()) continue;
 
             if (std::ranges::none_of(group->second.instances, [](const auto &svc) {
-                    return svc->state == Database::Entity::ModuleState::RUNNING;
-                })) {
+                return svc->state == Database::Entity::ModuleState::RUNNING;
+            })) {
                 return false;
             }
         }
@@ -913,6 +1109,21 @@ namespace Euclid::main {
     }
 
     void ServiceController::startAll() {
+
+        // What was stopped through "emm stop-module" is desired state, so it outlives the manager:
+        // read before anything is started, rather than started and then stopped again seconds
+        // later by the first reconcile tick.
+        try {
+            std::lock_guard lock(_mutex);
+            for (const auto &module: Database::RepositoryFactory::instance().emmRepository()->findAll()) {
+                if (auto *group = getGroup(module.name)) group->stopped = module.desiredStopped;
+            }
+        } catch (const std::exception &e) {
+            // Not fatal: a manager that cannot reach the database has bigger problems than a
+            // module that comes up when it should not have, and the reconcile will stop it anyway.
+            log_error << "Could not read which modules are stopped, starting all of them, error: " << e.what();
+        }
+
         const auto names = startOrder();
 
         std::string order;
@@ -927,7 +1138,18 @@ namespace Euclid::main {
         // whole point of the ordering. What it does not guarantee is that a dependency has
         // finished whatever it does lazily on its first request; a module that must not be called
         // before it is truly warm should do that work before it creates its socket.
-        for (const auto &name: names) start(name);
+        for (const auto &name: names) {
+            bool stopped = false;
+            {
+                std::lock_guard lock(_mutex);
+                if (const auto *group = getGroup(name)) stopped = group->stopped;
+            }
+            if (stopped) {
+                log_info << "Not starting module, module: " << name << ", stopped through emm stop-module";
+                continue;
+            }
+            start(name);
+        }
     }
 
     void ServiceController::stopAll() {
@@ -1097,6 +1319,15 @@ namespace Euclid::main {
                     } catch (const std::exception &e) {
                         log_error << "Application reconcile failed, error: " << e.what();
                     }
+
+                    // And the instance limits and thread counts somebody asked for through
+                    // "emm set-instances" / "emm set-threads", which are only a record in the
+                    // database until this applies them.
+                    try {
+                        reconcileModuleSettings();
+                    } catch (const std::exception &e) {
+                        log_error << "Module settings reconcile failed, error: " << e.what();
+                    }
                 }
 
                 const bool dbReachable = isDatabaseReachable();
@@ -1116,6 +1347,11 @@ namespace Euclid::main {
                     std::lock_guard lock(_mutex);
 
                     for (auto &group: _services | std::views::values) {
+                        // Same reason as in evaluateScaling(): a module somebody stopped should
+                        // stay stopped, including when one of its instances was mid-backoff at
+                        // the moment it was asked for.
+                        if (group.stopped) continue;
+
                         for (auto &svc: group.instances) {
                             if (svc->state != Database::Entity::ModuleState::PENDING_RESTART) continue;
 
@@ -1330,6 +1566,10 @@ namespace Euclid::main {
         const auto now = std::chrono::steady_clock::now();
 
         for (auto &group: _services | std::views::values) {
+            // A stopped module is not idle, it is off. Scaling it either way would undo what
+            // stop-module asked for, one tick after it was asked.
+            if (group.stopped) continue;
+
             int running = 0, busy = 0;
             std::shared_ptr<Dto::ModuleProcess> idleCandidate;
 

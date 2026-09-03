@@ -55,6 +55,7 @@
         "executable": "/usr/local/euclid/bin/euclid-eam",
         "minInstances": 1,
         "maxInstances": 2,
+        "threads": 2,
         "jwt-secret": "changeme-set-a-real-secret-in-production"
       },
       "esm": {
@@ -70,6 +71,7 @@
         "data-dir": "/usr/local/euclid/data/esm",
         "minInstances": 1,
         "maxInstances": 10,
+        "threads": 2,
         "counter-period": 60,
         "sync-period": 3600,
         "archive-timeout": 300
@@ -108,7 +110,8 @@
           "count": 5
         },
         "minInstances": 1,
-        "maxInstances": 4
+        "maxInstances": 4,
+        "threads": 2
       },
       "emo": {
         "active": true,
@@ -116,7 +119,8 @@
         "socketPath": "/var/run/euclid/euclid-emo.sock",
         "executable": "/usr/local/euclid/bin/euclid-emo",
         "minInstances": 1,
-        "maxInstances": 1
+        "maxInstances": 1,
+        "threads": 2
       },
       "ekm": {
         "active": true,
@@ -125,6 +129,7 @@
         "executable": "/usr/local/euclid/bin/euclid-ekm",
         "minInstances": 1,
         "maxInstances": 4,
+        "threads": 2,
         "backup": {
           "active": true,
           "cron": "0 0 0 * * ?",
@@ -137,7 +142,8 @@
         "socketPath": "/var/run/euclid/euclid-emm.sock",
         "executable": "/usr/local/euclid/bin/euclid-emm",
         "minInstances": 1,
-        "maxInstances": 1
+        "maxInstances": 1,
+        "threads": 2
       },
       "eap": {
         "active": true,
@@ -147,7 +153,8 @@
         "socket-dir": "/var/run/euclid",
         "data-dir": "/usr/local/euclid/data/eap",
         "minInstances": 1,
-        "maxInstances": 1
+        "maxInstances": 1,
+        "threads": 2
       },
       "lambda": {
         "active": true,

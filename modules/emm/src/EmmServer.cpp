@@ -208,10 +208,24 @@ namespace Euclid::EMM {
                     {"executable", m.executable},
                     {"socketPath", m.socketPath},
                     {"active", m.active},
+                    // What the control actions on this module will and will not accept: only a
+                    // core module can be started and stopped here (an application's or a transfer
+                    // server's desired state belongs to EAP and ETS), and restart-module refuses a
+                    // module that is stopped. Reported so a caller can say so before asking rather
+                    // than by being refused.
+                    {"core", m.core},
+                    {"desiredStopped", m.desiredStopped},
                     {"autoRestart", m.autoRestart},
                     {"maxRestarts", m.maxRestarts},
                     {"minInstances", m.minInstances},
                     {"maxInstances", m.maxInstances},
+                    // The limits set through set-instances/set-threads but not yet reconciled into
+                    // the three above; -1 for "nothing pending". Without them a caller adjusting a
+                    // limit twice in quick succession would compute the second change from the
+                    // value the first one has already replaced.
+                    {"desiredMinInstances", m.desiredMinInstances},
+                    {"desiredMaxInstances", m.desiredMaxInstances},
+                    {"desiredThreads", m.desiredThreads},
                     {"created", Core::DateTimeUtils::ToISO8601(m.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(m.modified)},
                     {"lastStartTime", m.lastStartTime.time_since_epoch().count() == 0 ? boost::json::value(nullptr) : boost::json::value(Core::DateTimeUtils::ToISO8601(m.lastStartTime))},
@@ -440,6 +454,249 @@ namespace Euclid::EMM {
                                        }));
     }
 
+    // Sets the instance limits the autoscaler works within, for a module already known to the
+    // manager.
+    //
+    // Recorded rather than applied: EMM runs in its own process and the limits live in the
+    // manager's memory, so this writes what was asked for and the manager picks it up on its next
+    // reconcile - within a second or so. The request is written to fields nothing else touches
+    // (see Entity::Module::desiredMinInstances), because the module document's own
+    // minInstances/maxInstances are rewritten from the manager's configuration every time an
+    // instance changes state, and a limit stored there would last only until the next restart.
+    //
+    // It also outlives the manager: the request stays on the document, and start-up applies it
+    // over euclid.json, so a limit set here is still set after a restart.
+    static response<string_body> handleSetInstances(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-instances");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EmmServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EmmServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+        const auto &obj = jv.as_object();
+
+        const auto name = obj.contains("name") && obj.at("name").is_string() ? std::string(obj.at("name").as_string()) : std::string();
+        if (name.empty()) return EmmServer::ErrorResponse(req, status::bad_request, "name is required");
+
+        // Absent means "leave that one as it is", which is what lets a caller raise a ceiling
+        // without having to restate the floor.
+        auto limit = [&obj](const char *field) -> int {
+            if (!obj.contains(field) || !obj.at(field).is_int64()) return -1;
+            return static_cast<int>(obj.at(field).as_int64());
+        };
+        const auto minInstances = limit("minInstances");
+        const auto maxInstances = limit("maxInstances");
+
+        if (minInstances < 0 && maxInstances < 0) {
+            return EmmServer::ErrorResponse(req, status::bad_request, "at least one of minInstances or maxInstances is required");
+        }
+        // A floor of zero is meaningful - it lets a module scale away entirely when idle - so only
+        // negatives are refused, and those only when the field was actually given.
+        if (obj.contains("minInstances") && minInstances < 0) {
+            return EmmServer::ErrorResponse(req, status::bad_request, "minInstances must be 0 or more");
+        }
+        if (obj.contains("maxInstances") && maxInstances < 1) {
+            return EmmServer::ErrorResponse(req, status::bad_request, "maxInstances must be 1 or more");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().emmRepository();
+        const auto module = repo->findByName(name);
+        if (!module.has_value()) {
+            return EmmServer::ErrorResponse(req, status::not_found, "Module not found, name: " + name);
+        }
+
+        // Checked against whatever the other limit will end up being - the one being set now, or
+        // the one already standing - so the pair can never be left crossed.
+        const auto effectiveMin = minInstances >= 0 ? minInstances
+                                  : module->desiredMinInstances >= 0 ? module->desiredMinInstances
+                                                                     : module->minInstances;
+        const auto effectiveMax = maxInstances >= 0 ? maxInstances
+                                  : module->desiredMaxInstances >= 0 ? module->desiredMaxInstances
+                                                                     : module->maxInstances;
+        if (effectiveMin > effectiveMax) {
+            return EmmServer::ErrorResponse(req, status::bad_request,
+                                            "minInstances (" + std::to_string(effectiveMin) + ") cannot exceed maxInstances (" + std::to_string(effectiveMax) + ")");
+        }
+
+        if (!repo->setDesiredInstances(name, minInstances, maxInstances)) {
+            return EmmServer::ErrorResponse(req, status::internal_server_error, "Could not set instance limits, name: " + name);
+        }
+
+        log_info << "EMM set-instances, module: " << name << ", minInstances: " << effectiveMin << ", maxInstances: " << effectiveMax;
+
+        return EmmServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"name", name},
+                                                                {"minInstances", effectiveMin},
+                                                                {"maxInstances", effectiveMax},
+                                                                // What the pool looks like right now; the manager moves it
+                                                                // toward the limits above on its next reconcile.
+                                                                {"runningInstances", static_cast<long>(module->instances.size())},
+                                                        }));
+    }
+
+    static response<string_body> handleSetThreads(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-threads");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EmmServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EmmServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+        const auto &obj = jv.as_object();
+
+        const auto name = obj.contains("name") && obj.at("name").is_string() ? std::string(obj.at("name").as_string()) : std::string();
+        if (name.empty()) return EmmServer::ErrorResponse(req, status::bad_request, "name is required");
+
+        if (!obj.contains("threads") || !obj.at("threads").is_int64()) {
+            return EmmServer::ErrorResponse(req, status::bad_request, "threads is required");
+        }
+        const auto threads = static_cast<int>(obj.at("threads").as_int64());
+
+        // The same range Core::HttpActionServer::ConfiguredWorkerThreads() clamps to, refused here
+        // rather than silently corrected: a number stored that the module will not honour is worse
+        // than an error, because nothing afterwards would ever say so.
+        constexpr int kMaxWorkerThreads = 256;
+        if (threads < 1 || threads > kMaxWorkerThreads) {
+            return EmmServer::ErrorResponse(req, status::bad_request, "threads must be between 1 and " + std::to_string(kMaxWorkerThreads));
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().emmRepository();
+        const auto module = repo->findByName(name);
+        if (!module.has_value()) {
+            return EmmServer::ErrorResponse(req, status::not_found, "Module not found, name: " + name);
+        }
+
+        if (!repo->setDesiredThreads(name, threads)) {
+            return EmmServer::ErrorResponse(req, status::internal_server_error, "Could not set worker threads, name: " + name);
+        }
+
+        log_info << "EMM set-threads, module: " << name << ", threads: " << threads;
+
+        return EmmServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"name", name},
+                                                                {"threads", threads},
+                                                                // A thread count is fixed when a process starts, so this
+                                                                // is how many instances the manager still has to cycle
+                                                                // through before every one of them is running with it.
+                                                                {"runningInstances", static_cast<long>(module->instances.size())},
+                                                        }));
+    }
+
+    // Shared by stop-module and start-module, which differ only in the state they record and in
+    // what they refuse: the same body, the same lookup, the same answer.
+    static response<string_body> handleSetStopped(const request<string_body> &req, const bool stopped) {
+
+        const auto action = stopped ? "stop-module" : "start-module";
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", action);
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EmmServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EmmServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+        const auto &obj = jv.as_object();
+
+        const auto name = obj.contains("name") && obj.at("name").is_string() ? std::string(obj.at("name").as_string()) : std::string();
+        if (name.empty()) return EmmServer::ErrorResponse(req, status::bad_request, "name is required");
+
+        // Stopping EMM would take away the only way to start it again - every other module can be
+        // brought back with the command this is, and this one cannot. Refused rather than
+        // left as a door that locks behind you.
+        if (stopped && name == "emm") {
+            return EmmServer::ErrorResponse(req, status::bad_request, "emm cannot stop itself - there would be nothing left to start it again");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().emmRepository();
+        const auto module = repo->findByName(name);
+        if (!module.has_value()) {
+            return EmmServer::ErrorResponse(req, status::not_found, "Module not found, name: " + name);
+        }
+
+        // Transfer servers and application pools are modules to the manager, but their desired
+        // state belongs to ETS and EAP and is reconciled from there - anything recorded here would
+        // be undone within seconds. Refused, with a pointer at the command that does work.
+        if (!module->core) {
+            return EmmServer::ErrorResponse(req, status::bad_request,
+                                            name + " is not a euclid module - use \"eap stop-application\" or \"ets stop-server\" for its own kind");
+        }
+
+        if (module->desiredStopped == stopped) {
+            log_debug << "EMM " << action << ", module: " << name << ", already in that state";
+        } else if (!repo->setDesiredStopped(name, stopped)) {
+            return EmmServer::ErrorResponse(req, status::internal_server_error, std::string("Could not ") + action + ", name: " + name);
+        } else {
+            log_info << "EMM " << action << ", module: " << name;
+        }
+
+        return EmmServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"name", name},
+                                                                {"stopped", stopped},
+                                                                // What the pool still looks like: the manager stops or
+                                                                // starts the instances on its next reconcile, so this is
+                                                                // the count before it has acted, not after.
+                                                                {"runningInstances", static_cast<long>(module->instances.size())},
+                                                        }));
+    }
+
+    static response<string_body> handleStopModule(const request<string_body> &req) {
+        return handleSetStopped(req, true);
+    }
+
+    static response<string_body> handleStartModule(const request<string_body> &req) {
+        return handleSetStopped(req, false);
+    }
+
+    static response<string_body> handleRestartModule(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "restart-module");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EmmServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EmmServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+        const auto &obj = jv.as_object();
+
+        const auto name = obj.contains("name") && obj.at("name").is_string() ? std::string(obj.at("name").as_string()) : std::string();
+        if (name.empty()) return EmmServer::ErrorResponse(req, status::bad_request, "name is required");
+
+        const auto repo = Database::RepositoryFactory::instance().emmRepository();
+        const auto module = repo->findByName(name);
+        if (!module.has_value()) {
+            return EmmServer::ErrorResponse(req, status::not_found, "Module not found, name: " + name);
+        }
+
+        // Nothing runs for a stopped module, so there is nothing to restart - and the manager would
+        // have to start it to honour this, undoing what stop-module asked for. Refused here, where
+        // it can be said plainly, rather than silently ignored a tick later.
+        if (module->desiredStopped) {
+            return EmmServer::ErrorResponse(req, status::bad_request, name + " is stopped - use \"emm start-module\" to bring it back");
+        }
+
+        // Unlike stop-module, this is allowed for applications and transfer servers too: it changes
+        // no desired state, so there is nothing for EAP's or ETS's own reconcile to disagree with -
+        // the same instances come straight back.
+        if (!repo->requestRestart(name)) {
+            return EmmServer::ErrorResponse(req, status::internal_server_error, "Could not request a restart, name: " + name);
+        }
+
+        log_info << "EMM restart-module, module: " << name << ", instances: " << module->instances.size();
+
+        return EmmServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"name", name},
+                                                                // How many instances the manager will cycle through, one
+                                                                // per reconcile tick, starting on the next one.
+                                                                {"runningInstances", static_cast<long>(module->instances.size())},
+                                                        }));
+    }
+
     // ── Request dispatcher ───────────────────────────────────────────────────
 
     namespace {
@@ -447,6 +704,11 @@ namespace Euclid::EMM {
         enum class Command {
             Unknown,
             ListModules,
+            SetInstances,
+            SetThreads,
+            StopModule,
+            StartModule,
+            RestartModule,
             Export,
             Import
         };
@@ -454,6 +716,11 @@ namespace Euclid::EMM {
 
     static Command commandFromString(const std::string &action) {
         if (action == "list-modules") return Command::ListModules;
+        if (action == "set-instances") return Command::SetInstances;
+        if (action == "set-threads") return Command::SetThreads;
+        if (action == "stop-module") return Command::StopModule;
+        if (action == "start-module") return Command::StartModule;
+        if (action == "restart-module") return Command::RestartModule;
         if (action == "export") return Command::Export;
         if (action == "import") return Command::Import;
         return Command::Unknown;
@@ -471,6 +738,21 @@ namespace Euclid::EMM {
 
             case Command::ListModules:
                 return handleListModules(req);
+
+            case Command::SetInstances:
+                return handleSetInstances(req);
+
+            case Command::SetThreads:
+                return handleSetThreads(req);
+
+            case Command::StopModule:
+                return handleStopModule(req);
+
+            case Command::StartModule:
+                return handleStartModule(req);
+
+            case Command::RestartModule:
+                return handleRestartModule(req);
 
             case Command::Export:
                 return handleExport(req);

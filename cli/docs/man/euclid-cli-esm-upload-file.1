@@ -42,7 +42,7 @@ Local file to upload. Required.
 .TP
 .BR \-s ", " \-\-part\-size " " \fIBYTES\fR
 Size of each part, in bytes. Defaults to \fI5242880\fR (5 MiB), or the
-value of \fIeuclid.modules.storage.part-size\fR in the loaded
+value of \fIeuclid.modules.esm.part-size\fR in the loaded
 configuration file if set - see
 .BR \-\-config
 in
@@ -50,7 +50,7 @@ in
 .TP
 .BR \-j ", " \-\-concurrency " " \fIN\fR
 Number of parts to upload in parallel. Defaults to \fI4\fR, or the
-value of \fIeuclid.modules.storage.concurrency\fR in the loaded
+value of \fIeuclid.modules.esm.concurrency\fR in the loaded
 configuration file if set; values less than \fI1\fR are treated as
 \fI1\fR.
 .SH EXIT STATUS
@@ -67,11 +67,11 @@ after retries.
 .RS
 .nf
 euclid-cli --endpoint http://localhost:5566 esm upload-file \e
-    --bucket-ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports \e
+    --bucket-ern ern:esm:eu-central-1:000000000000:bucket:reports \e
     --key 2026-08.csv --file ./2026-08.csv
 
 euclid-cli --endpoint http://localhost:5566 esm upload-file \e
-    --bucket-ern ern:euclid:storage:eu-central-1:000000000000:bucket:reports \e
+    --bucket-ern ern:esm:eu-central-1:000000000000:bucket:reports \e
     --key archive/2026-08.csv --file ./2026-08.csv \e
     --part-size 8388608 --concurrency 8
 .fi

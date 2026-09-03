@@ -114,6 +114,28 @@ namespace Euclid::Database::Entity {
         bool active = true;
 
         /**
+         * @brief Whether this module is one of the installation's own, declared in euclid.json,
+         * as opposed to a transfer server or an application pool the manager created at runtime.
+         *
+         * @par
+         * The distinction matters because the runtime pools have their own desired state, held by
+         * ETS and EAP and reconciled from there - stopping one through EMM would only be undone on
+         * the next reconcile, so EMM refuses rather than pretending.
+         */
+        bool core = false;
+
+        /**
+         * @brief Whether somebody has stopped this module through EMM's stop-module.
+         *
+         * @par
+         * Desired state rather than observed: the manager stops the module's instances when it
+         * sees this and keeps them stopped - no restart, no autoscaling, no starting it again at
+         * the next manager start - until start-module clears it. An instance that is merely
+         * stopped, without this, is one the manager will bring straight back.
+         */
+        bool desiredStopped = false;
+
+        /**
          * @brief Whether crashed instances of this module are automatically restarted.
          */
         bool autoRestart{};
@@ -132,6 +154,52 @@ namespace Euclid::Database::Entity {
          * @brief Maximum number of autoscaled instances the controller may run for this module.
          */
         int maxInstances = 1;
+
+        /**
+         * @brief Instance limits asked for at runtime, or -1 for "nothing was asked".
+         *
+         * @par
+         * Deliberately separate from minInstances/maxInstances above, which the manager rewrites
+         * from its own configuration every time an instance changes state - a value written into
+         * those by anything else survives only until the next crash, restart or scale event, which
+         * is no way to hold a setting. These are written only by EMM's set-instances and read only
+         * by the manager, so nothing overwrites them by accident.
+         *
+         * @par
+         * They also outlive the manager: on start-up it applies them over what euclid.json says,
+         * so a limit somebody set stays set until they change it again rather than reverting at
+         * the next restart.
+         */
+        int desiredMinInstances = -1;
+
+        /**
+         * @brief See desiredMinInstances.
+         */
+        int desiredMaxInstances = -1;
+
+        /**
+         * @brief Worker threads asked for at runtime, or -1 for "nothing was asked".
+         *
+         * @par
+         * Read by the module process itself as it starts (see
+         * Core::HttpActionServer::ConfiguredWorkerThreads), taking precedence over
+         * euclid.modules.<name>.threads in euclid.json - which is why, unlike the instance limits,
+         * there is no corresponding field the manager writes back: the thread count is a property
+         * of a running process rather than of the pool, and nothing but this ever records it.
+         */
+        int desiredThreads = -1;
+
+        /**
+         * @brief When somebody last asked for this module through EMM's restart-module, or the
+         * epoch if nobody ever has.
+         *
+         * @par
+         * A moment rather than a flag, because a restart is an event and not a state: the manager
+         * remembers which one it has already carried out, so a second request restarts the module
+         * a second time while re-reading the same one does nothing. Nothing clears it, and nothing
+         * needs to - a request older than the manager is one its own start has already satisfied.
+         */
+        std::chrono::system_clock::time_point restartRequestedAt{};
 
         /**
          * @brief Process arguments list.

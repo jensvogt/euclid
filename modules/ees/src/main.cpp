@@ -129,14 +129,14 @@ int main(const int argc, char *argv[]) {
     // ── Initialize Database ─────────────────────────────
     if (const int error = initializeDatabase(cfg); error != 0) return error;
     Euclid::Database::WireAccessKeyLookup();
+    Euclid::Database::WireWorkerThreadsLookup();
     Euclid::Database::WireModuleSocketLookup();
     Euclid::Database::WireScopeLookup();
     Euclid::Database::WireGrantLookup();
 
     Euclid::Core::Monitoring::MetricsPusher metricsPusher("ees");
     try {
-        Euclid::EES::EesServer server(cliOpts->socketPath,
-                                   Euclid::Core::HttpActionServer::ConfiguredWorkerThreads("ees", 8));
+        Euclid::EES::EesServer server(cliOpts->socketPath, Euclid::Core::HttpActionServer::ConfiguredWorkerThreads("ees", 8));
         return server.RunUntilSignal();
     } catch (const std::exception &e) {
         log_error << "Failed to start application service: " << e.what();
