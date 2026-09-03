@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.62](https://github.com/jensvogt/euclid/compare/1.0.61...v1.0.62) (2026-09-03)
+
+
+### Bug Fixes
+
+* FTP/SFTP server setup ([7c9ba54](https://github.com/jensvogt/euclid/commit/7c9ba546d35bdd9debf09c80129f9da842fcb756))
+* performance of EQS and ESM ([d10319c](https://github.com/jensvogt/euclid/commit/d10319c5852fb71b5173e5ddca67755cdf7daa56))
+
 ## [1.0.61](https://github.com/jensvogt/euclid/compare/v1.0.60...v1.0.61) (2026-09-02)
 
 
