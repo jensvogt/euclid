@@ -5,6 +5,7 @@ euclid-cli-esm-delete-bucket \- delete a storage bucket
 .B euclid-cli esm delete-bucket
 .BR \-\-ern | \-e
 .I ERN
+[\fB\-\-async\fR]
 .SH DESCRIPTION
 Deletes a storage bucket identified by its Euclid resource name (ERN),
 along with every object it contains.
@@ -28,6 +29,27 @@ This cannot be undone.
 .TP
 .BR \-e ", " \-\-ern " " \fIERN\fR
 Euclid resource name of the bucket to delete. Required.
+.TP
+.B \-\-async
+Answer at once and remove the objects in the background, for a bucket
+large enough that emptying it takes minutes.
+.PP
+Without it the whole removal happens inside the request: with a million
+objects that is a million round trips, far longer than the gateway's
+backend timeout, so the call fails with a timeout while the removal
+carries on unseen behind the abandoned request. With it the answer is
+.I "HTTP 202"
+carrying the object count at the time of asking, and a thread inside ESM
+does the work.
+.PP
+The bucket itself is deleted
+.I last,
+once its objects are gone, so it stays listed \- and still deletable \-
+until it genuinely is. That is what makes the operation resumable: if
+ESM is stopped or scaled down halfway through, asking again picks up
+where it left off, rather than leaving objects behind that nothing could
+reach. Watch it drain with
+.BR euclid-cli-esm-list-objects (1).
 .SH EXIT STATUS
 .TP
 .B 0

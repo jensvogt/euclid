@@ -51,6 +51,7 @@
 #include <euclid/dto/eqs/SendMessageResponse.h>
 #include <euclid/dto/eqs/SetMessageAttributeRequest.h>
 #include <euclid/dto/eqs/SetMessageVisibilityRequest.h>
+#include <euclid/dto/eqs/SetQueueVisibilityRequest.h>
 
 namespace Euclid::EQS {
 
