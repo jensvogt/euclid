@@ -76,7 +76,7 @@ namespace Euclid::Database {
          * @return list of all queue entities.
          */
         [[nodiscard]]
-        std::vector<Entity::EKM::Key> listKeys(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const override;
+        std::vector<Entity::EKM::Key> listKeys(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const override;
 
         /**
          * @brief Get the total number of keys
@@ -87,7 +87,7 @@ namespace Euclid::Database {
          * @return total number of keys
          */
         [[nodiscard]]
-        long countKeys(const std::string &accountId, const std::string &nameSpace, const std::string &prefix = "") const override;
+        long countKeys(const std::string &accountId, const std::string &nameSpace, const std::string &prefix) const override;
 
         /**
          * @brief Permanently deletes every key whose scheduled deletion date has passed

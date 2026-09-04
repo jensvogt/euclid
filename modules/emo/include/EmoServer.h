@@ -95,14 +95,43 @@ namespace Euclid::Monitoring {
         static void collectCpuUsage();
 
         /**
+         * @brief Samples the machine's memory usage, labelled by host.
+         *
+         * @par
+         * The host's, not a process's: "euclid-memory-usage-percent" is recorded per module from
+         * /proc/self/status and answers what one process holds, which is a different question and
+         * cannot be added up into this one.
+         */
+        static void collectMemoryUsage();
+
+        /**
+         * @brief Records the database's own size, object count and collection count.
+         *
+         * @par
+         * Asked of the repository rather than measured here, so the in-memory backend can answer
+         * "there is nothing to measure" instead of this module having to know which backend it is
+         * running on. Recorded as gauges beside the host's CPU and memory: it is the same kind of
+         * fact - what this installation is currently consuming - and the same thing an operator
+         * watches to see a disk filling before it does.
+         */
+        static void collectDatabaseSize();
+
+        /**
          * @brief Ids of the scheduled flush/rollup/prune/cpu-usage tasks, used to cancel them on destruction.
          */
         std::string _flushTaskId;
         std::string _pruneTaskId;
         std::string _hourRollupTaskId;
         std::string _dayRollupTaskId;
+        std::string _databaseSizeTaskId;
+
         std::string _cpuUsageTaskId;
+        std::string _memoryUsageTaskId;
         std::string _queueCountsTaskId;
+
+        std::string _bucketCountsTaskId;
+
+        std::string _topicCountsTaskId;
     };
 
 }// namespace Euclid::Monitoring

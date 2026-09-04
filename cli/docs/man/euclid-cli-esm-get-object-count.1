@@ -17,6 +17,14 @@ Euclid resource name of the bucket. Required.
 .BR \-p ", " \-\-prefix " " \fIPREFIX\fR
 Only count objects whose key starts with this prefix. Optional; if
 omitted, every object in the bucket is counted.
+.PP
+The bucket may be given by
+.B name
+instead of by ERN, in which case it is resolved in your session's account
+and namespace; see
+.B NAMES AND ERNS
+in
+.BR euclid-cli-esm (1).
 .SH EXIT STATUS
 .TP
 .B 0

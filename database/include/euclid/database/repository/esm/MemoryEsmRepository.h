@@ -122,7 +122,7 @@ namespace Euclid::Database {
          * @param sortColumn field to sort by (e.g. "name", "ern"); empty means unsorted
          * @return list of matching bucket entities.
          */
-        std::vector<Entity::ESM::Bucket> listBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const override {
+        std::vector<Entity::ESM::Bucket> listBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const override {
             std::lock_guard lock(_mutex);
             std::vector<Entity::ESM::Bucket> result;
             for (const auto &b: _bucketStore | std::views::values) {
@@ -165,13 +165,27 @@ namespace Euclid::Database {
          *
          * @return total number of buckets
          */
-        long countBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "") const override {
+        long countBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix) const override {
             std::lock_guard lock(_mutex);
-            return static_cast<long>(std::ranges::count_if(_bucketStore | std::views::values, [&](const auto &b) {
+            return std::ranges::count_if(_bucketStore | std::views::values, [&](const auto &b) {
                 return b.accountId == accountId
-                    && (namespaceName.empty() || b.nameSpace == namespaceName)
-                    && (prefix.empty() || b.name.starts_with(prefix));
-            }));
+                       && (namespaceName.empty() || b.nameSpace == namespaceName)
+                       && (prefix.empty() || b.name.starts_with(prefix));
+            });
+        }
+
+        void recountBuckets() override {
+            std::lock_guard lock(_mutex);
+            for (auto &queue: _bucketStore | std::views::values) {
+                long count = 0, size = 0;
+                for (const auto &object: _objectStore | std::views::values) {
+                    if (object.bucketErn != queue.ern) continue;
+                    size += object.size;
+                    count++;
+                }
+                queue.objects = count;
+                queue.size = size;
+            }
         }
 
         /**
@@ -243,7 +257,7 @@ namespace Euclid::Database {
          * @param includeDirectories whether directory keys are counted
          * @return The total number of messages as a long integer.
          */
-        long countObjects(const std::string &bucketErn, const std::string &prefix, const bool includeDirectories = false) const override {
+        long countObjects(const std::string &bucketErn, const std::string &prefix, const bool includeDirectories) const override {
             std::lock_guard lock(_mutex);
             return std::ranges::count_if(_objectStore | std::views::values, [&bucketErn,prefix,includeDirectories](const auto &objects) {
                 return objects.bucketErn == bucketErn && (prefix.empty() || objects.key.starts_with(prefix)) && (includeDirectories || !Entity::ESM::IsDirectoryKey(objects.key));
@@ -275,7 +289,7 @@ namespace Euclid::Database {
          * @param includeDirectories whether directory keys are returned
          * @return list of matching bucket entities.
          */
-        std::vector<Entity::ESM::Object> listObjects(const std::string &bucketErn, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc", const bool includeDirectories = false) const override {
+        std::vector<Entity::ESM::Object> listObjects(const std::string &bucketErn, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection, const bool includeDirectories) const override {
             std::lock_guard lock(_mutex);
             std::vector<Entity::ESM::Object> result;
             for (const auto &b: _objectStore | std::views::values) {
@@ -311,7 +325,7 @@ namespace Euclid::Database {
         }
 
         std::optional<Entity::ESM::Bucket> renameBucket(const std::string &ern, const std::string &newName,
-                                                         const std::string &newErn) override {
+                                                        const std::string &newErn) override {
             std::lock_guard lock(_mutex);
             for (auto &bucket: _bucketStore | std::views::values) {
                 if (bucket.ern != ern) continue;
@@ -334,7 +348,7 @@ namespace Euclid::Database {
         }
 
         long renameBucketObjects(const std::string &oldBucketErn, const std::string &newBucketErn,
-                                  const std::string &oldName, const std::string &newName) override {
+                                 const std::string &oldName, const std::string &newName) override {
             std::lock_guard lock(_mutex);
 
             // Only the bucket segment of an object's ERN changes; the key that follows it is the

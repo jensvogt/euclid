@@ -121,7 +121,20 @@
         "executable": "/usr/local/euclid/bin/euclid-emo",
         "minInstances": 1,
         "maxInstances": 1,
-        "threads": 2
+        "threads": 2,
+        "average-period": 300,
+        "rollup-hour-period": 600,
+        "rollup-day-period": 3600,
+        "cpu-usage-period": 60,
+        "queue-count.period": 60,
+        "bucket-count.period": 60,
+        "topic-count.period": 60,
+        "database-size-period": 300,
+        "retention": {
+          "raw": 7,
+          "hour": 90,
+          "day": 1825
+        }
       },
       "ekm": {
         "active": true,

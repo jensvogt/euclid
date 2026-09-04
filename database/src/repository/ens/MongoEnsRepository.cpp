@@ -906,4 +906,79 @@ namespace Euclid::Database {
     //     return resetCount;
     // }
 
+
+    void MongoEnsRepository::recountTopics() {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto topicCollection = (*entry)[Database::instance().databaseName()][TOPIC_COLLECTION];
+
+            mongocxx::pipeline pipeline;
+            pipeline.group(make_document(
+                    kvp("_id", "$topicErn"),
+                    kvp("messages", make_document(kvp("$sum", 1))),
+                    kvp("bytes", make_document(kvp("$sum", "$size")))));
+
+            // $sum returns whichever numeric type the values fit in, so the width is not ours to
+            // assume: a topic of small messages comes back int32 and the same topic comes back
+            // int64 once it grows, and get_int64() on the first would throw.
+            auto asLong = [](const bsoncxx::document::element &field) -> long {
+                if (!field) return 0;
+                switch (field.type()) {
+                    case bsoncxx::type::k_int64:
+                        return static_cast<long>(field.get_int64().value);
+                    case bsoncxx::type::k_int32:
+                        return field.get_int32().value;
+                    case bsoncxx::type::k_double:
+                        return static_cast<long>(field.get_double().value);
+                    default:
+                        return 0;
+                }
+            };
+
+            struct Counts {
+                long messages{};
+                long size{};
+            };
+            std::unordered_map<std::string, Counts> counted;
+
+            for (auto cursor = messageCollection.aggregate(pipeline); auto doc: cursor) {
+                const auto idField = doc["_id"];
+                if (!idField || idField.type() != bsoncxx::type::k_string) continue;
+
+                auto &counts = counted[std::string(idField.get_string().value)];
+                counts.messages = asLong(doc["messages"]);
+                counts.size = asLong(doc["bytes"]);
+            }
+
+            // Every topic is written, including the ones the grouping did not mention: a topic
+            // that has just been purged is absent from it, and leaving its last non-zero counters
+            // standing is exactly the drift this replaces.
+            //
+            // "send" and "resend" are deliberately not touched - they are lifetime totals, and
+            // recomputing them from the messages still stored would make them fall on every purge.
+            long topics = 0;
+            for (auto cursor = topicCollection.find({}); auto doc: cursor) {
+                const auto ernField = doc["ern"];
+                if (!ernField || ernField.type() != bsoncxx::type::k_string) continue;
+                const auto ern = std::string(ernField.get_string().value);
+
+                const auto it = counted.find(ern);
+                const Counts counts = it != counted.end() ? it->second : Counts{};
+                topicCollection.update_one(make_document(kvp("ern", ern)).view(),
+                                           make_document(kvp("$set", make_document(
+                                                                     kvp("available", static_cast<int64_t>(counts.messages)),
+                                                                     kvp("size", static_cast<int64_t>(counts.size)))))
+                                           .view());
+                ++topics;
+            }
+
+            log_debug << "Topic counts recounted, topics: " << topics;
+
+        } catch (const std::exception &e) {
+            log_error << "Topic recount failed, error: " << e.what();
+        }
+    }
+
 }// namespace Euclid::Database

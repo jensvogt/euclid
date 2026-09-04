@@ -94,7 +94,34 @@ namespace Euclid::Core {
          * @param lookup resolves the thread count set for a module, or -1 for none.
          */
         static void SetWorkerThreadsLookup(WorkerThreadsLookup lookup);
-        
+
+        /**
+         * @brief Callback ParseJsonBody() applies to every parsed request body.
+         *
+         * @param req the request the body came from, for its headers.
+         * @param body the parsed body, rewritten in place.
+         */
+        using RequestRewriter = std::function<void(const boost::beast::http::request<boost::beast::http::string_body> &req, boost::json::value &body)>;
+
+        /**
+         * @brief Registers a rewriter applied to every request body this process parses.
+         *
+         * @par
+         * Exists so a module can normalise what clients send in one place instead of in every
+         * handler - specifically, so a resource named by name can be resolved to its full ERN
+         * (see Core::resolveErn) before any handler sees it. Doing that per handler would mean
+         * remembering it in forty places, and the ones nobody remembered would be exactly the
+         * ones that behaved differently.
+         *
+         * @par
+         * Applied only to bodies that parsed cleanly, so a rewriter never sees a malformed
+         * request. Until this is called nothing is rewritten, which is what every module that
+         * does not wire one keeps doing.
+         *
+         * @param rewriter invoked with each parsed body; may modify it in place.
+         */
+        static void SetRequestRewriter(RequestRewriter rewriter);
+
         /**
          * @brief Cancels the periodic CPU/memory usage collection task.
          */

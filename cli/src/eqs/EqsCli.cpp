@@ -187,14 +187,14 @@ namespace Euclid::CLI {
     int EqsCli::listMessages(const std::vector<std::string> &args) const {
         po::options_description desc("lists a queue's messages without receiving them");
         desc.add_options()
-                ("queue,q", po::value<std::string>()->required(), "queue ERN")
+                ("queue,q", po::value<std::string>()->required(), "queue name; a full ERN also works and is what reaches another namespace")
                 ("page-size,s", po::value<long>()->default_value(10), "page size")
                 ("page-index,i", po::value<long>()->default_value(0), "page index")
                 ("sort-column,c", po::value<std::string>()->default_value("created"), "sort column")
                 ("sort-direction,d", po::value<std::string>()->default_value("asc"), "sort direction");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "list-messages", "--queue <ern> [--page-size <n>] [--page-index <n>] [--sort-column <column>] [--sort-direction <direction>]",
+            return PrintActionHelp("eqs", "list-messages", "--queue <name|ern> [--page-size <n>] [--page-index <n>] [--sort-column <column>] [--sort-direction <direction>]",
                                    "Lists a queue's messages without receiving them, i.e. without changing their status or visibility. Paginated: page-size defaults to 10, page-index to 0,"
                                    " sort-column to \"created\" and sort-direction to \"asc\".",
                                    desc);
@@ -320,10 +320,10 @@ namespace Euclid::CLI {
     int EqsCli::purgeQueue(const std::vector<std::string> &args) const {
         po::options_description desc("purge queue options");
         desc.add_options()
-                ("queue,q", po::value<std::string>()->required(), "queue ERN");
+                ("queue,q", po::value<std::string>()->required(), "queue name; a full ERN also works and is what reaches another namespace");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "purge-queue", "--queue <ern>",
+            return PrintActionHelp("eqs", "purge-queue", "--queue <name|ern>",
                                    "Deletes all messages from a EQS queue identified by its Euclid resource name (ERN).",
                                    desc);
         }
@@ -393,10 +393,10 @@ namespace Euclid::CLI {
 
     int EqsCli::getQueueMetadata(const std::vector<std::string> &args) const {
         po::options_description desc("returns the metadata of a queue");
-        desc.add_options()("queue,q", po::value<std::string>()->required(), "queue ERN");
+        desc.add_options()("queue,q", po::value<std::string>()->required(), "queue name; a full ERN also works and is what reaches another namespace");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "get-queue-metadata", "--queue <ern>",
+            return PrintActionHelp("eqs", "get-queue-metadata", "--queue <name|ern>",
                                    "Shows the metadata of a queue, i.e. region, accountId, namespace, size, number of messages.",
                                    desc);
         }
@@ -431,10 +431,10 @@ namespace Euclid::CLI {
     int EqsCli::deleteQueue(const std::vector<std::string> &args) const {
         po::options_description desc("delete queue options");
         desc.add_options()
-                ("queue,q", po::value<std::string>()->required(), "queue ERN");
+                ("queue,q", po::value<std::string>()->required(), "queue name; a full ERN also works and is what reaches another namespace");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "delete-queue", "--queue <ern>",
+            return PrintActionHelp("eqs", "delete-queue", "--queue <name|ern>",
                                    "Deletes an EQS queue identified by its Euclid resource name (ERN).",
                                    desc);
         }
@@ -473,7 +473,7 @@ namespace Euclid::CLI {
                 ("priority,p", po::value<std::string>()->default_value("MIDDLE"), "message priority (LOW|MIDDLE|HIGH)");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "send-message", "--queue <ern> --body <body|file://path> [--attributes <json|file://path>] [--priority <LOW|MIDDLE|HIGH>]",
+            return PrintActionHelp("eqs", "send-message", "--queue <name|ern> --body <body|file://path> [--attributes <json|file://path>] [--priority <LOW|MIDDLE|HIGH>]",
                                    "Sends a message to an EQS queue. If --body starts with 'file://', the message "
                                    "body is read from the referenced file instead of being taken literally. The optional --attributes value sets the message "
                                    "attributes as a JSON object mapping attribute name to {\"type\": <int|long|double|float|bool|string|binary>, \"value\": <value>}, "
@@ -492,7 +492,7 @@ namespace Euclid::CLI {
         }
 
         Dto::EQS::SendMessageRequest request;
-        request.queueErn = vm["queue"].as<std::string>();
+        request.ern = vm["queue"].as<std::string>();
         request.priority = vm["priority"].as<std::string>();
 
         try {
@@ -525,7 +525,7 @@ namespace Euclid::CLI {
                 ("waitTime,w", po::value<long>()->default_value(0), "maximal waiting time in seconds");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "receive-messages", "--queue <ern> [--maxCount <value>] [--waitTime <seconds>]",
+            return PrintActionHelp("eqs", "receive-messages", "--queue <name|ern> [--maxCount <value>] [--waitTime <seconds>]",
                                    "Receive messages from an EQS queue. If messages are available return up to maxCount messages. "
                                    "The returned messages favor higher priority ones: maxCount slots are split across LOW/MIDDLE/HIGH priority "
                                    "proportionally to the server's configurable priority weights (4:2:1 by default), so most of a batch is "
@@ -543,7 +543,7 @@ namespace Euclid::CLI {
         }
 
         Dto::EQS::ReceiveMessagesRequest request;
-        request.queueErn = vm["queue"].as<std::string>();
+        request.ern = vm["queue"].as<std::string>();
         request.maxCount = vm["maxCount"].as<long>();
         request.waitTime = vm["waitTime"].as<long>();
 
@@ -610,11 +610,11 @@ namespace Euclid::CLI {
     int EqsCli::setQueueVisibility(const std::vector<std::string> &args) const {
         po::options_description desc("sets the queue visibility");
         desc.add_options()
-                ("queue,q", po::value<std::string>()->required(), "queue ERN")
+                ("queue,q", po::value<std::string>()->required(), "queue name; a full ERN also works and is what reaches another namespace")
                 ("visibility,v", po::value<long>()->required(), "visibility in seconds (0 to 43200)");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "set-queue-visibility", "--queue <ern> --visibility <seconds>",
+            return PrintActionHelp("eqs", "set-queue-visibility", "--queue <name|ern> --visibility <seconds>",
                                    "Sets a queue's default visibility timeout: how long a message received from it stays "
                                    "invisible to other consumers before it becomes available again. This is the figure every "
                                    "receive starts from, whereas \"eqs set-visibility\" changes it for one message that has "
@@ -660,7 +660,7 @@ namespace Euclid::CLI {
 
         po::options_description desc(action + " options");
         desc.add_options()
-                ("queue,q", po::value<std::string>()->required(), "queue ERN");
+                ("queue,q", po::value<std::string>()->required(), "queue name; a full ERN also works and is what reaches another namespace");
 
         if (IsHelpRequest(args)) {
             const std::string description = stopped
@@ -680,7 +680,7 @@ namespace Euclid::CLI {
                       "while it was stopped is delivered in the ordinary way. Starting a queue that was never "
                       "stopped changes nothing and is not an error.";
 
-            return PrintActionHelp("eqs", action, "--queue <ern>", description, desc);
+            return PrintActionHelp("eqs", action, "--queue <name|ern>", description, desc);
         }
 
         po::variables_map vm;
@@ -757,10 +757,10 @@ namespace Euclid::CLI {
     int EqsCli::getMessageCount(const std::vector<std::string> &args) const {
         po::options_description desc("returns the message counter");
         desc.add_options()
-                ("queue,q", po::value<std::string>()->required(), "queue ERN");
+                ("queue,q", po::value<std::string>()->required(), "queue name; a full ERN also works and is what reaches another namespace");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "get-message-count", "--queue <ern>",
+            return PrintActionHelp("eqs", "get-message-count", "--queue <name|ern>",
                                    "Returns the message counter, like total, invisible, delayed.",
                                    desc);
         }
@@ -775,7 +775,7 @@ namespace Euclid::CLI {
         }
 
         Dto::EQS::GetMessageCountRequest request;
-        request.queueErn = vm["queue"].as<std::string>();
+        request.ern = vm["queue"].as<std::string>();
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
@@ -918,12 +918,12 @@ namespace Euclid::CLI {
     int EqsCli::addQueueTag(const std::vector<std::string> &args) const {
         po::options_description desc("add queue tag options");
         desc.add_options()
-                ("queue,q", po::value<std::string>()->required(), "queue ERN")
+                ("queue,q", po::value<std::string>()->required(), "queue name; a full ERN also works and is what reaches another namespace")
                 ("key,k", po::value<std::string>()->required(), "tag key")
                 ("value,v", po::value<std::string>()->required(), "tag value");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "add-queue-tag", "--queue <ern> --key <value> --value <value>",
+            return PrintActionHelp("eqs", "add-queue-tag", "--queue <name|ern> --key <value> --value <value>",
                                    "Adds a tag to a queue.",
                                    desc);
         }
@@ -938,7 +938,7 @@ namespace Euclid::CLI {
         }
 
         Dto::EQS::AddQueueTagRequest request;
-        request.queueErn = vm["queue"].as<std::string>();
+        request.ern = vm["queue"].as<std::string>();
         request.key = vm["key"].as<std::string>();
         request.value = vm["value"].as<std::string>();
 
@@ -958,12 +958,12 @@ namespace Euclid::CLI {
     int EqsCli::setQueueTag(const std::vector<std::string> &args) const {
         po::options_description desc("set queue tag options");
         desc.add_options()
-                ("queue,q", po::value<std::string>()->required(), "queue ERN")
+                ("queue,q", po::value<std::string>()->required(), "queue name; a full ERN also works and is what reaches another namespace")
                 ("key,k", po::value<std::string>()->required(), "tag key")
                 ("value,v", po::value<std::string>()->required(), "tag value");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "set-queue-tag", "--queue <ern> --key <value> --value <value>",
+            return PrintActionHelp("eqs", "set-queue-tag", "--queue <name|ern> --key <value> --value <value>",
                                    "Sets the value of a queue tag. The queue tag must exist already, otherwise an error is returned.",
                                    desc);
         }
@@ -978,7 +978,7 @@ namespace Euclid::CLI {
         }
 
         Dto::EQS::SetQueueTagRequest request;
-        request.queueErn = vm["queue"].as<std::string>();
+        request.ern = vm["queue"].as<std::string>();
         request.key = vm["key"].as<std::string>();
         request.value = vm["value"].as<std::string>();
 
@@ -998,11 +998,11 @@ namespace Euclid::CLI {
     int EqsCli::deleteQueueTag(const std::vector<std::string> &args) const {
         po::options_description desc("delete queue tag options");
         desc.add_options()
-                ("queue,q", po::value<std::string>()->required(), "queue ERN")
+                ("queue,q", po::value<std::string>()->required(), "queue name; a full ERN also works and is what reaches another namespace")
                 ("key,k", po::value<std::string>()->required(), "tag key");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "delete-queue-tag", "--queue <ern> --key <value>",
+            return PrintActionHelp("eqs", "delete-queue-tag", "--queue <name|ern> --key <value>",
                                    "Deletes a tag from a queue.",
                                    desc);
         }
@@ -1017,7 +1017,7 @@ namespace Euclid::CLI {
         }
 
         Dto::ESM::DeleteBucketTagRequest request;
-        request.queueErn = vm["queue"].as<std::string>();
+        request.ern = vm["queue"].as<std::string>();
         request.key = vm["key"].as<std::string>();
 
         try {

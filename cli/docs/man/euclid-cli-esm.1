@@ -157,6 +157,20 @@ Removes all objects from a bucket, leaving the bucket itself in place.
 See
 .BR euclid-cli-esm-purge-bucket (1).
 .TP
+.B add-bucket-tag
+Adds a key/value tag to a bucket, overwriting the key if it is already
+there. See
+.BR euclid-cli-esm-add-bucket-tag (1).
+.TP
+.B set-bucket-tag
+Sets the value of a tag that already exists, refusing a key that does
+not. See
+.BR euclid-cli-esm-set-bucket-tag (1).
+.TP
+.B delete-bucket-tag
+Removes a tag from a bucket. See
+.BR euclid-cli-esm-delete-bucket-tag (1).
+.TP
 .B subscribe
 Subscribes a target resource (an EQS queue or an ENS topic) to a
 bucket's object-created events. See
@@ -169,6 +183,29 @@ Deletes a subscription. See
 .B list-subscriptions
 Lists the subscriptions of a bucket. See
 .BR euclid-cli-esm-list-subscriptions (1).
+.SH NAMES AND ERNS
+Anywhere a bucket is named, you may give either its plain
+.B name
+or its full Euclid resource name
+.RB ( ERN ).
+.PP
+A name is resolved by the server, in the account and namespace your
+session is using \- the ones recorded in
+.I $HOME/.euclid/credentials
+and sent with every request. So
+.B my-bucket
+means the bucket of that name in your current namespace, and switching
+namespace with
+.BR euclid-cli-eam-change-namespace (1)
+makes the same name refer to a different bucket. That is the point of a
+name: it is relative to where you are.
+.PP
+A full ERN is absolute, and is what you need to reach a bucket in
+another namespace or account \- and what every script written before
+names were accepted already passes. Both forms are accepted everywhere
+below; a value beginning with
+.I ern:
+is used as given, anything else is treated as a name.
 .SH GLOBAL OPTIONS
 These options are given to
 .B euclid-cli
@@ -333,6 +370,9 @@ euclid-cli --endpoint http://localhost:5566 esm unsubscribe \e
 .fi
 .RE
 .SH SEE ALSO
+.BR euclid-cli-esm-add-bucket-tag (1),
+.BR euclid-cli-esm-set-bucket-tag (1),
+.BR euclid-cli-esm-delete-bucket-tag (1),
 .BR euclid-cli (1),
 .BR euclid-cli-eam (1),
 .BR euclid-cli-eap (1),

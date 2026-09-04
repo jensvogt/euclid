@@ -10,7 +10,22 @@
 
 #include <euclid/database/repository/esm/MongoEsmRepository.h>
 
+#include "euclid/core/monitoring/MonitoringTimer.h"
+
 namespace Euclid::Database {
+
+    namespace {
+        // Where this repository's time actually goes, one series per operation - the same pair of
+        // metrics the modules record for their actions ("esm-service-time"/"esm-service-count",
+        // labelled by method), one layer down and labelled by repository operation instead.
+        //
+        // The point of measuring here rather than at the action is that an action's cost is not
+        // its database cost: "receive-messages" spends most of a long poll asleep, and what it
+        // does against the database in between is several queries per 100ms attempt. Only the
+        // operations below are timed, never the waiting.
+        constexpr auto kRepositoryTimer = "esm-repository-time";
+        constexpr auto kRepositoryCounter = "esm-repository-count";
+    }
 
     MongoEsmRepository::MongoEsmRepository() {
         ensureIndexes();
@@ -490,7 +505,7 @@ namespace Euclid::Database {
     }
 
     long MongoEsmRepository::renameBucketObjects(const std::string &oldBucketErn, const std::string &newBucketErn,
-                                                  const std::string &oldName, const std::string &newName) {
+                                                 const std::string &oldName, const std::string &newName) {
 
         try {
             const auto entry = Database::instance().client();
@@ -510,9 +525,9 @@ namespace Euclid::Database {
             pipeline.add_fields(make_document(
                     kvp("bucketErn", newBucketErn),
                     kvp("ern", make_document(kvp("$replaceOne", make_document(
-                                                                        kvp("input", "$ern"),
-                                                                        kvp("find", oldSegment),
-                                                                        kvp("replacement", newSegment)))))));
+                                                         kvp("input", "$ern"),
+                                                         kvp("find", oldSegment),
+                                                         kvp("replacement", newSegment)))))));
 
             const auto result = objectCollection.update_many(make_document(kvp("bucketErn", oldBucketErn)), pipeline);
             const auto renamed = result ? static_cast<long>(result->modified_count()) : 0;
@@ -590,6 +605,92 @@ namespace Euclid::Database {
 
         } catch (const std::exception &e) {
             log_error << "Delete subscription failed, ern: " << ern << ", error: " << e.what();
+        }
+    }
+
+    void MongoEsmRepository::recountBuckets() {
+
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "recount-buckets");
+
+        try {
+            const auto entry = Database::instance().client();
+            auto objectCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
+            auto bucketCollection = (*entry)[Database::instance().databaseName()][BUCKET_COLLECTION];
+
+            // One pass over the objects, with the accumulators the loop below actually reads.
+            //
+            // What is counted has to match what put-object and delete-object maintain incrementally,
+            // or the recount would "correct" the counters to a different definition every time it
+            // ran: every object contributes its bytes, but a directory marker (a zero-byte key
+            // ending in "/") is not counted as an object, exactly as EsmServer does when it stores
+            // one. Only COMPLETED objects count - a multipart upload in progress has rows that no
+            // bucket counter has been told about yet.
+            mongocxx::pipeline pipeline;
+            pipeline.match(make_document(kvp("status", "COMPLETED")));
+            pipeline.group(make_document(
+                    kvp("_id", "$bucketErn"),
+                    kvp("bytes", make_document(kvp("$sum", "$size"))),
+                    kvp("count", make_document(kvp("$sum", make_document(kvp("$cond", make_array(
+                                                                                 make_document(kvp("$regexMatch", make_document(
+                                                                                                           kvp("input", "$key"),
+                                                                                                           kvp("regex", "/$")))),
+                                                                                 0, 1))))))));
+
+            struct Counts {
+                long count{};
+                long size{};
+            };
+            std::unordered_map<std::string, Counts> counted;
+
+            // $sum returns whichever numeric type the values fit in, so the width is not ours to
+            // assume: a bucket of small objects comes back int32 and the same bucket comes back
+            // int64 once it grows, and get_int64() on the first would throw.
+            auto asLong = [](const bsoncxx::document::element &field) -> long {
+                if (!field) return 0;
+                switch (field.type()) {
+                    case bsoncxx::type::k_int64:
+                        return static_cast<long>(field.get_int64().value);
+                    case bsoncxx::type::k_int32:
+                        return field.get_int32().value;
+                    case bsoncxx::type::k_double:
+                        return static_cast<long>(field.get_double().value);
+                    default:
+                        return 0;
+                }
+            };
+
+            for (auto cursor = objectCollection.aggregate(pipeline); auto doc: cursor) {
+                const auto idField = doc["_id"];
+                if (!idField || idField.type() != bsoncxx::type::k_string) continue;
+
+                auto &counts = counted[std::string(idField.get_string().value)];
+                counts.count = asLong(doc["count"]);
+                counts.size = asLong(doc["bytes"]);
+            }
+
+            // Every bucket is written, including the ones the grouping did not mention: a bucket
+            // that has just been emptied is absent from it, and leaving its last non-zero counters
+            // standing is exactly the drift this replaces.
+            long buckets = 0;
+            for (auto cursor = bucketCollection.find({}); auto doc: cursor) {
+                const auto ernField = doc["ern"];
+                if (!ernField || ernField.type() != bsoncxx::type::k_string) continue;
+                const auto ern = std::string(ernField.get_string().value);
+
+                const auto it = counted.find(ern);
+                const Counts counts = it != counted.end() ? it->second : Counts{};
+                bucketCollection.update_one(make_document(kvp("ern", ern)).view(),
+                                            make_document(kvp("$set", make_document(
+                                                                      kvp("objects", static_cast<int64_t>(counts.count)),
+                                                                      kvp("size", static_cast<int64_t>(counts.size)))))
+                                            .view());
+                ++buckets;
+            }
+
+            log_debug << "Bucket counts recounted, buckets: " << buckets;
+
+        } catch (const std::exception &e) {
+            log_error << "Bucket recount failed, error: " << e.what();
         }
     }
 

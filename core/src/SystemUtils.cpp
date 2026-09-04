@@ -123,6 +123,38 @@ namespace Euclid::Core {
         return static_cast<int>(boost::thread::hardware_concurrency());
     }
 
+    std::optional<double> SystemUtils::ReadSystemMemoryUsagePercent() {
+#ifdef __linux__
+        std::ifstream meminfo("/proc/meminfo");
+        if (!meminfo.is_open()) return std::nullopt;
+
+        unsigned long long totalKb = 0;
+        unsigned long long availableKb = 0;
+        std::string line;
+        while (std::getline(meminfo, line)) {
+            std::istringstream iss(line);
+            std::string label;
+            unsigned long long value = 0;
+            iss >> label >> value;
+            if (!iss) continue;
+            if (label == "MemTotal:") totalKb = value;
+            else if (label == "MemAvailable:") availableKb = value;
+            // Both are near the top of the file; nothing after them is needed.
+            if (totalKb > 0 && availableKb > 0) break;
+        }
+
+        // MemAvailable has been in /proc/meminfo since Linux 3.14. Without it there is no honest
+        // answer here - MemFree counts the page cache as used, which reads as a machine at 90%
+        // when it is idle - so this reports nothing rather than something misleading.
+        if (totalKb == 0 || availableKb == 0) return std::nullopt;
+
+        const auto used = totalKb > availableKb ? totalKb - availableKb : 0;
+        return 100.0 * static_cast<double>(used) / static_cast<double>(totalKb);
+#else
+        return std::nullopt;
+#endif
+    }
+
     std::optional<SystemUtils::CpuTimes> SystemUtils::ReadCpuTimes() {
 #ifdef __linux__
         std::ifstream stat("/proc/stat");

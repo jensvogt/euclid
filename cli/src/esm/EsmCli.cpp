@@ -225,11 +225,11 @@ namespace Euclid::CLI {
     int EsmCli::deleteBucket(const std::vector<std::string> &args) const {
         po::options_description desc("delete bucket options");
         desc.add_options()
-                ("bucket,b", po::value<std::string>()->required(), "bucketERN")
+                ("bucket,b", po::value<std::string>()->required(), "bucket name; a full ERN also works and is what reaches another namespace")
                 ("async", po::bool_switch()->default_value(false), "return at once and remove the objects in the background; for buckets too large to empty within one request");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "delete-bucket", "--bucket <ern> [--async]",
+            return PrintActionHelp("esm", "delete-bucket", "--bucket <name|ern> [--async]",
                                    "Deletes a storage bucket identified by its Euclid resource name (ERN), "
                                    "along with every object it contains - their stored files are removed and one "
                                    "\"esm.object.deleted\" event is published per object, exactly as if each had been "
@@ -360,10 +360,10 @@ namespace Euclid::CLI {
     int EsmCli::getBucketSize(const std::vector<std::string> &args) const {
         po::options_description desc("get bucket size options");
         desc.add_options()
-                ("bucket,b", po::value<std::string>()->required(), "bucket ERN");
+                ("bucket,b", po::value<std::string>()->required(), "bucket name; a full ERN also works and is what reaches another namespace");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "get-bucket-size", "--bucket <ern>",
+            return PrintActionHelp("esm", "get-bucket-size", "--bucket <name|ern>",
                                    "Returns the bucket size in bytes.",
                                    desc);
         }
@@ -796,7 +796,7 @@ namespace Euclid::CLI {
                 ("concurrency,j", po::value<int>()->default_value(DefaultConcurrency()), "number of parts to upload in parallel");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "upload-file", "--bucket <ern> --key <key> --file <path> [--part-size <bytes>] [--concurrency <n>]",
+            return PrintActionHelp("esm", "upload-file", "--bucket <name|ern> --key <key> --file <path> [--part-size <bytes>] [--concurrency <n>]",
                                    "Uploads a local file to a bucket. Files smaller than --part-size are stored in a single request; "
                                    "larger files are transparently split into parts for a multipart upload, uploading up to <concurrency> "
                                    "parts at a time in background threads.",
@@ -836,7 +836,7 @@ namespace Euclid::CLI {
                 ("concurrency,j", po::value<int>()->default_value(DefaultConcurrency()), "number of parts to upload in parallel, per file");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "upload-directory", "--bucket <ern> --dir <path> [--prefix <prefix>] [--recursive] [--part-size <bytes>] [--concurrency <n>]",
+            return PrintActionHelp("esm", "upload-directory", "--bucket <name|ern> --dir <path> [--prefix <prefix>] [--recursive] [--part-size <bytes>] [--concurrency <n>]",
                                    "Uploads every file in a local directory to a bucket, one object per file. Each object's key is "
                                    "--prefix followed by the file's path relative to --dir (forward slashes regardless of platform). "
                                    "Without --recursive, only files directly inside --dir are uploaded; with it, subdirectories are "
@@ -1038,7 +1038,7 @@ namespace Euclid::CLI {
                 ("concurrency,j", po::value<int>()->default_value(DefaultConcurrency()), "number of parts to download in parallel");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "download-file", "--bucket <ern> --key <key> --file <path> [--part-size <bytes>] [--concurrency <n>]",
+            return PrintActionHelp("esm", "download-file", "--bucket <name|ern> --key <key> --file <path> [--part-size <bytes>] [--concurrency <n>]",
                                    "Downloads an object from a bucket to a local file. Objects smaller than --part-size are fetched in a "
                                    "single request; larger objects are transparently split into parts for a multipart download, downloading "
                                    "up to <concurrency> parts at a time in background threads.",
@@ -1109,7 +1109,7 @@ namespace Euclid::CLI {
                 ("zip,z", po::value<std::string>(), "also pack --dir's contents into a ZIP archive at this path once downloaded");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "download-bucket", "--bucket <ern> --dir <path> [--prefix <prefix>] [--recursive] [--part-size <bytes>] [--concurrency <n>] [--zip <path>]",
+            return PrintActionHelp("esm", "download-bucket", "--bucket <name|ern> --dir <path> [--prefix <prefix>] [--recursive] [--part-size <bytes>] [--concurrency <n>] [--zip <path>]",
                                    "Downloads objects from a bucket to a local directory, one file per object. Without --recursive, only "
                                    "an object's direct descendants are downloaded - keys matching --prefix with no further '/' after it; "
                                    "with --recursive, every key matching --prefix is downloaded, however deeply nested. Each local file's "
@@ -1206,7 +1206,7 @@ namespace Euclid::CLI {
     int EsmCli::listObjects(const std::vector<std::string> &args) const {
         po::options_description desc("list objects options");
         desc.add_options()
-                ("bucket,b", po::value<std::string>()->required(), "bucket ERN")
+                ("bucket,b", po::value<std::string>()->required(), "bucket name; a full ERN also works and is what reaches another namespace")
                 ("prefix,p", po::value<std::string>(), "object name prefix")
                 ("page-size,s", po::value<long>()->default_value(-1), "page size")
                 ("page-index,i", po::value<long>()->default_value(-1), "page index")
@@ -1214,7 +1214,7 @@ namespace Euclid::CLI {
                 ("sort-direction,d", po::value<std::string>()->default_value("asc"), "sort direction");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "list-objects", "--bucket <ern> [--prefix <prefix>] [--page-size <n>] [--page-index <n>] [--sort-column <column>] [--sort-direction <direction>]",
+            return PrintActionHelp("esm", "list-objects", "--bucket <name|ern> [--prefix <prefix>] [--page-size <n>] [--page-index <n>] [--sort-column <column>] [--sort-direction <direction>]",
                                    "Lists storage objects by bucket, optionally filtered by name prefix and paginated. Paginated: page-size defaults to 10, page-index to 0,"
                                    " sort-column to \"name\" and sort-direction to \"asc\".",
                                    desc);
@@ -1257,11 +1257,11 @@ namespace Euclid::CLI {
     int EsmCli::getObjectCount(const std::vector<std::string> &args) const {
         po::options_description desc("get object count options");
         desc.add_options()
-                ("bucket,b", po::value<std::string>()->required(), "bucket ERN")
+                ("bucket,b", po::value<std::string>()->required(), "bucket name; a full ERN also works and is what reaches another namespace")
                 ("prefix,p", po::value<std::string>(), "object key prefix");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "get-object-count", "--bucket <ern>",
+            return PrintActionHelp("esm", "get-object-count", "--bucket <name|ern>",
                                    "Returns the number of objects in a bucket, optionally filtered by object key prefix and paginated. The return object contains the "
                                    "ERN and the number of objects.",
                                    desc);
@@ -1277,7 +1277,7 @@ namespace Euclid::CLI {
         }
 
         Dto::ESM::GetObjectCountRequest request;
-        request.bucketErn = vm["bucket"].as<std::string>();
+        request.ern = vm["bucket"].as<std::string>();
         if (vm.contains("prefix")) {
             request.prefix = vm["prefix"].as<std::string>();
         }
@@ -1335,12 +1335,12 @@ namespace Euclid::CLI {
     int EsmCli::purgeBucket(const std::vector<std::string> &args) const {
         po::options_description desc("purge bucket options");
         desc.add_options()
-                ("bucket,b", po::value<std::string>()->required(), "bucket ERN")
+                ("bucket,b", po::value<std::string>()->required(), "bucket name; a full ERN also works and is what reaches another namespace")
                 ("prefix,p", po::value<std::string>(), "object key prefix")
                 ("async", po::bool_switch()->default_value(false), "return at once and remove the objects in the background; for buckets too large to empty within one request");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "purge-bucket", "--bucket <ern> [--prefix <value>] [--async]",
+            return PrintActionHelp("esm", "purge-bucket", "--bucket <name|ern> [--prefix <value>] [--async]",
                                    "Removes all objects from a bucket identified by its Euclid resource name (ERN), leaving the (empty) "
                                    "bucket itself in place, optionally filtered by object key prefix. It returns the ERN and the number of remaining objects. "
                                    "Give --async for a bucket large enough that emptying it takes minutes: the request is answered at once "
@@ -1360,7 +1360,7 @@ namespace Euclid::CLI {
         }
 
         Dto::ESM::PurgeBucketRequest request;
-        request.bucketErn = vm["bucket"].as<std::string>();
+        request.ern = vm["bucket"].as<std::string>();
         if (vm.contains("prefix")) {
             request.prefix = vm["prefix"].as<std::string>();
         }
@@ -1389,12 +1389,12 @@ namespace Euclid::CLI {
     int EsmCli::addBucketTag(const std::vector<std::string> &args) const {
         po::options_description desc("add bucket tag options");
         desc.add_options()
-                ("bucket,b", po::value<std::string>()->required(), "bucket ERN")
+                ("bucket,b", po::value<std::string>()->required(), "bucket name; a full ERN also works and is what reaches another namespace")
                 ("key,k", po::value<std::string>()->required(), "tag key")
                 ("value,v", po::value<std::string>()->required(), "tag value");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "add-bucket-tag", "--bucket <ern> --key <value> --value <value>",
+            return PrintActionHelp("esm", "add-bucket-tag", "--bucket <name|ern> --key <value> --value <value>",
                                    "Adds a tag to a bucket. If the bucket tag exists already the tag value will be set, otherwise "
                                    "the value will be updated.",
                                    desc);
@@ -1410,7 +1410,7 @@ namespace Euclid::CLI {
         }
 
         Dto::ESM::AddBucketTagRequest request;
-        request.bucketErn = vm["bucket"].as<std::string>();
+        request.ern = vm["bucket"].as<std::string>();
         request.key = vm["key"].as<std::string>();
         request.value = vm["value"].as<std::string>();
 
@@ -1430,12 +1430,12 @@ namespace Euclid::CLI {
     int EsmCli::setBucketTag(const std::vector<std::string> &args) const {
         po::options_description desc("set bucket tag options");
         desc.add_options()
-                ("bucket,b", po::value<std::string>()->required(), "bucket ERN")
+                ("bucket,b", po::value<std::string>()->required(), "bucket name; a full ERN also works and is what reaches another namespace")
                 ("key,k", po::value<std::string>()->required(), "tag key")
                 ("value,v", po::value<std::string>()->required(), "tag value");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "set-bucket-tag", "--bucket <ern> --key <value> --value <value>",
+            return PrintActionHelp("esm", "set-bucket-tag", "--bucket <name|ern> --key <value> --value <value>",
                                    "Sets a value for an existing bucket tag. The bucket tag must be existing already.",
                                    desc);
         }
@@ -1450,7 +1450,7 @@ namespace Euclid::CLI {
         }
 
         Dto::ESM::SetBucketTagRequest request;
-        request.bucketErn = vm["bucket"].as<std::string>();
+        request.ern = vm["bucket"].as<std::string>();
         request.key = vm["key"].as<std::string>();
         request.value = vm["value"].as<std::string>();
 
@@ -1470,11 +1470,11 @@ namespace Euclid::CLI {
     int EsmCli::deleteBucketTag(const std::vector<std::string> &args) const {
         po::options_description desc("delete bucket tag options");
         desc.add_options()
-                ("bucket,b", po::value<std::string>()->required(), "bucket ERN")
+                ("bucket,b", po::value<std::string>()->required(), "bucket name; a full ERN also works and is what reaches another namespace")
                 ("key,k", po::value<std::string>()->required(), "tag key");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "delete-bucket-tag", "--bucket <ern> --key <value>",
+            return PrintActionHelp("esm", "delete-bucket-tag", "--bucket <name|ern> --key <value>",
                                    "Deletes a tag from a bucket.",
                                    desc);
         }
@@ -1489,7 +1489,7 @@ namespace Euclid::CLI {
         }
 
         Dto::ESM::DeleteBucketTagRequest request;
-        request.queueErn = vm["bucket"].as<std::string>();
+        request.ern = vm["bucket"].as<std::string>();
         request.key = vm["key"].as<std::string>();
 
         try {
@@ -1577,7 +1577,7 @@ namespace Euclid::CLI {
                 ("new-name,n", po::value<std::string>()->required(), "name it should have");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "rename-bucket", "--bucket <ern> --new-name <name>",
+            return PrintActionHelp("esm", "rename-bucket", "--bucket <name|ern> --new-name <name>",
                                    "Gives a bucket another name. Nothing is copied and no object moves: what changes is the name, and "
                                    "with it everything that spells it out - the bucket's own ERN, every object's reference to it, every "
                                    "object's ERN (which carries the bucket name before the key) and every subscription watching it. "
@@ -1622,7 +1622,7 @@ namespace Euclid::CLI {
                 ("key,k", po::value<std::string>(), "ID or ERN of the EKM key to encrypt under; a key is created if this is left out");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "enable-encryption", "--bucket <ern> [--key <id>]",
+            return PrintActionHelp("esm", "enable-encryption", "--bucket <name|ern> [--key <id>]",
                                    "Encrypts the objects written to a bucket from now on. This applies to new uploads and puts only. "
                                    "Each one is encrypted with the bucket's "
                                    "EKM key before it reaches the disk and decrypted on the way back out, so uploads and downloads "
@@ -1672,7 +1672,7 @@ namespace Euclid::CLI {
                 ("bucket,b", po::value<std::string>()->required(), "ERN of the bucket to stop encrypting");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "disable-encryption", "--bucket <ern>",
+            return PrintActionHelp("esm", "disable-encryption", "--bucket <name|ern>",
                                    "Stops encrypting the objects written to a bucket. This applies to new uploads and puts only: "
                                    "from here on they are stored in the clear, and nothing else changes. "
                                    "Objects already in the bucket are NOT decrypted and NOT rewritten - each one still names the key "
@@ -1719,7 +1719,7 @@ namespace Euclid::CLI {
                 ("new-key,n", po::value<std::string>()->required(), "key it should have");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "rename-object", "--bucket <ern> --key <key> --new-key <key>",
+            return PrintActionHelp("esm", "rename-object", "--bucket <name|ern> --key <key> --new-key <key>",
                                    "Renames an object within its bucket. The same thing as \"move-object\" with one bucket, said the way it "
                                    "is usually meant: nothing is copied, and the object keeps its content type, checksum and attributes. "
                                    "Refuses rather than overwriting if something is already stored under the new key.",
@@ -2008,10 +2008,10 @@ namespace Euclid::CLI {
     int EsmCli::listSubscriptions(const std::vector<std::string> &args) const {
         po::options_description desc("list subscriptions options");
         desc.add_options()
-                ("bucket,b", po::value<std::string>()->required(), "bucket ERN");
+                ("bucket,b", po::value<std::string>()->required(), "bucket name; a full ERN also works and is what reaches another namespace");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "list-subscriptions", "--bucket <ern>",
+            return PrintActionHelp("esm", "list-subscriptions", "--bucket <name|ern>",
                                    "Lists the subscriptions of a bucket, identified by its Euclid resource name (ERN).",
                                    desc);
         }

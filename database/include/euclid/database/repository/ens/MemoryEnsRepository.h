@@ -129,7 +129,7 @@ namespace Euclid::Database {
             return std::nullopt;
         }
 
-        std::vector<Entity::ENS::Topic> listTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const override {
+        std::vector<Entity::ENS::Topic> listTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const override {
             std::lock_guard lock(_mutex);
             std::vector<Entity::ENS::Topic> result;
             for (const auto &m: _topicStore | std::views::values) {
@@ -159,7 +159,7 @@ namespace Euclid::Database {
             return _topicStore.contains(name);
         }
 
-        long countTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "") const override {
+        long countTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix) const override {
             std::lock_guard lock(_mutex);
             return std::ranges::count_if(_topicStore | std::views::values, [&](const auto &m) {
                 return m.accountId == accountId
@@ -377,7 +377,7 @@ namespace Euclid::Database {
         //     return result;
         // }
 
-        std::vector<Entity::ENS::Message> listMessages(const std::string &topicErn, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const override {
+        std::vector<Entity::ENS::Message> listMessages(const std::string &topicErn, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const override {
             std::lock_guard lock(_mutex);
             std::vector<Entity::ENS::Message> result;
             for (const auto &m: _messageStore | std::views::values) {
@@ -487,6 +487,20 @@ namespace Euclid::Database {
         std::unordered_map<std::string, Entity::ENS::Topic> _topicStore;
         std::unordered_map<std::string, Entity::ENS::Message> _messageStore;
         std::unordered_map<std::string, Entity::ENS::Subscription> _subscriptionStore;
+
+        void recountTopics() override {
+            std::lock_guard lock(_mutex);
+            for (auto &topic: _topicStore | std::views::values) {
+                long count = 0, size = 0;
+                for (const auto &message: _messageStore | std::views::values) {
+                    if (message.topicErn != topic.ern) continue;
+                    size += message.size;
+                    count++;
+                }
+                topic.available = count;
+                topic.size = size;
+            }
+        }
     };
 
 }// namespace Euclid::Database

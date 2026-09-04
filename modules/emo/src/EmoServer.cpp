@@ -37,10 +37,20 @@ namespace Euclid::Monitoring {
 
         constexpr auto kPrunePeriod = std::chrono::hours(24);
         constexpr auto kCpuUsagePeriod = std::chrono::seconds(60);
+
+        // Slower than the rest: these move at the pace a database grows, and dbStats is a
+        // round trip per tick that tells you nothing new a second later.
+        constexpr auto kDatabaseSizePeriod = std::chrono::seconds(300);
         // How stale a queue's message counts may get. Short enough that a queue draining is
         // visibly draining, long enough that the scan is rare next to the traffic it replaces
         // (one grouped scan against a write per message on the queue document).
         constexpr auto kQueueCountPeriod = std::chrono::seconds(15);
+        // How stale a queue's message counts may get. Short enough that a queue draining is
+        // visibly draining, long enough that the scan is rare next to the traffic it replaces
+        // (one grouped scan against a write per message on the queue document).
+        constexpr auto kBucketCountPeriod = std::chrono::seconds(15);
+
+        constexpr auto kTopicCountPeriod = std::chrono::seconds(15);
 
         // Rollups run several times per target bucket rather than once, so the bucket currently in
         // progress is always readable, just incomplete. Cheap because each pass only reads the tier
@@ -117,16 +127,16 @@ namespace Euclid::Monitoring {
             const auto &configuration = Core::Configuration::instance();
             switch (resolution) {
                 case Resolution::HOUR:
-                    return std::chrono::hours(24 * configuration.getOr<long>("euclid.monitoring.retention.hour", kHourRetentionDays));
+                    return std::chrono::hours(24 * configuration.getOr<long>("euclid.module.emo.retention.hour", kHourRetentionDays));
                 case Resolution::DAY:
-                    return std::chrono::hours(24 * configuration.getOr<long>("euclid.monitoring.retention.day", kDayRetentionDays));
+                    return std::chrono::hours(24 * configuration.getOr<long>("euclid.module.emo.retention.day", kDayRetentionDays));
                 default:
-                    return std::chrono::hours(24 * configuration.getOr<long>("euclid.monitoring.retention.raw", kRawRetentionDays));
+                    return std::chrono::hours(24 * configuration.getOr<long>("euclid.module.emo.retention.raw", kRawRetentionDays));
             }
         }
 
         std::chrono::seconds averagePeriod() {
-            return std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.monitoring.average-period", 300));
+            return std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.module.emo.average-period", 300));
         }
     }// namespace
 
@@ -290,30 +300,44 @@ namespace Euclid::Monitoring {
 
         // RAW is rolled into HOUR and HOUR into DAY - never RAW straight into DAY, so the daily
         // pass reads 24 rows per series rather than 288.
-        const auto hourRollupPeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.monitoring.rollup-hour-period", std::chrono::seconds(kHourRollupPeriod).count()));
+        const auto hourRollupPeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.module.emo.rollup-hour-period", std::chrono::seconds(kHourRollupPeriod).count()));
         _hourRollupTaskId = scheduler.SchedulePeriodic("monitoring-rollup-hour", [] { rollup(Resolution::RAW, Resolution::HOUR); },
                                                        std::chrono::duration_cast<std::chrono::milliseconds>(hourRollupPeriod));
 
-        const auto dayRollupPeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.monitoring.rollup-day-period", std::chrono::seconds(kDayRollupPeriod).count()));
+        const auto dayRollupPeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.module.emo.rollup-day-period", std::chrono::seconds(kDayRollupPeriod).count()));
         _dayRollupTaskId = scheduler.SchedulePeriodic("monitoring-rollup-day", [] { rollup(Resolution::HOUR, Resolution::DAY); },
                                                       std::chrono::duration_cast<std::chrono::milliseconds>(dayRollupPeriod));
 
-        // EQS reports how many messages a queue holds by counting them here rather than by
-        // tracking them per message. It lives in this module for two reasons: counting on a timer
-        // is what this module does, and it runs as a single instance - the queueing module runs
-        // as many, and each of them would otherwise repeat the same scan. See
-        // IEqsRepository::recountQueues() for why the counters are measured rather than
-        // maintained.
-        const auto queueCountPeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.monitoring.queue-count-period", kQueueCountPeriod.count()));
+        // Recount mein counters
+        const auto queueCountPeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.module.emo.queue-count-period", kQueueCountPeriod.count()));
         _queueCountsTaskId = scheduler.SchedulePeriodic("monitoring-queue-counts",
                                                         [] { Database::RepositoryFactory::instance().eqsRepository()->recountQueues(); },
                                                         std::chrono::duration_cast<std::chrono::milliseconds>(queueCountPeriod));
+        // Its own id, not _queueCountsTaskId: assigning both to one member left the queue task
+        // unreferenced, so nothing could cancel it and the destructor cancelled the bucket task twice.
+        const auto bucketCountPeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.module.emo.bucket-count-period", kBucketCountPeriod.count()));
+        _bucketCountsTaskId = scheduler.SchedulePeriodic("monitoring-bucket-counts",
+                                                         [] { Database::RepositoryFactory::instance().esmRepository()->recountBuckets(); },
+                                                         std::chrono::duration_cast<std::chrono::milliseconds>(bucketCountPeriod));
+        const auto topicCountPeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.module.emo.topic-count-period", kTopicCountPeriod.count()));
+        _topicCountsTaskId = scheduler.SchedulePeriodic("monitoring-topic-counts",
+                                                        [] { Database::RepositoryFactory::instance().ensRepository()->recountTopics(); },
+                                                        std::chrono::duration_cast<std::chrono::milliseconds>(topicCountPeriod));
 
 #ifdef __linux__
         // collectCpuUsage() reads /proc/stat, which only exists on Linux.
-        const auto cpuUsagePeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.monitoring.cpu-usage-period", kCpuUsagePeriod.count()));
+        const auto cpuUsagePeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.module.emo.cpu-usage-period", kCpuUsagePeriod.count()));
         _cpuUsageTaskId = scheduler.SchedulePeriodic("monitoring-cpu-usage", [] { collectCpuUsage(); },
                                                      std::chrono::duration_cast<std::chrono::milliseconds>(cpuUsagePeriod));
+
+        // Same period as the CPU figure, and the same reason: they are read together on a
+        // dashboard and drifting apart in age would make them hard to compare.
+        const auto databaseSizePeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.module.emo.database-size-period", kDatabaseSizePeriod.count()));
+        _databaseSizeTaskId = scheduler.SchedulePeriodic("monitoring-database-size", [] { collectDatabaseSize(); },
+                                                         std::chrono::duration_cast<std::chrono::milliseconds>(databaseSizePeriod));
+
+        _memoryUsageTaskId = scheduler.SchedulePeriodic("monitoring-memory-usage", [] { collectMemoryUsage(); },
+                                                        std::chrono::duration_cast<std::chrono::milliseconds>(cpuUsagePeriod));
 #endif
     }
 
@@ -323,6 +347,10 @@ namespace Euclid::Monitoring {
         scheduler.Cancel(_pruneTaskId);
         scheduler.Cancel(_hourRollupTaskId);
         scheduler.Cancel(_dayRollupTaskId);
+        scheduler.Cancel(_queueCountsTaskId);
+        scheduler.Cancel(_bucketCountsTaskId);
+        scheduler.Cancel(_topicCountsTaskId);
+        scheduler.Cancel(_databaseSizeTaskId);
         scheduler.Cancel(_cpuUsageTaskId);
     }
 
@@ -414,6 +442,45 @@ namespace Euclid::Monitoring {
         // can aggregate it at all.
         const auto usage = 100.0 * static_cast<double>(totalDelta - idleDelta) / static_cast<double>(totalDelta);
         recordSample("system-cpu-usage", "host", Core::SystemUtils::GetHostName(), usage, MetricType::GAUGE);
+    }
+
+    void EmoServer::collectMemoryUsage() {
+
+        // The machine's memory, labelled by host, beside the machine's CPU. The per-module
+        // "euclid-memory-usage-percent" is a different question - what one process holds - and
+        // summing or averaging those never answered this one.
+        const auto usage = Core::SystemUtils::ReadSystemMemoryUsagePercent();
+        if (!usage.has_value()) {
+            log_warning << "Monitoring memory-usage collection failed, /proc/meminfo not readable";
+            return;
+        }
+
+        recordSample("system-memory-usage-percent", "host", Core::SystemUtils::GetHostName(), *usage, MetricType::GAUGE);
+    }
+
+    void EmoServer::collectDatabaseSize() {
+
+        const auto stats = Database::RepositoryFactory::instance().emoRepository()->databaseStats();
+        if (!stats.has_value()) {
+            // The in-memory backend has no sizes to report. Not a warning: it is a configuration,
+            // not a failure, and one that would otherwise log every five minutes forever.
+            log_debug << "Monitoring database-size collection skipped, backend reports no sizes";
+            return;
+        }
+
+        // Labelled by database rather than by host: several euclid hosts can share one database,
+        // and the figure belongs to the database in every case.
+        const auto name = Core::Configuration::instance().getOr<std::string>("euclid.mongodb.name", "euclid");
+
+        // Both sizes, because they answer different questions and either one alone misleads:
+        // data-size is what euclid holds, storage-size what that costs on disk after compression -
+        // typically several times smaller - and total-size is the one that fills a volume.
+        recordSample("database-data-size", "database", name, static_cast<double>(stats->dataSize), MetricType::GAUGE);
+        recordSample("database-storage-size", "database", name, static_cast<double>(stats->storageSize), MetricType::GAUGE);
+        recordSample("database-index-size", "database", name, static_cast<double>(stats->indexSize), MetricType::GAUGE);
+        recordSample("database-total-size", "database", name, static_cast<double>(stats->totalSize), MetricType::GAUGE);
+        recordSample("database-objects", "database", name, static_cast<double>(stats->objects), MetricType::GAUGE);
+        recordSample("database-collections", "database", name, static_cast<double>(stats->collections), MetricType::GAUGE);
     }
 
     response<string_body> EmoServer::Dispatch(const request<string_body> &req) {

@@ -96,7 +96,7 @@ namespace Euclid::Database {
          * @return list of matching bucket entities.
          */
         [[nodiscard]]
-        std::vector<Entity::ESM::Bucket> listBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const override;
+        std::vector<Entity::ESM::Bucket> listBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const override;
 
         /**
          * @brief Check the existence of a bucket by name
@@ -113,7 +113,7 @@ namespace Euclid::Database {
          * @return total number of buckets
          */
         [[nodiscard]]
-        long countBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "") const override;
+        long countBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix) const override;
 
         /**
          * @brief Delete all buckets
@@ -162,7 +162,7 @@ namespace Euclid::Database {
          * @return The total number of messages as a long integer.
          */
         [[nodiscard]]
-        long countObjects(const std::string &bucketErn, const std::string &prefix, bool includeDirectories = false) const override;
+        long countObjects(const std::string &bucketErn, const std::string &prefix, bool includeDirectories) const override;
 
         /**
          * @brief Retrieves the number of objects in a bucket whose bytes are stored encrypted.
@@ -184,7 +184,7 @@ namespace Euclid::Database {
          * @return list of matching bucket entities.
          */
         [[nodiscard]]
-        std::vector<Entity::ESM::Object> listObjects(const std::string &bucketErn, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc", bool includeDirectories = false) const override;
+        std::vector<Entity::ESM::Object> listObjects(const std::string &bucketErn, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection, bool includeDirectories) const override;
 
         /**
          * @brief Removes a object entity by ERN
@@ -198,7 +198,7 @@ namespace Euclid::Database {
         long repointSubscriptions(const std::string &oldSourceErn, const std::string &newSourceErn) override;
 
         long renameBucketObjects(const std::string &oldBucketErn, const std::string &newBucketErn,
-                                  const std::string &oldName, const std::string &newName) override;
+                                 const std::string &oldName, const std::string &newName) override;
 
         /**
          * @brief Creates or refreshes a subscription (upsert keyed on sourceErn/type/targetErn)
@@ -221,6 +221,18 @@ namespace Euclid::Database {
          * @param ern subscription ERN
          */
         void deleteSubscriptionByErn(const std::string &ern) override;
+
+        /**
+         * @brief Recounts every bucket's objects in one grouped scan and stores the totals.
+         *
+         * @par
+         * One aggregation for the whole installation rather than a count per bucket: grouping the
+         * object collection by (bucketErn) is a single index scan, and at any bucket count
+         * above one that beats counting each bucket separately. Summing the bytes is the expensive
+         * half - "size" is not in the index, so that part fetches documents - which is why this
+         * runs on a timer rather than on a read.
+         */
+        void recountBuckets() override;
 
     private:
 

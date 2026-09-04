@@ -32,6 +32,14 @@ before starting if the answer might matter.
 .BR \-q ", " \-\-queue " " \fIERN\fR
 ERN of the queue to start. Required. Resolve a name to its ERN with
 .BR euclid-cli-eqs-get-queue-ern (1).
+.PP
+The queue may be given by
+.B name
+instead of by ERN, in which case it is resolved in your session's account
+and namespace; see
+.B NAMES AND ERNS
+in
+.BR euclid-cli-eqs (1).
 .SH OUTPUT
 The JSON response is printed to standard output:
 .RS

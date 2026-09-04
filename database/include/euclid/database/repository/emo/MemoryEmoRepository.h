@@ -199,6 +199,13 @@ namespace Euclid::Database {
          * @brief memory database vector.
          */
         std::vector<Entity::Monitoring::MonitoringData> _store;
+
+        // An in-memory store has no disk footprint to report, and inventing one from the map's
+        // size would be a number nobody could act on.
+        [[nodiscard]]
+        std::optional<DatabaseStats> databaseStats() const override {
+            return std::nullopt;
+        }
     };
 
 }// namespace Euclid::Database
