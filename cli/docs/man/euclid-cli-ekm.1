@@ -91,8 +91,8 @@ only). Defaults to
 silently ignored if the file doesn't exist.
 .TP
 .BR \-s ", " \-\-signature " " \fISCHEME\fR
-Signature scheme used for signed service calls: \fIsigv4\fR (the
-default) or \fIrfc9421\fR for RFC 9421 HTTP Message Signatures. Both
+Signature scheme used for signed service calls: \fIrfc9421\fR (the
+default) or \fIsigv4\fR for AWS Signature Version 4. Both
 prove the request with the same access key; RFC 9421 puts the
 signature in \fISignature\fR/\fISignature\-Input\fR headers and binds
 the body through \fIContent\-Digest\fR (RFC 9530) instead of using
@@ -121,7 +121,8 @@ Like
 .BR euclid-cli-eqs (1)
 and
 .BR euclid-cli-esm (1)
-requests, they are signed with SigV4 using the stored access key ID and
+requests, they are signed with RFC 9421 HTTP Message Signatures using the
+stored access key ID and
 secret if present, falling back to the bearer token otherwise.
 .PP
 If the server rejects a request with
@@ -141,8 +142,8 @@ printed to standard error.
 .SH FILES
 .TP
 .I $HOME/.euclid/credentials
-JSON file holding the current session's bearer token and/or SigV4
-access key, created by
+JSON file holding the current session's bearer token and/or
+key, created by
 .B euclid-cli eam login
 and read by every
 .B ekm

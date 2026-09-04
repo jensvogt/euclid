@@ -57,16 +57,6 @@ namespace Euclid::Dto::EQS {
         std::string contentType{};
 
         /**
-         * @brief MD5 sum of the message body
-         */
-        std::string md5Body{};
-
-        /**
-         * @brief MD5 sum of the message attributes
-         */
-        std::string md5Attributes{};
-
-        /**
          * @brief Creation date, ISO8601
          */
         std::string created{};
@@ -96,8 +86,6 @@ namespace Euclid::Dto::EQS {
             r.receivedCount = Core::GetLongValue(v, "receivedCount");
             r.visibilityTimeout = Core::GetLongValue(v, "visibilityTimeout");
             r.contentType = Core::GetStringValue(v, "contentType");
-            r.md5Body = Core::GetStringValue(v, "md5Body");
-            r.md5Attributes = Core::GetStringValue(v, "md5Attributes");
             r.created = Core::GetStringValue(v, "created");
             r.modified = Core::GetStringValue(v, "modified");
             return r;
@@ -114,8 +102,6 @@ namespace Euclid::Dto::EQS {
                     {"receivedCount", obj.receivedCount},
                     {"visibilityTimeout", obj.visibilityTimeout},
                     {"contentType", obj.contentType},
-                    {"md5Body", obj.md5Body},
-                    {"md5Attributes", obj.md5Attributes},
                     {"created", obj.created},
                     {"modified", obj.modified},
             };

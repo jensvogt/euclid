@@ -215,8 +215,8 @@ store, e.g. for self-signed development certificates.
 Pretty-print the JSON response. Defaults to \fItrue\fR.
 .TP
 .BR \-s ", " \-\-signature " " \fISCHEME\fR
-Signature scheme used for signed service calls: \fIsigv4\fR (the
-default) or \fIrfc9421\fR for RFC 9421 HTTP Message Signatures.
+Signature scheme used for signed service calls: \fIrfc9421\fR (the
+default) or \fIsigv4\fR for AWS Signature Version 4.
 Overrides
 .I euclid.cli.signature
 from the configuration file.
@@ -259,7 +259,7 @@ sent, or the server rejected it. Details are printed to standard error.
 .SH FILES
 .TP
 .I $HOME/.euclid/credentials
-JSON file holding the current session's bearer token and/or SigV4 access
+JSON file holding the current session's bearer token and/or access
 key, created by
 .B euclid-cli eam login
 and read by every

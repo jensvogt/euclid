@@ -89,12 +89,10 @@ namespace Euclid::Dto::EQS {
         dto.body = entity.body;
         dto.size = entity.size;
         dto.contentType = entity.contentType;
-        dto.md5Body = entity.md5Body;
         dto.receiptHandle = entity.receiptHandle;
         for (const auto &[key, attr]: entity.attributes) {
             dto.attributes[key] = toDto(attr);
         }
-        dto.md5Attributes = entity.md5Attributes;
         dto.lastReceived = entity.lastReceived;
         dto.created = entity.created;
         dto.modified = entity.modified;
@@ -118,8 +116,6 @@ namespace Euclid::Dto::EQS {
         entity.status = Database::Entity::EQS::MessageStatusFromString(dto.status);
         entity.priority = Database::Entity::EQS::MessagePriorityFromString(dto.priority);
         entity.body = dto.body;
-        entity.md5Body = dto.md5Body;
-        entity.md5Attributes = dto.md5Attributes;
         entity.receiptHandle = dto.receiptHandle;
         for (const auto &[key, variant]: dto.attributes) {
             entity.attributes[key] = toEntity(variant);

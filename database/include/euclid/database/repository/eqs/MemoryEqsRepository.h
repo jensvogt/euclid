@@ -149,7 +149,6 @@ namespace Euclid::Database {
             message.messageId = messageId;
             message.contentType = Core::ContentTypeUtils::fromContent(message.body);
             message.attributes = attributes;
-            message.md5Attributes = Entity::EQS::Message::ComputeAttributesMd5(attributes);
             message.priority = priority;
 
             for (auto &queue: _queueStore | std::views::values) {

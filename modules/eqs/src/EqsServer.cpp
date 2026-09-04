@@ -308,8 +308,6 @@ namespace Euclid::EQS {
 
         Dto::EQS::SendMessageResponse response;
         response.messageId = message.messageId;
-        response.md5Body = message.md5Body;
-        response.md5Attributes = message.md5Attributes;
 
         return EqsServer::JsonResponse(req, status::ok, response.toJson());
     }
@@ -612,8 +610,6 @@ namespace Euclid::EQS {
         response.receivedCount = message->receivedCount;
         response.visibilityTimeout = message->visibilityTimeout;
         response.contentType = message->contentType;
-        response.md5Body = message->md5Body;
-        response.md5Attributes = message->md5Attributes;
         response.created = Core::DateTimeUtils::ToISO8601(message->created);
         response.modified = Core::DateTimeUtils::ToISO8601(message->modified);
         return EqsServer::JsonResponse(req, status::ok, response.toJson());

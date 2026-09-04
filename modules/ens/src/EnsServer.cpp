@@ -260,8 +260,6 @@ namespace Euclid::ENS {
 
         Dto::ENS::PublishMessageResponse response;
         response.messageId = message.messageId;
-        response.md5Body = message.md5Body;
-        response.md5Attributes = message.md5Attributes;
 
         return EnsServer::JsonResponse(req, status::ok, response.toJson());
     }
@@ -520,9 +518,7 @@ namespace Euclid::ENS {
     //     response.receivedCount = message->receivedCount;
     //     response.visibilityTimeout = message->visibilityTimeout;
     //     response.contentType = message->contentType;
-    //     response.md5Body = message->md5Body;
-    //     response.md5Attributes = message->md5Attributes;
-    //     response.created = Core::DateTimeUtils::ToISO8601(message->created);
+    //    //    //     response.created = Core::DateTimeUtils::ToISO8601(message->created);
     //     response.modified = Core::DateTimeUtils::ToISO8601(message->modified);
     //     return EnsServer::JsonResponse(req, status::ok, response.toJson());
     // }
