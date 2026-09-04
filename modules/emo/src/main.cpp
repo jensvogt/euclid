@@ -85,10 +85,10 @@ static int initializeDatabase(const Euclid::Core::Configuration &cfg) {
 
         // Choose backend from config
         if (const auto backend = cfg.getOr<std::string>("euclid.database.backend", "mongodb"); backend == "memory") {
-            log_info << "Using in-memory database";
+            log_debug << "Using in-memory database";
             Euclid::Database::RepositoryFactory::instance().initialize(Euclid::Database::BackendType::MEMORY);
         } else {
-            log_info << "Using MongoDB database";
+            log_debug << "Using MongoDB database";
             Euclid::Database::Database::instance().initialize();
             Euclid::Database::RepositoryFactory::instance().initialize(Euclid::Database::BackendType::MONGODB);
         }
