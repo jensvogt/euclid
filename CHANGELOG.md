@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.66](https://github.com/jensvogt/euclid/compare/1.0.65...v1.0.66) (2026-09-04)
+
+
+### Bug Fixes
+
+* auto-scaler performance ([34f72ca](https://github.com/jensvogt/euclid/commit/34f72caf0d6e89509f628ea0b3b73b8baaec90f5))
+
 ## [1.0.65](https://github.com/jensvogt/euclid/compare/1.0.64...v1.0.65) (2026-09-04)
 
 
