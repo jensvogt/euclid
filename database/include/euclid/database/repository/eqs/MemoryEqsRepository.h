@@ -118,7 +118,7 @@ namespace Euclid::Database {
             return _queueStore.contains(name);
         }
 
-        long countQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "") const override {
+        long countQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix) const override {
             std::lock_guard lock(_mutex);
             return std::ranges::count_if(_queueStore | std::views::values, [&](const auto &m) {
                 return m.accountId == accountId

@@ -113,6 +113,29 @@ one namespace). See
 .B delete-topic
 Deletes a topic by its ERN. See
 .BR euclid-cli-ens-delete-topic (1).
+.SH NAMES AND ERNS
+Anywhere a topic is named, you may give either its plain
+.B name
+or its full Euclid resource name
+.RB ( ERN ).
+.PP
+A name is resolved by the server, in the account and namespace your
+session is using \- the ones recorded in
+.I $HOME/.euclid/credentials
+and sent with every request. So
+.B datenlieferant-topic
+means the topic of that name in your current namespace, and switching
+namespace with
+.BR euclid-cli-eam-change-namespace (1)
+makes the same name refer to a different topic. That is the point of a
+name: it is relative to where you are.
+.PP
+A full ERN is absolute, and is what you need to reach a topic in
+another namespace or account \- and what every script written before
+names were accepted already passes. Both forms are accepted everywhere
+below; a value beginning with
+.I ern:
+is used as given, anything else is treated as a name.
 .SH GLOBAL OPTIONS
 These options are given to
 .B euclid-cli

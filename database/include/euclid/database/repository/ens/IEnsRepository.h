@@ -305,6 +305,29 @@ namespace Euclid::Database {
          * @return number of messages that were reset to status "AVAILABLE"
          */
         // virtual long resetExpiredMessages() = 0;
+
+        /**
+         * @brief Recounts every topic's messages and stores the result on the topics.
+         *
+         * @par
+         * The counters a topic reports - the message total and the byte total - are measured
+         * periodically rather than maintained per message, for the same reasons as EQS's
+         * recountQueues(): incrementing them on every publish made every publisher of a topic
+         * serialise on one row, and a process that died between writing a message and counting it
+         * left the counters permanently wrong with nothing able to correct them. They are
+         * approximate in the useful sense - right as of the last pass, self-correcting on the next.
+         *
+         * @par
+         * Only "available" and "size" are recomputed. "send" and "resend" are lifetime totals, and
+         * deriving those from the messages still stored would make them fall every time a topic
+         * was purged.
+         *
+         * @par
+         * Called by EMO, which runs as a single instance and already owns the installation's
+         * periodic measurement. Deliberately not called by the notification module itself: that
+         * runs many instances, and each would repeat the same scan.
+         */
+        virtual void recountTopics() = 0;
     };
 
 }// namespace Euclid::Database

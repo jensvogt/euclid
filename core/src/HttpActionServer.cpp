@@ -62,6 +62,11 @@ namespace Euclid::Core {
             return lookup;
         }
 
+        HttpActionServer::RequestRewriter &requestRewriter() {
+            static HttpActionServer::RequestRewriter rewriter;
+            return rewriter;
+        }
+
         HttpActionServer::ResourceLookup &resourceLookup() {
             static HttpActionServer::ResourceLookup lookup;
             return lookup;
@@ -277,6 +282,10 @@ namespace Euclid::Core {
         workerThreadsLookup() = std::move(lookup);
     }
 
+    void HttpActionServer::SetRequestRewriter(RequestRewriter rewriter) {
+        requestRewriter() = std::move(rewriter);
+    }
+
     bool HttpActionServer::IsResourceAllowed(const std::string &userId, const std::string &resourceErn) {
         if (!resourceLookup()) return true;
         if (userId.empty() || resourceErn.empty()) return true;
@@ -353,6 +362,9 @@ namespace Euclid::Core {
         if (ec) {
             return ErrorResponse(req, http::status::bad_request, "Invalid JSON body");
         }
+        // After the parse, so a rewriter only ever sees a well-formed body, and before any handler
+        // reads it - which is the whole point: what a handler gets is already normalised.
+        if (requestRewriter()) requestRewriter()(req, out);
         return std::nullopt;
     }
 

@@ -53,6 +53,14 @@ Number of parts to upload in parallel. Defaults to \fI4\fR, or the
 value of \fIeuclid.modules.esm.concurrency\fR in the loaded
 configuration file if set; values less than \fI1\fR are treated as
 \fI1\fR.
+.PP
+The bucket may be given by
+.B name
+instead of by ERN, in which case it is resolved in your session's account
+and namespace; see
+.B NAMES AND ERNS
+in
+.BR euclid-cli-esm (1).
 .SH EXIT STATUS
 .TP
 .B 0

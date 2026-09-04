@@ -258,14 +258,14 @@ namespace Euclid::EQS {
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::EQS::SendMessageRequest>(jv);
-        log_info << "EQS SendMessage queueErn: " << request.queueErn;
+        log_info << "EQS SendMessage queueErn: " << request.ern;
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
-        std::optional<Database::Entity::EQS::Queue> queue = repo->findQueueByErn(request.queueErn);
+        std::optional<Database::Entity::EQS::Queue> queue = repo->findQueueByErn(request.ern);
         if (!queue.has_value()) {
             return EqsServer::ErrorResponse(req, status::bad_request, "Queue does not exist");
         }
-        if (const auto denied = denyUngrantedQueue(req, auth, request.queueErn)) return *denied;
+        if (const auto denied = denyUngrantedQueue(req, auth, request.ern)) return *denied;
 
         const std::string messageId = Core::UuidUtils::CreateRandomUuid();
         const std::string ern = Core::createEqsMessageErn(auth.user.value().accountId, messageId);
@@ -283,8 +283,8 @@ namespace Euclid::EQS {
         }
 
         // Create message
-        const Database::Entity::EQS::Message message = repo->sendMessage(messageId, ern, request.queueErn, request.body, attributes, priority);
-        recordMessagesSent(request.queueErn, 1, message.size);
+        const Database::Entity::EQS::Message message = repo->sendMessage(messageId, ern, request.ern, request.body, attributes, priority);
+        recordMessagesSent(request.ern, 1, message.size);
 
         // Published, not pushed: a client that wants to know about new messages subscribes to
         // this event type through EES like it would to any other, and the bus decides who gets it
@@ -325,18 +325,18 @@ namespace Euclid::EQS {
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::EQS::ReceiveMessagesRequest>(jv);
-        log_info << "EQS ReceiveMessages ern: " << request.queueErn;
+        log_info << "EQS ReceiveMessages ern: " << request.ern;
 
-        if (const auto denied = denyUngrantedQueue(req, auth, request.queueErn)) return *denied;
+        if (const auto denied = denyUngrantedQueue(req, auth, request.ern)) return *denied;
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
 
         // Checked before the long poll, not after: waiting twenty seconds to be told the queue is
         // stopped would be twenty seconds a consumer spends holding a slot for an answer that was
         // already known.
-        if (const auto queue = repo->findQueueByErn(request.queueErn);
+        if (const auto queue = repo->findQueueByErn(request.ern);
             queue.has_value() && queue->status == Database::Entity::EQS::QueueStatus::STOPPED) {
-            return EqsServer::ErrorResponse(req, status::conflict, "Queue is stopped, ern: " + request.queueErn);
+            return EqsServer::ErrorResponse(req, status::conflict, "Queue is stopped, ern: " + request.ern);
         }
 
         // Without a slot the wait is skipped rather than queued: the queue is checked once and
@@ -344,20 +344,20 @@ namespace Euclid::EQS {
         // stays empty. The consumer asks again; a producer gets a thread meanwhile.
         const auto slot = longPollSlots.acquire();
         std::vector<Database::Entity::EQS::Message> messages =
-                repo->receiveMessages(request.queueErn, request.maxCount, slot.held() ? request.waitTime : 0);
+                repo->receiveMessages(request.ern, request.maxCount, slot.held() ? request.waitTime : 0);
 
         // Counted per message handed out, so a message received twice (its visibility timeout ran
         // out before it was deleted) counts twice - that redelivery is real traffic, and the gap
         // between this and eqs-messages-sent is what makes it visible.
         long receivedBytes = 0;
         for (const auto &message: messages) receivedBytes += message.size;
-        recordMessagesReceived(request.queueErn, static_cast<long>(messages.size()), receivedBytes);
+        recordMessagesReceived(request.ern, static_cast<long>(messages.size()), receivedBytes);
 
         Dto::EQS::ReceiveMessagesResponse response;
         response.messages = Dto::EQS::EqsMapper::toDto(messages);
-        response.total = repo->countMessages(request.queueErn);
+        response.total = repo->countMessages(request.ern);
 
-        log_info << "EQS ReceiveMessages ern: " << request.queueErn << ", count: " << response.messages.size() << ", total: " << response.total;
+        log_info << "EQS ReceiveMessages ern: " << request.ern << ", count: " << response.messages.size() << ", total: " << response.total;
 
         return EqsServer::JsonResponse(req, status::ok, response.toJson());
     }
@@ -472,16 +472,16 @@ namespace Euclid::EQS {
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::EQS::GetMessageCountRequest>(jv);
-        log_info << "EQS GetMessageCount, ern: " << request.queueErn;
+        log_info << "EQS GetMessageCount, ern: " << request.ern;
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
-        const std::optional<Database::Entity::EQS::Queue> queue = repo->findQueueByErn(request.queueErn);
+        const std::optional<Database::Entity::EQS::Queue> queue = repo->findQueueByErn(request.ern);
         if (!queue.has_value()) {
-            return EqsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + request.queueErn);
+            return EqsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + request.ern);
         }
 
         Dto::EQS::GetMessageCountResponse response;
-        response.ern = request.queueErn;
+        response.ern = request.ern;
         response.available = queue->available;
         response.delayed = queue->delayed;
         response.invisible = queue->invisible;
@@ -1015,7 +1015,65 @@ namespace Euclid::EQS {
 
     // ── EqsServer ────────────────────────────────────────────────────────────
 
+    // Resolves the resource names clients send into the full ERNs every handler below expects.
+    //
+    // A client's configuration names a queue or a topic; an ERN additionally carries the region,
+    // account and namespace, which are properties of the caller's session rather than of the
+    // request. Resolving here rather than in each client means one implementation instead of one
+    // per language, and it bounds what a name can reach: a name always resolves inside the
+    // caller's own namespace. A full ERN is passed through untouched, so every client written
+    // before this keeps working and cross-namespace work stays possible.
+    //
+    // Installed once, in the constructor, and applied by Core::HttpActionServer::ParseJsonBody to
+    // every body this process parses - so a handler added later gets it without having to know.
+    static void installErnResolver() {
+        Core::HttpActionServer::SetRequestRewriter([](const auto &req, boost::json::value &body) {
+            if (!body.is_object()) return;
+            auto &obj = body.as_object();
+
+            // The header, which authenticate() has already checked is one this caller may use -
+            // every handler authenticates before it parses. It is optional though (see
+            // CheckScope), and an empty account would build an ERN with a hole in it that matches
+            // nothing, so a single-account installation's configured id stands in for it.
+            auto accountId = std::string(req["x-euclid-account-id"]);
+            if (accountId.empty()) {
+                // has() first: getArray() throws on a missing key. Only when exactly one account
+                // is configured - with several there is no way to tell which was meant, and a
+                // guess would resolve the name into somebody else's account.
+                if (auto &cfg = Core::Configuration::instance(); cfg.has("euclid.account-ids")) {
+                    if (const auto configured = cfg.getArray<std::string>("euclid.account-ids"); configured.size() == 1) {
+                        accountId = configured.front();
+                    }
+                }
+            }
+            const auto nameSpace = std::string(req["x-euclid-namespace"]);
+            const auto action = std::string(req["x-euclid-action"]);
+
+            auto resolve = [&](const char *field, const char *service, const char *type) {
+                const auto it = obj.find(field);
+                if (it == obj.end() || !it->value().is_string()) return;
+                const auto resolved = Core::resolveErn(service, type, accountId, nameSpace, std::string(it->value().as_string()));
+                it->value() = resolved;
+            };
+
+            resolve("queueErn", "eqs", "queue");
+
+            // A bare "ern" too, unconditionally. It names a queue in most actions and an object,
+            // message or subscription in the rest - but that distinction does not matter here,
+            // because a full ERN is always passed through untouched and only a bare value is ever
+            // resolved. A bare value in one of those other actions was never valid anyway, so the
+            // worst this can do is fail with a different message than it used to.
+            //
+            // Deliberately not an action list: the wire field a DTO serialises to is not always
+            // the name of its C++ member (PublishMessageRequest::topicErn is sent as "ern"), so
+            // any list keyed on one would be wrong for the actions where the two disagree - which
+            // is exactly how publish-message was missed.
+            resolve("ern", "eqs", "queue");
+        });
+    }
+
     EqsServer::EqsServer(std::string socketPath, const int threads) : HttpActionServer("EQS", std::move(socketPath), threads) {
+        installErnResolver();
         longPollSlots.limit(threads - 1);
 
         auto &scheduler = Core::Scheduler::instance();

@@ -125,7 +125,7 @@ namespace Euclid::Database {
          * @return total number of modules
          */
         [[nodiscard]]
-        long countQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "") const override;
+        long countQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix) const override;
 
         /**
          * @brief Delete all modules

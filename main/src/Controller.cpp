@@ -558,6 +558,29 @@ namespace Euclid::main {
         // reason: a long-lived secret sitting in a process is the thing worth getting rid of.
         // The token is minted here rather than fetched from EAM: it is the same HMAC over the
         // same secret that a login would produce, and the manager already holds both.
+        // The namespace an application's own requests run in.
+        //
+        // Its own field when it has one. When it does not - every application deployed before
+        // applications carried one, and anything created by a client that does not set it yet -
+        // the application's EAM user is asked instead: a user granted exactly one namespace in
+        // this account leaves no room for doubt about which was meant. Several, or none, and it
+        // stays empty rather than guessing, which resolves names at the account root exactly as
+        // before.
+        std::string applicationNamespace(const Database::Entity::EAP::Application &application) {
+
+            if (!application.nameSpace.empty()) return application.nameSpace;
+
+            const auto user = Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(application.userId);
+            if (!user.has_value()) return {};
+
+            for (const auto &grant: user->accountGrants) {
+                if (grant.accountId != application.accountId) continue;
+                if (grant.namespaces.size() == 1) return grant.namespaces.front();
+                break;
+            }
+            return {};
+        }
+
         bool writeApplicationCredentials(const Database::Entity::EAP::Application &application) {
 
             const auto expiresAt = std::chrono::system_clock::now() + credentialsTtl();
@@ -574,6 +597,9 @@ namespace Euclid::main {
                     {"userId", application.userId},
                     {"accountId", application.accountId},
                     {"region", application.region},
+                    // Sent by the client as x-euclid-namespace, which is what lets it name a
+                    // queue, topic or bucket rather than spell out a full ERN.
+                    {"namespace", applicationNamespace(application)},
                     {"endpoint", scheme + std::string("://") + host + ":" + std::to_string(port)},
             };
 

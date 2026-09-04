@@ -42,6 +42,14 @@ ID or ERN of the EKM key to encrypt under. It must exist, belong to the
 caller's account and still be usable for encryption \- a revoked key or
 one scheduled for deletion is refused here rather than at the first
 upload. Optional; without it a key is created for the bucket.
+.PP
+The bucket may be given by
+.B name
+instead of by ERN, in which case it is resolved in your session's account
+and namespace; see
+.B NAMES AND ERNS
+in
+.BR euclid-cli-esm (1).
 .SH THE KEY
 Without
 .BR \-\-key ,

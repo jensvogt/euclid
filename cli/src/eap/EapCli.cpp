@@ -151,6 +151,7 @@ namespace Euclid::CLI {
         if (vm.contains("version")) request["version"] = vm["version"].as<std::string>();
         if (vm.contains("user")) request["user"] = vm["user"].as<std::string>();
         if (vm.contains("command")) request["command"] = vm["command"].as<std::string>();
+        if (vm.contains("namespace")) request["namespace"] = vm["namespace"].as<std::string>();
         if (vm.contains("arguments")) request["arguments"] = SplitList(vm["arguments"].as<std::string>());
         if (vm.contains("environment")) request["environment"] = SplitEnvironment(vm["environment"].as<std::string>());
         if (vm.contains("buckets")) request["buckets"] = SplitList(vm["buckets"].as<std::string>());
@@ -181,6 +182,7 @@ namespace Euclid::CLI {
                 ("runtime,r", po::value<std::string>(), "runtime the artifact is started with")
                 ("artifact,a", po::value<std::string>(), "object key of the artifact within the application's bucket")
                 ("command,c", po::value<std::string>(), "command to run instead of the runtime's default")
+                ("namespace", po::value<std::string>(), "namespace the application's own requests run in, which is what lets it name a queue or topic rather than spell out a full ERN; pass an empty string to move it back to the account root")
                 ("arguments", po::value<std::string>(), "comma-separated arguments; replaces the current list")
                 ("environment,e", po::value<std::string>(), "comma-separated KEY=value environment variables; replaces the current set")
                 ("buckets", po::value<std::string>(), "comma-separated bucket names the application may use; replaces the current list")

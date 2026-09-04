@@ -91,6 +91,9 @@ namespace Euclid::Database {
          * @brief Creates the indexes required for efficient monitoring data queries, if they do not already exist.
          */
         static void ensureIndexes();
+
+        [[nodiscard]]
+        std::optional<DatabaseStats> databaseStats() const override;
     };
 
 }// namespace Euclid::Database

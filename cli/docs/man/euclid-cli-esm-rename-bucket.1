@@ -31,6 +31,14 @@ Euclid resource name of the bucket to rename. Required.
 .TP
 .BR \-n ", " \-\-new\-name " " \fINAME\fR
 Name the bucket should have. Required.
+.PP
+The bucket may be given by
+.B name
+instead of by ERN, in which case it is resolved in your session's account
+and namespace; see
+.B NAMES AND ERNS
+in
+.BR euclid-cli-esm (1).
 .SH WHAT IS REFUSED
 .TP
 .B A name that is taken

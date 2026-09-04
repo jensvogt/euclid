@@ -250,7 +250,7 @@ namespace Euclid::Database {
         virtual long repointSubscriptions(const std::string &oldSourceErn, const std::string &newSourceErn) = 0;
 
         virtual long renameBucketObjects(const std::string &oldBucketErn, const std::string &newBucketErn,
-                                          const std::string &oldName, const std::string &newName) = 0;
+                                         const std::string &oldName, const std::string &newName) = 0;
 
         /**
          * @brief Creates (or, for a matching existing sourceErn/type/targetErn, refreshes) a
@@ -276,6 +276,26 @@ namespace Euclid::Database {
          * @param ern subscription ERN
          */
         virtual void deleteSubscriptionByErn(const std::string &ern) = 0;
+
+        /**
+         * @brief Recounts every buckets's objects and stores the result on the buckets.
+         *
+         * @par
+         * The counters a bucket reports - available, delayed, invisible and the byte total - are
+         * measured periodically rather than maintained per message. Incrementing them on every
+         * send, receive and delete made each of those write to the bucket document, so every
+         * producer and consumer of a bucket serialised on one row; and a process that died between
+         * writing a message and counting it left the counters permanently wrong, with nothing able
+         * to correct them. They are approximate in the sense SQS means it: right as of the last
+         * pass, and self-correcting on the next.
+         *
+         * @par
+         * Called by EMO, which runs as a single instance and already owns the installation's
+         * periodic measurement. Deliberately not called by the bucketing module itself: that runs
+         * many instances, and each would repeat the same scan.
+         */
+        virtual void recountBuckets() = 0;
+
     };
 
 }// namespace Euclid::Database

@@ -1,0 +1,65 @@
+.TH EUCLID-CLI-ESM-DELETE-BUCKET-TAG 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-delete-bucket-tag \- delete a tag from a bucket
+.SH SYNOPSIS
+.B euclid-cli esm delete-bucket-tag
+.BR \-\-bucket | \-b
+.I BUCKET
+.BR \-\-key | \-k
+.I KEY
+.SH DESCRIPTION
+Deletes a tag from a bucket by its key. The bucket itself and everything
+in it are untouched \- only the key/value pair is removed.
+.PP
+The tag must exist; deleting a key that is not there returns
+.I "HTTP 404"
+rather than succeeding quietly.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-bucket " " \fIBUCKET\fR
+Bucket to tag, by name or by Euclid resource name (ERN). Required.
+.TP
+.BR \-k ", " \-\-key " " \fIKEY\fR
+Tag key. Required.
+.PP
+The bucket may be given by
+.B name
+instead of by ERN, in which case it is resolved in your session's account
+and namespace; see
+.B NAMES AND ERNS
+in
+.BR euclid-cli-esm (1).
+.SH EXIT STATUS
+.TP
+.B 0
+The tag was deleted. No output is printed.
+.TP
+.B 1
+Missing or invalid arguments, the server could not be reached, no
+such bucket exists, or the bucket has no tag with that key.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm delete-bucket-tag \e
+    --bucket transfer-server \e
+    --key team
+.fi
+.RE
+.PP
+The same command against a bucket in another namespace, which is what a
+full ERN is for:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm delete-bucket-tag \e
+    --bucket ern:esm:eu-central-1:000000000000:development:bucket:transfer-server \e
+    --key team
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-add-bucket-tag (1),
+.BR euclid-cli-esm-set-bucket-tag (1),
+.BR euclid-cli-esm-get-bucket-size (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
