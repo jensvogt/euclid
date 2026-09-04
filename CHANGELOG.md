@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.64](https://github.com/jensvogt/euclid/compare/1.0.63...v1.0.64) (2026-09-04)
+
+
+### Bug Fixes
+
+* database monitoring ([b1e1114](https://github.com/jensvogt/euclid/commit/b1e11147b406c46f5887b7c3234ef91e0b0a2042))
+* monitoring, application fixes ([99b68e0](https://github.com/jensvogt/euclid/commit/99b68e06d4672016de54c6e84dcd521156d5c7e4))
+
 ## [1.0.63](https://github.com/jensvogt/euclid/compare/1.0.62...v1.0.63) (2026-09-03)
 
 
