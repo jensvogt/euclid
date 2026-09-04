@@ -112,10 +112,10 @@ from a machine that has no installation of its own. Defaults to
 .TP
 .BR \-s ", " \-\-signature " " \fISCHEME\fR
 Signature scheme for signed service calls:
-.I sigv4
-(the default) or
 .I rfc9421
-for RFC 9421 HTTP Message Signatures. Both prove the request with the
+(the default) or
+.I sigv4
+for AWS Signature Version 4. Both prove the request with the
 same access key; RFC 9421 puts the signature in
 .IR Signature / Signature\-Input
 headers and binds the body through
@@ -161,7 +161,7 @@ the session expires or the namespace is changed.
 .PP
 The session holds two things: a bearer token, used for
 .B eam
-commands, and a SigV4 access key provisioned on first login, used to
+commands, and a access key provisioned on first login, used to
 sign every other module's requests. Which of the two is used is decided
 per module, not per command, so nothing has to be passed on the command
 line.
@@ -209,7 +209,7 @@ so standard output stays parseable.
 .SH FILES
 .TP
 .I $HOME/.euclid/credentials
-The current session: bearer token, SigV4 access key, user, account,
+The current session: bearer token, access key, user, account,
 region and active namespace. Written by
 .B euclid-cli eam login
 and read by every other command.

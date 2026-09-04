@@ -45,13 +45,18 @@ namespace Euclid::CLI {
             }
         }
 
-        // Which signature scheme a signed request uses: SigV4 unless the caller asked for RFC
-        // 9421 (--signature rfc9421, or euclid.cli.signature in the config file). Both prove the
-        // same thing with the same access key; RFC 9421 is the standard spelling, for clients and
-        // proxies that already understand HTTP Message Signatures.
+        // Which signature scheme a signed request uses: RFC 9421 unless the caller asked for
+        // SigV4 (--signature sigv4, or euclid.cli.signature in the config file). Both prove the
+        // same thing with the same access key.
         bool UseHttpSignature() {
-            const auto scheme = Core::Configuration::instance().getOr<std::string>("euclid.cli.signature", "sigv4");
-            return scheme == "rfc9421" || scheme == "http-signature";
+            // RFC 9421 by default. It is the open standard for the same job, it is what euclid's
+            // own applications already sign with, and unlike SigV4 it binds the body through a
+            // Content-Digest header that is meaningful on its own rather than through a hash
+            // folded into a proprietary canonical string. SigV4 stays selectable - the server
+            // accepts both, and a script pinned to it keeps working - but nothing chooses it now
+            // unless it is asked for by name.
+            const auto scheme = Core::Configuration::instance().getOr<std::string>("euclid.cli.signature", "rfc9421");
+            return scheme != "sigv4";
         }
 
         // Service calls (everything but the access module itself) are signed when an access key

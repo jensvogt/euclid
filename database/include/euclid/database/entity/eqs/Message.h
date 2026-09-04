@@ -113,10 +113,6 @@ namespace Euclid::Database::Entity::EQS {
          */
         std::string receiptHandle;
 
-        /**
-         * @brief MD5 sum body
-         */
-        std::string md5Body;
 
         /**
          * @brief List of message attributes.
@@ -125,13 +121,6 @@ namespace Euclid::Database::Entity::EQS {
          */
         std::map<std::string, COM::Variant> attributes;
 
-        /**
-         * @brief MD5 sum of the message attributes.
-         *
-         * Computed from the attributes map when the message is sent, so callers can detect
-         * whether the attributes were transmitted/stored correctly.
-         */
-        std::string md5Attributes;
 
         /**
          * @brief Content type
@@ -163,14 +152,6 @@ namespace Euclid::Database::Entity::EQS {
          */
         void FromDocument(const std::optional<bsoncxx::document::view> &document);
 
-        /**
-         * @brief Computes the MD5 sum of a message attributes map.
-         *
-         * @param attributes message attributes to hash.
-         * @return MD5 sum, as a hex string.
-         */
-        [[nodiscard]]
-        static std::string ComputeAttributesMd5(const std::map<std::string, COM::Variant> &attributes);
     };
 
 }// namespace Euclid::Database::Entity::SQS

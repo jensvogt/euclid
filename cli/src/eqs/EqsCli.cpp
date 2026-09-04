@@ -884,7 +884,7 @@ namespace Euclid::CLI {
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eqs", "get-message-metadata", "--message-id <messageId>",
-                                   "Shows a message's metadata: messageId, queueErn, receiptHandle, status, priority, size (bytes), receivedCount, visibilityTimeout, contentType, md5Body, md5Attributes, created, modified.",
+                                   "Shows a message's metadata: messageId, queueErn, receiptHandle, status, priority, size (bytes), receivedCount, visibilityTimeout, contentType, created, modified.",
                                    desc);
         }
 

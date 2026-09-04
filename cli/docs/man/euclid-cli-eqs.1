@@ -171,8 +171,8 @@ only). Defaults to
 silently ignored if the file doesn't exist.
 .TP
 .BR \-s ", " \-\-signature " " \fISCHEME\fR
-Signature scheme used for signed service calls: \fIsigv4\fR (the
-default) or \fIrfc9421\fR for RFC 9421 HTTP Message Signatures. Both
+Signature scheme used for signed service calls: \fIrfc9421\fR (the
+default) or \fIsigv4\fR for AWS Signature Version 4. Both
 prove the request with the same access key; RFC 9421 puts the
 signature in \fISignature\fR/\fISignature\-Input\fR headers and binds
 the body through \fIContent\-Digest\fR (RFC 9530) instead of using
@@ -201,7 +201,7 @@ Unlike
 .B eam
 commands, which always send the bearer token,
 .B eqs
-requests are signed with SigV4 (the same scheme Euclid SDKs use for SQS)
+requests are signed with RFC 9421 HTTP Message Signatures
 using the access key ID and secret stored in that file, if present;
 .BR euclid-cli-eam-login (1)
 provisions this access key automatically on first login, so a separate
@@ -230,8 +230,8 @@ not found, etc.). Details are printed to standard error.
 .SH FILES
 .TP
 .I $HOME/.euclid/credentials
-JSON file holding the current session's bearer token and/or SigV4
-access key, created by
+JSON file holding the current session's bearer token and/or
+key, created by
 .B euclid-cli eam login
 and read by every
 .B eqs
