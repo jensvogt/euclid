@@ -15,6 +15,7 @@
 #ifndef _WIN32
 #include <fcntl.h>
 #include <sys/file.h>
+#include <sys/resource.h>
 #include <unistd.h>
 #endif
 
@@ -34,6 +35,46 @@
 #include <euclid/manager/ControllerPlatform.h>
 #include <euclid/manager/GatewayEventIngest.h>
 #include <euclid/manager/GatewayServer.h>
+
+// Raises this process's open-file limit to whatever the system already permits.
+//
+// The manager holds far more descriptors than a command-line program: two pipes for every instance
+// it supervises, one socket per in-flight request through the gateway, and a second one to the
+// module that request is routed to - held for the whole of a long poll, which is twenty seconds by
+// default. A few dozen application instances with several pollers each is thousands of descriptors
+// at once, against a soft limit that is 1024 on most distributions.
+//
+// Going past it does not fail as a resource problem. accept() and connect() return EMFILE, the
+// gateway turns that into "502 Too many open files", and it reads to everyone downstream as though
+// euclid itself were broken. So the limit is raised here rather than left to whoever launched the
+// process to have remembered: the hard limit is what the administrator actually decided, and this
+// only asks for that.
+static void raiseOpenFileLimit() {
+#ifndef _WIN32
+    rlimit limit{};
+    if (getrlimit(RLIMIT_NOFILE, &limit) != 0) {
+        log_warning << "Could not read the open file limit, error: " << std::strerror(errno);
+        return;
+    }
+
+    const auto previous = limit.rlim_cur;
+    if (limit.rlim_cur >= limit.rlim_max) {
+        log_info << "Open file limit: " << previous << " (already at the maximum permitted)";
+        return;
+    }
+
+    limit.rlim_cur = limit.rlim_max;
+    if (setrlimit(RLIMIT_NOFILE, &limit) != 0) {
+        // Not fatal: euclid runs, and keeps running until it actually needs the descriptors. Said
+        // out loud because the failure it leads to arrives much later and looks like something
+        // else entirely.
+        log_warning << "Could not raise the open file limit from " << previous << ", error: " << std::strerror(errno);
+        return;
+    }
+    log_info << "Open file limit raised from " << previous << " to " << limit.rlim_max;
+#endif
+}
+
 
 // ── Constants ───────────────────────────────────────────────
 #ifdef _WIN32
@@ -548,6 +589,10 @@ static int RunManager(const CliOptions &opts, [[maybe_unused]] const bool report
     const auto &cfg = Euclid::Core::Configuration::instance();
     Euclid::Core::LogStream::Initialize();
     Euclid::Core::LogStream::SetSeverity(cfg.getOr<std::string>("euclid.logging.level", "info"));
+
+    // After logging is up, so the limit it settles on is visible, and before anything opens a
+    // descriptor in earnest.
+    raiseOpenFileLimit();
 
     if (cfg.getOr<bool>("euclid.logging.file-active", false)) {
         Euclid::Core::LogStream::AddFile(cfg.getOr<std::string>("euclid.logging.dir", "/var/log/euclid"), cfg.getOr<std::string>("euclid.logging.prefix", "euclid"));

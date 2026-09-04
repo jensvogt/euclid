@@ -24,6 +24,7 @@ namespace Euclid::Dto {
         instance.pid = svc.pid;
         instance.state = svc.state;
         instance.socketPath = svc.instanceSocketPath;
+        instance.httpPort = svc.httpPort;
         instance.restartCount = svc.restartCount;
         instance.modified = std::chrono::system_clock::now();
         return instance;

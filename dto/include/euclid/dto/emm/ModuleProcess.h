@@ -100,6 +100,12 @@ namespace Euclid::Dto {
         std::string instanceSocketPath;
 
         /**
+         * @brief TCP port handed to this instance for its own HTTP listener, or 0 if the module
+         * was not given a port range to draw from. Passed to the process as EUCLID_HTTP_PORT.
+         */
+        int httpPort{};
+
+        /**
          * @brief Number of requests currently being forwarded to this instance.
          *
          * Incremented/decremented by ServiceController::acquireInstance/releaseInstance under

@@ -50,6 +50,23 @@ namespace Euclid::Database::Entity {
         std::string socketPath;
 
         /**
+         * @brief TCP port this instance was given for its own HTTP listener, or 0 for none.
+         *
+         * @par
+         * Several instances of one application run on the same host, so a port written into the
+         * application's own configuration would be bound by the first instance and refused to
+         * every other - which is not a failure the autoscaler can see, only a pool that will not
+         * grow. The manager hands each instance a port of its own instead, the same way it hands
+         * each one a socket path of its own.
+         *
+         * @par
+         * Persisted because it is the only record of which instance is reachable where: an API
+         * gateway in front of an application's web interface has no other way to find its
+         * backends, and the manager itself forgets everything when it restarts.
+         */
+        int httpPort{};
+
+        /**
          * @brief Number of times this slot has been restarted since its last stable run.
          */
         int restartCount{};
