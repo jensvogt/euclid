@@ -121,9 +121,9 @@
         "rollup-hour-period": 600,
         "rollup-day-period": 3600,
         "cpu-usage-period": 60,
-        "queue-count.period": 60,
-        "bucket-count.period": 60,
-        "topic-count.period": 60,
+        "queue-count-period": 60,
+        "bucket-count-period": 60,
+        "topic-count-period": 60,
         "database-size-period": 300,
         "retention": {
           "raw": 7,
@@ -185,8 +185,10 @@
         "socket-dir": "C:\\Program Files\\euclid\\data\\run",
         "data-dir": "C:\\Program Files\\euclid\\data\\eap",
         "minInstances": 1,
-        "maxInstances": 1,
-        "threads": 2
+        "maxInstances": 32,
+        "threads": 2,
+        "http-port-min": 9000,
+        "http-port-max": 9999
       },
       "ets": {
         "active": true,

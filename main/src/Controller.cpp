@@ -149,6 +149,72 @@ namespace Euclid::main {
         return base + "." + std::to_string(pid);
     }
 
+    // Ports handed out to instances, by instance id.
+    //
+    // File-scope because spawnInstance() is a free function with no view of a pool, and the check
+    // that matters is "is any live instance already on this port" rather than anything a single
+    // pool knows. One map covers every application at once, which is also what makes two
+    // applications unable to collide with each other.
+    std::mutex &httpPortsMutex() {
+        static std::mutex mutex;
+        return mutex;
+    }
+
+    std::map<std::string, int> &httpPorts() {
+        static std::map<std::string, int> ports;
+        return ports;
+    }
+
+    // A TCP port for one instance's own HTTP listener, or 0 when the installation has not set a
+    // range aside for applications.
+    //
+    // Applications are the only pools that need this. A euclid module talks over the Unix socket
+    // the manager gives it and binds nothing; an application may serve a web interface of its own,
+    // and several instances of it share this host - so a port named in the application's own
+    // configuration is bound by whichever instance starts first and refused to all the others.
+    // That failure is invisible to the autoscaler: it sees a pool that will not grow, and restarts
+    // the same instance until it gives up.
+    //
+    // Assigned from a configured range rather than left to the operating system, because the port
+    // has to be knowable afterwards: an API gateway in front of the application needs to find its
+    // backends, and a port the kernel picked is written down nowhere.
+    int allocateHttpPort(const std::shared_ptr<Dto::ModuleProcess> &svc) {
+
+        const auto &configuration = Core::Configuration::instance();
+        const auto first = configuration.getOr<long>("euclid.modules.eap.http-port-min", 0);
+        const auto last = configuration.getOr<long>("euclid.modules.eap.http-port-max", 0);
+        if (first <= 0 || last < first) return 0;
+
+        std::lock_guard lock(httpPortsMutex());
+
+        // A restart of the same slot keeps the port it had, so anything pointed at this instance
+        // does not have to be told about a restart it never noticed.
+        if (const auto held = httpPorts().find(svc->instanceId); held != httpPorts().end()) return held->second;
+
+        for (long port = first; port <= last; ++port) {
+            const bool taken = std::ranges::any_of(httpPorts(), [port](const auto &entry) {
+                return entry.second == static_cast<int>(port);
+            });
+            if (!taken) {
+                httpPorts()[svc->instanceId] = static_cast<int>(port);
+                return static_cast<int>(port);
+            }
+        }
+
+        // Every port in the range is spoken for. Nothing is invented outside it: a port the
+        // operator did not set aside might belong to something else on this host.
+        log_warning << "No free HTTP port for " << svc->config.name << " in " << first << "-" << last;
+        return 0;
+    }
+
+    // Gives an instance's port back when the slot itself is gone, not when it merely stopped: a
+    // stopped slot is restarted into the same port, and handing it to somebody else meanwhile is
+    // how two instances end up fighting over one.
+    void releaseHttpPort(const std::string &instanceId) {
+        std::lock_guard lock(httpPortsMutex());
+        httpPorts().erase(instanceId);
+    }
+
     // Persists svc's current state as its slot's entry in its module's live instances array
     // (see database/include/euclid/database/entity/emm/Module.h), keyed by svc->instanceId so a
     // restart (which gets a new pid) updates the same entry in place rather than appending a new
@@ -160,6 +226,24 @@ namespace Euclid::main {
 
 #if defined(_WIN32)
     bool spawnInstance(const std::shared_ptr<Dto::ModuleProcess> &svc) {
+
+        // Which pool slot this process is, so that anything it reports about itself can be
+        // matched back to the instance the manager would start or stop. instanceId is the right
+        // identifier rather than the pid: it is stable across restarts of the same slot, and it
+        // is what emm_module.instances[] is already keyed by. Set on the instance's own copy of
+        // the config - each ModuleProcess holds one - so both spawn paths pick it up from the
+        // same place.
+        svc->config.environment["EUCLID_INSTANCE_ID"] = svc->instanceId;
+
+        // Only applications are given one - see allocateHttpPort(). An application binds it with
+        // something like server.port=${EUCLID_HTTP_PORT:8080}, so the same artifact still runs
+        // outside euclid on its own default.
+        if (!svc->config.core) {
+            if (const auto port = allocateHttpPort(svc); port > 0) {
+                svc->httpPort = port;
+                svc->config.environment["EUCLID_HTTP_PORT"] = std::to_string(port);
+            }
+        }
         // Unlike fork()+exec(), CreateProcess() needs the full command line - including
         // --socket - before it hands back the new process's real pid, so the instance
         // socket path can't be derived from the pid the way the POSIX path does (there,
@@ -221,6 +305,24 @@ namespace Euclid::main {
     }
 #else
     bool spawnInstance(const std::shared_ptr<Dto::ModuleProcess> &svc) {
+
+        // Which pool slot this process is, so that anything it reports about itself can be
+        // matched back to the instance the manager would start or stop. instanceId is the right
+        // identifier rather than the pid: it is stable across restarts of the same slot, and it
+        // is what emm_module.instances[] is already keyed by. Set on the instance's own copy of
+        // the config - each ModuleProcess holds one - so both spawn paths pick it up from the
+        // same place.
+        svc->config.environment["EUCLID_INSTANCE_ID"] = svc->instanceId;
+
+        // Only applications are given one - see allocateHttpPort(). An application binds it with
+        // something like server.port=${EUCLID_HTTP_PORT:8080}, so the same artifact still runs
+        // outside euclid on its own default.
+        if (!svc->config.core) {
+            if (const auto port = allocateHttpPort(svc); port > 0) {
+                svc->httpPort = port;
+                svc->config.environment["EUCLID_HTTP_PORT"] = std::to_string(port);
+            }
+        }
         int outPipe[2], errPipe[2];
         std::ignore = pipe(outPipe);
         std::ignore = pipe(errPipe);
@@ -993,9 +1095,106 @@ namespace Euclid::main {
         reconcileWorkerThreads(modules);
         reconcileRestarts(modules);
 
+        // What the applications say about themselves. Nothing else can: a consumer application
+        // receives no gateway request, so acquireInstance() never marks it busy and every pool of
+        // them looks permanently idle to evaluateScaling().
+        try {
+            reconcileApplicationLoad();
+        } catch (const std::exception &e) {
+            log_error << "Application load reconcile failed, error: " << e.what();
+        }
+
         // Both of the above only queue; this is the one that acts, so a thread change and a
         // restart asked for on the same tick cost one restart between them rather than two.
         rollQueuedInstance();
+    }
+
+    void ServiceController::reconcileApplicationLoad() {
+
+        // Read once for every instance rather than once per instance: one query for each metric,
+        // matched up by label below. A window rather than "the latest row" because EMO writes a
+        // bucket per period - anything older than this has stopped reporting.
+        // EMO's averaging period is what decides how old the newest row can be, so the window is
+        // read from the same setting rather than guessed at here.
+        const auto period = Core::Configuration::instance().getOr<long>("euclid.module.emo.average-period", 300);
+        const auto since = std::chrono::system_clock::now() - std::chrono::seconds(period * kLoadFreshnessPeriods);
+        const auto repo = Database::RepositoryFactory::instance().emoRepository();
+
+        auto latestByInstance = [&](const std::string &metric) {
+            std::map<std::string, Database::Entity::Monitoring::MonitoringData> newest;
+            Database::MonitoringQuery query;
+            query.name = metric;
+            query.labelName = "instance";
+            query.from = since;
+            query.resolution = Database::Entity::Monitoring::Resolution::RAW;
+            query.limit = kLoadSampleLimit;
+            // list() returns most recent first, so the first row seen for a label is its latest.
+            for (const auto &row: repo->list(query)) {
+                newest.try_emplace(row.labelValue, row);
+            }
+            return newest;
+        };
+
+        const auto utilisation = latestByInstance("application-utilisation");
+        const auto backlog = latestByInstance("application-backlog");
+        if (utilisation.empty() && backlog.empty()) return;
+
+        std::lock_guard lock(_mutex);
+        for (auto &group: _services | std::views::values) {
+
+            // Only pools whose instances report. A module served through the gateway already has a
+            // truthful busy signal from acquireInstance(), and overwriting it from a metric that
+            // arrives seconds late would be worse than what it has.
+            bool reporting = false;
+            long pending = 0;
+            const auto now = std::chrono::steady_clock::now();
+
+            for (auto &svc: group.instances) {
+                if (svc->state != Database::Entity::ModuleState::RUNNING) continue;
+
+                const auto sample = utilisation.find(svc->instanceId);
+                if (sample == utilisation.end()) continue;
+                reporting = true;
+
+                // The peak within the bucket, not its average. A burst that saturates an instance
+                // for twenty seconds and then stops averages down to almost nothing over a
+                // five-minute bucket - which is exactly the load worth reacting to, reported as
+                // though it never happened.
+                if (sample->second.maxValue >= kBusyUtilisationPercent) {
+                    svc->wasBusySinceLastCheck = true;
+                    group.lastActivityAt = now;
+                }
+
+                if (const auto depth = backlog.find(svc->instanceId); depth != backlog.end()) {
+                    pending += static_cast<long>(depth->second.maxValue);
+                }
+            }
+
+            if (!reporting) continue;
+
+            // An instance that has stopped reporting is not an idle instance - it is an instance
+            // nothing is known about, and a crashed reporter would otherwise read as 0% and be
+            // the first one stopped. Unknown counts as busy, so scale-down passes it over.
+            for (auto &svc: group.instances) {
+                if (svc->state != Database::Entity::ModuleState::RUNNING) continue;
+                if (!utilisation.contains(svc->instanceId)) svc->wasBusySinceLastCheck = true;
+            }
+
+            // Work waiting that nobody is getting to is the one signal utilisation cannot give:
+            // an instance is either busy or not, and "busy" says nothing about how much is left.
+            // Raising desiredCount is how evaluateScaling() is asked for more, and it is bounded
+            // there by maxInstances.
+            if (pending >= kBacklogScaleUpMessages) {
+                const auto running = std::ranges::count_if(group.instances, [](const auto &svc) {
+                    return svc->state == Database::Entity::ModuleState::RUNNING;
+                });
+                if (const auto wanted = static_cast<int>(running) + 1; wanted > group.desiredCount) {
+                    group.desiredCount = std::min(wanted, group.config.maxInstances);
+                    log_info << "Application backlog, module: " << group.config.name << ", pending: " << pending
+                             << ", desiredCount: " << group.desiredCount;
+                }
+            }
+        }
     }
 
     void ServiceController::reconcileWorkerThreads(const std::vector<Database::Entity::Module> &modules) {
@@ -1436,6 +1635,7 @@ namespace Euclid::main {
                     // evaluateScaling() above - it's permanently gone, not just idle - so its DB
                     // entry should be too, keeping the instances array a live mirror of the pool
                     // instead of accumulating scaled-down history forever.
+                    releaseHttpPort(svc->instanceId);
                     Database::RepositoryFactory::instance().emmRepository()->removeInstance(svc->config.name, svc->instanceId);
                 }
             }

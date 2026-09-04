@@ -86,10 +86,10 @@ static int initializeDatabase(const Euclid::Core::Configuration &cfg) {
 
         // Choose backend from config
         if (const auto backend = cfg.getOr<std::string>("euclid.database.backend", "mongodb"); backend == "memory") {
-            log_info << "Using in-memory database";
+            log_debug << "Using in-memory database";
             Euclid::Database::RepositoryFactory::instance().initialize(Euclid::Database::BackendType::MEMORY);
         } else {
-            log_info << "Using MongoDB database";
+            log_debug << "Using MongoDB database";
             Euclid::Database::Database::instance().initialize();
             Euclid::Database::RepositoryFactory::instance().initialize(Euclid::Database::BackendType::MONGODB);
         }
@@ -137,7 +137,7 @@ int main(const int argc, char *argv[]) {
     Euclid::Core::Monitoring::MetricsPusher metricsPusher("ens");
     try {
         Euclid::ENS::EnsServer server(cliOpts->socketPath,
-                                   Euclid::Core::HttpActionServer::ConfiguredWorkerThreads("ens", 2));
+                                      Euclid::Core::HttpActionServer::ConfiguredWorkerThreads("ens", 2));
         return server.RunUntilSignal();
     } catch (const std::exception &e) {
         log_error << "Failed to start ENS service: " << e.what();
