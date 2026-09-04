@@ -1,38 +1,38 @@
 Package: euclid
-Version: 1.0.63
+Version: 1.0.64
 License: GPL-3.0-or-later
 Vendor: none
 Architecture: amd64
 Maintainer: Jens Vogt <jens.vogt@opitz-consulting.com>
-Installed-Size: 260393
+Installed-Size: 260914
 Depends: systemd, libmagic1, libgoogle-perftools4 | libgoogle-perftools4t64, libunwind8, liblzma5
 Homepage: http://example.com/no-uri-given
 Priority: optional
 Section: utils
-Filename: pool/main/e/euclid/euclid_1.0.63_amd64.deb
-Size: 88734660
-SHA256: 7bc40e13689ad71dc358c187eb7f4329bb27d1394a22b3ff14e6196e1df62def
-SHA1: eb373cced5cedc3f5e4419163adbf265a490de13
-MD5sum: 8c1fccd7da3f103050978346e659502e
+Filename: pool/main/e/euclid/euclid_1.0.64_amd64.deb
+Size: 88950560
+SHA256: aae278ce9a1b74f8bafb31c5a1a8013bddf111ba149d32fc479626bf05f4bec8
+SHA1: 10d187f44ef6739b585ca7e6008b7bef64a93767
+MD5sum: 0bd8be6a9d303ce0d158613a823f2a63
 Description: Euclid Cloud Services
 
 Package: euclid-cli
-Version: 1.0.63
+Version: 1.0.64
 License: GPL-3.0-or-later
 Vendor: none
 Architecture: amd64
 Maintainer: Jens Vogt <jens.vogt@opitz-consulting.com>
-Installed-Size: 15847
+Installed-Size: 15858
 Depends: libgoogle-perftools4 | libgoogle-perftools4t64, libunwind8, liblzma5
 Conflicts: euclid
 Replaces: euclid
 Homepage: https://github.com/jensvogt/euclid
 Priority: optional
 Section: utils
-Filename: pool/main/e/euclid-cli/euclid-cli_1.0.63_amd64.deb
-Size: 5387924
-SHA256: 50e9f022f1318f464128e1557bd0b1521ebf8112d72e5fbda7b5d5df326c17ac
-SHA1: 326488ef52512b5e10e94345c85e9014b87db6b0
-MD5sum: 28784f07a82e921bf423afd604580462
+Filename: pool/main/e/euclid-cli/euclid-cli_1.0.64_amd64.deb
+Size: 5398406
+SHA256: 266c7e51296b5a5d3e8859abc0b33f929c62ecb42971845e658ce10342f192f5
+SHA1: 4a7f5aeeac33e0155c7be3fa893242d06b398b10
+MD5sum: 2200efc562cd447aa376a1d0022b9bfc
 Description: Euclid command line interface
 
