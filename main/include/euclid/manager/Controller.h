@@ -246,6 +246,29 @@ namespace Euclid::main {
         void reconcileRestarts(const std::vector<Database::Entity::Module> &modules);
 
         /**
+         * @brief Applies what applications report about their own load to the autoscaler.
+         *
+         * @par
+         * An application that consumes messages receives no request through the gateway, so
+         * acquireInstance() never marks it busy and every pool of them looks permanently idle -
+         * which would scale one back to its minimum a minute after anything scaled it up. This
+         * closes that gap with the only measurement that exists: the utilisation and backlog each
+         * instance pushes to EMO for itself (see euclid-spring's listener container).
+         *
+         * @par
+         * Deliberately feeds the existing signals rather than deciding anything itself. An
+         * instance reporting real work is marked busy exactly as a routed request would mark it,
+         * and a backlog raises desiredCount - so saturation, scale-up, the idle window and
+         * scale-down all keep working as they already do, for one more kind of pool.
+         *
+         * @par
+         * An instance that has stopped reporting is treated as busy, not as idle: a crashed
+         * reporter reads as no load at all, and the instance nothing is known about is the last
+         * one that should be stopped.
+         */
+        void reconcileApplicationLoad();
+
+        /**
          * @brief Restarts one queued instance, if there is one.
          *
          * @par
@@ -514,6 +537,43 @@ namespace Euclid::main {
          */
         int _transferReconcileTick = 0;
         static constexpr int kTransferReconcileTicks = 5;
+
+        /**
+         * @brief How recent a load sample has to be to count, as a multiple of EMO's own period.
+         *
+         * @par
+         * Not a fixed number of seconds, because what arrives is not a stream of samples: EMO
+         * accumulates them into buckets and writes each one only when it closes, stamped with the
+         * bucket's start. So the newest row available is routinely a whole period old, and a
+         * window shorter than that matches nothing however healthy the reporter is - which is
+         * exactly what a sixty-second window did.
+         *
+         * @par
+         * Two periods: one for the bucket that has closed, one for the bucket still filling.
+         */
+        static constexpr int kLoadFreshnessPeriods = 2;
+
+        /**
+         * @brief Peak utilisation, in percent, at which an instance counts as busy.
+         *
+         * @par
+         * Low on purpose. This decides "was this instance doing anything", not "is it full" -
+         * evaluateScaling() asks for every instance to be busy before it grows a pool, so the
+         * threshold that matters for scaling up is that one, and setting this high would instead
+         * make a working instance eligible to be stopped.
+         */
+        static constexpr double kBusyUtilisationPercent = 5.0;
+
+        /**
+         * @brief Messages waiting across an application's queues before another instance is asked for.
+         */
+        static constexpr long kBacklogScaleUpMessages = 100;
+
+        /**
+         * @brief How many load rows one reconcile reads. Two queries cover every instance of every
+         * application, so this only has to outnumber the samples one freshness window can hold.
+         */
+        static constexpr long kLoadSampleLimit = 500;
 
         /**
          * @brief Indicates whether the service is currently running.

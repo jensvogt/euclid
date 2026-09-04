@@ -28,6 +28,7 @@ namespace Euclid::Database::Entity {
                 bsoncxx::builder::basic::kvp("pid", pid),
                 bsoncxx::builder::basic::kvp("state", ModuleStateToString(state)),
                 bsoncxx::builder::basic::kvp("socketPath", socketPath),
+                bsoncxx::builder::basic::kvp("httpPort", httpPort),
                 bsoncxx::builder::basic::kvp("restartCount", restartCount),
                 bsoncxx::builder::basic::kvp("created", bsoncxx::types::b_date{std::chrono::duration_cast<std::chrono::milliseconds>(created.time_since_epoch())}),
                 bsoncxx::builder::basic::kvp("modified", bsoncxx::types::b_date{std::chrono::duration_cast<std::chrono::milliseconds>(modified.time_since_epoch())}));
@@ -40,6 +41,7 @@ namespace Euclid::Database::Entity {
             else if (key == "pid") instance.pid = static_cast<int>(getBsonInt(field));
             else if (key == "state") instance.state = ModuleStateFromString(std::string(field.get_string().value));
             else if (key == "socketPath") instance.socketPath = std::string(field.get_string().value);
+            else if (key == "httpPort") instance.httpPort = static_cast<int>(getBsonInt(field));
             else if (key == "restartCount") instance.restartCount = static_cast<int>(getBsonInt(field));
             else if (key == "created") instance.created = std::chrono::system_clock::time_point{field.get_date().value};
             else if (key == "modified") instance.modified = std::chrono::system_clock::time_point{field.get_date().value};
