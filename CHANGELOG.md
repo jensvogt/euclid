@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.65](https://github.com/jensvogt/euclid/compare/1.0.64...v1.0.65) (2026-09-04)
+
+
+### Bug Fixes
+
+* update README.md ([eba7400](https://github.com/jensvogt/euclid/commit/eba7400c6ed22563e97a85a4a7fd8153d206c0ee))
+
 ## [1.0.64](https://github.com/jensvogt/euclid/compare/1.0.63...v1.0.64) (2026-09-04)
 
 
