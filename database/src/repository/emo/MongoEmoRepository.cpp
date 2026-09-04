@@ -256,4 +256,49 @@ namespace Euclid::Database {
         }
     }
 
+
+    std::optional<IEmoRepository::DatabaseStats> MongoEmoRepository::databaseStats() const {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto database = (*entry)[Database::instance().databaseName()];
+
+            // "scale" 1 so the sizes come back in bytes rather than the server's default, which a
+            // reader would otherwise have to know about to interpret the numbers at all.
+            const auto stats = database.run_command(make_document(kvp("dbStats", 1), kvp("scale", 1)));
+            const auto view = stats.view();
+
+            // dbStats returns whichever numeric type each figure happens to fit: the counts come
+            // back as int64 and the sizes as double on a database of any size, but both are int32
+            // on an empty one. Asking for the wrong one throws, so none is assumed.
+            auto asLong = [&view](const char *field) -> long {
+                const auto element = view[field];
+                if (!element) return 0;
+                switch (element.type()) {
+                    case bsoncxx::type::k_int64:
+                        return static_cast<long>(element.get_int64().value);
+                    case bsoncxx::type::k_int32:
+                        return element.get_int32().value;
+                    case bsoncxx::type::k_double:
+                        return static_cast<long>(element.get_double().value);
+                    default:
+                        return 0;
+                }
+            };
+
+            return DatabaseStats{
+                    .collections = asLong("collections"),
+                    .objects = asLong("objects"),
+                    .dataSize = asLong("dataSize"),
+                    .storageSize = asLong("storageSize"),
+                    .indexSize = asLong("indexSize"),
+                    .totalSize = asLong("totalSize"),
+            };
+
+        } catch (const std::exception &e) {
+            log_error << "Database stats failed, error: " << e.what();
+        }
+        return std::nullopt;
+    }
+
 }// namespace Euclid::Database

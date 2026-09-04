@@ -83,6 +83,38 @@ namespace Euclid::Database {
          *
          * @param data the data point to write; identified by name/labelName/labelValue/resolution/timestamp.
          */
+        /**
+         * @brief What the storage backend reports about its own size.
+         *
+         * @par
+         * Two different sizes, because they answer different questions. dataSize is what the
+         * documents come to uncompressed - "how much data do we hold"; storageSize is what they
+         * occupy on disk after compression, which on a euclid installation is several times
+         * smaller. totalSize (storage plus indexes) is the one that fills a disk.
+         */
+        struct DatabaseStats {
+            long collections{};
+            long objects{};
+            long dataSize{};
+            long storageSize{};
+            long indexSize{};
+            long totalSize{};
+        };
+
+        /**
+         * @brief Reads the backend's own size counters, or nothing if it has none.
+         *
+         * @par
+         * Cheap enough to call on a monitoring tick: WiredTiger keeps these as running counters, so
+         * answering costs a command round trip rather than a scan of anything. The in-memory
+         * backend has nothing equivalent and returns std::nullopt, which is not an error - it is
+         * what "there is no database to measure" looks like.
+         *
+         * @return the backend's sizes, or std::nullopt if it does not keep any.
+         */
+        [[nodiscard]]
+        virtual std::optional<DatabaseStats> databaseStats() const = 0;
+
         virtual void upsert(const Entity::Monitoring::MonitoringData &data) = 0;
 
         /**
