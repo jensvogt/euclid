@@ -37,8 +37,7 @@ namespace Euclid::Database {
             if (!query.labelName.empty()) filter.append(kvp("labelName", query.labelName));
             if (!query.labelValue.empty()) filter.append(kvp("labelValue", query.labelValue));
 
-            const auto epoch = std::chrono::system_clock::time_point{};
-            if (query.from != epoch || query.to != epoch) {
+            if (constexpr auto epoch = std::chrono::system_clock::time_point{}; query.from != epoch || query.to != epoch) {
                 bsoncxx::builder::basic::document range{};
                 if (query.from != epoch) range.append(kvp("$gte", toDate(query.from)));
                 if (query.to != epoch) range.append(kvp("$lt", toDate(query.to)));
@@ -66,7 +65,7 @@ namespace Euclid::Database {
             mongocxx::options::index bucketOptions;
             bucketOptions.unique(true);
             collection.create_index(make_document(kvp("name", 1), kvp("labelName", 1), kvp("labelValue", 1),
-                                                 kvp("resolution", 1), kvp("timestamp", 1)),
+                                                  kvp("resolution", 1), kvp("timestamp", 1)),
                                     bucketOptions);
 
             // Serves a whole-tier scan over a time range - the shape a graph asks for, and the
@@ -177,11 +176,11 @@ namespace Euclid::Database {
             // only so the next stage can branch on it; every row of a series carries the same one.
             pipeline.group(make_document(
                     kvp("_id", make_document(
-                                       kvp("name", "$name"),
-                                       kvp("labelName", "$labelName"),
-                                       kvp("labelValue", "$labelValue"),
-                                       kvp("type", "$type"),
-                                       kvp("bucket", make_document(kvp("$dateTrunc", make_document(kvp("date", "$timestamp"), kvp("unit", dateTruncUnit(to)))))))),
+                                kvp("name", "$name"),
+                                kvp("labelName", "$labelName"),
+                                kvp("labelValue", "$labelValue"),
+                                kvp("type", "$type"),
+                                kvp("bucket", make_document(kvp("$dateTrunc", make_document(kvp("date", "$timestamp"), kvp("unit", dateTruncUnit(to)))))))),
                     kvp("total", make_document(kvp("$sum", "$value"))),
                     kvp("weighted", make_document(kvp("$sum", make_document(kvp("$multiply", make_array("$value", "$samples")))))),
                     kvp("samples", make_document(kvp("$sum", "$samples"))),
@@ -200,12 +199,12 @@ namespace Euclid::Database {
                     kvp("resolution", ResolutionToString(to)),
                     kvp("timestamp", "$_id.bucket"),
                     kvp("value", make_document(kvp("$cond", make_array(
-                                                                    make_document(kvp("$eq", make_array("$_id.type", MetricTypeToString(MetricType::RATE)))),
-                                                                    "$total",
-                                                                    make_document(kvp("$cond", make_array(
-                                                                                                       make_document(kvp("$gt", make_array("$samples", 0))),
-                                                                                                       make_document(kvp("$divide", make_array("$weighted", "$samples"))),
-                                                                                                       0.0))))))),
+                                                           make_document(kvp("$eq", make_array("$_id.type", MetricTypeToString(MetricType::RATE)))),
+                                                           "$total",
+                                                           make_document(kvp("$cond", make_array(
+                                                                                     make_document(kvp("$gt", make_array("$samples", 0))),
+                                                                                     make_document(kvp("$divide", make_array("$weighted", "$samples"))),
+                                                                                     0.0))))))),
                     kvp("samples", "$samples"),
                     kvp("minValue", "$minValue"),
                     kvp("maxValue", "$maxValue"),
@@ -223,7 +222,7 @@ namespace Euclid::Database {
 
             // $merge is a terminal stage and yields no documents, so the cursor is drained purely
             // to run the pipeline; the count comes from a separate indexed count afterwards.
-            for (auto cursor = collection.aggregate(pipeline); [[maybe_unused]] const auto &doc: cursor) {}
+            for (auto cursor = collection.aggregate(pipeline);  [[maybe_unused]] const auto &doc: cursor) {}
 
             const auto written = collection.count_documents(make_document(
                     kvp("resolution", ResolutionToString(to)),

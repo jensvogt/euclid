@@ -124,6 +124,14 @@ file if set; values less than \fI1\fR are treated as \fI1\fR.
 If given, pack \fB\-\-dir\fR's contents into a single ZIP archive at
 this local path once every object has been downloaded. Optional; by
 default no archive is created.
+.PP
+The bucket may be given by
+.B name
+instead of by ERN, in which case it is resolved in your session's account
+and namespace; see
+.B NAMES AND ERNS
+in
+.BR euclid-cli-esm (1).
 .SH EXIT STATUS
 .TP
 .B 0

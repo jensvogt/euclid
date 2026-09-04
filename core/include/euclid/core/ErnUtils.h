@@ -45,6 +45,40 @@ namespace Euclid::Core {
     }
 
     /**
+     * @brief Resolves a client-supplied resource reference to a full ERN.
+     *
+     * @par
+     * A client names the resource it wants; an ERN additionally carries the region, account and
+     * namespace it lives in. Those three are properties of the caller's session rather than of the
+     * request, and the server is the only party that knows them authoritatively - a client would
+     * have to be told them out of band, and every client language would need its own copy of this
+     * to get it right. So a bare name is resolved here, against the caller's own account and
+     * namespace.
+     *
+     * @par
+     * That also bounds what a name can reach: a resolved name always lands in the caller's own
+     * namespace, so naming a resource in someone else's is not something this can express. A full
+     * ERN is still accepted unchanged - cross-namespace work (the CLI, the RUI, administration)
+     * needs it, and it keeps every client written before this working - but such a request is
+     * subject to the per-resource grant checks exactly as it was.
+     *
+     * @param service module name, e.g. "ens"
+     * @param resourceType resource type within that module, e.g. "topic"
+     * @param accountId the caller's account
+     * @param nameSpace the caller's namespace, from the request's x-euclid-namespace header
+     * @param value either a full ERN (returned unchanged) or a bare resource name
+     * @return the resolved ERN, or an empty string if value was empty
+     */
+    inline std::string resolveErn(const std::string &service, const std::string &resourceType,
+                                  const std::string &accountId, const std::string &nameSpace,
+                                  const std::string &value) {
+        // "ern:" is what tells the two apart. A resource may not be named such that this is
+        // ambiguous - see the name validation each create-* action applies.
+        if (value.empty() || value.starts_with("ern:")) return value;
+        return createErn(service, accountId, nameSpace, resourceType + ":" + value);
+    }
+
+    /**
      * @brief Creates an EAM user ERN
      *
      * @param accountId account ID

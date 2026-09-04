@@ -1,0 +1,76 @@
+.TH EUCLID-CLI-ESM-SET-BUCKET-TAG 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-set-bucket-tag \- set the value of an existing bucket tag
+.SH SYNOPSIS
+.B euclid-cli esm set-bucket-tag
+.BR \-\-bucket | \-b
+.I BUCKET
+.BR \-\-key | \-k
+.I KEY
+.BR \-\-value | \-v
+.I VALUE
+.SH DESCRIPTION
+Sets the value of a bucket tag identified by its key. The tag must
+already exist (see
+.BR euclid-cli-esm-add-bucket-tag (1)),
+otherwise
+.I "HTTP 404"
+is returned and nothing is changed.
+.PP
+That refusal is the whole difference from
+.BR euclid-cli-esm-add-bucket-tag (1),
+which would simply create the key. Setting a key that is not there is
+almost always a typo, and this is what turns it into an error instead of
+a second tag nobody meant to make.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-bucket " " \fIBUCKET\fR
+Bucket to tag, by name or by Euclid resource name (ERN). Required.
+.TP
+.BR \-k ", " \-\-key " " \fIKEY\fR
+Tag key. Required.
+.TP
+.BR \-v ", " \-\-value " " \fIVALUE\fR
+Tag value. Required.
+.PP
+The bucket may be given by
+.B name
+instead of by ERN, in which case it is resolved in your session's account
+and namespace; see
+.B NAMES AND ERNS
+in
+.BR euclid-cli-esm (1).
+.SH EXIT STATUS
+.TP
+.B 0
+The tag value was set. No output is printed.
+.TP
+.B 1
+Missing or invalid arguments, the server could not be reached, no
+such bucket exists, or the bucket has no tag with that key.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm set-bucket-tag \e
+    --bucket transfer-server \e
+    --key team --value logistics
+.fi
+.RE
+.PP
+The same command against a bucket in another namespace, which is what a
+full ERN is for:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm set-bucket-tag \e
+    --bucket ern:esm:eu-central-1:000000000000:development:bucket:transfer-server \e
+    --key team --value logistics
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-add-bucket-tag (1),
+.BR euclid-cli-esm-delete-bucket-tag (1),
+.BR euclid-cli-esm-get-bucket-size (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

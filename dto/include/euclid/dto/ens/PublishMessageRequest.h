@@ -18,7 +18,7 @@ namespace Euclid::Dto::ENS {
         /**
          * @brief Topic ERN
          */
-        std::string topicErn{};
+        std::string ern{};
 
         /**
          * @brief Message body
@@ -49,7 +49,7 @@ namespace Euclid::Dto::ENS {
 
         friend PublishMessageRequest tag_invoke(boost::json::value_to_tag<PublishMessageRequest>, boost::json::value const &v) {
             PublishMessageRequest r;
-            r.topicErn = Core::GetStringValue(v, "ern");
+            r.ern = Core::GetStringValue(v, "ern");
             r.body = Core::GetStringValue(v, "body");
             r.attributes = Core::GetMapFromObject<std::string, COM::Variant>(v, "attributes");
             return r;
@@ -57,7 +57,7 @@ namespace Euclid::Dto::ENS {
 
         friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, PublishMessageRequest const &obj) {
             jv = {
-                    {"ern", obj.topicErn},
+                    {"ern", obj.ern},
                     {"body", obj.body},
                     {"attributes", boost::json::value_from(obj.attributes)},
             };

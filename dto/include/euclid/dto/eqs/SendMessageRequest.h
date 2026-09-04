@@ -19,7 +19,7 @@ namespace Euclid::Dto::EQS {
         /**
          * @brief Queue ERN
          */
-        std::string queueErn{};
+        std::string ern{};
 
         /**
          * @brief Message body
@@ -55,7 +55,7 @@ namespace Euclid::Dto::EQS {
 
         friend SendMessageRequest tag_invoke(boost::json::value_to_tag<SendMessageRequest>, boost::json::value const &v) {
             SendMessageRequest r;
-            r.queueErn = Core::GetStringValue(v, "ern");
+            r.ern = Core::GetStringValue(v, "ern");
             r.body = Core::GetStringValue(v, "body");
             r.attributes = Core::GetMapFromObject<std::string, COM::Variant>(v, "attributes");
             r.priority = Core::GetStringValue(v, "priority");
@@ -65,7 +65,7 @@ namespace Euclid::Dto::EQS {
 
         friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, SendMessageRequest const &obj) {
             jv = {
-                    {"ern", obj.queueErn},
+                    {"ern", obj.ern},
                     {"body", obj.body},
                     {"attributes", boost::json::value_from(obj.attributes)},
                     {"priority", obj.priority},

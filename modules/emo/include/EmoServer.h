@@ -95,6 +95,16 @@ namespace Euclid::Monitoring {
         static void collectCpuUsage();
 
         /**
+         * @brief Samples the machine's memory usage, labelled by host.
+         *
+         * @par
+         * The host's, not a process's: "euclid-memory-usage-percent" is recorded per module from
+         * /proc/self/status and answers what one process holds, which is a different question and
+         * cannot be added up into this one.
+         */
+        static void collectMemoryUsage();
+
+        /**
          * @brief Ids of the scheduled flush/rollup/prune/cpu-usage tasks, used to cancel them on destruction.
          */
         std::string _flushTaskId;
@@ -102,7 +112,12 @@ namespace Euclid::Monitoring {
         std::string _hourRollupTaskId;
         std::string _dayRollupTaskId;
         std::string _cpuUsageTaskId;
+        std::string _memoryUsageTaskId;
         std::string _queueCountsTaskId;
+
+        std::string _bucketCountsTaskId;
+
+        std::string _topicCountsTaskId;
     };
 
 }// namespace Euclid::Monitoring

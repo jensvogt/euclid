@@ -14,6 +14,14 @@ for that. This cannot be undone.
 .TP
 .BR \-e ", " \-\-ern " " \fIERN\fR
 Euclid resource name of the queue to purge. Required.
+.PP
+The queue may be given by
+.B name
+instead of by ERN, in which case it is resolved in your session's account
+and namespace; see
+.B NAMES AND ERNS
+in
+.BR euclid-cli-eqs (1).
 .SH EXIT STATUS
 .TP
 .B 0

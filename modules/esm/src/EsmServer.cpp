@@ -135,6 +135,37 @@ namespace Euclid::ESM {
         return EsmServer::ErrorResponse(req, status::forbidden, "Not authorized for this bucket: " + bucketErn);
     }
 
+    // The account a request is made in: the header, which authenticate() has already checked is
+    // one this caller may use - every handler authenticates before it reads anything else. It is
+    // optional though (see Core::HttpActionServer's CheckScope), and an empty account would build
+    // an ERN with a hole in it that matches nothing, so a single-account installation's configured
+    // id stands in for it.
+    static std::string callerAccountId(const request<string_body> &req) {
+        auto accountId = std::string(req["x-euclid-account-id"]);
+        if (!accountId.empty()) return accountId;
+
+        // has() first: getArray() throws on a missing key. Only when exactly one account is
+        // configured - with several there is no way to tell which was meant, and a guess would
+        // resolve the name into somebody else's account.
+        if (const auto &cfg = Core::Configuration::instance(); cfg.has("euclid.account-ids")) {
+            if (const auto configured = cfg.getArray<std::string>("euclid.account-ids"); configured.size() == 1) {
+                return configured.front();
+            }
+        }
+        return accountId;
+    }
+
+    // The bucket named by the x-euclid-bucket-ern header, resolved the same way a body field is.
+    //
+    // put-object and get-object carry their payload as the request body, so they have no JSON to
+    // rewrite and never reach ParseJsonBody's rewriter. Without this a name would work for every
+    // ESM action except the two that actually move bytes, which is the worst place for the rule
+    // to have an exception.
+    static std::string bucketErnHeader(const request<string_body> &req) {
+        return Core::resolveErn("esm", "bucket", callerAccountId(req), std::string(req["x-euclid-namespace"]),
+                                std::string(req["x-euclid-bucket-ern"]));
+    }
+
     // ── Encryption at rest ───────────────────────────────────────────────────
     // A bucket names the EKM key the next object written to it is encrypted under; an object names
     // the key its bytes are actually under. Those are two different facts and both are needed: the
@@ -525,7 +556,7 @@ namespace Euclid::ESM {
         response.name = saved.name;
         response.ern = saved.ern;
 
-        return EsmServer::JsonResponse(req, status::ok, response.toJson());
+        return JsonResponse(req, status::ok, response.toJson());
     }
 
     response<string_body> EsmServer::handleListBuckets(const request<string_body> &req) {
@@ -549,7 +580,7 @@ namespace Euclid::ESM {
         response.buckets = Dto::ESM::EsmMapper::toDto(buckets);
         response.total = repo->countBuckets(auth.user->accountId, ns, request.prefix);
 
-        return EsmServer::JsonResponse(req, status::ok, response.toJson());
+        return JsonResponse(req, status::ok, response.toJson());
     }
 
     response<string_body> EsmServer::handleGetBucketErn(const request<string_body> &req) {
@@ -567,13 +598,13 @@ namespace Euclid::ESM {
         log_debug << "EMS bucket ERN, name: " << request.name << ", ern: " << (bucket.has_value() ? bucket->ern : "(none)");
 
         if (!bucket.has_value()) {
-            return EsmServer::ErrorResponse(req, status::not_found, "Bucket not found, name: " + request.name);
+            return ErrorResponse(req, status::not_found, "Bucket not found, name: " + request.name);
         }
 
         Dto::ESM::GetBucketErnResponse response;
         response.ern = bucket->ern;
 
-        return EsmServer::JsonResponse(req, status::ok, response.toJson());
+        return JsonResponse(req, status::ok, response.toJson());
     }
 
     response<string_body> EsmServer::handleGetBucketSize(const request<string_body> &req) {
@@ -591,14 +622,14 @@ namespace Euclid::ESM {
         log_debug << "ESM bucket size, ern: " << request.ern << ", size: " << bucket->size;
 
         if (!bucket.has_value()) {
-            return EsmServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.ern);
+            return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.ern);
         }
 
         Dto::ESM::GetBucketSizeResponse response;
         response.ern = bucket->ern;
         response.size = bucket->size;
 
-        return EsmServer::JsonResponse(req, status::ok, response.toJson());
+        return JsonResponse(req, status::ok, response.toJson());
     }
 
     response<string_body> EsmServer::handleDeleteBucket(const request<string_body> &req) {
@@ -633,10 +664,10 @@ namespace Euclid::ESM {
         // until it is genuinely gone.
         if (Core::GetBoolValue(jv, "async")) {
             removeBucketObjectsInBackground(request.ern, "", bucket, auth.user->userId, true);
-            return EsmServer::JsonResponse(req, status::accepted, boost::json::serialize(boost::json::object{
-                                                                          {"ern", request.ern},
-                                                                          {"async", true},
-                                                                          {"objects", bucket.has_value() ? bucket->objects : 0}}));
+            return JsonResponse(req, status::accepted, boost::json::serialize(boost::json::object{
+                                        {"ern", request.ern},
+                                        {"async", true},
+                                        {"objects", bucket.has_value() ? bucket->objects : 0}}));
         }
 
         // The objects go with it. Nothing else ever would: an object is only ever reached through
@@ -644,7 +675,8 @@ namespace Euclid::ESM {
         // disk nothing accounts for. No counters to adjust, unlike purge-bucket - the bucket whose
         // counters they are is about to be deleted.
         const auto removed = removeBucketObjects(request.ern, "", bucket, auth.user->userId);
-        if (removed.count > 0) log_info << "ESM bucket objects deleted, ern: " << request.ern << ", count: " << removed.count << ", size: " << removed.size;
+        if (removed.count > 0)
+            log_info << "ESM bucket objects deleted, ern: " << request.ern << ", count: " << removed.count << ", size: " << removed.size;
 
         repo->deleteBucketByErn(request.ern);
 
@@ -656,7 +688,7 @@ namespace Euclid::ESM {
                                    {"region", bucket.has_value() ? bucket->region : std::string()}},
                 "esm");
 
-        return EsmServer::JsonResponse(req, status::ok);
+        return JsonResponse(req, status::ok);
     }
 
     // Stores a small object in a single request/response round trip, skipping the
@@ -771,23 +803,23 @@ namespace Euclid::ESM {
         const auto auth = authenticate(req);
         if (!auth.user.has_value()) return unauthorized(req, auth);
 
-        const auto bucketErn = std::string(req["x-euclid-bucket-ern"]);
+        const auto bucketErn = bucketErnHeader(req);
         if (bucketErn.empty()) {
-            return EsmServer::ErrorResponse(req, status::bad_request, "Missing x-euclid-bucket-ern header");
+            return ErrorResponse(req, status::bad_request, "Missing x-euclid-bucket-ern header");
         }
         const auto key = std::string(req["x-euclid-key"]);
         if (key.empty()) {
-            return EsmServer::ErrorResponse(req, status::bad_request, "Missing x-euclid-key header");
+            return ErrorResponse(req, status::bad_request, "Missing x-euclid-key header");
         }
         const auto attributes = attributesFromHeader(req);
         if (!attributes.has_value()) {
-            return EsmServer::ErrorResponse(req, status::bad_request, "Malformed x-euclid-attributes header");
+            return ErrorResponse(req, status::bad_request, "Malformed x-euclid-attributes header");
         }
 
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
         const auto bucket = repo->findBucketByErn(bucketErn);
         if (!bucket.has_value()) {
-            return EsmServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + bucketErn);
+            return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + bucketErn);
         }
         if (const auto denied = denyUngrantedBucket(req, auth, bucketErn)) return *denied;
 
@@ -795,7 +827,7 @@ namespace Euclid::ESM {
         // rather than storing the object in the clear.
         const auto writeKey = writeKeyForBucket(*bucket);
         if (!writeKey.error.empty()) {
-            return EsmServer::ErrorResponse(req, status::conflict, writeKey.error);
+            return ErrorResponse(req, status::conflict, writeKey.error);
         }
 
         const auto &data = req.body();
@@ -811,14 +843,14 @@ namespace Euclid::ESM {
         std::filesystem::create_directories(dataDir, ec);
         if (ec) {
             log_error << "ESM could not create storage data directory, path: " << dataDir << ", error: " << ec.message();
-            return EsmServer::ErrorResponse(req, status::internal_server_error, "Could not store object");
+            return ErrorResponse(req, status::internal_server_error, "Could not store object");
         }
 
         const std::filesystem::path destPath = std::filesystem::path(dataDir) / internalName;
         try {
             std::ofstream dest(destPath, std::ios::binary | std::ios::trunc);
             if (!dest.is_open()) {
-                return EsmServer::ErrorResponse(req, status::internal_server_error, "Could not write object");
+                return ErrorResponse(req, status::internal_server_error, "Could not write object");
             }
             // The bytes go to disk exactly once, already encrypted if the bucket says so: there is
             // no moment at which the plaintext of an encrypted object exists as a file.
@@ -831,7 +863,7 @@ namespace Euclid::ESM {
         } catch (const std::exception &ex) {
             log_error << "ESM could not write object, bucket: " << bucketErn << ", key: " << key << ", error: " << ex.what();
             discardPartialObject(destPath);
-            return EsmServer::ErrorResponse(req, status::internal_server_error, "Could not write object");
+            return ErrorResponse(req, status::internal_server_error, "Could not write object");
         }
 
         // Small enough to hash/sniff inline rather than handing off to a background thread the way
@@ -896,7 +928,7 @@ namespace Euclid::ESM {
         response.contentType = contentType;
         response.md5Sum = md5Sum;
 
-        return EsmServer::JsonResponse(req, status::ok, response.toJson());
+        return JsonResponse(req, status::ok, response.toJson());
     }
 
     // Starts a multipart upload: stages a scratch storage on disk that the "upload-part" action
@@ -918,7 +950,7 @@ namespace Euclid::ESM {
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
         const auto bucket = repo->findBucketByErn(request.bucketErn);
         if (!bucket.has_value()) {
-            return EsmServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.bucketErn);
+            return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.bucketErn);
         }
         if (const auto denied = denyUngrantedBucket(req, auth, request.bucketErn)) return *denied;
 
@@ -958,7 +990,7 @@ namespace Euclid::ESM {
         std::filesystem::create_directories(uploadDir, ec);
         if (ec) {
             log_error << "ESM could not create upload, path: " << uploadDir.string() << ", error: " << ec.message();
-            return EsmServer::ErrorResponse(req, status::internal_server_error, "Could not create upload storage");
+            return ErrorResponse(req, status::internal_server_error, "Could not create upload storage");
         }
 
         // Records the upload's target bucket/key alongside the staged parts, so "complete-upload"
@@ -985,7 +1017,7 @@ namespace Euclid::ESM {
         response.bucketErn = request.bucketErn;
         response.key = request.key;
 
-        return EsmServer::JsonResponse(req, status::ok, response.toJson());
+        return JsonResponse(req, status::ok, response.toJson());
     }
 
     // Stores one part of an in-progress multipart upload. Internal to the create-upload/
@@ -1007,19 +1039,19 @@ namespace Euclid::ESM {
 
         const auto uploadId = std::string(req["x-euclid-upload-id"]);
         if (uploadId.empty()) {
-            return EsmServer::ErrorResponse(req, status::bad_request, "Missing x-euclid-upload-id header");
+            return ErrorResponse(req, status::bad_request, "Missing x-euclid-upload-id header");
         }
 
         long partNumber = 0;
         try {
             partNumber = std::stol(std::string(req["x-euclid-part-number"]));
         } catch (const std::exception &) {
-            return EsmServer::ErrorResponse(req, status::bad_request, "Missing or invalid x-euclid-part-number header");
+            return ErrorResponse(req, status::bad_request, "Missing or invalid x-euclid-part-number header");
         }
 
         const auto uploadDir = uploadDirFor(uploadId);
         if (!std::filesystem::exists(uploadDir / kUploadMetaFile)) {
-            return EsmServer::ErrorResponse(req, status::not_found, "Upload not found, id: " + uploadId);
+            return ErrorResponse(req, status::not_found, "Upload not found, id: " + uploadId);
         }
 
         // Advances the object's status from CREATED to UPLOADING on the first part received.
@@ -1046,7 +1078,7 @@ namespace Euclid::ESM {
 
         std::ofstream partFile(uploadDir / partFileName(partNumber), std::ios::binary | std::ios::trunc);
         if (!partFile.is_open()) {
-            return EsmServer::ErrorResponse(req, status::internal_server_error, "Could not write upload part");
+            return ErrorResponse(req, status::internal_server_error, "Could not write upload part");
         }
         partFile.write(data.data(), static_cast<std::streamsize>(data.size()));
         partFile.close();
@@ -1058,7 +1090,7 @@ namespace Euclid::ESM {
         response.partNumber = partNumber;
         response.size = static_cast<long>(data.size());
 
-        return EsmServer::JsonResponse(req, status::ok, response.toJson());
+        return JsonResponse(req, status::ok, response.toJson());
     }
 
     // Assembles a completed multipart upload's staged parts into the final object under the
@@ -1082,13 +1114,13 @@ namespace Euclid::ESM {
         // the metadata a small one keeps.
         const auto attributes = attributesFromHeader(req);
         if (!attributes.has_value()) {
-            return EsmServer::ErrorResponse(req, status::bad_request, "Malformed x-euclid-attributes header");
+            return ErrorResponse(req, status::bad_request, "Malformed x-euclid-attributes header");
         }
 
         const auto uploadDir = uploadDirFor(request.uploadId);
         const auto metaPath = uploadDir / kUploadMetaFile;
         if (!std::filesystem::exists(metaPath)) {
-            return EsmServer::ErrorResponse(req, status::not_found, "Upload not found, id: " + request.uploadId);
+            return ErrorResponse(req, status::not_found, "Upload not found, id: " + request.uploadId);
         }
 
         boost::json::value meta;
@@ -1109,7 +1141,7 @@ namespace Euclid::ESM {
 
         const auto bucket = repo->findBucketByErn(bucketErn);
         if (!bucket.has_value()) {
-            return EsmServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + bucketErn);
+            return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + bucketErn);
         }
         // Checked here rather than at create-upload only: the upload's parts are already staged,
         // but nothing has been written into the bucket yet, and this is the call that would.
@@ -1120,7 +1152,7 @@ namespace Euclid::ESM {
         // object stuck at UPLOADED with the reason only in the log.
         const auto writeKey = writeKeyForBucket(*bucket);
         if (!writeKey.error.empty()) {
-            return EsmServer::ErrorResponse(req, status::conflict, writeKey.error);
+            return ErrorResponse(req, status::conflict, writeKey.error);
         }
 
         // Zero-padded part filenames sort lexicographically in numeric order.
@@ -1133,7 +1165,7 @@ namespace Euclid::ESM {
         std::ranges::sort(parts);
 
         if (parts.empty()) {
-            return EsmServer::ErrorResponse(req, status::bad_request, "Upload has no parts, id: " + request.uploadId);
+            return ErrorResponse(req, status::bad_request, "Upload has no parts, id: " + request.uploadId);
         }
 
         // Objects live in a flat storage named after a freshly generated UUID rather than
@@ -1318,7 +1350,7 @@ namespace Euclid::ESM {
         response.size = static_cast<long>(totalSize);
         response.status = Database::Entity::ESM::ObjectStatusToString(Database::Entity::ESM::ObjectStatus::UPLOADED);
 
-        return EsmServer::JsonResponse(req, status::ok, response.toJson());
+        return JsonResponse(req, status::ok, response.toJson());
     }
 
     // Mirrors handlePutObject() for downloads: returns a small object's full bytes in a single
@@ -1342,7 +1374,7 @@ namespace Euclid::ESM {
         const auto auth = authenticate(req);
         if (!auth.user.has_value()) return unauthorized(req, auth);
 
-        const auto bucketErn = std::string(req["x-euclid-bucket-ern"]);
+        const auto bucketErn = bucketErnHeader(req);
         if (bucketErn.empty()) {
             return ErrorResponse(req, status::bad_request, "Missing x-euclid-bucket-ern header");
         }
@@ -1433,10 +1465,10 @@ namespace Euclid::ESM {
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
         const auto object = repo->findObjectByBucketAndKey(request.bucketErn, request.key);
         if (!object.has_value()) {
-            return EsmServer::ErrorResponse(req, status::not_found, "Object not found, bucket: " + request.bucketErn + ", key: " + request.key);
+            return ErrorResponse(req, status::not_found, "Object not found, bucket: " + request.bucketErn + ", key: " + request.key);
         }
         if (object->status != Database::Entity::ESM::ObjectStatus::COMPLETED) {
-            return EsmServer::ErrorResponse(req, status::conflict, "Object is not available for download, status: " + Database::Entity::ESM::ObjectStatusToString(object->status));
+            return ErrorResponse(req, status::conflict, "Object is not available for download, status: " + Database::Entity::ESM::ObjectStatusToString(object->status));
         }
 
         const auto downloadId = Core::UuidUtils::CreateRandomUuid();
@@ -1446,7 +1478,7 @@ namespace Euclid::ESM {
         std::filesystem::create_directories(downloadDir, ec);
         if (ec) {
             log_error << "ESM could not create download, path: " << downloadDir.string() << ", error: " << ec.message();
-            return EsmServer::ErrorResponse(req, status::internal_server_error, "Could not create download storage");
+            return ErrorResponse(req, status::internal_server_error, "Could not create download storage");
         }
 
         // Records the object being downloaded so download-part can serve byte ranges using only
@@ -1479,7 +1511,7 @@ namespace Euclid::ESM {
         response.size = object->size;
         response.contentType = object->contentType;
 
-        return EsmServer::JsonResponse(req, status::ok, response.toJson());
+        return JsonResponse(req, status::ok, response.toJson());
     }
 
     // Serves one byte-range part of an in-progress multipart download. Internal to the
@@ -1658,12 +1690,12 @@ namespace Euclid::ESM {
 
         const auto request = boost::json::value_to<Dto::ESM::GetObjectCountRequest>(jv);
 
-        const std::optional<Database::Entity::ESM::Bucket> bucket = Database::RepositoryFactory::instance().esmRepository()->findBucketByErn(request.bucketErn);
+        const std::optional<Database::Entity::ESM::Bucket> bucket = Database::RepositoryFactory::instance().esmRepository()->findBucketByErn(request.ern);
 
         if (!bucket.has_value()) {
-            return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.bucketErn);
+            return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.ern);
         }
-        log_info << "ESM get object count, ern: " << request.bucketErn << ", count: " << bucket->objects;
+        log_info << "ESM get object count, ern: " << request.ern << ", count: " << bucket->objects;
 
         Dto::ESM::GetObjectCountResponse response;
         response.ern = bucket->ern;
@@ -1737,27 +1769,27 @@ namespace Euclid::ESM {
         if (const auto err = ParseJsonBody(req, jv)) return *err;
 
         const auto request = Dto::ESM::PurgeBucketRequest::fromJson(req.body());
-        log_info << "ESM PurgeBucket, ern: " << request.bucketErn;
+        log_info << "ESM PurgeBucket, ern: " << request.ern;
 
         // Repository connection
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
-        auto bucket = repo->findBucketByErn(request.bucketErn);
+        auto bucket = repo->findBucketByErn(request.ern);
         if (!bucket.has_value()) {
-            return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.bucketErn);
+            return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.ern);
         }
-        if (const auto denied = denyUngrantedBucket(req, auth, request.bucketErn)) return *denied;
+        if (const auto denied = denyUngrantedBucket(req, auth, request.ern)) return *denied;
         if (Core::GetBoolValue(jv, "async")) {
-            removeBucketObjectsInBackground(request.bucketErn, request.prefix, bucket, auth.user->userId, false);
+            removeBucketObjectsInBackground(request.ern, request.prefix, bucket, auth.user->userId, false);
             return JsonResponse(req, status::accepted, boost::json::serialize(boost::json::object{
-                                                               {"ern", request.bucketErn},
-                                                               {"async", true},
-                                                               {"objects", bucket->objects}}));
+                                        {"ern", request.ern},
+                                        {"async", true},
+                                        {"objects", bucket->objects}}));
         }
 
-        const auto removed = removeBucketObjects(request.bucketErn, request.prefix, bucket, auth.user->userId);
+        const auto removed = removeBucketObjects(request.ern, request.prefix, bucket, auth.user->userId);
         const auto purgedSize = removed.size;
         const auto purgedObjects = removed.count;
-        log_info << "ESM bucket purged, ern: " << request.bucketErn << ", count: " << purgedObjects;
+        log_info << "ESM bucket purged, ern: " << request.ern << ", count: " << purgedObjects;
 
         // Adjust counters by what was actually deleted rather than zeroing them out - a prefix-scoped
         // purge only removes some of the bucket's objects, so anything left outside the prefix must
@@ -1765,10 +1797,10 @@ namespace Euclid::ESM {
         bucket->size = std::max<long>(0, bucket->size - purgedSize);
         bucket->objects = std::max<long>(0, bucket->objects - purgedObjects);
         bucket = repo->upsertBucket(bucket.value());
-        log_debug << "ESM bucket updated, ern: " << request.bucketErn << ", count: " << bucket->objects << ", size: " << bucket->size;
+        log_debug << "ESM bucket updated, ern: " << request.ern << ", count: " << bucket->objects << ", size: " << bucket->size;
 
         Dto::ESM::PurgeBucketResponse response;
-        response.ern = request.bucketErn;
+        response.ern = request.ern;
         response.count = purgedObjects;
 
         return JsonResponse(req, status::ok, response.toJson());
@@ -2649,7 +2681,65 @@ namespace Euclid::ESM {
 
     // ── EsmServer ────────────────────────────────────────────────────────────
 
-    EsmServer::EsmServer(std::string socketPath, const int threads) : HttpActionServer("ESM", std::move(socketPath), threads) {}
+    // Resolves the resource names clients send into the full ERNs every handler below expects.
+    //
+    // A client's configuration names a bucket; an ERN additionally carries the region, account and
+    // namespace, which are properties of the caller's session rather than of the request.
+    // Resolving here rather than in each client means one implementation instead of one per
+    // language, and it bounds what a name can reach: a name always resolves inside the caller's
+    // own namespace. A full ERN is passed through untouched, so every client written before this
+    // keeps working and cross-namespace work stays possible.
+    //
+    // Installed once, in the constructor, and applied by Core::HttpActionServer::ParseJsonBody to
+    // every body this process parses - so a handler added later gets it without having to know.
+    static void installErnResolver() {
+        Core::HttpActionServer::SetRequestRewriter([](const auto &req, boost::json::value &body) {
+            if (!body.is_object()) return;
+            auto &obj = body.as_object();
+
+            const auto accountId = callerAccountId(req);
+            const auto nameSpace = std::string(req["x-euclid-namespace"]);
+            const auto action = std::string(req["x-euclid-action"]);
+
+            auto resolve = [&](const char *field, const char *service, const char *type) {
+                const auto it = obj.find(field);
+                if (it == obj.end() || !it->value().is_string()) return;
+                const auto resolved = Core::resolveErn(service, type, accountId, nameSpace, std::string(it->value().as_string()));
+                it->value() = resolved;
+            };
+
+            resolve("bucketErn", "esm", "bucket");
+
+            // A bare "ern" too, unconditionally. It names a bucket in most actions and an object,
+            // message or subscription in the rest - but that distinction does not matter here,
+            // because a full ERN is always passed through untouched and only a bare value is ever
+            // resolved. A bare value in one of those other actions was never valid anyway, so the
+            // worst this can do is fail with a different message than it used to.
+            //
+            // Deliberately not an action list: the wire field a DTO serialises to is not always
+            // the name of its C++ member (PublishMessageRequest::topicErn is sent as "ern"), so
+            // any list keyed on one would be wrong for the actions where the two disagree - which
+            // is exactly how publish-message was missed.
+            resolve("ern", "esm", "bucket");
+
+            // copy-object and move-object name two buckets.
+            resolve("sourceBucketErn", "esm", "bucket");
+            resolve("targetBucketErn", "esm", "bucket");
+
+            // subscribe's source is always this module's bucket; its target is an EQS queue or an
+            // ENS topic, and only the request's own "type" says which - so that is what decides
+            // how a bare target name is read.
+            resolve("sourceErn", "esm", "bucket");
+            if (const auto type = obj.find("type"); type != obj.end() && type->value().is_string()) {
+                const auto isTopic = std::string(type->value().as_string()) == "SNS";
+                resolve("targetErn", isTopic ? "ens" : "eqs", isTopic ? "topic" : "queue");
+            }
+        });
+    }
+
+    EsmServer::EsmServer(std::string socketPath, const int threads) : HttpActionServer("ESM", std::move(socketPath), threads) {
+        installErnResolver();
+    }
 
     EsmServer::~EsmServer() = default;
 

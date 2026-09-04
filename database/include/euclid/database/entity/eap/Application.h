@@ -73,6 +73,23 @@ namespace Euclid::Database::Entity::EAP {
         std::string region;
 
         /**
+         * @brief Namespace this application's own requests run in.
+         *
+         * @par
+         * Not part of the application's identity - an application ERN is account-scoped, not
+         * namespace-scoped, and two namespaces cannot hold applications of the same name. This is
+         * where the application *works*: the namespace its queue, topic and bucket names are
+         * resolved in, sent as x-euclid-namespace on every call it makes.
+         *
+         * @par
+         * Empty on every application created before this existed, and on any created by a client
+         * that does not set it. The manager then falls back to the single namespace the
+         * application's EAM user is granted, which is unambiguous for an application deployed the
+         * ordinary way - see writeApplicationCredentials().
+         */
+        std::string nameSpace;
+
+        /**
          * @brief Runtime the artifact is started with - see RuntimeCommandPrefix().
          */
         Runtime runtime = Runtime::UNKNOWN;

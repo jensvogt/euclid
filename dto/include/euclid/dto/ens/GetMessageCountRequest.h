@@ -14,7 +14,7 @@ namespace Euclid::Dto::ENS {
         /**
          * @brief Topic ERN
          */
-        std::string topicErn{};
+        std::string ern{};
 
         /**
          * @brief Serializes this request to a JSON string
@@ -27,13 +27,13 @@ namespace Euclid::Dto::ENS {
 
         friend GetMessageCountRequest tag_invoke(boost::json::value_to_tag<GetMessageCountRequest>, boost::json::value const &v) {
             GetMessageCountRequest r;
-            r.topicErn = Core::GetStringValue(v, "ern");
+            r.ern = Core::GetStringValue(v, "ern");
             return r;
         }
 
         friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetMessageCountRequest const &obj) {
             jv = {
-                    {"ern", obj.topicErn},
+                    {"ern", obj.ern},
             };
         }
     };
