@@ -12,24 +12,30 @@
 
 ## What is this?
 
-euclid runs a local gateway that authenticates requests (JWT bearer tokens and AWS-style SigV4 signing) and routes them,
-by service name, to one of several independent module processes it manages as subprocesses - each communicating with the
-gateway over a Unix domain socket. Persistence is pluggable: an in-memory backend for fast, disposable test runs, or
-MongoDB for state that survives a restart.
+euclid runs a local gateway that authenticates requests and routes them, by service name, to one of several independent
+module processes it manages as subprocesses - each communicating with the gateway over a Unix domain socket. Persistence
+is pluggable: an in-memory backend for fast, disposable test runs, or MongoDB for state that survives a restart.
 
-It's an early-stage rewrite, currently shipping two functional services plus metrics:
+Requests are authenticated one of three ways: a JWT bearer token from `eam login`, an [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421)
+HTTP Message Signature (the default for signed calls), or AWS-style SigV4 for clients that need it. See
+[Signing](#signing) below.
 
-| Module                | What it does                                                                 | Status     |
-|-----------------------|------------------------------------------------------------------------------|------------|
-| **eam**               | User accounts, JWT login sessions, Euclid-style access keys, admin bootstrap | ✅         |
-| **eqs**               | Queues, delayed/dead-letter delivery, and priority-weighted message delivery | ✅         |
-| **emon**              | Metrics collection/retention behind the other modules                        | ✅         |
-| **esm**               | Storage management with buckets/object                                       | ✅         |
-| **ens**               | Notification management usinfg publish/subscribe topis                       | ✅         |
-| dynamodb, lambda, ... | Reserved service names in the gateway's routing table                        | 🚧 planned |
+| Module                             | What it does                                                                                | Status     |
+|------------------------------------|---------------------------------------------------------------------------------------------|------------|
+| **eam**                            | Users, user groups, accounts, namespaces, JWT login sessions and access keys                  | ✅          |
+| **eqs**                            | Queues: delayed and dead-letter delivery, priority-weighted receive, long polling             | ✅          |
+| **ens**                            | Notifications: publish/subscribe topics fanning out to queues                                 | ✅          |
+| **esm**                            | Storage: buckets and objects, multipart transfer, encryption at rest                          | ✅          |
+| **ees**                            | Events: subscribe to what the other modules publish                                           | ✅          |
+| **ekm**                            | Key management: cryptographic keys, encrypt/decrypt                                           | ✅          |
+| **emm**                            | Module management: start, stop, restart, instance and thread limits, export/import            | ✅          |
+| **ets**                            | Transfer servers: FTP and SFTP endpoints onto ESM buckets                                     | ✅          |
+| **eap**                            | Applications: Java, Python, Node.js, Rust or C++ processes euclid runs, scales and supervises | ✅          |
+| **emo**                            | Monitoring: metric collection, rollup and retention behind the other modules                  | ✅          |
+| dynamodb, secretsmanager, ssm, ... | Reserved service names in the gateway's routing table                                         | 🚧 planned |
 
 Everything is driven through `euclid-cli`, a single client binary with one subcommand set per module
-(`euclid-cli eqs ...`, `euclid-cli eam ...`).
+(`euclid-cli eqs ...`, `euclid-cli eam ...`), or through the desktop UI - see [Related projects](#related-projects).
 
 ---
 
@@ -55,23 +61,56 @@ export PATH="$PWD/build/bin:$PATH"
 # change the password immediately in anything but a throwaway dev setup.
 euclid-cli eam login --user admin --password admin
 
-euclid-cli eqs create-queues --name my-queues
-euclid-cli eqs send-message --ern <queues-ern> --body "hello" --priority HIGH
-euclid-cli eqs receive-messages --ern <queues-ern> --maxCount 10
+euclid-cli eqs create-queue --name my-queue
+euclid-cli eqs send-message --queue my-queue --body "hello" --priority HIGH
+euclid-cli eqs receive-messages --queue my-queue --maxCount 10
 ```
+
+---
+
+## Signing
+
+A request reaches the gateway with one of three credentials.
+
+| Scheme | Header(s) | Used by |
+|--------|-----------|---------|
+| **Bearer token** | `Authorization: Bearer <jwt>` | `eam login` sessions; the RUI by default |
+| **RFC 9421** | `Signature`, `Signature-Input`, `Content-Digest` | `euclid-cli` by default, the RUI when signing, and every euclid application |
+| **SigV4** | `Authorization: AWS4-HMAC-SHA256 ...` | clients that need AWS compatibility (`--signature sigv4`) |
+
+[RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) HTTP Message Signatures is the default for signed calls. It proves
+the request with the same access key SigV4 uses, but says so in an open standard: the signature lives in
+`Signature`/`Signature-Input`, and the body is bound through a `Content-Digest` header ([RFC 9530](https://www.rfc-editor.org/rfc/rfc9530))
+that means something on its own rather than being folded into a proprietary canonical string.
+
+The server does not take a signature on trust:
+
+- the covered components are **fixed by the server**, not negotiated - a signature that covers less than method, path,
+  authority, content-digest and euclid's routing headers is rejected;
+- the algorithm is fixed, so there is nothing to downgrade;
+- `Content-Digest` is recomputed from the body actually received and compared before the signature means anything;
+- `created` must sit within a 15-minute window, in either direction;
+- digests and signatures are compared in constant time.
+
+Switch a single call with `--signature sigv4`, or an installation with `euclid.cli.signature` in the configuration file.
 
 ---
 
 ## Architecture
 
-- **Gateway** (`euclid-mgr`) - single HTTP (S) entry point. Identifies the target service from the `x-euclid-target`
-  header or the SigV4 credential scope, then forwards the request over a Unix domain socket to that module's process.
+- **Gateway** (`euclid-mgr`) - single HTTP(S) entry point. Authenticates the caller, identifies the target service from
+  the `x-euclid-target` header, then forwards the request asynchronously over a Unix domain socket to one instance of
+  that module. Long-polling callers park on the gateway's I/O context rather than holding a worker thread, so a module's
+  concurrency is bounded by its own instances and threads rather than by the gateway.
 - **Modules** (`euclid-eam`, `euclid-eqs`, `euclid-emo`, ...) - independent processes, started and supervised by the
   gateway, each owning one service's logic and its own socket.
 - **Storage** - `euclid.database.backend` selects `mongodb` (persistent) or
   `memory` (in-process, wiped on restart).
 - **CLI** (`euclid-cli`) - talks to the gateway over HTTPS; credentials are cached under `$HOME/.euclid/credentials`
   after `euclid-cli eam login`.
+- **Names** - a queue, topic or bucket may be named rather than spelled out as a full ERN. The server resolves a bare
+  name in the caller's own account and namespace, which is what keeps account, region and namespace out of client
+  configuration entirely - and means a name can never reach another namespace.
 
 ---
 
@@ -191,6 +230,16 @@ Every process reads the same JSON config (`--config <path>`, default
 | `euclid.logging.websocket-port`               | 4569    | Live log streaming                |
 | `euclid.database.backend`                     | mongodb | `mongodb` or `memory`             |
 | `euclid.modules.sqs.priority-weights`         | 4:2:1   | HIGH:MIDDLE:LOW receive weighting |
+
+---
+
+## Related projects
+
+| Project | What it is |
+|---------|------------|
+| [euclid-rui](https://github.com/jensvogt/euclid-rui) | Desktop UI (Qt/QML) - browse and administer queues, topics, buckets, keys, applications and transfer servers, with live metrics |
+| [euclid-jdk](https://github.com/jensvogt/euclid-jdk) | Java client library for every module |
+| [euclid-spring](https://github.com/jensvogt/euclid-spring) | Spring Boot starter: `@QueueListener`, `@TopicListener` and `@BucketListener`, plus autoconfiguration |
 
 ---
 

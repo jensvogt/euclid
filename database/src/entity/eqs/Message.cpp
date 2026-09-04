@@ -38,8 +38,6 @@ namespace Euclid::Database::Entity::EQS {
                 bsoncxx::builder::basic::kvp("visibilityTimeout", static_cast<int32_t>(visibilityTimeout)),
                 bsoncxx::builder::basic::kvp("messageId", messageId),
                 bsoncxx::builder::basic::kvp("receiptHandle", receiptHandle),
-                bsoncxx::builder::basic::kvp("md5Body", md5Body),
-                bsoncxx::builder::basic::kvp("md5Attributes", md5Attributes),
                 bsoncxx::builder::basic::kvp("contentType", contentType),
                 bsoncxx::builder::basic::kvp("reset", bsoncxx::types::b_date(reset)),
                 bsoncxx::builder::basic::kvp("delayUntil", bsoncxx::types::b_date(delayUntil)),
@@ -61,8 +59,6 @@ namespace Euclid::Database::Entity::EQS {
             else if (key == "visibilityTimeout") visibilityTimeout = static_cast<int>(getBsonInt(field));
             else if (key == "messageId") messageId = std::string(field.get_string().value);
             else if (key == "receiptHandle") receiptHandle = std::string(field.get_string().value);
-            else if (key == "md5Body") md5Body = std::string(field.get_string().value);
-            else if (key == "md5Attributes") md5Attributes = std::string(field.get_string().value);
             else if (key == "contentType") contentType = std::string(field.get_string().value);
             else if (key == "reset") reset = system_clock::time_point{field.get_date().value};
             else if (key == "delayUntil") delayUntil = system_clock::time_point{field.get_date().value};
@@ -79,12 +75,5 @@ namespace Euclid::Database::Entity::EQS {
         }
     }
 
-    std::string Message::ComputeAttributesMd5(const std::map<std::string, COM::Variant> &attributes) {
-        bsoncxx::builder::basic::document attrsDoc;
-        for (const auto &[k, v]: attributes) {
-            attrsDoc.append(bsoncxx::builder::basic::kvp(k, v.ToDocument()));
-        }
-        return Core::CryptoUtils::md5Sum(bsoncxx::to_json(attrsDoc.view()));
-    }
 
 }// namespace Euclid::Database::Entity::SQS

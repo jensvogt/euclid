@@ -73,11 +73,9 @@ namespace Euclid::Dto::ENS {
         dto.topicErn = entity.topicErn;
         dto.messageId = entity.messageId;
         dto.body = entity.body;
-        dto.md5Body = entity.md5Body;
         for (const auto &[key, attr]: entity.attributes) {
             dto.attributes[key] = toDto(attr);
         }
-        dto.md5Attributes = entity.md5Attributes;
         dto.status = entity.status;
         dto.lastReceived = entity.lastReceived;
         dto.contentType = entity.contentType;
@@ -101,8 +99,6 @@ namespace Euclid::Dto::ENS {
         entity.topicErn = dto.topicErn;
         entity.messageId = dto.messageId;
         entity.body = dto.body;
-        entity.md5Body = dto.md5Body;
-        entity.md5Attributes = dto.md5Attributes;
         entity.status = dto.status;
         entity.contentType = dto.contentType;
         for (const auto &[key, variant]: dto.attributes) {

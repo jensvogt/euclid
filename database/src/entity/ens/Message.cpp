@@ -28,8 +28,6 @@ namespace Euclid::Database::Entity::ENS {
                 bsoncxx::builder::basic::kvp("size", static_cast<int64_t>(size)),
                 bsoncxx::builder::basic::kvp("messageId", messageId),
                 bsoncxx::builder::basic::kvp("receiptHandle", receiptHandle),
-                bsoncxx::builder::basic::kvp("md5Body", md5Body),
-                bsoncxx::builder::basic::kvp("md5Attributes", md5Attributes),
                 bsoncxx::builder::basic::kvp("contentType", contentType),
                 bsoncxx::builder::basic::kvp("status", status),
                 bsoncxx::builder::basic::kvp("lastReceived", bsoncxx::types::b_date(lastReceived)),
@@ -46,8 +44,6 @@ namespace Euclid::Database::Entity::ENS {
             else if (key == "size") size = getBsonInt(field);
             else if (key == "messageId") messageId = std::string(field.get_string().value);
             else if (key == "receiptHandle") receiptHandle = std::string(field.get_string().value);
-            else if (key == "md5Body") md5Body = std::string(field.get_string().value);
-            else if (key == "md5Attributes") md5Attributes = std::string(field.get_string().value);
             else if (key == "contentType") contentType = std::string(field.get_string().value);
             else if (key == "status") status = std::string(field.get_string().value);
             else if (key == "lastReceived") lastReceived = system_clock::time_point{field.get_date().value};
@@ -63,12 +59,5 @@ namespace Euclid::Database::Entity::ENS {
         }
     }
 
-    std::string Message::ComputeAttributesMd5(const std::map<std::string, COM::Variant> &attributes) {
-        bsoncxx::builder::basic::document attrsDoc;
-        for (const auto &[k, v]: attributes) {
-            attrsDoc.append(bsoncxx::builder::basic::kvp(k, v.ToDocument()));
-        }
-        return Core::CryptoUtils::md5Sum(bsoncxx::to_json(attrsDoc.view()));
-    }
 
 }// namespace Euclid::Database::Entity::SQS
