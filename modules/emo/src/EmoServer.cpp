@@ -37,6 +37,10 @@ namespace Euclid::Monitoring {
 
         constexpr auto kPrunePeriod = std::chrono::hours(24);
         constexpr auto kCpuUsagePeriod = std::chrono::seconds(60);
+
+        // Slower than the rest: these move at the pace a database grows, and dbStats is a
+        // round trip per tick that tells you nothing new a second later.
+        constexpr auto kDatabaseSizePeriod = std::chrono::seconds(300);
         // How stale a queue's message counts may get. Short enough that a queue draining is
         // visibly draining, long enough that the scan is rare next to the traffic it replaces
         // (one grouped scan against a write per message on the queue document).
@@ -328,6 +332,10 @@ namespace Euclid::Monitoring {
 
         // Same period as the CPU figure, and the same reason: they are read together on a
         // dashboard and drifting apart in age would make them hard to compare.
+        const auto databaseSizePeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.module.emo.database-size-period", kDatabaseSizePeriod.count()));
+        _databaseSizeTaskId = scheduler.SchedulePeriodic("monitoring-database-size", [] { collectDatabaseSize(); },
+                                                         std::chrono::duration_cast<std::chrono::milliseconds>(databaseSizePeriod));
+
         _memoryUsageTaskId = scheduler.SchedulePeriodic("monitoring-memory-usage", [] { collectMemoryUsage(); },
                                                         std::chrono::duration_cast<std::chrono::milliseconds>(cpuUsagePeriod));
 #endif
@@ -342,6 +350,7 @@ namespace Euclid::Monitoring {
         scheduler.Cancel(_queueCountsTaskId);
         scheduler.Cancel(_bucketCountsTaskId);
         scheduler.Cancel(_topicCountsTaskId);
+        scheduler.Cancel(_databaseSizeTaskId);
         scheduler.Cancel(_cpuUsageTaskId);
     }
 
@@ -447,6 +456,31 @@ namespace Euclid::Monitoring {
         }
 
         recordSample("system-memory-usage-percent", "host", Core::SystemUtils::GetHostName(), *usage, MetricType::GAUGE);
+    }
+
+    void EmoServer::collectDatabaseSize() {
+
+        const auto stats = Database::RepositoryFactory::instance().emoRepository()->databaseStats();
+        if (!stats.has_value()) {
+            // The in-memory backend has no sizes to report. Not a warning: it is a configuration,
+            // not a failure, and one that would otherwise log every five minutes forever.
+            log_debug << "Monitoring database-size collection skipped, backend reports no sizes";
+            return;
+        }
+
+        // Labelled by database rather than by host: several euclid hosts can share one database,
+        // and the figure belongs to the database in every case.
+        const auto name = Core::Configuration::instance().getOr<std::string>("euclid.mongodb.name", "euclid");
+
+        // Both sizes, because they answer different questions and either one alone misleads:
+        // data-size is what euclid holds, storage-size what that costs on disk after compression -
+        // typically several times smaller - and total-size is the one that fills a volume.
+        recordSample("database-data-size", "database", name, static_cast<double>(stats->dataSize), MetricType::GAUGE);
+        recordSample("database-storage-size", "database", name, static_cast<double>(stats->storageSize), MetricType::GAUGE);
+        recordSample("database-index-size", "database", name, static_cast<double>(stats->indexSize), MetricType::GAUGE);
+        recordSample("database-total-size", "database", name, static_cast<double>(stats->totalSize), MetricType::GAUGE);
+        recordSample("database-objects", "database", name, static_cast<double>(stats->objects), MetricType::GAUGE);
+        recordSample("database-collections", "database", name, static_cast<double>(stats->collections), MetricType::GAUGE);
     }
 
     response<string_body> EmoServer::Dispatch(const request<string_body> &req) {

@@ -129,6 +129,7 @@
         "queue-count.period": 60,
         "bucket-count.period": 60,
         "topic-count.period": 60,
+        "database-size-period": 300,
         "retention": {
           "raw": 7,
           "hour": 90,
