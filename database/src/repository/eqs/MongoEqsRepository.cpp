@@ -591,10 +591,8 @@ namespace Euclid::Database {
         message.body = body;
         message.size = static_cast<long>(body.size());
         message.messageId = messageId;
-        message.md5Body = Core::CryptoUtils::md5Sum(message.body);
         message.contentType = Core::ContentTypeUtils::fromContent(message.body);
         message.attributes = attributes;
-        message.md5Attributes = Entity::EQS::Message::ComputeAttributesMd5(attributes);
         message.status = Entity::EQS::MessageStatus::AVAILABLE;
         message.priority = priority;
         message.created = std::chrono::system_clock::now();

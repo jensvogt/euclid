@@ -50,7 +50,7 @@ Deletes a user account by user ID. Requires administrator privileges. See
 .BR euclid-cli-eam-delete-user (1).
 .TP
 .B create-access-key
-Creates a new SigV4 access key for the logged-in user and stores it
+Creates a new access key for the logged-in user and stores it
 locally. Self-service; no administrator privileges required. See
 .BR euclid-cli-eam-create-access-key (1).
 .TP
@@ -177,8 +177,8 @@ only). Defaults to
 silently ignored if the file doesn't exist.
 .TP
 .BR \-s ", " \-\-signature " " \fISCHEME\fR
-Signature scheme used for signed service calls: \fIsigv4\fR (the
-default) or \fIrfc9421\fR for RFC 9421 HTTP Message Signatures. Both
+Signature scheme used for signed service calls: \fIrfc9421\fR (the
+default) or \fIsigv4\fR for AWS Signature Version 4. Both
 prove the request with the same access key; RFC 9421 puts the
 signature in \fISignature\fR/\fISignature\-Input\fR headers and binds
 the body through \fIContent\-Digest\fR (RFC 9530) instead of using
