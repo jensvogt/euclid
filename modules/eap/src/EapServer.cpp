@@ -341,6 +341,11 @@ namespace Euclid::EAP {
         application.applicationId = applicationId;
         application.accountId = auth.user->accountId;
         application.region = auth.user->region;
+        // The namespace the application will work in, which is the one it is being created in -
+        // the same one its technical user is granted just above. Written here so the manager can
+        // hand it to the application in its credentials, which is what lets the application name
+        // a queue or topic instead of spelling out a full ERN.
+        application.nameSpace = std::string(req["x-euclid-namespace"]);
         application.ern = Core::createEapApplicationErn(application.accountId, applicationId);
         application.runtime = runtime;
         application.bucketErn = bucket->ern;
@@ -408,6 +413,11 @@ namespace Euclid::EAP {
             // either way, or the definition would claim a build it no longer points at.
             application->md5Sum = artifact->md5Sum;
         }
+        // The namespace an application works in, changeable like any other setting - and the only
+        // way an application created before applications carried one can acquire it without being
+        // deleted and made again. Sending it empty moves the application back to the account root,
+        // which is a legitimate thing to ask for, so absent and empty mean different things here.
+        if (obj.contains("namespace")) application->nameSpace = stringField(obj, "namespace");
         if (obj.contains("version")) application->version = stringField(obj, "version");
         if (obj.contains("command")) application->command = stringField(obj, "command");
         if (obj.contains("arguments")) application->arguments = stringArray(obj, "arguments");

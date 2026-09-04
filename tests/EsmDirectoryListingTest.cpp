@@ -49,13 +49,13 @@ BOOST_AUTO_TEST_CASE(ListingLeavesDirectoriesOutByDefault) {
     MemoryEsmRepository repo;
     populate(repo);
 
-    const auto files = repo.listObjects(kBucketErn, "", -1, -1, "key");
+    const auto files = repo.listObjects(kBucketErn, "", -1, -1, "key", "asc", false);
     BOOST_TEST_REQUIRE(files.size() == 2U);
     BOOST_TEST(files[0].key == "mix/PIM-4269.xml");
     BOOST_TEST(files[1].key == "report.json");
 
-    BOOST_TEST(repo.countObjects(kBucketErn, "") == 2);
-    BOOST_TEST(repo.countObjects(kBucketErn, "mix/") == 1);
+    BOOST_TEST(repo.countObjects(kBucketErn, "", false) == 2);
+    BOOST_TEST(repo.countObjects(kBucketErn, "mix/", false) == 1);
 }
 
 BOOST_AUTO_TEST_CASE(ListingIncludesDirectoriesWhenAsked) {
@@ -79,11 +79,11 @@ BOOST_AUTO_TEST_CASE(PagingAppliesAfterDirectoriesAreFilteredOut) {
     MemoryEsmRepository repo;
     populate(repo);
 
-    const auto firstPage = repo.listObjects(kBucketErn, "", 1, 0, "key");
+    const auto firstPage = repo.listObjects(kBucketErn, "", 1, 0, "key", "asc", false);
     BOOST_TEST_REQUIRE(firstPage.size() == 1U);
     BOOST_TEST(firstPage[0].key == "mix/PIM-4269.xml");
 
-    const auto secondPage = repo.listObjects(kBucketErn, "", 1, 1, "key");
+    const auto secondPage = repo.listObjects(kBucketErn, "", 1, 1, "key", "asc", false);
     BOOST_TEST_REQUIRE(secondPage.size() == 1U);
     BOOST_TEST(secondPage[0].key == "report.json");
 }

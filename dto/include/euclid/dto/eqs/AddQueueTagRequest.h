@@ -14,7 +14,7 @@ namespace Euclid::Dto::EQS {
         /**
          * @brief Queue ERN
          */
-        std::string queueErn;
+        std::string ern;
 
         /**
          * @brief Key
@@ -44,7 +44,7 @@ namespace Euclid::Dto::EQS {
 
         friend AddQueueTagRequest tag_invoke(boost::json::value_to_tag<AddQueueTagRequest>, boost::json::value const &v) {
             AddQueueTagRequest r;
-            r.queueErn = Core::GetStringValue(v, "ern");
+            r.ern = Core::GetStringValue(v, "ern");
             r.key = Core::GetStringValue(v, "key");
             r.value = Core::GetStringValue(v, "value");
             return r;
@@ -52,7 +52,7 @@ namespace Euclid::Dto::EQS {
 
         friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, AddQueueTagRequest const &obj) {
             jv = {
-                    {"ern", obj.queueErn},
+                    {"ern", obj.ern},
                     {"key", obj.key},
                     {"value", obj.value},
             };

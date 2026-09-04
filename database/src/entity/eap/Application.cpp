@@ -40,6 +40,7 @@ namespace Euclid::Database::Entity::EAP {
                 bsoncxx::builder::basic::kvp("ern", ern),
                 bsoncxx::builder::basic::kvp("accountId", accountId),
                 bsoncxx::builder::basic::kvp("region", region),
+                bsoncxx::builder::basic::kvp("namespace", nameSpace),
                 bsoncxx::builder::basic::kvp("runtime", RuntimeToString(runtime)),
                 bsoncxx::builder::basic::kvp("bucketErn", bucketErn),
                 bsoncxx::builder::basic::kvp("artifactKey", artifactKey),
@@ -68,6 +69,8 @@ namespace Euclid::Database::Entity::EAP {
             else if (key == "ern") application.ern = std::string(field.get_string().value);
             else if (key == "accountId") application.accountId = std::string(field.get_string().value);
             else if (key == "region") application.region = std::string(field.get_string().value);
+            // Absent on every application created before applications carried one.
+            else if (key == "namespace") application.nameSpace = std::string(field.get_string().value);
             else if (key == "runtime") application.runtime = RuntimeFromString(std::string(field.get_string().value));
             else if (key == "bucketErn") application.bucketErn = std::string(field.get_string().value);
             else if (key == "artifactKey") application.artifactKey = std::string(field.get_string().value);

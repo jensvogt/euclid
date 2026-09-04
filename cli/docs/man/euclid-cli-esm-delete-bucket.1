@@ -50,6 +50,14 @@ ESM is stopped or scaled down halfway through, asking again picks up
 where it left off, rather than leaving objects behind that nothing could
 reach. Watch it drain with
 .BR euclid-cli-esm-list-objects (1).
+.PP
+The bucket may be given by
+.B name
+instead of by ERN, in which case it is resolved in your session's account
+and namespace; see
+.B NAMES AND ERNS
+in
+.BR euclid-cli-esm (1).
 .SH EXIT STATUS
 .TP
 .B 0

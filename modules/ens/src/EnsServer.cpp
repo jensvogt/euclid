@@ -1,6 +1,8 @@
 // Euclid includes
 #include <EnsServer.h>
 
+#include "euclid/core/HttpUtils.h"
+
 namespace Euclid::ENS {
 
     namespace beast = boost::beast;
@@ -242,9 +244,19 @@ namespace Euclid::ENS {
         if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::ENS::PublishMessageRequest>(jv);
-        log_info << "ENS PublishMessage topicErn: " << request.topicErn;
+        log_info << "ENS PublishMessage topicErn: " << request.ern;
 
-        const auto message = publishToTopic(request.topicErn, request.body, request.attributes, auth.user->accountId);
+        // Checked before anything is stored. Without this a publish to a topic that does not exist
+        // was accepted and kept: the message landed in the collection carrying whatever the caller
+        // called the topic, no subscription matched it, and nothing ever said so - which is how a
+        // misspelled or unresolved topic name becomes a pile of rows belonging to no topic. The
+        // EventBus path below has always checked; this is the same check on the client path.
+        const auto repo = Database::RepositoryFactory::instance().ensRepository();
+        if (!repo->findTopicByErn(request.ern).has_value()) {
+            return EnsServer::ErrorResponse(req, status::not_found, "Topic not found, ern: " + request.ern);
+        }
+
+        const auto message = publishToTopic(request.ern, request.body, request.attributes, auth.user->accountId);
 
         Dto::ENS::PublishMessageResponse response;
         response.messageId = message.messageId;
@@ -367,16 +379,16 @@ namespace Euclid::ENS {
         if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::ENS::GetMessageCountRequest>(jv);
-        log_info << "ENS GetMessageCount, ern: " << request.topicErn;
+        log_info << "ENS GetMessageCount, ern: " << request.ern;
 
         const auto repo = Database::RepositoryFactory::instance().ensRepository();
-        const std::optional<Database::Entity::ENS::Topic> queue = repo->findTopicByErn(request.topicErn);
+        const std::optional<Database::Entity::ENS::Topic> queue = repo->findTopicByErn(request.ern);
         if (!queue.has_value()) {
-            return EnsServer::ErrorResponse(req, status::not_found, "Topic not found, ern: " + request.topicErn);
+            return EnsServer::ErrorResponse(req, status::not_found, "Topic not found, ern: " + request.ern);
         }
 
         Dto::ENS::GetMessageCountResponse response;
-        response.ern = request.topicErn;
+        response.ern = request.ern;
         response.available = queue->available;
         response.send = queue->send;
         response.resend = queue->resend;
@@ -875,14 +887,74 @@ namespace Euclid::ENS {
 
     // ── EnsServer ────────────────────────────────────────────────────────────
 
-    EnsServer::EnsServer(std::string socketPath, const int threads) : HttpActionServer("ENS", std::move(socketPath), threads) {
-        // auto &scheduler = Core::Scheduler::instance();
-        // scheduler.Start();
-        // _resetMessagesTaskId = scheduler.SchedulePeriodic("queues-reset-expired-messages", [] {
-        //                                                       Database::RepositoryFactory::instance().ensRepository()->resetExpiredMessages();
-        //                                                   },
-        //                                                   std::chrono::seconds(30));
+    // Resolves the resource names clients send into the full ERNs every handler below expects.
+    //
+    // A client's configuration names a queue or a topic; an ERN additionally carries the region,
+    // account and namespace, which are properties of the caller's session rather than of the
+    // request. Resolving here rather than in each client means one implementation instead of one
+    // per language, and it bounds what a name can reach: a name always resolves inside the
+    // caller's own namespace. A full ERN is passed through untouched, so every client written
+    // before this keeps working and cross-namespace work stays possible.
+    //
+    // Installed once, in the constructor, and applied by Core::HttpActionServer::ParseJsonBody to
+    // every body this process parses - so a handler added later gets it without having to know.
+    static void installErnResolver() {
+        Core::HttpActionServer::SetRequestRewriter([](const auto &req, boost::json::value &body) {
+            if (!body.is_object()) return;
+            auto &obj = body.as_object();
 
+            // The header, which authenticate() has already checked is one this caller may use -
+            // every handler authenticates before it parses. It is optional though (see
+            // CheckScope), and an empty account would build an ERN with a hole in it that matches
+            // nothing, so a single-account installation's configured id stands in for it.
+            auto accountId = std::string(req["x-euclid-account-id"]);
+            if (accountId.empty()) {
+                // has() first: getArray() throws on a missing key. Only when exactly one account
+                // is configured - with several there is no way to tell which was meant, and a
+                // guess would resolve the name into somebody else's account.
+                if (const auto &cfg = Core::Configuration::instance(); cfg.has("euclid.account-ids")) {
+                    if (const auto configured = cfg.getArray<std::string>("euclid.account-ids"); configured.size() == 1) {
+                        accountId = configured.front();
+                    }
+                }
+            }
+            const auto nameSpace = std::string(req["x-euclid-namespace"]);
+            const auto action = std::string(req["x-euclid-action"]);
+
+            auto resolve = [&](const char *field, const char *service, const char *type) {
+                const auto it = obj.find(field);
+                if (it == obj.end() || !it->value().is_string()) return;
+                const auto resolved = Core::resolveErn(service, type, accountId, nameSpace, std::string(it->value().as_string()));
+                it->value() = resolved;
+            };
+
+            // Unambiguous wherever they appear: a topicErn is always a topic, and the queueErn
+            // a subscription names is always an EQS queue.
+            resolve("topicErn", "ens", "topic");
+            resolve("queueErn", "eqs", "queue");
+
+            // A bare "ern" too, unconditionally. It names a topic in most actions and an object,
+            // message or subscription in the rest - but that distinction does not matter here,
+            // because a full ERN is always passed through untouched and only a bare value is ever
+            // resolved. A bare value in one of those other actions was never valid anyway, so the
+            // worst this can do is fail with a different message than it used to.
+            //
+            // Deliberately not an action list: the wire field a DTO serialises to is not always
+            // the name of its C++ member (PublishMessageRequest::topicErn is sent as "ern"), so
+            // any list keyed on one would be wrong for the actions where the two disagree - which
+            // is exactly how publish-message was missed.
+            resolve("ern", "ens", "topic");
+
+            // subscribe names two resources of different kinds: the topic published from, and the
+            // EQS queue delivered into. ENS only supports SQS targets, so the target's type is not
+            // in question here.
+            resolve("sourceErn", "ens", "topic");
+            resolve("targetErn", "eqs", "queue");
+        });
+    }
+
+    EnsServer::EnsServer(std::string socketPath, const int threads) : HttpActionServer("ENS", std::move(socketPath), threads) {
+        installErnResolver();
         Database::EventBus::instance().Subscribe("ens", "esm.subscription.publication", handleObjectPublishedNotification);
         Database::EventBus::instance().Start("ens");
     }

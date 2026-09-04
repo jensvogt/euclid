@@ -164,14 +164,14 @@ namespace Euclid::CLI {
     int EnsCli::listMessages(const std::vector<std::string> &args) const {
         po::options_description desc("lists a topic's messages without receiving them");
         desc.add_options()
-                ("topic,t", po::value<std::string>()->required(), "topic ERN")
+                ("topic,t", po::value<std::string>()->required(), "topic name; a full ERN also works and is what reaches another namespace")
                 ("page-size,s", po::value<long>()->default_value(10), "page size")
                 ("page-index,i", po::value<long>()->default_value(0), "page index")
                 ("sort-column,c", po::value<std::string>()->default_value("created"), "sort column")
                 ("sort-direction,d", po::value<std::string>()->default_value("asc"), "sort direction");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("ens", "list-messages", "--topic <ern> [--page-size <n>] [--page-index <n>] [--sort-column <column>] [--sort-direction <direction>]",
+            return PrintActionHelp("ens", "list-messages", "--topic <name|ern> [--page-size <n>] [--page-index <n>] [--sort-column <column>] [--sort-direction <direction>]",
                                    "Lists a topic's messages without receiving them, i.e. without changing their status. Paginated: page-size defaults to 10, page-index to 0, sort-column to \"created\""
                                    "and sort-direction to \"asc\".",
                                    desc);
@@ -297,10 +297,10 @@ namespace Euclid::CLI {
     int EnsCli::purgeTopic(const std::vector<std::string> &args) const {
         po::options_description desc("purge topic options");
         desc.add_options()
-                ("topic,t", po::value<std::string>()->required(), "topic ERN");
+                ("topic,t", po::value<std::string>()->required(), "topic name; a full ERN also works and is what reaches another namespace");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("ens", "purge-topic", "--topic <ern>",
+            return PrintActionHelp("ens", "purge-topic", "--topic <name|ern>",
                                    "Deletes all messages from a ENS topic identified by its Euclid resource name (ERN).",
                                    desc);
         }
@@ -375,10 +375,10 @@ namespace Euclid::CLI {
 
     int EnsCli::getTopicMetadata(const std::vector<std::string> &args) const {
         po::options_description desc("returns the metadata of a topic");
-        desc.add_options()("topic,t", po::value<std::string>()->required(), "topic ERN");
+        desc.add_options()("topic,t", po::value<std::string>()->required(), "topic name; a full ERN also works and is what reaches another namespace");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("ens", "get-topic-metadata", "--ern <ern>",
+            return PrintActionHelp("ens", "get-topic-metadata", "--ern <name|ern>",
                                    "Shows the metadata of a topic, i.e. region, accountId, namespace, size, number of messages.",
                                    desc);
         }
@@ -412,10 +412,10 @@ namespace Euclid::CLI {
 
     int EnsCli::deleteTopic(const std::vector<std::string> &args) const {
         po::options_description desc("delete topic options");
-        desc.add_options()("topic,t", po::value<std::string>()->required(), "topic ERN");
+        desc.add_options()("topic,t", po::value<std::string>()->required(), "topic name; a full ERN also works and is what reaches another namespace");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("ens", "delete-topic", "--topic <ern>",
+            return PrintActionHelp("ens", "delete-topic", "--topic <name|ern>",
                                    "Deletes an ENS topic identified by its ERN.",
                                    desc);
         }
@@ -448,12 +448,12 @@ namespace Euclid::CLI {
     int EnsCli::publishMessage(const std::vector<std::string> &args) const {
         po::options_description desc("publish message options");
         desc.add_options()
-                ("topic,t", po::value<std::string>()->required(), "topic ERN")
+                ("topic,t", po::value<std::string>()->required(), "topic name; a full ERN also works and is what reaches another namespace")
                 ("body,b", po::value<std::string>()->required(), "message body")
                 ("attributes,a", po::value<std::string>(), "message attributes");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("ens", "publish-message", "--topic <ern> --body <body|file://path> [--attributes <json|file://path>]",
+            return PrintActionHelp("ens", "publish-message", "--topic <name|ern> --body <body|file://path> [--attributes <json|file://path>]",
                                    "Sends a message to an ENS topic. If --body starts with 'file://', the message "
                                    "body is read from the referenced file instead of being taken literally. The optional --attributes value sets the message "
                                    "attributes as a JSON object mapping attribute name to {\"type\": <int|long|double|float|bool|string|binary>, \"value\": <value>}, "
@@ -471,7 +471,7 @@ namespace Euclid::CLI {
         }
 
         Dto::ENS::PublishMessageRequest request;
-        request.topicErn = vm["topic"].as<std::string>();
+        request.ern = vm["topic"].as<std::string>();
 
         try {
             request.body = ResolveFileOrLiteral(vm["body"].as<std::string>());
@@ -498,7 +498,7 @@ namespace Euclid::CLI {
     int EnsCli::getMessageCount(const std::vector<std::string> &args) const {
         po::options_description desc("returns the message count");
         desc.add_options()
-                ("topic,t", po::value<std::string>()->required(), "topic ERN");
+                ("topic,t", po::value<std::string>()->required(), "topic name; a full ERN also works and is what reaches another namespace");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eqs", "get-message-count", "--ern <ern>",
@@ -516,7 +516,7 @@ namespace Euclid::CLI {
         }
 
         Dto::ENS::GetMessageCountRequest request;
-        request.topicErn = vm["topic"].as<std::string>();
+        request.ern = vm["topic"].as<std::string>();
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
@@ -661,12 +661,12 @@ namespace Euclid::CLI {
     int EnsCli::addTopicTag(const std::vector<std::string> &args) const {
         po::options_description desc("add topic tag options");
         desc.add_options()
-                ("topic,t", po::value<std::string>()->required(), "topic ERN")
+                ("topic,t", po::value<std::string>()->required(), "topic name; a full ERN also works and is what reaches another namespace")
                 ("key,k", po::value<std::string>()->required(), "tag key")
                 ("value,v", po::value<std::string>()->required(), "tag value");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("ens", "add-topic-tag", "--topic <ern> --key <value> --value <value>",
+            return PrintActionHelp("ens", "add-topic-tag", "--topic <name|ern> --key <value> --value <value>",
                                    "Adds a tag to a topic.",
                                    desc);
         }
@@ -701,12 +701,12 @@ namespace Euclid::CLI {
     int EnsCli::setTopicTag(const std::vector<std::string> &args) const {
         po::options_description desc("set topic tag options");
         desc.add_options()
-                ("topic,t", po::value<std::string>()->required(), "topic ERN")
+                ("topic,t", po::value<std::string>()->required(), "topic name; a full ERN also works and is what reaches another namespace")
                 ("key,k", po::value<std::string>()->required(), "tag key")
                 ("value,v", po::value<std::string>()->required(), "tag value");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("ens", "set-topic-tag", "--topic <ern> --key <value> --value <value>",
+            return PrintActionHelp("ens", "set-topic-tag", "--topic <name|ern> --key <value> --value <value>",
                                    "Sets the value of a topic tag. The topic tag must exist already, otherwise an error is returned.",
                                    desc);
         }
@@ -741,11 +741,11 @@ namespace Euclid::CLI {
     int EnsCli::deleteTopicTag(const std::vector<std::string> &args) const {
         po::options_description desc("delete topic tag options");
         desc.add_options()
-                ("topic,t", po::value<std::string>()->required(), "topic ERN")
+                ("topic,t", po::value<std::string>()->required(), "topic name; a full ERN also works and is what reaches another namespace")
                 ("key,k", po::value<std::string>()->required(), "tag key");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("ens", "delete-topic-tag", "--topic <ern> --key <value>",
+            return PrintActionHelp("ens", "delete-topic-tag", "--topic <name|ern> --key <value>",
                                    "Deletes a tag from a topic.",
                                    desc);
         }
@@ -860,10 +860,10 @@ namespace Euclid::CLI {
     int EnsCli::listSubscriptions(const std::vector<std::string> &args) const {
         po::options_description desc("list subscriptions options");
         desc.add_options()
-                ("topic,t", po::value<std::string>()->required(), "topic ERN");
+                ("topic,t", po::value<std::string>()->required(), "topic name; a full ERN also works and is what reaches another namespace");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("ens", "list-subscriptions", "--topic <ern>",
+            return PrintActionHelp("ens", "list-subscriptions", "--topic <name|ern>",
                                    "Lists the subscriptions of a topic, identified by its Euclid resource name (ERN).",
                                    desc);
         }

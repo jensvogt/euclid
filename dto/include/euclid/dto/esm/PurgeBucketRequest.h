@@ -14,7 +14,7 @@ namespace Euclid::Dto::ESM {
         /**
          * @brief ERN of the bucket
          */
-        std::string bucketErn;
+        std::string ern;
 
         /**
          * @brief Object key prefix
@@ -41,14 +41,14 @@ namespace Euclid::Dto::ESM {
 
         friend PurgeBucketRequest tag_invoke(boost::json::value_to_tag<PurgeBucketRequest>, boost::json::value const &v) {
             PurgeBucketRequest r;
-            r.bucketErn = Core::GetStringValue(v, "ern");
+            r.ern = Core::GetStringValue(v, "ern");
             r.prefix = Core::GetStringValue(v, "prefix");
             return r;
         }
 
         friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, PurgeBucketRequest const &obj) {
             jv = {
-                    {"ern", obj.bucketErn},
+                    {"ern", obj.ern},
                     {"prefix", obj.prefix},
             };
         }

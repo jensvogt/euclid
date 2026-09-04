@@ -71,7 +71,7 @@ namespace Euclid::Database {
 
     void MongoEqsRepository::recountQueues() {
 
-        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "recountQueues");
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "recount-queues");
 
         try {
             const auto entry = Database::instance().client();
@@ -98,8 +98,8 @@ namespace Euclid::Database {
                 const auto status = std::string(id["status"].get_string().value);
                 const auto messages = doc["messages"].get_int32().value;
                 const auto bytes = doc["bytes"].type() == bsoncxx::type::k_int64
-                                           ? doc["bytes"].get_int64().value
-                                           : static_cast<int64_t>(doc["bytes"].get_int32().value);
+                                       ? doc["bytes"].get_int64().value
+                                       : static_cast<int64_t>(doc["bytes"].get_int32().value);
 
                 auto &counts = counted[ern];
                 counts.size += static_cast<long>(bytes);
@@ -121,11 +121,11 @@ namespace Euclid::Database {
                 const Counts counts = it != counted.end() ? it->second : Counts{};
                 queueCollection.update_one(make_document(kvp("ern", ern)).view(),
                                            make_document(kvp("$set", make_document(
-                                                                            kvp("available", static_cast<int64_t>(counts.available)),
-                                                                            kvp("delayed", static_cast<int64_t>(counts.delayed)),
-                                                                            kvp("invisible", static_cast<int64_t>(counts.invisible)),
-                                                                            kvp("size", static_cast<int64_t>(counts.size)))))
-                                                   .view());
+                                                                     kvp("available", static_cast<int64_t>(counts.available)),
+                                                                     kvp("delayed", static_cast<int64_t>(counts.delayed)),
+                                                                     kvp("invisible", static_cast<int64_t>(counts.invisible)),
+                                                                     kvp("size", static_cast<int64_t>(counts.size)))))
+                                           .view());
                 ++queues;
             }
 

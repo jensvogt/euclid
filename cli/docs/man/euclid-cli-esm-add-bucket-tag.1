@@ -1,0 +1,71 @@
+.TH EUCLID-CLI-ESM-ADD-BUCKET-TAG 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-add-bucket-tag \- add a tag to a bucket
+.SH SYNOPSIS
+.B euclid-cli esm add-bucket-tag
+.BR \-\-bucket | \-b
+.I BUCKET
+.BR \-\-key | \-k
+.I KEY
+.BR \-\-value | \-v
+.I VALUE
+.SH DESCRIPTION
+Adds a tag (a key/value pair) to a bucket. If a tag with the given key
+already exists, its value is overwritten \- so this is the one of the
+three that always succeeds, whether or not the key was there before.
+.PP
+Tags are arbitrary metadata the bucket carries: what a bucket is for,
+who owns it, which environment it belongs to. Nothing in euclid
+interprets them.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-bucket " " \fIBUCKET\fR
+Bucket to tag, by name or by Euclid resource name (ERN). Required.
+.TP
+.BR \-k ", " \-\-key " " \fIKEY\fR
+Tag key. Required.
+.TP
+.BR \-v ", " \-\-value " " \fIVALUE\fR
+Tag value. Required.
+.PP
+The bucket may be given by
+.B name
+instead of by ERN, in which case it is resolved in your session's account
+and namespace; see
+.B NAMES AND ERNS
+in
+.BR euclid-cli-esm (1).
+.SH EXIT STATUS
+.TP
+.B 0
+The tag was added. No output is printed.
+.TP
+.B 1
+Missing or invalid arguments, the server could not be reached, or
+no such bucket exists.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm add-bucket-tag \e
+    --bucket transfer-server \e
+    --key team --value payments
+.fi
+.RE
+.PP
+The same command against a bucket in another namespace, which is what a
+full ERN is for:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 esm add-bucket-tag \e
+    --bucket ern:esm:eu-central-1:000000000000:development:bucket:transfer-server \e
+    --key team --value payments
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-set-bucket-tag (1),
+.BR euclid-cli-esm-delete-bucket-tag (1),
+.BR euclid-cli-esm-get-bucket-size (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

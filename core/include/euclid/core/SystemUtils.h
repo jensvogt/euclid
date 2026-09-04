@@ -134,6 +134,22 @@ namespace Euclid::Core {
         static std::optional<CpuTimes> ReadCpuTimes();
 
         /**
+         * @brief How much of the machine's memory is in use, as a percentage.
+         *
+         * @par
+         * The machine's, not this process's - ReadMemoryUsage() above answers the latter, from
+         * /proc/self/status, which is why every module reports its own small share and no figure
+         * for the host existed until this. Read from /proc/meminfo as
+         * (MemTotal - MemAvailable) / MemTotal, MemAvailable being what the kernel thinks can be
+         * handed out without swapping - a truer "in use" than subtracting MemFree, which counts
+         * page cache as used.
+         *
+         * @return percentage in use, or std::nullopt if /proc/meminfo could not be read or parsed
+         * (e.g. a non-Linux system).
+         */
+        static std::optional<double> ReadSystemMemoryUsagePercent();
+
+        /**
          * @brief This process's real (resident) and virtual memory usage, plus real memory as a
          * percentage of the system's total RAM - the same figures `ps aux`'s RSS/VSZ/%MEM
          * columns report.
