@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.68](https://github.com/jensvogt/euclid/compare/1.0.67...v1.0.68) (2026-09-05)
+
+
+### Bug Fixes
+
+* ESM event subscription, draining the events, when no target exists anymore ([86fdd37](https://github.com/jensvogt/euclid/commit/86fdd373482a560a61d33340701b83de310c9636))
+
 ## [1.0.67](https://github.com/jensvogt/euclid/compare/1.0.66...v1.0.67) (2026-09-05)
 
 
