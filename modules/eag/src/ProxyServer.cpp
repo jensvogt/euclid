@@ -158,14 +158,35 @@ namespace Euclid::EAG {
                             const std::shared_ptr<http::request<http::string_body> > &request) {
 
         const auto path = pathOf(std::string(request->target()));
+        const auto method = std::string(request->method_string());
 
-        const auto match = _routes.match(path);
-        if (!match.has_value()) {
+        const auto found = _routes.match(path, method);
+        if (!found.route.has_value()) {
+
+            // A path that exists but does not take this method is 405, not 404 - the two say
+            // quite different things to whoever is holding the URL, and the Allow header tells
+            // them which methods would have worked instead of leaving them to guess.
+            if (!found.allowed.empty()) {
+                std::string allow;
+                for (const auto &allowed: found.allowed) {
+                    if (!allow.empty()) allow += ", ";
+                    allow += allowed;
+                }
+                log_debug << "Method " << method << " not routed for " << path << ", allowed: " << allow;
+
+                auto response = std::make_shared<http::response<http::string_body> >(
+                        errorResponse(*request, http::status::method_not_allowed, "method not allowed for this path"));
+                response->set(http::field::allow, allow);
+                respond(stream, response);
+                return;
+            }
+
             log_debug << "No route for " << path;
             respond(stream, std::make_shared<http::response<http::string_body> >(
                                     errorResponse(*request, http::status::not_found, "no route for this path")));
             return;
         }
+        const auto &match = found.route;
 
         // Checked here, before a backend is chosen, so an unauthenticated caller never causes a
         // connection to an application at all.

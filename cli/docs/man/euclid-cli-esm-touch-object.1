@@ -1,0 +1,148 @@
+.TH EUCLID-CLI-ESM-TOUCH-OBJECT 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-touch-object \- re-send notifications for objects already in a bucket
+.SH SYNOPSIS
+.B euclid-cli esm touch-object
+.BR \-\-bucket | \-b
+.I NAME
+.RB [ \-\-prefix | \-p
+.IR KEY-PREFIX ]
+.SH DESCRIPTION
+Announces objects that are already in a bucket, as though each had just
+been uploaded \- the same
+.I esm.object.created
+event and the same bucket subscription deliveries an upload would have
+produced.
+.SH IT DOES NOT TOUCH THE OBJECT
+Nothing about the objects changes. Not a byte of them, and not their
+timestamps either.
+.PP
+"Touch" here means what it does to listeners, not what it does to
+storage. A modified time is something consumers compare against to
+decide what is new, so moving it would make this destructive in exactly
+the way it is meant not to be \- the whole point is to repair what
+listeners heard without disturbing what is stored.
+.SH WHEN THIS IS THE RIGHT REPAIR
+A notification can be lost in ways an object never is:
+.PP
+.RS
+.IP \(bu 3
+a consumer was down while its subscription was
+.I live
+rather than durable, so its events were pushed to nobody and are gone;
+.IP \(bu 3
+the queue a bucket subscription delivered into was deleted while
+deliveries were still queued for it;
+.IP \(bu 3
+a subscription was created after the objects had already arrived, so it
+never heard about them at all.
+.RE
+.PP
+In each of those the data is intact and only the announcement was lost.
+Re-uploading gigabytes to re-send a few kilobytes of notification is the
+wrong repair; this is the right one.
+.SH WHAT IS SELECTED
+The prefix is matched against the whole key, so it selects
+.PP
+.RS
+.nf
+--prefix jvo/incoming/       a directory
+--prefix jvo/incoming/a.xml  one object
+--prefix jvo                 everything under jvo
+.fi
+.RE
+.PP
+and omitting it announces every object in the bucket, which on a large
+one is a great many notifications. The answer says how many were sent,
+so the size of what just happened is visible:
+.PP
+.RS
+.nf
+{
+  "ern": "...:bucket:onix3-tmp-parsing-input",
+  "bucketName": "onix3-tmp-parsing-input",
+  "prefix": "jvo/incoming/",
+  "objects": 214
+}
+.fi
+.RE
+.PP
+The prefix is a literal, not a pattern \- a "." in it matches a "." and
+nothing else.
+.PP
+Directory markers are left out, since an upload never announces those
+either.
+.SH THE CONSUMERS MUST BE IDEMPOTENT
+This is a replay, and euclid does not know which objects a given
+subscriber already handled \- it has no record of what any consumer did
+with an event, only that it was delivered. So every subscriber of the
+bucket hears about every selected object, including the ones it
+processed the first time.
+.PP
+A consumer that is idempotent \- one for which handling the same object
+twice leaves the same result as handling it once \- is unaffected. One
+that is not will do its work twice: a second row inserted, a second
+file written, a second message sent onward. On a whole bucket it will
+do that for everything in it.
+.PP
+Two things follow:
+.PP
+.RS
+.IP \(bu 3
+narrow the prefix to what was actually missed. Touching a directory is
+almost always safer than touching a bucket, and touching one key is
+safer still;
+.IP \(bu 3
+if a consumer is not idempotent and cannot be made so, take its
+subscription out of the way first \- unsubscribe it, or stop the
+application \- and put it back afterwards.
+.RE
+.PP
+Nothing here is undoable once the notifications have gone out, so this
+is worth a moment before rather than after.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-bucket " " \fINAME\fR
+Bucket holding the objects. Required. A bucket name is enough; a full
+ERN also works and is what reaches another namespace.
+.TP
+.BR \-p ", " \-\-prefix " " \fIKEY-PREFIX\fR
+Only objects whose key starts with this. Omit for every object in the
+bucket.
+.SH EXIT STATUS
+.TP
+.B 0
+The notifications were sent. The count is printed as JSON, including
+when nothing matched.
+.TP
+.B 1
+Missing arguments, no session, the bucket does not exist, it belongs to
+another account, the caller has no grant for it, or the server rejected
+the request.
+.SH EXAMPLES
+Re-announce one directory after fixing a consumer that missed it:
+.PP
+.RS
+.nf
+euclid-cli esm touch-object \e
+    --bucket onix3-tmp-parsing-input \e
+    --prefix jvo/incoming/
+.fi
+.RE
+.PP
+Re-announce a single object:
+.PP
+.RS
+.nf
+euclid-cli esm touch-object \e
+    --bucket onix3-tmp-parsing-input \e
+    --prefix jvo/incoming/pim-3056.xml
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-list-objects (1),
+.BR euclid-cli-ees (1),
+.BR euclid-cli-eqs-redrive-dlq (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

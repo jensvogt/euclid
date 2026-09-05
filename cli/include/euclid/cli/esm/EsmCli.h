@@ -153,6 +153,15 @@ namespace Euclid::CLI {
         int renameBucket(const std::vector<std::string> &args) const;
 
         /**
+         * @brief Re-sends the notifications for objects already in a bucket.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int touchObject(const std::vector<std::string> &args) const;
+
+        /**
          * @brief Turns on encryption at rest for a bucket, under a named or newly created EKM key.
          *
          * @param args command line arguments

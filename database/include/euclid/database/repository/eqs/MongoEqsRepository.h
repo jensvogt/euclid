@@ -107,6 +107,12 @@ namespace Euclid::Database {
         [[nodiscard]]
         std::vector<Entity::EQS::Queue> listQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const override;
 
+        [[nodiscard]]
+        std::vector<Entity::EQS::Queue> listSourceQueues(const std::string &deadLetterQueueErn) const override;
+
+        long redriveMessages(const std::string &deadLetterQueueErn, const std::string &targetQueueErn,
+                             const std::string &sourceQueueErn) override;
+
         /**
          * @brief Check the existence of the module by name
          *

@@ -107,6 +107,25 @@ target_link_libraries(${LONG_POLL_BINARY} PRIVATE euclidcore Boost::unit_test_fr
 
 add_test(NAME ${LONG_POLL_BINARY} COMMAND ${LONG_POLL_BINARY})
 
+set(REDRIVE_BINARY euclid-eqs-redrive-dlq-tests)
+
+add_executable(${REDRIVE_BINARY} RedriveDlqTest.cpp)
+set_target_properties(${REDRIVE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${REDRIVE_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${REDRIVE_BINARY} COMMAND ${REDRIVE_BINARY})
+
+set(ROUTE_MATCH_BINARY euclid-eag-route-match-tests)
+
+add_executable(${ROUTE_MATCH_BINARY} RouteMatchTest.cpp ${CMAKE_SOURCE_DIR}/modules/eag/src/RouteTable.cpp)
+set_target_properties(${ROUTE_MATCH_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${ROUTE_MATCH_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/eag/include)
+target_link_libraries(${ROUTE_MATCH_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${ROUTE_MATCH_BINARY} COMMAND ${ROUTE_MATCH_BINARY})
+
 set(START_ORDER_BINARY euclid-module-start-order-tests)
 
 add_executable(${START_ORDER_BINARY} ModuleStartOrderTest.cpp)

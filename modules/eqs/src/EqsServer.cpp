@@ -171,6 +171,13 @@ namespace Euclid::EQS {
 
         Database::RepositoryFactory::instance().eqsRepository()->deleteQueueByErn(request.ern);
 
+        // Anything still queued to be delivered into it has nowhere to go now. Discarded here so
+        // the backlog never forms, rather than being rediscovered one event at a time by
+        // handleSubscriptionDelivery once the queue is already gone.
+        if (const auto discarded = Database::EventBus::instance().DiscardDeliveries(request.ern); discarded > 0) {
+            log_info << "EQS DeleteQueue discarded undeliverable events, ern: " << request.ern << ", count: " << discarded;
+        }
+
         return EqsServer::JsonResponse(req, status::ok);
     }
 
@@ -454,6 +461,92 @@ namespace Euclid::EQS {
         repo->purgeQueue(request.ern);
 
         return EqsServer::JsonResponse(req, status::ok);
+    }
+
+    static response<string_body> handleRedriveDlq(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "redrive-dlq");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EqsServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+
+        const auto ern = Core::GetStringValue(jv, "ern");
+        const auto targetErn = Core::GetStringValue(jv, "targetErn");
+        if (ern.empty()) return EqsServer::ErrorResponse(req, status::bad_request, "ern is required");
+
+        const auto repo = Database::RepositoryFactory::instance().eqsRepository();
+
+        const auto deadLetterQueue = repo->findQueueByErn(ern);
+        if (!deadLetterQueue.has_value()) {
+            return EqsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + ern);
+        }
+
+        // Nothing on a queue says "I am a dead letter queue" - the relationship is only ever
+        // written the other way round, by the queues that name it. So the question "is this a
+        // DLQ" is answered by asking who points at it, and an ordinary queue is refused here
+        // rather than being silently redriven into itself or into nothing.
+        const auto sourceQueues = repo->listSourceQueues(ern);
+        if (sourceQueues.empty()) {
+            return EqsServer::ErrorResponse(req, status::bad_request,
+                                            "Queue is not a dead letter queue, ern: " + ern
+                                                    + " - no queue names it as its dead letter queue");
+        }
+
+        long moved = 0;
+        boost::json::array targets;
+
+        if (!targetErn.empty()) {
+
+            // An explicit target still has to be one of the queues that feed this one. Anything
+            // else would be a move, not a redrive, and would put messages somewhere they were
+            // never sent.
+            const auto named = std::ranges::find_if(sourceQueues, [&targetErn](const auto &queue) { return queue.ern == targetErn; });
+            if (named == sourceQueues.end()) {
+                return EqsServer::ErrorResponse(req, status::bad_request,
+                                                "Target queue does not use this dead letter queue, targetErn: " + targetErn);
+            }
+            moved = repo->redriveMessages(ern, targetErn, "");
+            targets.push_back(boost::json::object{{"queueErn", targetErn}, {"messages", moved}});
+
+        } else if (sourceQueues.size() == 1) {
+
+            // The unambiguous case, and the common one: one queue feeds this dead letter queue,
+            // so everything in it came from there - including messages that predate the recording
+            // of where they came from.
+            moved = repo->redriveMessages(ern, sourceQueues.front().ern, "");
+            targets.push_back(boost::json::object{{"queueErn", sourceQueues.front().ern}, {"messages", moved}});
+
+        } else {
+
+            // Several queues share this dead letter queue, so "the original queue" is only
+            // answerable per message. Each goes back where it came from; anything with no origin
+            // recorded is left alone rather than guessed at, and the answer says how many, so the
+            // caller can name a target and deal with them deliberately.
+            for (const auto &source: sourceQueues) {
+                if (const auto count = repo->redriveMessages(ern, source.ern, source.ern); count > 0) {
+                    targets.push_back(boost::json::object{{"queueErn", source.ern}, {"messages", count}});
+                    moved += count;
+                }
+            }
+        }
+
+        log_info << "EQS RedriveDlq, ern: " << ern << ", messages: " << moved;
+
+        const auto remaining = repo->countMessages(ern);
+        boost::json::object result{
+                {"ern", ern},
+                {"messages", moved},
+                {"remaining", remaining},
+                {"targets", targets}};
+        if (remaining > 0) {
+            result["note"] = "Messages remain in the dead letter queue because no source queue is recorded for them. "
+                             "Name one with a target queue to move them.";
+        }
+
+        return EqsServer::JsonResponse(req, status::ok, boost::json::serialize(result));
     }
 
     static response<string_body> handlePurgeAllQueues(const request<string_body> &req) {
@@ -847,6 +940,7 @@ namespace Euclid::EQS {
             DeleteMessage,
             PurgeQueue,
             PurgeAllQueues,
+            RedriveDlq,
             GetMetadata,
             AddMetadata,
             AddQueueTag,
@@ -875,6 +969,7 @@ namespace Euclid::EQS {
         if (action == "delete-message") return Command::DeleteMessage;
         if (action == "purge-queue") return Command::PurgeQueue;
         if (action == "purge-all-queues") return Command::PurgeAllQueues;
+        if (action == "redrive-dlq") return Command::RedriveDlq;
         if (action == "get-message-count") return Command::GetMessageCount;
         if (action == "get-queue-metadata") return Command::GetQueueMetadata;
         if (action == "get-message-attribute") return Command::GetMessageAttribute;
@@ -941,6 +1036,9 @@ namespace Euclid::EQS {
             case Command::PurgeAllQueues:
                 return handlePurgeAllQueues(req);
 
+            case Command::RedriveDlq:
+                return handleRedriveDlq(req);
+
             case Command::GetMetadata:
                 return handleGetQueueAttributes(req);
 
@@ -991,13 +1089,44 @@ namespace Euclid::EQS {
 
     static bool handleSubscriptionDelivery(const Database::EventEnvelope &envelope) {
 
-        const auto targetErn = Core::GetStringValue(envelope.payload, "targetErn");
+        // The envelope first, the payload second. These moved from the payload onto the envelope
+        // so the target could be indexed, and ees_events outlives any one deploy: events published
+        // by the previous binary are still being consumed by this one for as long as it takes the
+        // backlog to drain. Without the fallback every one of those looks like a delivery to
+        // nowhere and is acked away - the messages are lost, and the log says the queue was not
+        // found when the queue was fine all along.
+        const auto targetErn = !envelope.targetErn.empty() ? envelope.targetErn : Core::GetStringValue(envelope.payload, "targetErn");
+        const auto sourceMessageId = !envelope.messageId.empty() ? envelope.messageId : Core::GetStringValue(envelope.payload, "messageId");
         const auto body = Core::GetStringValue(envelope.payload, "body");
-        const auto sourceMessageId = Core::GetStringValue(envelope.payload, "messageId");
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
         if (!repo->findQueueByErn(targetErn).has_value()) {
-            log_warning << "EQS EventBus subscription delivery: target queue not found, ern: " << targetErn;
+
+            // A missing queue is permanent, not transient. Acking this one delivery and moving on
+            // would mean rediscovering the same fact for every event still queued for it - an
+            // application that restarts a few times during a busy run leaves hundreds of thousands
+            // of them, and each would produce a warning identical to this one.
+            //
+            // So the rest go with it. The queue is gone for all of them at once, which makes the
+            // first delivery to notice the right place to clear the others.
+            const auto discarded = Database::EventBus::instance().DiscardDeliveries(targetErn);
+
+            // And the bucket subscription that keeps producing them, if it is still there: an
+            // application that created a queue and a subscription and went away without removing
+            // either leaves exactly this behind. Removed from here rather than by ESM because this
+            // is where the queue's absence is discovered - ESM would have to read EQS's collection
+            // on every single object to find it out for itself.
+            const auto sourceErn = !envelope.sourceErn.empty() ? envelope.sourceErn : Core::GetStringValue(envelope.payload, "sourceErn");
+            long removed = 0;
+            for (const auto &subscription: Database::RepositoryFactory::instance().esmRepository()->listSubscriptionsBySourceErn(sourceErn)) {
+                if (subscription.targetErn != targetErn) continue;
+                Database::RepositoryFactory::instance().esmRepository()->deleteSubscriptionByErn(subscription.ern);
+                ++removed;
+            }
+
+            log_warning << "EQS EventBus subscription delivery: target queue not found, ern: " << targetErn
+                        << ", discarded undeliverable events: " << discarded
+                        << ", removed bucket subscriptions: " << removed;
             return true;// ack - queue is gone, nothing to retry
         }
 
@@ -1067,6 +1196,10 @@ namespace Euclid::EQS {
             };
 
             resolve("queueErn", "eqs", "queue");
+
+            // redrive-dlq's target. Named separately from "ern" because that one is already the
+            // dead letter queue being emptied, and both are queue names a caller may type bare.
+            resolve("targetErn", "eqs", "queue");
 
             // A bare "ern" too, unconditionally. It names a queue in most actions and an object,
             // message or subscription in the rest - but that distinction does not matter here,
