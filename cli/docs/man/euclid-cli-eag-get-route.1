@@ -1,0 +1,35 @@
+.TH EUCLID-CLI-EAG-GET-ROUTE 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eag-get-route \- show one gateway route's definition
+.SH SYNOPSIS
+.B euclid-cli eag get-route
+.BR \-\-route\-id | \-r
+.I ID
+.SH DESCRIPTION
+Shows one route's definition: the path it publishes, the application
+behind it, what it requires of a caller, and whether it is currently in
+service.
+.SH OPTIONS
+.TP
+.BR \-r ", " \-\-route\-id " " \fIID\fR
+Route to show. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The route was found. Its definition is printed as JSON.
+.TP
+.B 1
+Missing arguments, no administrator session, no such route, or the
+server rejected the request.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli eag get-route --route-id datenlieferanten
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eag (1),
+.BR euclid-cli-eag-list-routes (1),
+.BR euclid-cli-eag-update-route (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

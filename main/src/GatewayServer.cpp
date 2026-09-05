@@ -56,11 +56,11 @@ namespace Euclid::main {
     // this is not an Euclid service call.
     //
     // Detection order:
-    //   1. x-euclid-target — "DynamoDB_20120810.PutItem" → "dynamodb"
+    //   1. x-euclid-target — the module name itself, e.g. "esm"
     //   2. Authorization   — SigV4 credential scope: "<key>/<date>/<region>/<svc>/aws4_request"
     static std::string detectEuclidService(const http::request<http::string_body> &req, const ServiceController &ctrl) {
         static const std::unordered_set<std::string> kModules{
-                "eam", "esm", "eqs", "ens", "emm", "emo", "ekm", "ets", "eap", "ees"
+                "eam", "esm", "eqs", "ens", "emm", "emo", "ekm", "ets", "eap", "ees", "eag"
         };
 
         if (const auto module = std::string(req["x-euclid-target"]); !module.empty()) {

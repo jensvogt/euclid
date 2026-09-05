@@ -34,6 +34,8 @@
 #include <euclid/database/repository/esm/MemoryEsmRepository.h>
 #include <euclid/database/repository/eap/MemoryEapRepository.h>
 #include <euclid/database/repository/eap/MongoEapRepository.h>
+#include <euclid/database/repository/eag/MemoryEagRepository.h>
+#include <euclid/database/repository/eag/MongoEagRepository.h>
 #include <euclid/database/repository/ets/MemoryEtsRepository.h>
 #include <euclid/database/repository/ets/MongoEtsRepository.h>
 #include <euclid/database/repository/esm/MongoEsmRepository.h>
@@ -84,6 +86,7 @@ namespace Euclid::Database {
             std::ignore = esmRepository();
             std::ignore = ekmRepository();
             std::ignore = etsRepository();
+            std::ignore = eagRepository();
             std::ignore = eapRepository();
 
             // The event bus sets its indexes up the same way, on the first Subscribe or Publish -
@@ -142,6 +145,12 @@ namespace Euclid::Database {
         [[nodiscard]]
         std::shared_ptr<IEapRepository> eapRepository() const {
             static auto repo = createEapRepository();
+            return repo;
+        }
+
+        [[nodiscard]]
+        std::shared_ptr<IEagRepository> eagRepository() const {
+            static auto repo = createEagRepository();
             return repo;
         }
 
@@ -224,6 +233,17 @@ namespace Euclid::Database {
                     return std::make_shared<MemoryEapRepository>();
             }
             return std::make_shared<MemoryEapRepository>();
+        }
+
+        [[nodiscard]]
+        std::shared_ptr<IEagRepository> createEagRepository() const {
+            switch (_backend) {
+                case BackendType::MONGODB:
+                    return std::make_shared<MongoEagRepository>();
+                case BackendType::MEMORY:
+                    return std::make_shared<MemoryEagRepository>();
+            }
+            return std::make_shared<MemoryEagRepository>();
         }
 
         [[nodiscard]]

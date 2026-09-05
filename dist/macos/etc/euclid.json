@@ -11,27 +11,13 @@
     ],
     "data-dir": "/usr/local/euclid/data",
     "temp-dir": "/usr/local/euclid/data/tmp",
-    "backup-dir": "/usr/local/euclid/data/backup",
-    "json": {
-      "pretty": false
-    },
-    "dockerized": false,
     "magic-file": "/usr/local/euclid/etc/magic.mgc",
-    "autoload": {
-      "active": true,
-      "file": "/usr/local/euclid/init/01_init.json",
-      "dir": "/usr/local/euclid/init"
-    },
     "gateway": {
-      "active": true,
       "http": {
         "host": "localhost",
-        "address": "::",
         "port": 5566,
-        "max-queue": 8,
         "max-thread": 64,
-        "max-body": 536870912,
-        "timeout": 300
+        "max-body": 536870912
       },
       "tls": {
         "enabled": false,
@@ -56,7 +42,6 @@
         "minInstances": 1,
         "maxInstances": 2,
         "threads": 2,
-        "data-dir": "/usr/local/euclid/data/access",
         "jwt-secret": "changeme-set-a-real-secret-in-production"
       },
       "esm": {
@@ -64,33 +49,16 @@
         "name": "esm",
         "socketPath": "/var/run/euclid/euclid-esm.sock",
         "executable": "/usr/local/euclid/bin/euclid-esm",
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
         "data-dir": "/usr/local/euclid/data/esm",
         "minInstances": 1,
         "maxInstances": 4,
-        "threads": 2,
-        "counter-period": 60,
-        "sync-period": 3600,
-        "archive-timeout": 300
+        "threads": 2
       },
       "eqs": {
         "active": true,
         "name": "eqs",
         "socketPath": "/var/run/euclid/euclid-eqs.sock",
         "executable": "/usr/local/euclid/bin/euclid-eqs",
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
-        "monitoring-period": 300,
-        "reset-period": 30,
-        "counter-period": 30,
-        "receive-poll": 1000,
         "priority-weights": {
           "high": 4,
           "middle": 2,
@@ -105,11 +73,6 @@
         "name": "ens",
         "socketPath": "/var/run/euclid/euclid-ens.sock",
         "executable": "/usr/local/euclid/bin/euclid-ens",
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
         "minInstances": 1,
         "maxInstances": 4,
         "threads": 2
@@ -143,12 +106,7 @@
         "executable": "/usr/local/euclid/bin/euclid-ekm",
         "minInstances": 1,
         "maxInstances": 4,
-        "threads": 2,
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        }
+        "threads": 2
       },
       "emm": {
         "active": true,
@@ -158,6 +116,15 @@
         "minInstances": 1,
         "maxInstances": 1,
         "threads": 2
+      },
+      "ees": {
+        "active": true,
+        "name": "ees",
+        "socketPath": "/var/run/euclid/euclid-ees.sock",
+        "executable": "/usr/local/euclid/bin/euclid-ees",
+        "minInstances": 1,
+        "maxInstances": 2,
+        "threads": 8
       },
       "eap": {
         "active": true,
@@ -170,7 +137,8 @@
         "maxInstances": 32,
         "threads": 2,
         "http-port-min": 9000,
-        "http-port-max": 9999
+        "http-port-max": 9999,
+        "credentials-ttl-seconds": 3600
       },
       "ets": {
         "active": true,
@@ -184,183 +152,30 @@
         "threads": 2,
         "inline-max": 67108864,
         "part-size": 8388608,
-        "directories": [
-          "incoming/mix",
-          "incoming/split",
-          "feedback"
-        ]
+        "host-key": "/usr/local/euclid/etc/ssh_host_key",
+        "ftp-executable": "/usr/local/euclid/bin/euclid-ftp",
+        "sftp-executable": "/usr/local/euclid/bin/euclid-sftp"
       },
-      "lambda": {
+      "eag": {
         "active": true,
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
-        "lifetime": 3600,
-        "data-dir": "/usr/local/euclid/data/lambda",
-        "remove-period": 300,
-        "counter-period": 300,
-        "log-retention-period": 1,
-        "private-port": 8080,
-        "max-invocation-count": 3,
-        "invocation-timeout": 5,
-        "runtime": {
-          "java11": "public.ecr.aws/lambda/java:11",
-          "java17": "public.ecr.aws/lambda/java:17",
-          "java21": "public.ecr.aws/lambda/java:21",
-          "java25": "public.ecr.aws/lambda/java:25",
-          "java26": "public.ecr.aws/lambda/java:26",
-          "python3-9": "public.ecr.aws/lambda/python:3.9",
-          "python3-10": "public.ecr.aws/lambda/python:3.10",
-          "python3-11": "public.ecr.aws/lambda/python:3.11",
-          "python3-12": "public.ecr.aws/lambda/python:3.12",
-          "python3-13": "public.ecr.aws/lambda/python:3.13",
-          "nodejs18-x": "public.ecr.aws/lambda/nodejs:18",
-          "nodejs20-x": "public.ecr.aws/lambda/nodejs:20",
-          "nodejs22-x": "public.ecr.aws/lambda/nodejs:22",
-          "provided-al2": "public.ecr.aws/lambda/provided:al2",
-          "provided-al2023": "public.ecr.aws/lambda/provided:al2023",
-          "provided-latest": "public.ecr.aws/lambda/provided:latest",
-          "go": "public.ecr.aws/lambda/provided:al2023"
-        }
-      },
-      "transfer": {
-        "active": true,
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
-        "bucket": "transfer-server",
-        "data-dir": "/usr/local/euclid/data/transfer",
-        "user-pool-id": "eu-central-1_oGsr6fJ8F",
-        "monitoring-period": 300,
-        "directories": [
-          "incoming/mix",
-          "incoming/split",
-          "feedback"
-        ],
-        "ftp": {
-          "pasv-min": 6000,
-          "pasv-max": 6100,
-          "port": 2121,
-          "address": "0.0.0.0"
-        },
-        "sftp": {
-          "host-key": "/usr/local/euclid/etc/ssh_host_key",
-          "pasv-min": 6000,
-          "pasv-max": 6100,
-          "port": 2222,
-          "address": "0.0.0.0"
-        }
-      },
-      "cognito": {
-        "active": true,
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
-        "monitoring-period": 300
-      },
-      "dynamodb": {
-        "active": true,
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
-        "data-dir": "/usr/local/euclid/data/dynamodb",
-        "monitoring-period": 300,
-        "worker-period": 300
-      },
-      "secretsmanager": {
-        "active": true,
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
-        "monitoring-period": 300,
-        "worker-period": 300
-      },
-      "ssm": {
-        "active": true,
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
-        "monitoring-period": 300,
-        "worker-period": 300,
-        "remove-period": 300
-      },
-      "application": {
-        "active": true,
-        "data-dir": "/usr/local/euclid/data/application",
-        "runtime": {
-          "java11": "alpine/java:11-jdk",
-          "java17": "alpine/java:17-jdk",
-          "java21": "alpine/java:21-jdk",
-          "java25": "alpine/java:25-jdk",
-          "java26": "alpine/java:26-jdk",
-          "python3-9": "public.ecr.aws/lambda/python:3.9",
-          "python3-10": "public.ecr.aws/lambda/python:3.10",
-          "python3-11": "public.ecr.aws/lambda/python:3.11",
-          "python3-12": "public.ecr.aws/lambda/python:3.12",
-          "python3-13": "public.ecr.aws/lambda/python:3.13",
-          "nodejs18-x": "public.ecr.aws/lambda/nodejs:18",
-          "nodejs20-x": "public.ecr.aws/lambda/nodejs:20",
-          "nodejs22-x": "public.ecr.aws/lambda/nodejs:22",
-          "provided-al2": "public.ecr.aws/lambda/provided:al2",
-          "provided-al2023": "public.ecr.aws/lambda/provided:al2023",
-          "provided-latest": "public.ecr.aws/lambda/provided:latest",
-          "go": "public.ecr.aws/lambda/provided:al2023"
-        },
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
-        "monitoring-period": 300,
-        "watchdog-period": 300,
-        "log-server": false,
-        "log-server-port": 4568
-      }
-    },
-    "docker": {
-      "active": true,
-      "network-mode": "local",
-      "network-name": "local",
-      "default": {
-        "memory-size": 512,
-        "temp-size": 10240
-      },
-      "container": {
+        "name": "eag",
+        "socketPath": "/var/run/euclid/euclid-eag.sock",
+        "executable": "/usr/local/euclid/bin/euclid-eag",
+        "minInstances": 1,
+        "maxInstances": 1,
+        "threads": 2,
         "port": 8080,
-        "maxWaitTime": 5,
-        "checkTime": 500
-      },
-      "socket": "/var/run/docker.sock"
+        "proxy-threads": 8,
+        "refresh-seconds": 5
+      }
     },
     "scaling": {
       "scale-down-idle-seconds": 60
     },
     "monitoring": {
-      "active": true,
-      "average-period": 300,
-      "cpu-usage-period": 60,
-      "rollup-hour-period": 600,
-      "rollup-day-period": 3600,
-      "retention": {
-        "raw": 7,
-        "hour": 90,
-        "day": 1825
-      }
+      "cpu-usage-period": 60
     },
     "mongodb": {
-      "active": true,
       "name": "euclid",
       "host": "localhost",
       "port": 27017,
@@ -368,24 +183,12 @@
       "password": "password",
       "pool-size": 256
     },
-    "frontend": {
-      "active": true,
-      "address": "::",
-      "port": 4567,
-      "workers": 20,
-      "timeout": 900,
-      "doc-root": "/usr/local/euclid/frontend"
-    },
     "logging": {
       "file-active": false,
       "console-active": true,
-      "websocket-active": true,
-      "websocket-port": 4569,
       "level": "info",
       "dir": "/usr/local/euclid/log",
-      "prefix": "euclid",
-      "file-size": 10485760,
-      "file-count": 5
+      "prefix": "euclid"
     },
     "eventbus": {
       "notify-interval-ms": 100,

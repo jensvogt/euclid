@@ -21,7 +21,7 @@ namespace Euclid::FTP {
 
     /**
      * @brief Static configuration for the FTP control/data listeners, read once at startup
-     * from euclid.modules.ftp.* and shared (by value) with every FtpSession.
+     * from euclid.modules.ets.* and shared (by value) with every FtpSession.
      */
     struct FtpServerConfig {
         std::string bindAddress{"0.0.0.0"};
@@ -103,7 +103,7 @@ namespace Euclid::FTP {
     private:
 
         /**
-         * @brief Reads euclid.modules.ftp.* into _config, creating each configured user's
+         * @brief Reads euclid.modules.ets.* into _config, creating each configured user's
          * home directory under rootDir if it doesn't already exist.
          */
         void loadConfig();

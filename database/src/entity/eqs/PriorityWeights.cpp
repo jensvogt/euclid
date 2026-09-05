@@ -17,9 +17,9 @@ namespace Euclid::Database::Entity::EQS {
     PriorityWeights LoadPriorityWeights() {
         auto &cfg = Core::Configuration::instance();
         PriorityWeights weights;
-        weights.high = cfg.getOr<double>("euclid.modules.queues.priority-weights.high", weights.high);
-        weights.middle = cfg.getOr<double>("euclid.modules.queues.priority-weights.middle", weights.middle);
-        weights.low = cfg.getOr<double>("euclid.modules.queues.priority-weights.low", weights.low);
+        weights.high = cfg.getOr<double>("euclid.modules.eqs.priority-weights.high", weights.high);
+        weights.middle = cfg.getOr<double>("euclid.modules.eqs.priority-weights.middle", weights.middle);
+        weights.low = cfg.getOr<double>("euclid.modules.eqs.priority-weights.low", weights.low);
         return weights;
     }
 
