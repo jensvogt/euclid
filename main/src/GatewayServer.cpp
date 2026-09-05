@@ -263,7 +263,27 @@ namespace Euclid::main {
                     }
                 }
 
-                const auto handle = ctrl.acquireInstance(service);
+                // Whether this request is evidence that the pool has work to do.
+                //
+                // Two things disqualify it, and they catch different cases. An action that holds
+                // its connection open waiting for something to arrive is not working for almost
+                // all of that time, whoever sent it - so receive-messages and its kin never count.
+                // And a caller may say that its request is housekeeping rather than demand, which
+                // is the only way to tell apart two requests that are the same action: a queue
+                // depth read by an operator is a question about the system, the same read by a
+                // metric collector every fifteen seconds is the system talking to itself.
+                //
+                // Absent means real, so a client that says nothing is counted - the default is the
+                // safe one, and only a caller that knows it is instrumentation opts out. Nothing
+                // is trusted to it either: at worst a pool scales less eagerly, and the caller
+                // that lied is the one that suffers for it. It is deliberately not part of the
+                // RFC 9421 covered components - adding a header there would invalidate every
+                // signature produced by a client that predates it.
+                static const std::set<std::string> kWaitingActions{"receive-messages", "receive-events", "subscribe-events"};
+                const auto internal = std::string(req["x-euclid-internal"]);
+                const bool countsAsLoad = !kWaitingActions.contains(action) && internal != "true";
+
+                const auto handle = ctrl.acquireInstance(service, countsAsLoad);
                 if (!handle) {
                     done(err(http::status::service_unavailable, "service '" + service + "' not registered or not running"));
                     return;
@@ -278,9 +298,10 @@ namespace Euclid::main {
                     ServiceController &ctrl;
                     std::string name;
                     pid_t pid;
-                    ~ReleaseGuard() { ctrl.releaseInstance(name, pid); }
+                    bool countsAsLoad;
+                    ~ReleaseGuard() { ctrl.releaseInstance(name, pid, countsAsLoad); }
                 };
-                auto guard = std::make_shared<ReleaseGuard>(ctrl, service, handle->pid);
+                auto guard = std::make_shared<ReleaseGuard>(ctrl, service, handle->pid, countsAsLoad);
 
                 forwardToServiceAsync(ioc, req, handle->socketPath,
                                       [done, guard](http::response<http::string_body> res) mutable {

@@ -89,6 +89,24 @@ namespace Euclid::Database::Entity::ESM {
         ObjectStatus status = ObjectStatus::CREATED;
 
         /**
+         * @brief Whether this object is a directory marker rather than a file.
+         *
+         * @par
+         * Derivable from the key - a marker is a key ending in "/" - and stored anyway, because
+         * the counters ask the question of every object in a bucket at once. Deriving it there
+         * means a per-document expression over the whole collection every recount, and it means
+         * the key has to be read to answer it, which is what stops that aggregation being served
+         * from an index alone.
+         *
+         * @par
+         * Absent on objects written before this field existed, which read as false - a directory
+         * marker among them is counted as a file until it is rewritten. The counters are
+         * approximate and self-correcting by design, so that resolves itself; a one-off update
+         * setting the flag from the key fixes it immediately.
+         */
+        bool directory{};
+
+        /**
          * @brief MIME content type, determined during post-processing (complete-upload); empty
          * until status reaches COMPLETED.
          */

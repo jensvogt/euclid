@@ -269,6 +269,35 @@ namespace Euclid::main {
         void reconcileApplicationLoad();
 
         /**
+         * @brief The order pools should be stopped in: ingress, then applications, then modules in
+         * reverse start order.
+         *
+         * @par
+         * Shutting down by name - which is what iterating the pools gives - stops EQS while the
+         * applications that poll it are still running, and they spend the rest of the shutdown
+         * timing out against a module that is already gone. Stopping in a considered order costs
+         * nothing and makes a clean shutdown actually look clean.
+         */
+        [[nodiscard]]
+        std::vector<std::string> stopOrder() const;
+
+        /**
+         * @brief Stops the pools that are clients of the gateway, before the gateway itself goes.
+         *
+         * @par
+         * A module sits behind the gateway and is only ever spoken to; a transfer server or an
+         * application speaks to it, continuously - polling a queue, reporting its own load. Taking
+         * the gateway down first, which is right for everything behind it, leaves every one of
+         * those talking to something that is no longer there, and they spend the rest of the
+         * shutdown timing out against it.
+         *
+         * @par
+         * Safe to do before the gateway because the watchdog is stopped first: nothing will scale
+         * a pool back up while this is working through them.
+         */
+        void stopClients();
+
+        /**
          * @brief Restarts one queued instance, if there is one.
          *
          * @par
@@ -344,7 +373,12 @@ namespace Euclid::main {
          * @return Handle to the chosen instance's socket path and pid, or nullopt if the service
          *         is not registered or has no running instances.
          */
-        std::optional<InstanceHandle> acquireInstance(const std::string &name);
+        /**
+         * @param countsAsLoad whether this request should mark the instance busy. False for an
+         * action that deliberately waits - see the note in the implementation on why a parked
+         * long poll must not read as load.
+         */
+        std::optional<InstanceHandle> acquireInstance(const std::string &name, bool countsAsLoad = true);
 
         /**
          * @brief Releases an instance previously returned by acquireInstance().
@@ -355,7 +389,11 @@ namespace Euclid::main {
          * @param name Service name the instance belongs to.
          * @param pid  Pid of the instance to release, as returned in the InstanceHandle.
          */
-        void releaseInstance(const std::string &name, pid_t pid);
+        /**
+         * @param countsAsLoad must match what acquireInstance() was given, or the instance's
+         * active-request count drifts away from what it is actually serving.
+         */
+        void releaseInstance(const std::string &name, pid_t pid, bool countsAsLoad = true);
 
         /**
          * @brief Lets a client proactively declare how many instances of a service it's about to

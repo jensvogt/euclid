@@ -700,6 +700,11 @@ static int RunManager(const CliOptions &opts, [[maybe_unused]] const bool report
     // snapshot will never see. See handleShutdown()'s comment for the failure mode this avoids.
     ctrl.stopWatchdog();
     if (eventIngestOpt) eventIngestOpt->stop();
+
+    // Before the gateway, because these are the pools that *use* it - see stopClients(). The
+    // watchdog is already stopped, so nothing scales one back up while this works through them.
+    ctrl.stopClients();
+
     gateway.stop();
     ctrl.stopAll();
 
