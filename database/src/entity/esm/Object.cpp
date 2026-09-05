@@ -34,6 +34,7 @@ namespace Euclid::Database::Entity::ESM {
                 bsoncxx::builder::basic::kvp("encryptionKeyErn", encryptionKeyErn),
                 bsoncxx::builder::basic::kvp("size", static_cast<int64_t>(size)),
                 bsoncxx::builder::basic::kvp("status", ObjectStatusToString(status)),
+                bsoncxx::builder::basic::kvp("directory", directory),
                 bsoncxx::builder::basic::kvp("contentType", contentType),
                 bsoncxx::builder::basic::kvp("md5Sum", md5Sum),
                 bsoncxx::builder::basic::kvp("attributes", attributesDoc.extract()));
@@ -56,6 +57,7 @@ namespace Euclid::Database::Entity::ESM {
             else if (fieldKey == "encryptionKeyErn") object.encryptionKeyErn = std::string(field.get_string().value);
             else if (fieldKey == "size") object.size = getBsonInt(field);
             else if (fieldKey == "status") object.status = ObjectStatusFromString(std::string(field.get_string().value));
+            else if (fieldKey == "directory") object.directory = field.get_bool().value;
             else if (fieldKey == "contentType") object.contentType = std::string(field.get_string().value);
             else if (fieldKey == "md5Sum") object.md5Sum = std::string(field.get_string().value);
             else if (fieldKey == "created") object.created = system_clock::time_point{field.get_date().value};
