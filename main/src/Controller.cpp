@@ -271,6 +271,7 @@ namespace Euclid::main {
         svc->stdoutFd = outFd;
         svc->stderrFd = errFd;
         svc->activeRequests = 0;
+        svc->inFlightRequests = 0;
         svc->lastIdleAt = std::chrono::steady_clock::now();
 
         std::thread(drainPipe, outFd, false).detach();
@@ -383,6 +384,7 @@ namespace Euclid::main {
         svc->stdoutFd = outPipe[0];
         svc->stderrFd = errPipe[0];
         svc->activeRequests = 0;
+        svc->inFlightRequests = 0;
         svc->lastIdleAt = std::chrono::steady_clock::now();
 
         std::thread(drainPipe, outPipe[0], false).detach();
@@ -1377,12 +1379,96 @@ namespace Euclid::main {
         }
     }
 
-    void ServiceController::stopAll() {
-        std::vector<std::string> names;
+    std::vector<std::string> ServiceController::stopOrder() const {
+
+        // Which pools are what. A transfer server and an application are both non-core pools to
+        // this controller, and only their own modules' definitions say which is which - so they
+        // are asked, rather than the distinction being guessed from a name.
+        std::set<std::string> transferServers;
+        std::set<std::string> applications;
+        try {
+            for (const auto &server: Database::RepositoryFactory::instance().etsRepository()->listServers("")) {
+                transferServers.insert(server.serverId);
+            }
+            for (const auto &application: Database::RepositoryFactory::instance().eapRepository()->listApplications("")) {
+                applications.insert(application.applicationId);
+            }
+        } catch (const std::exception &e) {
+            // Shutdown must not depend on the database being reachable. Without the definitions
+            // everything falls into the last tier, which is the order this had before.
+            log_warning << "Could not read the transfer server and application lists for shutdown ordering, error: " << e.what();
+        }
+
+        std::map<std::string, std::vector<std::string> > dependencies;
+        std::vector<std::string> ingress, apps;
         {
             std::lock_guard lock(_mutex);
-            for (const auto &name: _services | std::views::keys) names.push_back(name);
+            for (const auto &[name, group]: _services) {
+                if (transferServers.contains(name)) ingress.push_back(name);
+                else if (applications.contains(name)) apps.push_back(name);
+                else dependencies[name] = group.config.dependencies;
+            }
         }
+
+        // Stopped in the order that leaves the fewest requests with nowhere to go.
+        //
+        // First the transfer servers: they are where work enters the installation, and stopping
+        // them means nothing new arrives while everything else is being taken down. Then the
+        // applications, which are the only things that consume on their own initiative - an
+        // application outliving the queue it polls spends its last seconds failing, which is what
+        // an alphabetical shutdown produced.
+        //
+        // The modules go last and in reverse start order, so a module is stopped before whatever
+        // it depends on: the same dependency graph that decides the order they come up in, read
+        // backwards.
+        auto order = ingress;
+        order.insert(order.end(), apps.begin(), apps.end());
+
+        auto modules = topologicalStartOrder(dependencies);
+        std::ranges::reverse(modules);
+        order.insert(order.end(), modules.begin(), modules.end());
+        return order;
+    }
+
+    void ServiceController::stopClients() {
+        const auto names = stopOrder();
+
+        // Only the pools that talk *to* euclid rather than being talked to: the transfer servers
+        // and the applications, which stopOrder() puts first for exactly this reason.
+        std::set<std::string> modules;
+        {
+            std::lock_guard lock(_mutex);
+            for (const auto &[name, group]: _services) {
+                if (group.config.core) modules.insert(name);
+            }
+        }
+
+        std::vector<std::string> clients;
+        for (const auto &name: names) {
+            if (!modules.contains(name)) clients.push_back(name);
+        }
+        if (clients.empty()) return;
+
+        std::string order;
+        for (const auto &name: clients) {
+            if (!order.empty()) order += " -> ";
+            order += name;
+        }
+        log_info << "Stopping clients before the gateway: " << order;
+
+        for (const auto &name: clients) stop(name);
+    }
+
+    void ServiceController::stopAll() {
+        const auto names = stopOrder();
+
+        std::string order;
+        for (const auto &name: names) {
+            if (!order.empty()) order += " -> ";
+            order += name;
+        }
+        log_info << "Stopping modules in shutdown order: " << order;
+
         for (const auto &name: names) stop(name);
     }
 
@@ -1416,7 +1502,7 @@ namespace Euclid::main {
         return result;
     }
 
-    std::optional<InstanceHandle> ServiceController::acquireInstance(const std::string &name) {
+    std::optional<InstanceHandle> ServiceController::acquireInstance(const std::string &name, const bool countsAsLoad) {
         std::lock_guard lock(_mutex);
         auto *group = getGroup(name);
         if (!group || group->instances.empty()) return std::nullopt;
@@ -1426,21 +1512,40 @@ namespace Euclid::main {
             const size_t idx = (group->rrCursor + i) % n;
             if (const auto &svc = group->instances[idx]; svc->state == Database::Entity::ModuleState::RUNNING) {
                 group->rrCursor = (idx + 1) % n;
-                svc->activeRequests++;
-                svc->wasBusySinceLastCheck = true;
-                group->lastActivityAt = std::chrono::steady_clock::now();
+
+                // A request that is deliberately waiting is not a busy instance. receive-messages
+                // and receive-events hold their connection for the whole wait the caller asked
+                // for - twenty seconds by default - and for almost all of it the module is doing
+                // nothing at all, because there is nothing to do. Counting that as load inverts
+                // the signal completely: an installation with no traffic and a dozen idle
+                // consumers looks permanently saturated, so its pools scale up and can never
+                // scale down, which is exactly what happens without this.
+                //
+                // The work such a request does when a message *is* there is real, but it is brief
+                // and it is what the producer side already makes visible - send-message marks the
+                // pool busy on its way in.
+                svc->inFlightRequests++;
+                if (countsAsLoad) {
+                    svc->activeRequests++;
+                    svc->wasBusySinceLastCheck = true;
+                    group->lastActivityAt = std::chrono::steady_clock::now();
+                }
                 return InstanceHandle{.socketPath = svc->instanceSocketPath, .pid = svc->pid};
             }
         }
         return std::nullopt;
     }
 
-    void ServiceController::releaseInstance(const std::string &name, const pid_t pid) {
+    void ServiceController::releaseInstance(const std::string &name, const pid_t pid, const bool countsAsLoad) {
         std::lock_guard lock(_mutex);
         const auto *group = getGroup(name);
         if (!group) return;
         for (auto &svc: group->instances) {
             if (svc->pid != pid) continue;
+            if (svc->inFlightRequests > 0) svc->inFlightRequests--;
+            // Only what was counted on the way in is given back; decrementing regardless would
+            // take the load count below what the instance is actually serving.
+            if (!countsAsLoad) return;
             if (svc->activeRequests > 0) svc->activeRequests--;
             if (svc->activeRequests == 0) svc->lastIdleAt = std::chrono::steady_clock::now();
             return;
@@ -1846,8 +1951,19 @@ namespace Euclid::main {
                 // per-instance idle time alone can't tell "nobody wants this instance" apart from
                 // "nobody wants any instance" - the former should NOT trigger a scale-down while
                 // the group is still doing real work.
-                std::erase(group.instances, idleCandidate);
-                toStop.push_back(idleCandidate);
+                // Idle in the sense that matters for scaling, but possibly still holding a
+                // caller's connection open: a long poll does not count as load and would
+                // otherwise be killed mid-wait, which the caller sees as "end of stream" rather
+                // than as the empty answer it was about to get. The instance stays in the pool
+                // until it is genuinely serving nothing; the next tick reconsiders it, and a
+                // consumer polling continuously frees it in the gap between two polls.
+                if (idleCandidate->inFlightRequests > 0) {
+                    log_debug << "Not scaling down " << group.config.name << " yet, requests in flight: "
+                              << idleCandidate->inFlightRequests;
+                } else {
+                    std::erase(group.instances, idleCandidate);
+                    toStop.push_back(idleCandidate);
+                }
                 // The group is genuinely idle now, so drop any earlier declared target back to the
                 // floor - otherwise a one-off high-concurrency declaration would keep forcing the
                 // pool back up forever even after that workload finished.

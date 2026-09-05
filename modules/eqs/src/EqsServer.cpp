@@ -323,7 +323,17 @@ namespace Euclid::EQS {
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::EQS::ReceiveMessagesRequest>(jv);
-        log_info << "EQS ReceiveMessages ern: " << request.ern;
+        // At info for a real consumer, at debug for the system polling itself. A receive is worth
+        // a line when somebody is waiting for work; the same call made every few seconds by a
+        // metric collector or a heartbeat says nothing and would bury everything that does. The
+        // caller states which it is - see the gateway's x-euclid-internal - rather than this
+        // guessing from a rate.
+        const bool internalTraffic = std::string(req["x-euclid-internal"]) == "true";
+        if (internalTraffic) {
+            log_debug << "EQS ReceiveMessages ern: " << request.ern;
+        } else {
+            log_info << "EQS ReceiveMessages ern: " << request.ern;
+        }
 
         if (const auto denied = denyUngrantedQueue(req, auth, request.ern)) return *denied;
 
@@ -355,7 +365,11 @@ namespace Euclid::EQS {
         response.messages = Dto::EQS::EqsMapper::toDto(messages);
         response.total = repo->countMessages(request.ern);
 
-        log_info << "EQS ReceiveMessages ern: " << request.ern << ", count: " << response.messages.size() << ", total: " << response.total;
+        if (internalTraffic) {
+            log_debug << "EQS ReceiveMessages ern: " << request.ern << ", count: " << response.messages.size() << ", total: " << response.total;
+        } else {
+            log_info << "EQS ReceiveMessages ern: " << request.ern << ", count: " << response.messages.size() << ", total: " << response.total;
+        }
 
         return EqsServer::JsonResponse(req, status::ok, response.toJson());
     }

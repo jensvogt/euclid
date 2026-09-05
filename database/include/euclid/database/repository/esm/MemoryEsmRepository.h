@@ -202,6 +202,7 @@ namespace Euclid::Database {
          * @param object object entity
          */
         Entity::ESM::Object upsertObject(Entity::ESM::Object &object) override {
+            object.directory = Entity::ESM::IsDirectoryKey(object.key);
             std::lock_guard lock(_mutex);
             if (object.oid.empty()) {
                 object.oid = Core::UuidUtils::CreateRandomUuid();

@@ -1,7 +1,9 @@
 // C++ includes
+#include <chrono>
 #include <map>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 // Euclid includes
@@ -11,6 +13,7 @@
 #include <euclid/core/ErnUtils.h>
 #include <euclid/core/monitoring/MonitoringTimer.h>
 #include <euclid/database/entity/eam/User.h>
+#include <euclid/database/entity/esm/Object.h>
 
 namespace Euclid::EAP {
 
@@ -46,6 +49,73 @@ namespace Euclid::EAP {
         long longField(const boost::json::object &obj, const std::string &key, const long fallback = 0) {
             if (const auto *v = obj.if_contains(key); v && v->is_number()) return v->to_number<long>();
             return fallback;
+        }
+
+        // What an artifact lookup found: the object once ESM has finished with it, or the fact
+        // that it is still being processed - two different answers that used to be indistinguish-
+        // able, and the second one told a lie.
+        struct ArtifactLookup {
+            std::optional<Database::Entity::ESM::Object> object;
+            bool pending{false};
+        };
+
+        // Reads an artifact out of a bucket, waiting out the window in which ESM has accepted an
+        // upload but has not finished with it.
+        //
+        // A multipart "complete-upload" marks the object UPLOADED and returns immediately, leaving
+        // the *previous* build's md5Sum and internal file on the row until a background pass
+        // assembles the parts, hashes them and advances it to COMPLETED (modules/esm/src/
+        // EsmServer.cpp:1189-1306). A redeploy that arrives inside that window therefore compared
+        // the new build against its own predecessor's checksum, concluded that nothing would
+        // change, and refused - which is exactly why a first redeploy failed and an identical
+        // second one, a moment later, went through.
+        //
+        // Waiting rather than skipping the comparison: the assembled file is also what euclid-mgr
+        // copies when it restarts the pool, so going ahead before COMPLETED could put the previous
+        // build on disk under the new version's name. An artifact that is not there at all is not
+        // waited for - create-upload seeds the row before the first part arrives, so a missing row
+        // means a key nobody is uploading to, and a typo should be answered now rather than in
+        // half a minute.
+        //
+        // The bound stays well inside the clients' own request timeouts (the RUI aborts at 15 s),
+        // so a wait that does expire produces this module's explanation rather than their generic
+        // network error. A JAR settles in well under a second; only something very large runs out,
+        // and for that "try again shortly" is the honest answer.
+        ArtifactLookup findSettledArtifact(const std::string &bucketErn, const std::string &key) {
+            using Database::Entity::ESM::ObjectStatus;
+            constexpr auto kSettleWait = std::chrono::seconds(10);
+            constexpr auto kPollInterval = std::chrono::milliseconds(100);
+
+            const auto esmRepository = Database::RepositoryFactory::instance().esmRepository();
+            const auto deadline = std::chrono::steady_clock::now() + kSettleWait;
+
+            ArtifactLookup result;
+            for (;;) {
+                auto object = esmRepository->findObjectByBucketAndKey(bucketErn, key);
+                if (!object.has_value()) return result;
+
+                // Only the three states of an upload in flight are waited for. Anything else is
+                // taken as it stands, including the UNKNOWN of a row written before objects
+                // carried a status - refusing those would strand every application deployed from
+                // one of them.
+                const auto status = object->status;
+                if (status != ObjectStatus::CREATED && status != ObjectStatus::UPLOADING && status != ObjectStatus::UPLOADED) {
+                    result.object = std::move(object);
+                    result.pending = false;
+                    return result;
+                }
+
+                result.pending = true;
+                if (std::chrono::steady_clock::now() >= deadline) return result;
+                std::this_thread::sleep_for(kPollInterval);
+            }
+        }
+
+        // The message for an artifact whose upload has not settled, kept in one place so all three
+        // handlers say the same thing.
+        std::string artifactPendingMessage(const std::string &artifactKey) {
+            return "The artifact '" + artifactKey + "' is still being assembled by ESM. Its checksum is not known yet, "
+                   "so deploying it now could put the previous build on disk. Try again in a moment.";
         }
 
         std::vector<std::string> stringArray(const boost::json::object &obj, const std::string &key) {
@@ -288,10 +358,14 @@ namespace Euclid::EAP {
 
         const auto artifactKey = stringField(obj, "artifact");
         if (artifactKey.empty()) return EapServer::ErrorResponse(req, status::bad_request, "artifact is required");
-        const auto artifact = esmRepository->findObjectByBucketAndKey(bucket->ern, artifactKey);
-        if (!artifact.has_value()) {
+        const auto lookup = findSettledArtifact(bucket->ern, artifactKey);
+        if (!lookup.object.has_value()) {
+            if (lookup.pending) {
+                return EapServer::ErrorResponse(req, status::conflict, artifactPendingMessage(artifactKey));
+            }
             return EapServer::ErrorResponse(req, status::not_found, "Artifact not found in bucket '" + bucketName + "': " + artifactKey);
         }
+        const auto &artifact = lookup.object;
 
         // Which build this is has to be answerable from the definition alone, so it is settled
         // here: taken from the artifact's name when it carries one, and asked for when it does
@@ -401,10 +475,14 @@ namespace Euclid::EAP {
         }
         if (obj.contains("artifact")) {
             const auto artifactKey = stringField(obj, "artifact");
-            const auto artifact = Database::RepositoryFactory::instance().esmRepository()->findObjectByBucketAndKey(application->bucketErn, artifactKey);
-            if (!artifact.has_value()) {
+            const auto lookup = findSettledArtifact(application->bucketErn, artifactKey);
+            if (!lookup.object.has_value()) {
+                if (lookup.pending) {
+                    return EapServer::ErrorResponse(req, status::conflict, artifactPendingMessage(artifactKey));
+                }
                 return EapServer::ErrorResponse(req, status::not_found, "Artifact not found: " + artifactKey);
             }
+            const auto &artifact = lookup.object;
             application->artifactKey = artifactKey;
 
             // Deliberately without the checks redeploy-application makes: this is the way to
@@ -491,10 +569,16 @@ namespace Euclid::EAP {
         // A redeploy under the same key is the common case - the build changes, its name does not -
         // so the artifact is optional and defaults to the one already deployed.
         const auto artifactKey = stringField(obj, "artifact", application->artifactKey);
-        const auto artifact = Database::RepositoryFactory::instance().esmRepository()->findObjectByBucketAndKey(application->bucketErn, artifactKey);
-        if (!artifact.has_value()) {
+        // Settled, not merely present: the checksum below is the whole decision, and an artifact
+        // mid-upload still carries the one belonging to the build being replaced.
+        const auto lookup = findSettledArtifact(application->bucketErn, artifactKey);
+        if (!lookup.object.has_value()) {
+            if (lookup.pending) {
+                return EapServer::ErrorResponse(req, status::conflict, artifactPendingMessage(artifactKey));
+            }
             return EapServer::ErrorResponse(req, status::not_found, "Artifact not found: " + artifactKey);
         }
+        const auto &artifact = lookup.object;
 
         auto version = stringField(obj, "version");
         if (version.empty()) version = VersionFromArtifactName(artifactKey);

@@ -114,6 +114,19 @@ namespace Euclid::Dto {
         int activeRequests = 0;
 
         /**
+         * @brief Requests currently being served by this instance, whether or not they count as
+         * load.
+         *
+         * @par
+         * Deliberately separate from activeRequests. A long poll is not load - it is a caller
+         * waiting for something to arrive, and counting it makes an idle pool look saturated - but
+         * it is very much still in flight, and stopping the instance underneath it kills a live
+         * connection. Answering "is this instance busy" and "is this instance safe to stop" with
+         * one number is what made a scale-down report "end of stream" to whoever was waiting.
+         */
+        int inFlightRequests{};
+
+        /**
          * @brief Time this instance's activeRequests last dropped to zero.
          *
          * Used by the autoscaler to determine how long an instance has been idle before
