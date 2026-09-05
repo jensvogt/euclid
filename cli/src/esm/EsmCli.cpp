@@ -84,6 +84,7 @@ namespace Euclid::CLI {
                                            {"move-object", "Moves an object to another key or bucket"},
                                            {"purge-bucket", "Removes all objects from a bucket"},
                                            {"rename-bucket", "Give a bucket another name"},
+                                           {"touch-object", "Re-send notifications for objects already in a bucket"},
                                            {"rename-object", "Renames an object within its bucket"},
                                            {"set-bucket-tag", "Sets the value of an existing bucket tag"},
                                            {"set-object-attribute", "Sets the value of an existing object attribute"},
@@ -98,6 +99,9 @@ namespace Euclid::CLI {
         }
         if (action == "delete-bucket") {
             return deleteBucket(args);
+        }
+        if (action == "touch-object") {
+            return touchObject(args);
         }
         if (action == "rename-bucket") {
             return renameBucket(args);
@@ -1568,6 +1572,69 @@ namespace Euclid::CLI {
 
     int EsmCli::moveObject(const std::vector<std::string> &args) const {
         return transferObject(args, false);
+    }
+
+    int EsmCli::touchObject(const std::vector<std::string> &args) const {
+        po::options_description desc("touch object options");
+        desc.add_options()
+                ("bucket,b", po::value<std::string>()->required(), "bucket holding the objects; a name is enough, a full ERN also works")
+                ("prefix,p", po::value<std::string>()->default_value(""), "only objects whose key starts with this; omit for every object in the bucket");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", "touch-object", "--bucket <name|ern> [--prefix <key-prefix>]",
+                                   "Announces objects that are already in a bucket, as though each had just been "
+                                   "uploaded: the same esm.object.created event and the same bucket subscription "
+                                   "deliveries an upload would have produced. "
+                                   "Nothing about the objects changes - not a byte of them, and not their timestamps "
+                                   "either. \"Touch\" here means what it does to listeners, not what it does to "
+                                   "storage; a modified time is something consumers compare against, and moving it "
+                                   "would make this destructive in exactly the way it is meant not to be. "
+                                   "It exists because a notification can be lost in ways an object never is - a "
+                                   "consumer that was down while its subscription was live rather than durable, a "
+                                   "queue deleted with deliveries still queued for it, or a subscription created "
+                                   "after the objects had already arrived. In all of those the data is intact and "
+                                   "only the announcement was lost, and re-uploading gigabytes to re-send a few "
+                                   "kilobytes of notification is the wrong repair. "
+                                   "The prefix is matched against the whole key, so it selects one object when it is "
+                                   "a full key and a directory when it ends in a slash. Omitting it announces every "
+                                   "object in the bucket, which on a large one is a great many notifications - the "
+                                   "answer says how many were sent. "
+                                   "Directory markers are left out, since an upload never announces those either. "
+                                   "Note that this is a replay, not a repair of one: every subscriber of the bucket "
+                                   "hears about every selected object, including consumers that processed it the "
+                                   "first time. Only run it where the consumers are idempotent - one that is not "
+                                   "will do its work twice, and on a whole bucket it will do it twice for "
+                                   "everything. Narrowing the prefix to what was actually missed is usually safer "
+                                   "than touching the bucket.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        const boost::json::object request{
+                {"ern", vm["bucket"].as<std::string>()},
+                {"prefix", vm["prefix"].as<std::string>()}};
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("esm", "touch-object", request);
+            if (!response.IsSuccess()) {
+                std::cerr << "error: touch-object failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
     }
 
     int EsmCli::renameBucket(const std::vector<std::string> &args) const {

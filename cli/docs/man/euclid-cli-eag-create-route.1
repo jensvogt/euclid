@@ -9,6 +9,8 @@ euclid-cli-eag-create-route \- publish a path through the API gateway
 .I PREFIX
 .BR \-\-application | \-a
 .I NAME
+.RB [ \-\-methods | \-m
+.IR LIST ]
 .RB [ \-\-authentication | \-A
 .IR none | euclid ]
 .RB [ \-\-inactive | \-i ]
@@ -43,10 +45,13 @@ A prefix only matches whole segments, so
 never claims
 .IR /resource\-intern .
 .PP
-No two routes may have the same path. The tie would be broken by
-whichever the gateway happened to consider first \- callers would reach
-one application today and possibly the other tomorrow \- so a path
-already routed is refused with 409.
+Two routes may have the same path only if their methods do not overlap,
+which is how reads and writes of one resource go to different
+applications. An overlap is refused with 409: the winner would be
+decided by whichever the gateway happened to consider first, and callers
+would reach one application today and possibly the other tomorrow. A
+route naming no methods answers for all of them and so overlaps with
+everything.
 .SH OPTIONS
 .TP
 .BR \-r ", " \-\-route\-id " " \fIID\fR
@@ -63,6 +68,23 @@ dead.
 Application the requests are sent to, as deployed through
 .BR euclid-cli-eap (1).
 Required.
+.TP
+.BR \-m ", " \-\-methods " " \fILIST\fR
+Comma-separated HTTP methods this route answers for, e.g.
+\fIGET,POST\fR. Case does not matter; they are stored upper case. One
+of \fIGET\fR, \fIHEAD\fR, \fIPOST\fR, \fIPUT\fR, \fIPATCH\fR,
+\fIDELETE\fR or \fIOPTIONS\fR \- anything else is refused rather than
+stored, since a typo here is a route that answers for nothing.
+.RS
+.PP
+Omit it and the route answers for every method, including ones not in
+that list. That is the point of leaving it empty rather than spelling
+out today's methods: a route written now should not refuse whatever
+comes next.
+.PP
+A request whose method no route on the path accepts is answered with
+405 and an \fIAllow\fR header, not 404.
+.RE
 .TP
 .BR \-A ", " \-\-authentication " " \fInone\fR|\fIeuclid\fR
 What the gateway requires of a caller. Defaults to \fInone\fR.
@@ -91,9 +113,12 @@ The route was created. Its definition is printed as JSON.
 .B 1
 Missing or invalid arguments, a path that does not start with \fI/\fR,
 an unrecognised
-.BR \-\-authentication ,
-no administrator session, a route ID or path already in use, an
-application that does not exist, or the server rejected the request.
+.B \-\-authentication
+or
+.BR \-\-methods ,
+no administrator session, a route ID already in use, a path and method
+already routed, an application that does not exist, or the server
+rejected the request.
 .SH EXAMPLES
 Publish a parser's REST interface:
 .PP
@@ -116,6 +141,25 @@ euclid-cli eag create-route \e
     --path /resource/admin \e
     --application onix-parser \e
     --authentication euclid
+.fi
+.RE
+.PP
+Split one resource by method, reads to the parser and writes to another
+application:
+.PP
+.RS
+.nf
+euclid-cli eag create-route \e
+    --route-id produkte-lesen \e
+    --path /api/produkte \e
+    --application parser \e
+    --methods GET,HEAD
+
+euclid-cli eag create-route \e
+    --route-id produkte-pflege \e
+    --path /api/produkte \e
+    --application pim-writer \e
+    --methods POST,PUT,DELETE
 .fi
 .RE
 .PP

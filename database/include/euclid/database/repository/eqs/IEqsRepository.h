@@ -108,6 +108,39 @@ namespace Euclid::Database {
         virtual std::vector<Entity::EQS::Queue> listQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const = 0;
 
         /**
+         * @brief The queues that name this one as their dead letter queue.
+         *
+         * @par
+         * This is what makes a queue a dead letter queue: nothing on the queue itself says so, the
+         * relationship is only ever written the other way round. An empty answer therefore means
+         * the queue is an ordinary one, which is what redrive-dlq refuses on.
+         *
+         * @param deadLetterQueueErn the queue to find the sources of.
+         * @return the source queues, empty if this is not a dead letter queue.
+         */
+        [[nodiscard]]
+        virtual std::vector<Entity::EQS::Queue> listSourceQueues(const std::string &deadLetterQueueErn) const = 0;
+
+        /**
+         * @brief Moves messages out of a dead letter queue and back into a source queue.
+         *
+         * @par
+         * The reverse of the move receiveMessages() makes when a message exceeds its receive
+         * count, and undone the same way: the message's own queueErn is what moves it, and both
+         * queues' counters come from the next scan. Its receive count goes back to zero, so a
+         * redriven message gets the same number of attempts a new one would rather than returning
+         * one failure away from being dead again.
+         *
+         * @param deadLetterQueueErn queue the messages are in now.
+         * @param targetQueueErn queue to move them to.
+         * @param sourceQueueErn only move messages recorded as having come from this queue; empty
+         * moves every message in the dead letter queue, whatever it is recorded as.
+         * @return how many messages were moved.
+         */
+        virtual long redriveMessages(const std::string &deadLetterQueueErn, const std::string &targetQueueErn,
+                                     const std::string &sourceQueueErn) = 0;
+
+        /**
          * @brief Checks if a queue with the specified name exists in the repository.
          *
          * @param name The name of the queue to check for existence.

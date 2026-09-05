@@ -69,12 +69,39 @@ never claims
 which is a different resource that happens to start with the same
 letters.
 .PP
-Two routes cannot share a path. The tie would be broken by nothing in
-particular, so
-.B create-route
-and
-.B update-route
-refuse to make one.
+.SH METHODS
+A route may name the HTTP methods it answers for. Naming none \- the
+default \- means all of them, so a route written today does not quietly
+refuse a method that did not exist when it was written.
+.PP
+Two routes may share a path as long as their methods do not overlap.
+That is what lets one resource be served by two applications, reads by
+one and writes by another, with no seam a caller can see:
+.PP
+.RS
+.nf
+euclid-cli eag create-route -r produkte-lesen  -p /api/produkte \e
+    -a parser --methods GET,HEAD
+euclid-cli eag create-route -r produkte-pflege -p /api/produkte \e
+    -a pim-writer --methods POST,PUT,DELETE
+.fi
+.RE
+.PP
+An overlap is refused, because the winner would be decided by whichever
+route the gateway happened to consider first \- callers would reach one
+application today and possibly the other tomorrow. A route naming no
+methods overlaps with everything, so it cannot share a path at all.
+.PP
+Matching takes the method into account rather than filtering on it
+afterwards: a
+.B GET
+that a POST-only route would reject falls through to the route that does
+want it. Only when no route on the path accepts the method is the
+request refused, with
+.B 405
+and an
+.I Allow
+header listing what the routes on that path do accept.
 .SH BACKENDS
 The instances behind a route are not configured. The manager gives every
 application instance a TCP port of its own out of the range set by
@@ -119,12 +146,17 @@ bearer token, an RFC 9421 message signature or SigV4. The check happens
 before a backend is chosen, so an unauthenticated caller never causes a
 connection to an application at all.
 .SH ANSWERS
-Four of the gateway's own answers are worth telling apart, since none of
+Five of the gateway's own answers are worth telling apart, since none of
 them come from the application:
 .TP
 .B 404
 No route claims this path, or the route that did has been deleted or
 deactivated.
+.TP
+.B 405
+A route claims the path but none on it accepts this method. The
+.I Allow
+header says which methods would have worked.
 .TP
 .B 401
 The route requires a euclid credential and the request had none, or one

@@ -44,9 +44,31 @@ namespace Euclid::Database {
         std::string sourceModule;
 
         /**
-         * @brief Arbitrary event payload.
+         * @brief Arbitrary event payload - the message itself, and nothing about where it is going.
          */
         boost::json::value payload;
+
+        /**
+         * @brief Queue or topic this delivery is to be put into, or empty for a domain event.
+         *
+         * @par
+         * A field of the envelope rather than of the payload, because it is not part of the
+         * message - it is the address on the outside of it. Keeping it here is also what makes it
+         * indexable: when a queue is deleted, everything still queued for it has to be found and
+         * discarded, and searching inside a serialised payload would mean reading every pending
+         * event in the installation.
+         */
+        std::string targetErn;
+
+        /**
+         * @brief Bucket or topic the delivery came from, or empty for a domain event.
+         */
+        std::string sourceErn;
+
+        /**
+         * @brief Identity of the message being delivered, or empty for a domain event.
+         */
+        std::string messageId;
 
         /**
          * @brief Number of times this delivery has been claimed (including the current claim).
@@ -158,7 +180,36 @@ namespace Euclid::Database {
          * of that module type are running). A no-op if nobody is subscribed. Requires
          * Database::instance().initialize() to already have run.
          */
-        void Publish(const std::string &eventType, const boost::json::value &payload, const std::string &sourceModule);
+        /**
+         * @brief Where a delivery is going, as opposed to what it carries.
+         *
+         * @par
+         * Domain events ("esm.object.created" and the like) leave this empty: they are published to
+         * whoever is interested and address nobody. A delivery ("esm.subscription.delivery",
+         * "ens.message.published") is the opposite - it exists to put one message into one named
+         * queue or topic, and that address belongs on the envelope rather than mixed into the
+         * message a consumer will hand on unchanged.
+         */
+        struct Delivery {
+
+            /**
+             * @brief Queue or topic to deliver into.
+             */
+            std::string targetErn;
+
+            /**
+             * @brief Bucket or topic the message came from.
+             */
+            std::string sourceErn;
+
+            /**
+             * @brief Identity of the message being delivered.
+             */
+            std::string messageId;
+        };
+
+        void Publish(const std::string &eventType, const boost::json::value &payload, const std::string &sourceModule,
+                     const Delivery &delivery = {});
 
         // ── External subscribers ─────────────────────────────────────────────
         //
@@ -264,6 +315,25 @@ namespace Euclid::Database {
         long UnsubscribeExternal(const std::string &subscriber, const std::string &eventType);
 
         /**
+         * @brief Discards every undelivered event addressed to one delivery target.
+         *
+         * @par
+         * A delivery names where it is going in its payload - an EQS queue or an ENS topic - and
+         * when that target is deleted, everything queued for it is undeliverable. Left alone the
+         * backlog is not merely wasted: each event is claimed, found to have nowhere to go, warned
+         * about and acked, so an application that restarts a few times during a busy run leaves
+         * behind hundreds of thousands of log lines about queues nobody has referred to in hours.
+         *
+         * @par
+         * Removed in one statement rather than one at a time, because the target is gone for all
+         * of them at once - the first delivery to discover it can clear the rest.
+         *
+         * @param targetErn the queue or topic ERN the deliveries name.
+         * @return how many were discarded.
+         */
+        long DiscardDeliveries(const std::string &targetErn);
+
+        /**
          * @brief Lists a subscriber's subscriptions.
          *
          * @param subscriber subscriber name.
@@ -336,6 +406,7 @@ namespace Euclid::Database {
         void ensureIndexes();
 
         void pruneStaleSubscriptions(const std::string &moduleType);
+
 
         /**
          * @brief One subscription as Publish() needs it: the filter already parsed, the mode

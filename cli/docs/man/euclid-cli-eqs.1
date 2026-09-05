@@ -148,6 +148,11 @@ names were accepted already passes. Both forms are accepted everywhere
 below; a value beginning with
 .I ern:
 is used as given, anything else is treated as a name.
+.TP
+.B redrive-dlq
+Moves messages out of a dead letter queue and back into the queue they
+failed in. See
+.BR euclid-cli-eqs-redrive-dlq (1).
 .SH GLOBAL OPTIONS
 These options are given to
 .B euclid-cli
@@ -277,6 +282,7 @@ euclid-cli --endpoint http://localhost:5566 eqs delete-queue \e
 .BR euclid-cli-eqs-get-queue-metadata (1),
 .BR euclid-cli-eqs-delete-queue (1),
 .BR euclid-cli-eqs-purge-queue (1),
+.BR euclid-cli-eqs-redrive-dlq (1),
 .BR euclid-cli-eqs-purge-all-queues (1),
 .BR euclid-cli-eqs-send-message (1),
 .BR euclid-cli-eqs-receive-messages (1),

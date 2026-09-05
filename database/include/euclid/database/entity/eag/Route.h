@@ -8,6 +8,7 @@
 #include <chrono>
 #include <optional>
 #include <string>
+#include <vector>
 
 // MongoDB includes
 #include <bsoncxx/builder/basic/document.hpp>
@@ -89,6 +90,23 @@ namespace Euclid::Database::Entity::EAG {
          * manager runs for it - which is how its instances, and therefore its ports, are found.
          */
         std::string applicationId;
+
+        /**
+         * @brief HTTP methods this route answers for, upper case. Empty means all of them.
+         *
+         * @par
+         * Empty rather than a list of every method, so "all" keeps meaning all: a route written
+         * before PATCH was in anybody's vocabulary should not quietly refuse it. A route that
+         * names methods is making a decision; one that names none is not.
+         *
+         * @par
+         * Two routes may share a path if their methods do not overlap, which is what lets one
+         * resource be served by two applications - reads by one, writes by another - without the
+         * caller seeing a seam. That is also why the method is part of matching rather than a
+         * filter applied afterwards: a GET that a POST-only route would have rejected has to be
+         * allowed to fall through to the route that does want it.
+         */
+        std::vector<std::string> methods;
 
         /**
          * @brief What a caller must present before a request is forwarded.

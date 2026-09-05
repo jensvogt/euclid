@@ -120,6 +120,15 @@ namespace Euclid::CLI {
         int purgeQueue(const std::vector<std::string> &args) const;
 
         /**
+         * @brief Moves messages out of a dead letter queue and back into the queue they failed in.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int redriveDlq(const std::vector<std::string> &args) const;
+
+        /**
          * @brief Purge all available queues.
          *
          * @param args action arguments

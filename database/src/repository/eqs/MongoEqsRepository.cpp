@@ -182,6 +182,66 @@ namespace Euclid::Database {
         }
     }
 
+    std::vector<Entity::EQS::Queue> MongoEqsRepository::listSourceQueues(const std::string &deadLetterQueueErn) const {
+
+        std::vector<Entity::EQS::Queue> queues;
+        if (deadLetterQueueErn.empty()) return queues;
+
+        try {
+            const auto entry = Database::instance().client();
+            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+
+            for (auto cursor = queueCollection.find(make_document(kvp("deadLetterQueueErn", deadLetterQueueErn)));
+                 auto doc: cursor) {
+                Entity::EQS::Queue queue;
+                queue.fromDocument(doc);
+                queues.push_back(queue);
+            }
+        } catch (const std::exception &e) {
+            log_error << "List source queues failed, dlqErn: " << deadLetterQueueErn << ", error: " << e.what();
+        }
+        return queues;
+    }
+
+    long MongoEqsRepository::redriveMessages(const std::string &deadLetterQueueErn, const std::string &targetQueueErn,
+                                             const std::string &sourceQueueErn) {
+
+        if (deadLetterQueueErn.empty() || targetQueueErn.empty()) return 0;
+
+        try {
+            const auto entry = Database::instance().client();
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            bsoncxx::builder::basic::document filter;
+            filter.append(kvp("queueErn", deadLetterQueueErn));
+            if (!sourceQueueErn.empty()) filter.append(kvp("sourceQueueErn", sourceQueueErn));
+
+            // A redriven message starts again as though it were new: AVAILABLE, no receipt handle
+            // from whatever last held it, and a receive count of zero so it gets the source
+            // queue's full allowance rather than dying on the first failure. sourceQueueErn is
+            // cleared because it is no longer in a dead letter queue and has no origin to return
+            // to - it is back where it started.
+            const auto update = make_document(
+                    kvp("$set", make_document(
+                                kvp("queueErn", targetQueueErn),
+                                kvp("sourceQueueErn", ""),
+                                kvp("status", MessageStatusToString(Entity::EQS::MessageStatus::AVAILABLE)),
+                                kvp("receivedCount", 0),
+                                kvp("receiptHandle", ""))),
+                    kvp("$currentDate", make_document(kvp("modified", true))));
+
+            const auto result = messageCollection.update_many(filter.view(), update.view());
+            const auto moved = result ? static_cast<long>(result->modified_count()) : 0;
+
+            log_info << "Messages redriven, dlqErn: " << deadLetterQueueErn << ", targetErn: " << targetQueueErn << ", count: " << moved;
+            return moved;
+
+        } catch (const std::exception &e) {
+            log_error << "Redrive messages failed, dlqErn: " << deadLetterQueueErn << ", error: " << e.what();
+        }
+        return 0;
+    }
+
     bool MongoEqsRepository::queueExists(const std::string &name) const {
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "queueExists");
 
@@ -699,6 +759,11 @@ namespace Euclid::Database {
                             const auto moveUpdate = make_document(
                                     kvp("$set", make_document(
                                                 kvp("queueErn", deadLetterQueueErn),
+                                                // Where it came from, so redriveMessages() can put
+                                                // it back exactly there - rewriting queueErn is
+                                                // otherwise the only record of the move, and it
+                                                // destroys the thing a redrive needs.
+                                                kvp("sourceQueueErn", queueErn),
                                                 kvp("status", MessageStatusToString(Entity::EQS::MessageStatus::AVAILABLE)),
                                                 kvp("receivedCount", 0),
                                                 kvp("receiptHandle", ""))),
