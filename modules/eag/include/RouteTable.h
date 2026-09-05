@@ -50,8 +50,8 @@ namespace Euclid::EAG {
          * @brief The route a path belongs to, or nothing if no route claims it.
          *
          * @par
-         * Longest prefix wins. A route for "/datenlieferanten" carries everything beneath it, and
-         * a more specific "/datenlieferanten/export" can be carved out later without either being
+         * Longest prefix wins. A route for "/resource" carries everything beneath it, and
+         * a more specific "/resource/export" can be carved out later without either being
          * reordered: the more specific one is simply longer. Two routes claiming the exact same
          * path would be a tie decided by nothing in particular, which is why create-route and
          * update-route refuse to make one.

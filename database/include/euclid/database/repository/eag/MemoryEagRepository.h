@@ -31,9 +31,11 @@ namespace Euclid::Database {
 
     public:
 
-        Entity::EAG::Route upsertRoute(Entity::EAG::Route &route) override {
+        std::optional<Entity::EAG::Route> upsertRoute(Entity::EAG::Route &route) override {
             std::lock_guard lock(_mutex);
-            route.modified = std::chrono::system_clock::now();
+            const auto now = std::chrono::system_clock::now();
+            if (route.created.time_since_epoch().count() == 0) route.created = now;
+            route.modified = now;
             _routes[route.routeId] = route;
             return route;
         }
@@ -59,7 +61,7 @@ namespace Euclid::Database {
             std::lock_guard lock(_mutex);
             std::vector<Entity::EAG::Route> routes;
             for (const auto &route: _routes | std::views::values) {
-                if (prefix.empty() || route.routeId.starts_with(prefix)) routes.push_back(route);
+                if (prefix.empty() || route.path.starts_with(prefix)) routes.push_back(route);
             }
             return routes;
         }

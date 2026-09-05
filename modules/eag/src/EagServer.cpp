@@ -144,10 +144,15 @@ namespace Euclid::EAG {
         route.authentication = *authentication;
         if (const auto *active = obj.if_contains("active"); active && active->is_bool()) route.active = active->as_bool();
 
+        // A route that was not stored must not come back looking as though it was - the caller
+        // would go away believing the path is published, and only find out when nothing serves it.
         const auto saved = repository->upsertRoute(route);
+        if (!saved.has_value()) {
+            return EagServer::ErrorResponse(req, status::internal_server_error, "Route could not be stored, routeId: " + routeId);
+        }
         log_info << "EAG route created, routeId: " << routeId << ", path: " << path << ", application: " << applicationId;
 
-        return EagServer::JsonResponse(req, status::ok, boost::json::serialize(toJson(saved)));
+        return EagServer::JsonResponse(req, status::ok, boost::json::serialize(toJson(*saved)));
     }
 
     static response<string_body> handleUpdateRoute(const request<string_body> &req) {
@@ -202,9 +207,12 @@ namespace Euclid::EAG {
         if (const auto *active = obj.if_contains("active"); active && active->is_bool()) route->active = active->as_bool();
 
         const auto saved = repository->upsertRoute(*route);
+        if (!saved.has_value()) {
+            return EagServer::ErrorResponse(req, status::internal_server_error, "Route could not be stored, routeId: " + routeId);
+        }
         log_info << "EAG route updated, routeId: " << routeId;
 
-        return EagServer::JsonResponse(req, status::ok, boost::json::serialize(toJson(saved)));
+        return EagServer::JsonResponse(req, status::ok, boost::json::serialize(toJson(*saved)));
     }
 
     static response<string_body> handleListRoutes(const request<string_body> &req) {

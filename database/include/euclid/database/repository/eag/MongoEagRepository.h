@@ -32,7 +32,7 @@ namespace Euclid::Database {
             return routeDatabase;
         }
 
-        Entity::EAG::Route upsertRoute(Entity::EAG::Route &route) override;
+        std::optional<Entity::EAG::Route> upsertRoute(Entity::EAG::Route &route) override;
 
         [[nodiscard]]
         std::optional<Entity::EAG::Route> findRouteByRouteId(const std::string &routeId) const override;
