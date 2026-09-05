@@ -1,0 +1,103 @@
+.TH EUCLID-CLI-EAG-UPDATE-ROUTE 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eag-update-route \- change an existing gateway route
+.SH SYNOPSIS
+.B euclid-cli eag update-route
+.BR \-\-route\-id | \-r
+.I ID
+.RB [ \-\-path | \-p
+.IR PREFIX ]
+.RB [ \-\-application | \-a
+.IR NAME ]
+.RB [ \-\-authentication | \-A
+.IR none | euclid ]
+.RB [ \-\-active
+.IR true | false ]
+.SH DESCRIPTION
+Changes an existing route. Anything not named is left as it is, so one
+setting can be changed without restating the rest.
+.PP
+The gateway re-reads its routes every
+.I euclid.modules.eag.refresh\-seconds
+(5 by default), so a change takes effect shortly after this returns
+rather than at the next restart.
+.SH TAKING A PATH OUT OF SERVICE
+.B \-\-active false
+is the way to stop serving a path without losing how it was configured.
+The gateway stops carrying it and answers 404, and
+.B \-\-active true
+puts it back exactly as it was \- which is what a maintenance window
+wants, and what
+.BR euclid-cli-eag-delete-route (1)
+cannot offer.
+.PP
+An inactive route is still listed by
+.BR euclid-cli-eag-list-routes (1),
+because it is configuration that exists but is not being served.
+.SH OPTIONS
+.TP
+.BR \-r ", " \-\-route\-id " " \fIID\fR
+Route to change. Required.
+.TP
+.BR \-p ", " \-\-path " " \fIPREFIX\fR
+New path prefix. Must start with \fI/\fR, and must not be a path another
+route already claims.
+.TP
+.BR \-a ", " \-\-application " " \fINAME\fR
+Application the requests are sent to. Must already exist. Changing this
+moves the path to another application without any URL changing, since
+the path is forwarded unchanged either way.
+.TP
+.BR \-A ", " \-\-authentication " " \fInone\fR|\fIeuclid\fR
+What the gateway requires of a caller. See
+.BR euclid-cli-eag-create-route (1).
+.TP
+.BR \-\-active " " \fItrue\fR|\fIfalse\fR
+Whether the route is served.
+.SH EXIT STATUS
+.TP
+.B 0
+The route was updated. Its new definition is printed as JSON.
+.TP
+.B 1
+Missing or invalid arguments, a path that does not start with \fI/\fR or
+is already claimed, an unrecognised
+.BR \-\-authentication ,
+no administrator session, a route or application that does not exist, or
+the server rejected the request.
+.SH EXAMPLES
+Require a euclid credential for a route that was public:
+.PP
+.RS
+.nf
+euclid-cli eag update-route \e
+    --route-id datenlieferanten \e
+    --authentication euclid
+.fi
+.RE
+.PP
+Take a path out of service for a deployment, then put it back:
+.PP
+.RS
+.nf
+euclid-cli eag update-route --route-id datenlieferanten --active false
+euclid-cli eag update-route --route-id datenlieferanten --active true
+.fi
+.RE
+.PP
+Move a path to a replacement application:
+.PP
+.RS
+.nf
+euclid-cli eag update-route \e
+    --route-id datenlieferanten \e
+    --application onix-parser-v2
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eag (1),
+.BR euclid-cli-eag-create-route (1),
+.BR euclid-cli-eag-get-route (1),
+.BR euclid-cli-eag-delete-route (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

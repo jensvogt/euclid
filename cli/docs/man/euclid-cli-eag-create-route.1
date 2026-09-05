@@ -1,0 +1,140 @@
+.TH EUCLID-CLI-EAG-CREATE-ROUTE 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eag-create-route \- publish a path through the API gateway
+.SH SYNOPSIS
+.B euclid-cli eag create-route
+.BR \-\-route\-id | \-r
+.I ID
+.BR \-\-path | \-p
+.I PREFIX
+.BR \-\-application | \-a
+.I NAME
+.RB [ \-\-authentication | \-A
+.IR none | euclid ]
+.RB [ \-\-inactive | \-i ]
+.SH DESCRIPTION
+Publishes a path prefix on the API gateway's port and sends everything
+beneath it to an application, one running instance at a time in turn.
+.PP
+The path is forwarded unchanged, so a route on
+.I /datenlieferanten
+reaches the application as
+.I /datenlieferanten/searchById?id=123
+\- the application sees the URL its callers typed, and nothing about the
+route appears in it.
+.PP
+The instances are found from the ports the manager handed them, so an
+application that scales from one instance to eight is spread across
+eight backends within a few seconds without the route being touched.
+.PP
+The application must already exist. A route pointing at nothing would
+answer 503 for every request, which looks like an application that is
+down rather than one that was never deployed \- so this is refused with
+404 instead.
+.SH MATCHING
+Longest prefix wins: a route on
+.I /datenlieferanten
+carries everything below it, and a later, more specific
+.I /datenlieferanten/export
+takes precedence for its own subtree.
+.PP
+A prefix only matches whole segments, so
+.I /datenlieferanten
+never claims
+.IR /datenlieferanten\-intern .
+.PP
+No two routes may have the same path. The tie would be broken by
+whichever the gateway happened to consider first \- callers would reach
+one application today and possibly the other tomorrow \- so a path
+already routed is refused with 409.
+.SH OPTIONS
+.TP
+.BR \-r ", " \-\-route\-id " " \fIID\fR
+Name for the route, unique within the installation. Required. This is
+how the route is referred to afterwards; it never appears in a URL.
+.TP
+.BR \-p ", " \-\-path " " \fIPREFIX\fR
+Path prefix to publish, e.g. \fI/datenlieferanten\fR. Required. Must
+start with \fI/\fR \- a prefix that does not could never match a request
+target, and would become a route that is configured, listed and silently
+dead.
+.TP
+.BR \-a ", " \-\-application " " \fINAME\fR
+Application the requests are sent to, as deployed through
+.BR euclid-cli-eap (1).
+Required.
+.TP
+.BR \-A ", " \-\-authentication " " \fInone\fR|\fIeuclid\fR
+What the gateway requires of a caller. Defaults to \fInone\fR.
+.RS
+.PP
+With \fInone\fR every request is forwarded and whatever the application
+requires it enforces itself \- which is what a route behind an external
+API gateway wants, and what a public read wants.
+.PP
+With \fIeuclid\fR a euclid credential is required and verified before
+anything is forwarded, and the check happens before a backend is chosen,
+so an unauthenticated caller never causes a connection to an application
+at all.
+.RE
+.TP
+.BR \-i ", " \-\-inactive
+Create the route but leave it out of service. Nothing is served for its
+path until
+.B "update-route \-\-active true"
+puts it in. Useful for preparing a cutover.
+.SH EXIT STATUS
+.TP
+.B 0
+The route was created. Its definition is printed as JSON.
+.TP
+.B 1
+Missing or invalid arguments, a path that does not start with \fI/\fR,
+an unrecognised
+.BR \-\-authentication ,
+no administrator session, a route ID or path already in use, an
+application that does not exist, or the server rejected the request.
+.SH EXAMPLES
+Publish a parser's REST interface:
+.PP
+.RS
+.nf
+euclid-cli eag create-route \e
+    --route-id datenlieferanten \e
+    --path /datenlieferanten \e
+    --application onix-parser
+.fi
+.RE
+.PP
+Carve out an administrative subtree of the same application, requiring a
+euclid credential for it alone:
+.PP
+.RS
+.nf
+euclid-cli eag create-route \e
+    --route-id datenlieferanten-admin \e
+    --path /datenlieferanten/admin \e
+    --application onix-parser \e
+    --authentication euclid
+.fi
+.RE
+.PP
+Prepare a route without serving it yet:
+.PP
+.RS
+.nf
+euclid-cli eag create-route \e
+    --route-id reports \e
+    --path /reports \e
+    --application report-service \e
+    --inactive
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eag (1),
+.BR euclid-cli-eag-update-route (1),
+.BR euclid-cli-eag-list-routes (1),
+.BR euclid-cli-eag-delete-route (1),
+.BR euclid-cli-eap (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

@@ -1,0 +1,314 @@
+.TH EUCLID-CLI-EAG 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eag \- publish paths through the API gateway onto euclid applications
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+[\fB\-\-loglevel\fR \fILEVEL\fR]
+.B eag
+.I action
+[\fIaction-options\fR...]
+.SH DESCRIPTION
+The
+.B eag
+module configures euclid's API gateway: an HTTP listener of its own that
+publishes paths to the outside world and proxies each request to one of
+the running instances of a
+.BR euclid-cli-eap (1)
+application.
+.PP
+It exists because an autoscaled application has no fixed address. Eight
+instances of a parser are eight processes on eight ports, and those
+ports change as the autoscaler starts and stops them \- so nothing
+outside can be told where to send a request. The gateway is the fixed
+address: one port that does not move, in front of a set of backends that
+does.
+.PP
+This is not the same listener as
+.I euclid.gateway.http.port
+(5566), which carries euclid's own service calls \- the ones every other
+module in this manual is reached through. That one speaks euclid's
+protocol and routes by
+.IR x-euclid-target .
+The API gateway speaks nothing but HTTP and routes by path, because what
+is behind it is an ordinary web application that knows nothing about
+euclid.
+.SH ROUTES
+A route is a path prefix plus the application it belongs to. Everything
+beneath the prefix is carried, and the path is forwarded
+.I unchanged
+\- a route on
+.I /datenlieferanten
+pointing at
+.I parser
+sends
+.PP
+.RS
+.nf
+GET /datenlieferanten/searchById?id=123
+.fi
+.RE
+.PP
+to the parser exactly as written. The application sees the URL its
+callers typed; nothing about the route, the gateway or the application's
+own name appears in it. An application therefore does not have to know
+it is behind a gateway, and moving a path from one application to
+another changes no URL.
+.PP
+Longest prefix wins. A route on
+.I /datenlieferanten
+carries everything below it, and a more specific
+.I /datenlieferanten/export
+added later takes precedence for its own subtree without either being
+reordered \- the more specific one is simply longer.
+.PP
+A prefix only matches on a segment boundary, so
+.I /datenlieferanten
+never claims
+.IR /datenlieferanten\-intern ,
+which is a different resource that happens to start with the same
+letters.
+.PP
+Two routes cannot share a path. The tie would be broken by nothing in
+particular, so
+.B create-route
+and
+.B update-route
+refuse to make one.
+.SH BACKENDS
+The instances behind a route are not configured. The manager gives every
+application instance a TCP port of its own out of the range set by
+.I euclid.modules.eap.http\-port\-min
+and
+.I euclid.modules.eap.http\-port\-max
+(9000\-9999 by default) and records it, and the gateway reads that record
+\- so an application that scales from one instance to eight is spread
+across eight backends within a few seconds, and one that scales back
+down stops being sent to, without any route being touched.
+.PP
+Requests go to the instances in turn, one after another. An instance the
+manager could not give a port to is left out of the rotation rather than
+being sent to and failing.
+.PP
+An application must set its own listener to the port it is given. For
+Spring Boot that is
+.PP
+.RS
+.nf
+server:
+  port: ${EUCLID_HTTP_PORT:8080}
+.fi
+.RE
+.PP
+which is what makes several instances able to run on one host at all:
+without it every instance binds the same port, the first one wins, and
+the rest fail in a way the autoscaler cannot see.
+.SH AUTHENTICATION
+Each route decides what it requires of a caller, because the two kinds of
+resource sit behind the same listener.
+.TP
+.B NONE
+Proxied as it arrives. Whatever the application requires, it enforces
+itself. This is what a route behind an external API gateway wants, and
+what a public read wants.
+.TP
+.B EUCLID
+A euclid credential is required and verified before anything is
+forwarded \- whatever the euclid gateway accepts, which today is a
+bearer token, an RFC 9421 message signature or SigV4. The check happens
+before a backend is chosen, so an unauthenticated caller never causes a
+connection to an application at all.
+.SH ANSWERS
+Four of the gateway's own answers are worth telling apart, since none of
+them come from the application:
+.TP
+.B 404
+No route claims this path, or the route that did has been deleted or
+deactivated.
+.TP
+.B 401
+The route requires a euclid credential and the request had none, or one
+that did not verify.
+.TP
+.B 503
+The route exists and the application has no running instance \- scaled
+to zero, still starting, or given no port. The resource exists and
+trying again is reasonable, which is why this is not a 404.
+.TP
+.B 502
+An instance was chosen and did not answer: the connection was refused,
+or it took longer than 60 seconds.
+.SH CHANGES
+The gateway re-reads its routes every
+.I euclid.modules.eag.refresh\-seconds
+(5 by default), so a route created, changed or deleted here takes effect
+shortly after the command returns rather than at the next restart. A
+database it cannot read leaves the previous routes in place, so a
+momentary outage there does not become an outage of every application
+behind the gateway.
+.SH ACTIONS
+.TP
+.B create-route
+Publishes a path prefix and points it at an application. See
+.BR euclid-cli-eag-create-route (1).
+.TP
+.B delete-route
+Removes a route, taking its path out of service. See
+.BR euclid-cli-eag-delete-route (1).
+.TP
+.B get-route
+Shows one route's definition. See
+.BR euclid-cli-eag-get-route (1).
+.TP
+.B list-routes
+Lists the configured routes. See
+.BR euclid-cli-eag-list-routes (1).
+.TP
+.B update-route
+Changes an existing route's path, application, authentication or state.
+See
+.BR euclid-cli-eag-update-route (1).
+.SH GLOBAL OPTIONS
+These options are given to
+.B euclid-cli
+itself, before the
+.I eag
+module name.
+.TP
+.BR \-e ", " \-\-endpoint " " \fIURL\fR
+Euclid gateway endpoint to talk to, e.g. \fIhttps://localhost:5566\fR.
+Note that this is euclid's own service endpoint, not the API gateway
+port these commands configure.
+.TP
+.BR \-\-ca\-cert " " \fIPATH\fR
+Path to a PEM CA certificate to trust in addition to the system trust
+store, e.g. for self-signed development certificates.
+.TP
+.BR \-p ", " \-\-pretty " " \fIBOOL\fR
+Pretty-print the JSON response. Defaults to \fItrue\fR.
+.TP
+.BR \-s ", " \-\-signature " " \fISCHEME\fR
+Signature scheme used for signed service calls: \fIrfc9421\fR (the
+default) or \fIsigv4\fR for AWS Signature Version 4.
+.TP
+.BR \-l ", " \-\-loglevel " " \fILEVEL\fR
+Log level: one of \fItrace\fR, \fIdebug\fR, \fIinfo\fR, \fIwarning\fR,
+\fIerror\fR, \fIfatal\fR. Defaults to \fIinfo\fR.
+.TP
+.BR \-h ", " \-\-help
+Print top-level usage and exit.
+.TP
+.BR \-v ", " \-\-version
+Print the euclid-cli version and exit.
+.SH AUTHENTICATION
+Every
+.B eag
+action is administrator-only, as in
+.BR euclid-cli-ets (1):
+a route decides what the installation exposes to the outside world and
+whether reaching it needs a credential at all.
+.PP
+The session is created by
+.BR euclid-cli-eam-login (1)
+and loaded from
+.IR $HOME/.euclid/credentials .
+The CLI checks for it before sending, but that is only a fail-fast for a
+clearer message \- the server re-checks every request regardless.
+.PP
+Requesting help for an action does not require a session, so
+.B "euclid-cli eag <action> \-\-help"
+works before logging in.
+.SH CONFIGURATION
+Read from
+.I euclid.modules.eag
+in
+.IR euclid.json :
+.TP
+.I port
+TCP port the API gateway listens on. Defaults to 8080.
+.TP
+.I proxy\-threads
+Threads serving proxied requests. Defaults to 8.
+.TP
+.I refresh\-seconds
+How often routes and backends are re-read from the database. Defaults
+to 5.
+.TP
+.I maxInstances
+Must be 1. Two instances cannot bind the same port, and the autoscaler
+cannot see that failure \- it would only see a pool that will not grow.
+.SH LIMITATIONS
+Request and response bodies are buffered whole rather than streamed,
+which suits the short REST calls the gateway carries today and not a
+large download. One request is served per connection; there is no
+keep-alive to the caller and no connection pooling to the backends.
+.PP
+A backend that refuses the connection produces a 502 rather than a retry
+against another instance of the same application.
+.SH EXIT STATUS
+.TP
+.B 0
+The action completed successfully.
+.TP
+.B 1
+Argument parsing failed, there is no session or it is not an
+administrator's, the request could not be sent, or the server rejected
+it. Details are printed to standard error.
+.SH FILES
+.TP
+.I $HOME/.euclid/credentials
+JSON file holding the current session's bearer token and/or access key,
+created by
+.B euclid-cli eam login
+and read by every
+.B eag
+action.
+.SH EXAMPLES
+Publish a parser's REST interface, requiring no credential because an
+external gateway in front of euclid authenticates the caller:
+.PP
+.RS
+.nf
+euclid-cli eag create-route \e
+    --route-id datenlieferanten \e
+    --path /datenlieferanten \e
+    --application onix-parser
+
+curl http://localhost:8080/datenlieferanten/searchById?id=123
+.fi
+.RE
+.PP
+Carve out an administrative subtree of the same application that does
+require one:
+.PP
+.RS
+.nf
+euclid-cli eag create-route \e
+    --route-id datenlieferanten-admin \e
+    --path /datenlieferanten/admin \e
+    --application onix-parser \e
+    --authentication euclid
+.fi
+.RE
+.PP
+Take a path out of service without losing how it was configured, then
+put it back:
+.PP
+.RS
+.nf
+euclid-cli eag update-route --route-id datenlieferanten --active false
+euclid-cli eag update-route --route-id datenlieferanten --active true
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli (1),
+.BR euclid-cli-eag-create-route (1),
+.BR euclid-cli-eag-update-route (1),
+.BR euclid-cli-eag-list-routes (1),
+.BR euclid-cli-eag-get-route (1),
+.BR euclid-cli-eag-delete-route (1),
+.BR euclid-cli-eap (1),
+.BR euclid-cli-emm (1),
+.BR euclid-cli-eam-login (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

@@ -1,0 +1,50 @@
+.TH EUCLID-CLI-EAG-LIST-ROUTES 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eag-list-routes \- list the configured gateway routes
+.SH SYNOPSIS
+.B euclid-cli eag list-routes
+.RB [ \-\-prefix | \-p
+.IR PATH ]
+.SH DESCRIPTION
+Lists the configured routes with their paths, the applications behind
+them, what they require of a caller, and whether they are in service.
+.PP
+Inactive routes are listed too. They are configuration that exists but
+is not being served, and leaving them out would make a route somebody
+deactivated look deleted.
+.PP
+This shows what is
+.IR configured ,
+not what is
+.IR reachable :
+a route whose application has no running instance is listed exactly like
+any other and answers 503. Use
+.BR euclid-cli-emm (1)
+to see how many instances an application currently has.
+.SH OPTIONS
+.TP
+.BR \-p ", " \-\-prefix " " \fIPATH\fR
+Only routes whose path starts with this. Omit for all of them.
+.SH EXIT STATUS
+.TP
+.B 0
+The call succeeded, including when it matched nothing. The routes are
+printed as JSON.
+.TP
+.B 1
+Invalid arguments, no administrator session, or the server rejected the
+request.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli eag list-routes
+euclid-cli eag list-routes --prefix /datenlieferanten
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eag (1),
+.BR euclid-cli-eag-get-route (1),
+.BR euclid-cli-eag-create-route (1),
+.BR euclid-cli-emm (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

@@ -28,7 +28,7 @@ namespace Euclid::SFTP {
      * SftpSession.
      *
      * @par
-     * Assembled from two places: the defaults under euclid.modules.sftp.* (spool directory,
+     * Assembled from two places: the defaults under euclid.modules.ets.* (spool directory,
      * fallback host key) and the ETS transfer server definition this process was started for,
      * which supplies everything that actually distinguishes one server from another.
      */
@@ -120,7 +120,7 @@ namespace Euclid::SFTP {
     private:
 
         /**
-         * @brief Reads euclid.modules.sftp.* into _config, creating each configured user's
+         * @brief Reads euclid.modules.ets.* into _config, creating each configured user's
          * home directory under rootDir if it doesn't already exist.
          */
         void loadConfig();
