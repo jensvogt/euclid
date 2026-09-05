@@ -15,6 +15,25 @@
 namespace Euclid::Database {
 
     namespace {
+
+        // A prefix is a literal, not a pattern. Object keys are full of regex metacharacters -
+        // every file extension contributes a "." - so an unescaped prefix quietly matches more
+        // than was asked for: "jvo/file.xml" would also select "jvo/fileXxml". Harmless in a
+        // listing, not harmless in touch-object or purge-bucket, which act on what it selects.
+        std::string QuotePrefix(const std::string &prefix) {
+            std::string quoted;
+            quoted.reserve(prefix.size());
+            for (const char c: prefix) {
+                if (std::string_view(R"(\^$.|?*+()[]{})").contains(c)) quoted += '\\';
+                quoted += c;
+            }
+            return quoted;
+        }
+
+    }// namespace
+
+
+    namespace {
         // Where this repository's time actually goes, one series per operation - the same pair of
         // metrics the modules record for their actions ("esm-service-time"/"esm-service-count",
         // labelled by method), one layer down and labelled by repository operation instead.
@@ -165,7 +184,7 @@ namespace Euclid::Database {
                 filter.append(kvp("namespace", namespaceName));
             }
             if (!prefix.empty()) {
-                filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
+                filter.append(kvp("name", make_document(kvp("$regex", "^" + QuotePrefix(prefix)))));
             }
 
             mongocxx::options::find opts;
@@ -237,7 +256,7 @@ namespace Euclid::Database {
                 filter.append(kvp("namespace", namespaceName));
             }
             if (!prefix.empty()) {
-                filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
+                filter.append(kvp("name", make_document(kvp("$regex", "^" + QuotePrefix(prefix)))));
             }
 
             const auto entry = Database::instance().client();
@@ -386,7 +405,7 @@ namespace Euclid::Database {
             document filter = {};
             filter.append(kvp("bucketErn", bucketErn));
             if (!prefix.empty()) {
-                filter.append(kvp("key", make_document(kvp("$regex", "^" + prefix))));
+                filter.append(kvp("key", make_document(kvp("$regex", "^" + QuotePrefix(prefix)))));
             }
             if (!includeDirectories) {
                 filter.append(kvp("$nor", make_array(make_document(kvp("key", make_document(kvp("$regex", "/$")))))));
@@ -428,7 +447,7 @@ namespace Euclid::Database {
             document filter = {};
             filter.append(kvp("bucketErn", bucketErn));
             if (!prefix.empty()) {
-                filter.append(kvp("key", make_document(kvp("$regex", "^" + prefix))));
+                filter.append(kvp("key", make_document(kvp("$regex", "^" + QuotePrefix(prefix)))));
             }
             // $nor rather than a second "key" condition: the prefix filter above already occupies
             // that field name, and a document cannot carry it twice.

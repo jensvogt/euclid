@@ -1,3 +1,8 @@
+// C++ includes
+#include <algorithm>
+#include <cctype>
+#include <sstream>
+
 // Euclid includes
 #include <euclid/cli/eag/EagCli.h>
 
@@ -33,6 +38,23 @@ namespace Euclid::CLI {
             if (path.starts_with("/")) return true;
             std::cerr << "error: " << action << " failed: --path must start with '/', e.g. /resource\n";
             return false;
+        }
+
+        // Splits a comma-separated method list into upper-cased entries, e.g. "get, post" -> two.
+        // Empty stays empty, which is what the server reads as "every method".
+        boost::json::array SplitMethods(const std::string &value) {
+            boost::json::array methods;
+            std::stringstream ss(value);
+            for (std::string part; std::getline(ss, part, ',');) {
+                const auto first = part.find_first_not_of(" \t");
+                const auto last = part.find_last_not_of(" \t");
+                if (first == std::string::npos) continue;
+
+                auto method = part.substr(first, last - first + 1);
+                std::ranges::transform(method, method.begin(), [](const unsigned char c) { return static_cast<char>(std::toupper(c)); });
+                methods.push_back(boost::json::string(method));
+            }
+            return methods;
         }
 
         bool ValidAuthentication(const std::string &authentication, const std::string &action) {
@@ -87,13 +109,14 @@ namespace Euclid::CLI {
                 ("route-id,r", po::value<std::string>()->required(), "name for the route, unique within the installation")
                 ("path,p", po::value<std::string>()->required(), "path prefix to publish, e.g. /resource")
                 ("application,a", po::value<std::string>()->required(), "application the requests are sent to")
+                ("methods,m", po::value<std::string>(), "comma-separated HTTP methods this route answers for, e.g. GET,POST; omit for all of them")
                 ("authentication,A", po::value<std::string>()->default_value("none"), "none (anybody may call it) or euclid (a euclid credential is required)")
                 ("inactive,i", po::bool_switch(), "create the route but leave it out of service until update-route activates it");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eag", "create-route",
                                    "--route-id <id> --path <prefix> --application <name> "
-                                   "[--authentication none|euclid] [--inactive]",
+                                   "[--methods <list>] [--authentication none|euclid] [--inactive]",
                                    "Publishes a path prefix on the gateway's port and sends everything beneath it to "
                                    "an application, one instance at a time in turn. The path is forwarded unchanged, "
                                    "so a route on /resource reaches the application as "
@@ -106,6 +129,12 @@ namespace Euclid::CLI {
                                    "a later, more specific /resource/export takes precedence for its own "
                                    "subtree. A prefix only matches whole segments, so /resource never claims "
                                    "/resource-intern. "
+                                   "Without --methods the route answers for every method. Naming some restricts it to "
+                                   "those, and anything else on the path is answered with 405 and an Allow header "
+                                   "rather than 404 - the caller is told the resource is there and they asked the "
+                                   "wrong way round. Two routes may share a path as long as their methods do not "
+                                   "overlap, which is how reads and writes of one resource can go to different "
+                                   "applications without the caller seeing a seam. "
                                    "With --authentication euclid the gateway requires a euclid credential and refuses "
                                    "the request before any application sees it; with none it forwards everything, "
                                    "which is what a route behind an external gateway or an application doing its own "
@@ -131,6 +160,7 @@ namespace Euclid::CLI {
                 {"routeId", vm["route-id"].as<std::string>()},
                 {"path", path},
                 {"applicationId", vm["application"].as<std::string>()},
+                {"methods", vm.contains("methods") ? SplitMethods(vm["methods"].as<std::string>()) : boost::json::array{}},
                 {"authentication", authentication},
                 {"active", !vm["inactive"].as<bool>()}
         };
@@ -144,17 +174,20 @@ namespace Euclid::CLI {
                 ("route-id,r", po::value<std::string>()->required(), "route to change")
                 ("path,p", po::value<std::string>(), "new path prefix")
                 ("application,a", po::value<std::string>(), "application the requests are sent to")
+                ("methods,m", po::value<std::string>(), "comma-separated HTTP methods, or an empty string for all of them")
                 ("authentication,A", po::value<std::string>(), "none or euclid")
                 ("active", po::value<bool>(), "true to put the route into service, false to take it out");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eag", "update-route",
-                                   "--route-id <id> [--path <prefix>] [--application <name>] "
+                                   "--route-id <id> [--path <prefix>] [--application <name>] [--methods <list>] "
                                    "[--authentication none|euclid] [--active true|false]",
                                    "Changes an existing route. Anything not named is left as it is, so one setting can "
                                    "be changed without restating the rest. "
                                    "The gateway re-reads its routes every few seconds, so a change takes effect "
                                    "shortly after this returns rather than at the next restart. "
+                                   "--methods replaces the whole list rather than adding to it, and \"--methods ''\" "
+                                   "puts the route back to answering for every method. "
                                    "--active false is the way to take a path out of service without losing its "
                                    "definition: the gateway stops carrying it and answers 404, and --active true puts "
                                    "it back exactly as it was.",
@@ -178,6 +211,7 @@ namespace Euclid::CLI {
             request["path"] = path;
         }
         if (vm.contains("application")) request["applicationId"] = vm["application"].as<std::string>();
+        if (vm.contains("methods")) request["methods"] = SplitMethods(vm["methods"].as<std::string>());
         if (vm.contains("authentication")) {
             const auto authentication = vm["authentication"].as<std::string>();
             if (!ValidAuthentication(authentication, "update-route")) return 1;
@@ -267,8 +301,9 @@ namespace Euclid::CLI {
             return 1;
         }
 
-        return Send(_endpoint, _authentication, _caCertPath, _pretty, "delete-route",
-                    boost::json::object{{"routeId", vm["route-id"].as<std::string>()}});
+        Send(_endpoint, _authentication, _caCertPath, _pretty, "delete-route",
+             boost::json::object{{"routeId", vm["route-id"].as<std::string>()}});
+        return 0;
     }
 
 }// namespace Euclid::CLI

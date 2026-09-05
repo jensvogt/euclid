@@ -131,7 +131,7 @@ namespace Euclid::EES {
         // chosen deliberately.
         const auto modeField = stringField(obj, "mode", "durable");
         if (modeField != "durable" && modeField != "live") {
-            return EesServer::ErrorResponse(req, status::bad_request, "mode must be \"durable\" or \"live\"");
+            return EesServer::ErrorResponse(req, status::bad_request, R"(mode must be "durable" or "live")");
         }
         const auto mode = Database::EventBus::DeliveryModeFromString(modeField);
 
@@ -175,8 +175,7 @@ namespace Euclid::EES {
         const auto removed = Database::EventBus::instance().UnsubscribeExternal(subscriber, stringField(obj, "eventType"));
         log_info << "EES unsubscribed, subscriber: " << subscriber << ", removed: " << removed;
 
-        return EesServer::JsonResponse(req, status::ok,
-                                       boost::json::serialize(boost::json::object{{"subscriber", subscriber}, {"removed", removed}}));
+        return EesServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{{"subscriber", subscriber}, {"removed", removed}}));
     }
 
     static response<string_body> handleListSubscriptions(const request<string_body> &req) {
@@ -208,8 +207,7 @@ namespace Euclid::EES {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "receive-events");
 
-        const auto auth = authenticate(req);
-        if (!auth.user.has_value()) return unauthorized(req, auth);
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EesServer::ParseJsonBody(req, jv)) return *err;

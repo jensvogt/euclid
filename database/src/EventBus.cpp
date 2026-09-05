@@ -20,6 +20,7 @@
 #include <euclid/core/Scheduler.h>
 #include <euclid/core/UuidUtils.h>
 #include <euclid/database/Database.h>
+#include <euclid/core/JsonUtils.h>
 #include <euclid/database/EventBus.h>
 
 namespace Euclid::Database {
@@ -72,6 +73,12 @@ namespace Euclid::Database {
                 // shrinks, so the slower it gets the less it drains, and the less it drains the
                 // slower it gets. An eventId is a UUID, so this seeks straight to the one document.
                 db[EVENT_COLLECTION].create_index(make_document(kvp("eventId", 1)));
+
+                // Deleting everything queued for a queue or topic that has just been removed. Rare
+                // next to the traffic this collection carries, but it has to be a lookup rather
+                // than a scan: without it, delete-queue reads every pending event in the
+                // installation and the caller times out long before it finishes.
+                db[EVENT_COLLECTION].create_index(make_document(kvp("targetErn", 1)));
 
                 // Only external envelopes carry expiresAt, so this expires an abandoned
                 // consumer's backlog and leaves module deliveries - which have no such field -
@@ -192,7 +199,8 @@ namespace Euclid::Database {
         else _subscriberCache.erase(eventType);
     }
 
-    void EventBus::Publish(const std::string &eventType, const boost::json::value &payload, const std::string &sourceModule) {
+    void EventBus::Publish(const std::string &eventType, const boost::json::value &payload, const std::string &sourceModule,
+                           const Delivery &delivery) {
 
         ensureIndexes();
 
@@ -253,6 +261,9 @@ namespace Euclid::Database {
                         kvp("eventType", eventType),
                         kvp("sourceModule", sourceModule),
                         kvp("targetModule", target),
+                        kvp("targetErn", delivery.targetErn),
+                        kvp("sourceErn", delivery.sourceErn),
+                        kvp("messageId", delivery.messageId),
                         kvp("payload", payloadJson),
                         kvp("status", kPending),
                         kvp("claimedBy", ""),
@@ -594,6 +605,12 @@ namespace Euclid::Database {
                 envelope.eventId = std::string(view["eventId"].get_string().value);
                 envelope.eventType = std::string(view["eventType"].get_string().value);
                 envelope.sourceModule = std::string(view["sourceModule"].get_string().value);
+
+                // Absent on events published before these were envelope fields, and on domain
+                // events, which address nobody.
+                if (const auto field = view["targetErn"]; field && field.type() == bsoncxx::type::k_string) envelope.targetErn = std::string(field.get_string().value);
+                if (const auto field = view["sourceErn"]; field && field.type() == bsoncxx::type::k_string) envelope.sourceErn = std::string(field.get_string().value);
+                if (const auto field = view["messageId"]; field && field.type() == bsoncxx::type::k_string) envelope.messageId = std::string(field.get_string().value);
                 envelope.attempts = static_cast<long>(view["attempts"].get_int64().value);
                 envelope.createdAt = system_clock::time_point{view["createdAt"].get_date().value};
                 try {
@@ -743,6 +760,22 @@ namespace Euclid::Database {
         }
     }
 
+    long EventBus::DiscardDeliveries(const std::string &targetErn) {
+
+        if (targetErn.empty()) return 0;
+
+        try {
+            const auto entry = Database::instance().client();
+            const auto removed = (*entry)[Database::instance().databaseName()][EVENT_COLLECTION]
+                                         .delete_many(make_document(kvp("targetErn", targetErn)).view());
+            return removed ? static_cast<long>(removed->deleted_count()) : 0;
+
+        } catch (const std::exception &e) {
+            log_error << "EventBus could not discard deliveries, targetErn: " << targetErn << ", error: " << e.what();
+        }
+        return 0;
+    }
+
     void EventBus::pollOnce(const std::string &moduleType) {
 
         try {
@@ -773,6 +806,13 @@ namespace Euclid::Database {
                 envelope.eventId = std::string(view["eventId"].get_string().value);
                 envelope.eventType = std::string(view["eventType"].get_string().value);
                 envelope.sourceModule = std::string(view["sourceModule"].get_string().value);
+
+                // Absent on events published before these were envelope fields, and on domain
+                // events, which address nobody.
+                if (const auto field = view["targetErn"]; field && field.type() == bsoncxx::type::k_string) envelope.targetErn = std::string(field.get_string().value);
+                if (const auto field = view["sourceErn"]; field && field.type() == bsoncxx::type::k_string) envelope.sourceErn = std::string(field.get_string().value);
+                if (const auto field = view["messageId"]; field && field.type() == bsoncxx::type::k_string) envelope.messageId = std::string(field.get_string().value);
+
                 envelope.attempts = view["attempts"].get_int64().value;
                 envelope.createdAt = system_clock::time_point{view["createdAt"].get_date().value};
                 try {
@@ -789,8 +829,20 @@ namespace Euclid::Database {
 
                 bool ok = false;
                 if (!handler) {
+
+                    // Acked and left alone, deliberately. It is tempting to also delete the
+                    // subscription record that caused the delivery - no handler looks like proof
+                    // that it is stale - but this runs on watchLoop's detached thread, which has
+                    // no exit and keeps polling while the process tears down around it. A handler
+                    // map that has already been destroyed is indistinguishable from one that never
+                    // had the entry, so a shutting-down instance would delete a record every other
+                    // instance of its module still depends on.
+                    //
+                    // Stale records are removed by pruneStaleSubscriptions() at start-up instead,
+                    // where the process is whole and its handlers are all registered.
                     log_warning << "EventBus no local handler for eventType: " << envelope.eventType << ", acking to avoid poison delivery";
                     ok = true;
+
                 } else {
                     try {
                         ok = handler(envelope);

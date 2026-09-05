@@ -9,6 +9,8 @@ euclid-cli-eag-update-route \- change an existing gateway route
 .IR PREFIX ]
 .RB [ \-\-application | \-a
 .IR NAME ]
+.RB [ \-\-methods | \-m
+.IR LIST ]
 .RB [ \-\-authentication | \-A
 .IR none | euclid ]
 .RB [ \-\-active
@@ -48,6 +50,19 @@ Application the requests are sent to. Must already exist. Changing this
 moves the path to another application without any URL changing, since
 the path is forwarded unchanged either way.
 .TP
+.BR \-m ", " \-\-methods " " \fILIST\fR
+Comma-separated HTTP methods. Replaces the whole list rather than adding
+to it, so
+.B "\-\-methods GET"
+leaves a route answering for GET alone. An empty string
+.RB ( "\-\-methods ''" )
+puts it back to answering for every method.
+.RS
+.PP
+Must not overlap with another route on the same path; see
+.BR euclid-cli-eag-create-route (1).
+.RE
+.TP
 .BR \-A ", " \-\-authentication " " \fInone\fR|\fIeuclid\fR
 What the gateway requires of a caller. See
 .BR euclid-cli-eag-create-route (1).
@@ -60,9 +75,11 @@ Whether the route is served.
 The route was updated. Its new definition is printed as JSON.
 .TP
 .B 1
-Missing or invalid arguments, a path that does not start with \fI/\fR or
-is already claimed, an unrecognised
-.BR \-\-authentication ,
+Missing or invalid arguments, a path that does not start with \fI/\fR, a
+path and method another route already claims, an unrecognised
+.B \-\-authentication
+or
+.BR \-\-methods ,
 no administrator session, a route or application that does not exist, or
 the server rejected the request.
 .SH EXAMPLES
@@ -82,6 +99,15 @@ Take a path out of service for a deployment, then put it back:
 .nf
 euclid-cli eag update-route --route-id resource --active false
 euclid-cli eag update-route --route-id resource --active true
+.fi
+.RE
+.PP
+Narrow a route to reads only, then open it up again:
+.PP
+.RS
+.nf
+euclid-cli eag update-route --route-id resource --methods GET,HEAD
+euclid-cli eag update-route --route-id resource --methods ''
 .fi
 .RE
 .PP

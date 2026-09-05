@@ -8,6 +8,7 @@
 #include <chrono>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -47,20 +48,66 @@ namespace Euclid::EAG {
         bool refresh();
 
         /**
-         * @brief The route a path belongs to, or nothing if no route claims it.
+         * @brief What matching a request found.
+         */
+        struct Match {
+
+            /**
+             * @brief The route that claimed it, if one did.
+             */
+            std::optional<Database::Entity::EAG::Route> route;
+
+            /**
+             * @brief The methods some route does answer for on this path, when none answered for
+             * the one asked. Empty unless the path matched and the method did not.
+             *
+             * @par
+             * Kept so the gateway can answer 405 with an Allow header rather than 404. The two
+             * mean quite different things to whoever is holding the URL: one says the resource is
+             * not there, the other says it is and they asked the wrong way round.
+             */
+            std::set<std::string> allowed;
+        };
+
+        /**
+         * @brief The route a path and method belong to, or nothing if no route claims them.
          *
          * @par
          * Longest prefix wins. A route for "/resource" carries everything beneath it, and
          * a more specific "/resource/export" can be carved out later without either being
          * reordered: the more specific one is simply longer. Two routes claiming the exact same
          * path would be a tie decided by nothing in particular, which is why create-route and
-         * update-route refuse to make one.
+         * update-route refuse to make one - unless their methods differ, see below.
+         *
+         * @par
+         * A route that names no method answers for all of them. Where a path matches but the
+         * method does not, the scan continues - two routes may share a path and split it by
+         * method - and only if none of them wants it are the methods that were on offer reported
+         * back in Match::allowed.
          *
          * @param path request target, without its query string.
-         * @return the matching route.
+         * @param method request method, upper case.
+         * @return what was found.
          */
         [[nodiscard]]
-        std::optional<Database::Entity::EAG::Route> match(const std::string &path) const;
+        Match match(const std::string &path, const std::string &method) const;
+
+        /**
+         * @brief Orders routes so that the first one that matches is the most specific.
+         *
+         * @par
+         * Separate from refresh() so that the ordering and the matching below can be exercised
+         * together without a database: what these two do between them *is* the routing, and it is
+         * the part with rules worth stating and therefore worth testing.
+         */
+        static void order(std::vector<Database::Entity::EAG::Route> &routes);
+
+        /**
+         * @brief Matches against an already-ordered route list. See match().
+         */
+        [[nodiscard]]
+        static Match matchIn(const std::vector<Database::Entity::EAG::Route> &routes,
+                             const std::string &path, const std::string &method);
 
         /**
          * @brief The distinct applications the current routes point at.

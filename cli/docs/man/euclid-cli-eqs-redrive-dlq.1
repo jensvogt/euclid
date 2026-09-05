@@ -1,0 +1,124 @@
+.TH EUCLID-CLI-EQS-REDRIVE-DLQ 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eqs-redrive-dlq \- move messages out of a dead letter queue and back where they failed
+.SH SYNOPSIS
+.B euclid-cli eqs redrive-dlq
+.BR \-\-queue | \-q
+.I NAME
+.RB [ \-\-target\-queue | \-t
+.IR NAME ]
+.SH DESCRIPTION
+Moves every message out of a dead letter queue and back into the queue
+it failed in.
+.PP
+A message reaches a dead letter queue by being received more times than
+its source queue's
+.I maxReceiveCount
+allows \- it was delivered, not processed, and delivered again, until
+euclid stopped offering it. The dead letter queue is where those land so
+somebody can look at them. Putting them back, once whatever rejected
+them is fixed, is the other half of that and is what this does.
+.SH WHAT MAKES A QUEUE A DEAD LETTER QUEUE
+Nothing on the queue itself. The relationship is only ever written the
+other way round \- a queue names the queue its failures go to \- so a
+dead letter queue is simply one that some other queue points at.
+.PP
+Naming a queue nothing points at is refused:
+.PP
+.RS
+.nf
+error: redrive-dlq failed (HTTP 400): Queue is not a dead letter queue,
+ern: ... - no queue names it as its dead letter queue
+.fi
+.RE
+.PP
+which is deliberate. An ordinary queue has no "original queue" to return
+anything to, and moving its messages somewhere chosen by the gateway
+would be worse than refusing.
+.SH WHERE THE MESSAGES GO
+Where one queue feeds the dead letter queue \- the usual arrangement \-
+everything goes back to it and
+.B \-\-target\-queue
+is unnecessary.
+.PP
+Where several do, "the original queue" is only answerable per message,
+so each goes back to the queue it actually came from. euclid records
+that on the message as it moves it, so the answer is exact rather than
+guessed.
+.PP
+Messages that predate euclid recording it have no origin. They are left
+in the dead letter queue rather than placed arbitrarily, and counted in
+.I remaining
+so it is clear something was left:
+.PP
+.RS
+.nf
+{
+  "ern": "...:queue:shared-dlq",
+  "messages": 42,
+  "remaining": 3,
+  "targets": [ { "queueErn": "...:queue:orders", "messages": 42 } ],
+  "note": "Messages remain in the dead letter queue because no source
+           queue is recorded for them. Name one with a target queue to
+           move them."
+}
+.fi
+.RE
+.PP
+.B \-\-target\-queue
+is how to place those deliberately. It has to be one of the queues that
+actually feed this dead letter queue \- anything else would be a move
+rather than a redrive, and would put messages somewhere they were never
+sent.
+.SH WHAT A REDRIVEN MESSAGE LOOKS LIKE
+It starts over as though it were new: available immediately, with no
+receipt handle from whatever last held it, and its receive count back to
+zero. That last part matters \- a redriven message gets the source
+queue's full allowance again, rather than returning one failure away
+from being dead a second time.
+.PP
+Fix what made them fail before running this. Messages redriven into a
+consumer that still rejects them simply come back, and the second round
+trip tells nobody anything the first did not.
+.SH OPTIONS
+.TP
+.BR \-q ", " \-\-queue " " \fINAME\fR
+Dead letter queue to empty. Required. A queue name is enough; a full ERN
+also works and is what reaches another namespace.
+.TP
+.BR \-t ", " \-\-target\-queue " " \fINAME\fR
+Queue to move the messages into. Only needed when several queues share
+this dead letter queue, or to place messages with no recorded origin.
+Must be a queue that uses this dead letter queue.
+.SH EXIT STATUS
+.TP
+.B 0
+The messages were moved. Counts are printed as JSON.
+.TP
+.B 1
+Missing arguments, no session, the named queue does not exist, it is not
+a dead letter queue, the target queue does not use it, or the server
+rejected the request.
+.SH EXAMPLES
+Put everything back after fixing the consumer:
+.PP
+.RS
+.nf
+euclid-cli eqs redrive-dlq --queue orders-dlq
+.fi
+.RE
+.PP
+Place the messages that have no recorded origin:
+.PP
+.RS
+.nf
+euclid-cli eqs redrive-dlq --queue shared-dlq --target-queue orders
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eqs (1),
+.BR euclid-cli-eqs-create-queue (1),
+.BR euclid-cli-eqs-list-messages (1),
+.BR euclid-cli-eqs-purge-queue (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

@@ -45,6 +45,19 @@ namespace Euclid::Database::Entity::EQS {
         std::string queueErn;
 
         /**
+         * @brief Queue this message was moved to a dead letter queue from, or empty if it was
+         * never moved.
+         *
+         * @par
+         * A message reaches a dead letter queue by having its queueErn rewritten, which leaves
+         * nothing behind saying where it had been - and "put it back" is the one thing anybody
+         * ever wants to do with a dead letter queue. Recorded here so redrive-dlq can return each
+         * message to the queue it actually failed in, which matters when several queues share one
+         * dead letter queue and a single "original queue" does not exist.
+         */
+        std::string sourceQueueErn;
+
+        /**
          * @brief Message body
          */
         std::string body;

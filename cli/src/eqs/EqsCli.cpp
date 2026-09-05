@@ -45,6 +45,7 @@ namespace Euclid::CLI {
                                            {"list-queues", "List queues"},
                                            {"purge-all-queues", "Delete all messages from every queue in a region/account"},
                                            {"purge-queue", "Delete all messages from a queue"},
+                                           {"redrive-dlq", "Move messages from a dead letter queue back into the queue they failed in"},
                                            {"receive-messages", "Receive messages from a queue"},
                                            {"send-message", "Send a message to a queue"},
                                            {"set-message-attribute", "Sets the value of a message attribute"},
@@ -66,6 +67,9 @@ namespace Euclid::CLI {
         }
         if (action == "get-queue-ern") {
             return getQueueErn(args);
+        }
+        if (action == "redrive-dlq") {
+            return redriveDlq(args);
         }
         if (action == "purge-queue") {
             return purgeQueue(args);
@@ -346,6 +350,59 @@ namespace Euclid::CLI {
                 std::cerr << "error: purge-queue failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EqsCli::redriveDlq(const std::vector<std::string> &args) const {
+        po::options_description desc("redrive dead letter queue options");
+        desc.add_options()
+                ("queue,q", po::value<std::string>()->required(), "dead letter queue to empty; a full ERN also works and is what reaches another namespace")
+                ("target-queue,t", po::value<std::string>(), "queue to move the messages into; only needed when several queues share this dead letter queue");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eqs", "redrive-dlq", "--queue <name|ern> [--target-queue <name|ern>]",
+                                   "Moves every message out of a dead letter queue and back into the queue it failed "
+                                   "in, which is what a dead letter queue is for: it holds what could not be processed "
+                                   "so somebody can fix the cause and try again. "
+                                   "The queue must actually be a dead letter queue - one that another queue names as "
+                                   "its own - and naming an ordinary queue is refused rather than moving its messages "
+                                   "somewhere arbitrary. "
+                                   "A redriven message starts over as though it were new: available immediately, and "
+                                   "with its receive count back to zero, so it gets the source queue's full allowance "
+                                   "rather than returning one failure away from being dead again. Fix what made them "
+                                   "fail first - messages redriven into a consumer that still rejects them simply "
+                                   "come back. "
+                                   "Where one queue feeds the dead letter queue, everything goes back to it and "
+                                   "--target-queue is unnecessary. Where several do, each message returns to the queue "
+                                   "it actually came from; any that predate euclid recording this are left in place "
+                                   "and reported, and --target-queue is how to place them deliberately.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        boost::json::object request{{"ern", vm["queue"].as<std::string>()}};
+        if (vm.contains("target-queue")) request["targetErn"] = vm["target-queue"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eqs", "redrive-dlq", request);
+            if (!response.IsSuccess()) {
+                std::cerr << "error: redrive-dlq failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
             return 0;
         } catch (const std::exception &ex) {
             std::cerr << "error: " << ex.what() << std::endl;

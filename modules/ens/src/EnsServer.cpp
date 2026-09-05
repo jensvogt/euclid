@@ -219,13 +219,13 @@ namespace Euclid::ENS {
         for (const auto &subscription: repo->listSubscriptionsBySourceErn(topicErn)) {
             if (subscription.type != "SQS") continue;
             const boost::json::value payload = {
-                    {"messageId", message.messageId},
-                    {"sourceErn", topicErn},
-                    {"targetErn", subscription.targetErn},
                     {"body", body},
                     {"attributes", attributesJson},
             };
-            Database::EventBus::instance().Publish("ens.message.published", payload, "ens");
+            Database::EventBus::instance().Publish("ens.message.published", payload, "ens",
+                                                   {.targetErn = subscription.targetErn,
+                                                    .sourceErn = topicErn,
+                                                    .messageId = message.messageId});
             ++delivered;
         }
         recordMessages(kMessagesReceived, kBytesReceived, topicErn, delivered, delivered * message.size);
@@ -272,7 +272,10 @@ namespace Euclid::ENS {
 
     static bool handleObjectPublishedNotification(const Database::EventEnvelope &envelope) {
 
-        const auto targetErn = Core::GetStringValue(envelope.payload, "targetErn");
+        // Envelope first, payload second - see EqsServer::handleSubscriptionDelivery. An event
+        // published by the previous binary carries the target in its payload, and is still being
+        // consumed by this one until the backlog drains.
+        const auto targetErn = !envelope.targetErn.empty() ? envelope.targetErn : Core::GetStringValue(envelope.payload, "targetErn");
         const auto body = Core::GetStringValue(envelope.payload, "body");
 
         const auto repo = Database::RepositoryFactory::instance().ensRepository();

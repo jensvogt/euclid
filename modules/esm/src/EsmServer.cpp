@@ -386,7 +386,7 @@ namespace Euclid::ESM {
 
     // How many background removals are running, so the answer to an --async request can say
     // whether it joined a queue and so a shutdown could be made to wait for them later.
-    std::atomic<int> backgroundRemovals{0};
+    static std::atomic backgroundRemovals{0};
 
     // Runs removeBucketObjects() on a detached thread, optionally deleting the bucket afterwards.
     //
@@ -404,7 +404,7 @@ namespace Euclid::ESM {
                                                 const std::optional<Database::Entity::ESM::Bucket> &bucket,
                                                 const std::string &userId, const bool deleteBucket) {
 
-        backgroundRemovals++;
+        ++backgroundRemovals;
         std::thread([bucketErn, prefix, bucket, userId, deleteBucket] {
             try {
                 log_info << "ESM background removal started, ern: " << bucketErn << (deleteBucket ? ", deleting the bucket afterwards" : "");
@@ -438,7 +438,7 @@ namespace Euclid::ESM {
                 // left as it is, which is what makes asking again the way to finish the job.
                 log_error << "ESM background removal failed, ern: " << bucketErn << ", error: " << e.what();
             }
-            backgroundRemovals--;
+            --backgroundRemovals;
         }).detach();
     }
 
@@ -495,21 +495,20 @@ namespace Euclid::ESM {
                 continue;
             }
 
+            // Where it is going travels on the envelope; the payload is the message and nothing
+            // else. A consumer hands the body on unchanged, so anything of ours mixed into it
+            // would end up in somebody's queue.
+            const Database::EventBus::Delivery delivery{
+                    .targetErn = subscription.targetErn,
+                    .sourceErn = bucketErn,
+                    .messageId = Core::UuidUtils::CreateRandomUuid()};
+
+            const boost::json::value payload = {{"body", body}};
+
             if (subscription.type == "SQS") {
-                const boost::json::value payload = {
-                        {"messageId", Core::UuidUtils::CreateRandomUuid()},
-                        {"sourceErn", bucketErn},
-                        {"targetErn", subscription.targetErn},
-                        {"body", body},
-                };
-                Database::EventBus::instance().Publish("esm.subscription.delivery", payload, "esm");
+                Database::EventBus::instance().Publish("esm.subscription.delivery", payload, "esm", delivery);
             } else if (subscription.type == "SNS") {
-                const boost::json::value payload = {
-                        {"sourceErn", bucketErn},
-                        {"targetErn", subscription.targetErn},
-                        {"body", body},
-                };
-                Database::EventBus::instance().Publish("esm.subscription.publication", payload, "esm");
+                Database::EventBus::instance().Publish("esm.subscription.publication", payload, "esm", delivery);
             }
         }
     }
@@ -715,6 +714,60 @@ namespace Euclid::ESM {
     // A transfer server points at a bucket ERN, and rewriting another module's definition from
     // here would leave ETS with a record it never agreed to - so a bucket a transfer server is
     // serving is refused instead, and the operator moves the server with "ets update-server".
+    // Announces objects that are already there, as though each had just been uploaded.
+    //
+    // A notification can go missing in ways an object never does: the consumer was down and its
+    // subscription was live rather than durable, its queue was deleted with deliveries still
+    // queued for it, or the subscription was created after the objects had already arrived. In
+    // every one of those the data is intact and only the announcement was lost, and re-uploading
+    // gigabytes to re-send a few kilobytes of notification is the wrong repair.
+    //
+    // So nothing about the object changes - not a byte, not its modified time. "Touch" here means
+    // what it does to listeners, not what it does to storage, because a timestamp is something
+    // consumers compare against and moving it would make this destructive in exactly the way it
+    // is trying not to be.
+    response<string_body> EsmServer::handleTouchObject(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "touch-object");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+
+        const auto bucketErn = Core::GetStringValue(jv, "ern");
+        const auto prefix = Core::GetStringValue(jv, "prefix");
+        if (bucketErn.empty()) return ErrorResponse(req, status::bad_request, "ern is required");
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        const auto bucket = repo->findBucketByErn(bucketErn);
+        if (!bucket.has_value()) {
+            return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + bucketErn);
+        }
+        if (bucket->accountId != auth.user->accountId) {
+            return ErrorResponse(req, status::forbidden, "Bucket does not belong to the caller's account");
+        }
+        if (const auto denied = denyUngrantedBucket(req, auth, bucketErn)) return *denied;
+
+        // Directories excluded: they are zero-byte markers an upload never announces either, so
+        // including them would send subscribers events they have never seen for these keys.
+        const auto objects = repo->listObjects(bucketErn, prefix, -1, -1, "", "asc", false);
+
+        for (const auto &object: objects) {
+            publishObjectEvent(kObjectCreated, object, bucket, auth.user->userId);
+        }
+
+        log_info << "ESM TouchObject, bucket: " << bucket->name << ", prefix: " << prefix << ", objects: " << objects.size();
+
+        return JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                     {"ern", bucketErn},
+                                                     {"bucketName", bucket->name},
+                                                     {"prefix", prefix},
+                                                     {"objects", static_cast<long>(objects.size())}}));
+    }
+
     response<string_body> EsmServer::handleRenameBucket(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "rename-bucket");
@@ -2607,6 +2660,7 @@ namespace Euclid::ESM {
             CreateBucket,
             DeleteBucket,
             RenameBucket,
+            TouchObject,
             ListBuckets,
             GetBucketErn,
             GetBucketSize,
@@ -2661,6 +2715,7 @@ namespace Euclid::ESM {
         if (action == "move-object") return Command::MoveObject;
         if (action == "rename-object") return Command::RenameObject;
         if (action == "rename-bucket") return Command::RenameBucket;
+        if (action == "touch-object") return Command::TouchObject;
         if (action == "add-object-attribute") return Command::AddObjectAttribute;
         if (action == "set-object-attribute") return Command::SetObjectAttribute;
         if (action == "list-object-attributes") return Command::ListObjectAttributes;
@@ -2809,6 +2864,9 @@ namespace Euclid::ESM {
 
             case Command::RenameBucket:
                 return handleRenameBucket(req);
+
+            case Command::TouchObject:
+                return handleTouchObject(req);
 
             case Command::RenameObject:
                 return handleRenameObject(req);
