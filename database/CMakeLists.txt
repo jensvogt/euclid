@@ -9,6 +9,7 @@ set(SOURCES src/Database.cpp src/EventBus.cpp src/entity/com/Variant.cpp src/ent
         src/entity/ens/Topic.cpp src/entity/ens/Subscription.cpp src/repository/ens/MongoEnsRepository.cpp
         src/repository/ekm/MongoEkmRepository.cpp src/entity/ekm/Key.cpp
         src/entity/ets/TransferServer.cpp src/repository/ets/MongoEtsRepository.cpp
+        src/entity/eag/Route.cpp src/repository/eag/MongoEagRepository.cpp
         src/entity/eap/Application.cpp src/repository/eap/MongoEapRepository.cpp)
 
 add_library(${LIBRARY} STATIC ${SOURCES})

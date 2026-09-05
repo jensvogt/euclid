@@ -37,6 +37,11 @@
 
 namespace Euclid::main {
 
+    // The API gateway module. Named here because the shutdown ordering has to treat it as a
+    // client of the applications rather than as one of the modules they depend on - see
+    // stopOrder().
+    constexpr auto kApiGateway = "eag";
+
     // Escapes ASCII control bytes (other than tab) as \xHH before a child's output is forwarded
     // into the journal. A module's stdout/stderr isn't trusted content - it can carry raw bytes
     // from a misbehaving dependency (e.g. libmagic's own fprintf warnings when handed a
@@ -464,9 +469,14 @@ namespace Euclid::main {
 
         // Transfer servers are spawned from the same two executables every other deployment
         // uses; only the --transfer-server argument tells one instance apart from another.
+        //
+        // Configured under ETS rather than as modules of their own: a transfer server is not a
+        // module, it is something ETS runs, defined in the database and reconciled from there.
+        // Given its own euclid.modules entry it would look to a reader like a module that has
+        // been switched off, and to the module loader like one that is missing its socketPath.
         const auto &configuration = Core::Configuration::instance();
-        const auto ftpExecutable = configuration.getOr<std::string>("euclid.modules.ftp.executable", "/usr/local/euclid/bin/euclid-ftp");
-        const auto sftpExecutable = configuration.getOr<std::string>("euclid.modules.sftp.executable", "/usr/local/euclid/bin/euclid-sftp");
+        const auto ftpExecutable = configuration.getOr<std::string>("euclid.modules.ets.ftp-executable", "/usr/local/euclid/bin/euclid-ftp");
+        const auto sftpExecutable = configuration.getOr<std::string>("euclid.modules.ets.sftp-executable", "/usr/local/euclid/bin/euclid-sftp");
         const auto socketDir = configuration.getOr<std::string>("euclid.modules.ets.socket-dir", "/var/run/euclid");
 
         std::set<std::string> defined;
@@ -1118,7 +1128,7 @@ namespace Euclid::main {
         // bucket per period - anything older than this has stopped reporting.
         // EMO's averaging period is what decides how old the newest row can be, so the window is
         // read from the same setting rather than guessed at here.
-        const auto period = Core::Configuration::instance().getOr<long>("euclid.module.emo.average-period", 300);
+        const auto period = Core::Configuration::instance().getOr<long>("euclid.modules.emo.average-period", 300);
         const auto since = std::chrono::system_clock::now() - std::chrono::seconds(period * kLoadFreshnessPeriods);
         const auto repo = Database::RepositoryFactory::instance().emoRepository();
 
@@ -1400,11 +1410,12 @@ namespace Euclid::main {
         }
 
         std::map<std::string, std::vector<std::string> > dependencies;
-        std::vector<std::string> ingress, apps;
+        std::vector<std::string> gateway, ingress, apps;
         {
             std::lock_guard lock(_mutex);
             for (const auto &[name, group]: _services) {
-                if (transferServers.contains(name)) ingress.push_back(name);
+                if (name == kApiGateway) gateway.push_back(name);
+                else if (transferServers.contains(name)) ingress.push_back(name);
                 else if (applications.contains(name)) apps.push_back(name);
                 else dependencies[name] = group.config.dependencies;
             }
@@ -1412,7 +1423,12 @@ namespace Euclid::main {
 
         // Stopped in the order that leaves the fewest requests with nowhere to go.
         //
-        // First the transfer servers: they are where work enters the installation, and stopping
+        // The API gateway goes first. It is a core module, but it is also where external HTTP
+        // traffic enters, and everything it proxies to is stopped below it - left for the module
+        // tier it would spend the whole shutdown handing requests to applications that are
+        // already gone, and answering the outside world with 502s it could simply have refused.
+        //
+        // Then the transfer servers: they are where work enters the installation, and stopping
         // them means nothing new arrives while everything else is being taken down. Then the
         // applications, which are the only things that consume on their own initiative - an
         // application outliving the queue it polls spends its last seconds failing, which is what
@@ -1421,7 +1437,8 @@ namespace Euclid::main {
         // The modules go last and in reverse start order, so a module is stopped before whatever
         // it depends on: the same dependency graph that decides the order they come up in, read
         // backwards.
-        auto order = ingress;
+        auto order = gateway;
+        order.insert(order.end(), ingress.begin(), ingress.end());
         order.insert(order.end(), apps.begin(), apps.end());
 
         auto modules = topologicalStartOrder(dependencies);
@@ -1434,12 +1451,14 @@ namespace Euclid::main {
         const auto names = stopOrder();
 
         // Only the pools that talk *to* euclid rather than being talked to: the transfer servers
-        // and the applications, which stopOrder() puts first for exactly this reason.
+        // and the applications, which stopOrder() puts first for exactly this reason - plus the
+        // API gateway, which is core but belongs to this tier all the same, since it is a client
+        // of the applications and has to be out of the way before they go.
         std::set<std::string> modules;
         {
             std::lock_guard lock(_mutex);
             for (const auto &[name, group]: _services) {
-                if (group.config.core) modules.insert(name);
+                if (group.config.core && name != kApiGateway) modules.insert(name);
             }
         }
 

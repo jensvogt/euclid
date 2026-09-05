@@ -17,7 +17,7 @@ namespace Euclid::Database::Entity::EQS {
      *
      * Defaults to 4:2:1 for HIGH:MIDDLE:LOW, i.e. every step down in priority halves the share of
      * slots it gets - the discrete analogue of a logarithmic priority curve with only three tiers.
-     * Overridable per-deployment via euclid.modules.sqs.priority-weights.{high,middle,low} in the
+     * Overridable per-deployment via euclid.modules.eqs.priority-weights.{high,middle,low} in the
      * configuration file.
      */
     struct PriorityWeights {

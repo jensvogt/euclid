@@ -11,27 +11,13 @@
     ],
     "data-dir": "/usr/local/euclid/data",
     "temp-dir": "/usr/local/euclid/data/tmp",
-    "backup-dir": "/usr/local/euclid/data/backup",
-    "json": {
-      "pretty": false
-    },
-    "dockerized": false,
     "magic-file": "/usr/local/euclid/etc/magic.mgc",
-    "autoload": {
-      "active": true,
-      "file": "/usr/local/euclid/init/01_init.json",
-      "dir": "/usr/local/euclid/init"
-    },
     "gateway": {
-      "active": true,
       "http": {
         "host": "localhost",
-        "address": "::",
         "port": 5566,
-        "max-queue": 8,
         "max-thread": 64,
-        "max-body": 536870912,
-        "timeout": 300
+        "max-body": 536870912
       },
       "tls": {
         "enabled": true,
@@ -53,11 +39,6 @@
         "name": "eam",
         "socketPath": "/var/run/euclid/euclid-eam.sock",
         "executable": "/usr/local/euclid/bin/euclid-eam",
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
         "minInstances": 1,
         "maxInstances": 2,
         "threads": 2,
@@ -68,18 +49,10 @@
         "name": "esm",
         "socketPath": "/var/run/euclid/euclid-esm.sock",
         "executable": "/usr/local/euclid/bin/euclid-esm",
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
         "data-dir": "/usr/local/euclid/data/esm",
         "minInstances": 1,
         "maxInstances": 10,
-        "threads": 8,
-        "counter-period": 60,
-        "sync-period": 3600,
-        "archive-timeout": 300
+        "threads": 8
       },
       "eqs": {
         "active": true,
@@ -89,11 +62,6 @@
         "minInstances": 1,
         "maxInstances": 4,
         "threads": 8,
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
         "priority-weights": {
           "high": 4,
           "middle": 2,
@@ -105,11 +73,6 @@
         "name": "ens",
         "socketPath": "/var/run/euclid/euclid-ens.sock",
         "executable": "/usr/local/euclid/bin/euclid-ens",
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
         "minInstances": 1,
         "maxInstances": 4,
         "threads": 8
@@ -143,12 +106,7 @@
         "executable": "/usr/local/euclid/bin/euclid-ekm",
         "minInstances": 1,
         "maxInstances": 4,
-        "threads": 2,
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        }
+        "threads": 2
       },
       "emm": {
         "active": true,
@@ -158,19 +116,6 @@
         "minInstances": 1,
         "maxInstances": 1,
         "threads": 2
-      },
-      "ftp": {
-        "active": false,
-        "name": "ftp",
-        "executable": "/usr/local/euclid/bin/euclid-ftp",
-        "data-dir": "/usr/local/euclid/data/ftp"
-      },
-      "sftp": {
-        "active": false,
-        "name": "sftp",
-        "executable": "/usr/local/euclid/bin/euclid-sftp",
-        "data-dir": "/usr/local/euclid/data/sftp",
-        "host-key": "/usr/local/euclid/etc/ssh_host_key"
       },
       "ees": {
         "active": true,
@@ -207,77 +152,30 @@
         "threads": 2,
         "inline-max": 67108864,
         "part-size": 8388608,
-        "directories": [
-          "incoming/mix",
-          "incoming/split",
-          "feedback"
-        ]
+        "host-key": "/usr/local/euclid/etc/ssh_host_key",
+        "ftp-executable": "/usr/local/euclid/bin/euclid-ftp",
+        "sftp-executable": "/usr/local/euclid/bin/euclid-sftp"
       },
-      "dynamodb": {
+      "eag": {
         "active": true,
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
-        "data-dir": "/usr/local/euclid/data/dynamodb",
-        "monitoring-period": 300,
-        "worker-period": 300
-      },
-      "secretsmanager": {
-        "active": true,
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
-        "monitoring-period": 300,
-        "worker-period": 300
-      },
-      "ssm": {
-        "active": true,
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
-        "monitoring-period": 300,
-        "worker-period": 300,
-        "remove-period": 300
-      }
-    },
-    "docker": {
-      "active": true,
-      "network-mode": "local",
-      "network-name": "local",
-      "default": {
-        "memory-size": 512,
-        "temp-size": 10240
-      },
-      "container": {
+        "name": "eag",
+        "socketPath": "/var/run/euclid/euclid-eag.sock",
+        "executable": "/usr/local/euclid/bin/euclid-eag",
+        "minInstances": 1,
+        "maxInstances": 1,
+        "threads": 2,
         "port": 8080,
-        "maxWaitTime": 5,
-        "checkTime": 500
-      },
-      "socket": "/var/run/docker.sock"
+        "proxy-threads": 8,
+        "refresh-seconds": 5
+      }
     },
     "scaling": {
       "scale-down-idle-seconds": 60
     },
     "monitoring": {
-      "active": true,
-      "average-period": 300,
-      "cpu-usage-period": 60,
-      "rollup-hour-period": 600,
-      "rollup-day-period": 3600,
-      "retention": {
-        "raw": 7,
-        "hour": 90,
-        "day": 1825
-      }
+      "cpu-usage-period": 60
     },
     "mongodb": {
-      "active": true,
       "name": "euclid",
       "host": "localhost",
       "port": 27017,
@@ -285,24 +183,12 @@
       "password": "password",
       "pool-size": 256
     },
-    "frontend": {
-      "active": true,
-      "address": "::",
-      "port": 4567,
-      "workers": 20,
-      "timeout": 900,
-      "doc-root": "/usr/local/euclid/frontend"
-    },
     "logging": {
       "file-active": false,
       "console-active": true,
-      "websocket-active": true,
-      "websocket-port": 4569,
       "level": "info",
       "dir": "/usr/local/euclid/log",
-      "prefix": "euclid",
-      "file-size": 10485760,
-      "file-count": 5
+      "prefix": "euclid"
     },
     "eventbus": {
       "notify-interval-ms": 100,

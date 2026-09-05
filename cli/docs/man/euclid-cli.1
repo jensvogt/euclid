@@ -79,6 +79,11 @@ Transfer servers: FTP and SFTP endpoints onto an ESM bucket. See
 Applications: Java, Python, Node.js, Rust or C++ processes that Euclid
 runs and scales. See
 .BR euclid-cli-eap (1).
+.TP
+.B eag
+API gateway: paths published to the outside world and proxied to the
+running instances of an EAP application. See
+.BR euclid-cli-eag (1).
 .SH GLOBAL OPTIONS
 Global options are recognized only
 .I before
@@ -167,11 +172,12 @@ per module, not per command, so nothing has to be passed on the command
 line.
 .PP
 Some modules are administrator-only \-
-.BR euclid-cli-ets (1)
-and
+.BR euclid-cli-ets (1),
 .BR euclid-cli-eap (1)
-among them, since they decide what runs and which network listeners
-exist. The CLI checks this before sending, for a clearer message than a
+and
+.BR euclid-cli-eag (1)
+among them, since they decide what runs, which network listeners exist,
+and what is published through them. The CLI checks this before sending, for a clearer message than a
 bare 401; the server checks independently on every request and is the
 actual boundary.
 .PP
@@ -257,6 +263,7 @@ euclid-cli --endpoint https://euclid.example.com:5566 \e
 .BR euclid-cli-emm (1),
 .BR euclid-cli-ets (1),
 .BR euclid-cli-eap (1),
+.BR euclid-cli-eag (1),
 .BR euclid-ftp (8),
 .BR euclid-sftp (8)
 .SH AUTHOR
