@@ -71,7 +71,7 @@ Require a euclid credential for a route that was public:
 .RS
 .nf
 euclid-cli eag update-route \e
-    --route-id datenlieferanten \e
+    --route-id resource \e
     --authentication euclid
 .fi
 .RE
@@ -80,8 +80,8 @@ Take a path out of service for a deployment, then put it back:
 .PP
 .RS
 .nf
-euclid-cli eag update-route --route-id datenlieferanten --active false
-euclid-cli eag update-route --route-id datenlieferanten --active true
+euclid-cli eag update-route --route-id resource --active false
+euclid-cli eag update-route --route-id resource --active true
 .fi
 .RE
 .PP
@@ -90,7 +90,7 @@ Move a path to a replacement application:
 .RS
 .nf
 euclid-cli eag update-route \e
-    --route-id datenlieferanten \e
+    --route-id resource \e
     --application onix-parser-v2
 .fi
 .RE

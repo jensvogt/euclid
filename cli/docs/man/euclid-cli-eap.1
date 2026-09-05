@@ -139,6 +139,59 @@ All
 commands require administrator privileges; see
 .B AUTHENTICATION
 below.
+.SH HTTP PORTS
+An application with a web interface is given a TCP port of its own, one
+per instance, out of the range set by
+.I euclid.modules.eap.http\-port\-min
+and
+.I euclid.modules.eap.http\-port\-max
+(9000\-9999 by default). It is passed to the process as
+.I EUCLID_HTTP_PORT
+and the application is expected to bind that rather than a port of its
+own choosing \- for Spring Boot,
+.PP
+.RS
+.nf
+server:
+  port: ${EUCLID_HTTP_PORT:8080}
+.fi
+.RE
+.PP
+This is what lets several instances run on one host at all. A port
+written into the application's own configuration is bound by the first
+instance and refused to every other, which is not a failure the
+autoscaler can see \- only a pool that will not grow. Falling back to a
+default keeps the same artifact runnable outside euclid.
+.PP
+An instance keeps its port across a restart of the same slot, so
+anything pointed at it does not have to be told about a restart it never
+noticed. Only applications are given a port: a transfer server has no
+HTTP listener to bind one with.
+.PP
+The ports are handed out when an instance is spawned and change as the
+pool scales, so they cannot be configured anywhere and are not part of
+an application's definition. They are reported instead, under
+.IR endpoints ,
+by
+.BR euclid-cli-eap-list-applications (1)
+and
+.BR euclid-cli-eap-get-application (1):
+.PP
+.RS
+.nf
+"instances": 3,
+"endpoints": [
+  {"instanceId": "aaf98bf6-...", "pid": 2018715, "httpPort": 9002},
+  {"instanceId": "4d5c7e39-...", "pid": 2018907, "httpPort": 9003},
+  {"instanceId": "63037655-...", "pid": 2018703, "httpPort": 9004}
+]
+.fi
+.RE
+.PP
+which is how an API gateway in front of an application finds its
+backends \- euclid's own, see
+.BR euclid-cli-eag (1),
+or an external one.
 .SH ACTIONS
 .TP
 .B create-application
@@ -275,6 +328,7 @@ euclid-cli eap update-application --application-id inbox --artifact inbox.jar
 .RE
 .SH SEE ALSO
 .BR euclid-cli (1),
+.BR euclid-cli-eag (1),
 .BR euclid-cli-eam (1),
 .BR euclid-cli-eam-login (1),
 .BR euclid-cli-esm (1),
