@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.67](https://github.com/jensvogt/euclid/compare/1.0.66...v1.0.67) (2026-09-05)
+
+
+### Bug Fixes
+
+* auto-scaler issues, clean shutdown, pause queues ([dbfd6b1](https://github.com/jensvogt/euclid/commit/dbfd6b1f7d0cff4fe08cf42b8dc0c3499392d4bf))
+* ega module, cli and backend ([5acb50c](https://github.com/jensvogt/euclid/commit/5acb50c8d2fbf09047bd6dbe4213f201702b8c75))
+* ega routing, round-robbing ([0123f13](https://github.com/jensvogt/euclid/commit/0123f1371c13cf04e187cc19d8061953bb73dfde))
+
 ## [1.0.66](https://github.com/jensvogt/euclid/compare/1.0.65...v1.0.66) (2026-09-04)
 
 
