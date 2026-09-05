@@ -113,6 +113,38 @@ namespace Euclid::Database {
             return result;
         }
 
+        [[nodiscard]]
+        std::vector<Entity::EQS::Queue> listSourceQueues(const std::string &deadLetterQueueErn) const override {
+            std::lock_guard lock(_mutex);
+            std::vector<Entity::EQS::Queue> queues;
+            if (deadLetterQueueErn.empty()) return queues;
+            for (const auto &queue: _queueStore | std::views::values) {
+                if (queue.deadLetterQueueErn == deadLetterQueueErn) queues.push_back(queue);
+            }
+            return queues;
+        }
+
+        long redriveMessages(const std::string &deadLetterQueueErn, const std::string &targetQueueErn,
+                             const std::string &sourceQueueErn) override {
+            std::lock_guard lock(_mutex);
+            if (deadLetterQueueErn.empty() || targetQueueErn.empty()) return 0;
+
+            long moved = 0;
+            for (auto &message: _messageStore | std::views::values) {
+                if (message.queueErn != deadLetterQueueErn) continue;
+                if (!sourceQueueErn.empty() && message.sourceQueueErn != sourceQueueErn) continue;
+
+                message.queueErn = targetQueueErn;
+                message.sourceQueueErn.clear();
+                message.status = Entity::EQS::MessageStatus::AVAILABLE;
+                message.receivedCount = 0;
+                message.receiptHandle.clear();
+                message.modified = std::chrono::system_clock::now();
+                ++moved;
+            }
+            return moved;
+        }
+
         bool queueExists(const std::string &name) const override {
             std::lock_guard lock(_mutex);
             return _queueStore.contains(name);
@@ -134,8 +166,9 @@ namespace Euclid::Database {
 
         void upsertMessage(const Entity::EQS::Message &message) override {
             std::lock_guard lock(_mutex);
-            // TODO: fix me
-            //_messageStore[message.name] = message;
+            // Keyed by messageId, as sendMessage() keys it - a message has no "name", which is
+            // what this used to reach for and why it stored nothing at all.
+            _messageStore[message.messageId] = message;
         }
 
         Entity::EQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes, const Entity::EQS::MessagePriority priority) override {
@@ -217,6 +250,7 @@ namespace Euclid::Database {
                             if (!deadLetterQueueErn.empty() && message.receivedCount > maxReceiveCount) {
                                 movedCount += 1;
                                 movedSize += message.size;
+                                message.sourceQueueErn = message.queueErn;
                                 message.queueErn = deadLetterQueueErn;
                                 message.status = Entity::EQS::MessageStatus::AVAILABLE;
                                 message.receivedCount = 0;

@@ -3,8 +3,12 @@
 //
 
 // C++ includes
+#include <algorithm>
+#include <cctype>
 #include <optional>
+#include <set>
 #include <string>
+#include <vector>
 
 // Euclid includes
 #include <EagServer.h>
@@ -37,12 +41,52 @@ namespace Euclid::EAG {
             return value && value->is_string() ? std::string(value->as_string()) : fallback;
         }
 
-        // Two routes on the same path would be a tie broken by whichever the sort happened to put
-        // first - the caller would see one application today and possibly the other tomorrow. Said
-        // here, where somebody is configuring it, rather than left to be discovered in traffic.
-        std::optional<std::string> pathTaken(const std::string &path, const std::string &routeId) {
+        // The methods a route may name. A typo here is a route that quietly answers for nothing,
+        // or - worse, on an update - one that stops answering for what it used to.
+        const std::set<std::string> kKnownMethods{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"};
+
+        // Reads and normalises the method list. Upper-cased because HTTP methods are
+        // case-sensitive on the wire and always upper case there, while "get" is what somebody
+        // types. Returns nothing if a name is not a method, so a typo is refused rather than
+        // stored.
+        std::optional<std::vector<std::string> > readMethods(const boost::json::object &obj, std::string &unknown) {
+
+            std::vector<std::string> methods;
+            const auto *value = obj.if_contains("methods");
+            if (!value || !value->is_array()) return methods;
+
+            for (const auto &entry: value->as_array()) {
+                if (!entry.is_string()) {
+                    unknown = boost::json::serialize(entry);
+                    return std::nullopt;
+                }
+                auto method = std::string(entry.as_string());
+                std::ranges::transform(method, method.begin(), [](const unsigned char c) { return static_cast<char>(std::toupper(c)); });
+
+                if (!kKnownMethods.contains(method)) {
+                    unknown = method;
+                    return std::nullopt;
+                }
+                if (std::ranges::find(methods, method) == methods.end()) methods.push_back(method);
+            }
+            return methods;
+        }
+
+        // Whether another route already answers for this path *and* one of these methods.
+        //
+        // Two routes may share a path as long as their methods do not overlap - that is what lets
+        // reads and writes of one resource go to different applications. What cannot be allowed is
+        // an overlap, where the winner would be decided by whichever the sort happened to put
+        // first: the caller would reach one application today and possibly the other tomorrow.
+        // An empty method list means every method, so it overlaps with everything.
+        std::optional<std::string> pathTaken(const std::string &path, const std::vector<std::string> &methods, const std::string &routeId) {
             for (const auto &route: Database::RepositoryFactory::instance().eagRepository()->listRoutes(path)) {
-                if (route.path == path && route.routeId != routeId) return route.routeId;
+                if (route.path != path || route.routeId == routeId) continue;
+                if (route.methods.empty() || methods.empty()) return route.routeId;
+
+                for (const auto &method: methods) {
+                    if (std::ranges::find(route.methods, method) != route.methods.end()) return route.routeId;
+                }
             }
             return std::nullopt;
         }
@@ -56,6 +100,7 @@ namespace Euclid::EAG {
                     {"namespace", route.nameSpace},
                     {"path", route.path},
                     {"applicationId", route.applicationId},
+                    {"methods", boost::json::array(route.methods.begin(), route.methods.end())},
                     {"authentication", RouteAuthenticationToString(route.authentication)},
                     {"active", route.active},
                     {"created", Core::DateTimeUtils::ToISO8601(route.created)},
@@ -115,12 +160,18 @@ namespace Euclid::EAG {
             return EagServer::ErrorResponse(req, status::bad_request, "path is required and must start with '/'");
         }
 
+        std::string unknownMethod;
+        const auto methods = readMethods(obj, unknownMethod);
+        if (!methods.has_value()) {
+            return EagServer::ErrorResponse(req, status::bad_request, "Not an HTTP method: " + unknownMethod);
+        }
+
         const auto repository = Database::RepositoryFactory::instance().eagRepository();
         if (repository->routeExists(routeId)) {
             return EagServer::ErrorResponse(req, status::conflict, "Route exists already, routeId: " + routeId);
         }
-        if (const auto taken = pathTaken(path, routeId)) {
-            return EagServer::ErrorResponse(req, status::conflict, "Path is already routed by routeId: " + *taken);
+        if (const auto taken = pathTaken(path, *methods, routeId)) {
+            return EagServer::ErrorResponse(req, status::conflict, "Path and method are already routed by routeId: " + *taken);
         }
 
         // The application has to exist. A route to nothing answers 503 for every request, which
@@ -133,6 +184,7 @@ namespace Euclid::EAG {
         route.routeId = routeId;
         route.path = path;
         route.applicationId = applicationId;
+        route.methods = *methods;
         route.accountId = auth.user->accountId;
         route.region = auth.user->region;
         route.nameSpace = std::string(req["x-euclid-namespace"]);
@@ -178,15 +230,25 @@ namespace Euclid::EAG {
 
         // Only what was named: an absent field leaves the route as it is, so one setting can be
         // changed without restating the rest.
+        // Read before either is applied, since the collision check needs the pair the route will
+        // end up with: changing only the methods can just as easily collide as changing the path.
+        if (obj.contains("methods")) {
+            std::string unknownMethod;
+            const auto methods = readMethods(obj, unknownMethod);
+            if (!methods.has_value()) {
+                return EagServer::ErrorResponse(req, status::bad_request, "Not an HTTP method: " + unknownMethod);
+            }
+            route->methods = *methods;
+        }
         if (obj.contains("path")) {
             const auto path = stringField(obj, "path");
             if (path.empty() || !path.starts_with("/")) {
                 return EagServer::ErrorResponse(req, status::bad_request, "path must start with '/'");
             }
-            if (const auto taken = pathTaken(path, routeId)) {
-                return EagServer::ErrorResponse(req, status::conflict, "Path is already routed by routeId: " + *taken);
-            }
             route->path = path;
+        }
+        if (const auto taken = pathTaken(route->path, route->methods, routeId)) {
+            return EagServer::ErrorResponse(req, status::conflict, "Path and method are already routed by routeId: " + *taken);
         }
         if (obj.contains("applicationId")) {
             const auto applicationId = stringField(obj, "applicationId");

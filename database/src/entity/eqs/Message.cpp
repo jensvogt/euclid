@@ -30,6 +30,7 @@ namespace Euclid::Database::Entity::EQS {
         return bsoncxx::builder::basic::make_document(
                 bsoncxx::builder::basic::kvp("ern", ern),
                 bsoncxx::builder::basic::kvp("queueErn", queueErn),
+                bsoncxx::builder::basic::kvp("sourceQueueErn", sourceQueueErn),
                 bsoncxx::builder::basic::kvp("body", body),
                 bsoncxx::builder::basic::kvp("status", MessageStatusToString(status)),
                 bsoncxx::builder::basic::kvp("priority", MessagePriorityToString(priority)),
@@ -51,6 +52,7 @@ namespace Euclid::Database::Entity::EQS {
             if (const auto key = field.key(); key == "_id") oid = field.get_oid().value.to_string();
             else if (key == "ern") ern = std::string(field.get_string().value);
             else if (key == "queueErn") queueErn = std::string(field.get_string().value);
+            else if (key == "sourceQueueErn") sourceQueueErn = std::string(field.get_string().value);
             else if (key == "body") body = std::string(field.get_string().value);
             else if (key == "status") status = MessageStatusFromString(std::string(field.get_string().value));
             else if (key == "priority") priority = MessagePriorityFromString(std::string(field.get_string().value));

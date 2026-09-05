@@ -22,7 +22,7 @@ namespace Euclid::Database::Entity::ENS {
     Subscription Subscription::fromDocument(const std::optional<bsoncxx::document::view> &document) {
         if (!document) return {};
 
-        Subscription subscription;
+        Subscription subscription = {};
         for (const auto &field: *document) {
             if (const auto key = field.key(); key == "_id") subscription.oid = field.get_oid().value.to_string();
             else if (key == "region") subscription.region = std::string(field.get_string().value);

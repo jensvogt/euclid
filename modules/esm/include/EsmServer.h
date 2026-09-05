@@ -151,6 +151,24 @@ namespace Euclid::ESM {
          */
         static response<string_body> handleRenameBucket(const request<string_body> &req);
 
+        /**
+         * @brief Re-sends the notifications for objects already in a bucket, as though they had
+         * just been uploaded.
+         *
+         * @par
+         * The object itself is not touched - no byte of it, and not its timestamps either. What is
+         * replayed is only the announcement: the same esm.object.created event and the same bucket
+         * subscription deliveries an upload would have produced. It exists because a notification
+         * can be lost in ways the object never is - a consumer that was down, a queue that was
+         * deleted with deliveries still queued for it, a subscription created after the objects
+         * were already there - and re-uploading gigabytes to re-send a few kilobytes of
+         * notification is the wrong repair.
+         *
+         * @param req HTTP request
+         * @return HTTP response
+         */
+        static response<string_body> handleTouchObject(const request<string_body> &req);
+
         [[nodiscard]]
         static response<string_body> handlePutObject(const request<string_body> &req);
 
