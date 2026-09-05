@@ -243,7 +243,7 @@ namespace Euclid::main {
         // Only applications are given one - see allocateHttpPort(). An application binds it with
         // something like server.port=${EUCLID_HTTP_PORT:8080}, so the same artifact still runs
         // outside euclid on its own default.
-        if (!svc->config.core) {
+        if (svc->config.application) {
             if (const auto port = allocateHttpPort(svc); port > 0) {
                 svc->httpPort = port;
                 svc->config.environment["EUCLID_HTTP_PORT"] = std::to_string(port);
@@ -323,7 +323,7 @@ namespace Euclid::main {
         // Only applications are given one - see allocateHttpPort(). An application binds it with
         // something like server.port=${EUCLID_HTTP_PORT:8080}, so the same artifact still runs
         // outside euclid on its own default.
-        if (!svc->config.core) {
+        if (svc->config.application) {
             if (const auto port = allocateHttpPort(svc); port > 0) {
                 svc->httpPort = port;
                 svc->config.environment["EUCLID_HTTP_PORT"] = std::to_string(port);
@@ -924,6 +924,7 @@ namespace Euclid::main {
                 // a socket, so requiring it to create one only kills programs whose authors never
                 // heard of the convention - see ModuleConfig::ReadinessCheck.
                 config.readiness = Dto::ModuleConfig::ReadinessCheck::Liveness;
+                config.application = true;
                 config.minInstances = static_cast<int>(application.minInstances);
                 config.maxInstances = static_cast<int>(application.maxInstances);
 

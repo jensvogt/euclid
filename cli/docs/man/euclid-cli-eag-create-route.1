@@ -17,9 +17,9 @@ Publishes a path prefix on the API gateway's port and sends everything
 beneath it to an application, one running instance at a time in turn.
 .PP
 The path is forwarded unchanged, so a route on
-.I /datenlieferanten
+.I /resource
 reaches the application as
-.I /datenlieferanten/searchById?id=123
+.I /resource/searchById?id=123
 \- the application sees the URL its callers typed, and nothing about the
 route appears in it.
 .PP
@@ -33,15 +33,15 @@ down rather than one that was never deployed \- so this is refused with
 404 instead.
 .SH MATCHING
 Longest prefix wins: a route on
-.I /datenlieferanten
+.I /resource
 carries everything below it, and a later, more specific
-.I /datenlieferanten/export
+.I /resource/export
 takes precedence for its own subtree.
 .PP
 A prefix only matches whole segments, so
-.I /datenlieferanten
+.I /resource
 never claims
-.IR /datenlieferanten\-intern .
+.IR /resource\-intern .
 .PP
 No two routes may have the same path. The tie would be broken by
 whichever the gateway happened to consider first \- callers would reach
@@ -54,7 +54,7 @@ Name for the route, unique within the installation. Required. This is
 how the route is referred to afterwards; it never appears in a URL.
 .TP
 .BR \-p ", " \-\-path " " \fIPREFIX\fR
-Path prefix to publish, e.g. \fI/datenlieferanten\fR. Required. Must
+Path prefix to publish, e.g. \fI/resource\fR. Required. Must
 start with \fI/\fR \- a prefix that does not could never match a request
 target, and would become a route that is configured, listed and silently
 dead.
@@ -100,8 +100,8 @@ Publish a parser's REST interface:
 .RS
 .nf
 euclid-cli eag create-route \e
-    --route-id datenlieferanten \e
-    --path /datenlieferanten \e
+    --route-id resource \e
+    --path /resource \e
     --application onix-parser
 .fi
 .RE
@@ -112,8 +112,8 @@ euclid credential for it alone:
 .RS
 .nf
 euclid-cli eag create-route \e
-    --route-id datenlieferanten-admin \e
-    --path /datenlieferanten/admin \e
+    --route-id resource-admin \e
+    --path /resource/admin \e
     --application onix-parser \e
     --authentication euclid
 .fi
