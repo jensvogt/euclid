@@ -41,30 +41,38 @@ namespace Euclid::Database {
         }
     }
 
-    Entity::EAG::Route MongoEagRepository::upsertRoute(Entity::EAG::Route &route) {
+    std::optional<Entity::EAG::Route> MongoEagRepository::upsertRoute(Entity::EAG::Route &route) {
 
         try {
             const auto entry = Database::instance().client();
             auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
 
-            route.modified = std::chrono::system_clock::now();
-            const auto filter = make_document(kvp("routeId", route.routeId));
-            const auto update = make_document(
-                    kvp("$set", route.toDocument()),
-                    kvp("$setOnInsert", make_document(
-                                kvp("created", bsoncxx::types::b_date{
-                                            std::chrono::duration_cast<std::chrono::milliseconds>(route.created.time_since_epoch())}))));
+            // created is carried in toDocument(), so it is stamped here on the insert path rather
+            // than through $setOnInsert - which would collide with the same field in $set, and
+            // Mongo rejects the whole update rather than the one field.
+            const auto now = std::chrono::system_clock::now();
+            if (route.created.time_since_epoch().count() == 0) {
+                route.created = now;
+            }
+            route.modified = now;
 
-            mongocxx::options::update opts;
+            mongocxx::options::find_one_and_update opts;
             opts.upsert(true);
-            collection.update_one(filter.view(), update.view(), opts);
+            opts.return_document(mongocxx::options::return_document::k_after);
 
-            return findRouteByRouteId(route.routeId).value_or(route);
+            if (auto result = collection.find_one_and_update(make_document(kvp("routeId", route.routeId)).view(),
+                                                             make_document(kvp("$set", route.toDocument())).view(), opts)) {
+                return Entity::EAG::Route::fromDocument(result->view());
+            }
+
+            // Reached only if the upsert neither matched nor inserted, which should not happen -
+            // said out loud rather than returning the unsaved route as though it had been stored.
+            log_error << "Upsert route stored nothing, routeId: " << route.routeId;
 
         } catch (const std::exception &e) {
             log_error << "Upsert route failed, routeId: " << route.routeId << ", error: " << e.what();
         }
-        return route;
+        return std::nullopt;
     }
 
     std::optional<Entity::EAG::Route> MongoEagRepository::findRouteByRouteId(const std::string &routeId) const {
@@ -102,8 +110,17 @@ namespace Euclid::Database {
             const auto entry = Database::instance().client();
             auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
 
+            // Escaped, because a path is not a pattern: "/api/v1.0" would otherwise match
+            // "/api/v1X0" as well, and a caller has no reason to expect their path to be read as
+            // a regular expression.
+            std::string quoted;
+            for (const char c: prefix) {
+                if (std::string_view(R"(\^$.|?*+()[]{})").contains(c)) quoted += '\\';
+                quoted += c;
+            }
+
             bsoncxx::builder::basic::document filter;
-            if (!prefix.empty()) filter.append(kvp("routeId", make_document(kvp("$regex", "^" + prefix))));
+            if (!prefix.empty()) filter.append(kvp("path", make_document(kvp("$regex", "^" + quoted))));
 
             for (auto cursor = collection.find(filter.view()); auto doc: cursor) {
                 routes.push_back(Entity::EAG::Route::fromDocument(doc));

@@ -38,14 +38,14 @@ A route is a path prefix plus the application it belongs to. Everything
 beneath the prefix is carried, and the path is forwarded
 .I unchanged
 \- a route on
-.I /datenlieferanten
+.I /resource
 pointing at
 .I parser
 sends
 .PP
 .RS
 .nf
-GET /datenlieferanten/searchById?id=123
+GET /resource/searchById?id=123
 .fi
 .RE
 .PP
@@ -56,16 +56,16 @@ it is behind a gateway, and moving a path from one application to
 another changes no URL.
 .PP
 Longest prefix wins. A route on
-.I /datenlieferanten
+.I /resource
 carries everything below it, and a more specific
-.I /datenlieferanten/export
+.I /resource/export
 added later takes precedence for its own subtree without either being
 reordered \- the more specific one is simply longer.
 .PP
 A prefix only matches on a segment boundary, so
-.I /datenlieferanten
+.I /resource
 never claims
-.IR /datenlieferanten\-intern ,
+.IR /resource\-intern ,
 which is a different resource that happens to start with the same
 letters.
 .PP
@@ -270,11 +270,11 @@ external gateway in front of euclid authenticates the caller:
 .RS
 .nf
 euclid-cli eag create-route \e
-    --route-id datenlieferanten \e
-    --path /datenlieferanten \e
+    --route-id resource \e
+    --path /resource \e
     --application onix-parser
 
-curl http://localhost:8080/datenlieferanten/searchById?id=123
+curl http://localhost:8080/resource/searchById?id=123
 .fi
 .RE
 .PP
@@ -284,8 +284,8 @@ require one:
 .RS
 .nf
 euclid-cli eag create-route \e
-    --route-id datenlieferanten-admin \e
-    --path /datenlieferanten/admin \e
+    --route-id resource-admin \e
+    --path /resource/admin \e
     --application onix-parser \e
     --authentication euclid
 .fi
@@ -296,8 +296,8 @@ put it back:
 .PP
 .RS
 .nf
-euclid-cli eag update-route --route-id datenlieferanten --active false
-euclid-cli eag update-route --route-id datenlieferanten --active true
+euclid-cli eag update-route --route-id resource --active false
+euclid-cli eag update-route --route-id resource --active true
 .fi
 .RE
 .SH SEE ALSO

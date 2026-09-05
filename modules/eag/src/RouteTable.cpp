@@ -44,8 +44,8 @@ namespace Euclid::EAG {
         for (const auto &route: _routes) {
             if (route.path.empty() || !path.starts_with(route.path)) continue;
 
-            // A prefix has to end on a segment boundary. Without this "/datenlieferanten" would
-            // also claim "/datenlieferanten-intern", which is a different resource that happens to
+            // A prefix has to end on a segment boundary. Without this "/resource" would
+            // also claim "/resource-intern", which is a different resource that happens to
             // start with the same letters.
             if (path.size() == route.path.size() || route.path.back() == '/' || path[route.path.size()] == '/' || path[route.path.size()] == '?') {
                 return route;

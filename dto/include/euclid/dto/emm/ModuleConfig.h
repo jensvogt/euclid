@@ -99,6 +99,18 @@ namespace Euclid::Dto {
         bool core = false;
 
         /**
+         * @brief Whether this pool is an EAP application, as opposed to a module or a transfer
+         * server.
+         *
+         * @par
+         * Not simply !core: a transfer server is not core either, and giving one an HTTP port
+         * would spend a slot of euclid.modules.eap.http-port-min..max on a process that has no
+         * HTTP listener to bind it with - an FTP server ignores EUCLID_HTTP_PORT entirely. What
+         * the port exists for is an application's own web interface, so only applications get one.
+         */
+        bool application = false;
+
+        /**
          * @brief Names of the modules that have to be running before this one is started.
          *
          * @par

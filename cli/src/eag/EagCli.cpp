@@ -31,7 +31,7 @@ namespace Euclid::CLI {
         // the mistake somebody actually makes, and the answer should name the argument.
         bool ValidPath(const std::string &path, const std::string &action) {
             if (path.starts_with("/")) return true;
-            std::cerr << "error: " << action << " failed: --path must start with '/', e.g. /datenlieferanten\n";
+            std::cerr << "error: " << action << " failed: --path must start with '/', e.g. /resource\n";
             return false;
         }
 
@@ -85,7 +85,7 @@ namespace Euclid::CLI {
         po::options_description desc("create a route");
         desc.add_options()
                 ("route-id,r", po::value<std::string>()->required(), "name for the route, unique within the installation")
-                ("path,p", po::value<std::string>()->required(), "path prefix to publish, e.g. /datenlieferanten")
+                ("path,p", po::value<std::string>()->required(), "path prefix to publish, e.g. /resource")
                 ("application,a", po::value<std::string>()->required(), "application the requests are sent to")
                 ("authentication,A", po::value<std::string>()->default_value("none"), "none (anybody may call it) or euclid (a euclid credential is required)")
                 ("inactive,i", po::bool_switch(), "create the route but leave it out of service until update-route activates it");
@@ -96,16 +96,16 @@ namespace Euclid::CLI {
                                    "[--authentication none|euclid] [--inactive]",
                                    "Publishes a path prefix on the gateway's port and sends everything beneath it to "
                                    "an application, one instance at a time in turn. The path is forwarded unchanged, "
-                                   "so a route on /datenlieferanten reaches the application as "
-                                   "/datenlieferanten/searchById?id=123 - the application sees the URL its callers "
+                                   "so a route on /resource reaches the application as "
+                                   "/resource/searchById?id=123 - the application sees the URL its callers "
                                    "typed, and nothing about the route appears in it. "
                                    "The instances are found from the ports the manager handed them, so an application "
                                    "that scales from one instance to eight is spread across eight backends within a "
                                    "few seconds without the route being touched. "
-                                   "Longest prefix wins: a route on /datenlieferanten carries everything below it, and "
-                                   "a later, more specific /datenlieferanten/export takes precedence for its own "
-                                   "subtree. A prefix only matches whole segments, so /datenlieferanten never claims "
-                                   "/datenlieferanten-intern. "
+                                   "Longest prefix wins: a route on /resource carries everything below it, and "
+                                   "a later, more specific /resource/export takes precedence for its own "
+                                   "subtree. A prefix only matches whole segments, so /resource never claims "
+                                   "/resource-intern. "
                                    "With --authentication euclid the gateway requires a euclid credential and refuses "
                                    "the request before any application sees it; with none it forwards everything, "
                                    "which is what a route behind an external gateway or an application doing its own "

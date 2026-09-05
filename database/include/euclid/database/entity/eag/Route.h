@@ -24,7 +24,7 @@ namespace Euclid::Database::Entity::EAG {
      *
      * @par
      * The gateway routes by configuration rather than by convention. A caller asks for
-     * "/datenlieferanten/searchById?id=123" and has no idea which application answers it - that
+     * "/resource/searchById?id=123" and has no idea which application answers it - that
      * is what a route says, and it is why the application's name never appears in the URL. The
      * same arrangement lets an application be renamed, replaced or split across several routes
      * without anything that calls it having to change.
@@ -74,7 +74,7 @@ namespace Euclid::Database::Entity::EAG {
          *
          * @par
          * A prefix rather than an exact path, because a REST resource is a tree: one route for
-         * "/datenlieferanten" carries every operation beneath it, and nobody has to enumerate
+         * "/resource" carries every operation beneath it, and nobody has to enumerate
          * them. Where two routes both match, the longer one wins - so a general route can be
          * placed over an application and a more specific one carved out of it later without
          * either being reordered or rewritten.

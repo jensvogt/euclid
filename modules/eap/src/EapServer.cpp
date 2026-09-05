@@ -140,17 +140,26 @@ namespace Euclid::EAP {
 
         // The manager publishes each module's live instances, so an application's *observed* state
         // is read from there rather than stored - the definition only ever carries what it should
-        // be. Reported as a count as well as a state, because an application is a pool: knowing
-        // that three of it are up is the thing an operator actually wants.
-        long runningInstances(const std::string &applicationId) {
-            long running = 0;
+        // be, which is why nothing here is written back into eap_application.
+        //
+        // Each instance is reported with the HTTP port the manager gave it, because that is the
+        // only way anything outside can reach an application's own web interface: the ports are
+        // handed out at spawn time and change as the pool scales, so they cannot be configured
+        // anywhere. An API gateway in front of an application - euclid's own (see the eag module)
+        // or an external one - discovers its backends from exactly this.
+        boost::json::array applicationEndpoints(const std::string &applicationId) {
+            boost::json::array instances;
             for (const auto &module: Database::RepositoryFactory::instance().emmRepository()->findAll()) {
                 if (module.name != applicationId) continue;
                 for (const auto &instance: module.instances) {
-                    if (instance.state == Database::Entity::ModuleState::RUNNING) ++running;
+                    if (instance.state != Database::Entity::ModuleState::RUNNING) continue;
+                    instances.push_back(boost::json::object{
+                            {"instanceId", instance.instanceId},
+                            {"pid", instance.pid},
+                            {"httpPort", instance.httpPort}});
                 }
             }
-            return running;
+            return instances;
         }
 
         // The identity an application runs as, when the caller did not name one of their own.
@@ -265,7 +274,8 @@ namespace Euclid::EAP {
             boost::json::array resources;
             for (const auto &resource: application.resources) resources.push_back(boost::json::string(resource));
 
-            const auto running = runningInstances(application.applicationId);
+            const auto endpoints = applicationEndpoints(application.applicationId);
+            const auto count = static_cast<long>(endpoints.size());
 
             return boost::json::object{
                     {"applicationId", application.applicationId},
@@ -286,8 +296,11 @@ namespace Euclid::EAP {
                     {"maxInstances", application.maxInstances},
                     {"readyTimeoutMs", application.readyTimeoutMs},
                     {"desiredState", ApplicationStateToString(application.desiredState)},
-                    {"state", running > 0 ? "RUNNING" : "STOPPED"},
-                    {"instances", running},
+                    {"state", count > 0 ? "RUNNING" : "STOPPED"},
+                    // Kept as the count it has always been; the instances themselves, with the
+                    // ports they were given, are alongside it rather than in its place.
+                    {"instances", count},
+                    {"endpoints", endpoints},
                     {"created", Core::DateTimeUtils::ToISO8601(application.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(application.modified)}};
         }

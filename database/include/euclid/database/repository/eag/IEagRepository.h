@@ -31,10 +31,16 @@ namespace Euclid::Database {
         /**
          * @brief Inserts a new route or updates the existing one with the same routeId.
          *
+         * @par
+         * Returns nothing if the route was not stored, rather than handing back the argument. A
+         * caller that cannot tell the two apart answers its own caller with a route that looks
+         * saved and is not - which is exactly how a write that failed goes unnoticed until
+         * somebody looks in the database for it.
+         *
          * @param route the route to store.
-         * @return the persisted route.
+         * @return the persisted route, or nothing if it could not be stored.
          */
-        virtual Entity::EAG::Route upsertRoute(Entity::EAG::Route &route) = 0;
+        virtual std::optional<Entity::EAG::Route> upsertRoute(Entity::EAG::Route &route) = 0;
 
         /**
          * @brief Finds a route by the name it is managed under.
@@ -61,7 +67,10 @@ namespace Euclid::Database {
          * Inactive routes are returned too: the gateway decides what to serve, and a listing that
          * silently omitted them would make a route somebody had disabled look deleted.
          *
-         * @param prefix only routes whose routeId starts with this; empty matches all.
+         * @param prefix only routes whose *path* starts with this; empty matches all. Filtered by
+         * path rather than by routeId because a route is identified from the outside by what it
+         * publishes - "what is served under /api" is the question somebody has, and it is also
+         * what create-route needs in order to refuse a path another route already claims.
          * @return the routes.
          */
         [[nodiscard]]
