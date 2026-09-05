@@ -22,7 +22,7 @@ namespace Euclid::Database::Entity::Monitoring {
      * up from RAW and DAY rows from HOUR - each tier only ever reads the tier above it.
      *
      * @par
-     * RAW has no fixed width: it is whatever euclid.monitoring.average-period is set to (300s by
+     * RAW has no fixed width: it is whatever euclid.modules.emo.average-period is set to (300s by
      * default), which is why the bucket width is not part of this enum. Use ResolutionBucket() for
      * the two derived tiers and the configured period for RAW.
      *
@@ -58,7 +58,7 @@ namespace Euclid::Database::Entity::Monitoring {
      *
      * @param resolution resolution to get the bucket width for.
      * @return bucket width, or zero for RAW and UNKNOWN, whose width is the configured
-     * euclid.monitoring.average-period rather than a fixed value.
+     * euclid.modules.emo.average-period rather than a fixed value.
      */
     [[maybe_unused]]
     static std::chrono::seconds ResolutionBucket(const Resolution &resolution) {

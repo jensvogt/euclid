@@ -1,0 +1,43 @@
+.TH EUCLID-CLI-EAG-DELETE-ROUTE 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eag-delete-route \- remove a gateway route
+.SH SYNOPSIS
+.B euclid-cli eag delete-route
+.BR \-\-route\-id | \-r
+.I ID
+.SH DESCRIPTION
+Deletes a route. Its path stops being served within a few seconds and
+callers get 404 from then on.
+.PP
+Nothing else is touched: the application behind it keeps running, and
+any other route pointing at the same application keeps working. Deleting
+a route is a change to what euclid publishes, not to what it runs.
+.PP
+To take a path out of service without losing how it was configured, use
+.B "update-route \-\-active false"
+instead \- see
+.BR euclid-cli-eag-update-route (1).
+.SH OPTIONS
+.TP
+.BR \-r ", " \-\-route\-id " " \fIID\fR
+Route to delete. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The route is gone, including when it was already not there.
+.TP
+.B 1
+Missing arguments, no administrator session, or the server rejected the
+request.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli eag delete-route --route-id datenlieferanten
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eag (1),
+.BR euclid-cli-eag-update-route (1),
+.BR euclid-cli-eag-list-routes (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
