@@ -38,12 +38,31 @@ namespace Euclid::Database::Entity::EAG {
          */
         EUCLID,
 
+        /**
+         * @brief HTTP Basic authentication against a euclid user's password.
+         *
+         * @par
+         * For the callers a euclid credential does not suit: a browser, which will prompt for a
+         * username and password when it is answered with WWW-Authenticate, and a script with
+         * nothing but curl. The password is checked against the same EAM user store everything
+         * else uses, and a technical principal - one with loginEnabled false - is refused here as
+         * it is at login.
+         *
+         * @par
+         * Only the gateway accepts this, never a euclid module: verifying a password is PBKDF2 at
+         * 100,000 iterations, which is right for something that happens once at login and quite
+         * wrong for something on every request. The gateway keeps a short-lived record of what it
+         * has already verified so a stream of requests costs one hash rather than thousands.
+         */
+        BASIC,
+
         UNKNOWN
     };
 
     static std::map<RouteAuthentication, std::string> RouteAuthenticationNames{
             {RouteAuthentication::NONE, "NONE"},
             {RouteAuthentication::EUCLID, "EUCLID"},
+            {RouteAuthentication::BASIC, "BASIC"},
             {RouteAuthentication::UNKNOWN, "UNKNOWN"},
     };
 
