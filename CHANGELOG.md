@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.71](https://github.com/jensvogt/euclid/compare/v1.0.70...v1.0.71) (2026-09-06)
+
+
+### Bug Fixes
+
+* win32 config, macOS config. ([1c37ada](https://github.com/jensvogt/euclid/commit/1c37ada6a14eb48c1a973047b0e344eb01b2cb49))
+
 ## [1.0.70](https://github.com/jensvogt/euclid/compare/1.0.69...v1.0.70) (2026-09-06)
 
 
