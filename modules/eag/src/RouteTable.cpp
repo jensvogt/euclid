@@ -43,18 +43,24 @@ namespace Euclid::EAG {
         });
     }
 
-    RouteTable::Match RouteTable::match(const std::string &path, const std::string &method) const {
+    RouteTable::Match RouteTable::match(const std::string &path, const std::string &method, const std::string &nameSpace) const {
         std::lock_guard lock(_mutex);
-        return matchIn(_routes, path, method);
+        return matchIn(_routes, path, method, nameSpace);
     }
 
     RouteTable::Match RouteTable::matchIn(const std::vector<Database::Entity::EAG::Route> &routes,
-                                          const std::string &path, const std::string &method) {
+                                          const std::string &path, const std::string &method,
+                                          const std::string &nameSpace) {
 
         Match result;
 
         for (const auto &route: routes) {
             if (route.path.empty() || !path.starts_with(route.path)) continue;
+
+            // A listener bound to a namespace carries that namespace's routes and those that name
+            // none; one bound to nothing carries everything. Checked before the path rules so a
+            // route belonging elsewhere cannot claim a path and then refuse the method.
+            if (!nameSpace.empty() && !route.nameSpace.empty() && route.nameSpace != nameSpace) continue;
 
             // A prefix has to end on a segment boundary. Without this "/resource" would
             // also claim "/resource-intern", which is a different resource that happens to

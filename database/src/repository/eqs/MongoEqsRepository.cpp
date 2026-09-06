@@ -193,9 +193,12 @@ namespace Euclid::Database {
 
             for (auto cursor = queueCollection.find(make_document(kvp("deadLetterQueueErn", deadLetterQueueErn)));
                  auto doc: cursor) {
-                Entity::EQS::Queue queue;
-                queue.fromDocument(doc);
-                queues.push_back(queue);
+                // fromDocument() is static and *returns* the queue - calling it on an instance
+                // is legal and does nothing to that instance, so this used to push back a
+                // default-constructed queue with an empty ERN. redrive-dlq then asked the
+                // repository to move messages into "", which it refuses, and every redrive
+                // reported "no source queue is recorded" no matter what the messages carried.
+                queues.push_back(Entity::EQS::Queue::fromDocument(doc));
             }
         } catch (const std::exception &e) {
             log_error << "List source queues failed, dlqErn: " << deadLetterQueueErn << ", error: " << e.what();

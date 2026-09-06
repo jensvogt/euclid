@@ -85,12 +85,27 @@ namespace Euclid::EAG {
          * method - and only if none of them wants it are the methods that were on offer reported
          * back in Match::allowed.
          *
+         * @par
+         * A listener bound to a namespace sees only that namespace's routes, and routes that name
+         * none. That is what lets one installation publish "/api/produktmeldungen" for development
+         * on one port and for integration on another: the port says which was meant, so the
+         * environment never has to appear in the address. A listener with no namespace - a
+         * single-listener installation - sees everything.
+         *
          * @param path request target, without its query string.
          * @param method request method, upper case.
+         * @param nameSpace namespace the listener serves, or empty for all of them.
          * @return what was found.
          */
         [[nodiscard]]
-        Match match(const std::string &path, const std::string &method) const;
+        Match match(const std::string &path, const std::string &method, const std::string &nameSpace) const;
+
+        /**
+         * @brief Matches against an already-ordered route list. See match().
+         */
+        [[nodiscard]]
+        static Match matchIn(const std::vector<Database::Entity::EAG::Route> &routes,
+                             const std::string &path, const std::string &method, const std::string &nameSpace);
 
         /**
          * @brief Orders routes so that the first one that matches is the most specific.
@@ -102,12 +117,7 @@ namespace Euclid::EAG {
          */
         static void order(std::vector<Database::Entity::EAG::Route> &routes);
 
-        /**
-         * @brief Matches against an already-ordered route list. See match().
-         */
-        [[nodiscard]]
-        static Match matchIn(const std::vector<Database::Entity::EAG::Route> &routes,
-                             const std::string &path, const std::string &method);
+
 
         /**
          * @brief The distinct applications the current routes point at.

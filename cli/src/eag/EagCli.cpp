@@ -58,8 +58,8 @@ namespace Euclid::CLI {
         }
 
         bool ValidAuthentication(const std::string &authentication, const std::string &action) {
-            if (authentication == "none" || authentication == "euclid") return true;
-            std::cerr << "error: " << action << " failed: --authentication must be \"none\" or \"euclid\"\n";
+            if (authentication == "none" || authentication == "euclid" || authentication == "basic") return true;
+            std::cerr << "error: " << action << " failed: --authentication must be \"none\", \"euclid\" or \"basic\"\n";
             return false;
         }
 
@@ -108,15 +108,20 @@ namespace Euclid::CLI {
         desc.add_options()
                 ("route-id,r", po::value<std::string>()->required(), "name for the route, unique within the installation")
                 ("path,p", po::value<std::string>()->required(), "path prefix to publish, e.g. /resource")
-                ("application,a", po::value<std::string>()->required(), "application the requests are sent to")
+                ("application,a", po::value<std::string>(), "application the requests are sent to")
+                ("module,M", po::value<std::string>(), "euclid module the requests are sent to instead of an application, e.g. eam")
+                ("action", po::value<std::string>(), "the one action the module answers for on this route, e.g. login")
                 ("methods,m", po::value<std::string>(), "comma-separated HTTP methods this route answers for, e.g. GET,POST; omit for all of them")
-                ("authentication,A", po::value<std::string>()->default_value("none"), "none (anybody may call it) or euclid (a euclid credential is required)")
+                ("region,R", po::value<std::string>(), "region requests on this route act in; defaults to your own")
+                ("namespace,N", po::value<std::string>(), "namespace requests on this route act in; defaults to the one you are working in")
+                ("authentication,A", po::value<std::string>()->default_value("none"), "none (anybody may call it), euclid (a bearer token, RFC 9421 signature or SigV4) or basic (HTTP Basic against a euclid user password)")
                 ("inactive,i", po::bool_switch(), "create the route but leave it out of service until update-route activates it");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eag", "create-route",
-                                   "--route-id <id> --path <prefix> --application <name> "
-                                   "[--methods <list>] [--authentication none|euclid] [--inactive]",
+                                   "--route-id <id> --path <prefix> (--application <name> | --module <name> --action <name>) "
+                                   "[--methods <list>] [--region <name>] [--namespace <name>] "
+                                   "[--authentication none|euclid|basic] [--inactive]",
                                    "Publishes a path prefix on the gateway's port and sends everything beneath it to "
                                    "an application, one instance at a time in turn. The path is forwarded unchanged, "
                                    "so a route on /resource reaches the application as "
@@ -129,16 +134,34 @@ namespace Euclid::CLI {
                                    "a later, more specific /resource/export takes precedence for its own "
                                    "subtree. A prefix only matches whole segments, so /resource never claims "
                                    "/resource-intern. "
+                                   "--module publishes a euclid module's own action instead of an application: "
+                                   "\"--module eam --action login\" makes the named path a login endpoint, which is what "
+                                   "lets something outside euclid get a token without also having to reach euclid's "
+                                   "own gateway on another port. One action per route, deliberately - a route that "
+                                   "took its action from the path would publish every action the module has, "
+                                   "including the ones that delete things. The request goes to euclid's own gateway, "
+                                   "since a module listens on a socket nothing outside the host can reach. "
+                                   "The route carries the region and namespace its requests act in, and the gateway "
+                                   "puts them on every request it forwards - so a browser or a curl script needs to "
+                                   "know nothing about euclid's own headers. They default to yours, and are worth "
+                                   "naming when they differ: a route published for one namespace should not act in "
+                                   "another just because an administrator of the first configured it. A caller that "
+                                   "does send them keeps what it sent, and is refused if it is not permitted, rather "
+                                   "than being quietly moved. "
                                    "Without --methods the route answers for every method. Naming some restricts it to "
                                    "those, and anything else on the path is answered with 405 and an Allow header "
                                    "rather than 404 - the caller is told the resource is there and they asked the "
                                    "wrong way round. Two routes may share a path as long as their methods do not "
                                    "overlap, which is how reads and writes of one resource can go to different "
                                    "applications without the caller seeing a seam. "
-                                   "With --authentication euclid the gateway requires a euclid credential and refuses "
-                                   "the request before any application sees it; with none it forwards everything, "
-                                   "which is what a route behind an external gateway or an application doing its own "
-                                   "authentication wants.",
+                                   "With --authentication euclid the gateway requires a euclid credential - a bearer "
+                                   "token from \"eam login\", an RFC 9421 signature or SigV4 - and refuses the request "
+                                   "before any application sees it. With basic it requires HTTP Basic instead, checked "
+                                   "against the same euclid user passwords, and answers an unauthenticated caller with "
+                                   "WWW-Authenticate so a browser prompts for a username and password; that is the one "
+                                   "to reach for when the caller is a person at a browser or a script with nothing but "
+                                   "curl. With none it forwards everything, which is what a route behind an external "
+                                   "gateway or an application doing its own authentication wants.",
                                    desc);
         }
 
@@ -156,10 +179,25 @@ namespace Euclid::CLI {
         if (!ValidPath(path, "create-route")) return 1;
         if (!ValidAuthentication(authentication, "create-route")) return 1;
 
+        const auto hasApplication = vm.contains("application");
+        const auto hasModule = vm.contains("module");
+        if (hasApplication == hasModule) {
+            std::cerr << "error: create-route failed: name either --application or --module, not both and not neither\n";
+            return 1;
+        }
+        if (hasModule && !vm.contains("action")) {
+            std::cerr << "error: create-route failed: --module also needs --action\n";
+            return 1;
+        }
+
         const boost::json::object request{
                 {"routeId", vm["route-id"].as<std::string>()},
                 {"path", path},
-                {"applicationId", vm["application"].as<std::string>()},
+                {"applicationId", hasApplication ? vm["application"].as<std::string>() : std::string()},
+                {"moduleTarget", hasModule ? vm["module"].as<std::string>() : std::string()},
+                {"moduleAction", vm.contains("action") ? vm["action"].as<std::string>() : std::string()},
+                {"region", vm.contains("region") ? vm["region"].as<std::string>() : std::string()},
+                {"namespace", vm.contains("namespace") ? vm["namespace"].as<std::string>() : std::string()},
                 {"methods", vm.contains("methods") ? SplitMethods(vm["methods"].as<std::string>()) : boost::json::array{}},
                 {"authentication", authentication},
                 {"active", !vm["inactive"].as<bool>()}
@@ -174,14 +212,18 @@ namespace Euclid::CLI {
                 ("route-id,r", po::value<std::string>()->required(), "route to change")
                 ("path,p", po::value<std::string>(), "new path prefix")
                 ("application,a", po::value<std::string>(), "application the requests are sent to")
+                ("module,M", po::value<std::string>(), "euclid module the requests are sent to instead of an application")
+                ("action", po::value<std::string>(), "the action the module answers for on this route")
                 ("methods,m", po::value<std::string>(), "comma-separated HTTP methods, or an empty string for all of them")
-                ("authentication,A", po::value<std::string>(), "none or euclid")
+                ("region,R", po::value<std::string>(), "region requests on this route act in")
+                ("namespace,N", po::value<std::string>(), "namespace requests on this route act in")
+                ("authentication,A", po::value<std::string>(), "none, euclid or basic")
                 ("active", po::value<bool>(), "true to put the route into service, false to take it out");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eag", "update-route",
                                    "--route-id <id> [--path <prefix>] [--application <name>] [--methods <list>] "
-                                   "[--authentication none|euclid] [--active true|false]",
+                                   "[--authentication none|euclid|basic] [--active true|false]",
                                    "Changes an existing route. Anything not named is left as it is, so one setting can "
                                    "be changed without restating the rest. "
                                    "The gateway re-reads its routes every few seconds, so a change takes effect "
@@ -211,6 +253,10 @@ namespace Euclid::CLI {
             request["path"] = path;
         }
         if (vm.contains("application")) request["applicationId"] = vm["application"].as<std::string>();
+        if (vm.contains("module")) request["moduleTarget"] = vm["module"].as<std::string>();
+        if (vm.contains("action")) request["moduleAction"] = vm["action"].as<std::string>();
+        if (vm.contains("region")) request["region"] = vm["region"].as<std::string>();
+        if (vm.contains("namespace")) request["namespace"] = vm["namespace"].as<std::string>();
         if (vm.contains("methods")) request["methods"] = SplitMethods(vm["methods"].as<std::string>());
         if (vm.contains("authentication")) {
             const auto authentication = vm["authentication"].as<std::string>();
