@@ -1,5 +1,5 @@
 Package: euclid
-Version: 1.0.71
+Version: 1.0.72
 License: GPL-3.0-or-later
 Vendor: none
 Architecture: amd64
@@ -9,15 +9,15 @@ Depends: systemd, libmagic1, libgoogle-perftools4 | libgoogle-perftools4t64, lib
 Homepage: http://example.com/no-uri-given
 Priority: optional
 Section: utils
-Filename: pool/main/e/euclid/euclid_1.0.71_amd64.deb
-Size: 96254346
-SHA256: ad046667841589d3bee65f577da489fd764f9d72f056971cfb73cf95b5ddc432
-SHA1: c60f5a5e8211a6c448353f8f017402d7387ea1f2
-MD5sum: b4ac755b84b59c102f7ede6a1db18dc0
+Filename: pool/main/e/euclid/euclid_1.0.72_amd64.deb
+Size: 96254692
+SHA256: 943b35e19b788b19e30eac2524fe9d366318193cebd81ae0a5e816cb11c85367
+SHA1: 641da3477eb89432a94f3ccfa102a4ca4b97cba2
+MD5sum: 2012d51d5e8e16c1ac9321516f10a1fe
 Description: Euclid Cloud Services
 
 Package: euclid-cli
-Version: 1.0.71
+Version: 1.0.72
 License: GPL-3.0-or-later
 Vendor: none
 Architecture: amd64
@@ -29,10 +29,10 @@ Replaces: euclid
 Homepage: https://github.com/jensvogt/euclid
 Priority: optional
 Section: utils
-Filename: pool/main/e/euclid-cli/euclid-cli_1.0.71_amd64.deb
-Size: 5447986
-SHA256: 5197310ad1fffa14c611401d2c53aa04108714c4aa5c82aabc6a9041d54fb9f7
-SHA1: 5de260b660ec876bb65b770264474f500eaee8c7
-MD5sum: db52669b79980f4be450f498868f8f79
+Filename: pool/main/e/euclid-cli/euclid-cli_1.0.72_amd64.deb
+Size: 5448088
+SHA256: e1cd9de161db6b7d4baf26044e4b282bb19d3a23bb0ff5f72d9de319c4bdc313
+SHA1: 9094317e333325151503f41d56dc03ba2764fb07
+MD5sum: c9d69fad5d5ee656baf8e150559cfbf8
 Description: Euclid command line interface
 
