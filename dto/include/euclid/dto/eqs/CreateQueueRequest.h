@@ -71,6 +71,8 @@ namespace Euclid::Dto::EQS {
             return boost::json::value_to<CreateQueueRequest>(Core::ParseJsonString(json));
         }
 
+        //curl -X POST http://localhost:8080/api/produktmeldungen/datenlieferantId=jvo -H 'Conteype: application/json' -H "Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3ODg2ODcyODEsImV4cCI6MTc4ODY5MDg4MSwic3ViIjoianZvIn0.oW0SsBc_M9RTHNrwf7t7PGVCQkxHhenyl1KeaRCVErs"
+
     private:
 
         friend CreateQueueRequest tag_invoke(boost::json::value_to_tag<CreateQueueRequest>, boost::json::value const &v) {

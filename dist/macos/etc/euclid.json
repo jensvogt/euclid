@@ -166,8 +166,19 @@
         "threads": 2,
         "port": 8080,
         "proxy-threads": 8,
-        "refresh-seconds": 5
-      }
+        "refresh-seconds": 5,
+        "basic-auth-cache-seconds": 60,
+        "listeners": {
+          "development": {
+            "port": 8080
+          },
+          "integration": {
+            "port": 8081
+          },
+          "production": {
+            "port": 80
+          }
+        }
     },
     "scaling": {
       "scale-down-idle-seconds": 60

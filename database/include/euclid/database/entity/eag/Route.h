@@ -92,6 +92,36 @@ namespace Euclid::Database::Entity::EAG {
         std::string applicationId;
 
         /**
+         * @brief Euclid module this route reaches instead of an application, e.g. "eam". Empty for
+         * an ordinary route.
+         *
+         * @par
+         * The way in for something outside euclid that needs euclid itself rather than an
+         * application it runs - a browser that has to log in before it can call anything, most of
+         * all. Without it a front end would talk to the API gateway for the application and to
+         * euclid's own gateway for its credentials: two ports, two origins, and CORS between them.
+         *
+         * @par
+         * The request is forwarded to euclid's own gateway rather than to the module, because a
+         * module listens on a Unix domain socket and has no address anything outside the host
+         * could reach. The gateway is what turns a target and an action into a call on one, and it
+         * is already the thing every SDK talks to.
+         */
+        std::string moduleTarget;
+
+        /**
+         * @brief The one action moduleTarget answers for on this route, e.g. "login".
+         *
+         * @par
+         * One action per route, deliberately, rather than reading it from the rest of the path. A
+         * route for "/euclid" that passed its remaining segments through as actions would publish
+         * every action the module has, including the ones that delete users - and publishing an
+         * administrative interface by accident is not a mistake that announces itself. Naming the
+         * action means what is exposed is exactly what somebody wrote down.
+         */
+        std::string moduleAction;
+
+        /**
          * @brief HTTP methods this route answers for, upper case. Empty means all of them.
          *
          * @par

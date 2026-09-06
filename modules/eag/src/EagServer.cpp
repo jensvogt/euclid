@@ -41,6 +41,11 @@ namespace Euclid::EAG {
             return value && value->is_string() ? std::string(value->as_string()) : fallback;
         }
 
+        // The euclid modules a route may name. Kept as a list so a typo is refused at configuration
+        // time: a route naming "emm " or "eeam" would otherwise be accepted, published, and answer
+        // 404 from the gateway forever with nothing saying why.
+        const std::set<std::string> kModuleTargets{"eam", "esm", "eqs", "ens", "emm", "emo", "ekm", "ets", "eap", "ees", "eag"};
+
         // The methods a route may name. A typo here is a route that quietly answers for nothing,
         // or - worse, on an update - one that stops answering for what it used to.
         const std::set<std::string> kKnownMethods{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"};
@@ -79,9 +84,16 @@ namespace Euclid::EAG {
         // an overlap, where the winner would be decided by whichever the sort happened to put
         // first: the caller would reach one application today and possibly the other tomorrow.
         // An empty method list means every method, so it overlaps with everything.
-        std::optional<std::string> pathTaken(const std::string &path, const std::vector<std::string> &methods, const std::string &routeId) {
+        std::optional<std::string> pathTaken(const std::string &path, const std::vector<std::string> &methods,
+                                             const std::string &nameSpace, const std::string &routeId) {
             for (const auto &route: Database::RepositoryFactory::instance().eagRepository()->listRoutes(path)) {
                 if (route.path != path || route.routeId == routeId) continue;
+
+                // Scoped to the namespace, because a listener only ever sees its own: development
+                // and integration can both publish "/api/produktmeldungen" on their own ports
+                // without either being ambiguous. Only routes naming no namespace clash with
+                // everything, since a listener carries those too whatever it is bound to.
+                if (!nameSpace.empty() && !route.nameSpace.empty() && route.nameSpace != nameSpace) continue;
                 if (route.methods.empty() || methods.empty()) return route.routeId;
 
                 for (const auto &method: methods) {
@@ -100,6 +112,8 @@ namespace Euclid::EAG {
                     {"namespace", route.nameSpace},
                     {"path", route.path},
                     {"applicationId", route.applicationId},
+                    {"moduleTarget", route.moduleTarget},
+                    {"moduleAction", route.moduleAction},
                     {"methods", boost::json::array(route.methods.begin(), route.methods.end())},
                     {"authentication", RouteAuthenticationToString(route.authentication)},
                     {"active", route.active},
@@ -150,8 +164,26 @@ namespace Euclid::EAG {
         const auto routeId = stringField(obj, "routeId");
         const auto path = stringField(obj, "path");
         const auto applicationId = stringField(obj, "applicationId");
+        const auto moduleTarget = stringField(obj, "moduleTarget");
+        const auto moduleAction = stringField(obj, "moduleAction");
         if (routeId.empty()) return EagServer::ErrorResponse(req, status::bad_request, "routeId is required");
-        if (applicationId.empty()) return EagServer::ErrorResponse(req, status::bad_request, "applicationId is required");
+
+        // One or the other, never both and never neither: a route goes to an application euclid
+        // runs, or to euclid itself, and those are reached in entirely different ways.
+        if (applicationId.empty() == moduleTarget.empty()) {
+            return EagServer::ErrorResponse(req, status::bad_request,
+                                            "Name either an application or a euclid module, not both and not neither");
+        }
+        if (!moduleTarget.empty()) {
+            if (!kModuleTargets.contains(moduleTarget)) {
+                return EagServer::ErrorResponse(req, status::bad_request, "Not a euclid module: " + moduleTarget);
+            }
+            // Without an action the gateway has nothing to dispatch on and would answer 400 for
+            // every request the route ever carries.
+            if (moduleAction.empty()) {
+                return EagServer::ErrorResponse(req, status::bad_request, "moduleAction is required when a module is named");
+            }
+        }
 
         // A path that does not start with "/" would never match anything, since what is compared
         // against it is a request target - refused here rather than becoming a route that is
@@ -170,13 +202,15 @@ namespace Euclid::EAG {
         if (repository->routeExists(routeId)) {
             return EagServer::ErrorResponse(req, status::conflict, "Route exists already, routeId: " + routeId);
         }
-        if (const auto taken = pathTaken(path, *methods, routeId)) {
+        const auto nameSpace = stringField(obj, "namespace", std::string(req["x-euclid-namespace"]));
+        if (const auto taken = pathTaken(path, *methods, nameSpace, routeId)) {
             return EagServer::ErrorResponse(req, status::conflict, "Path and method are already routed by routeId: " + *taken);
         }
 
         // The application has to exist. A route to nothing answers 503 for every request, which
         // looks like an application that is down rather than one that was never deployed.
-        if (!Database::RepositoryFactory::instance().eapRepository()->findApplicationByApplicationId(applicationId).has_value()) {
+        if (!applicationId.empty()
+            && !Database::RepositoryFactory::instance().eapRepository()->findApplicationByApplicationId(applicationId).has_value()) {
             return EagServer::ErrorResponse(req, status::not_found, "Application not found, applicationId: " + applicationId);
         }
 
@@ -184,10 +218,18 @@ namespace Euclid::EAG {
         route.routeId = routeId;
         route.path = path;
         route.applicationId = applicationId;
+        route.moduleTarget = moduleTarget;
+        route.moduleAction = moduleAction;
         route.methods = *methods;
         route.accountId = auth.user->accountId;
-        route.region = auth.user->region;
-        route.nameSpace = std::string(req["x-euclid-namespace"]);
+
+        // The scope requests carried by this route act in, which the gateway puts on each one
+        // before it goes anywhere. Defaulted to whoever is creating the route, because that is
+        // almost always what is meant, and nameable because it is not always: a route published
+        // for one namespace should not act in another just because an administrator of the first
+        // happened to configure it.
+        route.region = stringField(obj, "region", auth.user->region);
+        route.nameSpace = nameSpace;
         route.ern = Core::createErn("eag", route.accountId, route.nameSpace, "route:" + routeId);
         const auto authentication = RouteAuthenticationFromString(stringField(obj, "authentication", "NONE"));
         if (!authentication.has_value()) {
@@ -247,7 +289,7 @@ namespace Euclid::EAG {
             }
             route->path = path;
         }
-        if (const auto taken = pathTaken(route->path, route->methods, routeId)) {
+        if (const auto taken = pathTaken(route->path, route->methods, route->nameSpace, routeId)) {
             return EagServer::ErrorResponse(req, status::conflict, "Path and method are already routed by routeId: " + *taken);
         }
         if (obj.contains("applicationId")) {
@@ -255,8 +297,27 @@ namespace Euclid::EAG {
             if (!Database::RepositoryFactory::instance().eapRepository()->findApplicationByApplicationId(applicationId).has_value()) {
                 return EagServer::ErrorResponse(req, status::not_found, "Application not found, applicationId: " + applicationId);
             }
+            // Moving a route to an application means it is no longer a module route, and the
+            // other way round - leaving both set would make which one wins depend on the proxy.
             route->applicationId = applicationId;
+            route->moduleTarget.clear();
+            route->moduleAction.clear();
         }
+        if (obj.contains("moduleTarget")) {
+            const auto moduleTarget = stringField(obj, "moduleTarget");
+            if (!kModuleTargets.contains(moduleTarget)) {
+                return EagServer::ErrorResponse(req, status::bad_request, "Not a euclid module: " + moduleTarget);
+            }
+            route->moduleTarget = moduleTarget;
+            route->applicationId.clear();
+        }
+        if (obj.contains("moduleAction")) route->moduleAction = stringField(obj, "moduleAction");
+
+        if (!route->moduleTarget.empty() && route->moduleAction.empty()) {
+            return EagServer::ErrorResponse(req, status::bad_request, "moduleAction is required when a module is named");
+        }
+        if (obj.contains("region")) route->region = stringField(obj, "region");
+        if (obj.contains("namespace")) route->nameSpace = stringField(obj, "namespace");
         if (obj.contains("authentication")) {
             // Refused rather than defaulted: somebody asking for EUCLID and silently getting NONE
             // would be handed a public route they believe is protected.
@@ -363,18 +424,65 @@ namespace Euclid::EAG {
     EagServer::EagServer(std::string socketPath, const int threads) : HttpActionServer("EAG", std::move(socketPath), threads) {
 
         const auto &configuration = Core::Configuration::instance();
-        const auto port = static_cast<unsigned short>(configuration.getOr<long>("euclid.modules.eag.port", 8080));
+        // One port per namespace, or one unscoped port. Keyed by namespace rather than given as a
+        // list, so the namespace is the name of the thing rather than a field inside it, and so
+        // the same reader euclid.modules already uses can read it:
+        //
+        //   "listeners": { "development": { "port": 8080 }, "integration": { "port": 8081 } }
+        //
+        // A production installation is usually its own euclid with one namespace and wants none of
+        // this, which is why the bare "port" still works and means a listener that serves every
+        // route whatever namespace it names.
+        std::vector<ProxyServer::Listener> listeners;
+        if (constexpr auto listenerPath = "euclid.modules.eag.listeners"; configuration.has(listenerPath)) {
+            try {
+                for (const auto &[nameSpace, properties]: configuration.getObjects(listenerPath)) {
+                    const auto it = properties.find("port");
+                    if (it == properties.end()) {
+                        log_error << "API gateway listener has no port and is ignored, namespace: " << nameSpace;
+                        continue;
+                    }
+                    listeners.emplace_back(static_cast<unsigned short>(std::get<long>(it->second)), nameSpace);
+                }
+            } catch (const std::exception &e) {
+                log_error << "Could not read the API gateway listeners, error: " << e.what();
+            }
+        }
+        if (listeners.empty()) {
+            listeners.emplace_back(static_cast<unsigned short>(configuration.getOr<long>("euclid.modules.eag.port", 8080)), std::string());
+        }
         const auto proxyThreads = static_cast<int>(configuration.getOr<long>("euclid.modules.eag.proxy-threads", 8));
         const auto refreshSeconds = configuration.getOr<long>("euclid.modules.eag.refresh-seconds", 5);
 
+        // How long a verified Basic credential stays verified. Zero hashes the password on every
+        // request, which is correct and costs tens of milliseconds of CPU each time.
+        const auto basicAuthCacheSeconds = configuration.getOr<long>("euclid.modules.eag.basic-auth-cache-seconds", 60);
+
+        // Where a route naming a euclid module is sent. The same listener the CLI and every SDK
+        // already talk to, so nothing new has to be exposed for this - the API gateway simply
+        // becomes a second way in to it, on a path of the operator's choosing.
+        const auto euclidGatewayPort = static_cast<unsigned short>(configuration.getOr<long>("euclid.gateway.http.port", 5566));
+
+        // The gateway speaks TLS by default, so a module route has to as well - plain HTTP to it
+        // is answered with a dropped connection and nothing that says why. Its own certificate is
+        // the trust anchor, since a fresh installation's is self-signed.
+        const auto euclidGatewayTls = configuration.getOr<bool>("euclid.gateway.tls.enabled", false);
+        const auto euclidGatewayCert = configuration.getOr<std::string>("euclid.gateway.tls.cert-file", "");
+
         try {
-            _proxy = std::make_unique<ProxyServer>(port, proxyThreads, refreshSeconds);
+            _proxy = std::make_unique<ProxyServer>(listeners, proxyThreads, refreshSeconds, basicAuthCacheSeconds,
+                                                   euclidGatewayPort, euclidGatewayTls, euclidGatewayCert);
             _proxy->start();
         } catch (const std::exception &e) {
             // The module still runs: its socket answers, the route table can be managed, and the
             // reason the port is not there is in the log. Throwing would leave the manager
             // restarting a process that says nothing about why it keeps dying.
-            log_error << "API gateway could not listen on port " << port << ", error: " << e.what();
+            std::string ports;
+            for (const auto &listener: listeners) {
+                if (!ports.empty()) ports += ", ";
+                ports += std::to_string(listener.port);
+            }
+            log_error << "API gateway could not listen on " << ports << ", error: " << e.what();
         }
     }
 

@@ -7,12 +7,20 @@ euclid-cli-eag-create-route \- publish a path through the API gateway
 .I ID
 .BR \-\-path | \-p
 .I PREFIX
-.BR \-\-application | \-a
+.RB ( \-\-application | \-a
 .I NAME
+.RB | \-\-module | \-M
+.I NAME
+.B \-\-action
+.IR NAME )
 .RB [ \-\-methods | \-m
 .IR LIST ]
+.RB [ \-\-region | \-R
+.IR NAME ]
+.RB [ \-\-namespace | \-N
+.IR NAME ]
 .RB [ \-\-authentication | \-A
-.IR none | euclid ]
+.IR none | euclid | basic ]
 .RB [ \-\-inactive | \-i ]
 .SH DESCRIPTION
 Publishes a path prefix on the API gateway's port and sends everything
@@ -67,7 +75,19 @@ dead.
 .BR \-a ", " \-\-application " " \fINAME\fR
 Application the requests are sent to, as deployed through
 .BR euclid-cli-eap (1).
-Required.
+Either this or \fB\-\-module\fR, never both.
+.TP
+.BR \-M ", " \-\-module " " \fINAME\fR
+Euclid module the requests are sent to instead of an application \-
+\fIeam\fR, \fIesm\fR, \fIeqs\fR and so on. Requires \fB\-\-action\fR. See
+.B REACHING EUCLID ITSELF
+in
+.BR euclid-cli-eag (1).
+.TP
+.B \-\-action " " \fINAME\fR
+The one action \fB\-\-module\fR answers for on this route, e.g.
+\fIlogin\fR. One per route: a route cannot take its action from the
+path, because that would publish every action the module has.
 .TP
 .BR \-m ", " \-\-methods " " \fILIST\fR
 Comma-separated HTTP methods this route answers for, e.g.
@@ -86,7 +106,18 @@ A request whose method no route on the path accepts is answered with
 405 and an \fIAllow\fR header, not 404.
 .RE
 .TP
-.BR \-A ", " \-\-authentication " " \fInone\fR|\fIeuclid\fR
+.BR \-R ", " \-\-region " " \fINAME\fR
+Region requests on this route act in. Defaults to your own. The gateway
+puts it on every request it forwards, so callers need not know euclid
+has regions.
+.TP
+.BR \-N ", " \-\-namespace " " \fINAME\fR
+Namespace requests on this route act in. Defaults to the one you are
+working in. Worth naming when it differs: a route published for one
+namespace should not act in another merely because an administrator of
+the first configured it.
+.TP
+.BR \-A ", " \-\-authentication " " \fInone\fR|\fIeuclid\fR|\fIbasic\fR
 What the gateway requires of a caller. Defaults to \fInone\fR.
 .RS
 .PP
@@ -97,7 +128,14 @@ API gateway wants, and what a public read wants.
 With \fIeuclid\fR a euclid credential is required and verified before
 anything is forwarded, and the check happens before a backend is chosen,
 so an unauthenticated caller never causes a connection to an application
-at all.
+at all. That means a bearer token, an RFC 9421 signature or SigV4.
+.PP
+With \fIbasic\fR it is HTTP Basic instead, checked against the same
+euclid user passwords, and an unauthenticated caller is answered with a
+\fIWWW-Authenticate\fR header so a browser prompts for a username and
+password. See
+.BR euclid-cli-eag (1)
+for what that costs and why only the gateway accepts it.
 .RE
 .TP
 .BR \-i ", " \-\-inactive
