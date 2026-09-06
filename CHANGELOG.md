@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.70](https://github.com/jensvogt/euclid/compare/1.0.69...v1.0.70) (2026-09-06)
+
+
+### Bug Fixes
+
+* EAG gateway routes ([1352018](https://github.com/jensvogt/euclid/commit/135201816233b004f638f89d41f0effea83795c0))
+
 ## [1.0.69](https://github.com/jensvogt/euclid/compare/1.0.68...v1.0.69) (2026-09-06)
 
 
