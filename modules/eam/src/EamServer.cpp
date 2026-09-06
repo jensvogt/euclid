@@ -288,7 +288,7 @@ namespace Euclid::EAM {
 
         const auto request = boost::json::value_to<Dto::EAM::ListUserRequest>(jv);
 
-        const std::vector<Database::Entity::EAM::User> users = repo->listUsers(request.prefix, request.pageSize, request.pageIndex, request.sortColumn);
+        const std::vector<Database::Entity::EAM::User> users = repo->listUsers(request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection);
         log_info << "Access ListUsers" << (!request.prefix.empty() ? ", prefix: " + request.prefix : "");
 
         Dto::EAM::ListUserResponse response;
@@ -557,7 +557,7 @@ namespace Euclid::EAM {
 
         const auto request = boost::json::value_to<Dto::EAM::ListUserGroupsRequest>(jv);
 
-        const std::vector<Database::Entity::EAM::UserGroup> userGroups = repo->listUserGroups(request.prefix, request.pageSize, request.pageIndex, request.sortColumn);
+        const std::vector<Database::Entity::EAM::UserGroup> userGroups = repo->listUserGroups(request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection);
         log_info << "EAM ListUserGroups" << (!request.prefix.empty() ? ", prefix: " + request.prefix : "");
 
         Dto::EAM::ListUserGroupsResponse response;
@@ -657,7 +657,7 @@ namespace Euclid::EAM {
 
         const auto request = boost::json::value_to<Dto::EAM::ListAccountsRequest>(jv);
 
-        const auto accounts = repo->listAccounts(request.prefix, request.pageSize, request.pageIndex, request.sortColumn);
+        const auto accounts = repo->listAccounts(request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection);
         log_info << "EAM ListAccounts" << (!request.prefix.empty() ? ", prefix: " + request.prefix : "");
 
         Dto::EAM::ListAccountsResponse response;
@@ -774,7 +774,7 @@ namespace Euclid::EAM {
         // }
 
         const auto repo = Database::RepositoryFactory::instance().eamRepository();
-        const auto namespaces = repo->listNamespaces(request.accountId, request.prefix, request.pageSize, request.pageIndex, request.sortColumn);
+        const auto namespaces = repo->listNamespaces(request.accountId, request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection);
         log_info << "EAM ListNamespaces, accountId: " << request.accountId << (!request.prefix.empty() ? ", prefix: " + request.prefix : "");
 
         Dto::EAM::ListNamespacesResponse response;

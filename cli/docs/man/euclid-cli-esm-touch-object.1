@@ -7,6 +7,7 @@ euclid-cli-esm-touch-object \- re-send notifications for objects already in a bu
 .I NAME
 .RB [ \-\-prefix | \-p
 .IR KEY-PREFIX ]
+.RB [ \-\-async ]
 .SH DESCRIPTION
 Announces objects that are already in a bucket, as though each had just
 been uploaded \- the same
@@ -100,6 +101,45 @@ application \- and put it back afterwards.
 .PP
 Nothing here is undoable once the notifications have gone out, so this
 is worth a moment before rather than after.
+.SH LARGE BUCKETS
+Announcing a bucket's worth of objects is one notification per object,
+and a bucket can hold a great many. Past a few thousand the call takes
+longer than the gateway will wait, and the caller gets a timeout while
+the announcing carries on unseen behind the abandoned request \- the
+work happens, but nobody is told it did.
+.PP
+.B \-\-async
+makes that honest. The request is answered immediately with
+.B 202 Accepted
+and the object count at the time of asking, and the notifications are
+sent by a background thread inside ESM:
+.PP
+.RS
+.nf
+{
+  "ern": "...:bucket:onix3-tmp-parsing-input",
+  "bucketName": "onix3-tmp-parsing-input",
+  "prefix": "LowPriority/",
+  "async": true,
+  "objects": 9466
+}
+.fi
+.RE
+.PP
+The count is what was there when the request was answered, not a
+promise: objects written after it was taken are announced too if the
+listing reaches them, and the answer says nothing about when the work
+finishes. Watch the target queues, or the module log, for that \- ESM
+logs "background touch started" and "background touch finished" with the
+count.
+.PP
+Nothing is resumable, either way. A touch changes nothing, so a run
+interrupted by a restart or a scale-down has simply announced fewer
+objects, and asking again announces all of them \- the ones already sent
+for a second time. That is the same replay this command always is, which
+is why
+.B THE CONSUMERS MUST BE IDEMPOTENT
+applies whether it runs to completion or not.
 .SH OPTIONS
 .TP
 .BR \-b ", " \-\-bucket " " \fINAME\fR
@@ -109,11 +149,17 @@ ERN also works and is what reaches another namespace.
 .BR \-p ", " \-\-prefix " " \fIKEY-PREFIX\fR
 Only objects whose key starts with this. Omit for every object in the
 bucket.
+.TP
+.B \-\-async
+Answer at once and announce the objects in the background. For buckets
+large enough that doing it inline would outlast the request.
 .SH EXIT STATUS
 .TP
 .B 0
-The notifications were sent. The count is printed as JSON, including
-when nothing matched.
+The notifications were sent, or with
+.B \-\-async
+accepted for sending. The count is printed as JSON, including when
+nothing matched.
 .TP
 .B 1
 Missing arguments, no session, the bucket does not exist, it belongs to
@@ -137,6 +183,16 @@ Re-announce a single object:
 euclid-cli esm touch-object \e
     --bucket onix3-tmp-parsing-input \e
     --prefix jvo/incoming/pim-3056.xml
+.fi
+.RE
+.PP
+Re-announce a whole bucket without waiting for it:
+.PP
+.RS
+.nf
+euclid-cli esm touch-object \e
+    --bucket onix3-tmp-parsing-input \e
+    --async
 .fi
 .RE
 .SH SEE ALSO

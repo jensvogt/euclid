@@ -356,12 +356,27 @@ namespace Euclid::ESM {
     // Directories are included, unlike most listings here: leaving them would empty a bucket that
     // still could not be deleted. They are not counted, though, since they were never counted when
     // they were created.
+    static RemovedObjects removeObjects(const std::vector<Database::Entity::ESM::Object> &objects,
+                                        const std::optional<Database::Entity::ESM::Bucket> &bucket,
+                                        const std::string &userId);
+
     static RemovedObjects removeBucketObjects(const std::string &bucketErn, const std::string &prefix,
                                               const std::optional<Database::Entity::ESM::Bucket> &bucket,
                                               const std::string &userId) {
 
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
         const auto objects = repo->listObjects(bucketErn, prefix, -1, -1, "", "asc", true);
+        return removeObjects(objects, bucket, userId);
+    }
+
+    // The removal itself, given the objects to remove. Split out so that deleting a bucket's worth
+    // of objects and deleting a handful named by key are the same operation - a file, a row and a
+    // delete event each - rather than two loops that agree today and drift tomorrow.
+    static RemovedObjects removeObjects(const std::vector<Database::Entity::ESM::Object> &objects,
+                                        const std::optional<Database::Entity::ESM::Bucket> &bucket,
+                                        const std::string &userId) {
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
         const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
 
         RemovedObjects removed;
@@ -382,6 +397,28 @@ namespace Euclid::ESM {
             publishObjectEvent(kObjectDeleted, object, bucket, userId);
         }
         return removed;
+    }
+
+    // Resolves keys to objects and removes them. A key that names nothing is skipped rather than
+    // refused: a caller deleting a list it assembled earlier should not have the whole batch fail
+    // because one object went in the meantime, and "it is not there" is the outcome they asked
+    // for. The count says how many actually went, so a caller who cares can compare.
+    static RemovedObjects removeObjectsByKey(const std::string &bucketErn, const std::vector<std::string> &keys,
+                                             const std::optional<Database::Entity::ESM::Bucket> &bucket,
+                                             const std::string &userId) {
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+
+        std::vector<Database::Entity::ESM::Object> objects;
+        objects.reserve(keys.size());
+        for (const auto &key: keys) {
+            if (auto object = repo->findObjectByBucketAndKey(bucketErn, key)) {
+                objects.push_back(*std::move(object));
+            } else {
+                log_debug << "ESM delete-objects: no object at key, bucket: " << bucketErn << ", key: " << key;
+            }
+        }
+        return removeObjects(objects, bucket, userId);
     }
 
     // How many background removals are running, so the answer to an --async request can say
@@ -437,6 +474,92 @@ namespace Euclid::ESM {
                 // function calls std::terminate() and takes the whole module down. The bucket is
                 // left as it is, which is what makes asking again the way to finish the job.
                 log_error << "ESM background removal failed, ern: " << bucketErn << ", error: " << e.what();
+            }
+            --backgroundRemovals;
+        }).detach();
+    }
+
+    // Re-announces every object under prefix, as though each had just been uploaded. Shared by
+    // the synchronous and background paths of touch-object so both do exactly the same thing.
+    static long touchBucketObjects(const std::string &bucketErn, const std::string &prefix,
+                                   const std::optional<Database::Entity::ESM::Bucket> &bucket,
+                                   const std::string &userId) {
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+
+        // Directories excluded: they are zero-byte markers an upload never announces either, so
+        // including them would send subscribers events they have never seen for these keys.
+        const auto objects = repo->listObjects(bucketErn, prefix, -1, -1, "", "asc", false);
+
+        for (const auto &object: objects) {
+            publishObjectEvent(kObjectCreated, object, bucket, userId);
+        }
+        return static_cast<long>(objects.size());
+    }
+
+    // How many background touches are running, for the same reasons as backgroundRemovals.
+    static std::atomic backgroundTouches{0};
+
+    // Runs touchBucketObjects() on a detached thread.
+    //
+    // The same bargain removeBucketObjectsInBackground() makes, for the same reason: a bucket with
+    // a million objects is a million notifications, which is minutes to hours - far longer than
+    // the gateway's backend timeout. Inline, the caller waits for all of it and gets a timeout
+    // anyway, with the announcing continuing invisibly behind the abandoned request. Handing it to
+    // a thread makes that honest.
+    //
+    // Nothing here is resumable, unlike a purge: a touch changes nothing, so a run that stops
+    // halfway has simply announced fewer objects, and asking again announces all of them - the
+    // ones already sent for a second time. That is the same replay the command always is, and why
+    // its consumers have to be idempotent whether it runs to completion or not.
+    static void touchBucketObjectsInBackground(const std::string &bucketErn, const std::string &prefix,
+                                               const std::optional<Database::Entity::ESM::Bucket> &bucket,
+                                               const std::string &userId) {
+
+        ++backgroundTouches;
+        std::thread([bucketErn, prefix, bucket, userId] {
+            try {
+                log_info << "ESM background touch started, ern: " << bucketErn << ", prefix: " << prefix;
+                const auto touched = touchBucketObjects(bucketErn, prefix, bucket, userId);
+                log_info << "ESM background touch finished, ern: " << bucketErn << ", objects: " << touched;
+
+            } catch (const std::exception &e) {
+                // Nothing above this catch: an exception escaping a detached thread's entry
+                // function calls std::terminate() and takes the whole module down.
+                log_error << "ESM background touch failed, ern: " << bucketErn << ", error: " << e.what();
+            }
+            --backgroundTouches;
+        }).detach();
+    }
+
+    // Runs removeObjectsByKey() on a detached thread, adjusting the bucket's counters afterwards.
+    // The same bargain removeBucketObjectsInBackground() makes, and for the same reason: a long
+    // enough list of keys outlasts the request that asked for it.
+    static void removeObjectsByKeyInBackground(const std::string &bucketErn, const std::vector<std::string> &keys,
+                                               const std::optional<Database::Entity::ESM::Bucket> &bucket,
+                                               const std::string &userId) {
+
+        ++backgroundRemovals;
+        std::thread([bucketErn, keys, bucket, userId] {
+            try {
+                log_info << "ESM background delete started, ern: " << bucketErn << ", keys: " << keys.size();
+                const auto removed = removeObjectsByKey(bucketErn, keys, bucket, userId);
+
+                // Re-read rather than adjusted from the copy this thread started with: time has
+                // passed, and anything written meanwhile is in the stored figure but not in what
+                // was removed.
+                const auto repo = Database::RepositoryFactory::instance().esmRepository();
+                if (auto fresh = repo->findBucketByErn(bucketErn)) {
+                    fresh->size = std::max<long>(0, fresh->size - removed.size);
+                    fresh->objects = std::max<long>(0, fresh->objects - removed.count);
+                    repo->upsertBucket(*fresh);
+                }
+                log_info << "ESM background delete finished, ern: " << bucketErn << ", count: " << removed.count << ", size: " << removed.size;
+
+            } catch (const std::exception &e) {
+                // Nothing above this catch: an exception escaping a detached thread's entry
+                // function calls std::terminate() and takes the whole module down.
+                log_error << "ESM background delete failed, ern: " << bucketErn << ", error: " << e.what();
             }
             --backgroundRemovals;
         }).detach();
@@ -538,6 +661,7 @@ namespace Euclid::ESM {
         bucket.accountId = auth.user->accountId;
         bucket.nameSpace = ns;
         bucket.owner = auth.user->userId;
+        bucket.internal = request.internal;
 
         const auto saved = Database::RepositoryFactory::instance().esmRepository()->upsertBucket(bucket);
         log_info << "ESM bucket created, ern: " << bucket.ern;
@@ -572,12 +696,21 @@ namespace Euclid::ESM {
         const auto ns = std::string(req["x-euclid-namespace"]);
 
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
-        const std::vector<Database::Entity::ESM::Bucket> buckets = repo->listBuckets(auth.user->accountId, ns, request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection);
+
+        // euclid's own buckets are plumbing - the one applications are deployed from, and whatever
+        // else the modules give themselves - and a user has no business seeing them among their
+        // own. An administrator may ask, because for them the installation itself is the subject;
+        // the ask is silently dropped for everyone else rather than answered with a 403, since the
+        // request is otherwise perfectly valid and the buckets they asked about are none of theirs.
+        const auto includeInternal = request.includeInternal
+                                     && Database::IsEamAdmin(*Database::RepositoryFactory::instance().eamRepository(), auth.user->userId);
+
+        const std::vector<Database::Entity::ESM::Bucket> buckets = repo->listBuckets(auth.user->accountId, ns, request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection, includeInternal);
         log_info << "ESM bucket list, count: " << buckets.size();
 
         Dto::ESM::ListBucketsResponse response;
         response.buckets = Dto::ESM::EsmMapper::toDto(buckets);
-        response.total = repo->countBuckets(auth.user->accountId, ns, request.prefix);
+        response.total = repo->countBuckets(auth.user->accountId, ns, request.prefix, includeInternal);
 
         return JsonResponse(req, status::ok, response.toJson());
     }
@@ -751,21 +884,75 @@ namespace Euclid::ESM {
         }
         if (const auto denied = denyUngrantedBucket(req, auth, bucketErn)) return *denied;
 
-        // Directories excluded: they are zero-byte markers an upload never announces either, so
-        // including them would send subscribers events they have never seen for these keys.
-        const auto objects = repo->listObjects(bucketErn, prefix, -1, -1, "", "asc", false);
+        if (Core::GetBoolValue(jv, "async")) {
 
-        for (const auto &object: objects) {
-            publishObjectEvent(kObjectCreated, object, bucket, auth.user->userId);
+            // Counted rather than listed, so the answer can say how much was started without
+            // paying for the listing twice - the thread does its own.
+            const auto pending = repo->countObjects(bucketErn, prefix, false);
+            touchBucketObjectsInBackground(bucketErn, prefix, bucket, auth.user->userId);
+
+            return JsonResponse(req, status::accepted, boost::json::serialize(boost::json::object{
+                                        {"ern", bucketErn},
+                                        {"bucketName", bucket->name},
+                                        {"prefix", prefix},
+                                        {"async", true},
+                                        {"objects", pending}}));
         }
 
-        log_info << "ESM TouchObject, bucket: " << bucket->name << ", prefix: " << prefix << ", objects: " << objects.size();
+        const auto touched = touchBucketObjects(bucketErn, prefix, bucket, auth.user->userId);
+        log_info << "ESM TouchObject, bucket: " << bucket->name << ", prefix: " << prefix << ", objects: " << touched;
 
         return JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
                                                      {"ern", bucketErn},
                                                      {"bucketName", bucket->name},
                                                      {"prefix", prefix},
-                                                     {"objects", static_cast<long>(objects.size())}}));
+                                                     {"objects", touched}}));
+    }
+
+    // Marks a bucket as euclid's own plumbing, or stops doing so.
+    //
+    // Separate from create-bucket because the bucket this exists for usually predates anybody
+    // thinking about it - the artifact bucket applications are deployed from is made once, by
+    // hand, long before it becomes clutter in somebody's listing. Reversible for the same reason:
+    // a flag that can only be set is one nobody dares set.
+    response<string_body> EsmServer::handleSetBucketInternal(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-bucket-internal");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+
+        const auto ern = Core::GetStringValue(jv, "ern");
+        if (ern.empty()) return ErrorResponse(req, status::bad_request, "ern is required");
+
+        // Absent means true: the command exists to hide a bucket, and asking for it by name
+        // without saying so is asking for that.
+        const auto *flag = jv.as_object().if_contains("internal");
+        const bool internal = !flag || !flag->is_bool() || flag->as_bool();
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        auto bucket = repo->findBucketByErn(ern);
+        if (!bucket.has_value()) {
+            return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + ern);
+        }
+        if (bucket->accountId != auth.user->accountId) {
+            return ErrorResponse(req, status::forbidden, "Bucket does not belong to the caller's account");
+        }
+        if (const auto denied = denyUngrantedBucket(req, auth, ern)) return *denied;
+
+        bucket->internal = internal;
+        const auto stored = repo->upsertBucket(*bucket);
+
+        log_info << "ESM bucket internal flag set, bucket: " << stored.name << ", internal: " << internal;
+
+        return JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                     {"ern", stored.ern},
+                                                     {"name", stored.name},
+                                                     {"internal", stored.internal}}));
     }
 
     response<string_body> EsmServer::handleRenameBucket(const request<string_body> &req) {
@@ -1807,6 +1994,98 @@ namespace Euclid::ESM {
         return JsonResponse(req, status::ok);
     }
 
+    // Deletes objects from one bucket: the ones named by key, or everything under a prefix.
+    //
+    // Distinct from delete-object, which takes a single object ERN and is what an SDK calls per
+    // object, and from purge-bucket, which is about emptying a bucket rather than removing things
+    // from it. This is the middle case, and the one that was missing: a caller with a list of keys
+    // in hand had to make one request per key.
+    response<string_body> EsmServer::handleDeleteObjects(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-objects");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+
+        const auto bucketErn = Core::GetStringValue(jv, "ern");
+        const auto prefix = Core::GetStringValue(jv, "prefix");
+        if (bucketErn.empty()) return ErrorResponse(req, status::bad_request, "ern is required");
+
+        std::vector<std::string> keys;
+        if (const auto *value = jv.as_object().if_contains("keys"); value && value->is_array()) {
+            for (const auto &entry: value->as_array()) {
+                if (!entry.is_string()) return ErrorResponse(req, status::bad_request, "keys must be an array of strings");
+                keys.emplace_back(entry.as_string());
+            }
+        }
+
+        // Naming keys and a prefix at once asks two different questions - "these" and "everything
+        // under there" - and answering both would delete more than either. Refused rather than
+        // guessed at, since the mistake is not recoverable.
+        if (!keys.empty() && !prefix.empty()) {
+            return ErrorResponse(req, status::bad_request, "Name either keys or a prefix, not both");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        auto bucket = repo->findBucketByErn(bucketErn);
+        if (!bucket.has_value()) {
+            return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + bucketErn);
+        }
+        if (bucket->accountId != auth.user->accountId) {
+            return ErrorResponse(req, status::forbidden, "Bucket does not belong to the caller's account");
+        }
+        if (const auto denied = denyUngrantedBucket(req, auth, bucketErn)) return *denied;
+
+        const bool async = Core::GetBoolValue(jv, "async");
+
+        if (!keys.empty()) {
+            if (async) {
+                removeObjectsByKeyInBackground(bucketErn, keys, bucket, auth.user->userId);
+                return JsonResponse(req, status::accepted, boost::json::serialize(boost::json::object{
+                                            {"ern", bucketErn},
+                                            {"async", true},
+                                            {"objects", static_cast<long>(keys.size())}}));
+            }
+
+            const auto removed = removeObjectsByKey(bucketErn, keys, bucket, auth.user->userId);
+            bucket->size = std::max<long>(0, bucket->size - removed.size);
+            bucket->objects = std::max<long>(0, bucket->objects - removed.count);
+            bucket = repo->upsertBucket(*bucket);
+
+            log_info << "ESM DeleteObjects, bucket: " << bucket->name << ", asked: " << keys.size() << ", deleted: " << removed.count;
+            return JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                        {"ern", bucketErn},
+                                        {"asked", static_cast<long>(keys.size())},
+                                        {"objects", removed.count}}));
+        }
+
+        // No keys: everything under the prefix, and everything in the bucket when there is none.
+        if (async) {
+            const auto pending = repo->countObjects(bucketErn, prefix, false);
+            removeBucketObjectsInBackground(bucketErn, prefix, bucket, auth.user->userId, false);
+            return JsonResponse(req, status::accepted, boost::json::serialize(boost::json::object{
+                                        {"ern", bucketErn},
+                                        {"prefix", prefix},
+                                        {"async", true},
+                                        {"objects", pending}}));
+        }
+
+        const auto removed = removeBucketObjects(bucketErn, prefix, bucket, auth.user->userId);
+        bucket->size = std::max<long>(0, bucket->size - removed.size);
+        bucket->objects = std::max<long>(0, bucket->objects - removed.count);
+        bucket = repo->upsertBucket(*bucket);
+
+        log_info << "ESM DeleteObjects, bucket: " << bucket->name << ", prefix: " << prefix << ", deleted: " << removed.count;
+        return JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                    {"ern", bucketErn},
+                                    {"prefix", prefix},
+                                    {"objects", removed.count}}));
+    }
+
     // Removes every object of a bucket, e.g. so the (now empty) bucket can be deleted. Reuses the
     // same per-object disk cleanup as handleDeleteObject() rather than calling it directly, since
     // looking the object back up by ERN for each one would be wasted work when listObjects() already
@@ -2660,6 +2939,7 @@ namespace Euclid::ESM {
             CreateBucket,
             DeleteBucket,
             RenameBucket,
+            SetBucketInternal,
             TouchObject,
             ListBuckets,
             GetBucketErn,
@@ -2687,6 +2967,7 @@ namespace Euclid::ESM {
             ListObjectAttributes,
             DeleteObjectAttribute,
             DeleteObject,
+            DeleteObjects,
             PurgeBucket,
             Subscribe,
             Unsubscribe,
@@ -2715,12 +2996,14 @@ namespace Euclid::ESM {
         if (action == "move-object") return Command::MoveObject;
         if (action == "rename-object") return Command::RenameObject;
         if (action == "rename-bucket") return Command::RenameBucket;
+        if (action == "set-bucket-internal") return Command::SetBucketInternal;
         if (action == "touch-object") return Command::TouchObject;
         if (action == "add-object-attribute") return Command::AddObjectAttribute;
         if (action == "set-object-attribute") return Command::SetObjectAttribute;
         if (action == "list-object-attributes") return Command::ListObjectAttributes;
         if (action == "delete-object-attribute") return Command::DeleteObjectAttribute;
         if (action == "delete-object") return Command::DeleteObject;
+        if (action == "delete-objects") return Command::DeleteObjects;
         if (action == "purge-bucket") return Command::PurgeBucket;
         if (action == "add-bucket-tag") return Command::AddBucketTag;
         if (action == "set-bucket-tag") return Command::SetBucketTag;
@@ -2817,6 +3100,9 @@ namespace Euclid::ESM {
             case Command::DeleteObject:
                 return handleDeleteObject(req);
 
+            case Command::DeleteObjects:
+                return handleDeleteObjects(req);
+
             case Command::ListBuckets:
                 return handleListBuckets(req);
 
@@ -2864,6 +3150,9 @@ namespace Euclid::ESM {
 
             case Command::RenameBucket:
                 return handleRenameBucket(req);
+
+            case Command::SetBucketInternal:
+                return handleSetBucketInternal(req);
 
             case Command::TouchObject:
                 return handleTouchObject(req);

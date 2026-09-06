@@ -98,7 +98,7 @@ namespace Euclid::Database {
             return static_cast<long>(_userStore.size());
         }
 
-        std::vector<Entity::EAM::User> listUsers(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const override {
+        std::vector<Entity::EAM::User> listUsers(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const override {
             std::lock_guard lock(_mutex);
 
             std::vector<Entity::EAM::User> users;
@@ -106,9 +106,10 @@ namespace Euclid::Database {
                 if (prefix.empty() || user.userId.starts_with(prefix)) users.push_back(user);
             }
 
-            std::ranges::sort(users, [&sortColumn](const Entity::EAM::User &a, const Entity::EAM::User &b) {
-                if (sortColumn == "email") return a.email < b.email;
-                return a.userId < b.userId;
+            std::ranges::sort(users, [&sortColumn, &sortDirection](const Entity::EAM::User &a, const Entity::EAM::User &b) {
+                const bool ascending = sortDirection != "desc";
+                if (sortColumn == "email") return ascending ? a.email < b.email : b.email < a.email;
+                return ascending ? a.userId < b.userId : b.userId < a.userId;
             });
 
             if (pageSize > 0) {
@@ -160,7 +161,7 @@ namespace Euclid::Database {
             return static_cast<long>(_groupStore.size());
         }
 
-        std::vector<Entity::EAM::UserGroup> listUserGroups(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const override {
+        std::vector<Entity::EAM::UserGroup> listUserGroups(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const override {
             std::lock_guard lock(_mutex);
 
             std::vector<Entity::EAM::UserGroup> userGroups;
@@ -168,10 +169,10 @@ namespace Euclid::Database {
                 if (prefix.empty() || userGroup.name.starts_with(prefix)) userGroups.push_back(userGroup);
             }
 
-            std::ranges::sort(userGroups, [&sortColumn](const Entity::EAM::UserGroup &a, const Entity::EAM::UserGroup &b) {
-                if (sortColumn == "name") return a.name < b.name;
-                if (sortColumn == "description") return a.description < b.description;
-                return a.name < b.name;
+            std::ranges::sort(userGroups, [&sortColumn, &sortDirection](const Entity::EAM::UserGroup &a, const Entity::EAM::UserGroup &b) {
+                const bool ascending = sortDirection != "desc";
+                if (sortColumn == "description") return ascending ? a.description < b.description : b.description < a.description;
+                return ascending ? a.name < b.name : b.name < a.name;
             });
 
             if (pageSize > 0) {
@@ -232,7 +233,7 @@ namespace Euclid::Database {
             return static_cast<long>(_accountStore.size());
         }
 
-        std::vector<Entity::EAM::Account> listAccounts(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const override {
+        std::vector<Entity::EAM::Account> listAccounts(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const override {
             std::lock_guard lock(_mutex);
 
             std::vector<Entity::EAM::Account> accounts;
@@ -240,9 +241,10 @@ namespace Euclid::Database {
                 if (prefix.empty() || account.accountId.starts_with(prefix)) accounts.push_back(account);
             }
 
-            std::ranges::sort(accounts, [&sortColumn](const Entity::EAM::Account &a, const Entity::EAM::Account &b) {
-                if (sortColumn == "name") return a.name < b.name;
-                return a.accountId < b.accountId;
+            std::ranges::sort(accounts, [&sortColumn, &sortDirection](const Entity::EAM::Account &a, const Entity::EAM::Account &b) {
+                const bool ascending = sortDirection != "desc";
+                if (sortColumn == "name") return ascending ? a.name < b.name : b.name < a.name;
+                return ascending ? a.accountId < b.accountId : b.accountId < a.accountId;
             });
 
             if (pageSize > 0) {
@@ -300,7 +302,7 @@ namespace Euclid::Database {
             }));
         }
 
-        std::vector<Entity::EAM::Namespace> listNamespaces(const std::string &accountId, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const override {
+        std::vector<Entity::EAM::Namespace> listNamespaces(const std::string &accountId, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const override {
             std::lock_guard lock(_mutex);
 
             std::vector<Entity::EAM::Namespace> namespaces;
@@ -309,9 +311,10 @@ namespace Euclid::Database {
                 if (prefix.empty() || ns.name.starts_with(prefix)) namespaces.push_back(ns);
             }
 
-            std::ranges::sort(namespaces, [&sortColumn](const Entity::EAM::Namespace &a, const Entity::EAM::Namespace &b) {
-                if (sortColumn == "description") return a.description < b.description;
-                return a.name < b.name;
+            std::ranges::sort(namespaces, [&sortColumn, &sortDirection](const Entity::EAM::Namespace &a, const Entity::EAM::Namespace &b) {
+                const bool ascending = sortDirection != "desc";
+                if (sortColumn == "description") return ascending ? a.description < b.description : b.description < a.description;
+                return ascending ? a.name < b.name : b.name < a.name;
             });
 
             if (pageSize > 0) {

@@ -322,7 +322,7 @@ namespace Euclid::Database {
         return {};
     }
 
-    std::vector<Entity::EQS::Queue> MongoEqsRepository::listQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const {
+    std::vector<Entity::EQS::Queue> MongoEqsRepository::listQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection, const bool includeInternal) const {
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "listQueues");
 
         try {
@@ -335,10 +335,13 @@ namespace Euclid::Database {
             if (!prefix.empty()) {
                 filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
             }
-            // euclid's own plumbing is not somebody's queue to look at. "$ne: true" rather than
-            // "false" so a queue stored before the flag existed - which carries no such field -
-            // is still listed.
-            filter.append(kvp("internal", make_document(kvp("$ne", true))));
+            // euclid's own plumbing is not somebody's queue to look at, unless the caller has
+            // asked for it and is entitled to (the module decides that, not this layer). "$ne:
+            // true" rather than "false" so a queue stored before the flag existed - which carries
+            // no such field - is still listed.
+            if (!includeInternal) {
+                filter.append(kvp("internal", make_document(kvp("$ne", true))));
+            }
 
             mongocxx::options::find opts;
             if (!sortColumn.empty()) {
@@ -401,7 +404,7 @@ namespace Euclid::Database {
         }
     }
 
-    long MongoEqsRepository::countQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix) const {
+    long MongoEqsRepository::countQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const bool includeInternal) const {
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "countQueues");
 
         try {
@@ -414,10 +417,13 @@ namespace Euclid::Database {
             if (!prefix.empty()) {
                 filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
             }
-            // euclid's own plumbing is not somebody's queue to look at. "$ne: true" rather than
-            // "false" so a queue stored before the flag existed - which carries no such field -
-            // is still listed.
-            filter.append(kvp("internal", make_document(kvp("$ne", true))));
+            // euclid's own plumbing is not somebody's queue to look at, unless the caller has
+            // asked for it and is entitled to (the module decides that, not this layer). "$ne:
+            // true" rather than "false" so a queue stored before the flag existed - which carries
+            // no such field - is still listed.
+            if (!includeInternal) {
+                filter.append(kvp("internal", make_document(kvp("$ne", true))));
+            }
 
             const auto entry = Database::instance().client();
             auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
@@ -679,7 +685,7 @@ namespace Euclid::Database {
                 }
             }
 
-            messageCollection.insert_one(message.ToDocument());
+            upsertMessage(message);
             log_debug << "Message sent, ern: " << ern << ", messageId: " << message.messageId;
 
         } catch (const std::exception &e) {
@@ -938,12 +944,16 @@ namespace Euclid::Database {
     long MongoEqsRepository::countMessages(const std::string &queueErn) const {
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "countMessagesForQueue");
 
-        // Served from the last scan rather than counted here. This ran once per receive-messages
-        // and its cost grew with the backlog - 8ms early in a load test, 29ms an hour in - for a
-        // number that is reported as approximate.
-        Entity::EQS::Queue queue;
-        queue.ern = queueErn;
-        return queue.available + queue.delayed + queue.invisible;
+        try {
+            const auto entry = Database::instance().client();
+            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+
+            return messageCollection.count_documents(make_document(kvp("queueErn", queueErn)));
+
+        } catch (const std::exception &e) {
+            log_error << "Count messages failed, error: " << e.what();
+        }
+        return 0;
     }
 
 

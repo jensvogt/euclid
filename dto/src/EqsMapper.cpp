@@ -43,6 +43,7 @@ namespace Euclid::Dto::EQS {
         dto.deadLetterQueueArn = entity.deadLetterQueueErn;
         dto.priority = Database::Entity::EQS::MessagePriorityToString(entity.priority);
         dto.status = Database::Entity::EQS::QueueStatusToString(entity.status);
+        dto.internal = entity.internal;
         dto.created = entity.created;
         dto.modified = entity.modified;
         return dto;

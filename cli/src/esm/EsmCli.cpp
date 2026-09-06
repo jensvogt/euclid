@@ -66,6 +66,8 @@ namespace Euclid::CLI {
                                            {"add-object-attribute", "Adds an attribute to an object"},
                                            {"copy-object", "Copies an object to another key or bucket"},
                                            {"create-bucket", "Create a new bucket"},
+                                           {"delete-objects", "Delete several objects from a bucket, by key or by prefix"},
+                                           {"set-bucket-internal", "Hide a bucket from listings, or stop hiding it"},
                                            {"delete-bucket", "Delete a bucket"},
                                            {"delete-bucket-tag", "Deletes a tag from a bucket"},
                                            {"delete-object", "Deletes an object by ERN"},
@@ -93,6 +95,12 @@ namespace Euclid::CLI {
                                            {"upload-file", "Upload a local file to a bucket"},
                                            {"upload-directory", "Upload every file in a local directory to a bucket"},
                                    });
+        }
+        if (action == "delete-objects") {
+            return deleteObjects(args);
+        }
+        if (action == "set-bucket-internal") {
+            return setBucketInternal(args);
         }
         if (action == "create-bucket") {
             return createBucket(args);
@@ -191,11 +199,17 @@ namespace Euclid::CLI {
     int EsmCli::createBucket(const std::vector<std::string> &args) const {
         po::options_description desc("create bucket options");
         desc.add_options()
-                ("name,n", po::value<std::string>()->required(), "name");
+                ("name,n", po::value<std::string>()->required(), "name")
+                ("internal,i", po::bool_switch(), "euclid's own plumbing: create it, but leave it out of list-buckets and the bucket count");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "create-bucket", "--name <name>",
-                                   "Creates a new storage bucket with the given name.",
+            return PrintActionHelp("esm", "create-bucket", "--name <name> [--internal]",
+                                   "Creates a new storage bucket with the given name. "
+                                   "--internal marks it as euclid's own plumbing rather than somebody's bucket: it "
+                                   "works in every way an ordinary bucket does, but is left out of list-buckets and "
+                                   "the bucket count, so it does not clutter a listing for people who have no reason "
+                                   "to act on it. Hidden, not protected - anyone who knows the name can still use it. "
+                                   "Use \"esm set-bucket-internal\" to change this afterwards.",
                                    desc);
         }
 
@@ -210,6 +224,7 @@ namespace Euclid::CLI {
 
         Dto::ESM::CreateBucketRequest request;
         request.name = vm["name"].as<std::string>();
+        request.internal = vm["internal"].as<bool>();
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
@@ -1574,14 +1589,96 @@ namespace Euclid::CLI {
         return transferObject(args, false);
     }
 
+    int EsmCli::deleteObjects(const std::vector<std::string> &args) const {
+        po::options_description desc("delete objects options");
+        desc.add_options()
+                ("bucket,b", po::value<std::string>()->required(), "bucket to delete from; a name is enough, a full ERN also works")
+                ("keys,k", po::value<std::string>(), "comma-separated object keys to delete")
+                ("prefix,p", po::value<std::string>(), "delete everything whose key starts with this; omit both to delete every object in the bucket")
+                ("async", po::bool_switch()->default_value(false), "return at once and delete in the background; for lists or prefixes too large to remove within one request");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", "delete-objects",
+                                   "--bucket <name|ern> [--keys <list>] [--prefix <key-prefix>] [--async]",
+                                   "Deletes objects from one bucket: the ones named by --keys, or everything under "
+                                   "--prefix. Each object's file, its row and one delete event go, exactly as a "
+                                   "single-object delete would do it, so subscribers see the same thing either way. "
+                                   "This is the middle case between \"delete-object\", which takes one object and is "
+                                   "what an SDK calls per object, and \"purge-bucket\", which is about emptying a "
+                                   "bucket rather than removing things from it. "
+                                   "--keys and --prefix ask different questions and cannot be combined: naming both "
+                                   "is refused rather than guessed at, since the mistake is not recoverable. Naming "
+                                   "neither deletes every object in the bucket, which is what \"purge-bucket\" does "
+                                   "and worth being sure about. "
+                                   "A key that names nothing is skipped rather than failing the batch - a list "
+                                   "assembled earlier should not fail because one object went in the meantime, and the "
+                                   "answer reports how many were asked for and how many actually went. "
+                                   "Give --async for a list or prefix large enough that removing it takes minutes: the "
+                                   "request is answered at once with HTTP 202, and the deleting is done by a "
+                                   "background thread inside ESM instead of the call sitting there until the gateway "
+                                   "times out while the removal carries on unseen behind it.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        if (vm.contains("keys") && vm.contains("prefix")) {
+            std::cerr << "error: delete-objects failed: name either --keys or --prefix, not both\n";
+            return 1;
+        }
+
+        boost::json::object request{
+                {"ern", vm["bucket"].as<std::string>()},
+                {"async", vm["async"].as<bool>()}};
+
+        if (vm.contains("keys")) {
+            boost::json::array keys;
+            std::stringstream ss(vm["keys"].as<std::string>());
+            for (std::string part; std::getline(ss, part, ',');) {
+                const auto first = part.find_first_not_of(" \t");
+                const auto last = part.find_last_not_of(" \t");
+                if (first == std::string::npos) continue;
+                keys.push_back(boost::json::string(part.substr(first, last - first + 1)));
+            }
+            if (keys.empty()) {
+                std::cerr << "error: delete-objects failed: --keys named no key\n";
+                return 1;
+            }
+            request["keys"] = keys;
+        }
+        if (vm.contains("prefix")) request["prefix"] = vm["prefix"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("esm", "delete-objects", request);
+            if (!response.IsSuccess()) {
+                std::cerr << "error: delete-objects failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
     int EsmCli::touchObject(const std::vector<std::string> &args) const {
         po::options_description desc("touch object options");
         desc.add_options()
                 ("bucket,b", po::value<std::string>()->required(), "bucket holding the objects; a name is enough, a full ERN also works")
-                ("prefix,p", po::value<std::string>()->default_value(""), "only objects whose key starts with this; omit for every object in the bucket");
+                ("prefix,p", po::value<std::string>()->default_value(""), "only objects whose key starts with this; omit for every object in the bucket")
+                ("async", po::bool_switch()->default_value(false), "return at once and announce the objects in the background; for buckets too large to announce within one request");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "touch-object", "--bucket <name|ern> [--prefix <key-prefix>]",
+            return PrintActionHelp("esm", "touch-object", "--bucket <name|ern> [--prefix <key-prefix>] [--async]",
                                    "Announces objects that are already in a bucket, as though each had just been "
                                    "uploaded: the same esm.object.created event and the same bucket subscription "
                                    "deliveries an upload would have produced. "
@@ -1605,7 +1702,13 @@ namespace Euclid::CLI {
                                    "first time. Only run it where the consumers are idempotent - one that is not "
                                    "will do its work twice, and on a whole bucket it will do it twice for "
                                    "everything. Narrowing the prefix to what was actually missed is usually safer "
-                                   "than touching the bucket.",
+                                   "than touching the bucket. "
+                                   "Give --async for a bucket with enough objects that announcing them takes minutes: "
+                                   "the request is answered at once with HTTP 202 and the object count at the time of "
+                                   "asking, and the notifications are sent by a background thread inside ESM, instead "
+                                   "of the call sitting there until the gateway times out while the announcing carries "
+                                   "on unseen behind it. Nothing is resumable either way - a run that is interrupted "
+                                   "has simply announced fewer objects, and asking again announces all of them.",
                                    desc);
         }
 
@@ -1620,13 +1723,65 @@ namespace Euclid::CLI {
 
         const boost::json::object request{
                 {"ern", vm["bucket"].as<std::string>()},
-                {"prefix", vm["prefix"].as<std::string>()}};
+                {"prefix", vm["prefix"].as<std::string>()},
+                {"async", vm["async"].as<bool>()}};
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
             const HttpResponse response = client.Post("esm", "touch-object", request);
             if (!response.IsSuccess()) {
                 std::cerr << "error: touch-object failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EsmCli::setBucketInternal(const std::vector<std::string> &args) const {
+        po::options_description desc("set bucket internal options");
+        desc.add_options()
+                ("bucket,b", po::value<std::string>()->required(), "bucket to change; a name is enough, a full ERN also works")
+                ("internal,i", po::value<bool>()->default_value(true), "true to hide it from listings, false to show it again");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", "set-bucket-internal", "--bucket <name|ern> [--internal true|false]",
+                                   "Marks a bucket as euclid's own plumbing, or stops doing so. An internal bucket "
+                                   "works in every way an ordinary one does - objects are written, read, copied, "
+                                   "moved and deleted the same - but it is left out of list-buckets and the bucket "
+                                   "count, so it does not clutter a listing for people who have no reason to act on "
+                                   "it. "
+                                   "The bucket applications are deployed from is what this exists for: its contents "
+                                   "are artifacts EAP puts there and replaces on a redeploy, and nobody browsing "
+                                   "their own buckets needs to step around it. "
+                                   "Hidden, not protected. Anyone who knows the name can still read and write the "
+                                   "bucket, which is exactly what the component that created it does - so this is a "
+                                   "tidiness measure, not an access control. Use \"eam\" grants for that. "
+                                   "Reversible: --internal false puts it back in the listing exactly as it was.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        const boost::json::object request{
+                {"ern", vm["bucket"].as<std::string>()},
+                {"internal", vm["internal"].as<bool>()}};
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("esm", "set-bucket-internal", request);
+            if (!response.IsSuccess()) {
+                std::cerr << "error: set-bucket-internal failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);

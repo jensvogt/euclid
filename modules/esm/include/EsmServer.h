@@ -149,6 +149,19 @@ namespace Euclid::ESM {
          * @param req HTTP request
          * @return HTTP response
          */
+        /**
+         * @brief Marks a bucket as euclid's own plumbing, or stops doing so.
+         *
+         * @par
+         * An internal bucket is left out of list-buckets and the bucket count. Separate from
+         * create-bucket because the bucket this exists for - the one applications are deployed
+         * from - is usually made long before it becomes clutter in somebody's listing.
+         *
+         * @param req HTTP request
+         * @return HTTP response
+         */
+        static response<string_body> handleSetBucketInternal(const request<string_body> &req);
+
         static response<string_body> handleRenameBucket(const request<string_body> &req);
 
         /**
@@ -167,6 +180,19 @@ namespace Euclid::ESM {
          * @param req HTTP request
          * @return HTTP response
          */
+        /**
+         * @brief Deletes objects from a bucket: those named by key, or everything under a prefix.
+         *
+         * @par
+         * The middle case between delete-object, which takes one object ERN, and purge-bucket,
+         * which empties a bucket. A caller holding a list of keys had to make one request per key
+         * before this.
+         *
+         * @param req HTTP request
+         * @return HTTP response
+         */
+        static response<string_body> handleDeleteObjects(const request<string_body> &req);
+
         static response<string_body> handleTouchObject(const request<string_body> &req);
 
         [[nodiscard]]

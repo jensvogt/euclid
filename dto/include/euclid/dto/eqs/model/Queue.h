@@ -90,6 +90,15 @@ namespace Euclid::Dto::EQS {
         std::string status;
 
         /**
+         * @brief Whether this is one of euclid's own queues rather than the caller's.
+         *
+         * Left out of list-queues unless an administrator asks for it, and reported here so a
+         * listing that does include them can say which rows they are. See
+         * Database::Entity::EQS::Queue::internal.
+         */
+        bool internal = false;
+
+        /**
          * @brief Creation date
          */
         system_clock::time_point created;
@@ -133,6 +142,7 @@ namespace Euclid::Dto::EQS {
             r.deadLetterQueueArn = Core::GetStringValue(v, "deadLetterQueueArn");
             r.priority = Core::GetStringValue(v, "priority");
             r.status = Core::GetStringValue(v, "status");
+            r.internal = Core::GetBoolValue(v, "internal");
             r.created = Core::GetDatetimeValue(v, "created");
             r.modified = Core::GetDatetimeValue(v, "modified");
             return r;
@@ -155,6 +165,7 @@ namespace Euclid::Dto::EQS {
                     {"deadLetterQueueArn", obj.deadLetterQueueArn},
                     {"priority", obj.priority},
                     {"status", obj.status},
+                    {"internal", obj.internal},
                     {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
             };

@@ -11,6 +11,14 @@ Creates a new storage bucket with the given name.
 .TP
 .BR \-n ", " \-\-name " " \fINAME\fR
 Name of the bucket to create. Required.
+.TP
+.BR \-i ", " \-\-internal
+Mark the bucket as euclid's own plumbing: it works in every way an
+ordinary bucket does, but is left out of
+.BR euclid-cli-esm-list-buckets (1)
+and the bucket count. Hidden, not protected \- see
+.BR euclid-cli-esm-set-bucket-internal (1),
+which also changes this afterwards.
 .SH EXIT STATUS
 .TP
 .B 0

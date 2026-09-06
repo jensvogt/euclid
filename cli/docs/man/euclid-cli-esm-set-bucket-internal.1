@@ -1,0 +1,86 @@
+.TH EUCLID-CLI-ESM-SET-BUCKET-INTERNAL 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-set-bucket-internal \- hide a bucket from listings, or stop hiding it
+.SH SYNOPSIS
+.B euclid-cli esm set-bucket-internal
+.BR \-\-bucket | \-b
+.I NAME
+.RB [ \-\-internal | \-i
+.IR true | false ]
+.SH DESCRIPTION
+Marks a bucket as euclid's own plumbing, or stops doing so.
+.PP
+An internal bucket works in every way an ordinary one does \- objects
+are written, read, copied, moved and deleted exactly the same \- but it
+is left out of
+.BR euclid-cli-esm-list-buckets (1)
+and the bucket count, so it does not clutter a listing for people who
+have no reason to act on it.
+.SH WHAT THIS IS FOR
+The bucket applications are deployed from. Its contents are artifacts
+.BR euclid-cli-eap (1)
+puts there and replaces on a redeploy \- nobody edits them by hand, and
+a new version arrives by redeploying the application rather than by
+uploading into the bucket. Somebody browsing their own buckets has no
+reason to see it, and every reason to be confused by it.
+.PP
+The same applies to any bucket that exists because a component needed
+somewhere to put something, rather than because a person wanted a
+bucket.
+.SH HIDDEN, NOT PROTECTED
+This changes what is listed, not what is allowed. Anyone who knows the
+name can still read and write an internal bucket \- which is exactly
+what the component that created it does, and why hiding it cannot also
+mean locking it.
+.PP
+It is a tidiness measure. For access control use
+.BR euclid-cli-eam (1)
+grants, which is what decides who may reach a bucket at all.
+.SH REVERSIBLE
+.B \-\-internal false
+puts the bucket back in the listing exactly as it was. Nothing about the
+bucket or its objects changes either way; only whether listings mention
+it.
+.PP
+A flag that could only be set is one nobody would dare set.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-bucket " " \fINAME\fR
+Bucket to change. Required. A bucket name is enough; a full ERN also
+works and is what reaches another namespace.
+.TP
+.BR \-i ", " \-\-internal " " \fItrue\fR|\fIfalse\fR
+Whether to hide it. Defaults to \fItrue\fR \- naming a bucket without
+saying is asking for it to be hidden, which is what the command is for.
+.SH EXIT STATUS
+.TP
+.B 0
+The flag was set. The bucket's name and new state are printed as JSON.
+.TP
+.B 1
+Missing arguments, no session, the bucket does not exist, it belongs to
+another account, the caller has no grant for it, or the server rejected
+the request.
+.SH EXAMPLES
+Hide the bucket applications are deployed from:
+.PP
+.RS
+.nf
+euclid-cli esm set-bucket-internal --bucket apps
+.fi
+.RE
+.PP
+Put it back in the listing:
+.PP
+.RS
+.nf
+euclid-cli esm set-bucket-internal --bucket apps --internal false
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-create-bucket (1),
+.BR euclid-cli-esm-list-buckets (1),
+.BR euclid-cli-eap (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
