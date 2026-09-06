@@ -102,10 +102,11 @@ namespace Euclid::Database {
          * @param pageIndex zero-based page index, applied when pageSize is set
          * @param sortColumn field to sort by (e.g. "name", "arn"); empty means unsorted
          * @param sortDirection direction of sort by (e.g. "asc", "desc"); empty means unsorted
+         * @param includeInternal whether euclid's own queues are listed as well; they are hidden by default (see Entity::EQS::Queue::internal)
          * @return A collection containing all entities or objects found.
          */
         [[nodiscard]]
-        virtual std::vector<Entity::EQS::Queue> listQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const = 0;
+        virtual std::vector<Entity::EQS::Queue> listQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection, bool includeInternal = false) const = 0;
 
         /**
          * @brief The queues that name this one as their dead letter queue.
@@ -155,10 +156,11 @@ namespace Euclid::Database {
          * @param accountId only queues belonging to this account are counted
          * @param namespaceName only queues in this namespace are counted; empty means don't filter by namespace
          * @param prefix only queues whose name starts with this prefix are counted; empty means don't filter by prefix
+         * @param includeInternal whether euclid's own queues are counted as well; they are left out by default, so that the count matches the listing
          * @return The total number of queues as a long integer.
          */
         [[nodiscard]]
-        virtual long countQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "") const = 0;
+        virtual long countQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "", bool includeInternal = false) const = 0;
 
         /**
          * @brief Removes all entries from the queue repository, leaving it in an empty state.

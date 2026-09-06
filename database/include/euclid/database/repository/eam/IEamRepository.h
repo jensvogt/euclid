@@ -123,7 +123,7 @@ namespace Euclid::Database {
          * @return matching, paged and sorted list of users
          */
         [[nodiscard]]
-        virtual std::vector<Entity::EAM::User> listUsers(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
+        virtual std::vector<Entity::EAM::User> listUsers(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const = 0;
 
         /**
          * @brief Inserts a new user group or updates an existing one in the repository.
@@ -188,7 +188,7 @@ namespace Euclid::Database {
          * @return matching, paged and sorted list of user groups
          */
         [[nodiscard]]
-        virtual std::vector<Entity::EAM::UserGroup> listUserGroups(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
+        virtual std::vector<Entity::EAM::UserGroup> listUserGroups(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const = 0;
 
         /**
          * @brief Removes a user group by its name.
@@ -260,7 +260,7 @@ namespace Euclid::Database {
          * @return matching, paged and sorted list of accounts
          */
         [[nodiscard]]
-        virtual std::vector<Entity::EAM::Account> listAccounts(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
+        virtual std::vector<Entity::EAM::Account> listAccounts(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const = 0;
 
         /**
          * @brief Removes an account by its account ID.
@@ -336,7 +336,7 @@ namespace Euclid::Database {
          * @return matching, paged and sorted list of namespaces
          */
         [[nodiscard]]
-        virtual std::vector<Entity::EAM::Namespace> listNamespaces(const std::string &accountId, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const = 0;
+        virtual std::vector<Entity::EAM::Namespace> listNamespaces(const std::string &accountId, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const = 0;
 
         /**
          * @brief Removes a namespace by its account ID and name.

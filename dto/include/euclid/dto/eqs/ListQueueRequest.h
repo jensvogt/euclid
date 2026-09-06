@@ -37,6 +37,14 @@ namespace Euclid::Dto::EQS {
         std::string sortDirection = "asc";
 
         /**
+         * @brief Whether euclid's own internal queues are listed as well.
+         *
+         * Honoured for administrators only - see EqsServer's list-queues handler. Off by default,
+         * so every existing caller keeps the listing it had.
+         */
+        bool includeInternal = false;
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -52,6 +60,7 @@ namespace Euclid::Dto::EQS {
             r.pageIndex = Core::GetLongValue(v, "pageIndex");
             r.sortColumn = Core::GetStringValue(v, "sortColumn");
             r.sortDirection = Core::GetStringValue(v, "sortDirection");
+            r.includeInternal = Core::GetBoolValue(v, "includeInternal");
             return r;
         }
 
@@ -62,6 +71,7 @@ namespace Euclid::Dto::EQS {
                     {"pageIndex", obj.pageIndex},
                     {"sortColumn", obj.sortColumn},
                     {"sortDirection", obj.sortDirection},
+                    {"includeInternal", obj.includeInternal},
             };
         }
     };
