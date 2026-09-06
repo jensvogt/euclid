@@ -12,7 +12,7 @@ euclid-cli-eag-update-route \- change an existing gateway route
 .RB [ \-\-methods | \-m
 .IR LIST ]
 .RB [ \-\-authentication | \-A
-.IR none | euclid ]
+.IR none | euclid | basic ]
 .RB [ \-\-active
 .IR true | false ]
 .SH DESCRIPTION
@@ -63,7 +63,7 @@ Must not overlap with another route on the same path; see
 .BR euclid-cli-eag-create-route (1).
 .RE
 .TP
-.BR \-A ", " \-\-authentication " " \fInone\fR|\fIeuclid\fR
+.BR \-A ", " \-\-authentication " " \fInone\fR|\fIeuclid\fR|\fIbasic\fR
 What the gateway requires of a caller. See
 .BR euclid-cli-eag-create-route (1).
 .TP

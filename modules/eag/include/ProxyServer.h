@@ -14,10 +14,13 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/beast/core.hpp>
+#include <boost/asio/ssl.hpp>
 #include <boost/beast/http.hpp>
+#include <boost/beast/ssl.hpp>
 #include <memory>
 
 // Euclid includes
+#include <BasicAuthenticator.h>
 #include <Backends.h>
 #include <RouteTable.h>
 
@@ -50,7 +53,33 @@ namespace Euclid::EAG {
          * @param threads io_context worker threads.
          * @param refreshSeconds how often the route table and backend list are re-read.
          */
-        ProxyServer(unsigned short port, int threads, long refreshSeconds);
+        /**
+         * @brief One port the gateway answers on, and the namespace its routes belong to.
+         *
+         * @par
+         * Several of them is how one installation serves more than one environment without the
+         * environment appearing in anybody's URL: development on 8080 and integration on 8081 can
+         * both publish "/api/produktmeldungen", because the port says which is meant. The
+         * alternative - one port and the namespace in the path - puts euclid's own structure into
+         * addresses that outlive it, and makes the application see a segment that is nothing to do
+         * with it.
+         */
+        struct Listener {
+
+            /**
+             * @brief TCP port to answer on.
+             */
+            unsigned short port{};
+
+            /**
+             * @brief Namespace whose routes this port serves. Empty serves every route, which is
+             * what a single-listener installation gets.
+             */
+            std::string nameSpace;
+        };
+
+        ProxyServer(std::vector<Listener> listeners, int threads, long refreshSeconds, long basicAuthCacheSeconds,
+                    unsigned short euclidGatewayPort, bool euclidGatewayTls, const std::string &euclidGatewayCert);
 
         ~ProxyServer();
 
@@ -72,18 +101,19 @@ namespace Euclid::EAG {
         /**
          * @brief Accepts one connection and re-arms itself.
          */
-        void accept();
+        void accept(std::size_t index);
 
         /**
          * @brief Serves one connection: read a request, route it, answer it.
          */
-        void serve(boost::asio::ip::tcp::socket socket);
+        void serve(boost::asio::ip::tcp::socket socket, const std::string &nameSpace);
 
         /**
          * @brief Matches one request to a route, authenticates it if the route says so, and
          * forwards it to one of the application's instances.
          */
-        void route(const std::shared_ptr<boost::beast::tcp_stream> &stream,
+        void route(const std::string &nameSpace,
+                   const std::shared_ptr<boost::beast::tcp_stream> &stream,
                    const std::shared_ptr<boost::beast::http::request<boost::beast::http::string_body> > &request);
 
         /**
@@ -91,7 +121,22 @@ namespace Euclid::EAG {
          */
         void proxyTo(const std::shared_ptr<boost::beast::tcp_stream> &stream,
                      const std::shared_ptr<boost::beast::http::request<boost::beast::http::string_body> > &request,
-                     int port, const std::string &routeId);
+                     int port, const std::string &routeId,
+                     const std::string &euclidTarget, const std::string &euclidAction);
+
+        /**
+         * @brief Proxies to euclid's own gateway over TLS.
+         *
+         * @par
+         * Separate from proxyTo() rather than a flag on it, because the stream type differs all
+         * the way down and there is a handshake in the middle. Used when
+         * euclid.gateway.tls.enabled is set, which it is by default - a module route that spoke
+         * plain HTTP to it would be answered with a dropped connection and nothing else.
+         */
+        void proxyToTls(const std::shared_ptr<boost::beast::tcp_stream> &stream,
+                        const std::shared_ptr<boost::beast::http::request<boost::beast::http::string_body> > &request,
+                        int port, const std::string &routeId,
+                        const std::string &euclidTarget, const std::string &euclidAction);
 
         /**
          * @brief Writes one response to the caller and closes the connection.
@@ -108,18 +153,49 @@ namespace Euclid::EAG {
          */
         void refresh();
 
-        unsigned short _port;
+        std::vector<Listener> _listeners;
         int _threads;
         std::chrono::seconds _refreshInterval;
 
         boost::asio::io_context _ioc;
-        boost::asio::ip::tcp::acceptor _acceptor;
+
+        /**
+         * @brief One acceptor per listener, in the same order, so an accepted connection knows
+         * which namespace it arrived for.
+         */
+        std::vector<boost::asio::ip::tcp::acceptor> _acceptors;
         std::vector<std::thread> _workers;
         std::thread _refreshThread;
         std::atomic<bool> _running{false};
 
         RouteTable _routes;
         Backends _backends;
+
+        /**
+         * @brief Checks Basic credentials for the routes that ask for them.
+         */
+        BasicAuthenticator _basicAuth;
+
+        /**
+         * @brief Port euclid's own gateway listens on, where a route naming a module is sent.
+         */
+        unsigned short _euclidGatewayPort;
+
+        /**
+         * @brief Whether euclid's own gateway expects TLS. Mirrors euclid.gateway.tls.enabled.
+         */
+        bool _euclidGatewayTls;
+
+        /**
+         * @brief The installation's region, supplied for callers that do not name one.
+         */
+        std::string _region;
+
+        /**
+         * @brief Client context for talking to it, built once because building one per request
+         * would re-read and re-parse the certificate every time.
+         */
+        boost::asio::ssl::context _euclidGatewayCtx;
     };
 
 }// namespace Euclid::EAG

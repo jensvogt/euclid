@@ -21,6 +21,8 @@ namespace Euclid::Database::Entity::EAG {
                 bsoncxx::builder::basic::kvp("namespace", nameSpace),
                 bsoncxx::builder::basic::kvp("path", path),
                 bsoncxx::builder::basic::kvp("applicationId", applicationId),
+                bsoncxx::builder::basic::kvp("moduleTarget", moduleTarget),
+                bsoncxx::builder::basic::kvp("moduleAction", moduleAction),
                 bsoncxx::builder::basic::kvp("methods", methodArray),
                 bsoncxx::builder::basic::kvp("authentication", RouteAuthenticationToString(authentication)),
                 bsoncxx::builder::basic::kvp("active", active),
@@ -40,6 +42,8 @@ namespace Euclid::Database::Entity::EAG {
             else if (key == "namespace") route.nameSpace = std::string(field.get_string().value);
             else if (key == "path") route.path = std::string(field.get_string().value);
             else if (key == "applicationId") route.applicationId = std::string(field.get_string().value);
+            else if (key == "moduleTarget") route.moduleTarget = std::string(field.get_string().value);
+            else if (key == "moduleAction") route.moduleAction = std::string(field.get_string().value);
             else if (key == "methods") {
                 for (const auto &method: field.get_array().value) {
                     route.methods.emplace_back(method.get_string().value);

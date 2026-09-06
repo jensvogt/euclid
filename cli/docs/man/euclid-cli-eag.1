@@ -33,6 +33,49 @@ protocol and routes by
 The API gateway speaks nothing but HTTP and routes by path, because what
 is behind it is an ordinary web application that knows nothing about
 euclid.
+.SH SEVERAL ENVIRONMENTS, SEVERAL PORTS
+One gateway can answer on more than one port, each bound to a namespace:
+.PP
+.RS
+.nf
+"eag": {
+  "listeners": {
+    "development": { "port": 8080 },
+    "integration": { "port": 8081 }
+  }
+}
+.fi
+.RE
+.PP
+A request is then in the namespace of the port it arrived on, and a
+listener carries only that namespace's routes. Development and
+integration can both publish
+.I /api/produktmeldungen
+without either being ambiguous, because the port says which was meant.
+.PP
+The alternative \- one port and the environment in the path,
+.I /api/development/produktmeldungen
+\- puts euclid's own structure into addresses that outlive it, and makes
+the application see a segment that has nothing to do with it, since the
+path is forwarded unchanged.
+.PP
+Routes naming no namespace are carried by every listener, so an
+installation that never configures one keeps working: a bare
+.I port
+means a single listener that serves everything, which is what a
+production installation \- usually its own euclid, with one account and
+one namespace \- actually wants.
+.PP
+What this does not solve is application naming. The manager keys its
+pools by
+.IR applicationId ,
+which is unique across the installation, so two environments on one
+euclid need
+.I parser-dev
+and
+.I parser-int
+rather than two applications called
+.IR parser .
 .SH ROUTES
 A route is a path prefix plus the application it belongs to. Everything
 beneath the prefix is carried, and the path is forwarded
@@ -102,6 +145,99 @@ request refused, with
 and an
 .I Allow
 header listing what the routes on that path do accept.
+.SH REACHING EUCLID ITSELF
+A route usually names an application. It can instead name a euclid
+module and one of its actions, which is how something outside euclid
+reaches euclid:
+.PP
+.RS
+.nf
+euclid-cli eag create-route -r login -p /auth/login \e
+    --module eam --action login --methods POST
+.fi
+.RE
+.PP
+Credentials go in a JSON body, and the answer carries both kinds:
+.PP
+.RS
+.nf
+curl \-X POST http://localhost:8080/auth/login \e
+     \-H 'Content\-Type: application/json' \e
+     \-d '{"userId":"jvo","password":"secret"}'
+
+{ "token": "<jwt>",          # bearer, valid one hour
+  "accessKeyId": "AKIA...",  # for RFC 9421 and SigV4
+  "secretAccessKey": "...",
+  "createdAt": "..." }
+.fi
+.RE
+.PP
+.BR euclid-cli-eam-login (1)
+does exactly this. Without a route like it, a browser application would
+talk to the API gateway for the application and to euclid's own gateway
+for its credentials \- two ports, two origins, and CORS between them.
+.PP
+.B Not query parameters.
+A password in a query string is written to access logs, sent onward in
+.I Referer
+headers and kept in browser history; in a body it is none of those
+things. Giving the route
+.B \-\-methods POST
+is what makes that stick, since a
+.B GET
+carrying credentials in its URL is then answered with 405 rather than
+being forwarded.
+.PP
+The login body crosses the wire as it is written, so a gateway reachable
+from anywhere but this host wants TLS in front of it.
+.I euclid.gateway.tls.*
+covers euclid's own gateway on 5566, not the API gateway's port \- see
+.B LIMITATIONS
+below.
+.PP
+The request is forwarded to euclid's own gateway rather than to the
+module. A module listens on a Unix domain socket and has no address
+anything outside the host could reach; the gateway is what turns a
+target and an action into a call on one, and is already what every SDK
+talks to.
+.PP
+.B One action per route, deliberately.
+A route that took its action from the rest of the path would publish
+every action that module has \- including the ones that delete users \-
+and publishing an administrative interface by accident is not a mistake
+that announces itself. Naming the action means what is exposed is
+exactly what somebody wrote down.
+.PP
+A login route needs
+.B \-\-authentication none
+for the obvious reason: it is where a credential comes from. Everything
+else a module route publishes should almost certainly require one.
+.PP
+The account and namespace headers a caller sends are passed through
+untouched. That is safe because the module checks them against what the
+caller is actually granted, so naming somebody else's account is refused
+rather than obeyed.
+.PP
+.I x\-euclid\-region
+and
+.I x\-euclid\-namespace
+are supplied from the route when the caller does not send them. Euclid
+refuses a request naming no region once
+.I euclid.region
+is configured \- correct between modules, where every client sends it,
+and not something a browser could know to do.
+.PP
+From the route rather than from configuration, because a namespace is a
+property of what is published and not of the installation: two routes on
+one gateway may belong to different namespaces, and only the route says
+which. They are set when the route is created, defaulting to whoever
+created it, and can be named explicitly \- see
+.BR euclid-cli-eag-create-route (1).
+.PP
+Only when the caller sends neither. A client that names a region or a
+namespace keeps what it named and is refused if it is not permitted,
+which is a better answer than being moved somewhere else without being
+told.
 .SH BACKENDS
 The instances behind a route are not configured. The manager gives every
 application instance a TCP port of its own out of the range set by
@@ -142,9 +278,47 @@ what a public read wants.
 .B EUCLID
 A euclid credential is required and verified before anything is
 forwarded \- whatever the euclid gateway accepts, which today is a
-bearer token, an RFC 9421 message signature or SigV4. The check happens
-before a backend is chosen, so an unauthenticated caller never causes a
+bearer token from
+.BR euclid-cli-eam-login (1),
+an RFC 9421 message signature, or SigV4. The check happens before a
+backend is chosen, so an unauthenticated caller never causes a
 connection to an application at all.
+.TP
+.B BASIC
+HTTP Basic, checked against the same euclid user passwords. An
+unauthenticated caller is answered with
+.PP
+.RS
+.RS
+.nf
+WWW\-Authenticate: Basic realm="euclid", charset="UTF\-8"
+.fi
+.RE
+.PP
+which is the whole point of it: a browser shows a username and password
+prompt and tries again, where a bearer token would have needed something
+to obtain it first. Reach for this when the caller is a person at a
+browser, or a script with nothing but
+.BR curl (1).
+.PP
+A technical principal \- an application's identity, with an access key
+and
+.I loginEnabled
+false \- is refused, as it is at login. Those sign with RFC 9421 and have
+no password to offer.
+.PP
+Basic sends the password on every request, base64\-encoded, which is not
+encryption. Over plain HTTP it is readable by anything on the path \- see
+.B LIMITATIONS.
+.RE
+.PP
+Either way the caller needs to know nothing about euclid's own headers:
+.I x\-euclid\-region
+and
+.I x\-euclid\-namespace
+are filled in from the route. See
+.B REACHING EUCLID ITSELF
+above.
 .SH ANSWERS
 Five of the gateway's own answers are worth telling apart, since none of
 them come from the application:
@@ -163,7 +337,7 @@ The route requires a euclid credential and the request had none, or one
 that did not verify.
 .TP
 .B 503
-The route exists and the application has no running instance \- scaled
+The route names an application that has no running instance \- scaled
 to zero, still starting, or given no port. The resource exists and
 trying again is reasonable, which is why this is not a 404.
 .TP
@@ -257,7 +431,16 @@ in
 .IR euclid.json :
 .TP
 .I port
-TCP port the API gateway listens on. Defaults to 8080.
+TCP port the API gateway listens on. Defaults to 8080. Ignored when
+.I listeners
+is given.
+.TP
+.I listeners
+One port per namespace, keyed by namespace \-
+.RI { "development" : { "port" : 8080 }} \-
+for an installation serving more than one environment. See
+.B SEVERAL ENVIRONMENTS, SEVERAL PORTS
+above.
 .TP
 .I proxy\-threads
 Threads serving proxied requests. Defaults to 8.
@@ -266,10 +449,55 @@ Threads serving proxied requests. Defaults to 8.
 How often routes and backends are re-read from the database. Defaults
 to 5.
 .TP
+.I basic\-auth\-cache\-seconds
+How long a verified Basic credential stays verified. Defaults to 60.
+Set to 0 to check the password on every request, which is correct and
+costs tens of milliseconds of CPU each time \- see
+.B BASIC AUTHENTICATION COSTS
+below.
+.TP
 .I maxInstances
 Must be 1. Two instances cannot bind the same port, and the autoscaler
 cannot see that failure \- it would only see a pool that will not grow.
+.SH BASIC AUTHENTICATION COSTS
+A euclid password is stored as PBKDF2\-SHA256 at 100,000 iterations. That
+is deliberate and right for a login that happens once; it also means
+tens of milliseconds of CPU every time a password is checked.
+.PP
+This is why only the gateway accepts Basic and no euclid module does. A
+bearer token or a signature costs an HMAC and nothing more, so the
+modules' own paths stay cheap, and the expensive check happens once at
+the edge.
+.PP
+Even there it is not paid per request. A verified credential is
+remembered for
+.I basic\-auth\-cache\-seconds
+(60 by default), so a browser making a hundred calls hashes once and
+compares ninety\-nine times. What is kept is a hash of the credential,
+never the password, and entries are dropped as they expire.
+.PP
+Two things follow from the window:
+.PP
+.RS
+.IP \(bu 3
+a password change, or a user being deleted, takes effect within it
+rather than at once. Set it to 0 where that matters more than the CPU;
+.IP \(bu 3
+without a cache, an unauthenticated caller can spend a core of the
+gateway per request. The cache does not help there \- a wrong password is
+never cached \- so a route open to the internet wants a rate limit in
+front of it, which euclid does not provide.
+.RE
 .SH LIMITATIONS
+The API gateway speaks plain HTTP. There is no
+.I euclid.modules.eag.tls
+to match
+.I euclid.gateway.tls.*
+\- an installation exposing this port beyond its own host is expected to
+terminate TLS ahead of it. That matters most for a route published with
+.B \-\-authentication basic
+or one carrying a login, since both put a password in the request.
+.PP
 Request and response bodies are buffered whole rather than streamed,
 which suits the short REST calls the gateway carries today and not a
 large download. One request is served per connection; there is no
