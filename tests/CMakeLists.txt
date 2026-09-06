@@ -116,6 +116,15 @@ target_link_libraries(${REDRIVE_BINARY} PRIVATE eucliddb Boost::unit_test_framew
 
 add_test(NAME ${REDRIVE_BINARY} COMMAND ${REDRIVE_BINARY})
 
+set(ENS_PUBLISH_PRIORITY_BINARY euclid-ens-publish-priority-tests)
+
+add_executable(${ENS_PUBLISH_PRIORITY_BINARY} EnsPublishPriorityTest.cpp)
+set_target_properties(${ENS_PUBLISH_PRIORITY_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${ENS_PUBLISH_PRIORITY_BINARY} PRIVATE eucliddto eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${ENS_PUBLISH_PRIORITY_BINARY} COMMAND ${ENS_PUBLISH_PRIORITY_BINARY})
+
 set(ROUTE_MATCH_BINARY euclid-eag-route-match-tests)
 
 add_executable(${ROUTE_MATCH_BINARY} RouteMatchTest.cpp ${CMAKE_SOURCE_DIR}/modules/eag/src/RouteTable.cpp)
