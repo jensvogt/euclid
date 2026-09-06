@@ -105,7 +105,7 @@ namespace Euclid::Database {
          * @return list of all queue entities.
          */
         [[nodiscard]]
-        std::vector<Entity::EQS::Queue> listQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const override;
+        std::vector<Entity::EQS::Queue> listQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection, bool includeInternal = false) const override;
 
         [[nodiscard]]
         std::vector<Entity::EQS::Queue> listSourceQueues(const std::string &deadLetterQueueErn) const override;
@@ -131,7 +131,7 @@ namespace Euclid::Database {
          * @return total number of modules
          */
         [[nodiscard]]
-        long countQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix) const override;
+        long countQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, bool includeInternal = false) const override;
 
         /**
          * @brief Delete all modules

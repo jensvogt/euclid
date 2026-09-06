@@ -40,6 +40,14 @@ namespace Euclid::Dto::ESM {
         std::string sortDirection = "asc";
 
         /**
+         * @brief Whether euclid's own internal buckets are listed as well.
+         *
+         * Honoured for administrators only - see EsmServer's list-buckets handler. Off by default,
+         * so every existing caller keeps the listing it had.
+         */
+        bool includeInternal = false;
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -55,6 +63,7 @@ namespace Euclid::Dto::ESM {
             r.pageIndex = Core::GetLongValue(v, "pageIndex");
             r.sortColumn = Core::GetStringValue(v, "sortColumn");
             r.sortDirection = Core::GetStringValue(v, "sortDirection");
+            r.includeInternal = Core::GetBoolValue(v, "includeInternal");
             return r;
         }
 
@@ -65,6 +74,7 @@ namespace Euclid::Dto::ESM {
                     {"pageIndex", obj.pageIndex},
                     {"sortColumn", obj.sortColumn},
                     {"sortDirection", obj.sortDirection},
+                    {"includeInternal", obj.includeInternal},
             };
         }
     };

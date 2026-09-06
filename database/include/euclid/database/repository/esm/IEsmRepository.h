@@ -90,7 +90,7 @@ namespace Euclid::Database {
          * @return matching, paged and sorted list of buckets
          */
         [[nodiscard]]
-        virtual std::vector<Entity::ESM::Bucket> listBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const = 0;
+        virtual std::vector<Entity::ESM::Bucket> listBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc", bool includeInternal = false) const = 0;
 
         /**
          * @brief Checks if a bucket with the specified name exists in the repository.
@@ -110,7 +110,7 @@ namespace Euclid::Database {
          * @return The total number of buckets as a long integer.
          */
         [[nodiscard]]
-        virtual long countBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "") const = 0;
+        virtual long countBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "", bool includeInternal = false) const = 0;
 
         /**
          * @brief Removes all entries from the bucket repository, leaving it in an empty state.
@@ -159,8 +159,8 @@ namespace Euclid::Database {
         /**
          * @brief Retrieves the total number og objects in a bucket, optionally filtered by object key prefix.
          *
-         * @paranm bucketErn bucket ERN
-         * @paranm prefix object key prefix
+         * @param bucketErn bucket ERN
+         * @param prefix object key prefix
          * @param includeDirectories whether directory keys (see Entity::ESM::IsDirectoryKey())
          * are counted; they are left out by default, so a bucket counts the files it holds
          * @return The total number of messages as a long integer.
@@ -207,21 +207,6 @@ namespace Euclid::Database {
         virtual void deleteObjectByErn(const std::string &ern) = 0;
 
         /**
-         * @brief Repoints every object of a renamed bucket at its new name.
-         *
-         * @par
-         * A bucket's name is in its ERN, and an object's ERN carries the bucket's name as well
-         * ("...:object:<bucket>/<key>"), so renaming a bucket is not a change to one document but
-         * to every object in it. Done here rather than by reading each object and writing it back
-         * because it is one edit repeated, and a bucket can hold a lot of objects.
-         *
-         * @param oldBucketErn the bucket's ERN before the rename
-         * @param newBucketErn the bucket's ERN after it
-         * @param oldName the bucket's name before the rename
-         * @param newName the bucket's name after it
-         * @return number of objects rewritten
-         */
-        /**
          * @brief Gives an existing bucket another name and ERN, in place.
          *
          * @par
@@ -249,6 +234,21 @@ namespace Euclid::Database {
          */
         virtual long repointSubscriptions(const std::string &oldSourceErn, const std::string &newSourceErn) = 0;
 
+        /**
+         * @brief Repoints every object of a renamed bucket at its new name.
+         *
+         * @par
+         * A bucket's name is in its ERN, and an object's ERN carries the bucket's name as well
+         * ("...:object:<bucket>/<key>"), so renaming a bucket is not a change to one document but
+         * to every object in it. Done here rather than by reading each object and writing it back
+         * because it is one edit repeated, and a bucket can hold a lot of objects.
+         *
+         * @param oldBucketErn the bucket's ERN before the rename
+         * @param newBucketErn the bucket's ERN after it
+         * @param oldName the bucket's name before the rename
+         * @param newName the bucket's name after it
+         * @return number of objects rewritten
+         */
         virtual long renameBucketObjects(const std::string &oldBucketErn, const std::string &newBucketErn,
                                          const std::string &oldName, const std::string &newName) = 0;
 

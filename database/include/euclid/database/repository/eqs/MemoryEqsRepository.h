@@ -88,12 +88,15 @@ namespace Euclid::Database {
             return std::nullopt;
         }
 
-        std::vector<Entity::EQS::Queue> listQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const override {
+        std::vector<Entity::EQS::Queue> listQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection, const bool includeInternal = false) const override {
             std::lock_guard lock(_mutex);
             std::vector<Entity::EQS::Queue> result;
             for (const auto &m: _queueStore | std::views::values) {
                 if (m.accountId != accountId) continue;
                 if (!namespaceName.empty() && m.nameSpace != namespaceName) continue;
+                // euclid's own plumbing is not somebody's queue to look at, the same rule the
+                // Mongo repository applies - this backend used to list them unconditionally.
+                if (m.internal && !includeInternal) continue;
                 if (prefix.empty() || m.name.starts_with(prefix)) {
                     result.push_back(m);
                 }
@@ -150,11 +153,12 @@ namespace Euclid::Database {
             return _queueStore.contains(name);
         }
 
-        long countQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix) const override {
+        long countQueues(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const bool includeInternal = false) const override {
             std::lock_guard lock(_mutex);
             return std::ranges::count_if(_queueStore | std::views::values, [&](const auto &m) {
                 return m.accountId == accountId
                     && (namespaceName.empty() || m.nameSpace == namespaceName)
+                    && (includeInternal || !m.internal)
                     && (prefix.empty() || m.name.starts_with(prefix));
             });
         }
