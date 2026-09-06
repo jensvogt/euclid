@@ -146,7 +146,7 @@ namespace Euclid::Database {
          * @return matching, paged and sorted list of users
          */
         [[nodiscard]]
-        std::vector<Entity::EAM::User> listUsers(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const override;
+        std::vector<Entity::EAM::User> listUsers(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const override;
 
         /**
          * @brief Deletes a user by user ID.
@@ -201,7 +201,7 @@ namespace Euclid::Database {
          * @return matching, paged and sorted list of users
          */
         [[nodiscard]]
-        std::vector<Entity::EAM::UserGroup> listUserGroups(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const override;
+        std::vector<Entity::EAM::UserGroup> listUserGroups(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const override;
 
         /**
          * @brief Removes a user group by its name.
@@ -272,7 +272,7 @@ namespace Euclid::Database {
          * @return matching, paged and sorted list of accounts
          */
         [[nodiscard]]
-        std::vector<Entity::EAM::Account> listAccounts(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const override;
+        std::vector<Entity::EAM::Account> listAccounts(const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const override;
 
         /**
          * @brief Deletes an account by account ID.
@@ -347,7 +347,7 @@ namespace Euclid::Database {
          * @return matching, paged and sorted list of namespaces
          */
         [[nodiscard]]
-        std::vector<Entity::EAM::Namespace> listNamespaces(const std::string &accountId, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn) const override;
+        std::vector<Entity::EAM::Namespace> listNamespaces(const std::string &accountId, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const override;
 
         /**
          * @brief Removes a namespace by account ID and name.

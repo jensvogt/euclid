@@ -12,9 +12,14 @@ namespace Euclid::Dto::ESM {
     struct CreateBucketRequest {
 
         /**
-         * @brief Name of the queue
+         * @brief Name of the bucket
          */
         std::string name;
+
+        /**
+         * @brief Whether the bucket is euclid's own plumbing and should be left out of listings.
+         */
+        bool internal = false;
 
         /**
          * @brief Deserializes this request from a JSON string
@@ -28,12 +33,14 @@ namespace Euclid::Dto::ESM {
         friend CreateBucketRequest tag_invoke(boost::json::value_to_tag<CreateBucketRequest>, boost::json::value const &v) {
             CreateBucketRequest r;
             r.name = Core::GetStringValue(v, "name");
+            r.internal = Core::GetBoolValue(v, "internal");
             return r;
         }
 
         friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, CreateBucketRequest const &obj) {
             jv = {
                     {"name", obj.name},
+                    {"internal", obj.internal},
             };
         }
     };

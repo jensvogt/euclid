@@ -122,11 +122,12 @@ namespace Euclid::Database {
          * @param sortColumn field to sort by (e.g. "name", "ern"); empty means unsorted
          * @return list of matching bucket entities.
          */
-        std::vector<Entity::ESM::Bucket> listBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const override {
+        std::vector<Entity::ESM::Bucket> listBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection, const bool includeInternal = false) const override {
             std::lock_guard lock(_mutex);
             std::vector<Entity::ESM::Bucket> result;
             for (const auto &b: _bucketStore | std::views::values) {
                 if (b.accountId != accountId) continue;
+                if (b.internal && !includeInternal) continue;
                 if (!namespaceName.empty() && b.nameSpace != namespaceName) continue;
                 if (prefix.empty() || b.name.starts_with(prefix)) {
                     result.push_back(b);
@@ -165,10 +166,11 @@ namespace Euclid::Database {
          *
          * @return total number of buckets
          */
-        long countBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix) const override {
+        long countBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const bool includeInternal = false) const override {
             std::lock_guard lock(_mutex);
             return std::ranges::count_if(_bucketStore | std::views::values, [&](const auto &b) {
                 return b.accountId == accountId
+                       && (includeInternal || !b.internal)
                        && (namespaceName.empty() || b.nameSpace == namespaceName)
                        && (prefix.empty() || b.name.starts_with(prefix));
             });

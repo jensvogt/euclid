@@ -221,12 +221,21 @@ namespace Euclid::EQS {
 
         const auto ns = std::string(req["x-euclid-namespace"]);
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
-        const std::vector<Database::Entity::EQS::Queue> queues = repo->listQueues(auth.user->accountId, ns, request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection);
+
+        // euclid's own queues are plumbing - the bucket queue behind a listener, and whatever else
+        // the modules give themselves - and a user has no business seeing them among their own.
+        // An administrator may ask, because for them the installation itself is the subject; the
+        // ask is silently refused for everyone else rather than answered with a 403, since the
+        // request is otherwise perfectly valid and the queues they asked about are none of theirs.
+        const auto includeInternal = request.includeInternal
+                                     && Database::IsEamAdmin(*Database::RepositoryFactory::instance().eamRepository(), auth.user->userId);
+
+        const std::vector<Database::Entity::EQS::Queue> queues = repo->listQueues(auth.user->accountId, ns, request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection, includeInternal);
         log_info << "Got queue list, count: " << queues.size();
 
         Dto::EQS::ListQueueResponse response;
         response.queues = Dto::EQS::EqsMapper::toDto(queues);
-        response.total = repo->countQueues(auth.user->accountId, ns, request.prefix);
+        response.total = repo->countQueues(auth.user->accountId, ns, request.prefix, includeInternal);
 
         return EqsServer::JsonResponse(req, status::ok, response.toJson());
     }

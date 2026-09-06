@@ -67,6 +67,24 @@ namespace Euclid::Database::Entity::ESM {
         std::string encryptionKeyErn;
 
         /**
+         * @brief Whether this bucket is euclid's own plumbing rather than a user's bucket.
+         *
+         * @par
+         * An internal bucket is an ordinary bucket in every respect that matters - objects are
+         * written, read, copied, moved and deleted exactly the same way - except that it is left
+         * out of list-buckets and the bucket count, so nothing offers it to somebody who did not
+         * make it and has no reason to act on it. The bucket applications are deployed from is the
+         * case this exists for: its contents are artifacts EAP puts there and replaces on a
+         * redeploy, and an operator browsing their own buckets should not have to step around it.
+         *
+         * @par
+         * Hidden, not protected - the same bargain Entity::EQS::Queue::internal makes. A caller
+         * that knows the name can still use the bucket, which is exactly what the component that
+         * created it does.
+         */
+        bool internal = false;
+
+        /**
          * @brief Bucket size in bytes
          */
         int64_t size{};

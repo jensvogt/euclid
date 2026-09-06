@@ -1,0 +1,130 @@
+.TH EUCLID-CLI-ESM-DELETE-OBJECTS 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-delete-objects \- delete several objects from a bucket
+.SH SYNOPSIS
+.B euclid-cli esm delete-objects
+.BR \-\-bucket | \-b
+.I NAME
+.RB [ \-\-keys | \-k
+.IR LIST ]
+.RB [ \-\-prefix | \-p
+.IR KEY-PREFIX ]
+.RB [ \-\-async ]
+.SH DESCRIPTION
+Deletes objects from one bucket: the ones named by
+.BR \-\-keys ,
+or everything under
+.BR \-\-prefix .
+.PP
+Each object's file, its row and one
+.I esm.object.deleted
+event go, exactly as a single-object delete would do it, so subscribers
+see the same thing whichever way the object was removed.
+.SH WHERE THIS SITS
+.TP
+.BR euclid-cli-esm-delete-object (1)
+One object, addressed by its ERN. What an SDK calls, once per object.
+.TP
+.B delete-objects
+Several objects of one bucket, named or by prefix. The case a caller
+holding a list of keys used to have to loop over, one request each.
+.TP
+.BR euclid-cli-esm-purge-bucket (1)
+Emptying a bucket, usually so it can be deleted. About the bucket rather
+than about the objects.
+.SH KEYS OR PREFIX, NOT BOTH
+The two ask different questions \- "these" and "everything under there"
+\- and answering both would delete more than either. Naming both is
+refused rather than guessed at, because the mistake is not recoverable.
+.PP
+Naming neither deletes every object in the bucket. That is the same as
+.BR euclid-cli-esm-purge-bucket (1)
+and worth being sure about before pressing return.
+.SH A MISSING KEY IS NOT AN ERROR
+A key that names nothing is skipped, and the batch carries on. A list
+assembled earlier should not fail wholesale because one object went in
+the meantime, and "it is not there" is the outcome the caller asked for
+anyway.
+.PP
+The answer reports both numbers, so a caller who cares can compare them:
+.PP
+.RS
+.nf
+{ "ern": "...:bucket:inbox", "asked": 12, "objects": 11 }
+.fi
+.RE
+.SH LARGE DELETIONS
+Removing an object is a file, a row and an event, and a long enough list
+outlasts the request that asked for it \- the caller gets a timeout while
+the removal carries on unseen behind the abandoned request.
+.PP
+.B \-\-async
+answers immediately with
+.B 202 Accepted
+and the number of objects the request covers, and the removal is done by
+a background thread inside ESM. The bucket's counters are adjusted when
+it finishes, re-read at that point rather than assumed, since anything
+written meanwhile is in the stored figure but not in what was removed.
+.PP
+Progress shows in
+.BR euclid-cli-esm-get-bucket-size (1),
+and ESM logs "background delete started" and "background delete
+finished" with the count.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-bucket " " \fINAME\fR
+Bucket to delete from. Required. A bucket name is enough; a full ERN
+also works and is what reaches another namespace.
+.TP
+.BR \-k ", " \-\-keys " " \fILIST\fR
+Comma-separated object keys. Cannot be combined with
+.BR \-\-prefix .
+.TP
+.BR \-p ", " \-\-prefix " " \fIKEY-PREFIX\fR
+Delete everything whose key starts with this. Matched as a literal, not
+a pattern. Cannot be combined with
+.BR \-\-keys .
+.TP
+.B \-\-async
+Answer at once and delete in the background.
+.SH EXIT STATUS
+.TP
+.B 0
+The objects were deleted, or with
+.B \-\-async
+accepted for deletion. Counts are printed as JSON, including when
+nothing matched.
+.TP
+.B 1
+Missing arguments, both
+.B \-\-keys
+and
+.B \-\-prefix
+given, no session, the bucket does not exist, it belongs to another
+account, the caller has no grant for it, or the server rejected the
+request.
+.SH EXAMPLES
+Delete three objects by name:
+.PP
+.RS
+.nf
+euclid-cli esm delete-objects --bucket inbox \e
+    --keys jvo/a.xml,jvo/b.xml,jvo/c.xml
+.fi
+.RE
+.PP
+Delete a directory's worth, without waiting:
+.PP
+.RS
+.nf
+euclid-cli esm delete-objects --bucket inbox \e
+    --prefix jvo/incoming/ --async
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-delete-object (1),
+.BR euclid-cli-esm-purge-bucket (1),
+.BR euclid-cli-esm-list-objects (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

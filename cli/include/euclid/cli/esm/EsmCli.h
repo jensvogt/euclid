@@ -135,6 +135,15 @@ namespace Euclid::CLI {
         int createBucket(const std::vector<std::string> &args) const;
 
         /**
+         * @brief Marks a bucket as euclid's own plumbing, or stops doing so.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int setBucketInternal(const std::vector<std::string> &args) const;
+
+        /**
          * @brief Delete a bucket
          *
          * @param args command line arguments
@@ -159,6 +168,15 @@ namespace Euclid::CLI {
          * @return ok
          */
         [[nodiscard]]
+        /**
+         * @brief Deletes objects from a bucket, by key or by prefix.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int deleteObjects(const std::vector<std::string> &args) const;
+
         int touchObject(const std::vector<std::string> &args) const;
 
         /**

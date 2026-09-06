@@ -174,7 +174,7 @@ namespace Euclid::Database {
         return {};
     }
 
-    std::vector<Entity::ESM::Bucket> MongoEsmRepository::listBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const {
+    std::vector<Entity::ESM::Bucket> MongoEsmRepository::listBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection, const bool includeInternal) const {
 
         try {
 
@@ -185,6 +185,14 @@ namespace Euclid::Database {
             }
             if (!prefix.empty()) {
                 filter.append(kvp("name", make_document(kvp("$regex", "^" + QuotePrefix(prefix)))));
+            }
+
+            // euclid's own buckets are not somebody's to look at, unless the caller asked for
+            // them and is entitled to (the module decides that, not this layer). "$ne" rather than
+            // "false": a bucket made before this field existed has no "internal" at all, and
+            // equality would leave every one of them out of its owner's listing.
+            if (!includeInternal) {
+                filter.append(kvp("internal", make_document(kvp("$ne", true))));
             }
 
             mongocxx::options::find opts;
@@ -201,7 +209,17 @@ namespace Euclid::Database {
             auto bucketCollection = (*entry)[Database::instance().databaseName()][BUCKET_COLLECTION];
 
             for (auto bucketCursor = bucketCollection.find(filter.view(), opts); auto bucket: bucketCursor) {
-                buckets.push_back(Entity::ESM::Bucket::fromDocument(bucket));
+                // Per document, not around the loop: Bucket::fromDocument() reads every field with
+                // a typed accessor, and one field of an unexpected type throws. Caught out here
+                // that took the whole listing with it - a single malformed row and list-buckets
+                // answered with no buckets at all while the count still reported them, which is
+                // exactly what one hand-edited "internal": "true" (a string) did. A row that
+                // cannot be read is dropped and named in the log instead.
+                try {
+                    buckets.push_back(Entity::ESM::Bucket::fromDocument(bucket));
+                } catch (const std::exception &e) {
+                    log_error << "Skipping unreadable bucket document, error: " << e.what();
+                }
             }
             return buckets;
 
@@ -246,7 +264,7 @@ namespace Euclid::Database {
         }
     }
 
-    long MongoEsmRepository::countBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix) const {
+    long MongoEsmRepository::countBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const bool includeInternal) const {
 
         try {
 
@@ -257,6 +275,14 @@ namespace Euclid::Database {
             }
             if (!prefix.empty()) {
                 filter.append(kvp("name", make_document(kvp("$regex", "^" + QuotePrefix(prefix)))));
+            }
+
+            // euclid's own buckets are not somebody's to look at, unless the caller asked for
+            // them and is entitled to (the module decides that, not this layer). "$ne" rather than
+            // "false": a bucket made before this field existed has no "internal" at all, and
+            // equality would leave every one of them out of its owner's listing.
+            if (!includeInternal) {
+                filter.append(kvp("internal", make_document(kvp("$ne", true))));
             }
 
             const auto entry = Database::instance().client();

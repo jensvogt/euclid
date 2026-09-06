@@ -198,7 +198,7 @@ namespace Euclid::Database {
         return -1;
     }
 
-    std::vector<Entity::EAM::User> MongoEamRepository::listUsers(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
+    std::vector<Entity::EAM::User> MongoEamRepository::listUsers(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const {
 
         std::vector<Entity::EAM::User> users;
         try {
@@ -207,7 +207,7 @@ namespace Euclid::Database {
 
             mongocxx::options::find opts;
             if (!sortColumn.empty()) {
-                opts.sort(make_document(kvp(sortColumn, 1)));
+                opts.sort(make_document(kvp(sortColumn, sortDirection == "asc" ? 1 : -1)));
             }
             if (pageSize > 0) {
                 opts.limit(pageSize);
@@ -345,7 +345,7 @@ namespace Euclid::Database {
         return -1;
     }
 
-    std::vector<Entity::EAM::UserGroup> MongoEamRepository::listUserGroups(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
+    std::vector<Entity::EAM::UserGroup> MongoEamRepository::listUserGroups(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const {
 
         std::vector<Entity::EAM::UserGroup> userGroups;
         try {
@@ -354,7 +354,7 @@ namespace Euclid::Database {
 
             mongocxx::options::find opts;
             if (!sortColumn.empty()) {
-                opts.sort(make_document(kvp(sortColumn, 1)));
+                opts.sort(make_document(kvp(sortColumn, sortDirection == "asc" ? 1 : -1)));
             }
             if (pageSize > 0) {
                 opts.limit(pageSize);
@@ -492,7 +492,7 @@ namespace Euclid::Database {
         return -1;
     }
 
-    std::vector<Entity::EAM::Account> MongoEamRepository::listAccounts(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
+    std::vector<Entity::EAM::Account> MongoEamRepository::listAccounts(const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const {
 
         std::vector<Entity::EAM::Account> accounts;
         try {
@@ -501,7 +501,7 @@ namespace Euclid::Database {
 
             mongocxx::options::find opts;
             if (!sortColumn.empty()) {
-                opts.sort(make_document(kvp(sortColumn, 1)));
+                opts.sort(make_document(kvp(sortColumn, sortDirection == "asc" ? 1 : -1)));
             }
             if (pageSize > 0) {
                 opts.limit(pageSize);
@@ -639,7 +639,7 @@ namespace Euclid::Database {
         return -1;
     }
 
-    std::vector<Entity::EAM::Namespace> MongoEamRepository::listNamespaces(const std::string &accountId, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn) const {
+    std::vector<Entity::EAM::Namespace> MongoEamRepository::listNamespaces(const std::string &accountId, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const {
 
         std::vector<Entity::EAM::Namespace> namespaces;
         try {
@@ -650,7 +650,7 @@ namespace Euclid::Database {
 
             mongocxx::options::find opts;
             if (!sortColumn.empty()) {
-                opts.sort(make_document(kvp(sortColumn, 1)));
+                opts.sort(make_document(kvp(sortColumn, sortDirection == "asc" ? 1 : -1)));
             }
             if (pageSize > 0) {
                 opts.limit(pageSize);
