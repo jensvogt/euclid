@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.69](https://github.com/jensvogt/euclid/compare/1.0.68...v1.0.69) (2026-09-06)
+
+
+### Bug Fixes
+
+* ES add internal flag to buckets, fix some paging issues ([049cd4b](https://github.com/jensvogt/euclid/commit/049cd4bba2752506788154e466f32f227f7c4340))
+
 ## [1.0.68](https://github.com/jensvogt/euclid/compare/1.0.67...v1.0.68) (2026-09-05)
 
 
