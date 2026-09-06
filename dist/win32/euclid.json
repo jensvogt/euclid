@@ -11,27 +11,13 @@
     ],
     "data-dir": "C:\\Program Files\\euclid\\data",
     "temp-dir": "C:\\Program Files\\euclid\\data\\tmp",
-    "backup-dir": "C:\\Program Files\\euclid\\data\\backup",
-    "json": {
-      "pretty": false
-    },
-    "dockerized": false,
     "magic-file": "C:\\Program Files\\euclid\\etc\\magic.mgc",
-    "autoload": {
-      "active": true,
-      "file": "C:\\Program Files\\euclid\\init\\01_init.json",
-      "dir": "C:\\Program Files\\euclid\\init"
-    },
     "gateway": {
-      "active": true,
       "http": {
         "host": "localhost",
-        "address": "0.0.0.0",
         "port": 5566,
-        "max-queue": 8,
         "max-thread": 64,
-        "max-body": 536870912,
-        "timeout": 300
+        "max-body": 536870912
       },
       "tls": {
         "enabled": true,
@@ -52,7 +38,7 @@
         "active": true,
         "name": "eam",
         "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-eam.sock",
-        "executable": "C:\\Program Files\\euclid\\bin\\euclid-eam",
+        "executable": "C:\\Program Files\\euclid\\bin\\euclid-eam.exe",
         "minInstances": 1,
         "maxInstances": 2,
         "threads": 2,
@@ -62,30 +48,17 @@
         "active": true,
         "name": "esm",
         "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-esm.sock",
-        "executable": "C:\\Program Files\\euclid\\bin\\euclid-esm",
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
+        "executable": "C:\\Program Files\\euclid\\bin\\euclid-esm.exe",
         "data-dir": "C:\\Program Files\\euclid\\data\\esm",
         "minInstances": 1,
         "maxInstances": 4,
-        "threads": 2,
-        "counter-period": 60,
-        "sync-period": 3600,
-        "archive-timeout": 300
+        "threads": 2
       },
       "eqs": {
         "active": true,
         "name": "eqs",
         "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-eqs.sock",
-        "executable": "C:\\Program Files\\euclid\\bin\\euclid-eqs",
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
+        "executable": "C:\\Program Files\\euclid\\bin\\euclid-eqs.exe",
         "priority-weights": {
           "high": 4,
           "middle": 2,
@@ -99,12 +72,7 @@
         "active": false,
         "name": "ens",
         "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-ens.sock",
-        "executable": "C:\\Program Files\\euclid\\bin\\euclid-ens",
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
+        "executable": "C:\\Program Files\\euclid\\bin\\euclid-ens.exe",
         "minInstances": 1,
         "maxInstances": 4,
         "threads": 2
@@ -113,7 +81,7 @@
         "active": true,
         "name": "emo",
         "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-emo.sock",
-        "executable": "C:\\Program Files\\euclid\\bin\\euclid-emo",
+        "executable": "C:\\Program Files\\euclid\\bin\\euclid-emo.exe",
         "minInstances": 1,
         "maxInstances": 1,
         "threads": 2,
@@ -134,38 +102,20 @@
       "ekm": {
         "active": true,
         "name": "ekm",
-        "socketPath": "/var/run/euclid/euclid-ekm.sock",
-        "executable": "/usr/local/euclid/bin/euclid-ekm",
+        "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-ekm.sock",
+        "executable": "C:\\Program Files\\euclid\\bin\\euclid-ekm.exe",
         "minInstances": 1,
         "maxInstances": 4,
-        "threads": 2,
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        }
+        "threads": 2
       },
       "emm": {
         "active": true,
         "name": "emm",
-        "socketPath": "/var/run/euclid/euclid-emm.sock",
-        "executable": "/usr/local/euclid/bin/euclid-emm",
+        "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-emm.sock",
+        "executable": "C:\\Program Files\\euclid\\bin\\euclid-emm.exe",
         "minInstances": 1,
         "maxInstances": 1,
         "threads": 2
-      },
-      "ftp": {
-        "active": false,
-        "name": "ftp",
-        "executable": "C:\\Program Files\\euclid\\bin\\euclid-ftp",
-        "data-dir": "C:\\Program Files\\euclid\\data\\ftp"
-      },
-      "sftp": {
-        "active": false,
-        "name": "sftp",
-        "executable": "C:\\Program Files\\euclid\\bin\\euclid-sftp",
-        "data-dir": "C:\\Program Files\\euclid\\data\\sftp",
-        "host-key": "C:\\Program Files\\euclid\\etc\\ssh_host_key"
       },
       "ees": {
         "active": true,
@@ -194,7 +144,7 @@
         "active": true,
         "name": "ets",
         "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-ets.sock",
-        "executable": "C:\\Program Files\\euclid\\bin\\euclid-ets",
+        "executable": "C:\\Program Files\\euclid\\bin\\euclid-ets.exe",
         "socket-dir": "C:\\Program Files\\euclid\\data\\run",
         "data-dir": "C:\\Program Files\\euclid\\data\\ets",
         "minInstances": 1,
@@ -202,183 +152,42 @@
         "threads": 2,
         "inline-max": 67108864,
         "part-size": 8388608,
-        "directories": [
-          "incoming/mix",
-          "incoming/split",
-          "feedback"
-        ]
+        "host-key": "C:\\Program Files\\euclid\\etc\\ssh_host_key",
+        "ftp-executable": "C:\\Program Files\\euclid\\bin\\euclid-ftp",
+        "sftp-executable": "C:\\Program Files\\euclid\\bin\\euclid-sftp"
       },
-      "lambda": {
+      "eag": {
         "active": true,
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
-        "lifetime": 3600,
-        "data-dir": "C:\\Program Files\\euclid\\data\\lambda",
-        "remove-period": 300,
-        "counter-period": 300,
-        "log-retention-period": 1,
-        "private-port": 8080,
-        "max-invocation-count": 3,
-        "invocation-timeout": 5,
-        "runtime": {
-          "java11": "public.ecr.aws/lambda/java:11",
-          "java17": "public.ecr.aws/lambda/java:17",
-          "java21": "public.ecr.aws/lambda/java:21",
-          "java25": "public.ecr.aws/lambda/java:25",
-          "java26": "public.ecr.aws/lambda/java:26",
-          "python3-9": "public.ecr.aws/lambda/python:3.9",
-          "python3-10": "public.ecr.aws/lambda/python:3.10",
-          "python3-11": "public.ecr.aws/lambda/python:3.11",
-          "python3-12": "public.ecr.aws/lambda/python:3.12",
-          "python3-13": "public.ecr.aws/lambda/python:3.13",
-          "nodejs18-x": "public.ecr.aws/lambda/nodejs:18",
-          "nodejs20-x": "public.ecr.aws/lambda/nodejs:20",
-          "nodejs22-x": "public.ecr.aws/lambda/nodejs:22",
-          "provided-al2": "public.ecr.aws/lambda/provided:al2",
-          "provided-al2023": "public.ecr.aws/lambda/provided:al2023",
-          "provided-latest": "public.ecr.aws/lambda/provided:latest",
-          "go": "public.ecr.aws/lambda/provided:al2023"
-        }
-      },
-      "transfer": {
-        "active": true,
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
-        "bucket": "transfer-server",
-        "data-dir": "C:\\Program Files\\euclid\\data\\transfer",
-        "user-pool-id": "eu-central-1_oGsr6fJ8F",
-        "monitoring-period": 300,
-        "directories": [
-          "incoming/mix",
-          "incoming/split",
-          "feedback"
-        ],
-        "ftp": {
-          "pasv-min": 6000,
-          "pasv-max": 6100,
-          "port": 2121,
-          "address": "0.0.0.0"
-        },
-        "sftp": {
-          "host-key": "C:\\Program Files\\euclid\\etc\\ssh_host_key",
-          "pasv-min": 6000,
-          "pasv-max": 6100,
-          "port": 2222,
-          "address": "0.0.0.0"
-        }
-      },
-      "cognito": {
-        "active": true,
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
-        "monitoring-period": 300
-      },
-      "dynamodb": {
-        "active": true,
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
-        "data-dir": "C:\\Program Files\\euclid\\data\\dynamodb",
-        "monitoring-period": 300,
-        "worker-period": 300
-      },
-      "secretsmanager": {
-        "active": true,
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
-        "monitoring-period": 300,
-        "worker-period": 300
-      },
-      "ssm": {
-        "active": true,
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
-        "monitoring-period": 300,
-        "worker-period": 300,
-        "remove-period": 300
-      },
-      "application": {
-        "active": true,
-        "data-dir": "C:\\Program Files\\euclid\\data\\application",
-        "runtime": {
-          "java11": "alpine/java:11-jdk",
-          "java17": "alpine/java:17-jdk",
-          "java21": "alpine/java:21-jdk",
-          "java25": "alpine/java:25-jdk",
-          "java26": "alpine/java:26-jdk",
-          "python3-9": "public.ecr.aws/lambda/python:3.9",
-          "python3-10": "public.ecr.aws/lambda/python:3.10",
-          "python3-11": "public.ecr.aws/lambda/python:3.11",
-          "python3-12": "public.ecr.aws/lambda/python:3.12",
-          "python3-13": "public.ecr.aws/lambda/python:3.13",
-          "nodejs18-x": "public.ecr.aws/lambda/nodejs:18",
-          "nodejs20-x": "public.ecr.aws/lambda/nodejs:20",
-          "nodejs22-x": "public.ecr.aws/lambda/nodejs:22",
-          "provided-al2": "public.ecr.aws/lambda/provided:al2",
-          "provided-al2023": "public.ecr.aws/lambda/provided:al2023",
-          "provided-latest": "public.ecr.aws/lambda/provided:latest",
-          "go": "public.ecr.aws/lambda/provided:al2023"
-        },
-        "backup": {
-          "active": true,
-          "cron": "0 0 0 * * ?",
-          "count": 5
-        },
-        "monitoring-period": 300,
-        "watchdog-period": 300,
-        "log-server": false,
-        "log-server-port": 4568
-      }
-    },
-    "docker": {
-      "active": true,
-      "network-mode": "local",
-      "network-name": "local",
-      "default": {
-        "memory-size": 512,
-        "temp-size": 10240
-      },
-      "container": {
+        "name": "eag",
+        "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-eag.sock",
+        "executable": "C:\\Program Files\\euclid\\bin\\euclid-eag.exe",
+        "minInstances": 1,
+        "maxInstances": 1,
+        "threads": 2,
         "port": 8080,
-        "maxWaitTime": 5,
-        "checkTime": 500
-      },
-      "socket": "/var/run/docker.sock"
+        "proxy-threads": 8,
+        "refresh-seconds": 5,
+        "basic-auth-cache-seconds": 60,
+        "listeners": {
+          "development": {
+            "port": 8080
+          },
+          "integration": {
+            "port": 8081
+          },
+          "production": {
+            "port": 80
+          }
+        }
+      }
     },
     "scaling": {
       "scale-down-idle-seconds": 60
     },
     "monitoring": {
-      "active": true,
-      "average-period": 300,
-      "cpu-usage-period": 60,
-      "rollup-hour-period": 600,
-      "rollup-day-period": 3600,
-      "retention": {
-        "raw": 7,
-        "hour": 90,
-        "day": 1825
-      }
+      "cpu-usage-period": 60
     },
     "mongodb": {
-      "active": true,
       "name": "euclid",
       "host": "localhost",
       "port": 27017,
@@ -386,24 +195,12 @@
       "password": "password",
       "pool-size": 256
     },
-    "frontend": {
-      "active": true,
-      "address": "::",
-      "port": 4567,
-      "workers": 20,
-      "timeout": 900,
-      "doc-root": "C:\\Program Files\\euclid\\frontend"
-    },
     "logging": {
       "file-active": true,
       "console-active": false,
-      "websocket-active": true,
-      "websocket-port": 4569,
       "level": "info",
       "dir": "C:\\Program Files\\euclid\\log",
-      "prefix": "euclid",
-      "file-size": 10485760,
-      "file-count": 5
+      "prefix": "euclid"
     },
     "eventbus": {
       "notify-interval-ms": 100,
