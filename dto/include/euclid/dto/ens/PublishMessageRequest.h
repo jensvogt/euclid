@@ -31,6 +31,18 @@ namespace Euclid::Dto::ENS {
         std::map<std::string, COM::Variant> attributes{};
 
         /**
+         * @brief Priority of the queue messages this publish fans out to
+         *
+         * A topic is not consumed from, so this says nothing about the topic itself. It is carried
+         * so that the messages the SQS-type subscriptions turn this one into are worth what the
+         * message that caused them was worth - without it, every hop through a topic silently
+         * resets a delivery to MIDDLE.
+         *
+         * Defaults to MIDDLE, which is also how a request that omits it is read.
+         */
+        std::string priority = "MIDDLE";
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -52,6 +64,11 @@ namespace Euclid::Dto::ENS {
             r.ern = Core::GetStringValue(v, "ern");
             r.body = Core::GetStringValue(v, "body");
             r.attributes = Core::GetMapFromObject<std::string, COM::Variant>(v, "attributes");
+            // Left at the default rather than overwritten with "" for a request that predates this
+            // field, so an older client keeps publishing at MIDDLE instead of at nothing.
+            if (const auto priority = Core::GetStringValue(v, "priority"); !priority.empty()) {
+                r.priority = priority;
+            }
             return r;
         }
 
@@ -60,6 +77,7 @@ namespace Euclid::Dto::ENS {
                     {"ern", obj.ern},
                     {"body", obj.body},
                     {"attributes", boost::json::value_from(obj.attributes)},
+                    {"priority", obj.priority},
             };
         }
     };

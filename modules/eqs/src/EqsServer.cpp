@@ -1148,16 +1148,23 @@ namespace Euclid::EQS {
             }
         }
 
+        // Carried by the publisher so a delivery keeps its worth across the hop. Absent for an
+        // event published before this field existed - and for an ESM bucket notification, which is
+        // caused by an object rather than by a message and so has no priority to inherit - both of
+        // which MessagePriorityFromString reads as the documented default of MIDDLE.
+        const auto priority = Database::Entity::EQS::MessagePriorityFromString(Core::GetStringValue(envelope.payload, "priority"));
+
         const auto messageId = Core::UuidUtils::CreateRandomUuid();
         const auto ern = Core::createEqsMessageErn(Core::accountIdFromErn(targetErn), messageId);
-        const auto message = repo->sendMessage(messageId, ern, targetErn, body, attributes);
+        const auto message = repo->sendMessage(messageId, ern, targetErn, body, attributes, priority);
 
         // A subscription delivery is a message sent to this queue like any other - counting it
         // only in the publishing module would leave the queue's own totals short of what it holds.
         recordMessagesSent(targetErn, 1, message.size);
 
         log_info << "EQS created message from subscription delivery, source: " << envelope.sourceModule << ", eventType: " << envelope.eventType
-                  << ", targetErn: " << targetErn << ", messageId: " << messageId << ", sourceMessageId: " << sourceMessageId;
+                  << ", targetErn: " << targetErn << ", messageId: " << messageId << ", sourceMessageId: " << sourceMessageId
+                  << ", priority: " << Database::Entity::EQS::MessagePriorityToString(priority);
         return true;
     }
 

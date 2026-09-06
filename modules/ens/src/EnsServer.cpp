@@ -193,9 +193,15 @@ namespace Euclid::ENS {
     // Shared by handlePublishMessage (a direct client publish) and
     // handleObjectPublishedNotification (an ESM object-created notification arriving via an
     // SNS-type ESM subscription), so a topic behaves the same regardless of who published to it.
+    //
+    // The priority is the publisher's and belongs to the queue messages this fans out to, not to
+    // the topic message: a topic is not consumed from, so there is nothing for a priority to mean
+    // on it. It defaults to MIDDLE for the callers that have no priority to pass on - an ESM
+    // object notification is not caused by a message and so inherits nothing.
     static Database::Entity::ENS::Message publishToTopic(const std::string &topicErn, const std::string &body,
                                                          const std::map<std::string, Dto::COM::Variant> &attributes,
-                                                         const std::string &accountId) {
+                                                         const std::string &accountId,
+                                                         const std::string &priority = "MIDDLE") {
 
         const std::string messageId = Core::UuidUtils::CreateRandomUuid();
         const std::string ern = Core::createEnsMessageErn(accountId, messageId);
@@ -221,6 +227,7 @@ namespace Euclid::ENS {
             const boost::json::value payload = {
                     {"body", body},
                     {"attributes", attributesJson},
+                    {"priority", priority},
             };
             Database::EventBus::instance().Publish("ens.message.published", payload, "ens",
                                                    {.targetErn = subscription.targetErn,
@@ -256,7 +263,7 @@ namespace Euclid::ENS {
             return EnsServer::ErrorResponse(req, status::not_found, "Topic not found, ern: " + request.ern);
         }
 
-        const auto message = publishToTopic(request.ern, request.body, request.attributes, auth.user->accountId);
+        const auto message = publishToTopic(request.ern, request.body, request.attributes, auth.user->accountId, request.priority);
 
         Dto::ENS::PublishMessageResponse response;
         response.messageId = message.messageId;
