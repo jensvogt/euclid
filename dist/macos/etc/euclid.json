@@ -179,6 +179,7 @@
             "port": 80
           }
         }
+      }
     },
     "scaling": {
       "scale-down-idle-seconds": 60
