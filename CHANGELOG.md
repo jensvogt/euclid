@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.72](https://github.com/jensvogt/euclid/compare/1.0.71...v1.0.72) (2026-09-06)
+
+
+### Bug Fixes
+
+* add ENS priorities ([7ab7dbe](https://github.com/jensvogt/euclid/commit/7ab7dbef0612b1467a36ebb687861e3cc4b46960))
+* add ENS priorities ([5130811](https://github.com/jensvogt/euclid/commit/5130811111ff657a82444abf38bc30bc44debdda))
+
 ## [1.0.71](https://github.com/jensvogt/euclid/compare/v1.0.70...v1.0.71) (2026-09-06)
 
 
