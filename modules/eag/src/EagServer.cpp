@@ -12,11 +12,13 @@
 
 // Euclid includes
 #include <EagServer.h>
+#include <ListenerCertificate.h>
 #include <euclid/core/Configuration.h>
 #include <euclid/core/DateTimeUtils.h>
 #include <euclid/core/ErnUtils.h>
 #include <euclid/core/monitoring/MonitoringTimer.h>
 #include <euclid/database/entity/eam/User.h>
+#include <euclid/database/entity/ekm/Certificate.h>
 
 namespace Euclid::EAG {
 
@@ -100,6 +102,26 @@ namespace Euclid::EAG {
                     if (std::ranges::find(route.methods, method) != route.methods.end()) return route.routeId;
                 }
             }
+            return std::nullopt;
+        }
+
+        // A listener's string-valued property: empty when it is absent, and nothing at all when it
+        // is present but is not a string. The two have to be told apart - "protocol" left out is a
+        // listener that speaks HTTP, while "protocol": 443 is a mistake, and treating the mistake
+        // as the default would publish in clear text a port whose author was clearly thinking
+        // about TLS.
+        std::optional<std::string> stringProperty(const std::map<std::string, Core::ConfigValue> &properties, const std::string &key) {
+            const auto it = properties.find(key);
+            if (it == properties.end()) return std::string{};
+            if (const auto *value = std::get_if<std::string>(&it->second)) return *value;
+            return std::nullopt;
+        }
+
+        // A listener's number-valued property, or nothing when it is absent or is not a number.
+        std::optional<long> numberProperty(const std::map<std::string, Core::ConfigValue> &properties, const std::string &key) {
+            const auto it = properties.find(key);
+            if (it == properties.end()) return std::nullopt;
+            if (const auto *value = std::get_if<long>(&it->second)) return *value;
             return std::nullopt;
         }
 
@@ -421,6 +443,82 @@ namespace Euclid::EAG {
         return EagServer::ErrorResponse(req, status::not_found, "Action not implemented: " + action);
     }
 
+    // ── Listeners ────────────────────────────────────────────────────────────
+
+    response<string_body> EagServer::handleListListeners(const request<string_body> &req) const {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-listeners");
+
+        // Qualified: unqualified "AuthResult" in a member of EagServer finds the base class's own
+        // one first, which is a different type from the one the handlers here use.
+        Euclid::EAG::AuthResult auth;
+        if (const auto denied = requireAdmin(req, auth)) return *denied;
+
+        // Whether the ports are bound, rather than whether they were configured. A listener whose
+        // port was taken, or whose certificate could not be loaded, is still listed - it is the
+        // one somebody is looking for - but nothing it says is being served.
+        const auto serving = _proxy != nullptr && _proxy->serving();
+
+        const auto accountId = ListenerAccountId();
+        const auto repository = Database::RepositoryFactory::instance().ekmRepository();
+        const auto now = std::chrono::system_clock::now();
+
+        boost::json::array entries;
+        for (const auto &listener: _listeners) {
+
+            const auto https = listener.protocol == Protocol::HTTPS;
+
+            // The certificate the listener actually serves, not the one it named: naming none
+            // means the conventional one for its namespace, and an empty field here would send
+            // somebody looking for a certificate that is there under a name nothing told them.
+            const auto certificateName = https ? ListenerCertificateName(listener.certificate, listener.nameSpace) : std::string();
+
+            boost::json::object entry{
+                    {"namespace", listener.nameSpace},
+                    {"port", static_cast<long>(listener.port)},
+                    {"protocol", ProtocolToString(listener.protocol)},
+                    {"serving", serving},
+                    {"certificate", certificateName},
+                    // What the configuration wrote, so that "this listener names its certificate"
+                    // and "this listener takes the conventional one" can be told apart.
+                    {"certificateConfigured", listener.certificate},
+                    {"certificateFound", false}};
+
+            // Only for an HTTPS listener: a port speaking plain HTTP has no certificate to be
+            // missing, and reporting one as absent would read as a fault rather than a setting.
+            // A missing one for an HTTPS listener is worth reporting, though - it is what a port
+            // that never came up looks like, since the certificate is generated when it starts.
+            if (https && !accountId.empty()) {
+                if (const auto certificate = repository->findCertificateByName(accountId, listener.nameSpace, certificateName)) {
+                    entry["certificateFound"] = true;
+                    entry["certificateErn"] = certificate->ern;
+                    entry["certificateSubject"] = certificate->subject;
+                    entry["certificateIssuer"] = certificate->issuer;
+                    entry["certificateSerialNumber"] = certificate->serialNumber;
+                    entry["certificateFingerprint"] = certificate->fingerprint;
+                    entry["certificateSubjectAltNames"] = boost::json::array(certificate->subjectAltNames.begin(), certificate->subjectAltNames.end());
+                    // Whether euclid minted this itself because the listener needed something to
+                    // start with. Callers reject a self-signed certificate until they are given
+                    // it, so which of the two this is decides whether the port actually works for
+                    // anybody who has not been told about it.
+                    entry["certificateGenerated"] = certificate->generated;
+                    entry["certificateNotBefore"] = Core::DateTimeUtils::ToISO8601(certificate->notBefore);
+                    entry["certificateNotAfter"] = Core::DateTimeUtils::ToISO8601(certificate->notAfter);
+                    entry["certificateExpired"] = certificate->notAfter != std::chrono::system_clock::time_point{}
+                                                  && certificate->notAfter < now;
+                }
+            }
+            entries.push_back(entry);
+        }
+
+        const boost::json::object response{
+                {"listeners", entries},
+                {"total", static_cast<long>(entries.size())},
+                {"serving", serving}};
+
+        return EagServer::JsonResponse(req, status::ok, boost::json::serialize(response));
+    }
+
     EagServer::EagServer(std::string socketPath, const int threads) : HttpActionServer("EAG", std::move(socketPath), threads) {
 
         const auto &configuration = Core::Configuration::instance();
@@ -433,23 +531,66 @@ namespace Euclid::EAG {
         // A production installation is usually its own euclid with one namespace and wants none of
         // this, which is why the bare "port" still works and means a listener that serves every
         // route whatever namespace it names.
+        // Each listener also says what it speaks - "protocol": "http" or "https" - and, when it
+        // speaks HTTPS, which certificate it serves. Both are optional: a listener that says
+        // nothing is the plain HTTP one it was before either existed.
         std::vector<ProxyServer::Listener> listeners;
+        bool listenersConfigured = false;
         if (constexpr auto listenerPath = "euclid.modules.eag.listeners"; configuration.has(listenerPath)) {
             try {
                 for (const auto &[nameSpace, properties]: configuration.getObjects(listenerPath)) {
-                    const auto it = properties.find("port");
-                    if (it == properties.end()) {
-                        log_error << "API gateway listener has no port and is ignored, namespace: " << nameSpace;
+                    listenersConfigured = true;
+
+                    const auto port = numberProperty(properties, "port");
+                    if (!port.has_value()) {
+                        log_error << "API gateway listener has no port, or one that is not a number, and is ignored, namespace: " << nameSpace;
                         continue;
                     }
-                    listeners.emplace_back(static_cast<unsigned short>(std::get<long>(it->second)), nameSpace);
+
+                    // Ignored rather than defaulted to HTTP when it cannot be read: a typo that
+                    // quietly published in clear text a port somebody believed was encrypted is
+                    // the one mistake here that nobody would notice until it mattered.
+                    const auto protocolName = stringProperty(properties, "protocol");
+                    const auto protocol = protocolName.has_value() ? ProtocolFromString(*protocolName) : std::nullopt;
+                    if (!protocol.has_value()) {
+                        log_error << "API gateway listener has an unusable protocol and is ignored, namespace: " << nameSpace
+                                  << ", protocol: " << protocolName.value_or("(not a string)");
+                        continue;
+                    }
+
+                    const auto certificate = stringProperty(properties, "certificate");
+                    if (!certificate.has_value()) {
+                        log_error << "API gateway listener names a certificate that is not a string and is ignored, namespace: " << nameSpace;
+                        continue;
+                    }
+                    listeners.emplace_back(static_cast<unsigned short>(*port), nameSpace, *protocol, *certificate);
                 }
             } catch (const std::exception &e) {
                 log_error << "Could not read the API gateway listeners, error: " << e.what();
+                listenersConfigured = true;
             }
         }
+
+        // The single unscoped listener an installation that configures none gets. Only when none
+        // were configured at all - falling back to it after a listener was refused would answer
+        // in clear text on a port that had asked for HTTPS.
+        if (listeners.empty() && !listenersConfigured) {
+            const auto protocolName = configuration.getOr<std::string>("euclid.modules.eag.protocol", "http");
+            if (const auto protocol = ProtocolFromString(protocolName); protocol.has_value()) {
+                listeners.emplace_back(static_cast<unsigned short>(configuration.getOr<long>("euclid.modules.eag.port", 8080)),
+                                       std::string(), *protocol,
+                                       configuration.getOr<std::string>("euclid.modules.eag.certificate", ""));
+            } else {
+                log_error << "Unknown API gateway protocol, no listener started, protocol: " << protocolName;
+            }
+        }
+        // Kept whatever happens next, so that "list-listeners" can report a port that was
+        // configured but could not be bound - which is the one somebody is looking for.
+        _listeners = listeners;
+
         if (listeners.empty()) {
-            listeners.emplace_back(static_cast<unsigned short>(configuration.getOr<long>("euclid.modules.eag.port", 8080)), std::string());
+            log_error << "The API gateway has no usable listener and will serve nothing; its routes can still be managed";
+            return;
         }
         const auto proxyThreads = static_cast<int>(configuration.getOr<long>("euclid.modules.eag.proxy-threads", 8));
         const auto refreshSeconds = configuration.getOr<long>("euclid.modules.eag.refresh-seconds", 5);
@@ -491,6 +632,9 @@ namespace Euclid::EAG {
     }
 
     response<string_body> EagServer::Dispatch(const request<string_body> &req) {
+        // Taken before the free dispatcher, because this is the one action that answers out of
+        // this instance's own configuration rather than out of the route table.
+        if (std::string(req["x-euclid-action"]) == "list-listeners") return handleListListeners(req);
         return dispatch(req);
     }
 

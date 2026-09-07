@@ -190,6 +190,23 @@ namespace Euclid::Core {
     }
 
     /**
+     * @brief Creates an EKM certificate ERN
+     *
+     * @par
+     * Namespace-scoped, unlike a key: a certificate carries the name whoever imported it chose, so
+     * two namespaces of one account may legitimately both have a "gateway" - see the
+     * namespace-scoped createErn() overload.
+     *
+     * @param accountId account ID
+     * @param nameSpace namespace within accountId the certificate belongs to; empty means unscoped
+     * @param name certificate name
+     * @return resource ERN
+     */
+    inline std::string createEkmCertificateErn(const std::string &accountId, const std::string &nameSpace, const std::string &name) {
+        return createErn("ekm", accountId, nameSpace, "certificate:" + name);
+    }
+
+    /**
      * @brief Creates a ESM bucket ERN
      *
      * @param accountId account ID

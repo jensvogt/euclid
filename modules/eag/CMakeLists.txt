@@ -1,6 +1,7 @@
 set(BINARY euclid-eag)
 
-add_executable(${BINARY} src/main.cpp src/EagServer.cpp src/ProxyServer.cpp src/RouteTable.cpp src/Backends.cpp src/BasicAuthenticator.cpp)
+add_executable(${BINARY} src/main.cpp src/EagServer.cpp src/ProxyServer.cpp src/RouteTable.cpp src/Backends.cpp
+        src/BasicAuthenticator.cpp src/ClientStream.cpp src/ListenerCertificate.cpp)
 
 set_target_properties(${BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 

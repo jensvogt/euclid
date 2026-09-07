@@ -73,6 +73,7 @@ namespace Euclid::CLI {
                                            {"create-route", "Publish a path through the gateway, pointing it at an application"},
                                            {"delete-route", "Remove a route, taking its path out of service"},
                                            {"get-route", "Show one route's definition"},
+                                           {"list-listeners", "List the ports the gateway answers on and what each speaks"},
                                            {"list-routes", "List the configured routes"},
                                            {"update-route", "Change an existing route's path, application or authentication"},
                                    });
@@ -98,6 +99,7 @@ namespace Euclid::CLI {
         if (action == "list-routes") return listRoutes(args);
         if (action == "get-route") return getRoute(args);
         if (action == "delete-route") return deleteRoute(args);
+        if (action == "list-listeners") return listListeners(args);
 
         std::cerr << "error: unknown eag action '" << action << "'\n";
         return 1;
@@ -296,6 +298,27 @@ namespace Euclid::CLI {
         if (vm.contains("prefix")) request["prefix"] = vm["prefix"].as<std::string>();
 
         return Send(_endpoint, _authentication, _caCertPath, _pretty, "list-routes", request);
+    }
+
+    int EagCli::listListeners(const std::vector<std::string> &args) const {
+        const po::options_description desc("list listeners");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eag", "list-listeners", "",
+                                   "Lists the ports the gateway answers on: the namespace each serves, whether it "
+                                   "speaks HTTP or HTTPS, and for an HTTPS one the certificate it terminates TLS "
+                                   "with, down to its subject, fingerprint and expiry date. "
+                                   "Read-only, because a listener is configuration ("
+                                   "euclid.modules.eag.listeners) and a restart, not something to be re-bound "
+                                   "remotely. "
+                                   "\"serving\" says whether the ports are actually bound: a listener whose port was "
+                                   "taken, or whose certificate could not be loaded, is still listed - the module "
+                                   "keeps running so the route table can be managed - but nothing it names is being "
+                                   "answered.",
+                                   desc);
+        }
+
+        return Send(_endpoint, _authentication, _caCertPath, _pretty, "list-listeners", boost::json::object{});
     }
 
     int EagCli::getRoute(const std::vector<std::string> &args) const {

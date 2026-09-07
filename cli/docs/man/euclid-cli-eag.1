@@ -40,8 +40,8 @@ One gateway can answer on more than one port, each bound to a namespace:
 .nf
 "eag": {
   "listeners": {
-    "development": { "port": 8080 },
-    "integration": { "port": 8081 }
+    "development": { "port": 8080, "protocol": "http" },
+    "integration": { "port": 8081, "protocol": "http" }
   }
 }
 .fi
@@ -76,6 +76,58 @@ and
 .I parser-int
 rather than two applications called
 .IR parser .
+.SH HTTP AND HTTPS
+Each listener says what it speaks. A
+.RI \(dq protocol \(dq
+of
+.I http
+\- the default, and what every listener configured before this setting
+existed is \- publishes the port in clear text, which is what a gateway
+behind a load balancer that has already terminated TLS wants. A
+.RI \(dq protocol \(dq
+of
+.I https
+terminates TLS on the port itself:
+.PP
+.RS
+.nf
+"eag": {
+  "listeners": {
+    "development": { "port": 8080, "protocol": "http" },
+    "production":  { "port": 443,  "protocol": "https",
+                     "certificate": "eag-production" }
+  }
+}
+.fi
+.RE
+.PP
+The certificate is named rather than given as a pair of file paths: it
+is key material, and it lives where euclid keeps key material, which is
+also what makes it listable, replaceable and watchable for expiry
+through
+.BR euclid-cli-ekm-list-certificates (1).
+Store one with
+.BR euclid-cli-ekm-import-certificate (1)
+under the name the listener uses.
+.PP
+A listener whose certificate does not exist yet gets one: self-signed,
+generated at start-up, stored under the name it asked for, and logged
+as a warning \- because every caller of that port will be shown a
+certificate nobody has vouched for. That is what lets an installation
+serve HTTPS before anybody has bought it a certificate, and importing a
+real one under the same name replaces it at the next restart. Omitting
+.RI \(dq certificate \(dq
+altogether uses the conventional name for the listener's namespace:
+.I eag-<namespace>
+, or
+.I eag
+for a listener bound to none.
+.PP
+A request that arrives over HTTPS is forwarded to the application with
+.I X-Forwarded-Proto: https
+, so an application building an absolute URL does not send an
+https caller back to itself over http. The hop from the gateway to the
+application is itself plain HTTP on the loopback interface, as it was.
 .SH ROUTES
 A route is a path prefix plus the application it belongs to. Everything
 beneath the prefix is carried, and the path is forwarded
@@ -188,12 +240,14 @@ is what makes that stick, since a
 carrying credentials in its URL is then answered with 405 rather than
 being forwarded.
 .PP
-The login body crosses the wire as it is written, so a gateway reachable
-from anywhere but this host wants TLS in front of it.
+The login body crosses the wire as it is written, so a listener carrying
+one should be speaking HTTPS, or have TLS terminated in front of it \-
+see
+.B HTTP AND HTTPS
+above. Note that
 .I euclid.gateway.tls.*
-covers euclid's own gateway on 5566, not the API gateway's port \- see
-.B LIMITATIONS
-below.
+covers euclid's own gateway on 5566 and not this port, which is
+configured per listener.
 .PP
 The request is forwarded to euclid's own gateway rather than to the
 module. A module listens on a Unix domain socket and has no address
@@ -366,6 +420,11 @@ Removes a route, taking its path out of service. See
 Shows one route's definition. See
 .BR euclid-cli-eag-get-route (1).
 .TP
+.B list-listeners
+Lists the ports the gateway answers on, what each speaks, and the
+certificate an HTTPS one serves. See
+.BR euclid-cli-eag-list-listeners (1).
+.TP
 .B list-routes
 Lists the configured routes. See
 .BR euclid-cli-eag-list-routes (1).
@@ -436,11 +495,35 @@ TCP port the API gateway listens on. Defaults to 8080. Ignored when
 is given.
 .TP
 .I listeners
-One port per namespace, keyed by namespace \-
+One listener per namespace, keyed by namespace \-
 .RI { "development" : { "port" : 8080 }} \-
-for an installation serving more than one environment. See
+for an installation serving more than one environment. Each takes a
+.IR port ,
+and optionally a
+.I protocol
+.RI ( http " or " https )
+and the name of the
+.I certificate
+an HTTPS one serves. See
 .B SEVERAL ENVIRONMENTS, SEVERAL PORTS
-above.
+and
+.B HTTP AND HTTPS
+above, and
+.BR euclid-cli-eag-list-listeners (1)
+for what the gateway ended up bound to.
+.TP
+.I protocol
+What the single listener speaks when
+.I listeners
+is not given:
+.I http
+(the default) or
+.IR https .
+.TP
+.I certificate
+Name of the EKM certificate an HTTPS listener serves. A self\-signed one
+is generated under that name if it does not exist. Defaults to the
+conventional name for the listener's namespace.
 .TP
 .I proxy\-threads
 Threads serving proxied requests. Defaults to 8.
@@ -489,14 +572,20 @@ never cached \- so a route open to the internet wants a rate limit in
 front of it, which euclid does not provide.
 .RE
 .SH LIMITATIONS
-The API gateway speaks plain HTTP. There is no
-.I euclid.modules.eag.tls
-to match
-.I euclid.gateway.tls.*
-\- an installation exposing this port beyond its own host is expected to
-terminate TLS ahead of it. That matters most for a route published with
+A listener speaks plain HTTP unless it is told otherwise, and that is
+the default. An installation exposing a port beyond its own host wants
+either
+.RI \(dq protocol \(dq: \(dq https \(dq
+on it \- see
+.B HTTP AND HTTPS
+above \- or TLS terminated ahead of it. That matters most for a route
+published with
 .B \-\-authentication basic
 or one carrying a login, since both put a password in the request.
+.PP
+There is no client\-certificate authentication and no way to name the
+cipher suites or protocol versions a listener accepts: an HTTPS listener
+speaks TLS 1.2 with OpenSSL's default cipher suites.
 .PP
 Request and response bodies are buffered whole rather than streamed,
 which suits the short REST calls the gateway carries today and not a
@@ -565,10 +654,14 @@ euclid-cli eag update-route --route-id resource --active true
 .BR euclid-cli-eag-create-route (1),
 .BR euclid-cli-eag-update-route (1),
 .BR euclid-cli-eag-list-routes (1),
+.BR euclid-cli-eag-list-listeners (1),
 .BR euclid-cli-eag-get-route (1),
 .BR euclid-cli-eag-delete-route (1),
 .BR euclid-cli-eap (1),
 .BR euclid-cli-emm (1),
-.BR euclid-cli-eam-login (1)
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-ekm-import-certificate (1),
+.BR euclid-cli-ekm-create-certificate (1),
+.BR euclid-cli-ekm-list-certificates (1)
 .SH AUTHOR
 Jens Vogt <jens.vogt@opitz-consulting.com>

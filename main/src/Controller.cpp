@@ -19,6 +19,7 @@
 #include <euclid/core/Configuration.h>
 #include <euclid/core/CryptoUtils.h>
 #include <euclid/core/DateTimeUtils.h>
+#include <euclid/core/DirUtils.h>
 #include <euclid/core/HttpActionServer.h>
 #include <euclid/core/JwtUtils.h>
 #include <euclid/core/LogStream.h>
@@ -569,7 +570,10 @@ namespace Euclid::main {
             constexpr auto kDefaultStorageDir = "/usr/local/euclid/data/esm";
 #endif
             const auto storageDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultStorageDir);
-            const auto source = std::filesystem::path(storageDir) / object->internalName;
+
+            // Wherever ESM put it: objects written since the storage was fanned out live a couple
+            // of directories down, older ones are still flat - see Core::DirUtils.
+            const auto source = Core::DirUtils::FindFilePath(storageDir, object->internalName);
 
             std::error_code ec;
             if (!std::filesystem::exists(source, ec)) {

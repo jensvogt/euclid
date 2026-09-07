@@ -38,6 +38,18 @@ namespace Euclid::Database {
             queueErnOpts.unique(true);
             keyCollection.create_index(make_document(kvp("ern", 1)), queueErnOpts);
 
+            // Certificates are named by their owner rather than by a generated ID - a listener's
+            // configuration names one - so the same triple has to be unique for them too.
+            auto certificateCollection = (*entry)[Database::instance().databaseName()][CERTIFICATE_COLLECTION];
+
+            mongocxx::options::index certificateNameOpts;
+            certificateNameOpts.unique(true);
+            certificateCollection.create_index(make_document(kvp("accountId", 1), kvp("namespace", 1), kvp("name", 1)), certificateNameOpts);
+
+            mongocxx::options::index certificateErnOpts;
+            certificateErnOpts.unique(true);
+            certificateCollection.create_index(make_document(kvp("ern", 1)), certificateErnOpts);
+
         } catch (const std::exception &e) {
             log_error << "Ensure SQS indexes failed, error: " << e.what();
         }
@@ -249,6 +261,157 @@ namespace Euclid::Database {
             log_error << "Purge EKM keys pending deletion failed, error: " << e.what();
             return 0;
         }
+    }
+
+    Entity::EKM::Certificate MongoEkmRepository::upsertCertificate(Entity::EKM::Certificate &certificate) {
+
+        try {
+
+            const auto filter = make_document(kvp("accountId", certificate.accountId), kvp("namespace", certificate.nameSpace), kvp("name", certificate.name));
+            const auto update = make_document(
+                    kvp("$set", certificate.toDocument()),
+                    kvp("$setOnInsert", make_document(
+                                                kvp("created", bsoncxx::types::b_date{
+                                                                       std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                                               certificate.created.time_since_epoch())})
+
+                                                        )),
+                    kvp("$currentDate", make_document(
+                                                kvp("modified", true))));
+
+            mongocxx::options::find_one_and_update opts;
+            opts.upsert(true);
+            opts.return_document(mongocxx::options::return_document::k_after);
+
+            const auto entry = Database::instance().client();
+            auto certificateCollection = (*entry)[Database::instance().databaseName()][CERTIFICATE_COLLECTION];
+
+            if (auto result = certificateCollection.find_one_and_update(filter.view(), update.view(), opts)) {
+                return Entity::EKM::Certificate::fromDocument(result->view());
+            }
+            throw std::runtime_error("upsert returned no document, name: " + certificate.name);
+
+        } catch (const std::exception &e) {
+            log_error << "Upsert EKM certificate failed, error: " << e.what();
+            throw;
+        }
+    }
+
+    std::optional<Entity::EKM::Certificate> MongoEkmRepository::findCertificateByName(const std::string &accountId, const std::string &namespaceName, const std::string &name) const {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto certificateCollection = (*entry)[Database::instance().databaseName()][CERTIFICATE_COLLECTION];
+
+            const auto filter = make_document(kvp("accountId", accountId), kvp("namespace", namespaceName), kvp("name", name));
+            if (auto result = certificateCollection.find_one(filter.view())) {
+                return Entity::EKM::Certificate::fromDocument(result->view());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Find EKM certificate by name failed, name: " << name << ", error: " << e.what();
+        }
+        return std::nullopt;
+    }
+
+    std::optional<Entity::EKM::Certificate> MongoEkmRepository::findCertificateByErn(const std::string &ern) const {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto certificateCollection = (*entry)[Database::instance().databaseName()][CERTIFICATE_COLLECTION];
+
+            const auto filter = make_document(kvp("ern", ern));
+            if (auto result = certificateCollection.find_one(filter.view())) {
+                return Entity::EKM::Certificate::fromDocument(result->view());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Find EKM certificate by ERN failed, ern: " << ern << ", error: " << e.what();
+        }
+        return std::nullopt;
+    }
+
+    std::vector<Entity::EKM::Certificate> MongoEkmRepository::listCertificates(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const {
+
+        try {
+
+            document filter = {};
+            filter.append(kvp("accountId", accountId));
+            if (!namespaceName.empty()) {
+                filter.append(kvp("namespace", namespaceName));
+            }
+            if (!prefix.empty()) {
+                filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
+            }
+
+            mongocxx::options::find opts;
+            if (!sortColumn.empty()) {
+                opts.sort(make_document(kvp(sortColumn, sortDirection == "asc" ? 1 : -1)));
+            }
+            if (pageSize > 0) {
+                opts.limit(pageSize);
+                opts.skip(std::max<long>(pageIndex, 0) * pageSize);
+            }
+
+            std::vector<Entity::EKM::Certificate> certificates;
+            const auto entry = Database::instance().client();
+            auto certificateCollection = (*entry)[Database::instance().databaseName()][CERTIFICATE_COLLECTION];
+
+            for (auto cursor = certificateCollection.find(filter.view(), opts); auto certificate: cursor) {
+                certificates.push_back(Entity::EKM::Certificate::fromDocument(certificate));
+            }
+            return certificates;
+
+        } catch (const std::exception &e) {
+
+            log_error << "Get EKM certificates failed, error: " << e.what();
+            return {};
+        }
+    }
+
+    long MongoEkmRepository::countCertificates(const std::string &accountId, const std::string &namespaceName, const std::string &prefix) const {
+
+        try {
+
+            document filter = {};
+            filter.append(kvp("accountId", accountId));
+            if (!namespaceName.empty()) {
+                filter.append(kvp("namespace", namespaceName));
+            }
+            if (!prefix.empty()) {
+                filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
+            }
+
+            const auto entry = Database::instance().client();
+            auto certificateCollection = (*entry)[Database::instance().databaseName()][CERTIFICATE_COLLECTION];
+
+            return static_cast<long>(certificateCollection.count_documents(filter.extract()));
+
+        } catch (const std::exception &e) {
+            log_error << "Certificate count failed, error: " << e.what();
+        }
+        return -1;
+    }
+
+    long MongoEkmRepository::deleteCertificate(const std::string &accountId, const std::string &namespaceName, const std::string &name) {
+
+        try {
+
+            const auto entry = Database::instance().client();
+            auto certificateCollection = (*entry)[Database::instance().databaseName()][CERTIFICATE_COLLECTION];
+
+            const auto filter = make_document(kvp("accountId", accountId), kvp("namespace", namespaceName), kvp("name", name));
+            const auto result = certificateCollection.delete_many(filter.view());
+            const auto count = result ? result->deleted_count() : 0;
+            log_debug << "EKM certificate deleted, name: " << name << ", count: " << count;
+            return static_cast<long>(count);
+
+        } catch (const std::exception &e) {
+            log_error << "Delete EKM certificate failed, name: " << name << ", error: " << e.what();
+        }
+        return 0;
     }
 
     long MongoEkmRepository::countKeys(const std::string &accountId, const std::string &nameSpace, const std::string &prefix) const {

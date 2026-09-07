@@ -5,6 +5,8 @@
 #include "euclid/dto/esm/DeleteBucketTagRequest.h"
 
 #include <atomic>
+#include <cerrno>
+#include <cstring>
 #include <thread>
 
 namespace Euclid::ESM {
@@ -78,7 +80,11 @@ namespace Euclid::ESM {
         // Removes an object file that was being written when something went wrong. Its internal
         // name is freshly minted and no database row points at it yet, so what is left behind is
         // an unreferenced fragment nothing will ever come back for.
+        //
+        // An empty path is nothing to remove: the failure happened before the file had a place to
+        // be, which the background assembly pass in complete-upload can report.
         void discardPartialObject(const std::filesystem::path &path) {
+            if (path.empty()) return;
             std::error_code ec;
             if (std::filesystem::remove(path, ec); ec) {
                 log_warning << "Could not remove partially written object, path: " << path.string() << ", error: " << ec.message();
@@ -401,7 +407,7 @@ namespace Euclid::ESM {
         RemovedObjects removed;
         for (const auto &object: objects) {
             std::error_code ec;
-            std::filesystem::remove(std::filesystem::path(dataDir) / object.internalName, ec);
+            Core::DirUtils::RemoveFile(dataDir, object.internalName, ec);
             if (ec)
                 log_warning << "Could not remove object file, internalName: " << object.internalName << ", error: " << ec.message();
             repo->deleteObjectByErn(object.ern);
@@ -932,10 +938,10 @@ namespace Euclid::ESM {
         log_info << "ESM TouchObject, bucket: " << bucket->name << ", prefix: " << prefix << ", objects: " << touched;
 
         return JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
-                                                     {"ern", bucketErn},
-                                                     {"bucketName", bucket->name},
-                                                     {"prefix", prefix},
-                                                     {"objects", touched}}));
+                                    {"ern", bucketErn},
+                                    {"bucketName", bucket->name},
+                                    {"prefix", prefix},
+                                    {"objects", touched}}));
     }
 
     // Marks a bucket as euclid's own plumbing, or stops doing so.
@@ -979,9 +985,9 @@ namespace Euclid::ESM {
         log_info << "ESM bucket internal flag set, bucket: " << stored.name << ", internal: " << internal;
 
         return JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
-                                                     {"ern", stored.ern},
-                                                     {"name", stored.name},
-                                                     {"internal", stored.internal}}));
+                                    {"ern", stored.ern},
+                                    {"name", stored.name},
+                                    {"internal", stored.internal}}));
     }
 
     response<string_body> EsmServer::handleRenameBucket(const request<string_body> &req) {
@@ -1123,10 +1129,17 @@ namespace Euclid::ESM {
             return ErrorResponse(req, status::internal_server_error, "Could not store object");
         }
 
-        const std::filesystem::path destPath = std::filesystem::path(dataDir) / internalName;
+        // Fanned out over two levels of its own name rather than written straight into the storage
+        // directory - see Core::DirUtils, and the nine million entries that made it necessary.
+        const std::filesystem::path destPath = Core::DirUtils::CreateFilePath(dataDir, internalName);
         try {
             std::ofstream dest(destPath, std::ios::binary | std::ios::trunc);
             if (!dest.is_open()) {
+                // With the reason: a full disk, a directory the object storage has outgrown, a
+                // permission that changed under the module and no file descriptors left all arrive
+                // here as the same silent false, and they call for entirely different things.
+                log_error << "ESM could not write object, bucket: " << bucketErn << ", key: " << key
+                          << ", path: " << destPath.string() << ", error: " << std::strerror(errno);
                 return ErrorResponse(req, status::internal_server_error, "Could not write object");
             }
             // The bytes go to disk exactly once, already encrypted if the bucket says so: there is
@@ -1136,6 +1149,17 @@ namespace Euclid::ESM {
             } else {
                 const auto encrypted = Core::ObjectCipher::Encrypt(writeKey.material, data);
                 dest.write(encrypted.data(), static_cast<std::streamsize>(encrypted.size()));
+            }
+
+            // Closed here rather than by the destructor, and checked: a write that fails as the
+            // last buffer reaches the kernel would otherwise be reported to the client as a
+            // successful put, and the object would be recorded with a size the file does not have.
+            dest.close();
+            if (!dest.good()) {
+                log_error << "ESM could not write object, bucket: " << bucketErn << ", key: " << key
+                          << ", path: " << destPath.string() << ", error: " << std::strerror(errno);
+                discardPartialObject(destPath);
+                return ErrorResponse(req, status::internal_server_error, "Could not write object");
             }
         } catch (const std::exception &ex) {
             log_error << "ESM could not write object, bucket: " << bucketErn << ", key: " << key << ", error: " << ex.what();
@@ -1185,7 +1209,7 @@ namespace Euclid::ESM {
         // A re-upload to the same key replaces the DB row above; drop the now-unreferenced old file.
         if (existingObject && !existingObject->internalName.empty() && existingObject->internalName != internalName) {
             std::error_code oldEc;
-            std::filesystem::remove(std::filesystem::path(dataDir) / existingObject->internalName, oldEc);
+            Core::DirUtils::RemoveFile(dataDir, existingObject->internalName, oldEc);
             if (oldEc)
                 log_warning << "Could not remove superseded object file, internalName: " << existingObject->internalName << ", error: " << oldEc.message();
         }
@@ -1477,7 +1501,6 @@ namespace Euclid::ESM {
         }
 
         const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
-        const std::filesystem::path destPath = std::filesystem::path(dataDir) / internalName;
         const auto owner = auth.user->userId;
         const auto region = auth.user->region;
         const auto accountId = auth.user->accountId;
@@ -1491,7 +1514,12 @@ namespace Euclid::ESM {
         // detached thread's entry function calls std::terminate() and takes down the entire
         // process, unlike an exception in a normal request handler which route()/Dispatch() would
         // otherwise catch.
-        std::thread([repo, uploadDir, parts, dataDir, destPath, internalName, ern, bucketErn, bucket, key, owner, region, accountId, ns, existingObject, replaces, attributes = *attributes, systemAttributes = *systemAttributes, encryptionKeyErn = bucket->encryptionKeyErn, keyMaterial = writeKey.material, uploadId = request.uploadId] {
+        std::thread([repo, uploadDir, parts, dataDir, internalName, ern, bucketErn, bucket, key, owner, region, accountId, ns, existingObject, replaces, attributes = *attributes, systemAttributes = *systemAttributes, encryptionKeyErn = bucket->encryptionKeyErn, keyMaterial = writeKey.material, uploadId = request.uploadId] {
+
+            // Declared out here so the handlers below can discard a half-written file: it is
+            // assigned as soon as the storage directory is known to exist, and an empty path means
+            // nothing was created yet.
+            std::filesystem::path destPath;
             try {
                 std::error_code ec;
                 std::filesystem::create_directories(dataDir, ec);
@@ -1499,6 +1527,10 @@ namespace Euclid::ESM {
                     log_error << "Could not create storage data storage, path: " << dataDir << ", error: " << ec.message();
                     return;
                 }
+
+                // Fanned out over two levels of its own name rather than written straight into the
+                // storage directory - see Core::DirUtils.
+                destPath = Core::DirUtils::CreateFilePath(dataDir, internalName);
 
                 std::size_t assembledSize = 0;
                 std::string md5Sum;
@@ -1508,13 +1540,53 @@ namespace Euclid::ESM {
                     {
                         std::ofstream dest(destPath, std::ios::binary | std::ios::trunc);
                         if (!dest.is_open()) {
-                            log_error << "Could not write object, upload id: " << uploadId << ", path: " << destPath.string();
+                            // With the reason, because there is no telling these apart afterwards
+                            // and they call for entirely different things: a full disk, a
+                            // directory the object storage has outgrown, a permission that changed
+                            // under the module, or no file descriptors left.
+                            log_error << "Could not write object, upload id: " << uploadId << ", path: " << destPath.string()
+                                      << ", error: " << std::strerror(errno);
                             return;
                         }
+
+                        // Copied explicitly rather than with "dest << part.rdbuf()", which reports
+                        // nothing and loses data twice over: inserting a streambuf that yields no
+                        // characters sets failbit, so a single empty part silently discarded every
+                        // part after it, and a write that failed halfway through was never noticed
+                        // at all - the size recorded below came from stat'ing the parts rather
+                        // than from what reached the disk. Either way the object was marked
+                        // COMPLETED with contents that were not what had been uploaded, which is
+                        // the one outcome a storage module must not produce.
+                        std::string buffer(kAssemblyBufferSize, '\0');
                         for (const auto &partPath: parts) {
                             std::ifstream part(partPath, std::ios::binary);
-                            dest << part.rdbuf();
-                            assembledSize += std::filesystem::file_size(partPath);
+                            if (!part.is_open()) {
+                                log_error << "Could not read upload part, upload id: " << uploadId << ", part: " << partPath.string()
+                                          << ", error: " << std::strerror(errno);
+                                discardPartialObject(destPath);
+                                return;
+                            }
+                            while (part.read(buffer.data(), static_cast<std::streamsize>(buffer.size())) || part.gcount() > 0) {
+                                if (!dest.write(buffer.data(), part.gcount())) {
+                                    log_error << "Could not write object, upload id: " << uploadId << ", path: " << destPath.string()
+                                              << ", written: " << assembledSize << ", error: " << std::strerror(errno);
+                                    discardPartialObject(destPath);
+                                    return;
+                                }
+                                assembledSize += static_cast<std::size_t>(part.gcount());
+                            }
+                        }
+
+                        // Closed explicitly and checked, rather than left to the destructor: a
+                        // write only fails when the last buffer is handed to the kernel often
+                        // enough - a full disk is exactly that case - and a destructor has nowhere
+                        // to report it.
+                        dest.close();
+                        if (!dest.good()) {
+                            log_error << "Could not write object, upload id: " << uploadId << ", path: " << destPath.string()
+                                      << ", error: " << std::strerror(errno);
+                            discardPartialObject(destPath);
+                            return;
                         }
                     }
 
@@ -1607,7 +1679,7 @@ namespace Euclid::ESM {
                 // A re-upload to the same key replaces the DB row above; drop the now-unreferenced old file.
                 if (existingObject && !existingObject->internalName.empty() && existingObject->internalName != internalName) {
                     std::error_code oldEc;
-                    std::filesystem::remove(std::filesystem::path(dataDir) / existingObject->internalName, oldEc);
+                    Core::DirUtils::RemoveFile(dataDir, existingObject->internalName, oldEc);
                     if (oldEc)
                         log_warning << "Could not remove superseded object file, internalName: " << existingObject->internalName << ", error: " << oldEc.message();
                 }
@@ -1702,13 +1774,15 @@ namespace Euclid::ESM {
         }
 
         const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
-        const auto path = std::filesystem::path(dataDir) / object->internalName;
+        const auto path = Core::DirUtils::FindFilePath(dataDir, object->internalName);
 
         std::string data;
         try {
             if (readKey.material.empty()) {
                 std::ifstream in(path, std::ios::binary);
                 if (!in.is_open()) {
+                    log_error << "ESM could not open object file, bucket: " << bucketErn << ", key: " << key
+                              << ", path: " << path.string() << ", error: " << std::strerror(errno);
                     return ErrorResponse(req, status::internal_server_error, "Could not open object file for download, bucket: " + bucketErn + ", key: " + key);
                 }
                 std::ostringstream buffer;
@@ -1871,7 +1945,7 @@ namespace Euclid::ESM {
         }
 
         const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
-        const auto path = std::filesystem::path(dataDir) / internalName;
+        const auto path = Core::DirUtils::FindFilePath(dataDir, internalName);
         const auto readSize = std::min<std::int64_t>(partSize, totalSize - offset);
 
         std::string data;
@@ -1879,6 +1953,8 @@ namespace Euclid::ESM {
             if (readKey.material.empty()) {
                 std::ifstream in(path, std::ios::binary);
                 if (!in.is_open()) {
+                    log_error << "ESM could not open object file, download id: " << downloadId
+                              << ", path: " << path.string() << ", error: " << std::strerror(errno);
                     return ErrorResponse(req, status::internal_server_error, "Could not open object file for download, id: " + downloadId);
                 }
                 in.seekg(offset);
@@ -2027,7 +2103,7 @@ namespace Euclid::ESM {
 
             const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
             std::error_code ec;
-            std::filesystem::remove(std::filesystem::path(dataDir) / object->internalName, ec);
+            Core::DirUtils::RemoveFile(dataDir, object->internalName, ec);
             if (ec)
                 log_warning << "Could not remove object file, internalName: " << object->internalName << ", error: " << ec.message();
         }
@@ -2314,7 +2390,7 @@ namespace Euclid::ESM {
         const bool reEncrypt = source->encryptionKeyErn != targetBucket->encryptionKeyErn;
 
         const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
-        const auto sourcePath = std::filesystem::path(dataDir) / source->internalName;
+        const auto sourcePath = Core::DirUtils::FindFilePath(dataDir, source->internalName);
 
         Database::Entity::ESM::Object target = *source;
         target.oid.clear();// a new row, not an edit of the source's
@@ -2331,7 +2407,7 @@ namespace Euclid::ESM {
         if (keepSource || reEncrypt) {
             // Its own copy of the bytes, under its own internal name.
             target.internalName = Core::UuidUtils::CreateRandomUuid();
-            const auto targetPath = std::filesystem::path(dataDir) / target.internalName;
+            const auto targetPath = Core::DirUtils::CreateFilePath(dataDir, target.internalName);
 
             if (reEncrypt) {
                 try {
@@ -2365,7 +2441,7 @@ namespace Euclid::ESM {
 
         if (!supersededFile.empty()) {
             std::error_code oldEc;
-            std::filesystem::remove(std::filesystem::path(dataDir) / supersededFile, oldEc);
+            Core::DirUtils::RemoveFile(dataDir, supersededFile, oldEc);
             if (oldEc)
                 log_warning << "Could not remove superseded object file, internalName: " << supersededFile << ", error: " << oldEc.message();
         }
