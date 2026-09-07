@@ -18,28 +18,6 @@ namespace Euclid::EAG {
 
     namespace {
 
-        // Which account the listener's certificate belongs to. There is no caller to ask - this
-        // runs while the module is starting - so it comes from the installation's own account
-        // list. With several configured the first is taken and said so, because a certificate
-        // stored under an account nobody looks in is worse than one stored under the wrong one.
-        std::string listenerAccountId() {
-
-            const auto &configuration = Core::Configuration::instance();
-            if (const auto configured = configuration.getOr<std::string>("euclid.modules.eag.account-id", ""); !configured.empty()) {
-                return configured;
-            }
-            if (configuration.has("euclid.account-ids")) {
-                if (const auto accounts = configuration.getArray<std::string>("euclid.account-ids"); !accounts.empty()) {
-                    if (accounts.size() > 1) {
-                        log_info << "Several accounts are configured; API gateway certificates belong to " << accounts.front()
-                                 << ". Set euclid.modules.eag.account-id to choose another.";
-                    }
-                    return accounts.front();
-                }
-            }
-            throw std::runtime_error("No account is configured (euclid.account-ids), so a listener certificate has nowhere to belong");
-        }
-
         // The name a listener's certificate has when its configuration does not name one. Per
         // namespace, because that is what a listener is: two ports serving different namespaces
         // are different front doors and should not be made to share a certificate by accident.
@@ -99,10 +77,39 @@ namespace Euclid::EAG {
 
     }// namespace
 
+    // Which account the listener's certificate belongs to. There is no caller to ask - this runs
+    // while the module is starting - so it comes from the installation's own account list. With
+    // several configured the first is taken and said so, because a certificate stored under an
+    // account nobody looks in is worse than one stored under the wrong one.
+    std::string ListenerAccountId() {
+
+        const auto &configuration = Core::Configuration::instance();
+        if (const auto configured = configuration.getOr<std::string>("euclid.modules.eag.account-id", ""); !configured.empty()) {
+            return configured;
+        }
+        if (configuration.has("euclid.account-ids")) {
+            if (const auto accounts = configuration.getArray<std::string>("euclid.account-ids"); !accounts.empty()) {
+                if (accounts.size() > 1) {
+                    log_info << "Several accounts are configured; API gateway certificates belong to " << accounts.front()
+                             << ". Set euclid.modules.eag.account-id to choose another.";
+                }
+                return accounts.front();
+            }
+        }
+        return {};
+    }
+
+    std::string ListenerCertificateName(const std::string &certificateName, const std::string &nameSpace) {
+        return certificateName.empty() ? defaultCertificateName(nameSpace) : certificateName;
+    }
+
     std::shared_ptr<asio::ssl::context> LoadListenerCertificate(const std::string &certificateName, const std::string &nameSpace) {
 
-        const auto accountId = listenerAccountId();
-        const auto name = certificateName.empty() ? defaultCertificateName(nameSpace) : certificateName;
+        const auto accountId = ListenerAccountId();
+        if (accountId.empty()) {
+            throw std::runtime_error("No account is configured (euclid.account-ids), so a listener certificate has nowhere to belong");
+        }
+        const auto name = ListenerCertificateName(certificateName, nameSpace);
 
         auto certificate = Database::RepositoryFactory::instance().ekmRepository()->findCertificateByName(accountId, nameSpace, name);
         if (!certificate.has_value()) {

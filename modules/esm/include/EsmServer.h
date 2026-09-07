@@ -15,6 +15,7 @@
 #include <euclid/core/ContentTypeUtils.h>
 #include <euclid/core/CryptoUtils.h>
 #include <euclid/core/DateTimeUtils.h>
+#include <euclid/core/DirUtils.h>
 #include <euclid/core/ErnUtils.h>
 #include <euclid/core/HttpActionServer.h>
 #include <euclid/core/LogStream.h>

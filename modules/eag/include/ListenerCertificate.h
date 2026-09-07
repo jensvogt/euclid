@@ -44,4 +44,30 @@ namespace Euclid::EAG {
     std::shared_ptr<boost::asio::ssl::context> LoadListenerCertificate(const std::string &certificateName,
                                                                        const std::string &nameSpace);
 
+    /**
+     * @brief The certificate a listener actually serves, whether or not it named one.
+     *
+     * @par
+     * A listener that names no certificate does not have none - it has the conventional one for
+     * its namespace, which is what gets generated for it. Anything reporting on a listener has to
+     * say that name rather than an empty field, or an operator is left looking for a certificate
+     * that is there under a name nothing told them.
+     *
+     * @param certificateName the certificate the listener names, or empty for the conventional one.
+     * @param nameSpace the namespace the listener serves.
+     */
+    [[nodiscard]]
+    std::string ListenerCertificateName(const std::string &certificateName, const std::string &nameSpace);
+
+    /**
+     * @brief The account listener certificates belong to, or empty when none is configured.
+     *
+     * @par
+     * Empty rather than an error, because the callers that only want to look one up can say "no
+     * certificate" and carry on. LoadListenerCertificate() is the one that cannot, and it is the
+     * one that throws.
+     */
+    [[nodiscard]]
+    std::string ListenerAccountId();
+
 }// namespace Euclid::EAG

@@ -69,8 +69,13 @@ namespace Euclid::CLI {
                 << "SYNOPSIS\n"
                 << WrapText("euclid-cli " + module + " " + action + " " + synopsis, "    ") << "\n"
                 << "DESCRIPTION\n"
-                << WrapText(description, "    ") << "\n"
-                << options << std::endl;
+                << WrapText(description, "    ") << std::endl;
+
+        // Left out entirely for an action that takes no options, rather than printed as a caption
+        // with nothing under it - which reads like the options failed to be listed.
+        if (!options.options().empty()) {
+            std::cout << "\n" << options << std::endl;
+        }
         return 0;
     }
 
