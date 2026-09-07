@@ -162,3 +162,21 @@ set_target_properties(${TRANSFER_HOME_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OF
 target_link_libraries(${TRANSFER_HOME_BINARY} PRIVATE euclidtransfer Boost::unit_test_framework)
 
 add_test(NAME ${TRANSFER_HOME_BINARY} COMMAND ${TRANSFER_HOME_BINARY})
+
+set(CERTIFICATE_BINARY euclid-certificate-utils-tests)
+
+add_executable(${CERTIFICATE_BINARY} CertificateUtilsTest.cpp)
+set_target_properties(${CERTIFICATE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${CERTIFICATE_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${CERTIFICATE_BINARY} COMMAND ${CERTIFICATE_BINARY})
+
+set(DIR_UTILS_BINARY euclid-dir-utils-tests)
+
+add_executable(${DIR_UTILS_BINARY} DirUtilsTest.cpp)
+set_target_properties(${DIR_UTILS_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${DIR_UTILS_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${DIR_UTILS_BINARY} COMMAND ${DIR_UTILS_BINARY})

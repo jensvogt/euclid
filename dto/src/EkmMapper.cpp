@@ -43,4 +43,33 @@ namespace Euclid::Dto::EKM {
         return entity;
     }
 
+    Certificate EkmMapper::toDto(const Database::Entity::EKM::Certificate &entity) {
+        Certificate dto;
+        dto.name = entity.name;
+        dto.ern = entity.ern;
+        dto.description = entity.description;
+        dto.certificate = entity.certificatePem;
+        dto.subject = entity.subject;
+        dto.issuer = entity.issuer;
+        dto.serialNumber = entity.serialNumber;
+        dto.fingerprint = entity.fingerprint;
+        dto.subjectAltNames = entity.subjectAltNames;
+        dto.generated = entity.generated;
+        dto.notBefore = entity.notBefore;
+        dto.notAfter = entity.notAfter;
+        dto.tags = entity.tags;
+        dto.created = entity.created;
+        dto.modified = entity.modified;
+        return dto;
+    }
+
+    std::vector<Certificate> EkmMapper::toDto(const std::vector<Database::Entity::EKM::Certificate> &entities) {
+        std::vector<Certificate> dtos;
+        dtos.reserve(entities.size());
+        for (const auto &entity: entities) {
+            dtos.push_back(toDto(entity));
+        }
+        return dtos;
+    }
+
 }// namespace Euclid::Dto::EKM

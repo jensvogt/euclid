@@ -12,8 +12,11 @@ euclid-cli-ekm \- manage Euclid encryption keys
 The
 .B ekm
 module talks to the Euclid gateway's ekm service to create, list,
-revoke and delete encryption keys, and to encrypt/decrypt data with
-them. Most
+revoke and delete encryption keys, to encrypt/decrypt data with them,
+and to hold the X.509 certificates euclid terminates TLS with \- an
+API gateway listener configured with
+.RI \(dq protocol \(dq: \(dq https \(dq
+serves one of these, by name. Most
 .B ekm
 commands send a single JSON request to the gateway
 (\fB\-\-endpoint\fR, default \fIhttps://localhost:5566\fR) and print the
@@ -68,6 +71,30 @@ or stdout. See
 Decrypts a file or stdin with a key, writing the plaintext to a file
 or stdout. See
 .BR euclid-cli-ekm-decrypt (1).
+.TP
+.B import-certificate
+Stores a certificate and its private key under a name, for a gateway
+listener to serve. See
+.BR euclid-cli-ekm-import-certificate (1).
+.TP
+.B create-certificate
+Generates and stores a self-signed certificate, for an installation
+that has to serve HTTPS before it has a real one. See
+.BR euclid-cli-ekm-create-certificate (1).
+.TP
+.B list-certificates
+Lists the stored certificates with their subject, fingerprint and
+expiry. See
+.BR euclid-cli-ekm-list-certificates (1).
+.TP
+.B get-certificate
+Shows one certificate, including its PEM but never its private key.
+See
+.BR euclid-cli-ekm-get-certificate (1).
+.TP
+.B delete-certificate
+Deletes a certificate and its private key. See
+.BR euclid-cli-ekm-delete-certificate (1).
 .SH GLOBAL OPTIONS
 These options are given to
 .B euclid-cli
@@ -183,6 +210,12 @@ euclid-cli --endpoint http://localhost:5566 ekm delete-key \e
 .BR euclid-cli-ekm-set-key-description (1),
 .BR euclid-cli-ekm-delete-key (1),
 .BR euclid-cli-ekm-encrypt (1),
-.BR euclid-cli-ekm-decrypt (1)
+.BR euclid-cli-ekm-decrypt (1),
+.BR euclid-cli-ekm-import-certificate (1),
+.BR euclid-cli-ekm-create-certificate (1),
+.BR euclid-cli-ekm-list-certificates (1),
+.BR euclid-cli-ekm-get-certificate (1),
+.BR euclid-cli-ekm-delete-certificate (1),
+.BR euclid-cli-eag (1)
 .SH AUTHOR
 Jens Vogt <jens.vogt@opitz-consulting.com>

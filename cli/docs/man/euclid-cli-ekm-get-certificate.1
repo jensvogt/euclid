@@ -1,0 +1,50 @@
+.TH EUCLID-CLI-EKM-GET-CERTIFICATE 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ekm-get-certificate \- show one certificate
+.SH SYNOPSIS
+.B euclid-cli ekm get-certificate
+.BR \-\-name | \-n
+.I NAME
+.SH DESCRIPTION
+Shows one certificate: its subject, issuer, serial number, fingerprint,
+subject alternative names, validity period, and the PEM itself.
+.PP
+The PEM is included because it is public by construction \- every
+client that opens a connection is handed a copy \- and because it is
+what somebody needs in order to add a self-signed certificate to a
+trust store, or to pass to
+.B euclid-cli \-\-ca\-cert
+when talking to a euclid that serves one.
+.PP
+The private key is not reported. It never leaves the server.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+Certificate name, within the caller's own account and namespace.
+Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The certificate is printed as JSON.
+.TP
+.B 1
+No certificate of that name exists, the server could not be reached, or
+it rejected the request.
+.SH EXAMPLES
+Write a listener's certificate out for a client that has to trust it:
+.PP
+.RS
+.nf
+euclid-cli --endpoint https://localhost:5566 --pretty false \e
+    ekm get-certificate --name eag-development \e
+    | jq -r .certificate.certificate > eag-development.pem
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ekm (1),
+.BR euclid-cli-ekm-create-certificate (1),
+.BR euclid-cli-ekm-import-certificate (1),
+.BR euclid-cli-ekm-list-certificates (1),
+.BR euclid-cli-ekm-delete-certificate (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
