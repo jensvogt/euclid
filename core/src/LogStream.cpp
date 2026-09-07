@@ -12,8 +12,8 @@ namespace Euclid::Core {
     std::string LogStream::_currentLevel = "info";
     boost::log::trivial::severity_level LogStream::_severity;
     std::atomic<boost::log::trivial::severity_level> LogStream::_defaultSeverity{boost::log::trivial::info};
-    std::atomic<std::shared_ptr<const LogStream::ChannelLevels> > LogStream::_channelLevels{std::make_shared<const LogStream::ChannelLevels>()};
-    std::mutex LogStream::_channelMutex;
+    std::shared_ptr<const LogStream::ChannelLevels> LogStream::_channelLevels = std::make_shared<const LogStream::ChannelLevels>();
+    std::shared_mutex LogStream::_channelMutex;
     std::string LogStream::_processChannel{LogStream::kDefaultChannel};
     boost::shared_ptr<boost::log::sinks::synchronous_sink<boost::log::sinks::text_ostream_backend> > LogStream::_consoleSink;
     boost::shared_ptr<boost::log::sinks::synchronous_sink<boost::log::sinks::text_file_backend> > LogStream::_fileSink;
@@ -93,7 +93,13 @@ namespace Euclid::Core {
 
     std::optional<boost::log::trivial::severity_level> LogStream::SeverityFor(const std::string &channel) {
 
-        const auto levels = _channelLevels.load();
+        // The pointer only: past this the table it points at is immutable, so the lock is not
+        // held while it is searched.
+        std::shared_ptr<const ChannelLevels> levels;
+        {
+            std::shared_lock lock(_channelMutex);
+            levels = _channelLevels;
+        }
 
         // The channel itself, then each enclosing channel in turn: "app.parser" is answered by a
         // level set for "app.parser", failing that by one set for "app", and failing that by the
@@ -180,10 +186,11 @@ namespace Euclid::Core {
             return false;
         }
 
-        std::lock_guard lock(_channelMutex);
-        auto levels = std::make_shared<ChannelLevels>(*_channelLevels.load());
+        std::unique_lock lock(_channelMutex);
+        auto levels = std::make_shared<ChannelLevels>(*_channelLevels);
         (*levels)[channel] = *level;
-        _channelLevels.store(std::shared_ptr<const ChannelLevels>(levels));
+        _channelLevels = std::move(levels);
+        lock.unlock();
 
         log_info << "Log level set, channel: " << channel << ", level: " << lvl;
         return true;
@@ -198,16 +205,22 @@ namespace Euclid::Core {
 
     void LogStream::ClearChannelSeverity(const std::string &channel) {
 
-        std::lock_guard lock(_channelMutex);
-        auto levels = std::make_shared<ChannelLevels>(*_channelLevels.load());
+        std::unique_lock lock(_channelMutex);
+        auto levels = std::make_shared<ChannelLevels>(*_channelLevels);
         levels->erase(channel);
-        _channelLevels.store(std::shared_ptr<const ChannelLevels>(levels));
+        _channelLevels = std::move(levels);
     }
 
     std::map<std::string, std::string> LogStream::ChannelSeverities() {
 
+        std::shared_ptr<const ChannelLevels> current;
+        {
+            std::shared_lock lock(_channelMutex);
+            current = _channelLevels;
+        }
+
         std::map<std::string, std::string> levels;
-        for (const auto &[channel, severity]: *_channelLevels.load()) {
+        for (const auto &[channel, severity]: *current) {
             levels[channel] = severity.has_value() ? to_string(*severity) : "off";
         }
         return levels;
@@ -243,8 +256,8 @@ namespace Euclid::Core {
             }
         }
 
-        std::lock_guard lock(_channelMutex);
-        _channelLevels.store(std::make_shared<const ChannelLevels>(std::move(levels)));
+        std::unique_lock lock(_channelMutex);
+        _channelLevels = std::make_shared<const ChannelLevels>(std::move(levels));
     }
 
     void LogStream::LogVerbatim(const std::string &channel, const boost::log::trivial::severity_level severity, const std::string &message) {

@@ -63,6 +63,7 @@ namespace Euclid::Database::Entity {
                 bsoncxx::builder::basic::kvp("desiredMinInstances", desiredMinInstances),
                 bsoncxx::builder::basic::kvp("desiredMaxInstances", desiredMaxInstances),
                 bsoncxx::builder::basic::kvp("desiredThreads", desiredThreads),
+                bsoncxx::builder::basic::kvp("logLevel", logLevel),
                 bsoncxx::builder::basic::kvp("core", core),
                 bsoncxx::builder::basic::kvp("desiredStopped", desiredStopped),
                 bsoncxx::builder::basic::kvp("restartRequestedAt", bsoncxx::types::b_date{std::chrono::duration_cast<std::chrono::milliseconds>(restartRequestedAt.time_since_epoch())}),
@@ -93,6 +94,7 @@ namespace Euclid::Database::Entity {
             else if (key == "desiredMinInstances") module.desiredMinInstances = static_cast<int>(getBsonInt(field));
             else if (key == "desiredMaxInstances") module.desiredMaxInstances = static_cast<int>(getBsonInt(field));
             else if (key == "desiredThreads") module.desiredThreads = static_cast<int>(getBsonInt(field));
+            else if (key == "logLevel") module.logLevel = std::string(field.get_string().value);
             else if (key == "core") module.core = field.get_bool().value;
             else if (key == "desiredStopped") module.desiredStopped = field.get_bool().value;
             else if (key == "restartRequestedAt") module.restartRequestedAt = std::chrono::system_clock::time_point{field.get_date().value};
