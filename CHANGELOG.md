@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.74](https://github.com/jensvogt/euclid/compare/1.0.73...v1.0.74) (2026-09-07)
+
+
+### Bug Fixes
+
+* EAG ssh support ([d6d18ed](https://github.com/jensvogt/euclid/commit/d6d18eda2ed07f35bdc4611898a38f06af565ab8))
+* EKM certificate store ([ab83b3c](https://github.com/jensvogt/euclid/commit/ab83b3c91cdd9f7b30fdab90e03a9b176a0e156e))
+* logging channels ([7d102fa](https://github.com/jensvogt/euclid/commit/7d102fa7c5c13b1ae53311134e400383a2222377))
+
 ## [1.0.73](https://github.com/jensvogt/euclid/compare/1.0.72...v1.0.73) (2026-09-07)
 
 
