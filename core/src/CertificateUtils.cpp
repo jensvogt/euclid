@@ -36,8 +36,18 @@ namespace Euclid::Core {
         // OpenSSL hands out raw pointers with their own free function each. Wrapping them here
         // means the error paths below can simply return or throw, rather than each having to
         // remember which of the handles opened so far are already live.
+        //
+        // A named deleter rather than a lambda inside decltype: that needs lambdas in unevaluated
+        // contexts, which not every compiler this builds on has.
         template<typename T, void (*Free)(T *)>
-        using Handle = std::unique_ptr<T, decltype([](T *p) { if (p) Free(p); })>;
+        struct Deleter {
+            void operator()(T *p) const {
+                if (p) Free(p);
+            }
+        };
+
+        template<typename T, void (*Free)(T *)>
+        using Handle = std::unique_ptr<T, Deleter<T, Free> >;
 
         using BioPtr = Handle<BIO, BIO_free_all>;
         using X509Ptr = Handle<X509, X509_free>;

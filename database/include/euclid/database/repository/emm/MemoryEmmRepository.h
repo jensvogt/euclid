@@ -97,6 +97,15 @@ namespace Euclid::Database {
             return true;
         }
 
+        bool setLogLevel(const std::string &name, const std::string &logLevel) override {
+            std::lock_guard lock(_mutex);
+            const auto it = _store.find(name);
+            if (it == _store.end()) return false;
+            it->second.logLevel = logLevel;
+            it->second.modified = std::chrono::system_clock::now();
+            return true;
+        }
+
         bool setDesiredStopped(const std::string &name, const bool stopped) override {
             std::lock_guard lock(_mutex);
             const auto it = _store.find(name);

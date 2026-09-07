@@ -54,6 +54,11 @@ inside one. Applied by restarting the module's instances, one at a
 time. See
 .BR euclid-cli-emm-set-threads (1).
 .TP
+.B set-log-level
+Turns a module's own logging down or off in the manager's log, without
+restarting it or interrupting a request. See
+.BR euclid-cli-emm-set-log-level (1).
+.TP
 .B stop-module
 Stops a module and keeps it stopped \- through crashes, scale events and
 manager restarts \- rather than issuing a one-off stop the manager would
@@ -253,6 +258,7 @@ euclid-cli --endpoint http://localhost:5566 emm import --file eqs-backup.json
 .BR euclid-cli-emm-list-modules (1),
 .BR euclid-cli-emm-set-instances (1),
 .BR euclid-cli-emm-set-threads (1),
+.BR euclid-cli-emm-set-log-level (1),
 .BR euclid-cli-emm-stop-module (1),
 .BR euclid-cli-emm-start-module (1),
 .BR euclid-cli-emm-restart-module (1),

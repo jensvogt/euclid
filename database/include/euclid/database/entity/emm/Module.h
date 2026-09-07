@@ -207,6 +207,25 @@ namespace Euclid::Database::Entity {
         int desiredThreads = -1;
 
         /**
+         * @brief Level this module's own output is logged at by the manager, or empty to leave it
+         * to the configuration.
+         *
+         * @par
+         * A module writes to standard output and standard error; the manager reads that back and
+         * logs it on the module's channel ("module.<name>"). This is that channel's level, kept
+         * with the module rather than in a configuration file so it can be changed while
+         * everything is running - see EMM's set-log-level action. "off" silences the module in the
+         * manager's log entirely.
+         *
+         * @par
+         * It decides what the manager passes on, not what the module produces: a line the module
+         * wrote to standard output arrives here as information and one it wrote to standard error
+         * as an error, whatever the module's own level said about it. Making a module say *more*
+         * is euclid.logging.level in its own process - see Core::LogStream.
+         */
+        std::string logLevel;
+
+        /**
          * @brief When somebody last asked for this module through EMM's restart-module, or the
          * epoch if nobody ever has.
          *
