@@ -51,6 +51,50 @@ All
 commands require the caller to be authenticated; see
 .B AUTHENTICATION
 below for how the session used to sign these requests is obtained.
+.SH ATTRIBUTES AND SYSTEM ATTRIBUTES
+An object carries two maps, and they are deliberately not the same one.
+.PP
+.I Attributes
+are the caller's. They are set with
+.BR euclid-cli-esm-set-object-attribute (1),
+listed back, and mean nothing to euclid.
+.PP
+.I System attributes
+are euclid's envelope: carried across every hop, and never mixed into
+the caller's. They are set on upload with an
+.I x\-euclid\-system\-attributes
+header, in the same JSON shape as the attribute header, and they are not
+returned by
+.BR euclid-cli-esm-list-object-attributes (1)
+\- a caller sees only its own.
+.PP
+They exist because some facts about a piece of work have to survive
+being written to a bucket and read back out as a queue message, and a
+bucket has no notion of them. The one euclid itself acts on is
+.IR priority :
+an object written with
+.PP
+.RS
+.nf
+x\-euclid\-system\-attributes: {"priority":"LOW"}
+.fi
+.RE
+.PP
+produces a bucket notification carrying it, and the message that lands
+in the subscribed queue is
+.I LOW
+rather than the queue's default. Everything else in the map is carried
+and not read, so a correlation id or an originating tenant reaches the
+far end without euclid needing to know what it means.
+.PP
+Without this, a producer's decision has to be smuggled through the one
+thing that does travel \- the key - which is how prefixes like
+.I LowPriority/
+end up encoding something that is not about the key at all.
+.PP
+They survive a copy, a move and a multipart upload, since an upload big
+enough to be split into parts is exactly the one whose priority somebody
+bothered to decide.
 .SH ACTIONS
 .TP
 .B create-bucket
