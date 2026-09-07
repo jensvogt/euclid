@@ -65,10 +65,18 @@ Array of the module's current instances, each with
 .IR instanceId ", " pid ", " state
 (one of \fISTOPPED\fR, \fISTARTING\fR, \fIRUNNING\fR, \fISTOPPING\fR,
 \fICRASHED\fR, \fIPENDING_RESTART\fR, \fIRESTARTING\fR, \fIUNKNOWN\fR),
-.IR socketPath ", " restartCount ", "
+.IR socketPath ", " httpPort ", " restartCount ", "
 and its own
 .IR created "/" modified
 timestamps.
+.IP
+.I httpPort
+is the TCP port the manager gave that instance for an HTTP listener of
+its own, or 0 for a module that has none. It is the only record of which
+instance is reachable where: several instances of one application run on
+the same host, so each is handed a port rather than binding one written
+into the application's configuration, and an API gateway in front of them
+has no other way to find its backends.
 .RE
 .SH OPTIONS
 None.
