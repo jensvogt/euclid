@@ -94,6 +94,16 @@ namespace Euclid::Database {
          */
         void deleteApplication(const std::string &applicationId) override;
 
+        /**
+         * @brief Sets the level an application's own output is logged at, and nothing else - in
+         * particular not the modification date, which the manager reads as a definition change.
+         *
+         * @param applicationId application to change
+         * @param logLevel level name, or empty to leave the level to the configuration
+         * @return true if an application of that name was changed
+         */
+        bool setApplicationLogLevel(const std::string &applicationId, const std::string &logLevel) override;
+
     private:
 
         /**

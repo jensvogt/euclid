@@ -292,6 +292,7 @@ namespace Euclid::EAP {
                     {"environment", environment},
                     {"resources", resources},
                     {"userId", application.userId},
+                    {"logLevel", application.logLevel},
                     {"minInstances", application.minInstances},
                     {"maxInstances", application.maxInstances},
                     {"readyTimeoutMs", application.readyTimeoutMs},
@@ -723,6 +724,59 @@ namespace Euclid::EAP {
         return EapServer::JsonResponse(req, status::ok, boost::json::serialize(toJson(stored)));
     }
 
+    // Records the level an application's own output is logged at. Like start-application and
+    // stop-application, this only writes down an intention: the manager reads the applications it
+    // runs on every reconcile and applies the level to that application's log channel.
+    //
+    // Nothing is restarted and nothing is interrupted - which is the point, since the reason to
+    // reach for this is usually that something is going wrong right now and the log either says
+    // too little about it or so much that nothing else can be read.
+    static response<string_body> handleSetLogLevel(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-log-level");
+
+        AuthResult auth;
+        if (const auto denied = requireAdmin(req, auth)) return *denied;
+
+        boost::json::value jv;
+        if (const auto err = EapServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+
+        const auto &obj = jv.as_object();
+        const auto applicationId = stringField(obj, "applicationId");
+        if (applicationId.empty()) {
+            return EapServer::ErrorResponse(req, status::bad_request, "applicationId is required");
+        }
+
+        // An empty level puts the application back under whatever euclid.logging.channels says,
+        // which is how a level set here is taken back rather than merely changed.
+        const auto level = stringField(obj, "level");
+        std::string canonical;
+        if (!level.empty()) {
+            const auto parsed = Core::LogStream::CanonicalLevel(level);
+            if (!parsed.has_value()) {
+                // Refused rather than defaulted: "warnign" quietly meaning "info" is an
+                // application logging more than somebody asked for, and quietly meaning "off" is
+                // silence nobody asked for at all.
+                return EapServer::ErrorResponse(req, status::bad_request,
+                                                R"(level must be "trace", "debug", "info", "warning", "error", "fatal" or "off": )" + level);
+            }
+            canonical = *parsed;
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().eapRepository();
+        if (!repo->setApplicationLogLevel(applicationId, canonical)) {
+            return EapServer::ErrorResponse(req, status::not_found, "Application not found: " + applicationId);
+        }
+        log_info << "EAP set application log level, applicationId: " << applicationId
+                 << ", level: " << (canonical.empty() ? "(configured default)" : canonical);
+
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"applicationId", applicationId},
+                                                                {"logLevel", canonical},
+                                                                {"channel", std::string(Core::LogStream::kApplicationChannel) + "." + applicationId}}));
+    }
+
     // ── Request dispatcher ───────────────────────────────────────────────────
 
     static response<string_body> dispatch(const request<string_body> &req) {
@@ -741,6 +795,7 @@ namespace Euclid::EAP {
         if (action == "delete-application") return handleDeleteApplication(req);
         if (action == "start-application") return handleSetState(req, ApplicationState::RUNNING);
         if (action == "stop-application") return handleSetState(req, ApplicationState::STOPPED);
+        if (action == "set-log-level") return handleSetLogLevel(req);
         if (action == "get-metrics") return EapServer::MetricsResponse(req);
 
         return EapServer::ErrorResponse(req, status::not_found, "Action not implemented: " + action);

@@ -90,6 +90,21 @@ namespace Euclid::Database {
          * @param applicationId application ID.
          */
         virtual void deleteApplication(const std::string &applicationId) = 0;
+
+        /**
+         * @brief Sets the level an application's own output is logged at.
+         *
+         * @par
+         * Its own method rather than a field set through upsertApplication(), because that stamps
+         * the modification date - and the manager restarts an application whose definition changed
+         * since it started it. Turning a log down is not a change of definition, and restarting a
+         * running application to do it would be a worse cure than the noise.
+         *
+         * @param applicationId application to change
+         * @param logLevel level name, or empty to leave the level to the configuration
+         * @return true if an application of that name was changed
+         */
+        virtual bool setApplicationLogLevel(const std::string &applicationId, const std::string &logLevel) = 0;
     };
 
 }// namespace Euclid::Database

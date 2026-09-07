@@ -1,4 +1,5 @@
 // C++ includes
+#include <atomic>
 #include <condition_variable>
 #include <csignal>
 #include <cstdio>
@@ -129,6 +130,11 @@ namespace Euclid::Core {
         std::mutex s_signalMutex;
         std::condition_variable s_signalCv;
         bool s_signalled = false;
+
+        // Set by SIGUSR1 rather than acted on in the handler: re-reading a configuration file
+        // allocates, takes locks and logs, none of which is safe to do from a signal handler. The
+        // wait below is woken and does the work on an ordinary thread.
+        std::atomic<bool> s_reloadLogging{false};
     }// namespace
 
     void UnixSocketServer::onSignal(int) {
@@ -175,15 +181,46 @@ namespace Euclid::Core {
 #else
         std::signal(SIGTERM, onSignal);
         std::signal(SIGINT, onSignal);
+
+        // Re-read the configuration and apply the log levels in it - see onLogReloadSignal().
+        // Nothing else about the process changes, so this is safe to send to a module that is in
+        // the middle of serving requests.
+        std::signal(SIGUSR1, onLogReloadSignal);
 #endif
 
         start();
 
         std::unique_lock lock(s_signalMutex);
-        s_signalCv.wait(lock, [] { return s_signalled; });
+        while (true) {
+            s_signalCv.wait(lock, [] { return s_signalled || s_reloadLogging.load(); });
+            if (s_signalled) break;
+
+            // Outside the handler and outside the lock the handler runs under, since this reads a
+            // file and logs what it found.
+            s_reloadLogging.store(false);
+            lock.unlock();
+            reloadLogging();
+            lock.lock();
+        }
 
         stop();
         return 0;
+    }
+
+    void UnixSocketServer::onLogReloadSignal(int) {
+        s_reloadLogging.store(true);
+        s_signalCv.notify_all();
+    }
+
+    void UnixSocketServer::reloadLogging() {
+        try {
+            Configuration::instance().reload();
+        } catch (const std::exception &e) {
+            log_error << "Could not re-read the configuration, keeping the current log levels, error: " << e.what();
+            return;
+        }
+        LogStream::ApplyConfiguration();
+        log_info << "Log levels reloaded, level: " << LogStream::GetSeverity();
     }
 
 }// namespace Euclid::Core
