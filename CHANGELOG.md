@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.73](https://github.com/jensvogt/euclid/compare/1.0.72...v1.0.73) (2026-09-07)
+
+
+### Bug Fixes
+
+* priority transitions ([7a34b0a](https://github.com/jensvogt/euclid/commit/7a34b0a8e32240e08edfa2d313d36ab3f15749de))
+* priority transitions ([f22edbd](https://github.com/jensvogt/euclid/commit/f22edbde7a044852daba4bc3f10b741664d05bbe))
+
 ## [1.0.72](https://github.com/jensvogt/euclid/compare/1.0.71...v1.0.72) (2026-09-06)
 
 
