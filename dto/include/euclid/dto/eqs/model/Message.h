@@ -55,6 +55,12 @@ namespace Euclid::Dto::EQS {
         std::map<std::string, COM::Variant> attributes;
 
         /**
+         * @brief Euclid's own attributes, carried across every hop and never mixed into the
+         * caller's - see Entity::EQS::Message::systemAttributes.
+         */
+        std::map<std::string, COM::Variant> systemAttributes{};
+
+        /**
          * @brief Last received timestamp
          */
         system_clock::time_point lastReceived;
@@ -63,6 +69,12 @@ namespace Euclid::Dto::EQS {
          * @brief Size of the body in bytes
          */
         long size{};
+
+        /**
+         * @brief Number of times the message has been received, which is what lets a consumer tell
+         * a first delivery from a redelivery of one that failed or timed out.
+         */
+        long receivedCount{};
 
         /**
          * @brief Content type
@@ -106,7 +118,9 @@ namespace Euclid::Dto::EQS {
             r.body = Core::GetStringValue(v, "body");
             r.receiptHandle = Core::GetStringValue(v, "receiptHandle");
             r.attributes = Core::GetMapFromObject<std::string, COM::Variant>(v, "attributes");
+            r.systemAttributes = Core::GetMapFromObject<std::string, COM::Variant>(v, "systemAttributes");
             r.size = Core::GetLongValue(v, "size");
+            r.receivedCount = Core::GetLongValue(v, "receivedCount");
             r.contentType = Core::GetStringValue(v, "contentType");
             r.lastReceived = Core::GetDatetimeValue(v, "lastReceived");
             r.created = Core::GetDatetimeValue(v, "created");
@@ -124,8 +138,10 @@ namespace Euclid::Dto::EQS {
                     {"body", obj.body},
                     {"receiptHandle", obj.receiptHandle},
                     {"size", boost::json::value_from(obj.size)},
+                    {"receivedCount", boost::json::value_from(obj.receivedCount)},
                     {"contentType", boost::json::value_from(obj.contentType)},
                     {"attributes", boost::json::value_from(obj.attributes)},
+                    {"systemAttributes", boost::json::value_from(obj.systemAttributes)},
                     {"lastReceived", Core::DateTimeUtils::ToISO8601(obj.lastReceived)},
                     {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},

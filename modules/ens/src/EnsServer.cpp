@@ -201,7 +201,8 @@ namespace Euclid::ENS {
     static Database::Entity::ENS::Message publishToTopic(const std::string &topicErn, const std::string &body,
                                                          const std::map<std::string, Dto::COM::Variant> &attributes,
                                                          const std::string &accountId,
-                                                         const std::string &priority = "MIDDLE") {
+                                                         const std::string &priority = "MIDDLE",
+                                                         const boost::json::object &systemAttributes = {}) {
 
         const std::string messageId = Core::UuidUtils::CreateRandomUuid();
         const std::string ern = Core::createEnsMessageErn(accountId, messageId);
@@ -227,6 +228,9 @@ namespace Euclid::ENS {
             const boost::json::value payload = {
                     {"body", body},
                     {"attributes", attributesJson},
+                    // Carried straight through: a topic in the middle of a chain must not be where
+                    // the envelope stops, or a correlation id identifies only the hops before it.
+                    {"systemAttributes", systemAttributes},
                     {"priority", priority},
             };
             Database::EventBus::instance().Publish("ens.message.published", payload, "ens",
@@ -263,6 +267,14 @@ namespace Euclid::ENS {
             return EnsServer::ErrorResponse(req, status::not_found, "Topic not found, ern: " + request.ern);
         }
 
+        // Checked here for the same reason send-message checks it: a topic message's priority only
+        // matters once it reaches a queue, so a typo would be absorbed now and discovered as slow
+        // work much later, somewhere else.
+        if (!request.priority.empty() && !Database::Entity::EQS::TryMessagePriorityFromString(request.priority).has_value()) {
+            return EnsServer::ErrorResponse(req, status::bad_request,
+                                            R"(priority must be "LOW", "MIDDLE" or "HIGH", not ")" + request.priority + R"(")");
+        }
+
         const auto message = publishToTopic(request.ern, request.body, request.attributes, auth.user->accountId, request.priority);
 
         Dto::ENS::PublishMessageResponse response;
@@ -291,7 +303,14 @@ namespace Euclid::ENS {
             return true;// ack - topic is gone, nothing to retry
         }
 
-        const auto message = publishToTopic(targetErn, body, {}, Core::accountIdFromErn(targetErn));
+        boost::json::object systemAttributes;
+        if (envelope.payload.is_object()) {
+            if (const auto *value = envelope.payload.as_object().if_contains("systemAttributes"); value && value->is_object()) {
+                systemAttributes = value->as_object();
+            }
+        }
+
+        const auto message = publishToTopic(targetErn, body, {}, Core::accountIdFromErn(targetErn), "MIDDLE", systemAttributes);
 
         log_info << "ENS created message from ESM object-published notification, source: " << envelope.sourceModule << ", targetErn: " << targetErn
                   << ", messageId: " << message.messageId;

@@ -16,9 +16,10 @@ euclid runs a local gateway that authenticates requests and routes them, by serv
 module processes it manages as subprocesses - each communicating with the gateway over a Unix domain socket. Persistence
 is pluggable: an in-memory backend for fast, disposable test runs, or MongoDB for state that survives a restart.
 
-Requests are authenticated one of three ways: a JWT bearer token from `eam login`, an [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421)
-HTTP Message Signature (the default for signed calls), or AWS-style SigV4 for clients that need it. See
-[Signing](#signing) below.
+Requests to that gateway are authenticated one of three ways: a JWT bearer token from `eam login`, an
+[RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) HTTP Message Signature (the default for signed calls), or AWS-style
+SigV4 for clients that need it. See [Signing](#signing) below. The API gateway (`eag`) is separate and decides per
+route - see [Architecture](#architecture).
 
 | Module                             | What it does                                                                                | Status     |
 |------------------------------------|---------------------------------------------------------------------------------------------|------------|
@@ -32,7 +33,7 @@ HTTP Message Signature (the default for signed calls), or AWS-style SigV4 for cl
 | **ets**                            | Transfer servers: FTP and SFTP endpoints onto ESM buckets                                     | ✅          |
 | **eap**                            | Applications: Java, Python, Node.js, Rust or C++ processes euclid runs, scales and supervises | ✅          |
 | **emo**                            | Monitoring: metric collection, rollup and retention behind the other modules                  | ✅          |
-| dynamodb, secretsmanager, ssm, ... | Reserved service names in the gateway's routing table                                         | 🚧 planned |
+| **eag**                            | API gateway: publishes paths to the outside world and proxies them to EAP application instances | ✅          |
 
 Everything is driven through `euclid-cli`, a single client binary with one subcommand set per module
 (`euclid-cli eqs ...`, `euclid-cli eam ...`), or through the desktop UI - see [Related projects](#related-projects).
@@ -104,6 +105,13 @@ Switch a single call with `--signature sigv4`, or an installation with `euclid.c
   concurrency is bounded by its own instances and threads rather than by the gateway.
 - **Modules** (`euclid-eam`, `euclid-eqs`, `euclid-emo`, ...) - independent processes, started and supervised by the
   gateway, each owning one service's logic and its own socket.
+- **API gateway** (`euclid-eag`) - a second, quite different listener. Where the gateway above speaks euclid's own
+  protocol and routes by `x-euclid-target`, this one speaks nothing but HTTP and routes by path, to the application
+  instances EAP is running. It exists because an autoscaled application has no fixed address: its instances come and go
+  and their ports change, so nothing outside can be told where to send a request. Each route decides what it requires of
+  a caller - nothing, a euclid credential, or HTTP Basic against a euclid password, which is the one that makes a browser
+  prompt. A route may also name a euclid module and one of its actions, which is how something outside reaches
+  `eam login` without a second port to talk to.
 - **Storage** - `euclid.database.backend` selects `mongodb` (persistent) or
   `memory` (in-process, wiped on restart).
 - **CLI** (`euclid-cli`) - talks to the gateway over HTTPS; credentials are cached under `$HOME/.euclid/credentials`
@@ -226,10 +234,12 @@ Every process reads the same JSON config (`--config <path>`, default
 | `euclid.gateway.websocket.max-message-size`   | 1048576 | Max inbound websocket frame size, in bytes |
 | `euclid.gateway.websocket.idle-timeout-seconds` | 300   | Websocket ping/pong idle timeout |
 | `euclid.gateway.event-socket-path`            | (none)  | Unix domain socket modules push business events to, for websocket clients (`Core::EventPusher`) |
-| `euclid.frontend.port`                        | 4567    | Static frontend (when built)      |
-| `euclid.logging.websocket-port`               | 4569    | Live log streaming                |
 | `euclid.database.backend`                     | mongodb | `mongodb` or `memory`             |
-| `euclid.modules.sqs.priority-weights`         | 4:2:1   | HIGH:MIDDLE:LOW receive weighting |
+| `euclid.modules.eqs.priority-weights`         | 4:2:1   | HIGH:MIDDLE:LOW receive weighting |
+| `euclid.modules.eag.port`                     | 8080    | API gateway listener; ignored when `listeners` is set |
+| `euclid.modules.eag.listeners`                | (none)  | One port per namespace, keyed by namespace - for an installation serving more than one environment |
+| `euclid.modules.eag.basic-auth-cache-seconds` | 60      | How long a verified Basic credential stays verified; 0 checks every request |
+| `euclid.modules.eap.http-port-min` / `-max`   | 9000 / 9999 | Range the manager hands application instances their own HTTP port from |
 
 ---
 

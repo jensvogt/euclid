@@ -248,9 +248,10 @@ namespace Euclid::ESM {
     // std::nullopt means the header was there but could not be read - reported as a bad request
     // rather than dropped, since silently storing an object without the metadata a caller asked
     // for is worse than refusing the upload.
-    static std::optional<std::map<std::string, Database::Entity::COM::Variant> > attributesFromHeader(const request<string_body> &req) {
+    static std::optional<std::map<std::string, Database::Entity::COM::Variant> > attributesFromHeader(const request<string_body> &req,
+                                                                                                      const char *headerName = "x-euclid-attributes") {
 
-        const auto header = std::string(req["x-euclid-attributes"]);
+        const auto header = std::string(req[headerName]);
         if (header.empty()) return std::map<std::string, Database::Entity::COM::Variant>{};
 
         try {
@@ -264,7 +265,7 @@ namespace Euclid::ESM {
             return attributes;
 
         } catch (const std::exception &e) {
-            log_warning << "ESM could not read x-euclid-attributes header, error: " << e.what();
+            log_warning << "ESM could not read the " << headerName << " header, error: " << e.what();
             return std::nullopt;
         }
     }
@@ -293,7 +294,9 @@ namespace Euclid::ESM {
     // to know both.
     static void notifyBucketSubscriptions(const std::string &eventType, const std::string &bucketErn, const std::string &key,
                                           const std::string &ern, long size, const std::string &contentType,
-                                          const std::string &md5Sum, bool directory);
+                                          const std::string &md5Sum, bool directory,
+                                          const boost::json::object &attributes,
+                                          const boost::json::object &systemAttributes);
 
     static void publishObjectEvent(const std::string &eventType, const Database::Entity::ESM::Object &object,
                                    const std::optional<Database::Entity::ESM::Bucket> &bucket, const std::string &userId) {
@@ -316,9 +319,25 @@ namespace Euclid::ESM {
         // sees every object event. Before, only the three paths that create an object notified
         // them, so a subscriber never heard about a delete - which the event service did report,
         // and which anything replacing it has to.
+        // Converted here rather than in the fan-out, so an object with many subscriptions pays for
+        // it once. Binary values are left out: a notification is metadata, and nothing that reads
+        // one wants a blob inlined into it.
+        // Serialised as Variant DTOs - {"type":..,"value":..} - and not as bare scalars, because
+        // that is the shape the far end parses: EqsServer reads these back with
+        // value_to<Dto::COM::Variant>, and ENS already sends its own attributes this way. A bare
+        // scalar is accepted by nothing and throws where it is read, two modules away from here.
+        const auto asJson = [](const std::map<std::string, Database::Entity::COM::Variant> &source) {
+            boost::json::object out;
+            for (const auto &[name, variant]: source) {
+                out[name] = boost::json::value_from(Dto::ESM::EsmMapper::toDto(variant));
+            }
+            return out;
+        };
+
         notifyBucketSubscriptions(eventType, object.bucketErn, object.key, object.ern, object.size,
                                   object.contentType, object.md5Sum,
-                                  Database::Entity::ESM::IsDirectoryKey(object.key));
+                                  Database::Entity::ESM::IsDirectoryKey(object.key),
+                                  asJson(object.attributes), asJson(object.systemAttributes));
 
         Database::EventBus::instance().Publish(
                 eventType,
@@ -586,7 +605,9 @@ namespace Euclid::ESM {
     // it is what a queue-backed subscription needs in order to replace it.
     static void notifyBucketSubscriptions(const std::string &eventType, const std::string &bucketErn, const std::string &key,
                                           const std::string &ern, const long size, const std::string &contentType,
-                                          const std::string &md5Sum, const bool directory) {
+                                          const std::string &md5Sum, const bool directory,
+                                          const boost::json::object &attributes,
+                                          const boost::json::object &systemAttributes) {
 
         const auto subscriptions = Database::RepositoryFactory::instance().esmRepository()->listSubscriptionsBySourceErn(bucketErn);
         if (subscriptions.empty()) return;
@@ -599,6 +620,8 @@ namespace Euclid::ESM {
                 {"size", size},
                 {"contentType", contentType},
                 {"md5Sum", md5Sum},
+                {"attributes", attributes},
+                {"systemAttributes", systemAttributes},
         };
         const auto body = boost::json::serialize(notification);
 
@@ -626,7 +649,13 @@ namespace Euclid::ESM {
                     .sourceErn = bucketErn,
                     .messageId = Core::UuidUtils::CreateRandomUuid()};
 
-            const boost::json::value payload = {{"body", body}};
+            // The object's attributes travel with the delivery, which is the whole point of them:
+            // whatever put the object in the bucket knows things about it that the bucket cannot
+            // express - which datenlieferant it came from, how urgent it is - and a subscriber
+            // that has to fetch the object to find out has been told the wrong thing.
+            const boost::json::value payload = {{"body", body},
+                                                {"attributes", attributes},
+                                                {"systemAttributes", systemAttributes}};
 
             if (subscription.type == "SQS") {
                 Database::EventBus::instance().Publish("esm.subscription.delivery", payload, "esm", delivery);
@@ -1052,6 +1081,14 @@ namespace Euclid::ESM {
             return ErrorResponse(req, status::bad_request, "Missing x-euclid-key header");
         }
         const auto attributes = attributesFromHeader(req);
+
+        // Euclid's own, sent separately so they cannot be confused with the caller's and are not
+        // returned by list-object-attributes. This is where a producer says what the next hop has
+        // to know but the bucket cannot express - how urgent the work is, most of all.
+        const auto systemAttributes = attributesFromHeader(req, "x-euclid-system-attributes");
+        if (!systemAttributes.has_value()) {
+            return ErrorResponse(req, status::bad_request, "Malformed x-euclid-system-attributes header");
+        }
         if (!attributes.has_value()) {
             return ErrorResponse(req, status::bad_request, "Malformed x-euclid-attributes header");
         }
@@ -1132,6 +1169,7 @@ namespace Euclid::ESM {
         object.md5Sum = md5Sum;
         object.encryptionKeyErn = bucket->encryptionKeyErn;
         object.attributes = *attributes;
+        object.systemAttributes = *systemAttributes;
         repo->upsertObject(object);
 
         // A directory is not one of the bucket's objects as far as its counters are concerned -
@@ -1350,11 +1388,16 @@ namespace Euclid::ESM {
         const auto request = boost::json::value_to<Dto::ESM::CompleteUploadRequest>(jv);
         log_info << "ESM CompleteUpload, id: " << request.uploadId;
 
-        // Same header put-object takes: an upload big enough to be split into parts must not lose
-        // the metadata a small one keeps.
+        // Same headers put-object takes: an upload big enough to be split into parts must not lose
+        // the metadata a small one keeps - and the system attributes least of all, since a large
+        // file is exactly the one whose priority somebody bothered to decide.
         const auto attributes = attributesFromHeader(req);
         if (!attributes.has_value()) {
             return ErrorResponse(req, status::bad_request, "Malformed x-euclid-attributes header");
+        }
+        const auto systemAttributes = attributesFromHeader(req, "x-euclid-system-attributes");
+        if (!systemAttributes.has_value()) {
+            return ErrorResponse(req, status::bad_request, "Malformed x-euclid-system-attributes header");
         }
 
         const auto uploadDir = uploadDirFor(request.uploadId);
@@ -1448,7 +1491,7 @@ namespace Euclid::ESM {
         // detached thread's entry function calls std::terminate() and takes down the entire
         // process, unlike an exception in a normal request handler which route()/Dispatch() would
         // otherwise catch.
-        std::thread([repo, uploadDir, parts, dataDir, destPath, internalName, ern, bucketErn, bucket, key, owner, region, accountId, ns, existingObject, replaces, attributes = *attributes, encryptionKeyErn = bucket->encryptionKeyErn, keyMaterial = writeKey.material, uploadId = request.uploadId] {
+        std::thread([repo, uploadDir, parts, dataDir, destPath, internalName, ern, bucketErn, bucket, key, owner, region, accountId, ns, existingObject, replaces, attributes = *attributes, systemAttributes = *systemAttributes, encryptionKeyErn = bucket->encryptionKeyErn, keyMaterial = writeKey.material, uploadId = request.uploadId] {
             try {
                 std::error_code ec;
                 std::filesystem::create_directories(dataDir, ec);
@@ -1539,9 +1582,13 @@ namespace Euclid::ESM {
                 // store.
                 if (const auto current = repo->findObjectByBucketAndKey(bucketErn, key); current.has_value()) {
                     object.attributes = current->attributes;
+                    object.systemAttributes = current->systemAttributes;
                 }
                 for (const auto &[name, value]: attributes) {
                     object.attributes[name] = value;
+                }
+                for (const auto &[name, value]: systemAttributes) {
+                    object.systemAttributes[name] = value;
                 }
                 repo->upsertObject(object);
 

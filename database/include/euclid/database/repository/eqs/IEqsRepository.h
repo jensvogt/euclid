@@ -196,7 +196,7 @@ namespace Euclid::Database {
          * @param priority message priority; defaults to MIDDLE.
          * @return the newly created message entity.
          */
-        virtual Entity::EQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes, Entity::EQS::MessagePriority priority = Entity::EQS::MessagePriority::MIDDLE) = 0;
+        virtual Entity::EQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes, const std::map<std::string, Entity::COM::Variant> &systemAttributes, Entity::EQS::MessagePriority priority) = 0;
 
         /**
          * @brief Receives up to maxCount available messages from a queue.

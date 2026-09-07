@@ -10,6 +10,7 @@
 
 using Euclid::Dto::ENS::PublishMessageRequest;
 using Euclid::Database::Entity::EQS::MessagePriorityFromString;
+using Euclid::Database::Entity::EQS::TryMessagePriorityFromString;
 using Euclid::Database::Entity::EQS::MessagePriorityToString;
 
 // A topic is not consumed from, so a priority means nothing on the topic message itself. It is
@@ -60,7 +61,26 @@ BOOST_AUTO_TEST_CASE(SerializedRequestAlwaysCarriesAPriority) {
 
 BOOST_AUTO_TEST_CASE(UnknownPriorityFallsBackToMiddle) {
 
-    // The server reads the string rather than validating it, so a typo has to land somewhere
-    // sensible instead of dropping the message to the bottom of the queue.
+    // A value read back from storage, or one riding on a delivery in flight, has to land somewhere
+    // sensible rather than at the bottom of the queue, which is where LOW would put it - failing
+    // instead would cost a message somebody is waiting for.
     BOOST_CHECK_EQUAL(MessagePriorityToString(MessagePriorityFromString("URGENT")), "MIDDLE");
+}
+
+BOOST_AUTO_TEST_CASE(AnUnknownPriorityOnARequestIsRefusedRatherThanAbsorbed) {
+
+    // The same value on the way in is a caller's typo, and absorbing it means every send after it
+    // is wrong in a way nothing reports: they asked for one priority and silently got another.
+    // publish-message and send-message both refuse it; only the readings above are lenient.
+    BOOST_CHECK(!TryMessagePriorityFromString("URGENT").has_value());
+    BOOST_CHECK(!TryMessagePriorityFromString("").has_value());
+}
+
+BOOST_AUTO_TEST_CASE(PriorityIsReadWhateverItsCase) {
+
+    // "low" from a person and "LOW" as it is stored mean the same thing; refusing one of them
+    // teaches nobody anything, and is the shape of typo most likely to be made.
+    BOOST_CHECK(TryMessagePriorityFromString("low") == Euclid::Database::Entity::EQS::MessagePriority::LOW);
+    BOOST_CHECK(TryMessagePriorityFromString("Low") == Euclid::Database::Entity::EQS::MessagePriority::LOW);
+    BOOST_CHECK(TryMessagePriorityFromString("HIGH") == Euclid::Database::Entity::EQS::MessagePriority::HIGH);
 }

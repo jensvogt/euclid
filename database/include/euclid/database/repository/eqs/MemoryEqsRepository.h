@@ -175,7 +175,7 @@ namespace Euclid::Database {
             _messageStore[message.messageId] = message;
         }
 
-        Entity::EQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes, const Entity::EQS::MessagePriority priority) override {
+        Entity::EQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes, const std::map<std::string, Entity::COM::Variant> &systemAttributes, const Entity::EQS::MessagePriority priority) override {
             std::lock_guard lock(_mutex);
 
             Entity::EQS::Message message;
@@ -186,6 +186,7 @@ namespace Euclid::Database {
             message.messageId = messageId;
             message.contentType = Core::ContentTypeUtils::fromContent(message.body);
             message.attributes = attributes;
+            message.systemAttributes = systemAttributes;
             message.priority = priority;
 
             for (auto &queue: _queueStore | std::views::values) {
