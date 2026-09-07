@@ -1,0 +1,60 @@
+.TH EUCLID-CLI-EKM-LIST-CERTIFICATES 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ekm-list-certificates \- list the stored certificates
+.SH SYNOPSIS
+.B euclid-cli ekm list-certificates
+[\fB\-\-prefix\fR|\fB\-p\fR \fITEXT\fR]
+[\fB\-\-page\-size\fR|\fB\-s\fR \fIN\fR]
+[\fB\-\-page\-index\fR|\fB\-i\fR \fIN\fR]
+[\fB\-\-sort\-column\fR|\fB\-c\fR \fICOLUMN\fR]
+.SH DESCRIPTION
+Lists the stored certificates with their subject, issuer, fingerprint,
+subject alternative names and validity period. Private keys are never
+reported.
+.PP
+Sorting by
+.I notAfter
+puts the next certificate to expire first, which is what answers what
+is about to stop working. A certificate euclid generated for itself is
+marked
+.IR generated ,
+which distinguishes the stopgap the API gateway minted for a listener
+from one somebody chose to import.
+.SH OPTIONS
+.TP
+.BR \-p ", " \-\-prefix " " \fITEXT\fR
+Only certificates whose name starts with this. Defaults to all.
+.TP
+.BR \-s ", " \-\-page\-size " " \fIN\fR
+Page size. Defaults to \fI10\fR.
+.TP
+.BR \-i ", " \-\-page\-index " " \fIN\fR
+Zero-based page index. Defaults to \fI0\fR.
+.TP
+.BR \-c ", " \-\-sort\-column " " \fICOLUMN\fR
+Sort column: \fIname\fR, \fIern\fR or \fInotAfter\fR. Defaults to
+\fIname\fR.
+.SH EXIT STATUS
+.TP
+.B 0
+The certificates and the total count are printed as JSON.
+.TP
+.B 1
+The server could not be reached, or it rejected the request.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint https://localhost:5566 ekm list-certificates
+
+euclid-cli --endpoint https://localhost:5566 ekm list-certificates \e
+    --prefix eag- --sort-column notAfter
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ekm (1),
+.BR euclid-cli-ekm-create-certificate (1),
+.BR euclid-cli-ekm-import-certificate (1),
+.BR euclid-cli-ekm-get-certificate (1),
+.BR euclid-cli-ekm-delete-certificate (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

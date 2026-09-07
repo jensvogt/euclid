@@ -932,10 +932,10 @@ namespace Euclid::ESM {
         log_info << "ESM TouchObject, bucket: " << bucket->name << ", prefix: " << prefix << ", objects: " << touched;
 
         return JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
-                                                     {"ern", bucketErn},
-                                                     {"bucketName", bucket->name},
-                                                     {"prefix", prefix},
-                                                     {"objects", touched}}));
+                                    {"ern", bucketErn},
+                                    {"bucketName", bucket->name},
+                                    {"prefix", prefix},
+                                    {"objects", touched}}));
     }
 
     // Marks a bucket as euclid's own plumbing, or stops doing so.
@@ -979,9 +979,9 @@ namespace Euclid::ESM {
         log_info << "ESM bucket internal flag set, bucket: " << stored.name << ", internal: " << internal;
 
         return JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
-                                                     {"ern", stored.ern},
-                                                     {"name", stored.name},
-                                                     {"internal", stored.internal}}));
+                                    {"ern", stored.ern},
+                                    {"name", stored.name},
+                                    {"internal", stored.internal}}));
     }
 
     response<string_body> EsmServer::handleRenameBucket(const request<string_body> &req) {
@@ -1516,6 +1516,7 @@ namespace Euclid::ESM {
                             dest << part.rdbuf();
                             assembledSize += std::filesystem::file_size(partPath);
                         }
+                        dest.close();
                     }
 
                     // Post-processing: MD5 the assembled file and sniff its content type from its

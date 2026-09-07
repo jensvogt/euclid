@@ -17,8 +17,12 @@
 #include <euclid/cli/help/CliHelp.h>
 #include <euclid/cli/http/HttpClient.h>
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/ekm/CertificateNameRequest.h>
+#include <euclid/dto/ekm/CreateCertificateRequest.h>
 #include <euclid/dto/ekm/CreateKeyRequest.h>
 #include <euclid/dto/ekm/DeleteKeyRequest.h>
+#include <euclid/dto/ekm/ImportCertificateRequest.h>
+#include <euclid/dto/ekm/ListCertificatesRequest.h>
 #include <euclid/dto/ekm/RevokeKeyRequest.h>
 #include <euclid/dto/ekm/SetKeyDescriptionRequest.h>
 
@@ -133,6 +137,61 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int runTransform(const std::string &action, const std::string &caption, const std::string &description, const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Stores a certificate and its private key, both read from PEM files
+         *
+         * @param args command arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int importCertificate(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Generates and stores a self-signed certificate
+         *
+         * @param args command arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int createCertificate(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Lists the stored certificates
+         *
+         * @param args command arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int listCertificates(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Shows one certificate, without its private key
+         *
+         * @param args command arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int getCertificate(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Deletes a certificate
+         *
+         * @param args command arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int deleteCertificate(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Reads a PEM file whole.
+         *
+         * @param path file to read
+         * @param contents receives the file's contents
+         * @return true if the file could be read; false after printing why it could not
+         */
+        [[nodiscard]]
+        static bool readPemFile(const std::string &path, std::string &contents);
 
         /**
          * @brief Euclid endpoint

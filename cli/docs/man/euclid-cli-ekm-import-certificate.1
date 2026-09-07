@@ -1,0 +1,81 @@
+.TH EUCLID-CLI-EKM-IMPORT-CERTIFICATE 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ekm-import-certificate \- store a certificate and its private key
+.SH SYNOPSIS
+.B euclid-cli ekm import-certificate
+.BR \-\-name | \-n
+.I NAME
+.BR \-\-certificate | \-f
+.I FILE
+.BR \-\-key | \-k
+.I FILE
+[\fB\-\-description\fR|\fB\-d\fR \fITEXT\fR]
+.SH DESCRIPTION
+Stores a certificate somebody else issued, together with its private
+key, under a name.
+.PP
+An API gateway listener configured with
+.RI \(dq protocol \(dq: \(dq https \(dq
+serves the certificate its
+.RI \(dq certificate \(dq
+setting names, so importing under that name is how a real certificate
+replaces the self-signed one euclid generated for it. It is also how a
+renewed certificate is rolled out: importing again under the same name
+replaces what is stored there, and the listener picks it up when it
+next starts.
+.PP
+The private key is checked against the certificate before either is
+stored. A mismatched pair would otherwise be accepted here and only
+show itself later as a handshake that fails for every caller. Once
+stored, the key never leaves the server: no action reports it, and
+.BR euclid-cli-ekm-get-certificate (1)
+returns everything but.
+.PP
+The certificate file may hold a chain, leaf first with its
+intermediates after it, exactly as a certificate authority issues one.
+The whole chain is stored and served, which is what lets a client build
+a path to a trust anchor it already has.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+Name the certificate is stored under, and the one a listener's
+.RI \(dq certificate \(dq
+setting names. Required.
+.TP
+.BR \-f ", " \-\-certificate " " \fIFILE\fR
+Path to the PEM certificate file. Required.
+.TP
+.BR \-k ", " \-\-key " " \fIFILE\fR
+Path to the PEM private key file, unencrypted. Required.
+.TP
+.BR \-d ", " \-\-description " " \fITEXT\fR
+What the certificate is for. Free text, never interpreted. Optional.
+.SH EXIT STATUS
+.TP
+.B 0
+The certificate was stored; its name, subject, issuer, fingerprint and
+validity period are printed as JSON.
+.TP
+.B 1
+A file could not be read, the certificate is not a PEM-encoded X.509
+certificate, the key does not belong to it, the server could not be
+reached, or it rejected the request.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint https://localhost:5566 ekm import-certificate \e
+    --name eag-production \e
+    --certificate /etc/ssl/certs/api.example.com.pem \e
+    --key /etc/ssl/private/api.example.com.key \e
+    --description "api.example.com, renewed quarterly"
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ekm (1),
+.BR euclid-cli-ekm-create-certificate (1),
+.BR euclid-cli-ekm-list-certificates (1),
+.BR euclid-cli-ekm-get-certificate (1),
+.BR euclid-cli-ekm-delete-certificate (1),
+.BR euclid-cli-eag (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

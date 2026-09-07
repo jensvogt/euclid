@@ -40,8 +40,8 @@ One gateway can answer on more than one port, each bound to a namespace:
 .nf
 "eag": {
   "listeners": {
-    "development": { "port": 8080 },
-    "integration": { "port": 8081 }
+    "development": { "port": 8080, "protocol": "http" },
+    "integration": { "port": 8081, "protocol": "http" }
   }
 }
 .fi
@@ -76,6 +76,58 @@ and
 .I parser-int
 rather than two applications called
 .IR parser .
+.SH HTTP AND HTTPS
+Each listener says what it speaks. A
+.RI \(dq protocol \(dq
+of
+.I http
+\- the default, and what every listener configured before this setting
+existed is \- publishes the port in clear text, which is what a gateway
+behind a load balancer that has already terminated TLS wants. A
+.RI \(dq protocol \(dq
+of
+.I https
+terminates TLS on the port itself:
+.PP
+.RS
+.nf
+"eag": {
+  "listeners": {
+    "development": { "port": 8080, "protocol": "http" },
+    "production":  { "port": 443,  "protocol": "https",
+                     "certificate": "eag-production" }
+  }
+}
+.fi
+.RE
+.PP
+The certificate is named rather than given as a pair of file paths: it
+is key material, and it lives where euclid keeps key material, which is
+also what makes it listable, replaceable and watchable for expiry
+through
+.BR euclid-cli-ekm-list-certificates (1).
+Store one with
+.BR euclid-cli-ekm-import-certificate (1)
+under the name the listener uses.
+.PP
+A listener whose certificate does not exist yet gets one: self-signed,
+generated at start-up, stored under the name it asked for, and logged
+as a warning \- because every caller of that port will be shown a
+certificate nobody has vouched for. That is what lets an installation
+serve HTTPS before anybody has bought it a certificate, and importing a
+real one under the same name replaces it at the next restart. Omitting
+.RI \(dq certificate \(dq
+altogether uses the conventional name for the listener's namespace:
+.I eag-<namespace>
+, or
+.I eag
+for a listener bound to none.
+.PP
+A request that arrives over HTTPS is forwarded to the application with
+.I X-Forwarded-Proto: https
+, so an application building an absolute URL does not send an
+https caller back to itself over http. The hop from the gateway to the
+application is itself plain HTTP on the loopback interface, as it was.
 .SH ROUTES
 A route is a path prefix plus the application it belongs to. Everything
 beneath the prefix is carried, and the path is forwarded
@@ -569,6 +621,9 @@ euclid-cli eag update-route --route-id resource --active true
 .BR euclid-cli-eag-delete-route (1),
 .BR euclid-cli-eap (1),
 .BR euclid-cli-emm (1),
-.BR euclid-cli-eam-login (1)
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-ekm-import-certificate (1),
+.BR euclid-cli-ekm-create-certificate (1),
+.BR euclid-cli-ekm-list-certificates (1)
 .SH AUTHOR
 Jens Vogt <jens.vogt@opitz-consulting.com>

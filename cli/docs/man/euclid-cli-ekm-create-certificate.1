@@ -1,0 +1,89 @@
+.TH EUCLID-CLI-EKM-CREATE-CERTIFICATE 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ekm-create-certificate \- generate and store a self-signed certificate
+.SH SYNOPSIS
+.B euclid-cli ekm create-certificate
+.BR \-\-name | \-n
+.I NAME
+[\fB\-\-common\-name\fR|\fB\-c\fR \fIHOST\fR]
+[\fB\-\-alt\-name\fR|\fB\-a\fR \fIHOST\fR]...
+[\fB\-\-valid\-days\fR|\fB\-v\fR \fIDAYS\fR]
+[\fB\-\-key\-bits\fR|\fB\-b\fR \fIBITS\fR]
+[\fB\-\-description\fR|\fB\-d\fR \fITEXT\fR]
+.SH DESCRIPTION
+Generates a self-signed certificate and stores it under a name, for an
+installation that has to serve HTTPS before anybody has bought it a
+real certificate: development, a demonstration, an internal network
+where the clients can be told what to trust.
+.PP
+Nobody has vouched for the result. A client rejects it until it is
+given the certificate as something to trust \- which for
+.B euclid-cli
+itself is what
+.B \-\-ca\-cert
+does. Fetch the certificate to hand to one with
+.BR euclid-cli-ekm-get-certificate (1).
+.PP
+Give every name callers will use. A client checks the name it dialled
+against the certificate's subject alternative names and refuses the
+connection if it is not among them; the common name is always included
+as one, and
+.B \-\-alt\-name
+adds the rest. A value that parses as an IP address is stored as one,
+which is what makes a certificate work for a caller dialling
+.I 127.0.0.1
+rather than a host name.
+.PP
+An API gateway listener that speaks HTTPS does this for itself when its
+certificate does not exist yet, so this action is for the cases where
+the name, the validity period or the key length should be something
+other than what the gateway would have chosen.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+Name the certificate is stored under. Required.
+.TP
+.BR \-c ", " \-\-common\-name " " \fIHOST\fR
+Subject common name, normally the host name callers use. Defaults to
+the certificate's own name.
+.TP
+.BR \-a ", " \-\-alt\-name " " \fIHOST\fR
+A further host name or IP address the certificate is valid for. May be
+given more than once.
+.TP
+.BR \-v ", " \-\-valid\-days " " \fIDAYS\fR
+How many days the certificate is valid for. Defaults to \fI825\fR.
+.TP
+.BR \-b ", " \-\-key\-bits " " \fIBITS\fR
+RSA key length. Defaults to \fI2048\fR.
+.TP
+.BR \-d ", " \-\-description " " \fITEXT\fR
+What the certificate is for. Optional.
+.SH EXIT STATUS
+.TP
+.B 0
+The certificate was generated and stored; its name, subject,
+fingerprint and validity period are printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, generation failed, the server could not be
+reached, or it rejected the request.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint https://localhost:5566 ekm create-certificate \e
+    --name eag-development \e
+    --common-name api.internal \e
+    --alt-name localhost --alt-name 127.0.0.1 \e
+    --valid-days 365
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ekm (1),
+.BR euclid-cli-ekm-import-certificate (1),
+.BR euclid-cli-ekm-list-certificates (1),
+.BR euclid-cli-ekm-get-certificate (1),
+.BR euclid-cli-ekm-delete-certificate (1),
+.BR euclid-cli-eag (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

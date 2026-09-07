@@ -7,6 +7,7 @@
 // Euclid includes
 #include <euclid/core/LogStream.h>
 #include <euclid/database/Database.h>
+#include <euclid/database/entity/ekm/Certificate.h>
 #include <euclid/database/entity/ekm/Key.h>
 #include <euclid/database/repository/ekm/IEkmRepository.h>
 
@@ -97,6 +98,70 @@ namespace Euclid::Database {
         long purgeKeysPendingDeletion() override;
 
         /**
+         * @brief Update or insert a certificate
+         *
+         * @param certificate certificate entity, including its private key
+         * @return the stored certificate
+         */
+        Entity::EKM::Certificate upsertCertificate(Entity::EKM::Certificate &certificate) override;
+
+        /**
+         * @brief Find a certificate by its account, namespace and name
+         *
+         * @param accountId account the certificate belongs to
+         * @param namespaceName namespace the certificate belongs to
+         * @param name certificate name
+         * @return optional certificate
+         */
+        [[nodiscard]]
+        std::optional<Entity::EKM::Certificate> findCertificateByName(const std::string &accountId, const std::string &namespaceName, const std::string &name) const override;
+
+        /**
+         * @brief Find a certificate by its ERN
+         *
+         * @param ern ERN of the certificate
+         * @return optional certificate
+         */
+        [[nodiscard]]
+        std::optional<Entity::EKM::Certificate> findCertificateByErn(const std::string &ern) const override;
+
+        /**
+         * @brief List the certificates of an account
+         *
+         * @param accountId account the certificates belong to
+         * @param namespaceName namespace the certificates belong to; empty means don't filter by namespace
+         * @param prefix only certificates whose name starts with this prefix are returned
+         * @param pageSize maximum number of certificates to return; 0 or less means no limit
+         * @param pageIndex zero-based page index, applied when pageSize is set
+         * @param sortColumn field to sort by; empty means unsorted
+         * @param sortDirection sort direction ("asc", "desc")
+         * @return list of certificates
+         */
+        [[nodiscard]]
+        std::vector<Entity::EKM::Certificate> listCertificates(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const override;
+
+        /**
+         * @brief Get the total number of certificates
+         *
+         * @param accountId only certificates belonging to this account are counted
+         * @param namespaceName only certificates in this namespace are counted; empty means don't filter by namespace
+         * @param prefix only certificates whose name starts with this prefix are counted
+         * @return total number of certificates
+         */
+        [[nodiscard]]
+        long countCertificates(const std::string &accountId, const std::string &namespaceName, const std::string &prefix) const override;
+
+        /**
+         * @brief Delete a certificate
+         *
+         * @param accountId account the certificate belongs to
+         * @param namespaceName namespace the certificate belongs to
+         * @param name certificate name
+         * @return number of certificates deleted
+         */
+        long deleteCertificate(const std::string &accountId, const std::string &namespaceName, const std::string &name) override;
+
+        /**
          * @brief Delete all modules
          */
         // void clearQueues() override;
@@ -157,6 +222,7 @@ namespace Euclid::Database {
 
         static constexpr auto DATABASE_NAME = "euclid";
         static constexpr auto KEY_COLLECTION = "ekm_key";
+        static constexpr auto CERTIFICATE_COLLECTION = "ekm_certificate";
 
         /**
          * @brief Creates the indexes required for efficient message lookup, if they do not already exist.

@@ -16,10 +16,15 @@ namespace Euclid::CLI {
     int EkmCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
             return PrintModuleHelp("ekm", {
+                                           {"create-certificate", "Generate and store a self-signed certificate"},
                                            {"create-key", "Create a new key"},
                                            {"decrypt", "Decrypt a file or stdin with a key"},
+                                           {"delete-certificate", "Delete a certificate"},
                                            {"delete-key", "Schedule a key for deletion"},
                                            {"encrypt", "Encrypt a file or stdin with a key"},
+                                           {"get-certificate", "Show one certificate, without its private key"},
+                                           {"import-certificate", "Store a certificate and its private key"},
+                                           {"list-certificates", "List stored certificates"},
                                            {"list-keys", "List existing keys"},
                                            {"revoke-key", "Revoke a key (blocks encryption, decryption still works)"},
                                            {"set-key-description", "Change what a key says it is for"},
@@ -45,6 +50,21 @@ namespace Euclid::CLI {
         }
         if (action == "decrypt") {
             return decrypt(args);
+        }
+        if (action == "import-certificate") {
+            return importCertificate(args);
+        }
+        if (action == "create-certificate") {
+            return createCertificate(args);
+        }
+        if (action == "list-certificates") {
+            return listCertificates(args);
+        }
+        if (action == "get-certificate") {
+            return getCertificate(args);
+        }
+        if (action == "delete-certificate") {
+            return deleteCertificate(args);
         }
         std::cerr << "error: unknown EKM action '" << action << "'\n";
         return 1;
@@ -260,6 +280,254 @@ namespace Euclid::CLI {
             const HttpResponse response = client.Post("ekm", "set-key-description", boost::json::value_from(request));
             if (!response.IsSuccess()) {
                 std::cerr << "error: set-key-description failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    bool EkmCli::readPemFile(const std::string &path, std::string &contents) {
+        std::ifstream in(path, std::ios::binary);
+        if (!in.is_open()) {
+            std::cerr << "error: could not open '" << path << "'\n";
+            return false;
+        }
+        std::ostringstream buffer;
+        buffer << in.rdbuf();
+        contents = buffer.str();
+        if (contents.empty()) {
+            std::cerr << "error: '" << path << "' is empty\n";
+            return false;
+        }
+        return true;
+    }
+
+    int EkmCli::importCertificate(const std::vector<std::string> &args) const {
+        po::options_description desc("store a certificate and its private key");
+        desc.add_options()
+                ("name,n", po::value<std::string>()->required(), "name the certificate is stored under, and the one a listener names")
+                ("certificate,f", po::value<std::string>()->required(), "path to the PEM certificate file, leaf first, intermediates after it")
+                ("key,k", po::value<std::string>()->required(), "path to the PEM private key file, unencrypted")
+                ("description,d", po::value<std::string>(), "what the certificate is for, kept with it and shown by list-certificates");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ekm", "import-certificate", "--name <name> --certificate <file> --key <file> [--description <text>]",
+                                   "Stores a certificate somebody else issued, together with its private key, under a name. "
+                                   "An API gateway listener configured with \"protocol\": \"https\" serves the certificate its "
+                                   "\"certificate\" setting names, so importing under that name is how a real certificate replaces "
+                                   "the self-signed one euclid generated for it - and how a renewed certificate is rolled out, "
+                                   "since importing again under the same name replaces what is there. "
+                                   "The key is checked against the certificate before either is stored: a mismatched pair would "
+                                   "otherwise be accepted here and only show itself as a handshake that fails for every caller. "
+                                   "The private key never leaves the server again - no action reports it.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EKM::ImportCertificateRequest request;
+        request.name = vm["name"].as<std::string>();
+        if (vm.contains("description")) request.description = vm["description"].as<std::string>();
+        if (!readPemFile(vm["certificate"].as<std::string>(), request.certificate)) return 1;
+        if (!readPemFile(vm["key"].as<std::string>(), request.privateKey)) return 1;
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ekm", "import-certificate", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: import-certificate failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EkmCli::createCertificate(const std::vector<std::string> &args) const {
+        po::options_description desc("generate and store a self-signed certificate");
+        desc.add_options()
+                ("name,n", po::value<std::string>()->required(), "name the certificate is stored under")
+                ("common-name,c", po::value<std::string>(), "subject common name, normally the host name callers use (default: the certificate name)")
+                ("alt-name,a", po::value<std::vector<std::string> >()->multitoken(), "further host name or IP address the certificate is valid for; may be given more than once")
+                ("valid-days,v", po::value<long>()->default_value(825), "how many days the certificate is valid for")
+                ("key-bits,b", po::value<long>()->default_value(2048), "RSA key length in bits")
+                ("description,d", po::value<std::string>(), "what the certificate is for");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ekm", "create-certificate", "--name <name> [--common-name <host>] [--alt-name <host>]... [--valid-days <n>] [--key-bits <n>] [--description <text>]",
+                                   "Generates a self-signed certificate and stores it under a name, for an installation that has "
+                                   "to serve HTTPS before anybody has bought it a real certificate - development, a demonstration, "
+                                   "an internal network where the clients can be told what to trust. "
+                                   "Nobody has vouched for the result: a client rejects it until it is given the certificate as "
+                                   "something to trust, which is what --ca-cert does for euclid-cli itself. "
+                                   "Give every name callers will use as --common-name or --alt-name; a client checks the name it "
+                                   "dialled against these and refuses the connection if it is not among them.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EKM::CreateCertificateRequest request;
+        request.name = vm["name"].as<std::string>();
+        if (vm.contains("common-name")) request.commonName = vm["common-name"].as<std::string>();
+        if (vm.contains("alt-name")) request.subjectAltNames = vm["alt-name"].as<std::vector<std::string> >();
+        if (vm.contains("description")) request.description = vm["description"].as<std::string>();
+        request.validDays = vm["valid-days"].as<long>();
+        request.keyBits = vm["key-bits"].as<long>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ekm", "create-certificate", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: create-certificate failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EkmCli::listCertificates(const std::vector<std::string> &args) const {
+        po::options_description desc("lists the stored certificates");
+        desc.add_options()
+                ("prefix,p", po::value<std::string>()->default_value(""), "only certificates whose name starts with this")
+                ("page-size,s", po::value<long>()->default_value(10), "page size")
+                ("page-index,i", po::value<long>()->default_value(0), "page index")
+                ("sort-column,c", po::value<std::string>()->default_value("name"), "sort column (name, ern, notAfter)");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ekm", "list-certificates", "[--prefix <text>] [--page-size <n>] [--page-index <n>] [--sort-column <column>]",
+                                   "Lists the stored certificates with their subject, issuer, fingerprint and validity period, "
+                                   "but never their private keys. Sorting by \"notAfter\" puts the next one to expire first, "
+                                   "which is what answers what is about to stop working.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EKM::ListCertificatesRequest request;
+        request.prefix = vm["prefix"].as<std::string>();
+        request.pageSize = vm["page-size"].as<long>();
+        request.pageIndex = vm["page-index"].as<long>();
+        request.sortColumn = vm["sort-column"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ekm", "list-certificates", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: list-certificates failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EkmCli::getCertificate(const std::vector<std::string> &args) const {
+        po::options_description desc("show one certificate");
+        desc.add_options()
+                ("name,n", po::value<std::string>()->required(), "certificate name");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ekm", "get-certificate", "--name <name>",
+                                   "Shows one certificate: its subject, issuer, fingerprint, validity period and the PEM itself, "
+                                   "which is what somebody needs in order to add a self-signed certificate to a trust store. "
+                                   "The private key is not reported - it never leaves the server.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EKM::CertificateNameRequest request;
+        request.name = vm["name"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ekm", "get-certificate", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: get-certificate failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EkmCli::deleteCertificate(const std::vector<std::string> &args) const {
+        po::options_description desc("delete a certificate");
+        desc.add_options()
+                ("name,n", po::value<std::string>()->required(), "certificate name");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ekm", "delete-certificate", "--name <name>",
+                                   "Deletes a certificate and its private key, immediately and without a grace period: unlike a "
+                                   "key, nothing becomes unreadable. A gateway listener already serving it keeps the copy it "
+                                   "loaded until it is restarted, and generates a new self-signed certificate if it restarts "
+                                   "and finds none - so a listener is never left with nothing to answer with.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EKM::CertificateNameRequest request;
+        request.name = vm["name"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ekm", "delete-certificate", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: delete-certificate failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);

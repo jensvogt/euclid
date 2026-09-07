@@ -6,6 +6,7 @@
 
 // C++ includes
 #include <atomic>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -22,9 +23,45 @@
 // Euclid includes
 #include <BasicAuthenticator.h>
 #include <Backends.h>
+#include <ClientStream.h>
 #include <RouteTable.h>
 
 namespace Euclid::EAG {
+
+    /**
+     * @brief What a listener speaks to the callers that reach it.
+     */
+    enum class Protocol {
+
+        /**
+         * @brief Plain HTTP. What a gateway behind a load balancer that has already terminated
+         * TLS wants, and what an installation reached only over a private network can live with.
+         */
+        HTTP,
+
+        /**
+         * @brief HTTPS, terminated by the gateway itself with a certificate from the key
+         * management module.
+         */
+        HTTPS
+    };
+
+    /**
+     * @brief Reads a protocol name as it is written in the configuration.
+     *
+     * @param protocol "http" or "https", in any case.
+     * @return the protocol, or nothing if the name is neither - which is refused rather than
+     * defaulted, since a typo silently becoming HTTP would publish in clear text a port somebody
+     * believed was encrypted.
+     */
+    [[nodiscard]]
+    std::optional<Protocol> ProtocolFromString(std::string protocol);
+
+    /**
+     * @brief The name of a protocol, for logs and messages.
+     */
+    [[nodiscard]]
+    std::string ProtocolToString(Protocol protocol);
 
     /**
      * @brief The API gateway's own listener: the port callers actually talk to.
@@ -76,6 +113,30 @@ namespace Euclid::EAG {
              * what a single-listener installation gets.
              */
             std::string nameSpace;
+
+            /**
+             * @brief Whether this port speaks HTTP or HTTPS.
+             *
+             * @par
+             * Per listener rather than per installation, because the same gateway commonly needs
+             * both: a public port that terminates TLS itself, and one reached only from inside a
+             * network or from a load balancer that has already done so. Defaults to HTTP, which
+             * is what every listener written before this attribute existed was.
+             */
+            Protocol protocol{Protocol::HTTP};
+
+            /**
+             * @brief Name of the EKM certificate this port serves, when it speaks HTTPS.
+             *
+             * @par
+             * A name rather than a pair of file paths: the certificate is key material and lives
+             * where euclid keeps key material, which is also what makes it listable, replaceable
+             * and watchable for expiry through the CLI. Empty takes the conventional name for the
+             * listener's namespace, and a certificate that does not exist yet is generated -
+             * self-signed - so that an installation can serve HTTPS before anybody has bought it
+             * a certificate.
+             */
+            std::string certificate;
         };
 
         ProxyServer(std::vector<Listener> listeners, int threads, long refreshSeconds, long basicAuthCacheSeconds,
@@ -104,22 +165,23 @@ namespace Euclid::EAG {
         void accept(std::size_t index);
 
         /**
-         * @brief Serves one connection: read a request, route it, answer it.
+         * @brief Serves one connection: complete the handshake if there is one, read a request,
+         * route it, answer it.
          */
-        void serve(boost::asio::ip::tcp::socket socket, const std::string &nameSpace);
+        void serve(boost::asio::ip::tcp::socket socket, std::size_t index);
 
         /**
          * @brief Matches one request to a route, authenticates it if the route says so, and
          * forwards it to one of the application's instances.
          */
         void route(const std::string &nameSpace,
-                   const std::shared_ptr<boost::beast::tcp_stream> &stream,
+                   const std::shared_ptr<ClientStream> &stream,
                    const std::shared_ptr<boost::beast::http::request<boost::beast::http::string_body> > &request);
 
         /**
          * @brief Forwards one request to a backend port and returns whatever comes back.
          */
-        void proxyTo(const std::shared_ptr<boost::beast::tcp_stream> &stream,
+        void proxyTo(const std::shared_ptr<ClientStream> &stream,
                      const std::shared_ptr<boost::beast::http::request<boost::beast::http::string_body> > &request,
                      int port, const std::string &routeId,
                      const std::string &euclidTarget, const std::string &euclidAction);
@@ -133,7 +195,7 @@ namespace Euclid::EAG {
          * euclid.gateway.tls.enabled is set, which it is by default - a module route that spoke
          * plain HTTP to it would be answered with a dropped connection and nothing else.
          */
-        void proxyToTls(const std::shared_ptr<boost::beast::tcp_stream> &stream,
+        void proxyToTls(const std::shared_ptr<ClientStream> &stream,
                         const std::shared_ptr<boost::beast::http::request<boost::beast::http::string_body> > &request,
                         int port, const std::string &routeId,
                         const std::string &euclidTarget, const std::string &euclidAction);
@@ -141,7 +203,7 @@ namespace Euclid::EAG {
         /**
          * @brief Writes one response to the caller and closes the connection.
          */
-        static void respond(const std::shared_ptr<boost::beast::tcp_stream> &stream,
+        static void respond(const std::shared_ptr<ClientStream> &stream,
                             const std::shared_ptr<boost::beast::http::response<boost::beast::http::string_body> > &response);
 
         /**
@@ -164,6 +226,19 @@ namespace Euclid::EAG {
          * which namespace it arrived for.
          */
         std::vector<boost::asio::ip::tcp::acceptor> _acceptors;
+
+        /**
+         * @brief One server context per listener, in the same order again, holding the
+         * certificate and key that listener terminates TLS with. Null for a listener that speaks
+         * plain HTTP.
+         *
+         * @par
+         * Built once when the gateway starts rather than per connection: a context re-read and
+         * re-parsed for every handshake would put the cost of loading a certificate on the path
+         * of every caller.
+         */
+        std::vector<std::shared_ptr<boost::asio::ssl::context> > _serverContexts;
+
         std::vector<std::thread> _workers;
         std::thread _refreshThread;
         std::atomic<bool> _running{false};
