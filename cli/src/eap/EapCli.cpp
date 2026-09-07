@@ -56,6 +56,7 @@ namespace Euclid::CLI {
                                            {"redeploy-application", "Deploy a new build of an application from a local file"},
                                            {"start-application", "Ask the manager to start an application"},
                                            {"stop-application", "Ask the manager to stop an application"},
+                                           {"set-log-level", "Turn an application's own logging up, down or off"},
                                            {"update-application", "Change an existing application's definition"},
                                    });
         }
@@ -84,6 +85,7 @@ namespace Euclid::CLI {
         if (action == "delete-application") return deleteApplication(args);
         if (action == "start-application") return setState(args, true);
         if (action == "stop-application") return setState(args, false);
+        if (action == "set-log-level") return setLogLevel(args);
 
         std::cerr << "error: unknown eap action '" << action << "'\n";
         return 1;
@@ -509,6 +511,65 @@ namespace Euclid::CLI {
             const HttpResponse response = client.Post("eap", action, boost::json::object{{"applicationId", vm["application-id"].as<std::string>()}});
             if (!response.IsSuccess()) {
                 std::cerr << "error: " << action << " failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EapCli::setLogLevel(const std::vector<std::string> &args) const {
+        po::options_description desc("set an application's log level");
+        desc.add_options()
+                ("application-id,n", po::value<std::string>()->required(), "name of the application")
+                ("level,l", po::value<std::string>()->required(), "trace, debug, info, warning, error, fatal, off, or \"default\" to go back to the configured level");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eap", "set-log-level", "--application-id <name> --level <level>",
+                                   "Sets the level an application's own output is logged at, and takes effect on the manager's "
+                                   "next reconcile - within a few seconds, without restarting the application or interrupting "
+                                   "anything it is doing. "
+                                   "Whatever an application writes to standard output or standard error is read back by the "
+                                   "manager and logged on a channel of its own, \"app.<application-id>\"; this is that channel's "
+                                   "level. Standard error is recorded as an error and standard output as information, so "
+                                   "--level error leaves what went wrong visible while silencing the rest, and --level off "
+                                   "silences the application entirely. "
+                                   "--level default takes the setting back, leaving the application under euclid.logging.channels. "
+                                   "The level is stored with the application, so it survives a restart of the installation.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        // "default" is the word for taking the setting back; the server reads an empty level that
+        // way. Asking somebody to pass an empty string for it would be a worse interface.
+        auto level = vm["level"].as<std::string>();
+        if (level == "default") level.clear();
+
+        // Checked here as well as on the server, for the error message rather than for the rule:
+        // a typo is worth answering now instead of after a round trip that ends in a 400.
+        if (!level.empty() && !Core::LogStream::CanonicalLevel(level).has_value()) {
+            std::cerr << "error: not a log level: " << level << std::endl
+                      << "       expected trace, debug, info, warning, error, fatal, off, or default" << std::endl;
+            return 1;
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eap", "set-log-level",
+                                                      boost::json::object{{"applicationId", vm["application-id"].as<std::string>()}, {"level", level}});
+            if (!response.IsSuccess()) {
+                std::cerr << "error: set-log-level failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);

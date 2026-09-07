@@ -204,7 +204,11 @@
       "console-active": true,
       "level": "info",
       "dir": "/usr/local/euclid/log",
-      "prefix": "euclid"
+      "prefix": "euclid",
+      "channels": {
+        "app": "info",
+        "module": "info"
+      }
     },
     "eventbus": {
       "notify-interval-ms": 100,

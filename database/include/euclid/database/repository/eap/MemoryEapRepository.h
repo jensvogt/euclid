@@ -134,6 +134,19 @@ namespace Euclid::Database {
             std::erase_if(_store, [&](const auto &row) { return row.applicationId == applicationId; });
         }
 
+        bool setApplicationLogLevel(const std::string &applicationId, const std::string &logLevel) override {
+            std::lock_guard lock(_mutex);
+            for (auto &application: _store) {
+                if (application.applicationId != applicationId) continue;
+
+                // The level only - the modification date is left where it is, so the manager does
+                // not read this as a definition that changed and restart the application.
+                application.logLevel = logLevel;
+                return true;
+            }
+            return false;
+        }
+
     private:
 
         mutable std::mutex _mutex;

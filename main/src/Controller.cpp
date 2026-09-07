@@ -50,10 +50,10 @@ namespace Euclid::main {
     // byte). journalctl -o cat prints the MESSAGE field completely unescaped, so an unsanitized
     // ESC byte here becomes an attacker-uncontrolled terminal escape sequence on whatever
     // terminal later views the log - which is exactly the kind of thing that can hang or crash a
-    // terminal emulator. Every other log_raw()/log_* call in this codebase goes through
-    // Boost.Log's own formatter, which already escapes control characters; this is the one path
-    // that bypasses it by design (to preserve a child's own source location), so it needs its own
-    // guard.
+    // terminal emulator. Every other log_* call in this codebase is formatted by Boost.Log, which
+    // escapes control characters on its way; a child's line is written verbatim by design - it
+    // arrives already formatted by whatever wrote it, see LogStream::LogVerbatim - so it is the
+    // one path that needs its own guard.
     static std::string sanitizeForLog(const std::string &raw) {
         std::string out;
         out.reserve(raw.size());
@@ -69,14 +69,28 @@ namespace Euclid::main {
         return out;
     }
 
-    // Reads lines from fd until EOF. Re-emits each line through Boost.Log
-    // using the child's own source location so it looks like a native log line.
+    // The channel a spawned process's own output is logged on. An application and a euclid module
+    // are told apart because they are turned down for quite different reasons: an application is
+    // somebody else's program and its output is theirs, while a module's is euclid's own.
+    static std::string outputChannel(const Dto::ModuleConfig &config) {
+        return std::string(config.application ? Core::LogStream::kApplicationChannel : Core::LogStream::kModuleChannel) + "." + config.name;
+    }
+
+    // Reads lines from fd until EOF, re-emitting each on the channel of the process it came from -
+    // "app.<name>" for an application, "module.<name>" for a euclid module. That channel is what
+    // makes this output something an operator can turn down or off on its own
+    // (euclid.logging.channels), which matters because a single talkative application otherwise
+    // buries everything euclid itself has to say. The line is written verbatim, as it always was:
+    // it arrives already formatted by whatever wrote it, and stderr is recorded as an error so a
+    // channel left at "error" still shows what went wrong.
+    //
     // Runs on a detached background thread; closes fd when done.
-    static void drainPipe(const int fd, const bool isError) {
+    static void drainPipe(const int fd, const bool isError, const std::string channel) {
         std::string line;
         char ch;
+        const auto severity = isError ? boost::log::trivial::error : boost::log::trivial::info;
         auto emit = [&](const std::string &raw) {
-            log_raw(sanitizeForLog(raw));
+            Core::LogStream::LogVerbatim(channel, severity, sanitizeForLog(raw));
         };
 #if defined(_WIN32)
         while (Platform::PipeRead(fd, &ch, 1) == 1) {
@@ -280,8 +294,9 @@ namespace Euclid::main {
         svc->inFlightRequests = 0;
         svc->lastIdleAt = std::chrono::steady_clock::now();
 
-        std::thread(drainPipe, outFd, false).detach();
-        std::thread(drainPipe, errFd, true).detach();
+        const auto channel = outputChannel(svc->config);
+        std::thread(drainPipe, outFd, false, channel).detach();
+        std::thread(drainPipe, errFd, true, channel).detach();
 
         const bool liveness = svc->config.readiness == Dto::ModuleConfig::ReadinessCheck::Liveness;
         if (liveness
@@ -393,8 +408,9 @@ namespace Euclid::main {
         svc->inFlightRequests = 0;
         svc->lastIdleAt = std::chrono::steady_clock::now();
 
-        std::thread(drainPipe, outPipe[0], false).detach();
-        std::thread(drainPipe, errPipe[0], true).detach();
+        const auto channel = outputChannel(svc->config);
+        std::thread(drainPipe, outPipe[0], false, channel).detach();
+        std::thread(drainPipe, errPipe[0], true, channel).detach();
 
         // An application is judged by whether it is still running, a module by whether it has
         // created its socket - see ModuleConfig::ReadinessCheck for why the two differ.
@@ -822,6 +838,30 @@ namespace Euclid::main {
             return environment;
         }
 
+        // Applies the level an application asks for its own output to be logged at - see
+        // Application::logLevel. Done here, on every reconcile, rather than when the application
+        // is started: the whole point of keeping the level in the row is that it can be changed
+        // while the application runs, and nothing about the running processes has to change for it
+        // to take effect. An application that names no level goes back under whatever
+        // euclid.logging.channels says.
+        //
+        // Compared against what is already in force so that a level that has not changed is not
+        // set - and logged - once per application per tick.
+        void applyApplicationLogLevel(const Database::Entity::EAP::Application &application,
+                                      const std::map<std::string, std::string> &channelLevels) {
+
+            const auto channel = std::string(Core::LogStream::kApplicationChannel) + "." + application.applicationId;
+            const auto current = channelLevels.find(channel);
+
+            if (application.logLevel.empty()) {
+                if (current != channelLevels.end()) Core::LogStream::ClearChannelSeverity(channel);
+                return;
+            }
+            if (current != channelLevels.end() && current->second == application.logLevel) return;
+
+            Core::LogStream::SetChannelSeverity(channel, application.logLevel);
+        }
+
     }// namespace
 
     void ServiceController::reconcileApplications() {
@@ -833,8 +873,14 @@ namespace Euclid::main {
 
         std::set<std::string> defined;
 
+        // Read once for the whole pass rather than per application: it is a copy of the level
+        // table, and nothing in this loop changes it except applyApplicationLogLevel() itself.
+        const auto channelLevels = Core::LogStream::ChannelSeverities();
+
         for (const auto &application: applications) {
             defined.insert(application.applicationId);
+
+            applyApplicationLogLevel(application, channelLevels);
 
             const bool wantRunning = application.desiredState == Database::Entity::EAP::ApplicationState::RUNNING;
             const auto revision = Core::DateTimeUtils::ToISO8601(application.modified);
@@ -961,6 +1007,10 @@ namespace Euclid::main {
             log_info << "Application removed, applicationId: " << name;
             stop(name);
             deregisterModule(name);
+
+            // With its channel, so that an application created again under the same name does not
+            // inherit a level nobody can see any more - the row that carried it is gone.
+            Core::LogStream::ClearChannelSeverity(std::string(Core::LogStream::kApplicationChannel) + "." + name);
         }
     }
 

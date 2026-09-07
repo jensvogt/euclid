@@ -194,6 +194,24 @@ namespace Euclid::Database::Entity::EAP {
         ApplicationState desiredState = ApplicationState::STOPPED;
 
         /**
+         * @brief Level this application's own output is logged at, or empty to leave it to the
+         * configuration.
+         *
+         * @par
+         * An application writes to standard output and standard error, and the manager reads that
+         * back and logs it on the application's own channel ("app.<applicationId>"). This is that
+         * channel's level, kept with the application rather than in a configuration file so it can
+         * be changed while everything is running - see the EAP module's set-log-level action.
+         * "off" silences the application entirely.
+         *
+         * @par
+         * Deliberately not part of what the manager treats as a change of definition: a level is
+         * not a reason to restart a running application, so it is stored on its own and applied on
+         * the next reconcile without touching @ref modified.
+         */
+        std::string logLevel;
+
+        /**
          * @brief Creation date
          */
         system_clock::time_point created = system_clock::now();

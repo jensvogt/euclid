@@ -15,6 +15,7 @@
 #include <euclid/cli/help/CliHelp.h>
 #include <euclid/cli/http/HttpClient.h>
 #include <euclid/core/JsonUtils.h>
+#include <euclid/core/LogStream.h>
 
 namespace Euclid::CLI {
 
@@ -118,6 +119,15 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int setState(const std::vector<std::string> &args, bool start) const;
+
+        /**
+         * @brief Sets the level an application's own output is logged at.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int setLogLevel(const std::vector<std::string> &args) const;
 
         std::string _endpoint;
         Credentials::Entry _authentication;
