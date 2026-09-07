@@ -7,6 +7,7 @@
 // C++ includes
 #include <memory>
 #include <string>
+#include <vector>
 
 // Boost includes
 #include <boost/beast/http.hpp>
@@ -64,6 +65,34 @@ namespace Euclid::EAG {
         response<string_body> Dispatch(const request<string_body> &req) override;
 
     private:
+
+        /**
+         * @brief Answers "list-listeners": the ports this gateway answers on, what each speaks,
+         * and the certificate an HTTPS one serves.
+         *
+         * @par
+         * A member rather than one of the free handlers beside it, because it is the only action
+         * that reports on this process rather than on the route table: the listeners come from
+         * the configuration this instance read at start-up, and nothing in the database knows
+         * them.
+         *
+         * @par
+         * Read-only and nothing else, deliberately. A port cannot be moved or switched to HTTPS
+         * through the API - that is a configuration change and a restart, because a listener that
+         * could be re-bound remotely is a way to take an installation off the network with one
+         * call.
+         */
+        [[nodiscard]]
+        response<string_body> handleListListeners(const request<string_body> &req) const;
+
+        /**
+         * @brief The listeners this instance was configured with, in the order they were read.
+         *
+         * @par
+         * Kept here as well as in the ProxyServer, because a listener that could not be bound has
+         * no ProxyServer to be kept in and is exactly the one somebody needs to be shown.
+         */
+        std::vector<ProxyServer::Listener> _listeners;
 
         /**
          * @brief The public listener. Held by pointer so a failure to bind its port is reported

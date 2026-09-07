@@ -1,0 +1,124 @@
+.TH EUCLID-CLI-EAG-LIST-LISTENERS 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eag-list-listeners \- list the ports the API gateway answers on
+.SH SYNOPSIS
+.B euclid-cli eag list-listeners
+.SH DESCRIPTION
+Lists the ports the API gateway answers on: the namespace each serves,
+whether it speaks HTTP or HTTPS, and for an HTTPS one the certificate it
+terminates TLS with \- down to its subject, issuer, fingerprint and
+expiry date.
+.PP
+This is the one
+.B eag
+action that reports on the gateway process rather than on the route
+table. A listener is configuration
+.RI ( euclid.modules.eag.listeners ,
+read once at start\-up), so nothing in the database knows what the
+gateway is actually bound to, and there is no other way to ask.
+.PP
+Read\-only, deliberately. A port cannot be moved or switched to HTTPS
+through the API: that is a configuration change and a restart, because a
+listener that could be re\-bound remotely is a way to take an
+installation off the network with one call.
+.SH OUTPUT
+Each listener is reported as:
+.TP
+.I namespace
+The namespace whose routes this port serves. Empty means it serves every
+route, which is what a single\-listener installation gets.
+.TP
+.I port
+The TCP port.
+.TP
+.I protocol
+.I http
+or
+.IR https .
+.TP
+.I serving
+Whether the ports are actually bound. A listener whose port was taken,
+or whose certificate could not be loaded, is still listed \- the module
+keeps running so the route table can be managed \- but nothing it names
+is being answered. Look in the log for why.
+.TP
+.I certificate
+The certificate an HTTPS listener serves, under the name it is stored in
+.BR euclid-cli-ekm (1)
+with. This is the name the listener
+.I uses
+rather than the one it named: a listener that names none takes the
+conventional name for its namespace, and an empty field here would send
+somebody looking for a certificate that exists.
+.I certificateConfigured
+is what the configuration actually wrote, so the two cases can be told
+apart. Empty for an HTTP listener.
+.TP
+.I certificateFound
+Whether that certificate is stored. False for an HTTPS listener means
+the port has never come up: the certificate is generated when a listener
+starts, so one that is still missing is one that never got that far.
+.TP
+.IR certificateSubject ", " certificateIssuer ", " certificateSerialNumber ", " certificateFingerprint ", " certificateSubjectAltNames
+Read out of the certificate when it was stored.
+.I certificateFingerprint
+is what somebody compares against when asked whether to trust a
+self-signed one.
+.TP
+.I certificateGenerated
+Whether euclid minted this itself because the listener needed something
+to start with, rather than being given one. Callers reject a self-signed
+certificate until they are told to trust it, so which of the two this is
+decides whether the port works for anybody who has not been told about
+it. Replace one with
+.BR euclid-cli-ekm-import-certificate (1)
+under the same name.
+.TP
+.IR certificateNotBefore ", " certificateNotAfter ", " certificateExpired
+The validity period, and whether it has passed.
+.I certificateExpired
+is what answers "is this port about to stop working" \- an expired
+certificate is only reported, never refused, so the port keeps serving
+the callers whose clients do not check while a replacement is fetched.
+.SH EXIT STATUS
+.TP
+.B 0
+The call succeeded, including when the gateway has no usable listener at
+all. The listeners are printed as JSON.
+.TP
+.B 1
+No administrator session, or the server rejected the request.
+.SH EXAMPLES
+Show what the gateway is serving and on what:
+.PP
+.RS
+.nf
+euclid-cli eag list-listeners
+.fi
+.RE
+.PP
+Find the HTTPS ports still on a certificate euclid generated for itself:
+.PP
+.RS
+.nf
+euclid-cli eag list-listeners \e
+    | jq '.listeners[] | select(.certificateGenerated == true)'
+.fi
+.RE
+.PP
+Check what is about to expire:
+.PP
+.RS
+.nf
+euclid-cli eag list-listeners \e
+    | jq '.listeners[] | {port, certificate, certificateNotAfter}'
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eag (1),
+.BR euclid-cli-eag-list-routes (1),
+.BR euclid-cli-ekm-list-certificates (1),
+.BR euclid-cli-ekm-import-certificate (1),
+.BR euclid-cli-ekm-create-certificate (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

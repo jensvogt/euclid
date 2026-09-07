@@ -157,6 +157,18 @@ namespace Euclid::EAG {
          */
         void stop();
 
+        /**
+         * @brief Whether the ports are actually bound and answering.
+         *
+         * @par
+         * Not the same question as "was a listener configured": binding fails when a port is
+         * taken or a certificate cannot be loaded, and the module keeps running so that the route
+         * table can still be managed. Something asking what the gateway serves needs to be told
+         * the difference.
+         */
+        [[nodiscard]]
+        bool serving() const { return _running.load(); }
+
     private:
 
         /**

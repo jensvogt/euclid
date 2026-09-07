@@ -95,6 +95,16 @@ namespace Euclid::CLI {
         int deleteRoute(const std::vector<std::string> &args) const;
 
         /**
+         * @brief Lists the ports the gateway answers on, what each speaks, and the certificate an
+         * HTTPS one serves.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int listListeners(const std::vector<std::string> &args) const;
+
+        /**
          * @brief Euclid endpoint
          */
         std::string _endpoint;
