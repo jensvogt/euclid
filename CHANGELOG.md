@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.75](https://github.com/jensvogt/euclid/compare/v1.0.74...v1.0.75) (2026-09-07)
+
+
+### Bug Fixes
+
+* logging channels ([3dc70fc](https://github.com/jensvogt/euclid/commit/3dc70fc44236448f302fb9379aae2d834ca2338e))
+
 ## [1.0.74](https://github.com/jensvogt/euclid/compare/1.0.73...v1.0.74) (2026-09-07)
 
 
