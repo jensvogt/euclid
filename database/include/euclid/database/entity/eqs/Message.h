@@ -126,7 +126,6 @@ namespace Euclid::Database::Entity::EQS {
          */
         std::string receiptHandle;
 
-
         /**
          * @brief List of message attributes.
          *
@@ -134,6 +133,25 @@ namespace Euclid::Database::Entity::EQS {
          */
         std::map<std::string, COM::Variant> attributes;
 
+        /**
+         * @brief Euclid's own attributes, carried across every hop and never mixed into the
+         * user's.
+         *
+         * @par
+         * The envelope, as opposed to the contents. Something that decides work is urgent, or that
+         * gives it a correlation id, has to be able to say so where the fact survives being written
+         * to a bucket and read back out as a queue message - and a bucket has no notion of urgency
+         * of its own. Without somewhere to put it, that decision has to be smuggled through the one
+         * thing that does travel, which is why a key prefix like "LowPriority/" ends up encoding
+         * something that is not about the key at all.
+         *
+         * @par
+         * Kept apart from the user's attributes rather than reserving names inside them: a caller
+         * listing or setting attributes sees only its own, so euclid can add a system attribute
+         * later without colliding with something somebody already stores, and a user attribute
+         * called "priority" means nothing to euclid.
+         */
+        std::map<std::string, COM::Variant> systemAttributes;
 
         /**
          * @brief Content type

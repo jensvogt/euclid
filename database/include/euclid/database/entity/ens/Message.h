@@ -82,6 +82,13 @@ namespace Euclid::Database::Entity::ENS {
          */
         std::map<std::string, COM::Variant> attributes;
 
+        /**
+         * @brief Euclid's own attributes, carried across every hop and never mixed into the
+         * user's - see Entity::EQS::Message::systemAttributes. A topic in the middle of a chain
+         * must not be where the envelope stops.
+         */
+        std::map<std::string, COM::Variant> systemAttributes;
+
 
         /**
          * @brief Content type
