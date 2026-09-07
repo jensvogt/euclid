@@ -111,7 +111,10 @@ Switch a single call with `--signature sigv4`, or an installation with `euclid.c
   and their ports change, so nothing outside can be told where to send a request. Each route decides what it requires of
   a caller - nothing, a euclid credential, or HTTP Basic against a euclid password, which is the one that makes a browser
   prompt. A route may also name a euclid module and one of its actions, which is how something outside reaches
-  `eam login` without a second port to talk to.
+  `eam login` without a second port to talk to. Each of its listeners says what it speaks - `"protocol": "http"` or
+  `"https"` - and an HTTPS one terminates TLS itself with a certificate held by EKM (`euclid-cli ekm import-certificate`),
+  generating a self-signed one if it has not been given any, so an installation can serve HTTPS before anybody has bought
+  it a certificate.
 - **Storage** - `euclid.database.backend` selects `mongodb` (persistent) or
   `memory` (in-process, wiped on restart).
 - **CLI** (`euclid-cli`) - talks to the gateway over HTTPS; credentials are cached under `$HOME/.euclid/credentials`
@@ -237,7 +240,9 @@ Every process reads the same JSON config (`--config <path>`, default
 | `euclid.database.backend`                     | mongodb | `mongodb` or `memory`             |
 | `euclid.modules.eqs.priority-weights`         | 4:2:1   | HIGH:MIDDLE:LOW receive weighting |
 | `euclid.modules.eag.port`                     | 8080    | API gateway listener; ignored when `listeners` is set |
-| `euclid.modules.eag.listeners`                | (none)  | One port per namespace, keyed by namespace - for an installation serving more than one environment |
+| `euclid.modules.eag.listeners`                | (none)  | One listener per namespace, keyed by namespace - for an installation serving more than one environment. Each takes `port`, and optionally `protocol` (`http`/`https`) and `certificate` |
+| `euclid.modules.eag.protocol`                 | http    | What the single listener speaks, when `listeners` is not set |
+| `euclid.modules.eag.certificate`              | (none)  | Name of the EKM certificate an HTTPS listener serves; a self-signed one is generated under that name if it does not exist |
 | `euclid.modules.eag.basic-auth-cache-seconds` | 60      | How long a verified Basic credential stays verified; 0 checks every request |
 | `euclid.modules.eap.http-port-min` / `-max`   | 9000 / 9999 | Range the manager hands application instances their own HTTP port from |
 

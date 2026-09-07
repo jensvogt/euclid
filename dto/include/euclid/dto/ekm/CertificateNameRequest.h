@@ -1,0 +1,52 @@
+//
+// Created by vogje01 on 9/7/26.
+//
+
+#pragma once
+
+// Euclid includes
+#include <euclid/core/JsonUtils.h>
+
+namespace Euclid::Dto::EKM {
+
+    /**
+     * @brief Names one certificate, for the actions that need nothing else: get-certificate and
+     * delete-certificate.
+     */
+    struct CertificateNameRequest {
+
+        /**
+         * @brief Certificate name, within the caller's own account and namespace
+         */
+        std::string name;
+
+        /**
+         * @brief Serializes this request to a JSON string
+         */
+        [[nodiscard]] std::string toJson() const {
+            return boost::json::serialize(boost::json::value_from(*this));
+        }
+
+        /**
+         * @brief Deserializes this request from a JSON string
+         */
+        [[nodiscard]] static CertificateNameRequest fromJson(const std::string &json) {
+            return boost::json::value_to<CertificateNameRequest>(Core::ParseJsonString(json));
+        }
+
+    private:
+
+        friend CertificateNameRequest tag_invoke(boost::json::value_to_tag<CertificateNameRequest>, boost::json::value const &v) {
+            CertificateNameRequest r;
+            r.name = Core::GetStringValue(v, "name");
+            return r;
+        }
+
+        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, CertificateNameRequest const &obj) {
+            jv = {
+                    {"name", obj.name},
+            };
+        }
+    };
+
+}// namespace Euclid::Dto::EKM

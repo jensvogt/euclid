@@ -103,6 +103,26 @@ namespace Euclid::EAG {
             return std::nullopt;
         }
 
+        // A listener's string-valued property: empty when it is absent, and nothing at all when it
+        // is present but is not a string. The two have to be told apart - "protocol" left out is a
+        // listener that speaks HTTP, while "protocol": 443 is a mistake, and treating the mistake
+        // as the default would publish in clear text a port whose author was clearly thinking
+        // about TLS.
+        std::optional<std::string> stringProperty(const std::map<std::string, Core::ConfigValue> &properties, const std::string &key) {
+            const auto it = properties.find(key);
+            if (it == properties.end()) return std::string{};
+            if (const auto *value = std::get_if<std::string>(&it->second)) return *value;
+            return std::nullopt;
+        }
+
+        // A listener's number-valued property, or nothing when it is absent or is not a number.
+        std::optional<long> numberProperty(const std::map<std::string, Core::ConfigValue> &properties, const std::string &key) {
+            const auto it = properties.find(key);
+            if (it == properties.end()) return std::nullopt;
+            if (const auto *value = std::get_if<long>(&it->second)) return *value;
+            return std::nullopt;
+        }
+
         boost::json::object toJson(const Route &route) {
             return {
                     {"routeId", route.routeId},
@@ -433,23 +453,62 @@ namespace Euclid::EAG {
         // A production installation is usually its own euclid with one namespace and wants none of
         // this, which is why the bare "port" still works and means a listener that serves every
         // route whatever namespace it names.
+        // Each listener also says what it speaks - "protocol": "http" or "https" - and, when it
+        // speaks HTTPS, which certificate it serves. Both are optional: a listener that says
+        // nothing is the plain HTTP one it was before either existed.
         std::vector<ProxyServer::Listener> listeners;
+        bool listenersConfigured = false;
         if (constexpr auto listenerPath = "euclid.modules.eag.listeners"; configuration.has(listenerPath)) {
             try {
                 for (const auto &[nameSpace, properties]: configuration.getObjects(listenerPath)) {
-                    const auto it = properties.find("port");
-                    if (it == properties.end()) {
-                        log_error << "API gateway listener has no port and is ignored, namespace: " << nameSpace;
+                    listenersConfigured = true;
+
+                    const auto port = numberProperty(properties, "port");
+                    if (!port.has_value()) {
+                        log_error << "API gateway listener has no port, or one that is not a number, and is ignored, namespace: " << nameSpace;
                         continue;
                     }
-                    listeners.emplace_back(static_cast<unsigned short>(std::get<long>(it->second)), nameSpace);
+
+                    // Ignored rather than defaulted to HTTP when it cannot be read: a typo that
+                    // quietly published in clear text a port somebody believed was encrypted is
+                    // the one mistake here that nobody would notice until it mattered.
+                    const auto protocolName = stringProperty(properties, "protocol");
+                    const auto protocol = protocolName.has_value() ? ProtocolFromString(*protocolName) : std::nullopt;
+                    if (!protocol.has_value()) {
+                        log_error << "API gateway listener has an unusable protocol and is ignored, namespace: " << nameSpace
+                                  << ", protocol: " << protocolName.value_or("(not a string)");
+                        continue;
+                    }
+
+                    const auto certificate = stringProperty(properties, "certificate");
+                    if (!certificate.has_value()) {
+                        log_error << "API gateway listener names a certificate that is not a string and is ignored, namespace: " << nameSpace;
+                        continue;
+                    }
+                    listeners.emplace_back(static_cast<unsigned short>(*port), nameSpace, *protocol, *certificate);
                 }
             } catch (const std::exception &e) {
                 log_error << "Could not read the API gateway listeners, error: " << e.what();
+                listenersConfigured = true;
+            }
+        }
+
+        // The single unscoped listener an installation that configures none gets. Only when none
+        // were configured at all - falling back to it after a listener was refused would answer
+        // in clear text on a port that had asked for HTTPS.
+        if (listeners.empty() && !listenersConfigured) {
+            const auto protocolName = configuration.getOr<std::string>("euclid.modules.eag.protocol", "http");
+            if (const auto protocol = ProtocolFromString(protocolName); protocol.has_value()) {
+                listeners.emplace_back(static_cast<unsigned short>(configuration.getOr<long>("euclid.modules.eag.port", 8080)),
+                                       std::string(), *protocol,
+                                       configuration.getOr<std::string>("euclid.modules.eag.certificate", ""));
+            } else {
+                log_error << "Unknown API gateway protocol, no listener started, protocol: " << protocolName;
             }
         }
         if (listeners.empty()) {
-            listeners.emplace_back(static_cast<unsigned short>(configuration.getOr<long>("euclid.modules.eag.port", 8080)), std::string());
+            log_error << "The API gateway has no usable listener and will serve nothing; its routes can still be managed";
+            return;
         }
         const auto proxyThreads = static_cast<int>(configuration.getOr<long>("euclid.modules.eag.proxy-threads", 8));
         const auto refreshSeconds = configuration.getOr<long>("euclid.modules.eag.refresh-seconds", 5);

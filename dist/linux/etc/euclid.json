@@ -168,15 +168,19 @@
         "proxy-threads": 8,
         "refresh-seconds": 5,
         "basic-auth-cache-seconds": 60,
+        "protocol": "http",
         "listeners": {
           "development": {
-            "port": 8080
+            "port": 8080,
+            "protocol": "http"
           },
           "integration": {
-            "port": 8081
+            "port": 8081,
+            "protocol": "http"
           },
           "production": {
-            "port": 80
+            "port": 80,
+            "protocol": "http"
           }
         }
       }

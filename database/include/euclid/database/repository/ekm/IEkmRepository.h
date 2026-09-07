@@ -11,6 +11,7 @@
 #include <vector>
 
 // Euclid includes
+#include <euclid/database/entity/ekm/Certificate.h>
 #include <euclid/database/entity/ekm/Key.h>
 
 namespace Euclid::Database {
@@ -99,6 +100,80 @@ namespace Euclid::Database {
          * @return number of keys deleted
          */
         virtual long purgeKeysPendingDeletion() = 0;
+
+        /**
+         * @brief Inserts a new certificate or updates the one with the same account, namespace and
+         * name.
+         *
+         * @param certificate the certificate to store, including its private key
+         * @return the stored certificate
+         */
+        virtual Entity::EKM::Certificate upsertCertificate(Entity::EKM::Certificate &certificate) = 0;
+
+        /**
+         * @brief Finds a certificate by its account, namespace and name.
+         *
+         * @par
+         * How a listener resolves the certificate its configuration names - see the EAG module -
+         * so this is on the path of every gateway start-up, not only of the CLI.
+         *
+         * @param accountId account the certificate belongs to
+         * @param namespaceName namespace the certificate belongs to
+         * @param name certificate name
+         * @return the certificate if found, std::nullopt otherwise
+         */
+        [[nodiscard]]
+        virtual std::optional<Entity::EKM::Certificate> findCertificateByName(const std::string &accountId, const std::string &namespaceName, const std::string &name) const = 0;
+
+        /**
+         * @brief Finds a certificate by its ERN.
+         *
+         * @param ern ERN of the certificate
+         * @return the certificate if found, std::nullopt otherwise
+         */
+        [[nodiscard]]
+        virtual std::optional<Entity::EKM::Certificate> findCertificateByErn(const std::string &ern) const = 0;
+
+        /**
+         * @brief Lists the certificates of an account.
+         *
+         * @param accountId only certificates belonging to this account are returned
+         * @param namespaceName only certificates in this namespace are returned; empty means don't filter by namespace
+         * @param prefix only certificates whose name starts with this prefix are returned; empty matches all
+         * @param pageSize maximum number of certificates to return; 0 or less means no limit
+         * @param pageIndex zero-based page index, applied when pageSize is set
+         * @param sortColumn field to sort by (e.g. "name", "ern"); empty means unsorted
+         * @param sortDirection "asc" or "desc"; anything else is treated as "desc"
+         * @return the certificates found
+         */
+        [[nodiscard]]
+        virtual std::vector<Entity::EKM::Certificate> listCertificates(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const = 0;
+
+        /**
+         * @brief Retrieves the total number of certificates.
+         *
+         * @param accountId only certificates belonging to this account are counted
+         * @param namespaceName only certificates in this namespace are counted; empty means don't filter by namespace
+         * @param prefix only certificates whose name starts with this prefix are counted; empty means don't filter by name
+         * @return the number of certificates
+         */
+        [[nodiscard]]
+        virtual long countCertificates(const std::string &accountId, const std::string &namespaceName, const std::string &prefix = "") const = 0;
+
+        /**
+         * @brief Deletes a certificate.
+         *
+         * @par
+         * Immediately and without a grace period, unlike a key: nothing that was encrypted with it
+         * becomes unreadable, and a listener that was using it keeps the copy it loaded until it
+         * restarts.
+         *
+         * @param accountId account the certificate belongs to
+         * @param namespaceName namespace the certificate belongs to
+         * @param name certificate name
+         * @return number of certificates deleted
+         */
+        virtual long deleteCertificate(const std::string &accountId, const std::string &namespaceName, const std::string &name) = 0;
 
     };
 

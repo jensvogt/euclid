@@ -8,7 +8,9 @@
 #include <vector>
 
 // Euclid includes
+#include <euclid/database/entity/ekm/Certificate.h>
 #include <euclid/database/entity/ekm/Key.h>
+#include <euclid/dto/ekm/model/Certificate.h>
 #include <euclid/dto/ekm/model/Key.h>
 
 namespace Euclid::Dto::EKM {
@@ -41,6 +43,26 @@ namespace Euclid::Dto::EKM {
          * @return key entity ready for persistence
          */
         static Database::Entity::EKM::Key toEntity(const Key &dto);
+
+        /**
+         * @brief Maps a certificate entity to a certificate DTO.
+         *
+         * @par
+         * The private key is deliberately not carried across: the DTO has no field for it, so
+         * there is no way for a handler to answer with one by forgetting to clear it.
+         *
+         * @param entity source certificate entity from the database
+         * @return certificate DTO
+         */
+        static Certificate toDto(const Database::Entity::EKM::Certificate &entity);
+
+        /**
+         * @brief Maps a list of certificate entities to a list of certificate DTOs.
+         *
+         * @param entities source certificate entities from the database
+         * @return list of certificate DTOs
+         */
+        static std::vector<Certificate> toDto(const std::vector<Database::Entity::EKM::Certificate> &entities);
     };
 
 }// namespace Euclid::Dto::EQS

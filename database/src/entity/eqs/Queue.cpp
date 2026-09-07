@@ -21,11 +21,6 @@ namespace Euclid::Database::Entity::EQS {
             tagsDoc.append(bsoncxx::builder::basic::kvp(k, v));
         }
 
-        // bsoncxx::builder::basic::document defaultMessageAttributesDoc;
-        // for (const auto &[k, v]: defaultMessageAttributes) {
-        //     defaultMessageAttributesDoc.append(bsoncxx::builder::basic::kvp(k, v.ToDocument()));
-        // }
-
         return bsoncxx::builder::basic::make_document(
                 bsoncxx::builder::basic::kvp("region", region),
                 bsoncxx::builder::basic::kvp("accountId", accountId),
@@ -46,7 +41,6 @@ namespace Euclid::Database::Entity::EQS {
                 bsoncxx::builder::basic::kvp("internal", internal),
                 bsoncxx::builder::basic::kvp("status", QueueStatusToString(status)),
                 bsoncxx::builder::basic::kvp("tags", tagsDoc.extract()));
-        // bsoncxx::builder::basic::kvp("defaultMessageAttributes", defaultMessageAttributesDoc.extract()));
     }
 
     Queue Queue::fromDocument(const std::optional<bsoncxx::document::view> &document) {
@@ -60,8 +54,6 @@ namespace Euclid::Database::Entity::EQS {
             else if (key == "namespace") queue.nameSpace = std::string(field.get_string().value);
             else if (key == "owner") queue.owner = std::string(field.get_string().value);
             else if (key == "name") queue.name = std::string(field.get_string().value);
-            // Absent on every queue created before internal queues existed, which is what the
-            // default covers: those are all somebody's own.
             else if (key == "internal") queue.internal = field.get_bool().value;
             else if (key == "ern") queue.ern = std::string(field.get_string().value);
             else if (key == "size") queue.size = getBsonInt(field);
@@ -74,9 +66,6 @@ namespace Euclid::Database::Entity::EQS {
             else if (key == "maxReceiveCount") queue.maxReceiveCount = getBsonInt(field);
             else if (key == "deadLetterQueueErn") queue.deadLetterQueueErn = std::string(field.get_string().value);
             else if (key == "priority") queue.priority = MessagePriorityFromString(std::string(field.get_string().value));
-            // Absent on every queue created before the status existed, and those were all
-            // receivable - QueueStatusFromString() reads a missing or unrecognised value as
-            // AVAILABLE for exactly that reason.
             else if (key == "status") queue.status = QueueStatusFromString(std::string(field.get_string().value));
             else if (key == "created") queue.created = system_clock::time_point{field.get_date().value};
             else if (key == "modified") queue.modified = system_clock::time_point{field.get_date().value};

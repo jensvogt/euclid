@@ -2,6 +2,10 @@
 // Created by vogje01 on 9/5/26.
 //
 
+// C++ includes
+#include <algorithm>
+#include <cctype>
+
 // Boost includes
 #include <boost/asio/connect.hpp>
 #include <boost/asio/ssl.hpp>
@@ -9,6 +13,7 @@
 #include <boost/beast/ssl.hpp>
 
 // Euclid includes
+#include <ListenerCertificate.h>
 #include <ProxyServer.h>
 #include <euclid/core/Configuration.h>
 #include <euclid/core/HttpActionServer.h>
@@ -45,6 +50,17 @@ namespace Euclid::EAG {
 
     }// namespace
 
+    std::optional<Protocol> ProtocolFromString(std::string protocol) {
+        std::ranges::transform(protocol, protocol.begin(), [](const unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (protocol.empty() || protocol == "http") return Protocol::HTTP;
+        if (protocol == "https") return Protocol::HTTPS;
+        return std::nullopt;
+    }
+
+    std::string ProtocolToString(const Protocol protocol) {
+        return protocol == Protocol::HTTPS ? "https" : "http";
+    }
+
     ProxyServer::ProxyServer(std::vector<Listener> listeners, const int threads, const long refreshSeconds,
                              const long basicAuthCacheSeconds, const unsigned short euclidGatewayPort,
                              const bool euclidGatewayTls, const std::string &euclidGatewayCert)
@@ -73,7 +89,10 @@ namespace Euclid::EAG {
         }
 
         // Bound in the constructor, so a port already in use is a failure the module reports at
-        // start-up rather than one that shows as a listener nobody can reach.
+        // start-up rather than one that shows as a listener nobody can reach. The certificate of
+        // an HTTPS listener is loaded here for the same reason: a port that cannot terminate TLS
+        // has nothing to offer a caller, and finding that out now beats finding it out one failed
+        // handshake at a time.
         for (const auto &listener: _listeners) {
             const tcp::endpoint endpoint{tcp::v4(), listener.port};
             auto &acceptor = _acceptors.emplace_back(_ioc);
@@ -81,6 +100,10 @@ namespace Euclid::EAG {
             acceptor.set_option(asio::socket_base::reuse_address(true));
             acceptor.bind(endpoint);
             acceptor.listen(asio::socket_base::max_listen_connections);
+
+            _serverContexts.push_back(listener.protocol == Protocol::HTTPS
+                                              ? LoadListenerCertificate(listener.certificate, listener.nameSpace)
+                                              : nullptr);
         }
     }
 
@@ -114,7 +137,7 @@ namespace Euclid::EAG {
         std::string listening;
         for (const auto &listener: _listeners) {
             if (!listening.empty()) listening += ", ";
-            listening += std::to_string(listener.port);
+            listening += ProtocolToString(listener.protocol) + ":" + std::to_string(listener.port);
             if (!listener.nameSpace.empty()) listening += " (" + listener.nameSpace + ")";
         }
         log_info << "API gateway listening on " << listening << ", threads: " << _threads
@@ -158,44 +181,58 @@ namespace Euclid::EAG {
             // The namespace comes from the port the connection arrived on, which is the whole
             // point of having several: it says which environment was meant without the caller
             // having to put it in the URL.
-            serve(std::move(socket), _listeners[index].nameSpace);
+            serve(std::move(socket), index);
             if (_running.load()) accept(index);
         });
     }
 
-    void ProxyServer::serve(tcp::socket socket, const std::string &nameSpace) {
+    void ProxyServer::serve(tcp::socket socket, const std::size_t index) {
 
         // One exchange per connection for now: read a request, answer it, close. Keep-alive and
         // pipelining are what a busy gateway wants, and are the natural next step once this is
         // carrying real traffic.
-        auto stream = std::make_shared<beast::tcp_stream>(std::move(socket));
+        const auto &context = _serverContexts[index];
+        auto stream = context ? std::make_shared<ClientStream>(std::move(socket), context)
+                              : std::make_shared<ClientStream>(std::move(socket));
         auto buffer = std::make_shared<beast::flat_buffer>();
         auto request = std::make_shared<http::request<http::string_body> >();
+        const auto nameSpace = _listeners[index].nameSpace;
 
-        stream->expires_after(kBackendTimeout);
-        http::async_read(*stream, *buffer, *request,
-                         [this, stream, buffer, request, nameSpace](const beast::error_code &ec, std::size_t) {
-                             if (ec) {
-                                 if (ec != http::error::end_of_stream) log_debug << "API gateway read failed: " << ec.message();
-                                 return;
-                             }
-                             route(nameSpace, stream, request);
-                         });
+        stream->ExpiresAfter(kBackendTimeout);
+
+        // Unconditional, because a plain connection is simply one whose handshake is already
+        // done - see ClientStream::Handshake. What follows is then the same either way.
+        stream->Handshake([this, stream, buffer, request, nameSpace, index](const beast::error_code &handshakeEc) {
+            if (handshakeEc) {
+                // Ordinary on a public port: a caller speaking plain HTTP to it, a client with no
+                // protocol version in common, or a scanner. Debug rather than warning, or the log
+                // becomes a record of everything on the internet that ever knocked.
+                log_debug << "TLS handshake failed on port " << _listeners[index].port << ": " << handshakeEc.message();
+                return;
+            }
+            stream->ExpiresAfter(kBackendTimeout);
+            stream->AsyncRead(*buffer, *request, [this, stream, buffer, request, nameSpace](const beast::error_code &ec) {
+                if (ec) {
+                    if (ec != http::error::end_of_stream) log_debug << "API gateway read failed: " << ec.message();
+                    return;
+                }
+                route(nameSpace, stream, request);
+            });
+        });
     }
 
 
-    void ProxyServer::respond(const std::shared_ptr<beast::tcp_stream> &stream,
+    void ProxyServer::respond(const std::shared_ptr<ClientStream> &stream,
                               const std::shared_ptr<http::response<http::string_body> > &response) {
 
-        http::async_write(*stream, *response, [stream, response](const beast::error_code &ec, std::size_t) {
+        stream->AsyncWrite(*response, [stream, response](const beast::error_code &ec) {
             if (ec) log_debug << "API gateway write failed: " << ec.message();
-            beast::error_code ignored;
-            stream->socket().shutdown(tcp::socket::shutdown_send, ignored);
+            stream->Close();
         });
     }
 
     void ProxyServer::route(const std::string &nameSpace,
-                            const std::shared_ptr<beast::tcp_stream> &stream,
+                            const std::shared_ptr<ClientStream> &stream,
                             const std::shared_ptr<http::request<http::string_body> > &request) {
 
         const auto path = pathOf(std::string(request->target()));
@@ -310,17 +347,20 @@ namespace Euclid::EAG {
     // for a module route - the target and action the route names. Shared so the plain and TLS
     // paths cannot drift apart about what they forward.
     static std::shared_ptr<http::request<http::string_body> > forwardedRequest(
-            const std::shared_ptr<beast::tcp_stream> &stream,
+            const std::shared_ptr<ClientStream> &stream,
             const std::shared_ptr<http::request<http::string_body> > &request,
             const int port, const std::string &euclidTarget, const std::string &euclidAction) {
 
         auto forwarded = std::make_shared<http::request<http::string_body> >(*request);
         forwarded->set(http::field::host, "127.0.0.1:" + std::to_string(port));
-        forwarded->set("X-Forwarded-Proto", "http");
 
-        beast::error_code peerEc;
-        if (const auto peer = stream->socket().remote_endpoint(peerEc); !peerEc) {
-            forwarded->set("X-Forwarded-For", peer.address().to_string());
+        // What the caller spoke, not what this hop speaks. An application that builds an absolute
+        // URL - a redirect, a link in a response - would otherwise send an https caller back to
+        // itself over http, and a browser that followed it would report the downgrade.
+        forwarded->set("X-Forwarded-Proto", stream->IsTls() ? "https" : "http");
+
+        if (const auto peer = stream->RemoteEndpoint(); peer.has_value()) {
+            forwarded->set("X-Forwarded-For", peer->address().to_string());
         }
 
         // Which module and which action, for a route that names one. Set here rather than expected
@@ -335,7 +375,7 @@ namespace Euclid::EAG {
         return forwarded;
     }
 
-    void ProxyServer::proxyToTls(const std::shared_ptr<beast::tcp_stream> &stream,
+    void ProxyServer::proxyToTls(const std::shared_ptr<ClientStream> &stream,
                                  const std::shared_ptr<http::request<http::string_body> > &request,
                                  const int port, const std::string &routeId,
                                  const std::string &euclidTarget, const std::string &euclidAction) {
@@ -399,7 +439,7 @@ namespace Euclid::EAG {
         });
     }
 
-    void ProxyServer::proxyTo(const std::shared_ptr<beast::tcp_stream> &stream,
+    void ProxyServer::proxyTo(const std::shared_ptr<ClientStream> &stream,
                               const std::shared_ptr<http::request<http::string_body> > &request,
                               const int port, const std::string &routeId,
                               const std::string &euclidTarget, const std::string &euclidAction) {

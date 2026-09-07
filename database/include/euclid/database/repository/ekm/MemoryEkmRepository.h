@@ -15,6 +15,7 @@
 // Euclid includes
 #include <euclid/core/LogStream.h>
 #include <euclid/core/UuidUtils.h>
+#include <euclid/database/entity/ekm/Certificate.h>
 #include <euclid/database/entity/ekm/Key.h>
 #include <euclid/database/repository/ekm/IEkmRepository.h>
 
@@ -445,10 +446,92 @@ namespace Euclid::Database {
         //     return resetCount;
         // }
 
+        Entity::EKM::Certificate upsertCertificate(Entity::EKM::Certificate &certificate) override {
+            std::lock_guard lock(_mutex);
+
+            // Keyed by what makes a certificate the same certificate, so importing a renewed one
+            // under the name a listener already uses replaces it rather than leaving two.
+            const auto key = certificateKey(certificate.accountId, certificate.nameSpace, certificate.name);
+            if (const auto it = _certificateStore.find(key); it != _certificateStore.end()) {
+                certificate.oid = it->second.oid;
+                certificate.created = it->second.created;
+            } else if (certificate.oid.empty()) {
+                certificate.oid = Core::UuidUtils::CreateRandomUuid();
+            }
+            certificate.modified = std::chrono::system_clock::now();
+            _certificateStore[key] = certificate;
+            return certificate;
+        }
+
+        std::optional<Entity::EKM::Certificate> findCertificateByName(const std::string &accountId, const std::string &namespaceName, const std::string &name) const override {
+            std::lock_guard lock(_mutex);
+            const auto it = _certificateStore.find(certificateKey(accountId, namespaceName, name));
+            if (it == _certificateStore.end()) return std::nullopt;
+            return it->second;
+        }
+
+        std::optional<Entity::EKM::Certificate> findCertificateByErn(const std::string &ern) const override {
+            std::lock_guard lock(_mutex);
+            for (const auto &certificate: _certificateStore | std::views::values) {
+                if (certificate.ern == ern) return certificate;
+            }
+            return std::nullopt;
+        }
+
+        std::vector<Entity::EKM::Certificate> listCertificates(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const override {
+            std::lock_guard lock(_mutex);
+
+            std::vector<Entity::EKM::Certificate> result;
+            for (const auto &certificate: _certificateStore | std::views::values) {
+                if (certificate.accountId != accountId) continue;
+                if (!namespaceName.empty() && certificate.nameSpace != namespaceName) continue;
+                if (prefix.empty() || certificate.name.starts_with(prefix)) {
+                    result.push_back(certificate);
+                }
+            }
+
+            if (sortColumn == "name") {
+                std::ranges::sort(result, {}, &Entity::EKM::Certificate::name);
+            } else if (sortColumn == "ern") {
+                std::ranges::sort(result, {}, &Entity::EKM::Certificate::ern);
+            } else if (sortColumn == "notAfter") {
+                std::ranges::sort(result, {}, &Entity::EKM::Certificate::notAfter);
+            }
+            if (sortDirection != "asc" && !sortColumn.empty()) std::ranges::reverse(result);
+
+            if (pageSize > 0) {
+                const auto offset = std::min<size_t>(std::max<long>(pageIndex, 0) * pageSize, result.size());
+                const auto end = std::min<size_t>(offset + pageSize, result.size());
+                result = std::vector(result.begin() + static_cast<long>(offset), result.begin() + static_cast<long>(end));
+            }
+            return result;
+        }
+
+        long countCertificates(const std::string &accountId, const std::string &namespaceName, const std::string &prefix) const override {
+            std::lock_guard lock(_mutex);
+            return std::ranges::count_if(_certificateStore | std::views::values, [&](const auto &certificate) {
+                return certificate.accountId == accountId
+                       && (namespaceName.empty() || certificate.nameSpace == namespaceName)
+                       && (prefix.empty() || certificate.name.starts_with(prefix));
+            });
+        }
+
+        long deleteCertificate(const std::string &accountId, const std::string &namespaceName, const std::string &name) override {
+            std::lock_guard lock(_mutex);
+            return static_cast<long>(_certificateStore.erase(certificateKey(accountId, namespaceName, name)));
+        }
+
     private:
+
+        // A certificate is identified by account, namespace and name together - the same triple
+        // the MongoDB repository keeps its unique index on.
+        static std::string certificateKey(const std::string &accountId, const std::string &namespaceName, const std::string &name) {
+            return accountId + "/" + namespaceName + "/" + name;
+        }
 
         mutable std::mutex _mutex;
         std::unordered_map<std::string, Entity::EKM::Key> _keyStore;
+        std::unordered_map<std::string, Entity::EKM::Certificate> _certificateStore;
     };
 
 }// namespace Euclid::Database

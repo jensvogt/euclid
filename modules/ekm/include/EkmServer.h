@@ -5,6 +5,7 @@
 #include <boost/beast/http.hpp>
 
 // Euclid includes
+#include <euclid/core/CertificateUtils.h>
 #include <euclid/core/CryptoUtils.h>
 #include <euclid/core/DateTimeUtils.h>
 #include <euclid/core/ErnUtils.h>
@@ -15,12 +16,20 @@
 #include <euclid/core/monitoring/MonitoringTimer.h>
 #include <euclid/database/EventBus.h>
 #include <euclid/database/RepositoryFactory.h>
+#include <euclid/database/entity/ekm/Certificate.h>
 #include <euclid/database/entity/ekm/Key.h>
 #include <euclid/dto/BaseDto.h>
 #include <euclid/dto/ekm/AddKeyTagRequest.h>
+#include <euclid/dto/ekm/CertificateNameRequest.h>
+#include <euclid/dto/ekm/CertificateResponse.h>
+#include <euclid/dto/ekm/CreateCertificateRequest.h>
 #include <euclid/dto/ekm/CreateKeyRequest.h>
 #include <euclid/dto/ekm/CreateKeyResponse.h>
+#include <euclid/dto/ekm/DeleteCertificateResponse.h>
 #include <euclid/dto/ekm/DeleteKeyRequest.h>
+#include <euclid/dto/ekm/ImportCertificateRequest.h>
+#include <euclid/dto/ekm/ListCertificatesRequest.h>
+#include <euclid/dto/ekm/ListCertificatesResponse.h>
 #include <euclid/dto/ekm/DeleteKeyResponse.h>
 #include <euclid/dto/ekm/DeleteKeyTagRequest.h>
 #include <euclid/dto/ekm/ListKeysRequest.h>

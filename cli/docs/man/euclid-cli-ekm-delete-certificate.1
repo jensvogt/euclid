@@ -1,0 +1,48 @@
+.TH EUCLID-CLI-EKM-DELETE-CERTIFICATE 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ekm-delete-certificate \- delete a certificate
+.SH SYNOPSIS
+.B euclid-cli ekm delete-certificate
+.BR \-\-name | \-n
+.I NAME
+.SH DESCRIPTION
+Deletes a certificate and its private key, immediately and without a
+grace period.
+.PP
+Unlike
+.BR euclid-cli-ekm-delete-key (1),
+there is nothing to lose by acting at once: no data becomes
+unreadable. An API gateway listener already serving the certificate
+keeps the copy it loaded until it is restarted, and generates a new
+self-signed one if it restarts and finds none \- so a listener is never
+left with nothing to answer with, though its callers will be shown a
+certificate nobody has vouched for until a real one is imported under
+the same name.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+Certificate name, within the caller's own account and namespace.
+Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The certificate was deleted; its name and ERN are printed as JSON.
+.TP
+.B 1
+No certificate of that name exists, the server could not be reached, or
+it rejected the request.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint https://localhost:5566 ekm delete-certificate \e
+    --name eag-development
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ekm (1),
+.BR euclid-cli-ekm-create-certificate (1),
+.BR euclid-cli-ekm-import-certificate (1),
+.BR euclid-cli-ekm-list-certificates (1),
+.BR euclid-cli-ekm-get-certificate (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
