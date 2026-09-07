@@ -147,4 +147,24 @@ namespace Euclid::Database {
         }
     }
 
+    bool MongoEapRepository::setApplicationLogLevel(const std::string &applicationId, const std::string &logLevel) {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+
+            // One field, by hand, rather than through upsertApplication(): that writes the whole
+            // document and stamps "modified", which the manager compares against the revision the
+            // running instances were started with - so saving a log level through it would restart
+            // the application.
+            const auto result = collection.update_one(make_document(kvp("applicationId", applicationId)).view(),
+                                                      make_document(kvp("$set", make_document(kvp("logLevel", logLevel)))).view());
+            return result && result->matched_count() > 0;
+
+        } catch (const std::exception &e) {
+            log_error << "Set application log level failed, applicationId: " << applicationId << ", error: " << e.what();
+        }
+        return false;
+    }
+
 }// namespace Euclid::Database

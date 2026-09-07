@@ -246,6 +246,8 @@ Every process reads the same JSON config (`--config <path>`, default
 | `euclid.gateway.websocket.idle-timeout-seconds` | 300         | Websocket ping/pong idle timeout                                                                                                                                                        |
 | `euclid.gateway.event-socket-path`              | (none)      | Unix domain socket modules push business events to, for websocket clients (`Core::EventPusher`)                                                                                         |
 | `euclid.database.backend`                       | mongodb     | `mongodb` or `memory`                                                                                                                                                                   |
+| `euclid.logging.level`                          | info        | Level every channel logs at unless it says otherwise                                                                                                                                    |
+| `euclid.logging.channels`                       | (none)      | Per-channel levels, e.g. `{"app.parser": "off"}` - see [Logging channels](#logging-channels)                                                                                            |
 | `euclid.modules.eqs.priority-weights`           | 4:2:1       | HIGH:MIDDLE:LOW receive weighting                                                                                                                                                       |
 | `euclid.modules.eag.port`                       | 8080        | API gateway listener; ignored when `listeners` is set                                                                                                                                   |
 | `euclid.modules.eag.listeners`                  | (none)      | One listener per namespace, keyed by namespace - for an installation serving more than one environment. Each takes `port`, and optionally `protocol` (`http`/`https`) and `certificate` |
@@ -253,6 +255,59 @@ Every process reads the same JSON config (`--config <path>`, default
 | `euclid.modules.eag.certificate`                | (none)      | Name of the EKM certificate an HTTPS listener serves; a self-signed one is generated under that name if it does not exist                                                               |
 | `euclid.modules.eag.basic-auth-cache-seconds`   | 60          | How long a verified Basic credential stays verified; 0 checks every request                                                                                                             |
 | `euclid.modules.eap.http-port-min` / `-max`     | 9000 / 9999 | Range the manager hands application instances their own HTTP port from                                                                                                                  |
+
+### Logging channels
+
+Every log record carries a channel: the name of what produced it. A module logs on its own name
+(`esm`, `eag`, `mgr`), and output the manager reads back from a process it started is logged on that
+process's channel - `app.<applicationId>` for an application, `module.<name>` for a euclid module.
+Each channel can be given its own level, or turned off, so one talkative application does not bury
+everything euclid itself has to say:
+
+```json
+"logging": {
+  "level": "info",
+  "channels": {
+    "app": "warning",        // every application euclid runs
+    "app.parser": "off",     // except this one, which says nothing at all
+    "esm": "debug"           // while ESM is being looked at
+  }
+}
+```
+
+A channel with no entry of its own follows the nearest enclosing one - `app` covers `app.parser`
+without naming it - and `euclid.logging.level` if none of them says anything. `off` silences a
+channel entirely, whatever the severity.
+
+Application and module output defaults to `info` rather than following `euclid.logging.level`,
+because it used to bypass the log machinery altogether and was printed whatever the level was;
+turning the installation down to `warning` should not silently take an application's own logging
+with it.
+
+The levels are re-read on `SIGUSR1`, so they can be changed on a running installation without
+restarting anything:
+
+```bash
+sudo -e /usr/local/euclid/etc/euclid.json
+sudo pkill -USR1 '^euclid-'
+```
+
+(Matching on the process name rather than `pkill -f` on the full command line: a `-f` pattern also
+matches the `sudo` invocation carrying it, which then takes the signal and dies.)
+
+Nothing else in the file is acted on by that signal. (The manager's `SIGHUP` still means "restart
+every module", which is not a price worth paying to turn down a log.)
+
+A single application can also be turned down without touching the file at all:
+
+```bash
+euclid-cli eap set-log-level --application-id parser --level off
+euclid-cli eap set-log-level --application-id parser --level default   # and back
+```
+
+The level is stored on the application row and applied by the manager on its next reconcile, within
+seconds. It restarts nothing: a log level is deliberately not part of what the manager treats as a
+change of definition, so silencing a noisy application does not bounce its instances.
 
 ---
 

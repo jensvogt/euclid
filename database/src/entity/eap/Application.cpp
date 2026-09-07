@@ -55,6 +55,7 @@ namespace Euclid::Database::Entity::EAP {
                 bsoncxx::builder::basic::kvp("maxInstances", static_cast<std::int64_t>(maxInstances)),
                 bsoncxx::builder::basic::kvp("readyTimeoutMs", static_cast<std::int64_t>(readyTimeoutMs)),
                 bsoncxx::builder::basic::kvp("desiredState", ApplicationStateToString(desiredState)),
+                bsoncxx::builder::basic::kvp("logLevel", logLevel),
                 bsoncxx::builder::basic::kvp("created", bsoncxx::types::b_date(created)),
                 bsoncxx::builder::basic::kvp("modified", bsoncxx::types::b_date(modified)));
     }
@@ -91,6 +92,7 @@ namespace Euclid::Database::Entity::EAP {
             else if (key == "maxInstances") application.maxInstances = getBsonInt(field);
             else if (key == "readyTimeoutMs") application.readyTimeoutMs = getBsonInt(field);
             else if (key == "desiredState") application.desiredState = ApplicationStateFromString(std::string(field.get_string().value));
+            else if (key == "logLevel") application.logLevel = std::string(field.get_string().value);
             else if (key == "created") application.created = std::chrono::system_clock::time_point{field.get_date().value};
             else if (key == "modified") application.modified = std::chrono::system_clock::time_point{field.get_date().value};
         }

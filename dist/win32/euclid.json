@@ -204,7 +204,11 @@
       "console-active": false,
       "level": "info",
       "dir": "C:\\Program Files\\euclid\\log",
-      "prefix": "euclid"
+      "prefix": "euclid",
+      "channels": {
+        "app": "info",
+        "module": "info"
+      }
     },
     "eventbus": {
       "notify-interval-ms": 100,

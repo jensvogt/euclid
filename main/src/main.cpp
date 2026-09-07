@@ -142,6 +142,21 @@ static void handleShutdown() {
 
 static void handleReload() { if (g_ctrl) g_ctrl->restartAll(); }
 
+// Re-reads the configuration file and applies euclid.logging.level and
+// euclid.logging.channels from it. Nothing else in the file is acted on: the point is to be able
+// to silence a talkative application - or turn a channel up to debug while something is going
+// wrong - on a running installation, without restarting anything or losing what is in flight.
+static void handleLogReload() {
+    try {
+        Euclid::Core::Configuration::instance().reload();
+    } catch (const std::exception &e) {
+        log_error << "Could not re-read the configuration, keeping the current log levels, error: " << e.what();
+        return;
+    }
+    Euclid::Core::LogStream::ApplyConfiguration();
+    log_info << "Log levels reloaded, level: " << Euclid::Core::LogStream::GetSeverity();
+}
+
 namespace po = boost::program_options;
 
 #if defined(_WIN32)
@@ -231,6 +246,11 @@ static void setupSignals() {
     sigaction(SIGTERM, &sa, nullptr);
     sigaction(SIGHUP, &sa, nullptr);
     sigaction(SIGINT, &sa, nullptr);// Ctrl-C in a foreground terminal
+
+    // Re-reads the configuration file and applies the log levels in it, and nothing else -
+    // see handleLogReload(). Its own signal rather than SIGHUP's, because SIGHUP restarts
+    // every module, which is not a price anybody should pay for turning down a log.
+    sigaction(SIGUSR1, &sa, nullptr);
 #endif
 }
 
@@ -254,6 +274,9 @@ static void signalDispatchLoop() {
                 break;
             case SIGHUP:
                 handleReload();
+                break;
+            case SIGUSR1:
+                handleLogReload();
                 break;
             default: ;
         }
@@ -588,7 +611,12 @@ static int RunManager(const CliOptions &opts, [[maybe_unused]] const bool report
     // Initialize logging ─────────────────────────────
     const auto &cfg = Euclid::Core::Configuration::instance();
     Euclid::Core::LogStream::Initialize();
-    Euclid::Core::LogStream::SetSeverity(cfg.getOr<std::string>("euclid.logging.level", "info"));
+
+    // The manager logs on its own channel, and the processes it starts log on theirs
+    // ("app.<name>", "module.<name>") - so an application that will not stop talking can be turned
+    // down without turning down the manager that is supervising it. See euclid.logging.channels.
+    Euclid::Core::LogStream::SetProcessChannel("mgr");
+    Euclid::Core::LogStream::ApplyConfiguration("info");
 
     // After logging is up, so the limit it settles on is visible, and before anything opens a
     // descriptor in earnest.

@@ -56,6 +56,11 @@ namespace Euclid::Core {
          * @brief Installs SIGTERM/SIGINT handlers, starts the server, blocks the calling
          * thread until one of those signals arrives, then stops the server.
          *
+         * @par
+         * SIGUSR1 is handled too, and does not stop anything: it re-reads the configuration file
+         * and applies the log levels in it, so a module's channels can be turned up or down while
+         * it is serving requests. Nothing else in the file is acted on.
+         *
          * Intended to be called directly from a module's main().
          *
          * @return process exit code (always 0)
@@ -85,6 +90,16 @@ namespace Euclid::Core {
         void doAccept();
 
         static void onSignal(int);
+
+        /**
+         * @brief Notes that SIGUSR1 arrived and wakes RunUntilSignal(), which does the work.
+         */
+        static void onLogReloadSignal(int);
+
+        /**
+         * @brief Re-reads the configuration file and applies the log levels in it.
+         */
+        static void reloadLogging();
 
         /**
          * @brief Service name used in log messages, e.g. "Access"

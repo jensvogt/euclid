@@ -1,0 +1,95 @@
+.TH EUCLID-CLI-EAP-SET-LOG-LEVEL 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eap-set-log-level \- turn an application's own logging up, down or off
+.SH SYNOPSIS
+.B euclid-cli eap set-log-level
+.BR \-\-application\-id | \-n
+.I NAME
+.BR \-\-level | \-l
+.I LEVEL
+.SH DESCRIPTION
+Sets the level an application's own output is logged at.
+.PP
+Whatever an application writes to standard output or standard error is
+read back by the manager and logged on a channel of its own,
+.IR app.<application\-id> ,
+verbatim. Standard error is recorded as an error and standard output as
+information, so
+.B \-\-level error
+leaves what went wrong visible while silencing the rest, and
+.B \-\-level off
+silences the application entirely.
+.PP
+It takes effect on the manager's next reconcile \- within a few seconds
+\- and restarts nothing. A log level is not a change of definition:
+unlike
+.BR euclid-cli-eap-update-application (1),
+which restarts the application because the artifact, command,
+environment and credentials a process was handed are all decided when it
+starts, this leaves every instance running and every request in flight
+alone. That is deliberate, since the reason to reach for it is usually
+that something is going wrong
+.I now
+and the log either says too little about it or so much that nothing
+else can be read.
+.PP
+The level is stored with the application, so it survives a restart of
+the installation and of the manager.
+.B \-\-level default
+takes the setting back, leaving the application under whatever
+.I euclid.logging.channels
+says \- see
+.BR euclid-cli-eap (1)
+under
+.BR "APPLICATION OUTPUT" .
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-application\-id " " \fINAME\fR
+Name of the application. Required.
+.TP
+.BR \-l ", " \-\-level " " \fILEVEL\fR
+One of \fItrace\fR, \fIdebug\fR, \fIinfo\fR, \fIwarning\fR,
+\fIerror\fR, \fIfatal\fR, \fIoff\fR, or \fIdefault\fR to take the
+setting back. Required. Anything else is refused rather than
+interpreted: a mistyped level quietly meaning \fIinfo\fR would be an
+application logging more than was asked for, and quietly meaning
+\fIoff\fR would be silence nobody asked for at all.
+.SH EXIT STATUS
+.TP
+.B 0
+The level was recorded; the application, the level and the channel it
+applies to are printed as JSON.
+.TP
+.B 1
+No application of that name exists, the level was not one, the server
+could not be reached, or the caller is not an administrator.
+.SH EXAMPLES
+Silence one application that is logging a line per request, then put it
+back:
+.PP
+.RS
+.nf
+euclid-cli --endpoint https://localhost:5566 eap set-log-level \e
+    --application-id parser --level off
+
+euclid-cli --endpoint https://localhost:5566 eap set-log-level \e
+    --application-id parser --level default
+.fi
+.RE
+.PP
+Keep only what an application writes to standard error, while it is
+misbehaving:
+.PP
+.RS
+.nf
+euclid-cli --endpoint https://localhost:5566 eap set-log-level \e
+    --application-id pim-writer --level error
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eap (1),
+.BR euclid-cli-eap-list-applications (1),
+.BR euclid-cli-eap-get-application (1),
+.BR euclid-cli-eap-update-application (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
