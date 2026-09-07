@@ -25,6 +25,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <shared_mutex>
 #include <string>
 #include <string_view>
 
@@ -294,16 +295,24 @@ namespace Euclid::Core {
          *
          * @par
          * The filter reads this for every record any thread offers, and a level changes perhaps
-         * twice in a process's life. So a reader takes a copy of the pointer and is then free of
-         * everything a writer does, and a writer builds a new table and swaps it in - no lock on
-         * the path that runs millions of times, one on the path that runs twice.
+         * twice in a process's life. So a reader copies the pointer - which is all it holds the
+         * lock for - and is then free of anything a writer does to the table afterwards, while a
+         * writer builds a new one and swaps it in. Nothing is ever modified in place, so no reader
+         * can see a half-written table.
+         *
+         * @par
+         * A shared_ptr behind a shared_mutex rather than a std::atomic<std::shared_ptr>: that
+         * specialization is C++20 and libc++ still does not have it, so on macOS the primary
+         * template is selected instead and refuses a type that is not trivially copyable. The
+         * lock costs a fraction of what opening a log record costs either way.
          */
-        static std::atomic<std::shared_ptr<const ChannelLevels> > _channelLevels;
+        static std::shared_ptr<const ChannelLevels> _channelLevels;
 
         /**
-         * @brief Serializes the writers, which have to read the current table before replacing it.
+         * @brief Guards @ref _channelLevels: shared while a reader copies the pointer, exclusive
+         * while a writer replaces it.
          */
-        static std::mutex _channelMutex;
+        static std::shared_mutex _channelMutex;
 
         /**
          * @brief The level for a channel that has none of its own.

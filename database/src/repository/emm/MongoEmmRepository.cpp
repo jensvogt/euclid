@@ -261,6 +261,28 @@ namespace Euclid::Database {
         return false;
     }
 
+    bool MongoEmmRepository::setLogLevel(const std::string &name, const std::string &logLevel) {
+
+        try {
+            const auto entry = Database::instance().client();
+            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+
+            const auto filter = bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("name", name));
+            const auto update = bsoncxx::builder::basic::make_document(
+                    bsoncxx::builder::basic::kvp("$set", bsoncxx::builder::basic::make_document(
+                                                         bsoncxx::builder::basic::kvp("logLevel", logLevel))),
+                    bsoncxx::builder::basic::kvp("$currentDate", bsoncxx::builder::basic::make_document(
+                                                         bsoncxx::builder::basic::kvp("modified", true))));
+
+            const auto result = collection.update_one(filter.view(), update.view());
+            return result && result->matched_count() > 0;
+
+        } catch (const std::exception &e) {
+            log_error << "Set log level failed, name: " << name << ", error: " << e.what();
+        }
+        return false;
+    }
+
     bool MongoEmmRepository::setDesiredStopped(const std::string &name, const bool stopped) {
 
         try {

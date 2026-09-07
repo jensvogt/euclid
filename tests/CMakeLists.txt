@@ -189,3 +189,12 @@ set_target_properties(${LOG_CHANNEL_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 target_link_libraries(${LOG_CHANNEL_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
 
 add_test(NAME ${LOG_CHANNEL_BINARY} COMMAND ${LOG_CHANNEL_BINARY})
+
+set(MODULE_LOG_LEVEL_BINARY euclid-module-log-level-tests)
+
+add_executable(${MODULE_LOG_LEVEL_BINARY} ModuleLogLevelTest.cpp)
+set_target_properties(${MODULE_LOG_LEVEL_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${MODULE_LOG_LEVEL_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${MODULE_LOG_LEVEL_BINARY} COMMAND ${MODULE_LOG_LEVEL_BINARY})

@@ -15,6 +15,7 @@
 #include <euclid/cli/help/CliHelp.h>
 #include <euclid/cli/http/HttpClient.h>
 #include <euclid/core/JsonUtils.h>
+#include <euclid/core/LogStream.h>
 
 namespace Euclid::CLI {
 
@@ -84,6 +85,15 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int setThreads(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Sets the level a module's own output is logged at.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int setLogLevel(const std::vector<std::string> &args) const;
 
         /**
          * @brief Stops a module and keeps it stopped, or lets it run again.

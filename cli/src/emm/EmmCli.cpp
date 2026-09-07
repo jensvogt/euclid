@@ -108,6 +108,7 @@ namespace Euclid::CLI {
                                            {"restart-module", "Restarts a module's instances, one at a time"},
                                            {"set-instances", "Sets a module's minimum and maximum instance count"},
                                            {"set-threads", "Sets the number of worker threads a module's processes run"},
+                                           {"set-log-level", "Turns a module's own logging down or off"},
                                            {"stop-module", "Stops a module and keeps it stopped"},
                                            {"start-module", "Lets a stopped module run again"},
                                    });
@@ -135,6 +136,9 @@ namespace Euclid::CLI {
         }
         if (action == "set-threads") {
             return setThreads(args);
+        }
+        if (action == "set-log-level") {
+            return setLogLevel(args);
         }
         if (action == "stop-module") {
             return setModuleStopped(args, true);
@@ -602,6 +606,70 @@ namespace Euclid::CLI {
             const HttpResponse response = client.Post("emm", "import", fileJson);
             if (!response.IsSuccess()) {
                 std::cerr << "error: import failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EmmCli::setLogLevel(const std::vector<std::string> &args) const {
+        po::options_description desc("set log level options");
+        desc.add_options()
+                ("module,m", po::value<std::string>()->required(), "module to set the log level for, e.g. esm")
+                ("level,l", po::value<std::string>()->required(), "off, error, warning, info, debug, trace, or \"default\" to go back to the configured level");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("emm", "set-log-level", "--module <module> --level <level>",
+                                   "Sets the level a module's own output is logged at, and takes effect on the manager's next "
+                                   "reconcile - within a few seconds, without restarting the module or interrupting a single "
+                                   "request. Unlike \"emm set-threads\", which can only be applied by cycling the instances "
+                                   "because a thread count is fixed when a process starts, a log level is not. "
+                                   "What a module writes is read back by the manager and logged on a channel of its own, "
+                                   "\"module.<module>\"; this is that channel's level. A line the module wrote to standard "
+                                   "output arrives as information and one it wrote to standard error as an error, whatever the "
+                                   "module's own level said about it - so --level error keeps what went wrong and drops the "
+                                   "rest, and --level off silences the module in the manager's log entirely. "
+                                   "It decides what the manager passes on rather than what the module produces: making a module "
+                                   "say more is euclid.logging.level in its own process, re-read on SIGUSR1. "
+                                   "--level default takes the setting back, leaving the module under euclid.logging.channels. "
+                                   "The level is stored with the module, so it survives a restart of the installation.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        // "default" is the word for taking the setting back; the server reads an empty level that
+        // way. Asking somebody to pass an empty string for it would be a worse interface.
+        auto level = vm["level"].as<std::string>();
+        if (level == "default") level.clear();
+
+        // Checked here as well as on the server, for the error message rather than for the rule:
+        // a typo is worth answering now instead of after a round trip that ends in a 400.
+        if (!level.empty() && !Core::LogStream::CanonicalLevel(level).has_value()) {
+            std::cerr << "error: not a log level: " << level << std::endl
+                      << "       expected trace, debug, info, warning, error, fatal, off, or default" << std::endl;
+            return 1;
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("emm", "set-log-level", boost::json::object{
+                                                              {"name", vm["module"].as<std::string>()},
+                                                              {"level", level},
+                                                      });
+            if (!response.IsSuccess()) {
+                std::cerr << "error: set-log-level failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);

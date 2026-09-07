@@ -226,6 +226,7 @@ namespace Euclid::EMM {
                     {"desiredMinInstances", m.desiredMinInstances},
                     {"desiredMaxInstances", m.desiredMaxInstances},
                     {"desiredThreads", m.desiredThreads},
+                    {"logLevel", m.logLevel},
                     {"created", Core::DateTimeUtils::ToISO8601(m.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(m.modified)},
                     {"lastStartTime", m.lastStartTime.time_since_epoch().count() == 0 ? boost::json::value(nullptr) : boost::json::value(Core::DateTimeUtils::ToISO8601(m.lastStartTime))},
@@ -587,6 +588,65 @@ namespace Euclid::EMM {
                                                         }));
     }
 
+    // Records the level a module's own output is logged at by the manager, which reads it on its
+    // next reconcile tick and applies it to that module's log channel. Nothing restarts and
+    // nothing is interrupted - unlike set-threads, which can only be applied by cycling the
+    // instances, because a thread count is fixed when a process starts and a log level is not.
+    static response<string_body> handleSetLogLevel(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-log-level");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EmmServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EmmServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+        const auto &obj = jv.as_object();
+
+        auto name = obj.contains("name") && obj.at("name").is_string() ? std::string(obj.at("name").as_string()) : std::string();
+        if (name.empty()) return EmmServer::ErrorResponse(req, status::bad_request, "name is required");
+
+        // An empty level puts the module back under whatever euclid.logging.channels says, which
+        // is how a level set here is taken back rather than merely changed.
+        const auto level = obj.contains("level") && obj.at("level").is_string() ? std::string(obj.at("level").as_string()) : std::string();
+        std::string canonical;
+        if (!level.empty()) {
+            const auto parsed = Core::LogStream::CanonicalLevel(level);
+            if (!parsed.has_value()) {
+                return EmmServer::ErrorResponse(req, status::bad_request,
+                                                R"(level must be "trace", "debug", "info", "warning", "error", "fatal" or "off": )" + level);
+            }
+            canonical = *parsed;
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().emmRepository();
+        if (!repo->exists(name)) {
+
+            // Module names are lower case everywhere they are written down - they are the keys of
+            // euclid.modules - so "ESM" is a spelling of "esm" rather than a mistake. Tried second
+            // rather than first, so an installation that did name a module in mixed case still
+            // reaches exactly the one it asked for.
+            auto lowered = name;
+            std::ranges::transform(lowered, lowered.begin(), [](const unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            if (!repo->exists(lowered)) {
+                return EmmServer::ErrorResponse(req, status::not_found, "Module not found, name: " + name);
+            }
+            name = lowered;
+        }
+
+        if (!repo->setLogLevel(name, canonical)) {
+            return EmmServer::ErrorResponse(req, status::internal_server_error, "Could not set the log level, name: " + name);
+        }
+        log_info << "EMM set-log-level, module: " << name << ", level: " << (canonical.empty() ? "(configured default)" : canonical);
+
+        return EmmServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"name", name},
+                                                                {"logLevel", canonical},
+                                                                {"channel", std::string(Core::LogStream::kModuleChannel) + "." + name},
+                                                        }));
+    }
+
     // Shared by stop-module and start-module, which differ only in the state they record and in
     // what they refuse: the same body, the same lookup, the same answer.
     static response<string_body> handleSetStopped(const request<string_body> &req, const bool stopped) {
@@ -710,7 +770,8 @@ namespace Euclid::EMM {
             StartModule,
             RestartModule,
             Export,
-            Import
+            Import,
+            SetLogLevel
         };
     }
 
@@ -718,6 +779,7 @@ namespace Euclid::EMM {
         if (action == "list-modules") return Command::ListModules;
         if (action == "set-instances") return Command::SetInstances;
         if (action == "set-threads") return Command::SetThreads;
+        if (action == "set-log-level") return Command::SetLogLevel;
         if (action == "stop-module") return Command::StopModule;
         if (action == "start-module") return Command::StartModule;
         if (action == "restart-module") return Command::RestartModule;
@@ -744,6 +806,9 @@ namespace Euclid::EMM {
 
             case Command::SetThreads:
                 return handleSetThreads(req);
+
+            case Command::SetLogLevel:
+                return handleSetLogLevel(req);
 
             case Command::StopModule:
                 return handleStopModule(req);
