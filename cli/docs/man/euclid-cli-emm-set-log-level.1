@@ -1,0 +1,100 @@
+.TH EUCLID-CLI-EMM-SET-LOG-LEVEL 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-emm-set-log-level \- turn a module's own logging down or off
+.SH SYNOPSIS
+.B euclid-cli emm set-log-level
+.BR \-\-module | \-m
+.I MODULE
+.BR \-\-level | \-l
+.I LEVEL
+.SH DESCRIPTION
+Sets the level a module's own output is logged at.
+.PP
+Everything a module process writes is read back by the manager and
+logged on a channel of its own,
+.IR module.<module> ,
+verbatim. This is that channel's level, so
+.B \-\-level off
+silences the module in the manager's log entirely and
+.B \-\-level error
+keeps only what it wrote to standard error.
+.PP
+It takes effect on the manager's next reconcile \- within a few seconds
+\- and restarts nothing. Unlike
+.BR euclid-cli-emm-set-threads (1),
+which can only be applied by cycling a module's instances because a
+thread count is fixed when a process starts, a log level is not: every
+instance keeps running and every request in flight is untouched.
+.SH WHAT IT DOES NOT DO
+This decides what the manager
+.I passes on
+, not what the module
+.IR produces .
+A line a module wrote to standard output arrives here as information
+and one it wrote to standard error as an error, whatever the module's
+own level said about it \- so turning a module
+.I up
+past
+.I info
+shows nothing new. What a module emits in the first place is
+.I euclid.logging.level
+(and
+.IR euclid.logging.channels )
+in its own process, re-read on
+.BR SIGUSR1 :
+.PP
+.RS
+.nf
+sudo \-e /usr/local/euclid/etc/euclid.json
+sudo pkill \-USR1 '^euclid\-'
+.fi
+.RE
+.PP
+Turning a module
+.I down
+or off, which is the reason this exists, works either way.
+.SH OPTIONS
+.TP
+.BR \-m ", " \-\-module " " \fIMODULE\fR
+Module to set the level for, e.g. \fIesm\fR. Required. Module names are
+lower case, and one given in capitals is read as the same module.
+.TP
+.BR \-l ", " \-\-level " " \fILEVEL\fR
+One of \fIoff\fR, \fIerror\fR, \fIwarning\fR, \fIinfo\fR, \fIdebug\fR,
+\fItrace\fR, or \fIdefault\fR to take the setting back and leave the
+module under \fIeuclid.logging.channels\fR. Required. Anything else is
+refused rather than interpreted.
+.SH EXIT STATUS
+.TP
+.B 0
+The level was recorded; the module, the level and the channel it
+applies to are printed as JSON.
+.TP
+.B 1
+No module of that name exists, the level was not one, the server could
+not be reached, or the caller is not an administrator.
+.SH EXAMPLES
+Silence a module that is drowning out everything else, then put it
+back:
+.PP
+.RS
+.nf
+euclid-cli --endpoint https://localhost:5566 emm set-log-level \e
+    --module esm --level off
+
+euclid-cli --endpoint https://localhost:5566 emm set-log-level \e
+    --module esm --level default
+.fi
+.RE
+.PP
+The level in force is reported by
+.BR euclid-cli-emm-list-modules (1)
+as
+.IR logLevel .
+.SH SEE ALSO
+.BR euclid-cli-emm (1),
+.BR euclid-cli-emm-list-modules (1),
+.BR euclid-cli-emm-set-threads (1),
+.BR euclid-cli-eap-set-log-level (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

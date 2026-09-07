@@ -93,6 +93,21 @@ namespace Euclid::Database {
         virtual bool setDesiredThreads(const std::string &name, int threads) = 0;
 
         /**
+         * @brief Records the level a module's own output is logged at by the manager.
+         *
+         * @par
+         * Writes only Entity::Module::logLevel. Read on every reconcile tick and applied to that
+         * module's log channel, so it takes effect without restarting anything - which is the
+         * point: a log that is drowning out everything else is a problem to fix now, not after a
+         * roll of the pool.
+         *
+         * @param name module name
+         * @param logLevel level name, or empty to leave the level to the configuration
+         * @return true if a module of that name exists and was updated
+         */
+        virtual bool setLogLevel(const std::string &name, const std::string &logLevel) = 0;
+
+        /**
          * @brief Records that a module should be stopped, or should run again.
          *
          * @par

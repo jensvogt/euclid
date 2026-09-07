@@ -1082,6 +1082,24 @@ namespace Euclid::main {
         // stall acquireInstance() for every request the gateway is routing.
         const auto modules = Database::RepositoryFactory::instance().emmRepository()->findAll();
 
+        // What each module's own output is logged at, applied before anything else and outside the
+        // lock because it changes nothing about the pool: a level is not a reason to start, stop
+        // or cycle a process. See Module::logLevel, and applyApplicationLogLevel() for the same
+        // thing on the application side.
+        {
+            const auto channelLevels = Core::LogStream::ChannelSeverities();
+            for (const auto &module: modules) {
+                const auto channel = std::string(Core::LogStream::kModuleChannel) + "." + module.name;
+                const auto current = channelLevels.find(channel);
+
+                if (module.logLevel.empty()) {
+                    if (current != channelLevels.end()) Core::LogStream::ClearChannelSeverity(channel);
+                } else if (current == channelLevels.end() || current->second != module.logLevel) {
+                    Core::LogStream::SetChannelSeverity(channel, module.logLevel);
+                }
+            }
+        }
+
         std::vector<std::shared_ptr<Dto::ModuleProcess> > toSpawn;
         std::vector<std::shared_ptr<Dto::ModuleProcess> > toStop;
         {

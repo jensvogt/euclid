@@ -52,6 +52,15 @@ namespace Euclid::Database {
 
         bool setDesiredThreads(const std::string &name, int threads) override;
 
+        /**
+         * @brief Records the level a module's own output is logged at by the manager
+         *
+         * @param name module name
+         * @param logLevel level name, or empty to leave the level to the configuration
+         * @return true if a module of that name exists and was updated
+         */
+        bool setLogLevel(const std::string &name, const std::string &logLevel) override;
+
         bool setDesiredStopped(const std::string &name, bool stopped) override;
 
         bool requestRestart(const std::string &name) override;

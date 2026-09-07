@@ -298,16 +298,23 @@ matches the `sudo` invocation carrying it, which then takes the signal and dies.
 Nothing else in the file is acted on by that signal. (The manager's `SIGHUP` still means "restart
 every module", which is not a price worth paying to turn down a log.)
 
-A single application can also be turned down without touching the file at all:
+A single application or module can also be turned down without touching the file at all:
 
 ```bash
 euclid-cli eap set-log-level --application-id parser --level off
+euclid-cli emm set-log-level --module esm --level error
 euclid-cli eap set-log-level --application-id parser --level default   # and back
 ```
 
-The level is stored on the application row and applied by the manager on its next reconcile, within
-seconds. It restarts nothing: a log level is deliberately not part of what the manager treats as a
-change of definition, so silencing a noisy application does not bounce its instances.
+The level is stored on the application or module row and applied by the manager on its next
+reconcile, within seconds. It restarts nothing: a log level is deliberately not part of what the
+manager treats as a change of definition, so silencing something noisy does not bounce its
+instances. Both are reported by `list-applications` / `list-modules` as `logLevel`.
+
+These filter what the manager passes on - a line written to standard output arrives as information
+and one written to standard error as an error - so they turn things *down* completely and *up* only
+as far as what the process already emits. Making a module say more is `euclid.logging.level` in its
+own process, which is what `SIGUSR1` re-reads.
 
 ---
 
