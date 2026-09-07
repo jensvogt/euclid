@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.76](https://github.com/jensvogt/euclid/compare/1.0.75...v1.0.76) (2026-09-07)
+
+
+### Bug Fixes
+
+* add ports to instance persistence ([97c3d3a](https://github.com/jensvogt/euclid/commit/97c3d3ac1c54ce9dacca87ab661039cf6144f2fe))
+
 ## [1.0.75](https://github.com/jensvogt/euclid/compare/v1.0.74...v1.0.75) (2026-09-07)
 
 
