@@ -198,6 +198,11 @@ namespace Euclid::EMM {
                         {"pid", i.pid},
                         {"state", Database::Entity::ModuleStateToString(i.state)},
                         {"socketPath", i.socketPath},
+                        // The port this instance was given for its own HTTP listener, 0 for a
+                        // module that has none. Reported because it is the only record of which
+                        // instance is reachable where - for an application pool it is the answer
+                        // to "where is this one actually serving", and nothing else exposes it.
+                        {"httpPort", i.httpPort},
                         {"restartCount", i.restartCount},
                         {"created", Core::DateTimeUtils::ToISO8601(i.created)},
                         {"modified", Core::DateTimeUtils::ToISO8601(i.modified)},
