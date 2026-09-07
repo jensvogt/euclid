@@ -17,6 +17,11 @@ namespace Euclid::Database::Entity::ESM {
 
     bsoncxx::document::value Object::toDocument() const {
 
+        bsoncxx::builder::basic::document systemAttributesDoc;
+        for (const auto &[name, value]: systemAttributes) {
+            systemAttributesDoc.append(bsoncxx::builder::basic::kvp(name, value.ToDocument()));
+        }
+
         bsoncxx::builder::basic::document attributesDoc;
         for (const auto &[name, value]: attributes) {
             attributesDoc.append(bsoncxx::builder::basic::kvp(name, value.ToDocument()));
@@ -37,7 +42,8 @@ namespace Euclid::Database::Entity::ESM {
                 bsoncxx::builder::basic::kvp("directory", directory),
                 bsoncxx::builder::basic::kvp("contentType", contentType),
                 bsoncxx::builder::basic::kvp("md5Sum", md5Sum),
-                bsoncxx::builder::basic::kvp("attributes", attributesDoc.extract()));
+                bsoncxx::builder::basic::kvp("attributes", attributesDoc.extract()),
+                bsoncxx::builder::basic::kvp("systemAttributes", systemAttributesDoc.extract()));
     }
 
     Object Object::fromDocument(const std::optional<bsoncxx::document::view> &document) {
@@ -62,6 +68,13 @@ namespace Euclid::Database::Entity::ESM {
             else if (fieldKey == "md5Sum") object.md5Sum = std::string(field.get_string().value);
             else if (fieldKey == "created") object.created = system_clock::time_point{field.get_date().value};
             else if (fieldKey == "modified") object.modified = system_clock::time_point{field.get_date().value};
+            else if (fieldKey == "systemAttributes") {
+                for (const auto &attribute: field.get_document().view()) {
+                    COM::Variant variant;
+                    variant.FromDocument(attribute.get_document().view());
+                    object.systemAttributes[std::string(attribute.key())] = std::move(variant);
+                }
+            }
             else if (fieldKey == "attributes") {
                 for (const auto &attribute: field.get_document().view()) {
                     COM::Variant variant;

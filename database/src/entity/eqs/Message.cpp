@@ -27,6 +27,11 @@ namespace Euclid::Database::Entity::EQS {
             attrsDoc.append(bsoncxx::builder::basic::kvp(k, v.ToDocument()));
         }
 
+        bsoncxx::builder::basic::document systemAttrsDoc;
+        for (const auto &[k, v]: systemAttributes) {
+            systemAttrsDoc.append(bsoncxx::builder::basic::kvp(k, v.ToDocument()));
+        }
+
         return bsoncxx::builder::basic::make_document(
                 bsoncxx::builder::basic::kvp("ern", ern),
                 bsoncxx::builder::basic::kvp("queueErn", queueErn),
@@ -43,7 +48,8 @@ namespace Euclid::Database::Entity::EQS {
                 bsoncxx::builder::basic::kvp("reset", bsoncxx::types::b_date(reset)),
                 bsoncxx::builder::basic::kvp("delayUntil", bsoncxx::types::b_date(delayUntil)),
                 bsoncxx::builder::basic::kvp("lastReceived", bsoncxx::types::b_date(lastReceived)),
-                bsoncxx::builder::basic::kvp("attributes", attrsDoc.extract()));
+                bsoncxx::builder::basic::kvp("attributes", attrsDoc.extract()),
+                bsoncxx::builder::basic::kvp("systemAttributes", systemAttrsDoc.extract()));
     }
 
     void Message::FromDocument(const std::optional<bsoncxx::document::view> &document) {
@@ -67,6 +73,13 @@ namespace Euclid::Database::Entity::EQS {
             else if (key == "lastReceived") lastReceived = system_clock::time_point{field.get_date().value};
             else if (key == "created") created = system_clock::time_point{field.get_date().value};
             else if (key == "modified") modified = system_clock::time_point{field.get_date().value};
+            else if (key == "systemAttributes") {
+                for (const auto &attr: field.get_document().view()) {
+                    COM::Variant variant;
+                    variant.FromDocument(attr.get_document().view());
+                    systemAttributes[std::string(attr.key())] = std::move(variant);
+                }
+            }
             else if (key == "attributes") {
                 for (const auto &attr: field.get_document().view()) {
                     COM::Variant variant;

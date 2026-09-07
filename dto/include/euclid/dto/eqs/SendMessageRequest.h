@@ -32,6 +32,12 @@ namespace Euclid::Dto::EQS {
         std::map<std::string, COM::Variant> attributes{};
 
         /**
+         * @brief Euclid's own attributes, carried across every hop and never mixed into the
+         * caller's - see Entity::EQS::Message::systemAttributes.
+         */
+        std::map<std::string, COM::Variant> systemAttributes{};
+
+        /**
          * @brief Message priority, i.e. "LOW", "MIDDLE" or "HIGH". Defaults to "MIDDLE".
          */
         std::string priority{"MIDDLE"};
@@ -58,6 +64,7 @@ namespace Euclid::Dto::EQS {
             r.ern = Core::GetStringValue(v, "ern");
             r.body = Core::GetStringValue(v, "body");
             r.attributes = Core::GetMapFromObject<std::string, COM::Variant>(v, "attributes");
+            r.systemAttributes = Core::GetMapFromObject<std::string, COM::Variant>(v, "systemAttributes");
             r.priority = Core::GetStringValue(v, "priority");
             if (r.priority.empty()) r.priority = "MIDDLE";
             return r;
@@ -68,6 +75,7 @@ namespace Euclid::Dto::EQS {
                     {"ern", obj.ern},
                     {"body", obj.body},
                     {"attributes", boost::json::value_from(obj.attributes)},
+                    {"systemAttributes", boost::json::value_from(obj.systemAttributes)},
                     {"priority", obj.priority},
             };
         }

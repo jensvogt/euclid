@@ -292,14 +292,40 @@ namespace Euclid::EQS {
             attributes[key] = Dto::EQS::EqsMapper::toEntity(variant);
         }
 
-        // Priority
+        // The queue's default, unless the caller names one. Initialised here and not merely
+        // declared: a scoped enum with no initialiser holds an indeterminate value, and reading it
+        // is undefined - which shows up as a priority that looks plausible, is stable enough to
+        // seem deliberate, and has nothing to do with what anybody asked for.
         Database::Entity::EQS::MessagePriority priority = queue->priority;
         if (!request.priority.empty()) {
-            priority = Database::Entity::EQS::MessagePriorityFromString(request.priority);
+            // Refused rather than absorbed. A stored value that cannot be read falls back to
+            // MIDDLE, because a message nobody can parse is still a message somebody is waiting
+            // for - but a caller who wrote "low" and got MIDDLE was never told, and every send
+            // after it is wrong in the same invisible way.
+            const auto requested = Database::Entity::EQS::TryMessagePriorityFromString(request.priority);
+            if (!requested.has_value()) {
+                return EqsServer::ErrorResponse(req, status::bad_request, R"(priority must be "LOW", "MIDDLE" or "HIGH", not ")" + request.priority + R"(")");
+            }
+            priority = *requested;
         }
 
+        // Said separately from the resolved value, because "the caller asked for MIDDLE" and "the
+        // caller asked for nothing and the queue is MIDDLE" are the same answer and quite
+        // different problems.
+        log_debug << "EQS SendMessage priority, requested: " << (request.priority.empty() ? "(none)" : request.priority)
+                  << ", queue default: " << Database::Entity::EQS::MessagePriorityToString(queue->priority)
+                  << ", using: " << Database::Entity::EQS::MessagePriorityToString(priority);
+
         // Create message
-        const Database::Entity::EQS::Message message = repo->sendMessage(messageId, ern, request.ern, request.body, attributes, priority);
+        // The envelope the caller was carrying, passed on. A service that received a message and
+        // is sending the next one is the middle of a chain, and whatever was travelling - a
+        // correlation id most of all - has to keep travelling, or it identifies only the first hop.
+        std::map<std::string, Database::Entity::COM::Variant> systemAttributes;
+        for (const auto &[key, variant]: request.systemAttributes) {
+            systemAttributes[key] = Dto::EQS::EqsMapper::toEntity(variant);
+        }
+
+        const Database::Entity::EQS::Message message = repo->sendMessage(messageId, ern, request.ern, request.body, attributes, systemAttributes, priority);
         recordMessagesSent(request.ern, 1, message.size);
 
         // Published, not pushed: a client that wants to know about new messages subscribes to
@@ -501,7 +527,7 @@ namespace Euclid::EQS {
         if (sourceQueues.empty()) {
             return EqsServer::ErrorResponse(req, status::bad_request,
                                             "Queue is not a dead letter queue, ern: " + ern
-                                                    + " - no queue names it as its dead letter queue");
+                                            + " - no queue names it as its dead letter queue");
         }
 
         long moved = 0;
@@ -552,7 +578,7 @@ namespace Euclid::EQS {
                 {"targets", targets}};
         if (remaining > 0) {
             result["note"] = "Messages remain in the dead letter queue because no source queue is recorded for them. "
-                             "Name one with a target queue to move them.";
+                    "Name one with a target queue to move them.";
         }
 
         return EqsServer::JsonResponse(req, status::ok, boost::json::serialize(result));
@@ -822,9 +848,9 @@ namespace Euclid::EQS {
         queue = repo->upsertQueue(queue.value());
 
         return EqsServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
-                                                                {"ern", ern},
-                                                                {"status", Database::Entity::EQS::QueueStatusToString(queue->status)},
-                                                                {"available", queue->available}}));
+                                               {"ern", ern},
+                                               {"status", Database::Entity::EQS::QueueStatusToString(queue->status)},
+                                               {"available", queue->available}}));
     }
 
     static response<string_body> handleStopQueue(const request<string_body> &req) {
@@ -871,8 +897,8 @@ namespace Euclid::EQS {
         queue = repo->upsertQueue(queue.value());
 
         return EqsServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
-                                                                {"ern", request.ern},
-                                                                {"visibility", queue->visibility}}));
+                                               {"ern", request.ern},
+                                               {"visibility", queue->visibility}}));
     }
 
     static response<string_body> handleSetQueueTag(const request<string_body> &req) {
@@ -1109,7 +1135,8 @@ namespace Euclid::EQS {
         const auto body = Core::GetStringValue(envelope.payload, "body");
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
-        if (!repo->findQueueByErn(targetErn).has_value()) {
+        const auto queue = repo->findQueueByErn(targetErn);
+        if (!queue.has_value()) {
 
             // A missing queue is permanent, not transient. Acking this one delivery and moving on
             // would mean rediscovering the same fact for every event still queued for it - an
@@ -1139,24 +1166,56 @@ namespace Euclid::EQS {
             return true;// ack - queue is gone, nothing to retry
         }
 
-        std::map<std::string, Database::Entity::COM::Variant> attributes;
-        if (envelope.payload.is_object()) {
-            if (const auto *attributesValue = envelope.payload.as_object().if_contains("attributes"); attributesValue && attributesValue->is_object()) {
-                for (const auto &attribute: attributesValue->as_object()) {
-                    attributes[attribute.key()] = Dto::EQS::EqsMapper::toEntity(boost::json::value_to<Dto::COM::Variant>(attribute.value()));
+        const auto readAttributes = [&envelope](const char *field) {
+            std::map<std::string, Database::Entity::COM::Variant> out;
+            if (!envelope.payload.is_object()) return out;
+            if (const auto *value = envelope.payload.as_object().if_contains(field); value && value->is_object()) {
+                for (const auto &attribute: value->as_object()) {
+                    // One attribute at a time, because one that cannot be read must not cost the
+                    // message. The body is what the consumer is waiting for; throwing here fails
+                    // the whole delivery, and after enough attempts the message goes to the dead
+                    // letter queue over a piece of metadata nobody may even look at.
+                    try {
+                        out[attribute.key()] = Dto::EQS::EqsMapper::toEntity(boost::json::value_to<Dto::COM::Variant>(attribute.value()));
+                    } catch (const std::exception &e) {
+                        log_warning << "EQS subscription delivery: dropping unreadable " << field << " entry, name: "
+                                    << attribute.key() << ", error: " << e.what();
+                    }
                 }
             }
-        }
+            return out;
+        };
 
-        // Carried by the publisher so a delivery keeps its worth across the hop. Absent for an
-        // event published before this field existed - and for an ESM bucket notification, which is
-        // caused by an object rather than by a message and so has no priority to inherit - both of
-        // which MessagePriorityFromString reads as the documented default of MIDDLE.
-        const auto priority = Database::Entity::EQS::MessagePriorityFromString(Core::GetStringValue(envelope.payload, "priority"));
+        const auto attributes = readAttributes("attributes");
+
+        // Euclid's own, kept apart from the caller's the whole way: they arrived on the object,
+        // they travel with the delivery, and they go on to the message so the next hop still has
+        // them. This is what a producer's decision rides on when the thing it has to survive - a
+        // bucket - has no notion of it.
+        const auto systemAttributes = readAttributes("systemAttributes");
+
+        // Three sources, least specific first.
+        //
+        // The queue's own default is the floor, which is also what send-message starts from, so a
+        // message put into a queue by a subscription and one put there by a client are treated
+        // alike. A topic message carries a priority of its own and keeps it across the hop.
+        //
+        // An object carries no priority by itself - a bucket has no notion of one - so whatever
+        // decided the work was urgent says so in the object's system attributes, which travel with
+        // it. ESM sends them along with the notification and they go on to the message, so the
+        // producer's decision survives two hops it would otherwise be lost at. It is read here,
+        // where priority means something, rather than being a field ESM has to understand.
+        auto priority = queue->priority;
+        if (const auto carried = Core::GetStringValue(envelope.payload, "priority"); !carried.empty()) {
+            priority = Database::Entity::EQS::MessagePriorityFromString(carried);
+        } else if (const auto it = systemAttributes.find(Database::Entity::EQS::kPriorityAttribute);
+            it != systemAttributes.end() && it->second.holds<std::string>()) {
+            priority = Database::Entity::EQS::MessagePriorityFromString(it->second.get<std::string>());
+        }
 
         const auto messageId = Core::UuidUtils::CreateRandomUuid();
         const auto ern = Core::createEqsMessageErn(Core::accountIdFromErn(targetErn), messageId);
-        const auto message = repo->sendMessage(messageId, ern, targetErn, body, attributes, priority);
+        const auto message = repo->sendMessage(messageId, ern, targetErn, body, attributes, systemAttributes, priority);
 
         // A subscription delivery is a message sent to this queue like any other - counting it
         // only in the publishing module would leave the queue's own totals short of what it holds.

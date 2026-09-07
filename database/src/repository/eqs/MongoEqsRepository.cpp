@@ -13,6 +13,8 @@
 #include <euclid/core/CryptoUtils.h>
 #include <euclid/core/UuidUtils.h>
 #include <euclid/core/monitoring/MonitoringTimer.h>
+#include <bsoncxx/builder/concatenate.hpp>
+
 #include <euclid/database/repository/eqs/MongoEqsRepository.h>
 
 #include <boost/chrono/system_clocks.hpp>
@@ -651,7 +653,7 @@ namespace Euclid::Database {
         }
     }
 
-    Entity::EQS::Message MongoEqsRepository::sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes, const Entity::EQS::MessagePriority priority) {
+    Entity::EQS::Message MongoEqsRepository::sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes, const std::map<std::string, Entity::COM::Variant> &systemAttributes, const Entity::EQS::MessagePriority priority) {
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "sendMessage");
 
         Entity::EQS::Message message;
@@ -662,6 +664,7 @@ namespace Euclid::Database {
         message.messageId = messageId;
         message.contentType = Core::ContentTypeUtils::fromContent(message.body);
         message.attributes = attributes;
+        message.systemAttributes = systemAttributes;
         message.status = Entity::EQS::MessageStatus::AVAILABLE;
         message.priority = priority;
         message.created = std::chrono::system_clock::now();
@@ -688,7 +691,25 @@ namespace Euclid::Database {
                 }
             }
 
-            upsertMessage(message);
+            // ToDocument() deliberately carries no created/modified: upsertMessage() puts it in
+            // $set, and Mongo refuses an update that touches the same path twice - which is what
+            // it would be doing against the $setOnInsert and $currentDate that stamp those two
+            // there. An insert has no such conflict and no server-side stamp either, so it adds
+            // them here.
+            //
+            // Appended to the same document rather than restating its fields: the field list stays
+            // in one place, and a field added to the entity later cannot be forgotten by this
+            // path. A bsoncxx document is immutable once built - it owns a length-prefixed buffer
+            // whose fields are packed end to end - so the way to add to one is to build a new one
+            // around it, not to assign into it.
+            const auto now = std::chrono::system_clock::now();
+            const auto stamp = bsoncxx::types::b_date{std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch())};
+
+            document doc;
+            doc.append(concatenate(message.ToDocument().view()));
+            doc.append(kvp("created", stamp), kvp("modified", stamp));
+
+            messageCollection.insert_one(doc.view());
             log_debug << "Message sent, ern: " << ern << ", messageId: " << message.messageId;
 
         } catch (const std::exception &e) {
