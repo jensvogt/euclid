@@ -41,6 +41,7 @@ namespace {
         application.maxInstances = 8;
         application.readyTimeoutMs = 45000;
         application.desiredState = ApplicationState::RUNNING;
+        application.logLevel = "warning";
         return application;
     }
 
@@ -119,6 +120,36 @@ BOOST_AUTO_TEST_CASE(RepositoryKeepsOneRowPerApplicationId) {
 
     repository.deleteApplication("orders");
     BOOST_TEST(repository.countApplications() == 0);
+}
+
+BOOST_AUTO_TEST_CASE(ALogLevelIsNotAChangeOfDefinition) {
+    MemoryEapRepository repository;
+
+    auto application = demoApplication();
+    application.logLevel.clear();
+    const auto stored = repository.upsertApplication(application);
+
+    BOOST_TEST_REQUIRE(repository.setApplicationLogLevel("orders", "off"));
+    const auto changed = repository.findApplicationByApplicationId("orders");
+    BOOST_TEST_REQUIRE(changed.has_value());
+    BOOST_TEST(changed->logLevel == "off");
+
+    // The manager restarts an application whose definition changed since it started it, and it
+    // decides that by comparing the modification date. Turning a log down must therefore not touch
+    // it - otherwise silencing a noisy application would bounce every one of its instances, which
+    // is a far worse cure than the noise.
+    BOOST_TEST((changed->modified == stored.modified));
+
+    // Everything else it was deployed with is left exactly as it was.
+    BOOST_TEST(changed->maxInstances == stored.maxInstances);
+    BOOST_TEST(changed->artifactKey == stored.artifactKey);
+
+    // An empty level is how the setting is taken back, rather than a level of its own.
+    BOOST_TEST_REQUIRE(repository.setApplicationLogLevel("orders", ""));
+    BOOST_TEST(repository.findApplicationByApplicationId("orders")->logLevel.empty());
+
+    // And an application nobody has defined is reported rather than silently accepted.
+    BOOST_TEST(!repository.setApplicationLogLevel("nothing-of-that-name", "debug"));
 }
 
 BOOST_AUTO_TEST_CASE(TechnicalPrincipalIsAnIdentityThatCannotLogIn) {

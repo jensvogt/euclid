@@ -223,7 +223,11 @@ int main(const int argc, char *argv[]) {
 
     // ── Initialize logging ──────────────────────────────
     Euclid::Core::LogStream::Initialize();
-    Euclid::Core::LogStream::SetSeverity(cfg.getOr<std::string>("euclid.logging.level", cliOpts->logLevel));
+    // The channel this process's own records carry, so a log gathered from several of
+    // them still says which one each line came from - and so this module can be turned
+    // down on its own through euclid.logging.channels.
+    Euclid::Core::LogStream::SetProcessChannel("eam");
+    Euclid::Core::LogStream::ApplyConfiguration(cliOpts->logLevel);
 
     // ── Validate JWT signing secret ─────────────────────
     if (!Euclid::EAM::EamServer::ValidateJwtSecret()) return 1;

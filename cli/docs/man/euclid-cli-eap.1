@@ -192,6 +192,45 @@ which is how an API gateway in front of an application finds its
 backends \- euclid's own, see
 .BR euclid-cli-eag (1),
 or an external one.
+.SH APPLICATION OUTPUT
+Whatever an application writes to standard output or standard error is
+read back by the manager and logged on a channel of its own,
+.IR app.<applicationId> ,
+verbatim \- an application's own log line already carries its own
+timestamp and level, and a second set in front of it helps nobody read
+either. Standard error is recorded as an error, standard output as
+information.
+.PP
+That channel is what lets one application be turned down or off without
+silencing euclid, which matters when an application logs a line per
+request and euclid logs one per minute:
+.PP
+.RS
+.nf
+"logging": {
+  "level": "info",
+  "channels": {
+    "app": "warning",       // every application
+    "app.parser": "off"     // or just the one
+  }
+}
+.fi
+.RE
+.PP
+One application can also be given its level without touching the
+configuration at all, with
+.BR euclid-cli-eap-set-log-level (1),
+which stores it on the application and is picked up by the manager
+within seconds. For the file, levels are re-read on
+.BR SIGUSR1 :
+.I sudo pkill -USR1 '^euclid-'
+restarts nothing and loses no request. Application output defaults to
+.I info
+rather than following
+.IR euclid.logging.level ,
+so turning the installation down to
+.I warning
+does not silently take an application's own logging with it.
 .SH ACTIONS
 .TP
 .B create-application
@@ -231,6 +270,10 @@ Marks an application as one that should be running. See
 Marks an application as one that should not be running, keeping its
 definition. See
 .BR euclid-cli-eap-stop-application (1).
+.TP
+.B set-log-level
+Turns an application's own logging up, down or off, while it runs. See
+.BR euclid-cli-eap-set-log-level (1).
 .SH GLOBAL OPTIONS
 These options are given to
 .B euclid-cli

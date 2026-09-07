@@ -124,7 +124,11 @@ int main(const int argc, char *argv[]) {
     cfg.set<bool>("euclid.logging.file-active", cliOpts->fileLog);
 
     Euclid::Core::LogStream::Initialize();
-    Euclid::Core::LogStream::SetSeverity(cfg.getOr<std::string>("euclid.logging.level", cliOpts->logLevel));
+    // The channel this process's own records carry, so a log gathered from several of
+    // them still says which one each line came from - and so this module can be turned
+    // down on its own through euclid.logging.channels.
+    Euclid::Core::LogStream::SetProcessChannel("eag");
+    Euclid::Core::LogStream::ApplyConfiguration(cliOpts->logLevel);
 
     // ── Initialize Database ─────────────────────────────
     if (const int error = initializeDatabase(cfg); error != 0) return error;
