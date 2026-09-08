@@ -1,5 +1,6 @@
 set(LIBRARY eucliddto)
-set(SOURCES src/EmmMapper.cpp src/EamMapper.cpp src/EqsMapper.cpp src/EsmMapper.cpp src/EnsMapper.cpp src/EkmMapper.cpp)
+set(SOURCES src/EmmMapper.cpp src/EamMapper.cpp src/EqsMapper.cpp src/EsmMapper.cpp src/EnsMapper.cpp src/EkmMapper.cpp
+        src/EssMapper.cpp)
 
 add_library(${LIBRARY} STATIC ${SOURCES})
 

@@ -3,9 +3,10 @@
 
 // Euclid includes
 #include <euclid/database/entity/emm/Module.h>
-#include <euclid/database/repository/emm/MemoryEmmRepository.h>
+#include <euclid/database/Database.h>
+#include <euclid/database/repository/emm/MongoEmmRepository.h>
 
-using Euclid::Database::MemoryEmmRepository;
+using Euclid::Database::MongoEmmRepository;
 using Euclid::Database::Entity::Module;
 using Euclid::Database::Entity::ModuleInstance;
 using Euclid::Database::Entity::ModuleState;
@@ -64,7 +65,8 @@ BOOST_AUTO_TEST_CASE(AModuleWrittenBeforeTheFieldExistedHasNoLevel) {
 
 BOOST_AUTO_TEST_CASE(SettingTheLevelLeavesTheRestOfTheRowAlone) {
 
-    MemoryEmmRepository repository;
+    Euclid::Database::Database::instance().initializeMemory();
+    MongoEmmRepository repository;
     auto module = demoModule();
     module.logLevel.clear();
     repository.upsertInstance(module, demoInstance());
@@ -85,7 +87,8 @@ BOOST_AUTO_TEST_CASE(SettingTheLevelLeavesTheRestOfTheRowAlone) {
 
 BOOST_AUTO_TEST_CASE(AnEmptyLevelTakesTheSettingBack) {
 
-    MemoryEmmRepository repository;
+    Euclid::Database::Database::instance().initializeMemory();
+    MongoEmmRepository repository;
     auto module = demoModule();
     repository.upsertInstance(module, demoInstance());
     BOOST_TEST_REQUIRE(repository.setLogLevel("esm", "off"));
@@ -96,7 +99,8 @@ BOOST_AUTO_TEST_CASE(AnEmptyLevelTakesTheSettingBack) {
 
 BOOST_AUTO_TEST_CASE(AModuleNobodyKnowsIsReportedRatherThanCreated) {
 
-    MemoryEmmRepository repository;
+    Euclid::Database::Database::instance().initializeMemory();
+    MongoEmmRepository repository;
 
     BOOST_TEST(!repository.setLogLevel("nothing-of-that-name", "off"));
     BOOST_TEST(!repository.exists("nothing-of-that-name"));

@@ -1,5 +1,5 @@
 set(LIBRARY eucliddb)
-set(SOURCES src/Database.cpp src/EventBus.cpp src/entity/com/Variant.cpp src/entity/emm/Module.cpp src/entity/eqs/QueueAttribute.cpp
+set(SOURCES src/Database.cpp src/Collection.cpp src/EventBus.cpp src/entity/com/Variant.cpp src/entity/emm/Module.cpp src/entity/eqs/QueueAttribute.cpp
         src/entity/eqs/RedrivePolicy.cpp src/entity/eqs/Queue.cpp src/entity/eqs/Message.cpp
         src/entity/eqs/PriorityWeights.cpp src/repository/emm/MongoEmmRepository.cpp src/entity/ens/Message.cpp
         src/repository/eqs/MongoEqsRepository.cpp src/entity/eam/User.cpp src/entity/eam/UserGroup.cpp
@@ -10,6 +10,7 @@ set(SOURCES src/Database.cpp src/EventBus.cpp src/entity/com/Variant.cpp src/ent
         src/repository/ekm/MongoEkmRepository.cpp src/entity/ekm/Key.cpp src/entity/ekm/Certificate.cpp
         src/entity/ets/TransferServer.cpp src/repository/ets/MongoEtsRepository.cpp
         src/entity/eag/Route.cpp src/repository/eag/MongoEagRepository.cpp
+        src/entity/ess/Secret.cpp src/repository/ess/MongoEssRepository.cpp src/emd/DocumentStore.cpp src/emd/RemoteDocumentStore.cpp
         src/entity/eap/Application.cpp src/repository/eap/MongoEapRepository.cpp)
 
 add_library(${LIBRARY} STATIC ${SOURCES})

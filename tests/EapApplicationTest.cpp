@@ -4,9 +4,10 @@
 // Euclid includes
 #include <euclid/database/entity/eam/User.h>
 #include <euclid/database/entity/eap/Application.h>
-#include <euclid/database/repository/eap/MemoryEapRepository.h>
+#include <euclid/database/Database.h>
+#include <euclid/database/repository/eap/MongoEapRepository.h>
 
-using Euclid::Database::MemoryEapRepository;
+using Euclid::Database::MongoEapRepository;
 using Euclid::Database::Entity::EAP::Application;
 using Euclid::Database::Entity::EAP::ApplicationState;
 using Euclid::Database::Entity::EAP::RedeployRefusal;
@@ -101,7 +102,8 @@ BOOST_AUTO_TEST_CASE(RuntimeDecidesTheCommandPrefix) {
 }
 
 BOOST_AUTO_TEST_CASE(RepositoryKeepsOneRowPerApplicationId) {
-    MemoryEapRepository repository;
+    Euclid::Database::Database::instance().initializeMemory();
+    MongoEapRepository repository;
 
     auto application = demoApplication();
     std::ignore = repository.upsertApplication(application);
@@ -123,7 +125,8 @@ BOOST_AUTO_TEST_CASE(RepositoryKeepsOneRowPerApplicationId) {
 }
 
 BOOST_AUTO_TEST_CASE(ALogLevelIsNotAChangeOfDefinition) {
-    MemoryEapRepository repository;
+    Euclid::Database::Database::instance().initializeMemory();
+    MongoEapRepository repository;
 
     auto application = demoApplication();
     application.logLevel.clear();

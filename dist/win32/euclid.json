@@ -34,7 +34,18 @@
       "event-socket-path": "C:\\Program Files\\euclid\\data\\run\\euclid-gateway-events.sock"
     },
     "modules": {
+      "emd": {
+        "active": false,
+        "name": "emd",
+        "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-emd.sock",
+        "executable": "C:\\Program Files\\euclid\\bin\\euclid-emd.exe",
+        "readiness": "liveness",
+        "minInstances": 1,
+        "maxInstances": 1,
+        "threads": 8
+      },
       "eam": {
+        "dependencies": ["emd"],
         "active": true,
         "name": "eam",
         "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-eam.sock",
@@ -45,6 +56,7 @@
         "jwt-secret": "04cb52d1fdd9e1b68388a5919709d5eec8f271b88b5af0925b4a73ea123fd1f4"
       },
       "esm": {
+        "dependencies": ["emd"],
         "active": true,
         "name": "esm",
         "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-esm.sock",
@@ -55,6 +67,7 @@
         "threads": 2
       },
       "eqs": {
+        "dependencies": ["emd"],
         "active": true,
         "name": "eqs",
         "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-eqs.sock",
@@ -69,6 +82,7 @@
         "threads": 8
       },
       "ens": {
+        "dependencies": ["emd"],
         "active": false,
         "name": "ens",
         "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-ens.sock",
@@ -78,6 +92,7 @@
         "threads": 2
       },
       "emo": {
+        "dependencies": ["emd"],
         "active": true,
         "name": "emo",
         "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-emo.sock",
@@ -100,6 +115,7 @@
         }
       },
       "ekm": {
+        "dependencies": ["emd"],
         "active": true,
         "name": "ekm",
         "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-ekm.sock",
@@ -108,7 +124,18 @@
         "maxInstances": 4,
         "threads": 2
       },
+      "ess": {
+        "dependencies": ["emd"],
+        "active": true,
+        "name": "ess",
+        "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-ess.sock",
+        "executable": "C:\\Program Files\\euclid\\bin\\euclid-ess.exe",
+        "minInstances": 1,
+        "maxInstances": 4,
+        "threads": 2
+      },
       "emm": {
+        "dependencies": ["emd"],
         "active": true,
         "name": "emm",
         "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-emm.sock",
@@ -118,6 +145,7 @@
         "threads": 2
       },
       "ees": {
+        "dependencies": ["emd"],
         "active": true,
         "name": "ees",
         "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-ees.sock",
@@ -127,6 +155,7 @@
         "threads": 8
       },
       "eap": {
+        "dependencies": ["emd"],
         "active": true,
         "name": "eap",
         "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-eap.sock",
@@ -141,6 +170,7 @@
         "http-port-max": 9999
       },
       "ets": {
+        "dependencies": ["emd"],
         "active": true,
         "name": "ets",
         "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-ets.sock",
@@ -157,6 +187,7 @@
         "sftp-executable": "C:\\Program Files\\euclid\\bin\\euclid-sftp"
       },
       "eag": {
+        "dependencies": ["emd"],
         "active": true,
         "name": "eag",
         "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-eag.sock",

@@ -52,8 +52,7 @@ namespace Euclid::Database {
         // falling rather than as time disappearing from the module.
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "queueConfigRead");
 
-        const auto entry = Database::instance().client();
-        auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+        auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
         const auto result = queueCollection.find_one(make_document(kvp("ern", ern)));
         if (!result) return std::nullopt;
 
@@ -76,16 +75,12 @@ namespace Euclid::Database {
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "recount-queues");
 
         try {
-            const auto entry = Database::instance().client();
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
-            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
+            auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
 
-            mongocxx::pipeline pipeline;
-            pipeline.group(make_document(
-                    kvp("_id", make_document(kvp("queueErn", "$queueErn"), kvp("status", "$status"))),
-                    kvp("messages", make_document(kvp("$sum", 1))),
-                    kvp("bytes", make_document(kvp("$sum", "$size")))));
-
+            // Grouped by queue and status, counted and summed - the one aggregation shape both
+            // backends can answer, so a recount works with or without a server to run a pipeline
+            // on. See Collection::group_count.
             struct Counts {
                 long available{};
                 long delayed{};
@@ -94,20 +89,16 @@ namespace Euclid::Database {
             };
             std::unordered_map<std::string, Counts> counted;
 
-            for (auto cursor = messageCollection.aggregate(pipeline); auto doc: cursor) {
-                const auto id = doc["_id"].get_document().value;
-                const auto ern = std::string(id["queueErn"].get_string().value);
-                const auto status = std::string(id["status"].get_string().value);
-                const auto messages = doc["messages"].get_int32().value;
-                const auto bytes = doc["bytes"].type() == bsoncxx::type::k_int64
-                                       ? doc["bytes"].get_int64().value
-                                       : static_cast<int64_t>(doc["bytes"].get_int32().value);
+            for (const auto &group: messageCollection.group_count({}, {"queueErn", "status"}, "size")) {
+
+                const auto &ern = group.key[0];
+                const auto &status = group.key[1];
 
                 auto &counts = counted[ern];
-                counts.size += static_cast<long>(bytes);
-                if (status == MessageStatusToString(Entity::EQS::MessageStatus::AVAILABLE)) counts.available += messages;
-                else if (status == MessageStatusToString(Entity::EQS::MessageStatus::DELAYED)) counts.delayed += messages;
-                else if (status == MessageStatusToString(Entity::EQS::MessageStatus::INVISIBLE)) counts.invisible += messages;
+                counts.size += group.sum;
+                if (status == MessageStatusToString(Entity::EQS::MessageStatus::AVAILABLE)) counts.available += group.count;
+                else if (status == MessageStatusToString(Entity::EQS::MessageStatus::DELAYED)) counts.delayed += group.count;
+                else if (status == MessageStatusToString(Entity::EQS::MessageStatus::INVISIBLE)) counts.invisible += group.count;
             }
 
             // Every queue is written, including the ones the grouping did not mention: a queue
@@ -146,8 +137,7 @@ namespace Euclid::Database {
     void MongoEqsRepository::ensureIndexes() {
 
         try {
-            const auto entry = Database::instance().client();
-            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+            auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
 
             // Compound on (accountId, namespace, name) rather than name alone - queue names only
             // need to be unique within their own account/namespace, not globally. NOTE: replacing
@@ -162,7 +152,7 @@ namespace Euclid::Database {
             queueErnOpts.unique(true);
             queueCollection.create_index(make_document(kvp("ern", 1)), queueErnOpts);
 
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             messageCollection.create_index(make_document(kvp("queueErn", 1), kvp("status", 1), kvp("priority", 1)));
 
@@ -190,8 +180,7 @@ namespace Euclid::Database {
         if (deadLetterQueueErn.empty()) return queues;
 
         try {
-            const auto entry = Database::instance().client();
-            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+            auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
 
             for (auto cursor = queueCollection.find(make_document(kvp("deadLetterQueueErn", deadLetterQueueErn)));
                  auto doc: cursor) {
@@ -214,8 +203,7 @@ namespace Euclid::Database {
         if (deadLetterQueueErn.empty() || targetQueueErn.empty()) return 0;
 
         try {
-            const auto entry = Database::instance().client();
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             bsoncxx::builder::basic::document filter;
             filter.append(kvp("queueErn", deadLetterQueueErn));
@@ -257,8 +245,7 @@ namespace Euclid::Database {
                 query.append(kvp("name", name));
             }
 
-            const auto entry = Database::instance().client();
-            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+            auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
 
             const auto result = queueCollection.find_one(query.extract());
             log_trace << "Sqs exists, name: " << name << ", exists: " << std::boolalpha << result.has_value();
@@ -278,8 +265,7 @@ namespace Euclid::Database {
             document document;
             document.append(kvp("_id", oid));
 
-            const auto entry = Database::instance().client();
-            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+            auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
 
             if (auto mResult = queueCollection.find_one(document.view())) {
                 return Entity::EQS::Queue::fromDocument(mResult->view());
@@ -296,8 +282,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+            auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
 
             if (auto mResult = queueCollection.find_one(make_document(kvp("name", name)))) {
                 return Entity::EQS::Queue::fromDocument(mResult.value());
@@ -314,8 +299,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+            auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
 
             if (auto mResult = queueCollection.find_one(make_document(kvp("ern", ern)))) {
                 return Entity::EQS::Queue::fromDocument(mResult.value());
@@ -358,8 +342,7 @@ namespace Euclid::Database {
             }
 
             std::vector<Entity::EQS::Queue> queues;
-            const auto entry = Database::instance().client();
-            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+            auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
 
             for (auto queueCursor = queueCollection.find(filter.view(), opts); auto queue: queueCursor) {
                 queues.push_back(Entity::EQS::Queue::fromDocument(queue));
@@ -395,8 +378,7 @@ namespace Euclid::Database {
             opts.upsert(true);
             opts.return_document(mongocxx::options::return_document::k_after);
 
-            const auto entry = Database::instance().client();
-            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+            auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
 
             if (auto result = queueCollection.find_one_and_update(filter.view(), update.view(), opts)) {
                 return Entity::EQS::Queue::fromDocument(result->view());
@@ -430,8 +412,7 @@ namespace Euclid::Database {
                 filter.append(kvp("internal", make_document(kvp("$ne", true))));
             }
 
-            const auto entry = Database::instance().client();
-            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+            auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
 
             const int64_t count = queueCollection.count_documents(filter.extract());
             log_trace << "Service state: " << std::boolalpha << count;
@@ -448,9 +429,8 @@ namespace Euclid::Database {
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "removeQueueByName");
 
         try {
-            const auto entry = Database::instance().client();
-            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             std::vector<std::string> erns;
             for (auto cursor = queueCollection.find(make_document(kvp("name", name))); auto doc: cursor) {
@@ -482,9 +462,8 @@ namespace Euclid::Database {
         forgetQueueConfig(ern);
 
         try {
-            const auto entry = Database::instance().client();
-            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             const auto result = queueCollection.delete_many(make_document(kvp("ern", ern)));
             log_debug << "EQS deleted, count: " << result->deleted_count();
@@ -507,8 +486,7 @@ namespace Euclid::Database {
         }
 
         try {
-            const auto entry = Database::instance().client();
-            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+            auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
 
             const auto result = queueCollection.delete_many({});
             log_debug << "All queues deleted, count: " << result->deleted_count();
@@ -524,8 +502,7 @@ namespace Euclid::Database {
         try {
             const auto query = make_document(
                     kvp("messageId", messageId));
-            const auto entry = Database::instance().client();
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             const auto result = messageCollection.find_one(query.view());
             return result.has_value();
@@ -541,8 +518,7 @@ namespace Euclid::Database {
         try {
             const auto query = make_document(
                     kvp("_id", oid));
-            const auto entry = Database::instance().client();
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             if (auto mResult = messageCollection.find_one(query.view())) {
                 Entity::EQS::Message message;
@@ -561,8 +537,7 @@ namespace Euclid::Database {
         try {
             const auto query = make_document(
                     kvp("messageId", messageId));
-            const auto entry = Database::instance().client();
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             if (auto mResult = messageCollection.find_one(query.view())) {
                 Entity::EQS::Message message;
@@ -580,8 +555,7 @@ namespace Euclid::Database {
 
         try {
             std::vector<Entity::EQS::Message> messages;
-            const auto entry = Database::instance().client();
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             for (auto cursor = messageCollection.find({}); auto doc: cursor) {
                 Entity::EQS::Message message;
@@ -611,8 +585,7 @@ namespace Euclid::Database {
                 opts.skip(std::max<long>(pageIndex, 0) * pageSize);
             }
 
-            const auto entry = Database::instance().client();
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             for (auto cursor = messageCollection.find(filter.view(), opts); auto doc: cursor) {
                 Entity::EQS::Message message;
@@ -643,8 +616,7 @@ namespace Euclid::Database {
             mongocxx::options::update opts;
             opts.upsert(true);
 
-            const auto entry = Database::instance().client();
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             messageCollection.update_one(filter.view(), update.view(), opts);
 
@@ -672,9 +644,8 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             // The queue's own row is read once per queue rather than once per message: the four
             // fields a send needs cannot change after the queue is created (see queueConfig()).
@@ -736,9 +707,8 @@ namespace Euclid::Database {
             while (true) {
                 // Acquire a pool entry for this polling attempt only, so the connection is
                 // not held checked-out for the whole long-poll wait/sleep below.
-                const auto entry = Database::instance().client();
-                auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
-                auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+                auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
+                auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
                 std::map<Entity::EQS::MessagePriority, long> availableCounts;
                 for (const auto priority: priorityOrder) {
@@ -838,9 +808,8 @@ namespace Euclid::Database {
             const auto filter = make_document(
                     kvp("receiptHandle", receiptHandle));
 
-            const auto entry = Database::instance().client();
-            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             // One round trip, not two: the document has to be read for its size and status
             // before the queue's counters can be adjusted, and find_one_and_delete returns exactly
@@ -866,9 +835,8 @@ namespace Euclid::Database {
             const auto filter = make_document(
                     kvp("messageId", messageId));
 
-            const auto entry = Database::instance().client();
-            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             // One round trip, and no counter write to follow it - the same shape as
             // deleteMessage(), for the same reasons.
@@ -887,9 +855,8 @@ namespace Euclid::Database {
             const auto filter = make_document(
                     kvp("queueErn", queueErn));
 
-            const auto entry = Database::instance().client();
-            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             const auto result = messageCollection.delete_many(filter.view());
             log_debug << "Queue purged, ern: " << queueErn << ", count: " << result->deleted_count();
@@ -913,9 +880,8 @@ namespace Euclid::Database {
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "purgeAllQueues");
 
         try {
-            const auto entry = Database::instance().client();
-            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             // Filters on the entity's own region/accountId fields now that they exist, rather
             // than the previous full-scan-and-substring-match-on-ERN workaround.
@@ -955,8 +921,7 @@ namespace Euclid::Database {
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "countMessages");
 
         try {
-            const auto entry = Database::instance().client();
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             return messageCollection.count_documents({});
         } catch (const std::exception &e) {
@@ -969,8 +934,7 @@ namespace Euclid::Database {
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "countMessagesForQueue");
 
         try {
-            const auto entry = Database::instance().client();
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             return messageCollection.count_documents(make_document(kvp("queueErn", queueErn)));
 
@@ -985,8 +949,7 @@ namespace Euclid::Database {
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "clearMessages");
 
         try {
-            const auto entry = Database::instance().client();
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             const auto result = messageCollection.delete_many({});
             log_debug << "All messages deleted, count: " << result->deleted_count();
@@ -1004,9 +967,8 @@ namespace Euclid::Database {
             std::map<std::string, long> resetCountByQueue;
             std::map<std::string, long> delayedResetCountByQueue;
 
-            const auto entry = Database::instance().client();
-            auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             const auto filter = make_document(kvp("status", MessageStatusToString(Entity::EQS::MessageStatus::INVISIBLE)));
             for (auto cursor = messageCollection.find(filter.view()); auto doc: cursor) {

@@ -16,8 +16,7 @@ namespace Euclid::Database {
     void MongoEamRepository::ensureIndexes() {
 
         try {
-            const auto entry = Database::instance().client();
-            auto userCollection = (*entry)[Database::instance().databaseName()][USER_COLLECTION];
+            auto userCollection = Database::instance().collection(USER_COLLECTION);
 
             mongocxx::options::index userIdOpts;
             userIdOpts.unique(true);
@@ -35,19 +34,19 @@ namespace Euclid::Database {
             accessKeyIdOpts.sparse(true);
             userCollection.create_index(make_document(kvp("accessKeys.accessKeyId", 1)), accessKeyIdOpts);
 
-            auto userGroupCollection = (*entry)[Database::instance().databaseName()][USER_GROUP_COLLECTION];
+            auto userGroupCollection = Database::instance().collection(USER_GROUP_COLLECTION);
 
             mongocxx::options::index groupNameOpts;
             groupNameOpts.unique(true);
             userGroupCollection.create_index(make_document(kvp("name", 1)), groupNameOpts);
 
-            auto accountCollection = (*entry)[Database::instance().databaseName()][ACCOUNT_COLLECTION];
+            auto accountCollection = Database::instance().collection(ACCOUNT_COLLECTION);
 
             mongocxx::options::index accountIdOpts;
             accountIdOpts.unique(true);
             accountCollection.create_index(make_document(kvp("accountId", 1)), accountIdOpts);
 
-            auto namespaceCollection = (*entry)[Database::instance().databaseName()][NAMESPACE_COLLECTION];
+            auto namespaceCollection = Database::instance().collection(NAMESPACE_COLLECTION);
 
             // Namespace names (e.g. "development") repeat across accounts - only the compound
             // (accountId, name) pair is unique.
@@ -71,8 +70,7 @@ namespace Euclid::Database {
             opts.upsert(true);
             opts.return_document(mongocxx::options::return_document::k_after);
 
-            const auto entry = Database::instance().client();
-            auto userCollection = (*entry)[Database::instance().databaseName()][USER_COLLECTION];
+            auto userCollection = Database::instance().collection(USER_COLLECTION);
 
             if (auto result = userCollection.find_one_and_update(filter.view(), update.view(), opts)) {
                 return Entity::EAM::User::fromDocument(result->view());
@@ -89,8 +87,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto userCollection = (*entry)[Database::instance().databaseName()][USER_COLLECTION];
+            auto userCollection = Database::instance().collection(USER_COLLECTION);
 
             if (auto result = userCollection.find_one(make_document(kvp("userId", userId)))) {
                 return Entity::EAM::User::fromDocument(result.value());
@@ -106,8 +103,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto userCollection = (*entry)[Database::instance().databaseName()][USER_COLLECTION];
+            auto userCollection = Database::instance().collection(USER_COLLECTION);
 
             if (auto result = userCollection.find_one(make_document(kvp("email", email)))) {
                 return Entity::EAM::User::fromDocument(result.value());
@@ -123,8 +119,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto userCollection = (*entry)[Database::instance().databaseName()][USER_COLLECTION];
+            auto userCollection = Database::instance().collection(USER_COLLECTION);
 
             if (auto result = userCollection.find_one(make_document(kvp("ern", ern)))) {
                 return Entity::EAM::User::fromDocument(result.value());
@@ -140,8 +135,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto userCollection = (*entry)[Database::instance().databaseName()][USER_COLLECTION];
+            auto userCollection = Database::instance().collection(USER_COLLECTION);
 
             if (auto result = userCollection.find_one(make_document(kvp("accessKeys.accessKeyId", accessKeyId)))) {
                 return Entity::EAM::User::fromDocument(result.value());
@@ -157,8 +151,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto userCollection = (*entry)[Database::instance().databaseName()][USER_COLLECTION];
+            auto userCollection = Database::instance().collection(USER_COLLECTION);
 
             const auto result = userCollection.find_one(make_document(kvp("userId", userId)));
             return result.has_value();
@@ -173,8 +166,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto userCollection = (*entry)[Database::instance().databaseName()][USER_COLLECTION];
+            auto userCollection = Database::instance().collection(USER_COLLECTION);
 
             const auto result = userCollection.find_one(make_document(kvp("ern", ern)));
             return result.has_value();
@@ -188,8 +180,7 @@ namespace Euclid::Database {
     long MongoEamRepository::countUsers() const {
 
         try {
-            const auto entry = Database::instance().client();
-            auto userCollection = (*entry)[Database::instance().databaseName()][USER_COLLECTION];
+            auto userCollection = Database::instance().collection(USER_COLLECTION);
 
             return userCollection.count_documents({});
         } catch (const std::exception &e) {
@@ -214,8 +205,7 @@ namespace Euclid::Database {
                 opts.skip(std::max<long>(pageIndex, 0) * pageSize);
             }
 
-            const auto entry = Database::instance().client();
-            auto userCollection = (*entry)[Database::instance().databaseName()][USER_COLLECTION];
+            auto userCollection = Database::instance().collection(USER_COLLECTION);
 
             for (auto cursor = userCollection.find(filter.view(), opts); auto doc: cursor) {
                 users.push_back(Entity::EAM::User::fromDocument(doc));
@@ -230,8 +220,7 @@ namespace Euclid::Database {
     void MongoEamRepository::deleteUser(const std::string &userId) const {
 
         try {
-            const auto entry = Database::instance().client();
-            auto userCollection = (*entry)[Database::instance().databaseName()][USER_COLLECTION];
+            auto userCollection = Database::instance().collection(USER_COLLECTION);
 
             const auto result = userCollection.delete_many(make_document(kvp("userId", userId)));
             log_debug << "User deleted, count: " << result->deleted_count();
@@ -252,8 +241,7 @@ namespace Euclid::Database {
             opts.upsert(true);
             opts.return_document(mongocxx::options::return_document::k_after);
 
-            const auto entry = Database::instance().client();
-            auto userGroupCollection = (*entry)[Database::instance().databaseName()][USER_GROUP_COLLECTION];
+            auto userGroupCollection = Database::instance().collection(USER_GROUP_COLLECTION);
 
             if (auto result = userGroupCollection.find_one_and_update(filter.view(), update.view(), opts)) {
                 return Entity::EAM::UserGroup::fromDocument(result->view());
@@ -270,8 +258,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto userGroupCollection = (*entry)[Database::instance().databaseName()][USER_GROUP_COLLECTION];
+            auto userGroupCollection = Database::instance().collection(USER_GROUP_COLLECTION);
 
             const auto result = userGroupCollection.find_one(make_document(kvp("name", name)));
             return result.has_value();
@@ -286,8 +273,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto userGroupCollection = (*entry)[Database::instance().databaseName()][USER_GROUP_COLLECTION];
+            auto userGroupCollection = Database::instance().collection(USER_GROUP_COLLECTION);
 
             const auto result = userGroupCollection.find_one(make_document(kvp("ern", ern)));
             return result.has_value();
@@ -302,8 +288,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto userGroupCollection = (*entry)[Database::instance().databaseName()][USER_GROUP_COLLECTION];
+            auto userGroupCollection = Database::instance().collection(USER_GROUP_COLLECTION);
 
             if (auto result = userGroupCollection.find_one(make_document(kvp("name", name)))) {
                 return Entity::EAM::UserGroup::fromDocument(result.value());
@@ -319,8 +304,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto userGroupCollection = (*entry)[Database::instance().databaseName()][USER_GROUP_COLLECTION];
+            auto userGroupCollection = Database::instance().collection(USER_GROUP_COLLECTION);
 
             if (auto result = userGroupCollection.find_one(make_document(kvp("ern", ern)))) {
                 return Entity::EAM::UserGroup::fromDocument(result.value());
@@ -335,8 +319,7 @@ namespace Euclid::Database {
     long MongoEamRepository::countUserGroups() const {
 
         try {
-            const auto entry = Database::instance().client();
-            auto userCollection = (*entry)[Database::instance().databaseName()][USER_GROUP_COLLECTION];
+            auto userCollection = Database::instance().collection(USER_GROUP_COLLECTION);
 
             return static_cast<long>(userCollection.count_documents({}));
         } catch (const std::exception &e) {
@@ -361,8 +344,7 @@ namespace Euclid::Database {
                 opts.skip(std::max<long>(pageIndex, 0) * pageSize);
             }
 
-            const auto entry = Database::instance().client();
-            auto userGroupsCollection = (*entry)[Database::instance().databaseName()][USER_GROUP_COLLECTION];
+            auto userGroupsCollection = Database::instance().collection(USER_GROUP_COLLECTION);
 
             for (auto cursor = userGroupsCollection.find(filter.view(), opts); auto doc: cursor) {
                 userGroups.push_back(Entity::EAM::UserGroup::fromDocument(doc));
@@ -377,8 +359,7 @@ namespace Euclid::Database {
     void MongoEamRepository::deleteUserGroup(const std::string &name) const {
 
         try {
-            const auto entry = Database::instance().client();
-            auto userGroupCollection = (*entry)[Database::instance().databaseName()][USER_GROUP_COLLECTION];
+            auto userGroupCollection = Database::instance().collection(USER_GROUP_COLLECTION);
 
             const auto result = userGroupCollection.delete_many(make_document(kvp("name", name)));
             log_debug << "User group deleted, count: " << result->deleted_count();
@@ -399,8 +380,7 @@ namespace Euclid::Database {
             opts.upsert(true);
             opts.return_document(mongocxx::options::return_document::k_after);
 
-            const auto entry = Database::instance().client();
-            auto accountCollection = (*entry)[Database::instance().databaseName()][ACCOUNT_COLLECTION];
+            auto accountCollection = Database::instance().collection(ACCOUNT_COLLECTION);
 
             if (auto result = accountCollection.find_one_and_update(filter.view(), update.view(), opts)) {
                 return Entity::EAM::Account::fromDocument(result->view());
@@ -417,8 +397,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto accountCollection = (*entry)[Database::instance().databaseName()][ACCOUNT_COLLECTION];
+            auto accountCollection = Database::instance().collection(ACCOUNT_COLLECTION);
 
             const auto result = accountCollection.find_one(make_document(kvp("accountId", accountId)));
             return result.has_value();
@@ -433,8 +412,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto accountCollection = (*entry)[Database::instance().databaseName()][ACCOUNT_COLLECTION];
+            auto accountCollection = Database::instance().collection(ACCOUNT_COLLECTION);
 
             const auto result = accountCollection.find_one(make_document(kvp("ern", ern)));
             return result.has_value();
@@ -449,8 +427,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto accountCollection = (*entry)[Database::instance().databaseName()][ACCOUNT_COLLECTION];
+            auto accountCollection = Database::instance().collection(ACCOUNT_COLLECTION);
 
             if (auto result = accountCollection.find_one(make_document(kvp("accountId", accountId)))) {
                 return Entity::EAM::Account::fromDocument(result.value());
@@ -466,8 +443,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto accountCollection = (*entry)[Database::instance().databaseName()][ACCOUNT_COLLECTION];
+            auto accountCollection = Database::instance().collection(ACCOUNT_COLLECTION);
 
             if (auto result = accountCollection.find_one(make_document(kvp("ern", ern)))) {
                 return Entity::EAM::Account::fromDocument(result.value());
@@ -482,8 +458,7 @@ namespace Euclid::Database {
     long MongoEamRepository::countAccounts() const {
 
         try {
-            const auto entry = Database::instance().client();
-            auto accountCollection = (*entry)[Database::instance().databaseName()][ACCOUNT_COLLECTION];
+            auto accountCollection = Database::instance().collection(ACCOUNT_COLLECTION);
 
             return static_cast<long>(accountCollection.count_documents({}));
         } catch (const std::exception &e) {
@@ -508,8 +483,7 @@ namespace Euclid::Database {
                 opts.skip(std::max<long>(pageIndex, 0) * pageSize);
             }
 
-            const auto entry = Database::instance().client();
-            auto accountCollection = (*entry)[Database::instance().databaseName()][ACCOUNT_COLLECTION];
+            auto accountCollection = Database::instance().collection(ACCOUNT_COLLECTION);
 
             for (auto cursor = accountCollection.find(filter.view(), opts); auto doc: cursor) {
                 accounts.push_back(Entity::EAM::Account::fromDocument(doc));
@@ -524,8 +498,7 @@ namespace Euclid::Database {
     void MongoEamRepository::deleteAccount(const std::string &accountId) const {
 
         try {
-            const auto entry = Database::instance().client();
-            auto accountCollection = (*entry)[Database::instance().databaseName()][ACCOUNT_COLLECTION];
+            auto accountCollection = Database::instance().collection(ACCOUNT_COLLECTION);
 
             const auto result = accountCollection.delete_many(make_document(kvp("accountId", accountId)));
             log_debug << "Account deleted, count: " << result->deleted_count();
@@ -546,8 +519,7 @@ namespace Euclid::Database {
             opts.upsert(true);
             opts.return_document(mongocxx::options::return_document::k_after);
 
-            const auto entry = Database::instance().client();
-            auto namespaceCollection = (*entry)[Database::instance().databaseName()][NAMESPACE_COLLECTION];
+            auto namespaceCollection = Database::instance().collection(NAMESPACE_COLLECTION);
 
             if (auto result = namespaceCollection.find_one_and_update(filter.view(), update.view(), opts)) {
                 return Entity::EAM::Namespace::fromDocument(result->view());
@@ -564,8 +536,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto namespaceCollection = (*entry)[Database::instance().databaseName()][NAMESPACE_COLLECTION];
+            auto namespaceCollection = Database::instance().collection(NAMESPACE_COLLECTION);
 
             const auto result = namespaceCollection.find_one(make_document(kvp("accountId", accountId), kvp("name", name)));
             return result.has_value();
@@ -580,8 +551,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto namespaceCollection = (*entry)[Database::instance().databaseName()][NAMESPACE_COLLECTION];
+            auto namespaceCollection = Database::instance().collection(NAMESPACE_COLLECTION);
 
             const auto result = namespaceCollection.find_one(make_document(kvp("ern", ern)));
             return result.has_value();
@@ -596,8 +566,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto namespaceCollection = (*entry)[Database::instance().databaseName()][NAMESPACE_COLLECTION];
+            auto namespaceCollection = Database::instance().collection(NAMESPACE_COLLECTION);
 
             if (auto result = namespaceCollection.find_one(make_document(kvp("accountId", accountId), kvp("name", name)))) {
                 return Entity::EAM::Namespace::fromDocument(result.value());
@@ -613,8 +582,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto namespaceCollection = (*entry)[Database::instance().databaseName()][NAMESPACE_COLLECTION];
+            auto namespaceCollection = Database::instance().collection(NAMESPACE_COLLECTION);
 
             if (auto result = namespaceCollection.find_one(make_document(kvp("ern", ern)))) {
                 return Entity::EAM::Namespace::fromDocument(result.value());
@@ -629,8 +597,7 @@ namespace Euclid::Database {
     long MongoEamRepository::countNamespaces(const std::string &accountId) const {
 
         try {
-            const auto entry = Database::instance().client();
-            auto namespaceCollection = (*entry)[Database::instance().databaseName()][NAMESPACE_COLLECTION];
+            auto namespaceCollection = Database::instance().collection(NAMESPACE_COLLECTION);
 
             return static_cast<long>(namespaceCollection.count_documents(make_document(kvp("accountId", accountId))));
         } catch (const std::exception &e) {
@@ -657,8 +624,7 @@ namespace Euclid::Database {
                 opts.skip(std::max<long>(pageIndex, 0) * pageSize);
             }
 
-            const auto entry = Database::instance().client();
-            auto namespaceCollection = (*entry)[Database::instance().databaseName()][NAMESPACE_COLLECTION];
+            auto namespaceCollection = Database::instance().collection(NAMESPACE_COLLECTION);
 
             for (auto cursor = namespaceCollection.find(filter.view(), opts); auto doc: cursor) {
                 namespaces.push_back(Entity::EAM::Namespace::fromDocument(doc));
@@ -673,8 +639,7 @@ namespace Euclid::Database {
     void MongoEamRepository::deleteNamespace(const std::string &accountId, const std::string &name) const {
 
         try {
-            const auto entry = Database::instance().client();
-            auto namespaceCollection = (*entry)[Database::instance().databaseName()][NAMESPACE_COLLECTION];
+            auto namespaceCollection = Database::instance().collection(NAMESPACE_COLLECTION);
 
             const auto result = namespaceCollection.delete_many(make_document(kvp("accountId", accountId), kvp("name", name)));
             log_debug << "Namespace deleted, count: " << result->deleted_count();
