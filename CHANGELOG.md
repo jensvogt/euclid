@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.79](https://github.com/jensvogt/euclid/compare/v1.0.78...v1.0.79) (2026-09-08)
+
+
+### Bug Fixes
+
+* macOS issues ([ee483c5](https://github.com/jensvogt/euclid/commit/ee483c55564ae6e1ffb2da50b1cf44cde0096b11))
+
 ## [1.0.78](https://github.com/jensvogt/euclid/compare/v1.0.77...v1.0.78) (2026-09-08)
 
 
