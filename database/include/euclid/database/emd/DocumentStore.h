@@ -68,7 +68,7 @@ namespace Euclid::Database::Emd {
          */
         [[nodiscard]]
         std::vector<bsoncxx::document::value> Find(const std::string &collection, bsoncxx::document::view filter,
-                                                   const FindOptions &options = {}) const;
+                                                   const FindOptions &options = {}) const override;
 
         /**
          * @brief Stores a document, giving it an "_id" if it has none.
@@ -90,19 +90,19 @@ namespace Euclid::Database::Emd {
          * how a store like this quietly loses data.
          */
         UpdateResult UpdateOne(const std::string &collection, bsoncxx::document::view filter,
-                               bsoncxx::document::view update, bool upsert = false);
+                               bsoncxx::document::view update, bool upsert = false) override;
 
         /**
          * @brief Applies an update to every matching document.
          */
         UpdateResult UpdateMany(const std::string &collection, bsoncxx::document::view filter,
-                                bsoncxx::document::view update);
+                                bsoncxx::document::view update) override;
 
         /**
          * @brief Replaces the first matching document wholesale, keeping its id.
          */
         UpdateResult ReplaceOne(const std::string &collection, bsoncxx::document::view filter,
-                                bsoncxx::document::view replacement, bool upsert = false);
+                                bsoncxx::document::view replacement, bool upsert = false) override;
 
         /**
          * @brief Updates the first matching document and returns it.
@@ -149,7 +149,7 @@ namespace Euclid::Database::Emd {
          */
         [[nodiscard]]
         std::vector<GroupCounts> GroupCount(const std::string &collection, bsoncxx::document::view filter,
-                                            const std::vector<std::string> &groupFields, const std::string &sumField = {}) const;
+                                            const std::vector<std::string> &groupFields, const std::string &sumField = {}) const override;
 
         /**
          * @brief Records that a set of fields must be unique.

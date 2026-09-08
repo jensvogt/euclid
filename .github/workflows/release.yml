@@ -465,6 +465,14 @@ jobs:
             esac
             cp "$binary" ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
           done
+          # Stripped in the package, not in the build: a release binary carries a symbol table
+          # nothing at runtime reads - euclid symbolizes no backtraces of its own - and it is a
+          # fifth of what ships. The payload is essentially just the seventeen module binaries,
+          # each statically linking its own copy of Boost and mongocxx, so this is 100 MB of
+          # download turned into 68 MB for anyone installing or upgrading. --strip-unneeded rather
+          # than --strip-all: it keeps the dynamic symbols the loader needs and drops only what is
+          # genuinely dead in a shipped executable.
+          strip --strip-unneeded ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/euclid-*
           cp dist/linux/etc/* ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/etc/
           # euclid statically links vcpkg's own libmagic, whose compiled magic database format
           # isn't guaranteed compatible with the system's /usr/lib/file/magic.mgc (see
@@ -573,7 +581,11 @@ jobs:
 
       - name: Build DEB with fpm
         run: |
+          # xz rather than fpm's gzip default: the payload is almost entirely executables,
+          # where xz is worth another 25% over gzip -9. dpkg has read xz since 2009, so this
+          # costs no compatibility on anything with systemd - which the package already requires.
           fpm -s dir -t deb --name "${{ env.APP_NAME }}" \
+          --deb-compression xz \
           --version "${{ env.SEMVER }}" \
           --architecture amd64 \
           --license "GPL-3.0-or-later" \
@@ -626,6 +638,14 @@ jobs:
             esac
             cp "$binary" ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
           done
+          # Stripped in the package, not in the build: a release binary carries a symbol table
+          # nothing at runtime reads - euclid symbolizes no backtraces of its own - and it is a
+          # fifth of what ships. The payload is essentially just the seventeen module binaries,
+          # each statically linking its own copy of Boost and mongocxx, so this is 100 MB of
+          # download turned into 68 MB for anyone installing or upgrading. --strip-unneeded rather
+          # than --strip-all: it keeps the dynamic symbols the loader needs and drops only what is
+          # genuinely dead in a shipped executable.
+          strip --strip-unneeded ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/euclid-*
           cp dist/linux/etc/* ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc/
           # See the DEB step above for why this is bundled rather than relying on the system's.
           cp ${{ env.BUILD_DIR }}/vcpkg_installed/x64-linux/share/libmagic/misc/magic.mgc ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc/magic.mgc
@@ -771,6 +791,8 @@ jobs:
           mkdir -p ${{ env.PACKAGE_DIR_CLI }}/usr/local/share/man/man1
 
           cp ${{ env.BUILD_DIR }}/bin/euclid-cli ${{ env.PACKAGE_DIR_CLI }}/usr/local/euclid/bin/
+          # See the server package above: the symbol table is dead weight in a shipped binary.
+          strip --strip-unneeded ${{ env.PACKAGE_DIR_CLI }}/usr/local/euclid/bin/euclid-cli
 
           # Section 1 only. The section 8 pages document euclid-ftp and euclid-sftp, which are
           # daemons the manager runs - they belong to a server, and shipping them to a machine
@@ -859,6 +881,7 @@ jobs:
           # tcmalloc when the build host has it, which on a server is pulled in by everything
           # else - a workstation installing the CLI alone has nothing else to pull it in.
           fpm -s dir -t deb --name "${{ env.CLI_NAME }}" \
+          --deb-compression xz \
           --version "${{ env.SEMVER }}" \
           --architecture amd64 \
           --license "GPL-3.0-or-later" \
@@ -948,34 +971,33 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y reprepro
 
-      - name: Restore persistent APT repo state
-        run: |
-          if git ls-remote --exit-code --heads origin apt-repo >/dev/null 2>&1; then
-            git fetch origin apt-repo:apt-repo
-            git worktree add apt-repo-work apt-repo
-          else
-            git worktree add --orphan -b apt-repo apt-repo-work
-          fi
-
-      - name: Configure reprepro distribution
+      # Built from scratch every release, and deliberately kept nowhere in between.
+      #
+      # The repository users actually install from is the copy the deploy job publishes to GitHub
+      # Pages (https://jensvogt.github.io/euclid/apt), built from the artifact below. This step
+      # used to also commit its working tree to an "apt-repo" branch to carry reprepro's state
+      # forward - which put a ~100 MB .deb into git history on every release, that nothing ever
+      # read. git keeps every blob even though reprepro deletes the superseded file from the pool,
+      # so the repository grew past three gigabytes and eventually hit GitHub's 100 MB file limit.
+      #
+      # Nothing is lost by rebuilding: reprepro keeps one version per package (Limit defaults to 1
+      # and dist/apt/conf/distributions does not raise it), so the pool an incremental update would
+      # have produced holds exactly this release's two packages - the previous version was going to
+      # be deleted from it either way.
+      - name: Build and sign the APT repository
         run: |
           mkdir -p apt-repo-work/conf
           sed "s/__GPG_KEY_ID__/${{ steps.import_gpg.outputs.fingerprint }}/" dist/apt/conf/distributions > apt-repo-work/conf/distributions
+          reprepro -b apt-repo-work includedeb stable artifacts/*.deb
+          gpg --armor --export ${{ steps.import_gpg.outputs.fingerprint }} > apt-repo-work/euclid-archive-keyring.asc
 
-      - name: Add package to APT repo
-        run: reprepro -b apt-repo-work includedeb stable artifacts/*.deb
-
-      - name: Export public signing key
-        run: gpg --armor --export ${{ steps.import_gpg.outputs.fingerprint }} > apt-repo-work/euclid-archive-keyring.asc
-
-      - name: Commit updated APT repo state
-        working-directory: apt-repo-work
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add conf dists pool db euclid-archive-keyring.asc
-          git commit -m "chore(apt): add ${{ env.SEMVER }}" || echo "No changes to commit"
-          git push origin HEAD:apt-repo
+          # What ends up in the pool is what gets published, so that is what is checked - both
+          # packages went in, or the archive ships missing one and an installed client finds out
+          # rather than the release does.
+          reprepro -b apt-repo-work list stable
+          packages=$(find apt-repo-work/pool -name '*.deb' | wc -l)
+          [ "$packages" -eq 2 ] \
+            || { echo "::error::expected euclid and euclid-cli in the APT pool, found ${packages} package(s)"; exit 1; }
 
       - name: Upload APT repo artifact
         uses: actions/upload-artifact@v7
