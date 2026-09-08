@@ -27,6 +27,15 @@ namespace Euclid::Database::Entity::EQS {
     using std::chrono::system_clock;
 
     /**
+     * @brief How long a message may sit in a queue before it is removed, in seconds, when neither
+     * the queue nor the configuration says otherwise.
+     *
+     * Four days, which is what SQS defaults to, and long enough that a consumer down over a
+     * weekend still finds its backlog on Monday.
+     */
+    constexpr long kDefaultRetentionPeriod = 4 * 24 * 60 * 60;
+
+    /**
      * @brief SQS queue entity
      *
      * @author jens.vogt\@opitz-consulting.com
@@ -102,6 +111,34 @@ namespace Euclid::Database::Entity::EQS {
          * @brief Maximal receive count
          */
         long maxReceiveCount = 3;
+
+        /**
+         * @brief How long a message may sit in this queue before it is removed, in seconds, or
+         * zero to use the installation's default.
+         *
+         * @par
+         * The answer to a question EQS previously had no answer to at all: a message nobody
+         * consumed stayed forever. A queue whose consumer is gone - a listener whose application
+         * was redeployed under a new name, a downstream service that was never started - grew
+         * without limit, and the cost was not paid by that queue but by every other one, since
+         * they share a collection and its indexes. One installation reached 2.9 million messages
+         * and 12.7 GB that way, which pushed the working set past what the database could hold in
+         * memory and turned a send from single-digit milliseconds into 42, with a tail beyond a
+         * second.
+         *
+         * @par
+         * Zero rather than the default itself, so that a queue which has never been told what it
+         * wants follows {@code euclid.modules.eqs.retention-period} as it changes, instead of
+         * having frozen a copy of whatever the default was on the day it was created. A queue that
+         * has been given a period of its own keeps it.
+         *
+         * @par
+         * Enforced by the database rather than by a sweep: each message is stamped with when it
+         * expires and a TTL index removes it after that - see
+         * MongoEqsRepository::ensureIndexes(). Changing this affects messages sent afterwards; the
+         * ones already in the queue keep the expiry they were given.
+         */
+        long retentionPeriod = 0;
 
         /**
          * @brief Maximal receive count

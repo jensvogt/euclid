@@ -75,6 +75,7 @@
         "minInstances": 1,
         "maxInstances": 4,
         "threads": 8,
+        "retention-period": 345600,
         "priority-weights": {
           "high": 4,
           "middle": 2,

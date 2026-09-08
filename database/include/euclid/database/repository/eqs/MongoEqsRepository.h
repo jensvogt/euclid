@@ -315,6 +315,7 @@ namespace Euclid::Database {
             long visibility{};
             long delay{};
             long maxReceiveCount{};
+            long retentionPeriod{};
             std::string deadLetterQueueErn;
             std::chrono::steady_clock::time_point readAt;
         };

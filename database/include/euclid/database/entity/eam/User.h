@@ -168,7 +168,13 @@ namespace Euclid::Database::Entity::EAM {
         std::vector<AccessKey> accessKeys;
 
         /**
-         * @brief Login sessions, one appended per successful login. Not pruned once expired.
+         * @brief Login sessions, one appended per successful login and the expired ones dropped
+         * as the next login adds its own.
+         *
+         * They are pruned rather than kept because this document is read on every authenticated
+         * request - the access-key lookup and the grant lookup both fetch it - so anything that
+         * grows here is paid for by every request in the installation, not by the logins that
+         * caused it.
          */
         std::vector<Session> sessions;
 

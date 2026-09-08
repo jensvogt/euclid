@@ -48,6 +48,7 @@ namespace Euclid::Database::Entity::EQS {
                 bsoncxx::builder::basic::kvp("reset", bsoncxx::types::b_date(reset)),
                 bsoncxx::builder::basic::kvp("delayUntil", bsoncxx::types::b_date(delayUntil)),
                 bsoncxx::builder::basic::kvp("lastReceived", bsoncxx::types::b_date(lastReceived)),
+                bsoncxx::builder::basic::kvp("expiresAt", bsoncxx::types::b_date(expiresAt)),
                 bsoncxx::builder::basic::kvp("attributes", attrsDoc.extract()),
                 bsoncxx::builder::basic::kvp("systemAttributes", systemAttrsDoc.extract()));
     }
@@ -71,6 +72,7 @@ namespace Euclid::Database::Entity::EQS {
             else if (key == "reset") reset = system_clock::time_point{field.get_date().value};
             else if (key == "delayUntil") delayUntil = system_clock::time_point{field.get_date().value};
             else if (key == "lastReceived") lastReceived = system_clock::time_point{field.get_date().value};
+            else if (key == "expiresAt") expiresAt = system_clock::time_point{field.get_date().value};
             else if (key == "created") created = system_clock::time_point{field.get_date().value};
             else if (key == "modified") modified = system_clock::time_point{field.get_date().value};
             else if (key == "systemAttributes") {
