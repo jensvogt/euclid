@@ -89,6 +89,20 @@ namespace Euclid::Database::Entity::EQS {
         system_clock::time_point delayUntil;
 
         /**
+         * @brief Point in time at which this message is removed whether it was consumed or not.
+         *
+         * Set at send time to now()+queue.retentionPeriod, and acted on by the TTL index
+         * MongoEqsRepository::ensureIndexes() puts on this field - so the deletion happens in the
+         * database, on its own schedule, and costs the send nothing but the stamp.
+         *
+         * A message written before retention existed carries no expiry, and a TTL index ignores a
+         * document whose field is absent: those messages are left alone rather than swept up by a
+         * deployment. Emptying a queue that predates this is a deliberate act, not a side effect
+         * of upgrading.
+         */
+        system_clock::time_point expiresAt;
+
+        /**
          * @brief Number of times this message has been received (ApproximateReceiveCount).
          *
          * Incremented every time the message is handed out by receiveMessages(). Once it exceeds

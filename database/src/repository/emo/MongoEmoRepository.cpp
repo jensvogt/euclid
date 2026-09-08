@@ -2,6 +2,10 @@
 // Created by vogje01 on 8/18/26.
 //
 
+// C++ includes
+#include <mutex>
+
+// Euclid includes
 #include <euclid/database/repository/emo/MongoEmoRepository.h>
 
 namespace Euclid::Database {
@@ -44,6 +48,29 @@ namespace Euclid::Database {
                 filter.append(kvp("timestamp", range.extract()));
             }
             return filter;
+        }
+
+        // Monitoring is the one part of euclid that is not offered on an in-memory installation,
+        // and it is worth being plain about why. Both derived figures here are aggregation
+        // pipelines - a sample-weighted mean, and a rollup that groups by "$dateTrunc" and "$merge"s
+        // the coarser tier back into the collection it read. Reimplementing those in C++ would put
+        // a second implementation of exactly the arithmetic most likely to disagree with the first
+        // behind the same interface, and the disagreement would show up as metrics that are subtly
+        // wrong rather than absent - which is the worse failure for a monitoring module.
+        //
+        // So the samples are still collected, still written and still listed; only the tiers
+        // computed from them are not. Said once per process rather than per firing, because the
+        // rollup runs on a timer and would otherwise report the same thing every minute forever.
+        bool aggregationAvailable(const Collection &collection, const char *what) {
+
+            if (collection.supports_aggregation()) return true;
+
+            static std::once_flag once;
+            std::call_once(once, [] {
+                log_warning << "Monitoring aggregation needs MongoDB, no averages or rollups on the in-memory backend";
+            });
+            log_debug << "Monitoring " << what << " skipped, the in-memory backend has no aggregation";
+            return false;
         }
 
     }// namespace
@@ -136,6 +163,7 @@ namespace Euclid::Database {
                     kvp("samples", make_document(kvp("$sum", "$samples")))));
 
             auto collection = Database::instance().collection(COLLECTION);
+            if (!aggregationAvailable(collection, "average")) return {};
 
             double result{};
             for (auto cursor = collection.aggregate(pipeline); const auto &doc: cursor) {
@@ -157,6 +185,7 @@ namespace Euclid::Database {
 
         try {
             auto collection = Database::instance().collection(COLLECTION);
+            if (!aggregationAvailable(collection, "rollup")) return 0;
 
             mongocxx::pipeline pipeline{};
 

@@ -9,6 +9,7 @@
 #include <thread>
 
 // Euclid includes
+#include <euclid/core/Configuration.h>
 #include <euclid/core/ContentTypeUtils.h>
 #include <euclid/core/CryptoUtils.h>
 #include <euclid/core/UuidUtils.h>
@@ -32,6 +33,18 @@ namespace Euclid::Database {
         // operations below are timed, never the waiting.
         constexpr auto kRepositoryTimer = "eqs-repository-time";
         constexpr auto kRepositoryCounter = "eqs-repository-count";
+
+        /**
+         * @brief How long a message lives when its queue has not been given a period of its own.
+         *
+         * Read per send rather than once, because Configuration is an in-memory lookup and an
+         * operator who changes the setting should not have to restart the module to mean it.
+         */
+        long defaultRetentionPeriod() {
+            const auto configured = Core::Configuration::instance().getOr<int>(
+                    "euclid.modules.eqs.retention-period", static_cast<int>(Entity::EQS::kDefaultRetentionPeriod));
+            return configured > 0 ? configured : Entity::EQS::kDefaultRetentionPeriod;
+        }
     }
 
     MongoEqsRepository::MongoEqsRepository() {
@@ -61,6 +74,7 @@ namespace Euclid::Database {
                 .visibility = queue.visibility,
                 .delay = queue.delay,
                 .maxReceiveCount = queue.maxReceiveCount,
+                .retentionPeriod = queue.retentionPeriod,
                 .deadLetterQueueErn = queue.deadLetterQueueErn,
                 .readAt = now};
         {
@@ -168,6 +182,17 @@ namespace Euclid::Database {
             mongocxx::options::index messageIdOpts;
             messageIdOpts.unique(true);
             messageCollection.create_index(make_document(kvp("messageId", 1)), messageIdOpts);
+
+            // Retention, enforced by the database. expireAfterSeconds is zero because the moment
+            // is already in the document - the field is when the message expires, not when it was
+            // written - which is the same shape ees_events uses for the events it keeps.
+            //
+            // A TTL index ignores a document that has no such field, so this removes nothing that
+            // was sent before retention existed. Those queues stay as they are until somebody
+            // empties them on purpose; what this stops is the next one filling up the same way.
+            mongocxx::options::index expiresAtOpts;
+            expiresAtOpts.expire_after(std::chrono::seconds(0));
+            messageCollection.create_index(make_document(kvp("expiresAt", 1)), expiresAtOpts);
 
         } catch (const std::exception &e) {
             log_error << "Ensure SQS indexes failed, error: " << e.what();
@@ -660,6 +685,16 @@ namespace Euclid::Database {
                     message.status = Entity::EQS::MessageStatus::DELAYED;
                     message.delayUntil = std::chrono::system_clock::now() + std::chrono::seconds(queue->delay);
                 }
+                // The whole of what retention costs a send: one date on the document. Removing the
+                // message when the time comes is the TTL index's business and happens on the
+                // database's schedule, not this module's.
+                //
+                // A queue that has not been given a period of its own - which includes every queue
+                // written before retention existed - follows the installation's, rather than being
+                // read as "never expires". Otherwise the queues that caused the problem would be
+                // precisely the ones the fix exempted.
+                const auto retention = queue->retentionPeriod > 0 ? queue->retentionPeriod : defaultRetentionPeriod();
+                message.expiresAt = std::chrono::system_clock::now() + std::chrono::seconds(retention);
             }
 
             // ToDocument() deliberately carries no created/modified: upsertMessage() puts it in
