@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.81](https://github.com/jensvogt/euclid/compare/1.0.80...v1.0.81) (2026-09-08)
+
+
+### Bug Fixes
+
+* update to readme mentioning python SDK ([f1f86fd](https://github.com/jensvogt/euclid/commit/f1f86fd2d16037a3fea58b9663acf3b2e11de0f5))
+
 ## [1.0.80](https://github.com/jensvogt/euclid/compare/v1.0.79...v1.0.80) (2026-09-08)
 
 
