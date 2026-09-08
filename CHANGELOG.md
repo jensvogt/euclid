@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.78](https://github.com/jensvogt/euclid/compare/v1.0.77...v1.0.78) (2026-09-08)
+
+
+### Bug Fixes
+
+* github cleanup ([2177fdd](https://github.com/jensvogt/euclid/commit/2177fddf2d6c7df0c8c68a9473e90f0bb76051bc))
+
 ## [1.0.77](https://github.com/jensvogt/euclid/compare/1.0.76...v1.0.77) (2026-09-08)
 
 
