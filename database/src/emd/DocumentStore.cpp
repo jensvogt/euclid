@@ -298,6 +298,81 @@ namespace Euclid::Database::Emd {
 
         // ── Updating ─────────────────────────────────────────────────────────
 
+        // Which element of an array the filter picked out, for the positional "$" operator. MongoDB
+        // remembers the element that satisfied the query and updates that one; here the same answer
+        // is reached by asking the question again - the first element of the array that satisfies
+        // every condition the filter placed on it.
+        //
+        // The rule this relies on is MongoDB's own: "$" is only defined when the filter constrained
+        // the array it names, and only ever refers to the first match. A filter that constrained
+        // nothing gives no element rather than the zeroth, which is what MongoDB does too.
+        std::optional<std::size_t> positionalIndex(const bsoncxx::document::view &document, const bsoncxx::document::view &filter,
+                                                   const std::string &arrayField) {
+
+            const auto element = document[arrayField];
+            if (!element || element.type() != bsoncxx::type::k_array) return std::nullopt;
+
+            const auto prefix = arrayField + ".";
+            std::vector<bsoncxx::document::element> conditions;
+            for (const auto &condition: filter) {
+                if (std::string(condition.key()).starts_with(prefix)) conditions.push_back(condition);
+            }
+            if (conditions.empty()) return std::nullopt;
+
+            std::size_t index = 0;
+            for (const auto &entry: element.get_array().value) {
+                if (entry.type() == bsoncxx::type::k_document) {
+
+                    const auto candidate = entry.get_document().value;
+                    if (std::ranges::all_of(conditions, [&candidate, &prefix](const auto &condition) {
+                            return matchesCondition(valuesAt(candidate, std::string(condition.key()).substr(prefix.size())), condition);
+                        })) {
+                        return index;
+                    }
+                }
+                ++index;
+            }
+            return std::nullopt;
+        }
+
+        // One element of an array, with the update applied to it: either replaced outright ("a.$")
+        // or with one of its own fields set ("a.$.b").
+        Owned positionalArray(const bsoncxx::types::bson_value::view &existing, const std::size_t index,
+                              const std::string &subField, const bsoncxx::types::bson_value::view &value) {
+
+            bsoncxx::builder::basic::array array;
+            std::size_t at = 0;
+            for (const auto &entry: existing.get_array().value) {
+
+                if (at++ != index) {
+                    appendValue(array, entry.get_value());
+                    continue;
+                }
+
+                if (subField.empty()) {
+                    appendValue(array, value);
+                    continue;
+                }
+
+                bsoncxx::builder::basic::document replaced;
+                bool seen = false;
+                if (entry.type() == bsoncxx::type::k_document) {
+                    for (const auto &field: entry.get_document().value) {
+                        if (std::string(field.key()) == subField) {
+                            appendValue(replaced, subField, value);
+                            seen = true;
+                            continue;
+                        }
+                        appendValue(replaced, std::string(field.key()), field.get_value());
+                    }
+                }
+                if (!seen) appendValue(replaced, subField, value);
+                array.append(replaced.view());
+            }
+            // Copied out while the builder is still alive - an array view does not own its bytes.
+            return own(bsoncxx::types::bson_value::view(bsoncxx::types::b_array{array.view()}));
+        }
+
         void requireTopLevel(const std::string &field, const std::string &op) {
             if (field.contains('.')) {
                 // Refused rather than quietly setting a field whose name happens to contain a dot:
@@ -310,7 +385,8 @@ namespace Euclid::Database::Emd {
         // Applies one update document, producing the document that results. Nothing is modified in
         // place: BSON here is immutable, and rebuilding is also what makes "modified" honest -
         // the caller can compare what went in with what came out.
-        bsoncxx::document::value applyUpdate(const bsoncxx::document::view &document, const bsoncxx::document::view &update, const bool inserting) {
+        bsoncxx::document::value applyUpdate(const bsoncxx::document::view &document, const bsoncxx::document::view &update, const bool inserting,
+                                             const bsoncxx::document::view &filter = {}) {
 
             std::map<std::string, Owned> fields;
             for (const auto &element: document) fields.insert_or_assign(std::string(element.key()), own(element.get_value()));
@@ -327,8 +403,36 @@ namespace Euclid::Database::Emd {
 
                 if (op == "$set") {
                     for (const auto &field: body) {
-                        requireTopLevel(std::string(field.key()), op);
-                        fields.insert_or_assign(std::string(field.key()), own(field.get_value()));
+                        const auto name = std::string(field.key());
+
+                        // "instances.$" - the element of the array that the filter matched. EMM
+                        // updates a module's instance record this way on every state change, so a
+                        // store without it leaves an installation unable to report what is running.
+                        if (const auto dollar = name.find(".$"); dollar != std::string::npos) {
+
+                            const auto arrayField = name.substr(0, dollar);
+                            const auto rest = name.substr(dollar + 2);
+                            if (!rest.empty() && !rest.starts_with(".")) {
+                                throw std::runtime_error("EMD does not implement " + op + " on the nested path " + name);
+                            }
+
+                            const auto existing = fields.find(arrayField);
+                            const auto index = positionalIndex(document, filter, arrayField);
+
+                            // No matching element is not an error: MongoDB matches no document at
+                            // all in that case, and the caller (EMM) falls back to $push. Leaving
+                            // the array alone is the same outcome.
+                            if (index.has_value() && existing != fields.end()) {
+                                fields.insert_or_assign(arrayField,
+                                                        positionalArray(existing->second.view(), *index,
+                                                                        rest.empty() ? std::string() : rest.substr(1),
+                                                                        field.get_value()));
+                            }
+                            continue;
+                        }
+
+                        requireTopLevel(name, op);
+                        fields.insert_or_assign(name, own(field.get_value()));
                     }
                 } else if (op == "$setOnInsert") {
                     if (!inserting) continue;
@@ -538,7 +642,7 @@ namespace Euclid::Database::Emd {
         for (std::size_t i = 0; i < target.documents.size(); ++i) {
             if (!matches(target.documents[i].view(), filter)) continue;
 
-            auto updated = applyUpdate(target.documents[i].view(), update, false);
+            auto updated = applyUpdate(target.documents[i].view(), update, false, filter);
             const bool changed = !sameDocument(target.documents[i].view(), updated.view());
             if (changed) {
                 CheckUnique(target, updated.view(), static_cast<long>(i));
@@ -569,7 +673,7 @@ namespace Euclid::Database::Emd {
             if (!matches(target.documents[i].view(), filter)) continue;
 
             result.matched++;
-            auto updated = applyUpdate(target.documents[i].view(), update, false);
+            auto updated = applyUpdate(target.documents[i].view(), update, false, filter);
             if (!sameDocument(target.documents[i].view(), updated.view())) {
                 CheckUnique(target, updated.view(), static_cast<long>(i));
                 target.documents[i] = std::move(updated);
@@ -619,7 +723,7 @@ namespace Euclid::Database::Emd {
             if (!matches(target.documents[i].view(), filter)) continue;
 
             const auto before = target.documents[i];
-            auto updated = applyUpdate(before.view(), update, false);
+            auto updated = applyUpdate(before.view(), update, false, filter);
             CheckUnique(target, updated.view(), static_cast<long>(i));
             target.documents[i] = updated;
             return returnAfter ? updated : before;

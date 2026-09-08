@@ -14,7 +14,8 @@
 
 euclid runs a local gateway that authenticates requests and routes them, by service name, to one of several independent
 module processes it manages as subprocesses - each communicating with the gateway over a Unix domain socket. Persistence
-is pluggable: an in-memory backend for fast, disposable test runs, or MongoDB for state that survives a restart.
+is pluggable: MongoDB for state that survives a restart, or an in-memory store for a disposable installation that needs
+no database at all - either inside one process, or held by the EMD module and shared by all of them over a socket.
 
 Requests to that gateway are authenticated one of three ways: a JWT bearer token from `eam login`, an
 [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) HTTP Message Signature (the default for signed calls), or AWS-style
@@ -43,9 +44,10 @@ Everything is driven through `euclid-cli`, a single client binary with one subco
 
 ## Quick start
 
-Build and run everything. The shipped configuration uses MongoDB, which every module shares - the in-memory backend
-(`euclid.database.backend`) lives inside one process, so it does not carry a login from the module that issued it to
-the module being called, and the flow below needs it to:
+Build and run everything. The shipped configuration uses MongoDB. For an installation that should leave nothing behind,
+set `euclid.database.backend` to `emd` and activate the `emd` module - see
+[Running without a database](#running-without-a-database). The `memory` backend lives inside one process and does not
+carry a login from the module that issued it to the module being called, so it will not do for the flow below:
 
 ```bash
 git clone https://github.com/jensvogt/euclid.git
@@ -128,8 +130,9 @@ Switch a single call with `--signature sigv4`, or an installation with `euclid.c
   bought
   it a certificate. `euclid-cli eag list-listeners` reports what it ended up bound to: which port speaks what, and
   whether the certificate behind an HTTPS one is somebody's or that self-signed stopgap.
-- **Storage** - `euclid.database.backend` selects `mongodb` (persistent) or
-  `memory` (in-process, wiped on restart). ESM object files are named after a generated UUID and stored fanned out over
+- **Storage** - `euclid.database.backend` selects `mongodb` (persistent), `emd` (in memory, shared by every module,
+  wiped on restart) or `memory` (in memory, private to one process). ESM object files are named after a generated UUID
+  and stored fanned out over
   two levels of that name (`<data-dir>/objects/96/71/96719be3-…`): one directory per object storage stops being viable
   at a few million files, where ext4's directory index reaches its maximum depth and refuses new names with ENOSPC on a
   disk that is nearly empty. Two levels is 65,536 directories with the same room again in each, so the ceiling moves
@@ -261,7 +264,9 @@ Every process reads the same JSON config (`--config <path>`, default
 | `euclid.gateway.websocket.max-message-size`     | 1048576     | Max inbound websocket frame size, in bytes                                                                                                                                              |
 | `euclid.gateway.websocket.idle-timeout-seconds` | 300         | Websocket ping/pong idle timeout                                                                                                                                                        |
 | `euclid.gateway.event-socket-path`              | (none)      | Unix domain socket modules push business events to, for websocket clients (`Core::EventPusher`)                                                                                         |
-| `euclid.database.backend`                       | mongodb     | `mongodb` or `memory`                                                                                                                                                                   |
+| `euclid.database.backend`                       | mongodb     | `mongodb`, `emd` (the shared in-memory store) or `memory` (in-process) - see [Running without a database](#running-without-a-database)                                                   |
+| `euclid.modules.emd.socketPath`                 | (none)      | Socket the memory database listens on; every module reaches the store here                                                                                                              |
+| `euclid.modules.emd.connect-timeout-ms`         | 1000        | How long a module retries reaching the store before a query fails                                                                                                                       |
 | `euclid.logging.level`                          | info        | Level every channel logs at unless it says otherwise                                                                                                                                    |
 | `euclid.logging.channels`                       | (none)      | Per-channel levels, e.g. `{"app.parser": "off"}` - see [Logging channels](#logging-channels)                                                                                            |
 | `euclid.modules.eqs.priority-weights`           | 4:2:1       | HIGH:MIDDLE:LOW receive weighting                                                                                                                                                       |
@@ -271,6 +276,34 @@ Every process reads the same JSON config (`--config <path>`, default
 | `euclid.modules.eag.certificate`                | (none)      | Name of the EKM certificate an HTTPS listener serves; a self-signed one is generated under that name if it does not exist                                                               |
 | `euclid.modules.eag.basic-auth-cache-seconds`   | 60          | How long a verified Basic credential stays verified; 0 checks every request                                                                                                             |
 | `euclid.modules.eap.http-port-min` / `-max`     | 9000 / 9999 | Range the manager hands application instances their own HTTP port from                                                                                                                  |
+
+### Running without a database
+
+`euclid.database.backend: "emd"` runs the whole installation on an in-memory store held by the EMD module, which every
+other module reaches over a Unix domain socket. Nothing is written to disk and nothing survives a restart, which is the
+point: an installation for a test run, a demo or a container that should leave nothing behind. Activate the module and
+let the others declare they need it, exactly as `dist/*/etc/euclid.json` already does:
+
+```json
+"emd": { "active": true, "readiness": "liveness", "socketPath": "/var/run/euclid/euclid-emd.sock" },
+"eam": { "active": true, "dependencies": ["emd"] }
+```
+
+The repositories are the ones written for MongoDB - there is one implementation, running against whichever backend is
+configured - so a module behaves the same either way. Three things do not carry over, all of them features of the
+database rather than of euclid:
+
+- **Monitoring's derived tiers.** EMO's sample-weighted averages and its hourly/daily rollups are aggregation
+  pipelines, and the store implements documents rather than an aggregation engine. Samples are still collected, stored
+  and listed, and EMO's other work - the queue, bucket and topic recounts every module's counters depend on - is
+  unaffected; only the aggregated figures are absent, and the module says so once rather than failing on a timer.
+  Metrics that are subtly wrong would be worse than metrics that are missing, which is why they are not computed some
+  other way.
+- **Event change streams.** The event bus normally tails MongoDB's oplog to be woken the moment an event is published.
+  That needs a replica set, so on this backend the bus falls back to its poll, which is what delivers events in either
+  case - the change stream only ever made it sooner. Delivery is unchanged; latency is the poll interval.
+- **TTL expiry.** An index that expires documents is a background job of the database. Events belonging to an
+  abandoned external subscriber are removed when the subscription is, rather than a week later.
 
 ### Logging channels
 

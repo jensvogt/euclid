@@ -150,8 +150,25 @@ namespace Euclid::EAM {
             log_info << "Access key provisioned on login, userId: " << user->userId << ", accessKeyId: " << key.accessKeyId;
         }
 
+        const auto nowIso = Core::DateTimeUtils::ToISO8601(Core::DateTimeUtils::UtcDateTimeNow());
+
+        // Dropped before the new one is added, because nothing ever removed them and the cost is
+        // not paid here - it is paid by every authenticated request in the installation. Both the
+        // access-key lookup and the grant lookup fetch this whole document, twice per request
+        // (once at the gateway, once in the module), so every stored session rides along with each
+        // of them. An admin account here had reached 5664 sessions and 522 KB, and a lookup that
+        // takes 0.4 ms against an ordinary user was taking 4.8 ms against that one.
+        //
+        // Compared as text rather than parsed: both sides come from ToISO8601, whose fixed
+        // "%FT%TZ" layout orders lexicographically exactly as it orders in time, and which avoids
+        // FromISO8601's local-time round trip. An entry carrying no expiry sorts first and is
+        // removed, which is what should happen to one written before sessions had an expiry.
+        std::erase_if(updatedUser.sessions, [&nowIso](const Database::Entity::EAM::Session &existing) {
+            return existing.expiresAt < nowIso;
+        });
+
         Database::Entity::EAM::Session session;
-        session.createdAt = Core::DateTimeUtils::ToISO8601(Core::DateTimeUtils::UtcDateTimeNow());
+        session.createdAt = nowIso;
         session.expiresAt = Core::DateTimeUtils::ToISO8601(Core::DateTimeUtils::UtcDateTimeNow() + kSessionTtl);
         updatedUser.sessions.push_back(session);
 

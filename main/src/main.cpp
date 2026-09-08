@@ -399,6 +399,19 @@ static void registerModules(Euclid::main::ServiceController &ctrl) {
             }
         }
 
+        // Not a deployment choice, so it is not left to the configuration to get right. The memory
+        // database is the one module the manager cannot wait for a socket from - it binds its own
+        // fixed address rather than the per-instance one it is handed - and the failure when this
+        // is set wrongly is both silent and total: the store is killed for never becoming ready,
+        // and then every module in the installation logs its every query against a socket that
+        // will never exist.
+        if (name == "emd" && readiness != Euclid::Dto::ModuleConfig::ReadinessCheck::Liveness) {
+            if (props.contains("readiness")) {
+                log_warning << "Module: emd is judged by staying alive, not by a socket, ignoring the configured readiness check";
+            }
+            readiness = Euclid::Dto::ModuleConfig::ReadinessCheck::Liveness;
+        }
+
         // Read from the configuration rather than the props map above: getObjects() flattens a
         // module's properties to scalars, and a dependency list is an array. Optional, so the
         // existence check comes first - getArray() throws on a missing path.

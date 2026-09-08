@@ -39,13 +39,13 @@ namespace Euclid::Database {
             _instanceId = Core::UuidUtils::CreateRandomUuid();
 
             try {
-                const auto entry = Database::instance().client();
-                const auto db = (*entry)[Database::instance().databaseName()];
+                auto subscriptions = Database::instance().collection(SUBSCRIPTION_COLLECTION);
+                auto events = Database::instance().collection(EVENT_COLLECTION);
 
                 mongocxx::options::index subscriptionOpts;
                 subscriptionOpts.unique(true);
-                db[SUBSCRIPTION_COLLECTION].create_index(make_document(kvp("moduleType", 1), kvp("eventType", 1)), subscriptionOpts);
-                db[EVENT_COLLECTION].create_index(make_document(kvp("targetModule", 1), kvp("status", 1), kvp("visibleAt", 1)));
+                subscriptions.create_index(make_document(kvp("moduleType", 1), kvp("eventType", 1)), subscriptionOpts);
+                events.create_index(make_document(kvp("targetModule", 1), kvp("status", 1), kvp("visibleAt", 1)));
 
                 // ClaimEvents takes the OLDEST event a subscriber has, so its query sorts by
                 // createdAt - and the index above stops at visibleAt. Without createdAt in an
@@ -60,7 +60,7 @@ namespace Euclid::Database {
                 // status followed by createdAt in index order, so the first entry examined is the
                 // answer. The visibleAt index above still serves the other branch - reclaiming an
                 // event whose visibility timeout lapsed - where the candidate set is small.
-                db[EVENT_COLLECTION].create_index(make_document(kvp("targetModule", 1), kvp("status", 1), kvp("createdAt", 1)));
+                events.create_index(make_document(kvp("targetModule", 1), kvp("status", 1), kvp("createdAt", 1)));
 
                 // Acknowledging deletes by eventId (see AckEvent), and nothing above indexes that
                 // field: the targetModule prefix narrows the delete to one subscriber and then
@@ -72,20 +72,24 @@ namespace Euclid::Database {
                 // It is also self-reinforcing in the worst way: acknowledging is how the backlog
                 // shrinks, so the slower it gets the less it drains, and the less it drains the
                 // slower it gets. An eventId is a UUID, so this seeks straight to the one document.
-                db[EVENT_COLLECTION].create_index(make_document(kvp("eventId", 1)));
+                events.create_index(make_document(kvp("eventId", 1)));
 
                 // Deleting everything queued for a queue or topic that has just been removed. Rare
                 // next to the traffic this collection carries, but it has to be a lookup rather
                 // than a scan: without it, delete-queue reads every pending event in the
                 // installation and the caller times out long before it finishes.
-                db[EVENT_COLLECTION].create_index(make_document(kvp("targetErn", 1)));
+                events.create_index(make_document(kvp("targetErn", 1)));
 
                 // Only external envelopes carry expiresAt, so this expires an abandoned
                 // consumer's backlog and leaves module deliveries - which have no such field -
                 // untouched.
+                // A TTL index, and the one index here the in-memory store cannot honour - it keeps
+                // documents, not a background expiry thread. An abandoned external subscriber's
+                // backlog therefore stays until something removes it, which UnsubscribeExternal and
+                // PurgeEphemeralSubscriptions both do; only the week-later sweep is missing.
                 mongocxx::options::index expiryOpts;
                 expiryOpts.expire_after(std::chrono::seconds(0));
-                db[EVENT_COLLECTION].create_index(make_document(kvp("expiresAt", 1)), expiryOpts);
+                events.create_index(make_document(kvp("expiresAt", 1)), expiryOpts);
 
             } catch (const std::exception &e) {
                 log_error << "Ensure EventBus indexes failed, error: " << e.what();
@@ -109,9 +113,7 @@ namespace Euclid::Database {
             mongocxx::options::update opts;
             opts.upsert(true);
 
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][SUBSCRIPTION_COLLECTION];
-            collection.update_one(filter.view(), update.view(), opts);
+            Database::instance().collection(SUBSCRIPTION_COLLECTION).update_one(filter.view(), update.view(), opts);
 
             invalidateSubscribers(eventType);
             log_info << "EventBus subscription registered, moduleType: " << moduleType << ", eventType: " << eventType;
@@ -146,11 +148,9 @@ namespace Euclid::Database {
         // duplicate refresh two threads may do when an entry expires under both of them.
         auto subscribers = std::make_shared<std::vector<SubscriberRecord> >();
         try {
-            const auto client = Database::instance().client();
-            const auto db = (*client)[Database::instance().databaseName()];
-
-            for (const auto selector = make_document(kvp("eventType", eventType));
-                 auto doc: db[SUBSCRIPTION_COLLECTION].find(selector.view())) {
+            const auto selector = make_document(kvp("eventType", eventType));
+            for (auto collection = Database::instance().collection(SUBSCRIPTION_COLLECTION);
+                 const auto &doc: collection.find(selector.view())) {
 
                 SubscriberRecord record;
                 record.target = std::string(doc["moduleType"].get_string().value);
@@ -248,12 +248,9 @@ namespace Euclid::Database {
                 return;
             }
 
-            const auto entry = Database::instance().client();
-            const auto db = (*entry)[Database::instance().databaseName()];
-
             const auto now = std::chrono::system_clock::now();
             const auto payloadJson = boost::json::serialize(payload);
-            auto eventCollection = db[EVENT_COLLECTION];
+            auto eventCollection = Database::instance().collection(EVENT_COLLECTION);
 
             for (const auto &target: targets) {
                 const auto doc = make_document(
@@ -443,8 +440,7 @@ namespace Euclid::Database {
             mongocxx::options::update opts;
             opts.upsert(true);
 
-            const auto entry = Database::instance().client();
-            (*entry)[Database::instance().databaseName()][SUBSCRIPTION_COLLECTION].update_one(selector.view(), update.view(), opts);
+            Database::instance().collection(SUBSCRIPTION_COLLECTION).update_one(selector.view(), update.view(), opts);
 
             invalidateSubscribers(eventType);
             log_info << "EventBus external subscription registered, subscriber: " << subscriber << ", eventType: " << eventType
@@ -461,14 +457,12 @@ namespace Euclid::Database {
 
         try {
             const auto target = externalTarget(subscriber);
-            const auto entry = Database::instance().client();
-            const auto db = (*entry)[Database::instance().databaseName()];
 
             bsoncxx::builder::basic::document selector;
             selector.append(kvp("moduleType", target));
             if (!eventType.empty()) selector.append(kvp("eventType", eventType));
 
-            const auto removed = db[SUBSCRIPTION_COLLECTION].delete_many(selector.view());
+            const auto removed = Database::instance().collection(SUBSCRIPTION_COLLECTION).delete_many(selector.view());
 
             // The events go with the subscription: keeping a backlog for something nobody is
             // listening to any more is what the retention index exists to prevent, and doing it
@@ -476,7 +470,7 @@ namespace Euclid::Database {
             bsoncxx::builder::basic::document eventSelector;
             eventSelector.append(kvp("targetModule", target));
             if (!eventType.empty()) eventSelector.append(kvp("eventType", eventType));
-            db[EVENT_COLLECTION].delete_many(eventSelector.view());
+            Database::instance().collection(EVENT_COLLECTION).delete_many(eventSelector.view());
 
             invalidateSubscribers(eventType);
             const auto count = removed ? static_cast<long>(removed->deleted_count()) : 0;
@@ -494,16 +488,14 @@ namespace Euclid::Database {
         ensureIndexes();
 
         try {
-            const auto entry = Database::instance().client();
-            const auto db = (*entry)[Database::instance().databaseName()];
-
             // The events go too, for the same reason UnsubscribeExternal() takes them: a
             // subscription that no longer exists must not leave a backlog behind. An ephemeral
             // one should have none - it is live-mode, so nothing was ever stored for it - but a
             // subscription that was switched to durable while attached would.
             std::vector<std::string> targets;
-            for (const auto selector = make_document(kvp("ephemeral", true));
-                 auto doc: db[SUBSCRIPTION_COLLECTION].find(selector.view())) {
+            const auto ephemeralSelector = make_document(kvp("ephemeral", true));
+            for (auto subscriptions = Database::instance().collection(SUBSCRIPTION_COLLECTION);
+                 const auto &doc: subscriptions.find(ephemeralSelector.view())) {
                 targets.emplace_back(doc["moduleType"].get_string().value);
             }
             if (targets.empty()) return 0;
@@ -511,8 +503,8 @@ namespace Euclid::Database {
             bsoncxx::builder::basic::array names;
             for (const auto &target: targets) names.append(target);
 
-            const auto removed = db[SUBSCRIPTION_COLLECTION].delete_many(make_document(kvp("ephemeral", true)).view());
-            db[EVENT_COLLECTION].delete_many(make_document(kvp("targetModule", make_document(kvp("$in", names)))).view());
+            const auto removed = Database::instance().collection(SUBSCRIPTION_COLLECTION).delete_many(make_document(kvp("ephemeral", true)).view());
+            Database::instance().collection(EVENT_COLLECTION).delete_many(make_document(kvp("targetModule", make_document(kvp("$in", names)))).view());
 
             const auto count = removed ? static_cast<long>(removed->deleted_count()) : 0;
             invalidateSubscribers("");
@@ -529,11 +521,9 @@ namespace Euclid::Database {
 
         std::vector<Subscription> result;
         try {
-            const auto entry = Database::instance().client();
-            const auto db = (*entry)[Database::instance().databaseName()];
-
-            for (const auto selector = make_document(kvp("moduleType", externalTarget(subscriber)));
-                 auto doc: db[SUBSCRIPTION_COLLECTION].find(selector.view())) {
+            const auto selector = make_document(kvp("moduleType", externalTarget(subscriber)));
+            for (auto subscriptions = Database::instance().collection(SUBSCRIPTION_COLLECTION);
+                 const auto &doc: subscriptions.find(selector.view())) {
 
                 Subscription subscription;
                 subscription.subscriber = subscriber;
@@ -574,9 +564,7 @@ namespace Euclid::Database {
             const auto target = externalTarget(subscriber);
             const auto now = std::chrono::system_clock::now();
 
-            const auto entry = Database::instance().client();
-            const auto db = (*entry)[Database::instance().databaseName()];
-            auto eventCollection = db[EVENT_COLLECTION];
+            auto eventCollection = Database::instance().collection(EVENT_COLLECTION);
 
             // The same atomic claim the module path makes, one event at a time: find-and-update
             // is what makes two instances of one subscriber safe to run at once.
@@ -622,7 +610,7 @@ namespace Euclid::Database {
             }
 
             if (!claimed.empty()) {
-                db[SUBSCRIPTION_COLLECTION].update_many(
+                Database::instance().collection(SUBSCRIPTION_COLLECTION).update_many(
                         make_document(kvp("moduleType", target)).view(),
                         make_document(kvp("$set", make_document(kvp("lastSeenAt", bsoncxx::types::b_date{now})))).view());
             }
@@ -636,8 +624,7 @@ namespace Euclid::Database {
     bool EventBus::AckEvent(const std::string &subscriber, const std::string &eventId) {
 
         try {
-            const auto entry = Database::instance().client();
-            const auto result = (*entry)[Database::instance().databaseName()][EVENT_COLLECTION].delete_one(
+            const auto result = Database::instance().collection(EVENT_COLLECTION).delete_one(
                     make_document(kvp("targetModule", externalTarget(subscriber)), kvp("eventId", eventId)).view());
             return result && result->deleted_count() > 0;
 
@@ -650,8 +637,7 @@ namespace Euclid::Database {
     long EventBus::CountEvents(const std::string &subscriber) const {
 
         try {
-            const auto entry = Database::instance().client();
-            return static_cast<long>((*entry)[Database::instance().databaseName()][EVENT_COLLECTION].count_documents(
+            return static_cast<long>(Database::instance().collection(EVENT_COLLECTION).count_documents(
                     make_document(kvp("targetModule", externalTarget(subscriber))).view()));
 
         } catch (const std::exception &e) {
@@ -687,8 +673,7 @@ namespace Euclid::Database {
                     kvp("moduleType", moduleType),
                     kvp("eventType", make_document(kvp("$nin", current))));
 
-            const auto entry = Database::instance().client();
-            if (const auto removed = (*entry)[Database::instance().databaseName()][SUBSCRIPTION_COLLECTION].delete_many(selector.view());
+            if (const auto removed = Database::instance().collection(SUBSCRIPTION_COLLECTION).delete_many(selector.view());
                 removed && removed->deleted_count() > 0) {
                 invalidateSubscribers("");
                 log_info << "EventBus removed stale subscriptions, moduleType: " << moduleType << ", count: " << removed->deleted_count();
@@ -709,7 +694,18 @@ namespace Euclid::Database {
         scheduler.SchedulePeriodic("eventbus-poll-" + moduleType, [this, moduleType] { pollOnce(moduleType); }, pollInterval);
         scheduler.SchedulePeriodic("eventbus-reap", [this] { reap(); }, std::chrono::seconds(10));
 
-        std::thread([this, moduleType] { watchLoop(moduleType); }).detach();
+        // The change stream is a latency shortcut over the poll above, not the delivery mechanism:
+        // it carries no payload and does nothing but call pollOnce() sooner than the timer would.
+        // A change stream needs a replica set to tail an oplog, which the in-memory store has
+        // neither of - so on that backend the poll simply runs alone, and the only thing lost is
+        // the sub-second wake-up. Started only where it can work, rather than started and left to
+        // throw: an exception per reconnect delay, for the life of the process, is how a log
+        // becomes unreadable.
+        if (Database::instance().inMemory()) {
+            log_info << "EventBus polling only, no change stream on the in-memory backend, interval: " << pollInterval.count() << "ms";
+        } else {
+            std::thread([this, moduleType] { watchLoop(moduleType); }).detach();
+        }
 
         log_info << "EventBus started, moduleType: " << moduleType << ", instanceId: " << _instanceId;
     }
@@ -765,8 +761,7 @@ namespace Euclid::Database {
         if (targetErn.empty()) return 0;
 
         try {
-            const auto entry = Database::instance().client();
-            const auto removed = (*entry)[Database::instance().databaseName()][EVENT_COLLECTION]
+            const auto removed = Database::instance().collection(EVENT_COLLECTION)
                                          .delete_many(make_document(kvp("targetErn", targetErn)).view());
             return removed ? static_cast<long>(removed->deleted_count()) : 0;
 
@@ -779,8 +774,7 @@ namespace Euclid::Database {
     void EventBus::pollOnce(const std::string &moduleType) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto eventCollection = (*entry)[Database::instance().databaseName()][EVENT_COLLECTION];
+            auto eventCollection = Database::instance().collection(EVENT_COLLECTION);
 
             for (int claimed = 0; claimed < kBatchSize; ++claimed) {
 
@@ -872,8 +866,7 @@ namespace Euclid::Database {
 
         try {
             const auto now = std::chrono::system_clock::now();
-            const auto entry = Database::instance().client();
-            auto eventCollection = (*entry)[Database::instance().databaseName()][EVENT_COLLECTION];
+            auto eventCollection = Database::instance().collection(EVENT_COLLECTION);
 
             const auto filter = make_document(kvp("status", kClaimed), kvp("visibleAt", make_document(kvp("$lte", bsoncxx::types::b_date{now}))));
             const auto update = make_document(kvp("$set", make_document(kvp("status", kPending))));
@@ -890,15 +883,24 @@ namespace Euclid::Database {
     void EventBus::moveToDlq(const bsoncxx::document::view &doc, const std::string &reason) {
 
         try {
-            const auto entry = Database::instance().client();
-            const auto db = (*entry)[Database::instance().databaseName()];
-
             document dlqDoc;
-            for (const auto &field: doc) dlqDoc.append(kvp(field.key(), field.get_value()));
+            for (const auto &field: doc) {
+
+                // Not simply kvp(key, field.get_value()): re-appending a value view turns an empty
+                // string into a null, and a delivery carries several - targetErn, sourceErn and
+                // messageId are all empty on a domain event, which addresses nobody. This copy is
+                // what an operator reads to work out what was lost, so it has to be the document
+                // that was there rather than an approximation of it.
+                if (field.type() == bsoncxx::type::k_string) {
+                    dlqDoc.append(kvp(field.key(), std::string(field.get_string().value)));
+                    continue;
+                }
+                dlqDoc.append(kvp(field.key(), field.get_value()));
+            }
             dlqDoc.append(kvp("dlqReason", reason));
 
-            db[DLQ_COLLECTION].insert_one(dlqDoc.view());
-            db[EVENT_COLLECTION].delete_one(make_document(kvp("_id", doc["_id"].get_oid())).view());
+            Database::instance().collection(DLQ_COLLECTION).insert_one(dlqDoc.view());
+            Database::instance().collection(EVENT_COLLECTION).delete_one(make_document(kvp("_id", doc["_id"].get_oid())).view());
 
             log_error << "EventBus moved delivery to DLQ, eventId: " << std::string(doc["eventId"].get_string().value) << ", reason: " << reason;
 

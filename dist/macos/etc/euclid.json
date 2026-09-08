@@ -79,7 +79,8 @@
         },
         "minInstances": 1,
         "maxInstances": 4,
-        "threads": 8
+        "threads": 8,
+        "retention-period": 345600
       },
       "ens": {
         "dependencies": ["emd"],

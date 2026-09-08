@@ -377,4 +377,61 @@ BOOST_AUTO_TEST_SUITE(DocumentStoreTest)
         BOOST_CHECK_EQUAL(store.CountDocuments("ekm_key", make_document(kvp("namespace", unscoped)).view()), 2);
     }
 
+    BOOST_AUTO_TEST_CASE(ThePositionalOperatorUpdatesTheElementTheFilterMatched) {
+
+        DocumentStore store;
+
+        // How EMM records what is running: one document per module, one array element per instance,
+        // updated in place on every state change. Without the positional operator the update fails
+        // and an installation cannot report its own instances.
+        std::ignore = store.InsertOne("emm_module", make_document(
+                                                            kvp("name", "esm"),
+                                                            kvp("instances", bsoncxx::builder::basic::make_array(
+                                                                                     make_document(kvp("instanceId", "a"), kvp("state", "STARTING"), kvp("pid", 100)),
+                                                                                     make_document(kvp("instanceId", "b"), kvp("state", "STARTING"), kvp("pid", 200)))))
+                                                            .view());
+
+        const auto filter = make_document(kvp("name", "esm"), kvp("instances.instanceId", "b"));
+        const auto update = make_document(kvp("$set", make_document(
+                                                              kvp("instances.$", make_document(kvp("instanceId", "b"), kvp("state", "RUNNING"), kvp("pid", 201))))));
+
+        const auto result = store.UpdateOne("emm_module", filter.view(), update.view());
+        BOOST_TEST(result.matched == 1);
+        BOOST_TEST(result.modified == 1);
+
+        const auto found = store.FindOne("emm_module", make_document(kvp("name", "esm")).view());
+        BOOST_REQUIRE(found.has_value());
+        const auto instances = found->view()["instances"].get_array().value;
+
+        // The matched element changed and only that one: an update that rewrote the whole array
+        // would take the other instance's record with it.
+        BOOST_CHECK_EQUAL(std::string(instances.find(0)->get_document().value["state"].get_string().value), "STARTING");
+        BOOST_CHECK_EQUAL(instances.find(0)->get_document().value["pid"].get_int32().value, 100);
+        BOOST_CHECK_EQUAL(std::string(instances.find(1)->get_document().value["state"].get_string().value), "RUNNING");
+        BOOST_CHECK_EQUAL(instances.find(1)->get_document().value["pid"].get_int32().value, 201);
+
+        // One field of the matched element rather than the whole of it.
+        const auto single = make_document(kvp("$set", make_document(kvp("instances.$.state", "STOPPED"))));
+        std::ignore = store.UpdateOne("emm_module", filter.view(), single.view());
+
+        const auto after = store.FindOne("emm_module", make_document(kvp("name", "esm")).view());
+        const auto updated = after->view()["instances"].get_array().value;
+        BOOST_CHECK_EQUAL(std::string(updated.find(1)->get_document().value["state"].get_string().value), "STOPPED");
+        BOOST_CHECK_EQUAL(updated.find(1)->get_document().value["pid"].get_int32().value, 201);
+
+        // A filter that matches no element updates nothing, rather than the zeroth - which is what
+        // lets EMM fall back to $push for an instance it has not recorded yet.
+        const auto absent = make_document(kvp("name", "esm"), kvp("instances.instanceId", "zzz"));
+        BOOST_TEST(store.UpdateOne("emm_module", absent.view(), single.view()).matched == 0);
+        BOOST_CHECK_EQUAL(std::string(store.FindOne("emm_module", make_document(kvp("name", "esm")).view())
+                                              ->view()["instances"]
+                                              .get_array()
+                                              .value.find(0)
+                                              ->get_document()
+                                              .value["state"]
+                                              .get_string()
+                                              .value),
+                          "STARTING");
+    }
+
 BOOST_AUTO_TEST_SUITE_END()
