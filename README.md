@@ -28,7 +28,8 @@ route - see [Architecture](#architecture).
 | **ens** | Notifications: publish/subscribe topics fanning out to queues                                   | ✅     |
 | **esm** | Storage: buckets and objects, multipart transfer, encryption at rest                            | ✅     |
 | **ees** | Events: subscribe to what the other modules publish                                             | ✅     |
-| **ekm** | Key management: cryptographic keys, encrypt/decrypt                                             | ✅     |
+| **ekm** | Key management: cryptographic keys, encrypt/decrypt, TLS certificates                           | ✅     |
+| **ess** | Secrets store: passwords and connection details, encrypted under an EKM key                     | ✅     |
 | **emm** | Module management: start, stop, restart, instance and thread limits, export/import              | ✅     |
 | **ets** | Transfer servers: FTP and SFTP endpoints onto ESM buckets                                       | ✅     |
 | **eap** | Applications: Java, Python, Node.js, Rust or C++ processes euclid runs, scales and supervises   | ✅     |
@@ -42,7 +43,9 @@ Everything is driven through `euclid-cli`, a single client binary with one subco
 
 ## Quick start
 
-Build and run everything with the in-memory backend (no MongoDB required):
+Build and run everything. The shipped configuration uses MongoDB, which every module shares - the in-memory backend
+(`euclid.database.backend`) lives inside one process, so it does not carry a login from the module that issued it to
+the module being called, and the flow below needs it to:
 
 ```bash
 git clone https://github.com/jensvogt/euclid.git
@@ -65,6 +68,11 @@ euclid-cli eam login --user admin --password admin
 euclid-cli eqs create-queue --name my-queue
 euclid-cli eqs send-message --queue my-queue --body "hello" --priority HIGH
 euclid-cli eqs receive-messages --queue my-queue --maxCount 10
+
+# A secret is encrypted under an EKM key on the way in; --value-stdin keeps it
+# out of the process list and the shell history.
+openssl rand -base64 24 | euclid-cli ess create-secret --name db-password --value-stdin
+euclid-cli ess get-secret --name db-password --raw
 ```
 
 ---
@@ -124,11 +132,19 @@ Switch a single call with `--signature sigv4`, or an installation with `euclid.c
   `memory` (in-process, wiped on restart). ESM object files are named after a generated UUID and stored fanned out over
   two levels of that name (`<data-dir>/objects/96/71/96719be3-…`): one directory per object storage stops being viable
   at a few million files, where ext4's directory index reaches its maximum depth and refuses new names with ENOSPC on a
-  disk that is nearly empty. This limits the storage for ESM to 64 billion file.
+  disk that is nearly empty. Two levels is 65,536 directories with the same room again in each, so the ceiling moves
+  from millions of objects to billions. Objects written before the fan-out are still read and deleted where they are,
+  so nothing has to be migrated.
+- **Secrets** - ESS holds the passwords, connection strings and tokens the things euclid runs need in order to reach
+  anything else, so they do not end up in a configuration file, an environment variable or a deployment script. Every
+  value is encrypted under an EKM key before it is stored and decrypted only by `ess get-secret`: the key management
+  module keeps the key, the secrets store keeps the ciphertext, and a copy of either alone - a database dump, a backup -
+  is worth nothing. A secret records which key it was written under, so one can be re-keyed without touching any other,
+  and a secret that names no key gets the namespace's own, which the module creates the first time something needs it.
 - **CLI** (`euclid-cli`) - talks to the gateway over HTTPS; credentials are cached under `$HOME/.euclid/credentials`
   after `euclid-cli eam login`.
-- **Names** - a queue, topic or bucket may be named rather than spelled out as a full ERN. The server resolves a bare
-  name in the caller's own account and namespace, which is what keeps account, region and namespace out of client
+- **Names** - a queue, topic, bucket or secret may be named rather than spelled out as a full ERN. The server resolves
+  a bare name in the caller's own account and namespace, which is what keeps account, region and namespace out of client
   configuration entirely - and means a name can never reach another namespace.
 
 ---

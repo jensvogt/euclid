@@ -386,6 +386,19 @@ static void registerModules(Euclid::main::ServiceController &ctrl) {
         const int minInstances = readInt("minInstances", 1);
         const int maxInstances = readInt("maxInstances", 1);
 
+        // How the manager decides a module has started. A euclid module answers on the socket it
+        // was handed, so a socket appearing is the exact signal; the memory database listens on a
+        // fixed address of its own instead - the modules have to know where to find it before it
+        // exists - so it is judged by staying alive, the same way an application is.
+        auto readiness = Euclid::Dto::ModuleConfig::ReadinessCheck::Socket;
+        if (const auto it = props.find("readiness"); it != props.end()) {
+            if (const auto value = std::get<std::string>(it->second); value == "liveness") {
+                readiness = Euclid::Dto::ModuleConfig::ReadinessCheck::Liveness;
+            } else if (value != "socket") {
+                log_error << "Module: " << name << " has an unknown readiness check, using socket: " << value;
+            }
+        }
+
         // Read from the configuration rather than the props map above: getObjects() flattens a
         // module's properties to scalars, and a dependency list is an array. Optional, so the
         // existence check comes first - getArray() throws on a missing path.
@@ -413,7 +426,8 @@ static void registerModules(Euclid::main::ServiceController &ctrl) {
                 .minInstances = minInstances,
                 .maxInstances = maxInstances,
                 .core = true,
-                .dependencies = dependencies
+                .dependencies = dependencies,
+                .readiness = readiness
         });
     }
 }
@@ -421,9 +435,15 @@ static void registerModules(Euclid::main::ServiceController &ctrl) {
 static int initializeDatabase(const Euclid::Core::Configuration &cfg) {
 
     // Choose backend from config
-    if (const auto backend = cfg.getOr<std::string>("euclid.database.backend", "mongodb"); backend == "memory") {
+    const auto backend = cfg.getOr<std::string>("euclid.database.backend", "mongodb");
+    if (backend == "memory") {
         log_info << "Using in-memory database";
         Euclid::Database::RepositoryFactory::instance().initialize(Euclid::Database::BackendType::MEMORY);
+    } else if (backend == "emd") {
+        // The store the EMD module holds. The manager reaches it like any other process, which is
+        // why EMD is started before the rest and why the manager's own first query retries - see
+        // Emd::RemoteDocumentStore.
+        Euclid::Database::RepositoryFactory::instance().initialize(Euclid::Database::BackendType::EMD);
     } else {
         log_info << "Using MongoDB database";
         Euclid::Database::Database::instance().initialize();
@@ -640,7 +660,15 @@ static int RunManager(const CliOptions &opts, [[maybe_unused]] const bool report
     // leftovers are killed before the records that name them are dropped.
     if (takeManagerLock(cfg.getOr<std::string>("euclid.data-dir", "/usr/local/euclid/data"))) {
         killLeftoverInstances();
-        Euclid::Database::RepositoryFactory::instance().emmRepository()->clear();
+
+        // The records, only when there is a database that outlived the last run. On the memory
+        // database there is nothing stale by construction - the store starts empty because it
+        // starts - and the store is a process this manager has not launched yet, so asking it
+        // anything here would mean waiting out the client's connect retry before the thing being
+        // waited for can possibly exist.
+        if (!Euclid::Database::Database::instance().inMemory()) {
+            Euclid::Database::RepositoryFactory::instance().emmRepository()->clear();
+        }
     } else {
         // A second manager against a running installation: it will not get far - the gateway port
         // and every module socket are taken - but on its way out it must not disturb the one that

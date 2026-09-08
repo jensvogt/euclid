@@ -207,6 +207,22 @@ namespace Euclid::Core {
     }
 
     /**
+     * @brief Creates an ESS secret ERN
+     *
+     * @par
+     * Namespace-scoped: a secret carries the name whoever created it chose, so two namespaces of
+     * one account may legitimately both have a "database-password".
+     *
+     * @param accountId account ID
+     * @param nameSpace namespace within accountId the secret belongs to; empty means unscoped
+     * @param name secret name
+     * @return resource ERN
+     */
+    inline std::string createEssSecretErn(const std::string &accountId, const std::string &nameSpace, const std::string &name) {
+        return createErn("ess", accountId, nameSpace, "secret:" + name);
+    }
+
+    /**
      * @brief Creates a ESM bucket ERN
      *
      * @param accountId account ID

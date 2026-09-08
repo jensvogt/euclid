@@ -14,6 +14,7 @@
 #include <euclid/cli/eag/EagCli.h>
 #include <euclid/cli/ees/EesCli.h>
 #include <euclid/cli/ekm/EkmCli.h>
+#include <euclid/cli/ess/EssCli.h>
 #include <euclid/cli/emm/EmmCli.h>
 #include <euclid/cli/ens/EnsCli.h>
 #include <euclid/cli/eqs/EqsCli.h>
@@ -55,6 +56,7 @@ int main(const int argc, char *argv[]) {
             "\tEES Euclid event service (subscribe to what other modules publish)\n"
             "\tENS Euclid notifications system (pub/sub topics, messages)\n"
             "\tEKM Euclid key management (cryptographic keys, encryption, decryption)\n"
+            "\tESS Euclid secrets store (passwords, connection details, encrypted under an EKM key)\n"
             "\tEMM Euclid module management (start, stop, restart, auto-scaler)\n"
             "\tETS Euclid transfer server (FTP/SFTP endpoints onto ESM buckets)\n"
             "\tEAP Euclid applications (Java, Python, Node.js, Rust or C++ processes euclid runs and scales)\n"
@@ -216,6 +218,11 @@ int main(const int argc, char *argv[]) {
         const auto authToken = Euclid::CLI::Credentials::Load();
         const Euclid::CLI::EkmCli ekm(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), pretty, caCert);
         return ekm.process(action, args);
+    }
+    if (module == "ess") {
+        const auto authToken = Euclid::CLI::Credentials::Load();
+        const Euclid::CLI::EssCli ess(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), pretty, caCert);
+        return ess.process(action, args);
     }
 
     std::cerr << "error: unknown module '" << module << "'\n\n" << usage << std::endl;

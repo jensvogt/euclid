@@ -3,6 +3,8 @@
 //
 
 #include <euclid/database/Database.h>
+#include <euclid/database/emd/DocumentStore.h>
+#include <euclid/database/emd/RemoteDocumentStore.h>
 
 namespace Euclid::Database {
 
@@ -41,6 +43,20 @@ namespace Euclid::Database {
     }
 
     void Database::ping() const {
+
+        // The store answers for its own reachability. For the shared one that is a real round trip
+        // to the EMD process, which is what the manager's watchdog wants to know; for an in-process
+        // store it is trivially true. Without this the watchdog dereferenced a connection pool that
+        // a non-MongoDB backend never created.
+        if (_store) {
+            std::ignore = _store->CountDocuments("euclid_ping", bsoncxx::document::view{});
+            return;
+        }
+
+        if (!_pool) {
+            throw std::runtime_error("MongoDB not initialized — call initialize() first");
+        }
+
         try {
             const auto entry = _pool->acquire();
             auto db = (*entry)[_databaseName];
@@ -57,6 +73,29 @@ namespace Euclid::Database {
             log_error << "MongoDB ping failed: " << e.what();
             throw;
         }
+    }
+
+    void Database::initializeMemory() {
+        _store = std::make_shared<Emd::DocumentStore>();
+        _databaseName = "euclid";
+        log_info << "Using the in-memory document store";
+    }
+
+    void Database::initializeRemote(const std::string &socketPath) {
+        _store = std::make_shared<Emd::RemoteDocumentStore>(socketPath);
+        _databaseName = "euclid";
+        log_info << "Using the memory database, socket: " << socketPath;
+    }
+
+    Collection Database::collection(const std::string &name) const {
+
+        // The store first: a process initialized with one has no pool to acquire from, and asking
+        // would throw rather than fall back.
+        if (_store) return Collection(_store, name);
+        if (!_pool) {
+            throw std::runtime_error("MongoDB not initialized — call initialize() first");
+        }
+        return Collection(_pool->acquire(), _databaseName, name);
     }
 
 }// namespace Euclid::Core

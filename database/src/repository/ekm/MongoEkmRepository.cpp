@@ -22,8 +22,7 @@ namespace Euclid::Database {
     void MongoEkmRepository::ensureIndexes() {
 
         try {
-            const auto entry = Database::instance().client();
-            auto keyCollection = (*entry)[Database::instance().databaseName()][KEY_COLLECTION];
+            auto keyCollection = Database::instance().collection(KEY_COLLECTION);
 
             // Compound on (accountId, namespace, name) rather than name alone - queue names only
             // need to be unique within their own account/namespace, not globally. NOTE: replacing
@@ -40,7 +39,7 @@ namespace Euclid::Database {
 
             // Certificates are named by their owner rather than by a generated ID - a listener's
             // configuration names one - so the same triple has to be unique for them too.
-            auto certificateCollection = (*entry)[Database::instance().databaseName()][CERTIFICATE_COLLECTION];
+            auto certificateCollection = Database::instance().collection(CERTIFICATE_COLLECTION);
 
             mongocxx::options::index certificateNameOpts;
             certificateNameOpts.unique(true);
@@ -64,8 +63,7 @@ namespace Euclid::Database {
     //             query.append(kvp("name", name));
     //         }
     //
-    //         const auto entry = Database::instance().client();
-    //         auto keyCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+    //    //         auto keyCollection = Database::instance().collection(QUEUE_COLLECTION);
     //
     //         const auto result = keyCollection.find_one(query.extract());
     //         log_trace << "Sqs exists, name: " << name << ", exists: " << std::boolalpha << result.has_value();
@@ -84,8 +82,7 @@ namespace Euclid::Database {
     //         document document;
     //         document.append(kvp("_id", oid));
     //
-    //         const auto entry = Database::instance().client();
-    //         auto keyCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+    //    //         auto keyCollection = Database::instance().collection(QUEUE_COLLECTION);
     //
     //         if (auto mResult = keyCollection.find_one(document.view())) {
     //             return Entity::EKM::Queue::fromDocument(mResult->view());
@@ -101,8 +98,7 @@ namespace Euclid::Database {
     //
     //     try {
     //
-    //         const auto entry = Database::instance().client();
-    //         auto keyCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+    //    //         auto keyCollection = Database::instance().collection(QUEUE_COLLECTION);
     //
     //         if (auto mResult = keyCollection.find_one(make_document(kvp("name", name)))) {
     //             return Entity::EKM::Queue::fromDocument(mResult.value());
@@ -118,8 +114,7 @@ namespace Euclid::Database {
     //
     //     try {
     //
-    //         const auto entry = Database::instance().client();
-    //         auto keyCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+    //    //         auto keyCollection = Database::instance().collection(QUEUE_COLLECTION);
     //
     //         if (auto mResult = keyCollection.find_one(make_document(kvp("ern", ern)))) {
     //             return Entity::EKM::Queue::fromDocument(mResult.value());
@@ -135,8 +130,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto keyCollection = (*entry)[Database::instance().databaseName()][KEY_COLLECTION];
+            auto keyCollection = Database::instance().collection(KEY_COLLECTION);
 
             const auto filter = make_document(kvp("accountId", accountId), kvp("namespace", namespaceName), kvp("name", name));
             if (auto result = keyCollection.find_one(filter.view())) {
@@ -153,8 +147,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto keyCollection = (*entry)[Database::instance().databaseName()][KEY_COLLECTION];
+            auto keyCollection = Database::instance().collection(KEY_COLLECTION);
 
             const auto filter = make_document(kvp("ern", ern));
             if (auto result = keyCollection.find_one(filter.view())) {
@@ -190,8 +183,7 @@ namespace Euclid::Database {
             }
 
             std::vector<Entity::EKM::Key> keys;
-            const auto entry = Database::instance().client();
-            auto keyCollection = (*entry)[Database::instance().databaseName()][KEY_COLLECTION];
+            auto keyCollection = Database::instance().collection(KEY_COLLECTION);
 
             for (auto queueCursor = keyCollection.find(filter.view(), opts); auto queue: queueCursor) {
                 keys.push_back(Entity::EKM::Key::fromDocument(queue));
@@ -226,8 +218,7 @@ namespace Euclid::Database {
             opts.upsert(true);
             opts.return_document(mongocxx::options::return_document::k_after);
 
-            const auto entry = Database::instance().client();
-            auto keyCollection = (*entry)[Database::instance().databaseName()][KEY_COLLECTION];
+            auto keyCollection = Database::instance().collection(KEY_COLLECTION);
 
             if (auto result = keyCollection.find_one_and_update(filter.view(), update.view(), opts)) {
                 return Entity::EKM::Key::fromDocument(result->view());
@@ -244,8 +235,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto keyCollection = (*entry)[Database::instance().databaseName()][KEY_COLLECTION];
+            auto keyCollection = Database::instance().collection(KEY_COLLECTION);
 
             // deletionDate is only ever written once a deletion is scheduled (see Key::toDocument()),
             // so a plain $lte filter is enough - keys with no deletionDate field don't match.
@@ -283,8 +273,7 @@ namespace Euclid::Database {
             opts.upsert(true);
             opts.return_document(mongocxx::options::return_document::k_after);
 
-            const auto entry = Database::instance().client();
-            auto certificateCollection = (*entry)[Database::instance().databaseName()][CERTIFICATE_COLLECTION];
+            auto certificateCollection = Database::instance().collection(CERTIFICATE_COLLECTION);
 
             if (auto result = certificateCollection.find_one_and_update(filter.view(), update.view(), opts)) {
                 return Entity::EKM::Certificate::fromDocument(result->view());
@@ -301,8 +290,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto certificateCollection = (*entry)[Database::instance().databaseName()][CERTIFICATE_COLLECTION];
+            auto certificateCollection = Database::instance().collection(CERTIFICATE_COLLECTION);
 
             const auto filter = make_document(kvp("accountId", accountId), kvp("namespace", namespaceName), kvp("name", name));
             if (auto result = certificateCollection.find_one(filter.view())) {
@@ -319,8 +307,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto certificateCollection = (*entry)[Database::instance().databaseName()][CERTIFICATE_COLLECTION];
+            auto certificateCollection = Database::instance().collection(CERTIFICATE_COLLECTION);
 
             const auto filter = make_document(kvp("ern", ern));
             if (auto result = certificateCollection.find_one(filter.view())) {
@@ -356,8 +343,7 @@ namespace Euclid::Database {
             }
 
             std::vector<Entity::EKM::Certificate> certificates;
-            const auto entry = Database::instance().client();
-            auto certificateCollection = (*entry)[Database::instance().databaseName()][CERTIFICATE_COLLECTION];
+            auto certificateCollection = Database::instance().collection(CERTIFICATE_COLLECTION);
 
             for (auto cursor = certificateCollection.find(filter.view(), opts); auto certificate: cursor) {
                 certificates.push_back(Entity::EKM::Certificate::fromDocument(certificate));
@@ -384,8 +370,7 @@ namespace Euclid::Database {
                 filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
             }
 
-            const auto entry = Database::instance().client();
-            auto certificateCollection = (*entry)[Database::instance().databaseName()][CERTIFICATE_COLLECTION];
+            auto certificateCollection = Database::instance().collection(CERTIFICATE_COLLECTION);
 
             return static_cast<long>(certificateCollection.count_documents(filter.extract()));
 
@@ -399,8 +384,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto certificateCollection = (*entry)[Database::instance().databaseName()][CERTIFICATE_COLLECTION];
+            auto certificateCollection = Database::instance().collection(CERTIFICATE_COLLECTION);
 
             const auto filter = make_document(kvp("accountId", accountId), kvp("namespace", namespaceName), kvp("name", name));
             const auto result = certificateCollection.delete_many(filter.view());
@@ -427,8 +411,7 @@ namespace Euclid::Database {
                 filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
             }
 
-            const auto entry = Database::instance().client();
-            auto keyCollection = (*entry)[Database::instance().databaseName()][KEY_COLLECTION];
+            auto keyCollection = Database::instance().collection(KEY_COLLECTION);
 
             const int64_t count = keyCollection.count_documents(filter.extract());
             log_trace << "Key count: " << count;
@@ -444,9 +427,8 @@ namespace Euclid::Database {
     // void MongoEkmRepository::removeQueueByName(const std::string &name) {
     //
     //     try {
-    //         const auto entry = Database::instance().client();
-    //         auto keyCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
-    //         auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+    //    //         auto keyCollection = Database::instance().collection(QUEUE_COLLECTION);
+    //         auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
     //
     //         std::vector<std::string> erns;
     //         for (auto cursor = keyCollection.find(make_document(kvp("name", name))); auto doc: cursor) {
@@ -475,9 +457,8 @@ namespace Euclid::Database {
     // void MongoEkmRepository::deleteQueueByErn(const std::string &ern) {
     //
     //     try {
-    //         const auto entry = Database::instance().client();
-    //         auto keyCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
-    //         auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+    //    //         auto keyCollection = Database::instance().collection(QUEUE_COLLECTION);
+    //         auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
     //
     //         const auto result = keyCollection.delete_many(make_document(kvp("ern", ern)));
     //         log_debug << "EKM deleted, count: " << result->deleted_count();
@@ -495,8 +476,7 @@ namespace Euclid::Database {
     // void MongoEkmRepository::clearQueues() {
     //
     //     try {
-    //         const auto entry = Database::instance().client();
-    //         auto keyCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+    //    //         auto keyCollection = Database::instance().collection(QUEUE_COLLECTION);
     //
     //         const auto result = keyCollection.delete_many({});
     //         log_debug << "All queues deleted, count: " << result->deleted_count();

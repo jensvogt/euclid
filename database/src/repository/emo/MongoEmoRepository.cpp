@@ -55,8 +55,7 @@ namespace Euclid::Database {
     void MongoEmoRepository::ensureIndexes() {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             // Identity of a data point: one series, one resolution, one bucket. Unique because
             // both writers upsert on exactly these fields, and because rollup()'s $merge requires
@@ -88,8 +87,7 @@ namespace Euclid::Database {
     void MongoEmoRepository::upsert(const Entity::Monitoring::MonitoringData &data) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             const auto filter = make_document(kvp("name", data.name), kvp("labelName", data.labelName), kvp("labelValue", data.labelValue),
                                               kvp("resolution", ResolutionToString(data.resolution)), kvp("timestamp", toDate(data.timestamp)));
@@ -110,8 +108,7 @@ namespace Euclid::Database {
             opts.sort(make_document(kvp("timestamp", -1)));
             if (query.limit > 0) opts.limit(query.limit);
 
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             std::vector<Entity::Monitoring::MonitoringData> result;
             for (auto cursor = collection.find(queryFilter(query).extract(), opts); const auto &doc: cursor) {
@@ -138,8 +135,7 @@ namespace Euclid::Database {
                     kvp("weighted", make_document(kvp("$sum", make_document(kvp("$multiply", make_array("$value", "$samples")))))),
                     kvp("samples", make_document(kvp("$sum", "$samples")))));
 
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             double result{};
             for (auto cursor = collection.aggregate(pipeline); const auto &doc: cursor) {
@@ -160,8 +156,7 @@ namespace Euclid::Database {
                                     const std::chrono::seconds retention) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             mongocxx::pipeline pipeline{};
 
@@ -241,8 +236,7 @@ namespace Euclid::Database {
     long MongoEmoRepository::deleteExpired(const std::chrono::system_clock::time_point now) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             const auto result = collection.delete_many(make_document(kvp("expiresAt", make_document(kvp("$lt", toDate(now))))).view());
             const auto deleted = result ? static_cast<long>(result->deleted_count()) : 0;
@@ -260,6 +254,19 @@ namespace Euclid::Database {
     std::optional<IEmoRepository::DatabaseStats> MongoEmoRepository::databaseStats() const {
 
         try {
+            // The in-memory store keeps no size counters - it has no files, no indexes and no
+            // storage engine to ask - so what can be answered is answered and the rest is left at
+            // zero, rather than the whole metric disappearing on that backend.
+            if (Database::instance().inMemory()) {
+                const auto store = Database::instance().store();
+                DatabaseStats stats;
+                for (const auto &collection: store->Collections()) {
+                    stats.collections++;
+                    stats.objects += store->Size(collection);
+                }
+                return stats;
+            }
+
             const auto entry = Database::instance().client();
             auto database = (*entry)[Database::instance().databaseName()];
 
