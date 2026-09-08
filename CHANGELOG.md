@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.77](https://github.com/jensvogt/euclid/compare/1.0.76...v1.0.77) (2026-09-08)
+
+
+### Bug Fixes
+
+* convert in-memory database to an own module. ([a4d4b3b](https://github.com/jensvogt/euclid/commit/a4d4b3bfa53e18ecbbca221454d3a88a03519c0f))
+* performance fixes for ESM and EQS ([09fab27](https://github.com/jensvogt/euclid/commit/09fab270cfd193e160d6c4da047fd399f13ae1d0))
+
 ## [1.0.76](https://github.com/jensvogt/euclid/compare/1.0.75...v1.0.76) (2026-09-07)
 
 
