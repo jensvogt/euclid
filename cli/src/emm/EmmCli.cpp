@@ -390,7 +390,7 @@ namespace Euclid::CLI {
     int EmmCli::exportModule(const std::vector<std::string> &args) const {
         po::options_description desc("export options");
         desc.add_options()
-                ("module,m", po::value<std::string>(), "comma-separated modules to export (eam, emm, emo, ens, eqs, esm), e.g. esm,eqs,ens - mutually exclusive with --all")
+                ("module,m", po::value<std::string>(), "comma-separated modules to export (eam, eap, ekm, emm, emo, ens, eqs, esm, ess, ets), e.g. esm,eqs,ens - mutually exclusive with --all")
                 ("all", po::bool_switch()->default_value(false), "export every module - mutually exclusive with --module")
                 ("full", po::bool_switch()->default_value(false), "also export bulk child data (EQS/ENS messages, ESM objects), not just the top-level resources")
                 ("file,f", po::value<std::string>(), "output file path; defaults to <modules>-export-<unix-timestamp>.json in the current directory")

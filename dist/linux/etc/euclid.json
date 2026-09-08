@@ -45,7 +45,9 @@
         "threads": 8
       },
       "eam": {
-        "dependencies": ["emd"],
+        "dependencies": [
+          "emd"
+        ],
         "active": true,
         "name": "eam",
         "socketPath": "/var/run/euclid/euclid-eam.sock",
@@ -56,7 +58,9 @@
         "jwt-secret": "changeme-set-a-real-secret-in-production"
       },
       "esm": {
-        "dependencies": ["emd"],
+        "dependencies": [
+          "emd"
+        ],
         "active": true,
         "name": "esm",
         "socketPath": "/var/run/euclid/euclid-esm.sock",
@@ -67,7 +71,9 @@
         "threads": 8
       },
       "eqs": {
-        "dependencies": ["emd"],
+        "dependencies": [
+          "emd"
+        ],
         "active": true,
         "name": "eqs",
         "socketPath": "/var/run/euclid/euclid-eqs.sock",
@@ -83,7 +89,9 @@
         }
       },
       "ens": {
-        "dependencies": ["emd"],
+        "dependencies": [
+          "emd"
+        ],
         "active": true,
         "name": "ens",
         "socketPath": "/var/run/euclid/euclid-ens.sock",
@@ -93,7 +101,9 @@
         "threads": 8
       },
       "emo": {
-        "dependencies": ["emd"],
+        "dependencies": [
+          "emd"
+        ],
         "active": true,
         "name": "emo",
         "socketPath": "/var/run/euclid/euclid-emo.sock",
@@ -116,7 +126,9 @@
         }
       },
       "ekm": {
-        "dependencies": ["emd"],
+        "dependencies": [
+          "emd"
+        ],
         "active": true,
         "name": "ekm",
         "socketPath": "/var/run/euclid/euclid-ekm.sock",
@@ -126,7 +138,9 @@
         "threads": 2
       },
       "ess": {
-        "dependencies": ["emd"],
+        "dependencies": [
+          "emd"
+        ],
         "active": true,
         "name": "ess",
         "socketPath": "/var/run/euclid/euclid-ess.sock",
@@ -136,7 +150,9 @@
         "threads": 2
       },
       "emm": {
-        "dependencies": ["emd"],
+        "dependencies": [
+          "emd"
+        ],
         "active": true,
         "name": "emm",
         "socketPath": "/var/run/euclid/euclid-emm.sock",
@@ -146,7 +162,9 @@
         "threads": 2
       },
       "ees": {
-        "dependencies": ["emd"],
+        "dependencies": [
+          "emd"
+        ],
         "active": true,
         "name": "ees",
         "socketPath": "/var/run/euclid/euclid-ees.sock",
@@ -156,7 +174,9 @@
         "threads": 8
       },
       "eap": {
-        "dependencies": ["emd"],
+        "dependencies": [
+          "emd"
+        ],
         "active": true,
         "name": "eap",
         "socketPath": "/var/run/euclid/euclid-eap.sock",
@@ -171,7 +191,9 @@
         "http-port-max": 9999
       },
       "ets": {
-        "dependencies": ["emd"],
+        "dependencies": [
+          "emd"
+        ],
         "active": true,
         "name": "ets",
         "socketPath": "/var/run/euclid/euclid-ets.sock",
@@ -188,7 +210,9 @@
         "sftp-executable": "/usr/local/euclid/bin/euclid-sftp"
       },
       "eag": {
-        "dependencies": ["emd"],
+        "dependencies": [
+          "emd"
+        ],
         "active": true,
         "name": "eag",
         "socketPath": "/var/run/euclid/euclid-eag.sock",
@@ -234,7 +258,7 @@
     "logging": {
       "file-active": false,
       "console-active": true,
-      "level": "info",
+      "level": "warning",
       "dir": "/usr/local/euclid/log",
       "prefix": "euclid",
       "channels": {
