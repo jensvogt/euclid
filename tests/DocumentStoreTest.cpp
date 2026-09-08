@@ -257,7 +257,7 @@ BOOST_AUTO_TEST_SUITE(DocumentStoreTest)
     BOOST_AUTO_TEST_CASE(GroupCountAnswersTheRecountsTheRepositoriesAskFor) {
 
         DocumentStore store;
-        const auto message = [](const std::string &queue, const std::string &status, const long size) {
+        const auto message = [](const std::string &queue, const std::string &status, const std::int64_t size) {
             return make_document(kvp("queueErn", queue), kvp("status", status), kvp("size", size));
         };
         std::ignore = store.InsertOne("eqs_message", message("orders", "AVAILABLE", 100).view());
