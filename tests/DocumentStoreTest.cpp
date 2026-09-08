@@ -2,6 +2,7 @@
 #include <boost/test/unit_test.hpp>
 
 // C++ includes
+#include <cstdint>
 #include <string>
 
 // MongoDB includes
@@ -29,7 +30,7 @@ namespace {
 
     constexpr auto kCollection = "ess_secret";
 
-    bsoncxx::document::value secret(const std::string &name, const std::string &ns = "development", const long version = 1) {
+    bsoncxx::document::value secret(const std::string &name, const std::string &ns = "development", const std::int64_t version = 1) {
         return make_document(kvp("accountId", "000000000000"), kvp("namespace", ns), kvp("name", name),
                              kvp("value", "ciphertext"), kvp("version", version));
     }
