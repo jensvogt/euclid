@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.82](https://github.com/jensvogt/euclid/compare/1.0.81...v1.0.82) (2026-09-08)
+
+
+### Bug Fixes
+
+* lower default log level ([8e2b209](https://github.com/jensvogt/euclid/commit/8e2b2097ba22e472770db7bae44d19ee16bae453))
+
 ## [1.0.81](https://github.com/jensvogt/euclid/compare/1.0.80...v1.0.81) (2026-09-08)
 
 
