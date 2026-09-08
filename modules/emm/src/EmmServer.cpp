@@ -64,6 +64,12 @@ namespace Euclid::EMM {
                     // the keys restores nothing - so the file is as sensitive as the database it
                     // came from and wants the same handling.
                     {"ekm", {{"ekm_key"}, {}}},
+                    // A secret's value is stored encrypted under an EKM key, so an ess export on
+                    // its own is ciphertext and worth nothing without the key that sealed it. Taken
+                    // together with ekm it is the lock and the key in one file - which needs no
+                    // rule of its own, because asking for ekm already requires a passphrase and
+                    // that is exactly the file this would be part of.
+                    {"ess", {{"ess_secret"}, {}}},
             };
             return specs;
         }
