@@ -36,6 +36,7 @@ namespace Euclid::Database::Entity::EQS {
                 bsoncxx::builder::basic::kvp("visibility", static_cast<int64_t>(visibility)),
                 bsoncxx::builder::basic::kvp("maxMessageLength", static_cast<int64_t>(maxMessageLength)),
                 bsoncxx::builder::basic::kvp("maxReceiveCount", static_cast<int64_t>(maxReceiveCount)),
+                bsoncxx::builder::basic::kvp("retentionPeriod", static_cast<int64_t>(retentionPeriod)),
                 bsoncxx::builder::basic::kvp("deadLetterQueueErn", deadLetterQueueErn),
                 bsoncxx::builder::basic::kvp("priority", MessagePriorityToString(priority)),
                 bsoncxx::builder::basic::kvp("internal", internal),
@@ -64,6 +65,7 @@ namespace Euclid::Database::Entity::EQS {
             else if (key == "visibility") queue.visibility = getBsonInt(field);
             else if (key == "maxMessageLength") queue.maxMessageLength = getBsonInt(field);
             else if (key == "maxReceiveCount") queue.maxReceiveCount = getBsonInt(field);
+            else if (key == "retentionPeriod") queue.retentionPeriod = getBsonInt(field);
             else if (key == "deadLetterQueueErn") queue.deadLetterQueueErn = std::string(field.get_string().value);
             else if (key == "priority") queue.priority = MessagePriorityFromString(std::string(field.get_string().value));
             else if (key == "status") queue.status = QueueStatusFromString(std::string(field.get_string().value));

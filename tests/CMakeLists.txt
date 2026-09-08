@@ -216,3 +216,39 @@ set_target_properties(${DOCUMENT_STORE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES O
 target_link_libraries(${DOCUMENT_STORE_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
 
 add_test(NAME ${DOCUMENT_STORE_BINARY} COMMAND ${DOCUMENT_STORE_BINARY})
+
+set(EVENT_BUS_MEMORY_BINARY euclid-eventbus-memory-tests)
+
+add_executable(${EVENT_BUS_MEMORY_BINARY} EventBusMemoryTest.cpp)
+set_target_properties(${EVENT_BUS_MEMORY_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${EVENT_BUS_MEMORY_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${EVENT_BUS_MEMORY_BINARY} COMMAND ${EVENT_BUS_MEMORY_BINARY})
+
+set(MONITORING_BACKEND_BINARY euclid-emo-backend-tests)
+
+add_executable(${MONITORING_BACKEND_BINARY} MonitoringBackendTest.cpp)
+set_target_properties(${MONITORING_BACKEND_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${MONITORING_BACKEND_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${MONITORING_BACKEND_BINARY} COMMAND ${MONITORING_BACKEND_BINARY})
+
+set(TTL_CACHE_BINARY euclid-ttl-cache-tests)
+
+add_executable(${TTL_CACHE_BINARY} TtlCacheTest.cpp)
+set_target_properties(${TTL_CACHE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${TTL_CACHE_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${TTL_CACHE_BINARY} COMMAND ${TTL_CACHE_BINARY})
+
+set(RETENTION_BINARY euclid-eqs-message-retention-tests)
+
+add_executable(${RETENTION_BINARY} MessageRetentionTest.cpp)
+set_target_properties(${RETENTION_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${RETENTION_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${RETENTION_BINARY} COMMAND ${RETENTION_BINARY})

@@ -6,10 +6,12 @@
 
 // C++ includes
 #include <algorithm>
+#include <chrono>
 #include <memory>
 
 // Euclid includes
 #include <euclid/core/HttpActionServer.h>
+#include <euclid/core/TtlCache.h>
 #include <euclid/core/monitoring/MetricsPusher.h>
 #include <euclid/database/EventBus.h>
 #include <euclid/database/repository/eam/IEamRepository.h>
@@ -287,6 +289,68 @@ namespace Euclid::Database {
     };
 
     /**
+     * @brief How long an authentication lookup may reuse what it read last time.
+     *
+     * Five seconds by default, and {@code euclid.auth.cache-ttl} in milliseconds overrides it;
+     * zero turns the caching off. See AuthenticationUsers() for what the number buys and costs.
+     */
+    inline std::chrono::milliseconds AuthCacheTtl() {
+        return std::chrono::milliseconds(Core::Configuration::instance().getOr<int>("euclid.auth.cache-ttl", 5000));
+    }
+
+    /**
+     * @brief The user documents the authentication lookups read, remembered briefly.
+     *
+     * Every authenticated request resolves an access key to a user and then that user to their
+     * grants, and does it twice - the gateway authenticates the request and the module
+     * authenticates it again. That is four reads of the same one or two documents per request,
+     * for documents that change when somebody is given a permission, which is to say almost never.
+     *
+     * Two caches rather than one because the two lookups are keyed differently - by access key id
+     * and by user id - and a request generally needs both. They are deliberately keyed on the
+     * document read rather than on the answer derived from it, so that the account, namespace,
+     * grant and resource checks all get faster without four separate caches to reason about, and
+     * so that what can be stale is one thing and easy to state: the user document, for up to the
+     * TTL.
+     *
+     * The staleness is the price and it is an authorisation price - a deactivated key or a revoked
+     * grant keeps working for that long. Hence seconds, and hence configurable.
+     */
+    inline Core::TtlCache<std::string, Entity::EAM::User> &UsersByAccessKeyId() {
+        static Core::TtlCache<std::string, Entity::EAM::User> cache(AuthCacheTtl());
+        return cache;
+    }
+
+    /**
+     * @brief The by-user-id half of UsersByAccessKeyId(), used by the grant and resource checks.
+     */
+    inline Core::TtlCache<std::string, Entity::EAM::User> &UsersByUserId() {
+        static Core::TtlCache<std::string, Entity::EAM::User> cache(AuthCacheTtl());
+        return cache;
+    }
+
+    /**
+     * @brief The administrator group, remembered on the same terms as the user documents.
+     *
+     * Read on every grant check that reaches the admin bypass, and the group that decides who
+     * administers an installation is not one that changes during a request.
+     */
+    inline Core::TtlCache<std::string, Entity::EAM::UserGroup> &AdministratorGroup() {
+        static Core::TtlCache<std::string, Entity::EAM::UserGroup> cache(AuthCacheTtl());
+        return cache;
+    }
+
+    /**
+     * @brief IsEamAdmin() against the cached administrator group.
+     */
+    inline bool IsCachedEamAdmin(const std::string &userId) {
+        const auto group = AdministratorGroup().get(kEamAdministratorGroupName, [](const std::string &name) {
+            return RepositoryFactory::instance().eamRepository()->findUserGroupByName(name);
+        });
+        return group.has_value() && std::ranges::contains(group->userIds, userId);
+    }
+
+    /**
      * @brief Registers the SigV4 access-key lookup Core::HttpActionServer::Authenticate() needs,
      * backed by RepositoryFactory::accessRepository().
      *
@@ -297,7 +361,9 @@ namespace Euclid::Database {
      */
     inline void WireAccessKeyLookup() {
         Core::HttpActionServer::SetAccessKeyLookup([](const std::string &accessKeyId) -> std::optional<Core::HttpActionServer::AccessKeyRecord> {
-            const auto user = RepositoryFactory::instance().eamRepository()->findUserByAccessKeyId(accessKeyId);
+            const auto user = UsersByAccessKeyId().get(accessKeyId, [](const std::string &id) {
+                return RepositoryFactory::instance().eamRepository()->findUserByAccessKeyId(id);
+            });
             if (!user.has_value()) return std::nullopt;
             for (const auto &key: user->accessKeys) {
                 if (key.accessKeyId == accessKeyId && key.active) {
@@ -338,10 +404,11 @@ namespace Euclid::Database {
      */
     inline void WireGrantLookup() {
         Core::HttpActionServer::SetGrantLookup([](const std::string &userId, const std::string &accountId, const std::string &ns) -> bool {
-            const auto repo = RepositoryFactory::instance().eamRepository();
-            const auto user = repo->findUserByUserId(userId);
+            const auto user = UsersByUserId().get(userId, [](const std::string &id) {
+                return RepositoryFactory::instance().eamRepository()->findUserByUserId(id);
+            });
             if (!user.has_value()) return false;
-            if (IsEamAdmin(*repo, userId)) return true;// global admin bypass
+            if (IsCachedEamAdmin(userId)) return true;// global admin bypass
             for (const auto &grant: user->accountGrants) {
                 if (grant.accountId != accountId) continue;
                 if (grant.isAdmin || ns.empty()) return true;// account-scoped admin, or account-only request
@@ -362,8 +429,9 @@ namespace Euclid::Database {
      */
     inline void WireResourceLookup() {
         Core::HttpActionServer::SetResourceLookup([](const std::string &userId, const std::string &resourceErn) -> bool {
-            const auto repo = RepositoryFactory::instance().eamRepository();
-            const auto user = repo->findUserByUserId(userId);
+            const auto user = UsersByUserId().get(userId, [](const std::string &id) {
+                return RepositoryFactory::instance().eamRepository()->findUserByUserId(id);
+            });
             if (!user.has_value()) return false;
             // No list means no restriction: humans, and every user written before resource grants
             // existed, are unaffected. A principal that names resources is held to exactly them.

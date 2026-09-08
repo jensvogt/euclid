@@ -37,23 +37,27 @@ namespace Euclid::Database {
             mongocxx::options::index subscriptionOpts;
             subscriptionOpts.unique(true);
             subscriptionCollection.create_index(make_document(kvp("sourceErn", 1), kvp("type", 1), kvp("targetErn", 1)), subscriptionOpts);
-            //
-            // auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
-            //
-            // messageCollection.create_index(make_document(kvp("queueErn", 1), kvp("status", 1), kvp("priority", 1)));
-            //
-            // // Supports resetExpiredMessages()'s per-status sweeps (INVISIBLE, then DELAYED),
-            // // which filter by status alone - the compound index above can't serve that, since
-            // // queueErn is its leading field and isn't part of that filter.
-            // messageCollection.create_index(make_document(kvp("status", 1)));
-            //
-            // mongocxx::options::index receiptHandleOpts;
-            // receiptHandleOpts.sparse(true);
-            // messageCollection.create_index(make_document(kvp("receiptHandle", 1)), receiptHandleOpts);
-            //
-            // mongocxx::options::index messageIdOpts;
-            // messageIdOpts.unique(true);
-            // messageCollection.create_index(make_document(kvp("messageId", 1)), messageIdOpts);
+            // Messages were left with only the _id index every collection gets for free, which is
+            // to say that every read of one was a scan of all of them. It went unnoticed because
+            // the block that should have created them was EQS's, commented out - it named
+            // queueErn, receiptHandle and priority, none of which an ENS message has, so it could
+            // never have been uncommented as it stood.
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
+
+            // findMessageById() and upsertMessage() both address a message by this, which is what
+            // get-message-attribute and set-message-attribute are built out of - so without it,
+            // reading one attribute of one message costs a scan of every message ever published to
+            // any topic. On this installation that was 1.2 million documents and 513 ms. Unique
+            // because the id identifies the message, which also stops a publish retried after a
+            // lost response from storing it a second time.
+            mongocxx::options::index messageIdOpts;
+            messageIdOpts.unique(true);
+            messageCollection.create_index(make_document(kvp("messageId", 1)), messageIdOpts);
+
+            // listMessages() filters on the topic and deleting a topic deletes its messages the
+            // same way, so this is what keeps both proportional to one topic's traffic rather than
+            // to the collection.
+            messageCollection.create_index(make_document(kvp("topicErn", 1)));
 
         } catch (const std::exception &e) {
             log_error << "Ensure ENS indexes failed, error: " << e.what();
