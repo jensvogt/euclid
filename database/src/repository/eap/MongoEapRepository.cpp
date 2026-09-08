@@ -13,8 +13,7 @@ namespace Euclid::Database {
     void MongoEapRepository::ensureIndexes() {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             // applicationId doubles as the manager's module name for the spawned processes, so a
             // duplicate would silently merge two applications into one process pool.
@@ -34,8 +33,7 @@ namespace Euclid::Database {
     Entity::EAP::Application MongoEapRepository::upsertApplication(Entity::EAP::Application &application) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             // created is carried in toDocument(), so it is stamped here on the insert path rather
             // than through $setOnInsert - which would collide with the same field in $set.
@@ -63,8 +61,7 @@ namespace Euclid::Database {
     std::optional<Entity::EAP::Application> MongoEapRepository::findApplicationByApplicationId(const std::string &applicationId) const {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             if (const auto result = collection.find_one(make_document(kvp("applicationId", applicationId)).view())) {
                 return Entity::EAP::Application::fromDocument(result->view());
@@ -79,8 +76,7 @@ namespace Euclid::Database {
     std::optional<Entity::EAP::Application> MongoEapRepository::findApplicationByErn(const std::string &ern) const {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             if (const auto result = collection.find_one(make_document(kvp("ern", ern)).view())) {
                 return Entity::EAP::Application::fromDocument(result->view());
@@ -107,8 +103,7 @@ namespace Euclid::Database {
             mongocxx::options::find opts;
             opts.sort(make_document(kvp("applicationId", 1)));
 
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             std::vector<Entity::EAP::Application> result;
             for (auto cursor = collection.find(filter.extract(), opts); const auto &doc: cursor) {
@@ -125,8 +120,7 @@ namespace Euclid::Database {
     long MongoEapRepository::countApplications() const {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
             return static_cast<long>(collection.count_documents({}));
 
         } catch (const std::exception &e) {
@@ -138,8 +132,7 @@ namespace Euclid::Database {
     void MongoEapRepository::deleteApplication(const std::string &applicationId) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
             collection.delete_one(make_document(kvp("applicationId", applicationId)).view());
 
         } catch (const std::exception &e) {
@@ -150,8 +143,7 @@ namespace Euclid::Database {
     bool MongoEapRepository::setApplicationLogLevel(const std::string &applicationId, const std::string &logLevel) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             // One field, by hand, rather than through upsertApplication(): that writes the whole
             // document and stamps "modified", which the manager compares against the revision the

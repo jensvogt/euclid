@@ -23,8 +23,7 @@ namespace Euclid::Database {
     void MongoEnsRepository::ensureIndexes() {
 
         try {
-            const auto entry = Database::instance().client();
-            auto topicCollection = (*entry)[Database::instance().databaseName()][TOPIC_COLLECTION];
+            auto topicCollection = Database::instance().collection(TOPIC_COLLECTION);
 
             mongocxx::options::index topicNameOpts;
             topicNameOpts.unique(true);
@@ -34,12 +33,12 @@ namespace Euclid::Database {
             topicErnOpts.unique(true);
             topicCollection.create_index(make_document(kvp("ern", 1)), topicErnOpts);
 
-            auto subscriptionCollection = (*entry)[Database::instance().databaseName()][SUBSCRIPTION_COLLECTION];
+            auto subscriptionCollection = Database::instance().collection(SUBSCRIPTION_COLLECTION);
             mongocxx::options::index subscriptionOpts;
             subscriptionOpts.unique(true);
             subscriptionCollection.create_index(make_document(kvp("sourceErn", 1), kvp("type", 1), kvp("targetErn", 1)), subscriptionOpts);
             //
-            // auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            // auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
             //
             // messageCollection.create_index(make_document(kvp("queueErn", 1), kvp("status", 1), kvp("priority", 1)));
             //
@@ -70,8 +69,7 @@ namespace Euclid::Database {
                 query.append(kvp("name", name));
             }
 
-            const auto entry = Database::instance().client();
-            auto topicCollection = (*entry)[Database::instance().databaseName()][TOPIC_COLLECTION];
+            auto topicCollection = Database::instance().collection(TOPIC_COLLECTION);
 
             const auto result = topicCollection.find_one(query.extract());
             log_trace << "Topic exists, name: " << name << ", exists: " << std::boolalpha << result.has_value();
@@ -91,8 +89,7 @@ namespace Euclid::Database {
     //         document document;
     //         document.append(kvp("_id", oid));
     //
-    //         const auto entry = Database::instance().client();
-    //         auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+    //    //         auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
     //
     //         if (auto mResult = queueCollection.find_one(document.view())) {
     //             return Entity::EQS::Queue::fromDocument(mResult->view());
@@ -108,8 +105,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto topicCollection = (*entry)[Database::instance().databaseName()][TOPIC_COLLECTION];
+            auto topicCollection = Database::instance().collection(TOPIC_COLLECTION);
 
             if (auto mResult = topicCollection.find_one(make_document(kvp("name", name)))) {
                 return Entity::ENS::Topic::fromDocument(mResult.value());
@@ -125,8 +121,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto topicCollection = (*entry)[Database::instance().databaseName()][TOPIC_COLLECTION];
+            auto topicCollection = Database::instance().collection(TOPIC_COLLECTION);
 
             if (auto mResult = topicCollection.find_one(make_document(kvp("ern", ern)))) {
                 return Entity::ENS::Topic::fromDocument(mResult.value());
@@ -161,8 +156,7 @@ namespace Euclid::Database {
             }
 
             std::vector<Entity::ENS::Topic> topics;
-            const auto entry = Database::instance().client();
-            auto queueCollection = (*entry)[Database::instance().databaseName()][TOPIC_COLLECTION];
+            auto queueCollection = Database::instance().collection(TOPIC_COLLECTION);
 
             for (auto queueCursor = queueCollection.find(filter.view(), opts); auto queue: queueCursor) {
                 topics.push_back(Entity::ENS::Topic::fromDocument(queue));
@@ -197,8 +191,7 @@ namespace Euclid::Database {
             opts.upsert(true);
             opts.return_document(mongocxx::options::return_document::k_after);
 
-            const auto entry = Database::instance().client();
-            auto queueCollection = (*entry)[Database::instance().databaseName()][TOPIC_COLLECTION];
+            auto queueCollection = Database::instance().collection(TOPIC_COLLECTION);
 
             if (auto result = queueCollection.find_one_and_update(filter.view(), update.view(), opts)) {
                 return Entity::ENS::Topic::fromDocument(result->view());
@@ -232,8 +225,7 @@ namespace Euclid::Database {
             opts.upsert(true);
             opts.return_document(mongocxx::options::return_document::k_after);
 
-            const auto entry = Database::instance().client();
-            auto subscriptionCollection = (*entry)[Database::instance().databaseName()][SUBSCRIPTION_COLLECTION];
+            auto subscriptionCollection = Database::instance().collection(SUBSCRIPTION_COLLECTION);
 
             if (auto result = subscriptionCollection.find_one_and_update(filter.view(), update.view(), opts)) {
                 return Entity::ENS::Subscription::fromDocument(result->view());
@@ -252,8 +244,7 @@ namespace Euclid::Database {
         try {
             const auto filter = make_document(kvp("sourceErn", sourceErn));
 
-            const auto entry = Database::instance().client();
-            auto subscriptionCollection = (*entry)[Database::instance().databaseName()][SUBSCRIPTION_COLLECTION];
+            auto subscriptionCollection = Database::instance().collection(SUBSCRIPTION_COLLECTION);
 
             for (auto cursor = subscriptionCollection.find(filter.view()); auto doc: cursor) {
                 subscriptions.push_back(Entity::ENS::Subscription::fromDocument(doc));
@@ -268,8 +259,7 @@ namespace Euclid::Database {
     void MongoEnsRepository::deleteSubscriptionByErn(const std::string &ern) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto subscriptionCollection = (*entry)[Database::instance().databaseName()][SUBSCRIPTION_COLLECTION];
+            auto subscriptionCollection = Database::instance().collection(SUBSCRIPTION_COLLECTION);
 
             const auto result = subscriptionCollection.delete_many(make_document(kvp("ern", ern)));
             log_debug << "Subscription deleted, ern: " << ern << ", count: " << result->deleted_count();
@@ -292,8 +282,7 @@ namespace Euclid::Database {
                 filter.append(kvp("name", make_document(kvp("$regex", "^" + prefix))));
             }
 
-            const auto entry = Database::instance().client();
-            auto queueCollection = (*entry)[Database::instance().databaseName()][TOPIC_COLLECTION];
+            auto queueCollection = Database::instance().collection(TOPIC_COLLECTION);
 
             const int64_t count = queueCollection.count_documents(filter.extract());
             log_trace << "Topic count: " << count;
@@ -310,9 +299,8 @@ namespace Euclid::Database {
     // void MongoEnsRepository::removeQueueByName(const std::string &name) {
     //
     //     try {
-    //         const auto entry = Database::instance().client();
-    //         auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
-    //         auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+    //    //         auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
+    //         auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
     //
     //         std::vector<std::string> erns;
     //         for (auto cursor = queueCollection.find(make_document(kvp("name", name))); auto doc: cursor) {
@@ -341,9 +329,8 @@ namespace Euclid::Database {
     void MongoEnsRepository::deleteTopicByErn(const std::string &ern) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto topicCollection = (*entry)[Database::instance().databaseName()][TOPIC_COLLECTION];
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto topicCollection = Database::instance().collection(TOPIC_COLLECTION);
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             const auto result = topicCollection.delete_many(make_document(kvp("ern", ern)));
             log_debug << "END topic deleted, count: " << result->deleted_count();
@@ -362,8 +349,7 @@ namespace Euclid::Database {
     // void MongoEnsRepository::clearQueues() {
     //
     //     try {
-    //         const auto entry = Database::instance().client();
-    //         auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+    //    //         auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
     //
     //         const auto result = queueCollection.delete_many({});
     //         log_debug << "All queues deleted, count: " << result->deleted_count();
@@ -378,8 +364,7 @@ namespace Euclid::Database {
     //     try {
     //         const auto query = make_document(
     //                 kvp("messageId", messageId));
-    //         const auto entry = Database::instance().client();
-    //         auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+    //    //         auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
     //
     //         const auto result = messageCollection.find_one(query.view());
     //         return result.has_value();
@@ -393,8 +378,7 @@ namespace Euclid::Database {
 
         try {
             const auto query = make_document(kvp("messageId", messageId));
-            const auto entry = Database::instance().client();
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             if (auto mResult = messageCollection.find_one(query.view())) {
                 Entity::ENS::Message message;
@@ -413,8 +397,7 @@ namespace Euclid::Database {
     //     try {
     //         const auto query = make_document(
     //                 kvp("messageId", messageId));
-    //         const auto entry = Database::instance().client();
-    //         auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+    //    //         auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
     //
     //         if (auto mResult = messageCollection.find_one(query.view())) {
     //             Entity::EQS::Message message;
@@ -431,8 +414,7 @@ namespace Euclid::Database {
     //
     //     try {
     //         std::vector<Entity::EQS::Message> messages;
-    //         const auto entry = Database::instance().client();
-    //         auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+    //    //         auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
     //
     //         for (auto cursor = messageCollection.find({}); auto doc: cursor) {
     //             Entity::EQS::Message message;
@@ -461,8 +443,7 @@ namespace Euclid::Database {
                 opts.skip(std::max<long>(pageIndex, 0) * pageSize);
             }
 
-            const auto entry = Database::instance().client();
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             for (auto cursor = messageCollection.find(filter.view(), opts); auto doc: cursor) {
                 Entity::ENS::Message message;
@@ -490,8 +471,7 @@ namespace Euclid::Database {
             mongocxx::options::update opts;
             opts.upsert(true);
 
-            const auto entry = Database::instance().client();
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             messageCollection.update_one(filter.view(), update.view(), opts);
 
@@ -514,9 +494,8 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto queueCollection = (*entry)[Database::instance().databaseName()][TOPIC_COLLECTION];
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto queueCollection = Database::instance().collection(TOPIC_COLLECTION);
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             const auto queueFilter = make_document(kvp("ern", topicErn));
             if (auto queueResult = queueCollection.find_one(queueFilter.view())) {
@@ -552,8 +531,7 @@ namespace Euclid::Database {
     //         long maxReceiveCount = 0;
     //         std::string deadLetterQueueErn;
     //         {
-    //             const auto entry = Database::instance().client();
-    //             auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
+    //    //             auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
     //             if (const auto queueResult = queueCollection.find_one(make_document(kvp("ern", queueErn)))) {
     //                 const auto queue = Entity::EQS::Queue::fromDocument(queueResult->view());
     //                 maxReceiveCount = queue.maxReceiveCount;
@@ -564,9 +542,8 @@ namespace Euclid::Database {
     //         while (true) {
     //             // Acquire a pool entry for this polling attempt only, so the connection is
     //             // not held checked-out for the whole long-poll wait/sleep below.
-    //             const auto entry = Database::instance().client();
-    //             auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
-    //             auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+    //    //             auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
+    //             auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
     //
     //             std::map<Entity::EQS::MessagePriority, long> availableCounts;
     //             for (const auto priority: priorityOrder) {
@@ -675,9 +652,8 @@ namespace Euclid::Database {
     //         const auto filter = make_document(
     //                 kvp("receiptHandle", receiptHandle));
     //
-    //         const auto entry = Database::instance().client();
-    //         auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
-    //         auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+    //    //         auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
+    //         auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
     //
     //         Entity::EQS::Message message;
     //         if (auto mResult = messageCollection.find_one(filter.view())) {
@@ -709,9 +685,8 @@ namespace Euclid::Database {
         try {
             const auto filter = make_document(kvp("topicErn", topicErn));
 
-            const auto entry = Database::instance().client();
-            auto queueCollection = (*entry)[Database::instance().databaseName()][TOPIC_COLLECTION];
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto queueCollection = Database::instance().collection(TOPIC_COLLECTION);
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             const auto result = messageCollection.delete_many(filter.view());
             log_debug << "Topic purged, ern: " << topicErn << ", count: " << result->deleted_count();
@@ -734,9 +709,8 @@ namespace Euclid::Database {
         try {
             const std::string marker = nameSpace.empty() ? ":" + region + ":" + accountId + ":" : ":" + region + ":" + accountId + ":" + nameSpace + ":";
 
-            const auto entry = Database::instance().client();
-            auto topicCollection = (*entry)[Database::instance().databaseName()][TOPIC_COLLECTION];
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto topicCollection = Database::instance().collection(TOPIC_COLLECTION);
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             array ernArray;
             long topicCount = 0;
@@ -775,8 +749,7 @@ namespace Euclid::Database {
     long MongoEnsRepository::countMessages() const {
 
         try {
-            const auto entry = Database::instance().client();
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             return messageCollection.count_documents({});
         } catch (const std::exception &e) {
@@ -789,8 +762,7 @@ namespace Euclid::Database {
 
         try {
             const auto filter = make_document(kvp("topicErn", topicErn));
-            const auto entry = Database::instance().client();
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
             return messageCollection.count_documents(filter.view());
         } catch (const std::exception &e) {
@@ -803,8 +775,7 @@ namespace Euclid::Database {
     // void MongoEnsRepository::clearMessages() {
     //
     //     try {
-    //         const auto entry = Database::instance().client();
-    //         auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+    //    //         auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
     //
     //         const auto result = messageCollection.delete_many({});
     //         log_debug << "All messages deleted, count: " << result->deleted_count();
@@ -821,9 +792,8 @@ namespace Euclid::Database {
     //         std::map<std::string, long> resetCountByQueue;
     //         std::map<std::string, long> delayedResetCountByQueue;
     //
-    //         const auto entry = Database::instance().client();
-    //         auto queueCollection = (*entry)[Database::instance().databaseName()][QUEUE_COLLECTION];
-    //         auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
+    //    //         auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
+    //         auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
     //
     //         const auto filter = make_document(kvp("status", MessageStatusToString(Entity::EQS::MessageStatus::INVISIBLE)));
     //         for (auto cursor = messageCollection.find(filter.view()); auto doc: cursor) {
@@ -908,32 +878,8 @@ namespace Euclid::Database {
     void MongoEnsRepository::recountTopics() {
 
         try {
-            const auto entry = Database::instance().client();
-            auto messageCollection = (*entry)[Database::instance().databaseName()][MESSAGE_COLLECTION];
-            auto topicCollection = (*entry)[Database::instance().databaseName()][TOPIC_COLLECTION];
-
-            mongocxx::pipeline pipeline;
-            pipeline.group(make_document(
-                    kvp("_id", "$topicErn"),
-                    kvp("messages", make_document(kvp("$sum", 1))),
-                    kvp("bytes", make_document(kvp("$sum", "$size")))));
-
-            // $sum returns whichever numeric type the values fit in, so the width is not ours to
-            // assume: a topic of small messages comes back int32 and the same topic comes back
-            // int64 once it grows, and get_int64() on the first would throw.
-            auto asLong = [](const bsoncxx::document::element &field) -> long {
-                if (!field) return 0;
-                switch (field.type()) {
-                    case bsoncxx::type::k_int64:
-                        return static_cast<long>(field.get_int64().value);
-                    case bsoncxx::type::k_int32:
-                        return field.get_int32().value;
-                    case bsoncxx::type::k_double:
-                        return static_cast<long>(field.get_double().value);
-                    default:
-                        return 0;
-                }
-            };
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
+            auto topicCollection = Database::instance().collection(TOPIC_COLLECTION);
 
             struct Counts {
                 long messages{};
@@ -941,19 +887,12 @@ namespace Euclid::Database {
             };
             std::unordered_map<std::string, Counts> counted;
 
-            for (auto cursor = messageCollection.aggregate(pipeline); auto doc: cursor) {
-                const auto idField = doc["_id"];
-                if (!idField || idField.type() != bsoncxx::type::k_string) continue;
-
-                auto &counts = counted[std::string(idField.get_string().value)];
-                counts.messages = asLong(doc["messages"]);
-                counts.size = asLong(doc["bytes"]);
+            // Grouped, counted and summed through the neutral path, so a recount does not need a
+            // server to evaluate a pipeline - see Collection::group_count.
+            for (const auto &group: messageCollection.group_count({}, {"topicErn"}, "size")) {
+                counted[group.key[0]] = {.messages = group.count, .size = group.sum};
             }
 
-            // Every topic is written, including the ones the grouping did not mention: a topic
-            // that has just been purged is absent from it, and leaving its last non-zero counters
-            // standing is exactly the drift this replaces.
-            //
             // "send" and "resend" are deliberately not touched - they are lifetime totals, and
             // recomputing them from the messages still stored would make them fall on every purge.
             long topics = 0;

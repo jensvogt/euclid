@@ -2,12 +2,14 @@
 #include <boost/test/unit_test.hpp>
 
 // Euclid includes
+#include <euclid/core/ErnUtils.h>
 #include <euclid/database/entity/esm/Object.h>
-#include <euclid/database/repository/esm/MemoryEsmRepository.h>
+#include <euclid/database/Database.h>
+#include <euclid/database/repository/esm/MongoEsmRepository.h>
 
+using Euclid::Database::MongoEsmRepository;
 using Euclid::Database::Entity::ESM::IsDirectoryKey;
 using Euclid::Database::Entity::ESM::Object;
-using Euclid::Database::MemoryEsmRepository;
 
 // A directory is a zero-byte object whose key ends in "/" - the marker an FTP/SFTP transfer
 // server writes on MKD, since a flat bucket has nothing else that could carry an empty
@@ -18,9 +20,13 @@ namespace {
 
     constexpr auto kBucketErn = "ern:esm:eu-central-1:000000000000:development:bucket:transfer";
 
-    void store(MemoryEsmRepository &repo, const std::string &key, const long size) {
+    void store(MongoEsmRepository &repo, const std::string &key, const long size) {
         Object object;
         object.bucketErn = kBucketErn;
+        // An object carries its own ern, and the repository holds a unique index over it: the
+        // module names every object it writes, so a test that left the field empty would be
+        // storing two objects under one name and colliding on the second.
+        object.ern = Euclid::Core::createEsmObjectErn("000000000000", "development", "transfer/" + key);
         object.key = key;
         object.size = size;
         repo.upsertObject(object);
@@ -28,7 +34,7 @@ namespace {
 
     // The repository holds a mutex, so it is neither copyable nor movable - each case fills its
     // own instance in place rather than taking one back from a factory.
-    void populate(MemoryEsmRepository &repo) {
+    void populate(MongoEsmRepository &repo) {
         store(repo, "mix/", 0);
         store(repo, "mix/PIM-4269.xml", 45242);
         store(repo, "mix/empty/", 0);
@@ -46,7 +52,8 @@ BOOST_AUTO_TEST_CASE(DirectoryKeyIsTheTrailingSlash) {
 }
 
 BOOST_AUTO_TEST_CASE(ListingLeavesDirectoriesOutByDefault) {
-    MemoryEsmRepository repo;
+    Euclid::Database::Database::instance().initializeMemory();
+    MongoEsmRepository repo;
     populate(repo);
 
     const auto files = repo.listObjects(kBucketErn, "", -1, -1, "key", "asc", false);
@@ -60,7 +67,8 @@ BOOST_AUTO_TEST_CASE(ListingLeavesDirectoriesOutByDefault) {
 
 BOOST_AUTO_TEST_CASE(ListingIncludesDirectoriesWhenAsked) {
     // What a transfer server sees: without the markers, "mix/empty" would not exist at all.
-    MemoryEsmRepository repo;
+    Euclid::Database::Database::instance().initializeMemory();
+    MongoEsmRepository repo;
     populate(repo);
 
     const auto all = repo.listObjects(kBucketErn, "", -1, -1, "key", "asc", true);
@@ -76,7 +84,8 @@ BOOST_AUTO_TEST_CASE(ListingIncludesDirectoriesWhenAsked) {
 BOOST_AUTO_TEST_CASE(PagingAppliesAfterDirectoriesAreFilteredOut) {
     // The filter has to run before the page is cut, or a page of files could come back short -
     // or empty - because markers took up the slots.
-    MemoryEsmRepository repo;
+    Euclid::Database::Database::instance().initializeMemory();
+    MongoEsmRepository repo;
     populate(repo);
 
     const auto firstPage = repo.listObjects(kBucketErn, "", 1, 0, "key", "asc", false);

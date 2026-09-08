@@ -19,8 +19,7 @@ namespace Euclid::Database {
     void MongoEagRepository::ensureIndexes() {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             // A duplicate routeId would give the gateway two definitions of the same resource and
             // no way to say which is meant.
@@ -44,8 +43,7 @@ namespace Euclid::Database {
     std::optional<Entity::EAG::Route> MongoEagRepository::upsertRoute(Entity::EAG::Route &route) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             // created is carried in toDocument(), so it is stamped here on the insert path rather
             // than through $setOnInsert - which would collide with the same field in $set, and
@@ -78,8 +76,7 @@ namespace Euclid::Database {
     std::optional<Entity::EAG::Route> MongoEagRepository::findRouteByRouteId(const std::string &routeId) const {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
             if (const auto result = collection.find_one(make_document(kvp("routeId", routeId)))) {
                 return Entity::EAG::Route::fromDocument(result->view());
             }
@@ -92,8 +89,7 @@ namespace Euclid::Database {
     std::optional<Entity::EAG::Route> MongoEagRepository::findRouteByErn(const std::string &ern) const {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
             if (const auto result = collection.find_one(make_document(kvp("ern", ern)))) {
                 return Entity::EAG::Route::fromDocument(result->view());
             }
@@ -107,8 +103,7 @@ namespace Euclid::Database {
 
         std::vector<Entity::EAG::Route> routes;
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             // Escaped, because a path is not a pattern: "/api/v1.0" would otherwise match
             // "/api/v1X0" as well, and a caller has no reason to expect their path to be read as
@@ -134,8 +129,7 @@ namespace Euclid::Database {
     bool MongoEagRepository::routeExists(const std::string &routeId) const {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
             return collection.count_documents(make_document(kvp("routeId", routeId))) > 0;
         } catch (const std::exception &e) {
             log_error << "Route exists failed, routeId: " << routeId << ", error: " << e.what();
@@ -146,8 +140,7 @@ namespace Euclid::Database {
     void MongoEagRepository::deleteRoute(const std::string &routeId) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
             const auto result = collection.delete_many(make_document(kvp("routeId", routeId)));
             log_debug << "Route deleted, routeId: " << routeId << ", count: " << (result ? result->deleted_count() : 0);
         } catch (const std::exception &e) {
@@ -158,8 +151,7 @@ namespace Euclid::Database {
     long MongoEagRepository::countRoutes() const {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
             return static_cast<long>(collection.count_documents({}));
         } catch (const std::exception &e) {
             log_error << "Count routes failed, error: " << e.what();
@@ -170,8 +162,7 @@ namespace Euclid::Database {
     void MongoEagRepository::clear() {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
             const auto result = collection.delete_many({});
             log_debug << "Routes deleted, count: " << (result ? result->deleted_count() : 0);
         } catch (const std::exception &e) {

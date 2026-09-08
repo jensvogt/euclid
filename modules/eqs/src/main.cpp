@@ -83,9 +83,13 @@ static int initializeDatabase(const Euclid::Core::Configuration &cfg) {
     try {
 
         // Choose backend from config
-        if (const auto backend = cfg.getOr<std::string>("euclid.database.backend", "mongodb"); backend == "memory") {
+        const auto backend = cfg.getOr<std::string>("euclid.database.backend", "mongodb");
+        if (backend == "memory") {
             log_debug << "Using in-memory database";
             Euclid::Database::RepositoryFactory::instance().initialize(Euclid::Database::BackendType::MEMORY);
+        } else if (backend == "emd") {
+            // The store the EMD module holds, shared by every process - see modules/emd.
+            Euclid::Database::RepositoryFactory::instance().initialize(Euclid::Database::BackendType::EMD);
         } else {
             log_debug << "Using MongoDB database";
             Euclid::Database::Database::instance().initialize();

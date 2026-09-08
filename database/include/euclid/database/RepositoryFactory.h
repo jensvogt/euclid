@@ -13,36 +13,43 @@
 #include <euclid/core/monitoring/MetricsPusher.h>
 #include <euclid/database/EventBus.h>
 #include <euclid/database/repository/eam/IEamRepository.h>
-#include <euclid/database/repository/eam/MemoryEamRepository.h>
 #include <euclid/database/repository/eam/MongoEamRepository.h>
 #include <euclid/database/repository/ekm/IEkmRepository.h>
-#include <euclid/database/repository/ekm/MemoryEkmRepository.h>
 #include <euclid/database/repository/ekm/MongoEkmRepository.h>
 #include <euclid/database/repository/emm/IEmmRepository.h>
-#include <euclid/database/repository/emm/MemoryEmmRepository.h>
 #include <euclid/database/repository/emm/MongoEmmRepository.h>
 #include <euclid/database/repository/emo/IEmoRepository.h>
-#include <euclid/database/repository/emo/MemoryEmoRepository.h>
 #include <euclid/database/repository/emo/MongoEmoRepository.h>
 #include <euclid/database/repository/ens/IEnsRepository.h>
-#include <euclid/database/repository/ens/MemoryEnsRepository.h>
 #include <euclid/database/repository/ens/MongoEnsRepository.h>
 #include <euclid/database/repository/eqs/IEqsRepository.h>
-#include <euclid/database/repository/eqs/MemoryEqsRepository.h>
 #include <euclid/database/repository/eqs/MongoEqsRepository.h>
 #include <euclid/database/repository/esm/IEsmRepository.h>
-#include <euclid/database/repository/esm/MemoryEsmRepository.h>
-#include <euclid/database/repository/eap/MemoryEapRepository.h>
+#include <euclid/database/repository/ess/IEssRepository.h>
+#include <euclid/database/repository/ess/MongoEssRepository.h>
 #include <euclid/database/repository/eap/MongoEapRepository.h>
-#include <euclid/database/repository/eag/MemoryEagRepository.h>
 #include <euclid/database/repository/eag/MongoEagRepository.h>
-#include <euclid/database/repository/ets/MemoryEtsRepository.h>
 #include <euclid/database/repository/ets/MongoEtsRepository.h>
 #include <euclid/database/repository/esm/MongoEsmRepository.h>
 
 namespace Euclid::Database {
 
-    enum class BackendType { MONGODB, MEMORY };
+    enum class BackendType {
+        /**
+         * @brief MongoDB, which every repository is written against.
+         */
+        MONGODB,
+
+        /**
+         * @brief An in-memory store inside this process - for a test that exercises one module.
+         */
+        MEMORY,
+
+        /**
+         * @brief The in-memory store the EMD module holds, shared by every process.
+         */
+        EMD
+    };
 
     class RepositoryFactory {
 
@@ -55,6 +62,11 @@ namespace Euclid::Database {
 
         void initialize(const BackendType type) {
             _backend = type;
+            if (type == BackendType::MEMORY) Database::instance().initializeMemory();
+            if (type == BackendType::EMD) {
+                Database::instance().initializeRemote(Core::Configuration::instance().getOr<std::string>(
+                        "euclid.modules.emd.socketPath", "/var/run/euclid/euclid-emd.sock"));
+            }
             warmUp();
         }
 
@@ -76,7 +88,16 @@ namespace Euclid::Database {
          * whose database is not there still starts, exactly as before.
          */
         void warmUp() const {
-            if (_backend != BackendType::MONGODB) return;
+            if (_backend == BackendType::MEMORY) return;
+
+            // Not for the shared store either, and for a reason worth stating: the manager
+            // initializes its database before it starts anything, and the store is one of the
+            // things it has not started yet. Warming up would mean eleven repositories each
+            // waiting out the connect retry against a process that cannot exist until the manager
+            // gets past this line. The repositories are built on first use instead, which for the
+            // manager is after EMD is running, and for a module is immediately - it starts after
+            // the store it depends on.
+            if (_backend == BackendType::EMD) return;
 
             std::ignore = emmRepository();
             std::ignore = eqsRepository();
@@ -88,6 +109,7 @@ namespace Euclid::Database {
             std::ignore = etsRepository();
             std::ignore = eagRepository();
             std::ignore = eapRepository();
+            std::ignore = essRepository();
 
             // The event bus sets its indexes up the same way, on the first Subscribe or Publish -
             // which for EES is the subscribe-events call of whichever client got there first.
@@ -137,6 +159,12 @@ namespace Euclid::Database {
         }
 
         [[nodiscard]]
+        std::shared_ptr<IEssRepository> essRepository() const {
+            static auto repo = createEssRepository();
+            return repo;
+        }
+
+        [[nodiscard]]
         std::shared_ptr<IEtsRepository> etsRepository() const {
             static auto repo = createEtsRepository();
             return repo;
@@ -160,112 +188,101 @@ namespace Euclid::Database {
 
         [[nodiscard]]
         std::shared_ptr<IEmmRepository> createEmmRepository() const {
-            switch (_backend) {
-                case BackendType::MONGODB:
-                    return std::make_shared<MongoEmmRepository>();
-                case BackendType::MEMORY:
-                    return std::make_shared<MemoryEmmRepository>();
-            }
-            return std::make_shared<MemoryEmmRepository>();
+            // MongoEmmRepository whatever the backend: it talks to
+            // Database::collection(), which is MongoDB, an in-process document store or the
+            // store EMD holds - see Emd::DocumentStore. One implementation, so there is no
+            // second one to keep in step.
+            return std::make_shared<MongoEmmRepository>();
         }
 
         [[nodiscard]]
         std::shared_ptr<IEqsRepository> createEqsRepository() const {
-            switch (_backend) {
-                case BackendType::MONGODB:
-                    return std::make_shared<MongoEqsRepository>();
-                case BackendType::MEMORY:
-                    return std::make_shared<MemoryEqsRepository>();
-            }
-            return std::make_shared<MemoryEqsRepository>();
+            // MongoEqsRepository whatever the backend: it talks to
+            // Database::collection(), which is MongoDB, an in-process document store or the
+            // store EMD holds - see Emd::DocumentStore. One implementation, so there is no
+            // second one to keep in step.
+            return std::make_shared<MongoEqsRepository>();
         }
 
         [[nodiscard]]
         std::shared_ptr<IEnsRepository> createEnsRepository() const {
-            switch (_backend) {
-                case BackendType::MONGODB:
-                    return std::make_shared<MongoEnsRepository>();
-                case BackendType::MEMORY:
-                    return std::make_shared<MemoryEnsRepository>();
-            }
-            return std::make_shared<MemoryEnsRepository>();
+            // MongoEnsRepository whatever the backend: it talks to
+            // Database::collection(), which is MongoDB, an in-process document store or the
+            // store EMD holds - see Emd::DocumentStore. One implementation, so there is no
+            // second one to keep in step.
+            return std::make_shared<MongoEnsRepository>();
         }
 
         [[nodiscard]]
         std::shared_ptr<IEamRepository> createEamRepository() const {
-            switch (_backend) {
-                case BackendType::MONGODB:
-                    return std::make_shared<MongoEamRepository>();
-                case BackendType::MEMORY:
-                    return std::make_shared<MemoryEamRepository>();
-            }
-            return std::make_shared<MemoryEamRepository>();
+            // MongoEamRepository whatever the backend: it talks to
+            // Database::collection(), which is MongoDB, an in-process document store or the
+            // store EMD holds - see Emd::DocumentStore. One implementation, so there is no
+            // second one to keep in step.
+            return std::make_shared<MongoEamRepository>();
         }
 
         [[nodiscard]]
         std::shared_ptr<IEmoRepository> createEmoRepository() const {
-            switch (_backend) {
-                case BackendType::MONGODB:
-                    return std::make_shared<MongoEmoRepository>();
-                case BackendType::MEMORY:
-                    return std::make_shared<MemoryEmoRepository>();
-            }
-            return std::make_shared<MemoryEmoRepository>();
+            // MongoEmoRepository whatever the backend: it talks to
+            // Database::collection(), which is MongoDB, an in-process document store or the
+            // store EMD holds - see Emd::DocumentStore. One implementation, so there is no
+            // second one to keep in step.
+            return std::make_shared<MongoEmoRepository>();
         }
 
         [[nodiscard]]
         std::shared_ptr<IEtsRepository> createEtsRepository() const {
-            switch (_backend) {
-                case BackendType::MONGODB:
-                    return std::make_shared<MongoEtsRepository>();
-                case BackendType::MEMORY:
-                    return std::make_shared<MemoryEtsRepository>();
-            }
-            return std::make_shared<MemoryEtsRepository>();
+            // MongoEtsRepository whatever the backend: it talks to
+            // Database::collection(), which is MongoDB, an in-process document store or the
+            // store EMD holds - see Emd::DocumentStore. One implementation, so there is no
+            // second one to keep in step.
+            return std::make_shared<MongoEtsRepository>();
         }
 
         [[nodiscard]]
         std::shared_ptr<IEapRepository> createEapRepository() const {
-            switch (_backend) {
-                case BackendType::MONGODB:
-                    return std::make_shared<MongoEapRepository>();
-                case BackendType::MEMORY:
-                    return std::make_shared<MemoryEapRepository>();
-            }
-            return std::make_shared<MemoryEapRepository>();
+            // MongoEapRepository whatever the backend: it talks to
+            // Database::collection(), which is MongoDB, an in-process document store or the
+            // store EMD holds - see Emd::DocumentStore. One implementation, so there is no
+            // second one to keep in step.
+            return std::make_shared<MongoEapRepository>();
         }
 
         [[nodiscard]]
         std::shared_ptr<IEagRepository> createEagRepository() const {
-            switch (_backend) {
-                case BackendType::MONGODB:
-                    return std::make_shared<MongoEagRepository>();
-                case BackendType::MEMORY:
-                    return std::make_shared<MemoryEagRepository>();
-            }
-            return std::make_shared<MemoryEagRepository>();
+            // MongoEagRepository whatever the backend: it talks to
+            // Database::collection(), which is MongoDB, an in-process document store or the
+            // store EMD holds - see Emd::DocumentStore. One implementation, so there is no
+            // second one to keep in step.
+            return std::make_shared<MongoEagRepository>();
         }
 
         [[nodiscard]]
         std::shared_ptr<IEsmRepository> createEsmRepository() const {
-            switch (_backend) {
-                case BackendType::MONGODB:
-                    return std::make_shared<MongoEsmRepository>();
-                case BackendType::MEMORY:
-                    return std::make_shared<MemoryEsmRepository>();
-            }
-            return std::make_shared<MemoryEsmRepository>();
+            // MongoEsmRepository whatever the backend: it talks to
+            // Database::collection(), which is MongoDB, an in-process document store or the
+            // store EMD holds - see Emd::DocumentStore. One implementation, so there is no
+            // second one to keep in step.
+            return std::make_shared<MongoEsmRepository>();
         }
 
         [[nodiscard]]
         std::shared_ptr<IEkmRepository> createEkmRepository() const {
-            switch (_backend) {
-                case BackendType::MONGODB:
-                    return std::make_shared<MongoEkmRepository>();
-                case BackendType::MEMORY:
-                    return std::make_shared<MemoryEkmRepository>();
-            }
-            return std::make_shared<MemoryEkmRepository>();
+            // MongoEkmRepository whatever the backend: it talks to
+            // Database::collection(), which is MongoDB, an in-process document store or the
+            // store EMD holds - see Emd::DocumentStore. One implementation, so there is no
+            // second one to keep in step.
+            return std::make_shared<MongoEkmRepository>();
+        }
+
+        [[nodiscard]]
+        std::shared_ptr<IEssRepository> createEssRepository() const {
+            // MongoEssRepository whatever the backend: it talks to
+            // Database::collection(), which is MongoDB, an in-process document store or the
+            // store EMD holds - see Emd::DocumentStore. One implementation, so there is no
+            // second one to keep in step.
+            return std::make_shared<MongoEssRepository>();
         }
     };
 
