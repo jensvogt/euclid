@@ -13,8 +13,7 @@ namespace Euclid::Database {
     void MongoEtsRepository::ensureIndexes() {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             // serverId doubles as the manager's module name for the spawned process, so a
             // duplicate would silently merge two servers into one process pool.
@@ -34,8 +33,7 @@ namespace Euclid::Database {
     Entity::ETS::TransferServer MongoEtsRepository::upsertServer(Entity::ETS::TransferServer &server) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             // created is carried in toDocument(), so it is stamped here on the insert path
             // rather than through $setOnInsert - which would collide with the same field in $set.
@@ -63,8 +61,7 @@ namespace Euclid::Database {
     std::optional<Entity::ETS::TransferServer> MongoEtsRepository::findServerByServerId(const std::string &serverId) const {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             if (const auto result = collection.find_one(make_document(kvp("serverId", serverId)).view())) {
                 return Entity::ETS::TransferServer::fromDocument(result->view());
@@ -79,8 +76,7 @@ namespace Euclid::Database {
     std::optional<Entity::ETS::TransferServer> MongoEtsRepository::findServerByErn(const std::string &ern) const {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             if (const auto result = collection.find_one(make_document(kvp("ern", ern)).view())) {
                 return Entity::ETS::TransferServer::fromDocument(result->view());
@@ -107,8 +103,7 @@ namespace Euclid::Database {
             mongocxx::options::find opts;
             opts.sort(make_document(kvp("serverId", 1)));
 
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             std::vector<Entity::ETS::TransferServer> result;
             for (auto cursor = collection.find(filter.extract(), opts); const auto &doc: cursor) {
@@ -125,8 +120,7 @@ namespace Euclid::Database {
     long MongoEtsRepository::countServers() const {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
             return static_cast<long>(collection.count_documents({}));
 
         } catch (const std::exception &e) {
@@ -138,8 +132,7 @@ namespace Euclid::Database {
     void MongoEtsRepository::deleteServer(const std::string &serverId) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             const auto result = collection.delete_one(make_document(kvp("serverId", serverId)).view());
             log_debug << "Transfer server deleted, serverId: " << serverId << ", count: " << (result ? result->deleted_count() : 0);
@@ -152,8 +145,7 @@ namespace Euclid::Database {
     void MongoEtsRepository::clear() {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             const auto result = collection.delete_many({});
             log_debug << "Transfer servers cleared, count: " << (result ? result->deleted_count() : 0);

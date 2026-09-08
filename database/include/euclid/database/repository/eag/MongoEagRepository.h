@@ -16,8 +16,8 @@ namespace Euclid::Database {
      *
      * @par
      * The route table is written by EAG (through the CLI or the UI) and read by the gateway
-     * process on a timer, so it has to cross a process boundary - which is why real use needs
-     * this rather than the in-memory repository.
+     * process on a timer, so it has to cross a process boundary: whatever holds it has to be
+     * shared between processes, whether that is MongoDB or the store EMD keeps.
      *
      * @author jens.vogt\@opitz-consulting.com
      */

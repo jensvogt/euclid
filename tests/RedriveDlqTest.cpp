@@ -6,9 +6,10 @@
 #include <string>
 
 // Euclid includes
-#include <euclid/database/repository/eqs/MemoryEqsRepository.h>
+#include <euclid/database/Database.h>
+#include <euclid/database/repository/eqs/MongoEqsRepository.h>
 
-using Euclid::Database::MemoryEqsRepository;
+using Euclid::Database::MongoEqsRepository;
 using Euclid::Database::Entity::EQS::MessageStatus;
 
 // redrive-dlq rests on two facts the repository has to get right, and both are easy to get subtly
@@ -30,7 +31,7 @@ namespace {
     constexpr auto kPlain = "ern:eqs:eu-central-1:000000000000:development:queue:plain";
 
     // A queue that sends its failures to dlqErn, or nowhere when that is empty.
-    void addQueue(MemoryEqsRepository &repo, const std::string &ern, const std::string &dlqErn = {}) {
+    void addQueue(MongoEqsRepository &repo, const std::string &ern, const std::string &dlqErn = {}) {
         Euclid::Database::Entity::EQS::Queue queue;
         queue.ern = ern;
         queue.name = ern.substr(ern.rfind(':') + 1);
@@ -39,7 +40,7 @@ namespace {
     }
 
     // A message sitting in the dead letter queue, recorded as having come from sourceErn.
-    void addDeadMessage(MemoryEqsRepository &repo, const std::string &messageId, const std::string &sourceErn) {
+    void addDeadMessage(MongoEqsRepository &repo, const std::string &messageId, const std::string &sourceErn) {
         Euclid::Database::Entity::EQS::Message message;
         message.messageId = messageId;
         message.ern = "ern:eqs:eu-central-1:000000000000:message:" + messageId;
@@ -54,7 +55,7 @@ namespace {
 
     // findMessageById() matches on oid, which nothing here sets. The store is keyed by messageId,
     // so that is what the tests look up by.
-    std::optional<Euclid::Database::Entity::EQS::Message> findByMessageId(const MemoryEqsRepository &repo, const std::string &messageId) {
+    std::optional<Euclid::Database::Entity::EQS::Message> findByMessageId(const MongoEqsRepository &repo, const std::string &messageId) {
         for (const auto &message: repo.findAllMessages()) {
             if (message.messageId == messageId) return message;
         }
@@ -64,7 +65,8 @@ namespace {
 }// namespace
 
 BOOST_AUTO_TEST_CASE(AnOrdinaryQueueHasNoSourceQueues) {
-    MemoryEqsRepository repo;
+    Euclid::Database::Database::instance().initializeMemory();
+    MongoEqsRepository repo;
     addQueue(repo, kPlain);
     addQueue(repo, kOrders, kDlq);
 
@@ -73,7 +75,8 @@ BOOST_AUTO_TEST_CASE(AnOrdinaryQueueHasNoSourceQueues) {
 }
 
 BOOST_AUTO_TEST_CASE(ADeadLetterQueueNamesItsSources) {
-    MemoryEqsRepository repo;
+    Euclid::Database::Database::instance().initializeMemory();
+    MongoEqsRepository repo;
     addQueue(repo, kDlq);
     addQueue(repo, kOrders, kDlq);
     addQueue(repo, kInvoices, kDlq);
@@ -84,7 +87,8 @@ BOOST_AUTO_TEST_CASE(ADeadLetterQueueNamesItsSources) {
 }
 
 BOOST_AUTO_TEST_CASE(RedriveMovesMessagesBackAndResetsThem) {
-    MemoryEqsRepository repo;
+    Euclid::Database::Database::instance().initializeMemory();
+    MongoEqsRepository repo;
     addQueue(repo, kDlq);
     addQueue(repo, kOrders, kDlq);
     addDeadMessage(repo, "m1", kOrders);
@@ -103,7 +107,8 @@ BOOST_AUTO_TEST_CASE(RedriveMovesMessagesBackAndResetsThem) {
 }
 
 BOOST_AUTO_TEST_CASE(RedriveWithoutASourceFilterTakesEverything) {
-    MemoryEqsRepository repo;
+    Euclid::Database::Database::instance().initializeMemory();
+    MongoEqsRepository repo;
     addQueue(repo, kDlq);
     addQueue(repo, kOrders, kDlq);
     addDeadMessage(repo, "m1", kOrders);
@@ -114,7 +119,8 @@ BOOST_AUTO_TEST_CASE(RedriveWithoutASourceFilterTakesEverything) {
 }
 
 BOOST_AUTO_TEST_CASE(RedrivePerSourceTakesOnlyThatQueuesMessages) {
-    MemoryEqsRepository repo;
+    Euclid::Database::Database::instance().initializeMemory();
+    MongoEqsRepository repo;
     addQueue(repo, kDlq);
     addQueue(repo, kOrders, kDlq);
     addQueue(repo, kInvoices, kDlq);
@@ -132,7 +138,8 @@ BOOST_AUTO_TEST_CASE(RedrivePerSourceTakesOnlyThatQueuesMessages) {
 }
 
 BOOST_AUTO_TEST_CASE(AMessageWithNoRecordedOriginIsLeftWhereItIs) {
-    MemoryEqsRepository repo;
+    Euclid::Database::Database::instance().initializeMemory();
+    MongoEqsRepository repo;
     addQueue(repo, kDlq);
     addQueue(repo, kOrders, kDlq);
     addQueue(repo, kInvoices, kDlq);
@@ -150,7 +157,8 @@ BOOST_AUTO_TEST_CASE(AMessageWithNoRecordedOriginIsLeftWhereItIs) {
 }
 
 BOOST_AUTO_TEST_CASE(RedriveIgnoresMessagesInOtherQueues) {
-    MemoryEqsRepository repo;
+    Euclid::Database::Database::instance().initializeMemory();
+    MongoEqsRepository repo;
     addQueue(repo, kDlq);
     addQueue(repo, kOrders, kDlq);
 

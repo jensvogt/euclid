@@ -198,3 +198,21 @@ set_target_properties(${MODULE_LOG_LEVEL_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES
 target_link_libraries(${MODULE_LOG_LEVEL_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
 
 add_test(NAME ${MODULE_LOG_LEVEL_BINARY} COMMAND ${MODULE_LOG_LEVEL_BINARY})
+
+set(SECRET_BINARY euclid-ess-secret-tests)
+
+add_executable(${SECRET_BINARY} SecretTest.cpp)
+set_target_properties(${SECRET_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${SECRET_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${SECRET_BINARY} COMMAND ${SECRET_BINARY})
+
+set(DOCUMENT_STORE_BINARY euclid-emd-document-store-tests)
+
+add_executable(${DOCUMENT_STORE_BINARY} DocumentStoreTest.cpp)
+set_target_properties(${DOCUMENT_STORE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${DOCUMENT_STORE_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${DOCUMENT_STORE_BINARY} COMMAND ${DOCUMENT_STORE_BINARY})

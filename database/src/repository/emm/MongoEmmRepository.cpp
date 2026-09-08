@@ -17,8 +17,7 @@ namespace Euclid::Database {
     void MongoEmmRepository::ensureIndexes() {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             // One document per module name by design (see Module.h) - nearly every read/write
             // filters on it. Not worth also indexing instances.instanceId: once name narrows to
@@ -41,8 +40,7 @@ namespace Euclid::Database {
                 query.append(bsoncxx::builder::basic::kvp("name", name));
             }
 
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             const auto result = collection.find_one(query.extract());
             log_trace << "Module exists, name: " << name << ", exists: " << std::boolalpha << result.has_value();
@@ -61,8 +59,7 @@ namespace Euclid::Database {
             bsoncxx::builder::basic::document document;
             document.append(bsoncxx::builder::basic::kvp("_id", oid));
 
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             if (auto mResult = collection.find_one(document.view())) {
                 return Entity::Module::fromDocument(mResult->view());
@@ -78,8 +75,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto _moduleCollection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto _moduleCollection = Database::instance().collection(COLLECTION);
             if (auto mResult = _moduleCollection.find_one(bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("name", name)))) {
                 return Entity::Module::fromDocument(mResult->view());
             }
@@ -95,8 +91,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             std::vector<Entity::Module> modules;
             for (auto cursor = collection.find({}); const auto &doc: cursor) {
@@ -115,8 +110,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             bsoncxx::builder::basic::document moduleFieldsDoc;
             moduleFieldsDoc.append(
@@ -214,8 +208,7 @@ namespace Euclid::Database {
     bool MongoEmmRepository::setDesiredInstances(const std::string &name, const int minInstances, const int maxInstances) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             // Only the two fields, and only the ones actually being set: -1 means "leave the
             // standing request alone", so raising a ceiling does not silently drop a floor.
@@ -242,8 +235,7 @@ namespace Euclid::Database {
     bool MongoEmmRepository::setDesiredThreads(const std::string &name, const int threads) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             const auto filter = bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("name", name));
             const auto update = bsoncxx::builder::basic::make_document(
@@ -264,8 +256,7 @@ namespace Euclid::Database {
     bool MongoEmmRepository::setLogLevel(const std::string &name, const std::string &logLevel) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             const auto filter = bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("name", name));
             const auto update = bsoncxx::builder::basic::make_document(
@@ -286,8 +277,7 @@ namespace Euclid::Database {
     bool MongoEmmRepository::setDesiredStopped(const std::string &name, const bool stopped) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             const auto filter = bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("name", name));
             const auto update = bsoncxx::builder::basic::make_document(
@@ -308,8 +298,7 @@ namespace Euclid::Database {
     bool MongoEmmRepository::requestRestart(const std::string &name) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             const auto filter = bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("name", name));
             // $currentDate for both, so the moment recorded is the server's - the manager compares
@@ -332,8 +321,7 @@ namespace Euclid::Database {
     void MongoEmmRepository::removeInstance(const std::string &moduleName, const std::string &instanceId) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             const auto filter = bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("name", moduleName));
             const auto update = bsoncxx::builder::basic::make_document(
@@ -354,8 +342,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             const int64_t count = collection.count_documents({});
             log_trace << "Service state: " << std::boolalpha << count;
@@ -371,8 +358,7 @@ namespace Euclid::Database {
     void MongoEmmRepository::remove(const std::string &name) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             const auto result = collection.delete_many(bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("name", name)));
             log_debug << "Module deleted, count: " << result->deleted_count();
@@ -387,8 +373,7 @@ namespace Euclid::Database {
     void MongoEmmRepository::clear() {
 
         try {
-            const auto entry = Database::instance().client();
-            auto collection = (*entry)[Database::instance().databaseName()][COLLECTION];
+            auto collection = Database::instance().collection(COLLECTION);
 
             const auto result = collection.delete_many({});
             log_debug << "All module deleted, count: " << result->deleted_count();

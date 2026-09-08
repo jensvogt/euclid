@@ -1,0 +1,174 @@
+.TH EUCLID-CLI-ESS 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ess \- store and read secrets
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+[\fB\-\-loglevel\fR \fILEVEL\fR]
+.B ess
+.I action
+[\fIaction-options\fR...]
+.SH DESCRIPTION
+The
+.B ess
+module is euclid's secrets store: the passwords, connection strings and
+tokens the things euclid runs need in order to reach anything else.
+.PP
+It exists because those otherwise live in a configuration file, an
+environment variable or a deployment script \- readable by everyone who
+can read the host, copied into every backup, and impossible to rotate
+without a release. A secret here is written once, read by name, and
+rotated in place while the things using it keep running.
+.SH ENCRYPTION
+Every value is encrypted before it is stored, under a key held by
+.BR euclid-cli-ekm (1),
+and decrypted only by
+.BR euclid-cli-ess-get-secret (1).
+There is no path through this module that writes a value in the clear.
+That split is the point: the key management module keeps the key, the
+secrets store keeps the ciphertext, and a copy of either alone \- a
+database dump, a backup, a mongo shell \- is worth nothing.
+.PP
+A secret records which key it was written under, so re-keying one
+secret leaves every other alone and a value stored years ago is still
+read back with the key it was actually written with. Naming another key
+on
+.BR euclid-cli-ess-update-secret (1)
+re-encrypts it, which is how a secret is moved off a key that is being
+retired.
+.PP
+Without
+.B \-\-key
+a secret is encrypted under the namespace's own secrets key, which the
+module creates the first time something needs one \- named
+.I ess
+for an unscoped namespace and
+.RI \fI ess-<namespace> \fR
+otherwise. It is an ordinary EKM key: it appears in
+.BR euclid-cli-ekm-list-keys (1),
+and it is the thing to guard.
+.SH WHAT IS AND IS NOT SECRET
+The value is. The name, the description, the tags and the dates are
+not: they are what a caller lists, searches and audits by, and they are
+readable by anyone who may list secrets. Nothing that belongs in the
+value should be put in a description.
+.PP
+.BR euclid-cli-ess-list-secrets (1)
+never carries a value, and neither does the answer to a create or a
+rotation \- a caller that has just written one already has it, and an
+answer that echoed it would put it in a log and a terminal for no
+reason.
+.PP
+Every read is logged by the server: who read what, and when. The value
+is not part of that and never appears in a log line.
+.SH WHO CAN READ WHAT
+Every
+.B ess
+action requires an authenticated caller. Beyond that, a principal
+deployed with particular resources \- see
+.BR euclid-cli-eap (1)
+under
+.B IDENTITY
+\- reaches exactly the secrets it was given and no others, and a
+listing shows it only those. That is what lets an application hold the
+one password it needs rather than the account's whole store, and it
+matters more here than elsewhere: a grant on a queue bounds what can be
+changed, a grant on a secret bounds what can be read.
+.SH ACTIONS
+.TP
+.B create-secret
+Stores a new secret, encrypted. See
+.BR euclid-cli-ess-create-secret (1).
+.TP
+.B get-secret
+Reads a secret's value. The only action that decrypts one. See
+.BR euclid-cli-ess-get-secret (1).
+.TP
+.B list-secrets
+Lists secrets with their descriptions, versions and ages, never their
+values. See
+.BR euclid-cli-ess-list-secrets (1).
+.TP
+.B update-secret
+Rotates a secret, changes its description, or moves it to another key.
+See
+.BR euclid-cli-ess-update-secret (1).
+.TP
+.B delete-secret
+Deletes a secret and the value it holds. See
+.BR euclid-cli-ess-delete-secret (1).
+.SH GLOBAL OPTIONS
+These options are given to
+.B euclid-cli
+itself, before the
+.I ess
+module name.
+.TP
+.BR \-e ", " \-\-endpoint " " \fIURL\fR
+Euclid gateway endpoint to talk to, e.g. \fIhttps://localhost:5566\fR.
+.TP
+.BR \-\-ca\-cert " " \fIPATH\fR
+Path to a PEM CA certificate to trust in addition to the system trust
+store, e.g. for self-signed development certificates.
+.TP
+.BR \-l ", " \-\-loglevel " " \fILEVEL\fR
+Log level: one of \fItrace\fR, \fIdebug\fR, \fIinfo\fR, \fIwarning\fR,
+\fIerror\fR, \fIfatal\fR. Defaults to \fIinfo\fR.
+.TP
+.BR \-h ", " \-\-help
+Print top-level usage and exit.
+.SH AUTHENTICATION
+.B ess
+commands are authenticated using the session created by
+.BR euclid-cli-eam-login (1),
+loaded from
+.IR $HOME/.euclid/credentials ,
+and signed with RFC 9421 HTTP Message Signatures using the stored
+access key if there is one.
+.SH EVENTS
+A create publishes
+.IR ess.secret.created ,
+a rotation
+.IR ess.secret.rotated ,
+and a delete
+.IR ess.secret.deleted ,
+carrying the name and version but never the value \- so an application
+subscribed through
+.BR euclid-cli-ees (1)
+can reload a password when it changes rather than holding the one it
+started with.
+.SH EXIT STATUS
+.TP
+.B 0
+The action completed successfully.
+.TP
+.B 1
+Argument parsing failed, the request could not be sent, or the server
+rejected it. Details are printed to standard error.
+.SH EXAMPLES
+Store a password without it ever reaching the shell history, read it
+back into an environment variable, then rotate it:
+.PP
+.RS
+.nf
+euclid-cli ess create-secret --name db-password --value-stdin \e
+    --description "production postgres"
+
+export PGPASSWORD=$(euclid-cli ess get-secret -n db-password --raw)
+
+openssl rand -base64 24 | \e
+    euclid-cli ess update-secret --name db-password --value-stdin
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli (1),
+.BR euclid-cli-ekm (1),
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-eap (1),
+.BR euclid-cli-ess-create-secret (1),
+.BR euclid-cli-ess-get-secret (1),
+.BR euclid-cli-ess-list-secrets (1),
+.BR euclid-cli-ess-update-secret (1),
+.BR euclid-cli-ess-delete-secret (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

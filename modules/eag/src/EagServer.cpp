@@ -46,7 +46,7 @@ namespace Euclid::EAG {
         // The euclid modules a route may name. Kept as a list so a typo is refused at configuration
         // time: a route naming "emm " or "eeam" would otherwise be accepted, published, and answer
         // 404 from the gateway forever with nothing saying why.
-        const std::set<std::string> kModuleTargets{"eam", "esm", "eqs", "ens", "emm", "emo", "ekm", "ets", "eap", "ees", "eag"};
+        const std::set<std::string> kModuleTargets{"eam", "esm", "eqs", "ens", "emm", "emo", "ekm", "ess", "ets", "eap", "ees", "eag"};
 
         // The methods a route may name. A typo here is a route that quietly answers for nothing,
         // or - worse, on an update - one that stops answering for what it used to.

@@ -53,8 +53,7 @@ namespace Euclid::Database {
     void MongoEsmRepository::ensureIndexes() {
 
         try {
-            const auto entry = Database::instance().client();
-            auto bucketCollection = (*entry)[Database::instance().databaseName()][BUCKET_COLLECTION];
+            auto bucketCollection = Database::instance().collection(BUCKET_COLLECTION);
 
             // Compound on (accountId, namespace, name) rather than name alone - bucket names only
             // need to be unique within their own account/namespace, not globally. NOTE: replacing
@@ -69,7 +68,7 @@ namespace Euclid::Database {
             ernOpts.unique(true);
             bucketCollection.create_index(make_document(kvp("ern", 1)), ernOpts);
 
-            auto objectCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
+            auto objectCollection = Database::instance().collection(OBJECT_COLLECTION);
 
             mongocxx::options::index objectKeyOpts;
             objectKeyOpts.unique(true);
@@ -88,7 +87,7 @@ namespace Euclid::Database {
             // is what the result is grouped by, so the index also delivers the groups in order.
             objectCollection.create_index(make_document(kvp("status", 1), kvp("bucketErn", 1), kvp("directory", 1), kvp("size", 1)));
 
-            auto subscriptionCollection = (*entry)[Database::instance().databaseName()][SUBSCRIPTION_COLLECTION];
+            auto subscriptionCollection = Database::instance().collection(SUBSCRIPTION_COLLECTION);
             mongocxx::options::index subscriptionOpts;
             subscriptionOpts.unique(true);
             subscriptionCollection.create_index(make_document(kvp("sourceErn", 1), kvp("type", 1), kvp("targetErn", 1)), subscriptionOpts);
@@ -107,8 +106,7 @@ namespace Euclid::Database {
                 query.append(kvp("name", name));
             }
 
-            const auto entry = Database::instance().client();
-            auto bucketCollection = (*entry)[Database::instance().databaseName()][BUCKET_COLLECTION];
+            auto bucketCollection = Database::instance().collection(BUCKET_COLLECTION);
 
             const auto result = bucketCollection.find_one(query.extract());
             log_trace << "Bucket exists, name: " << name << ", exists: " << std::boolalpha << result.has_value();
@@ -127,8 +125,7 @@ namespace Euclid::Database {
             document document;
             document.append(kvp("_id", oid));
 
-            const auto entry = Database::instance().client();
-            auto bucketCollection = (*entry)[Database::instance().databaseName()][BUCKET_COLLECTION];
+            auto bucketCollection = Database::instance().collection(BUCKET_COLLECTION);
 
             if (auto mResult = bucketCollection.find_one(document.view())) {
                 return Entity::ESM::Bucket::fromDocument(mResult->view());
@@ -144,8 +141,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto bucketCollection = (*entry)[Database::instance().databaseName()][BUCKET_COLLECTION];
+            auto bucketCollection = Database::instance().collection(BUCKET_COLLECTION);
 
             if (auto mResult = bucketCollection.find_one(make_document(kvp("name", name)))) {
                 return Entity::ESM::Bucket::fromDocument(mResult.value());
@@ -161,8 +157,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto bucketCollection = (*entry)[Database::instance().databaseName()][BUCKET_COLLECTION];
+            auto bucketCollection = Database::instance().collection(BUCKET_COLLECTION);
 
             if (auto mResult = bucketCollection.find_one(make_document(kvp("ern", ern)))) {
                 return Entity::ESM::Bucket::fromDocument(mResult.value());
@@ -205,8 +200,7 @@ namespace Euclid::Database {
             }
 
             std::vector<Entity::ESM::Bucket> buckets;
-            const auto entry = Database::instance().client();
-            auto bucketCollection = (*entry)[Database::instance().databaseName()][BUCKET_COLLECTION];
+            auto bucketCollection = Database::instance().collection(BUCKET_COLLECTION);
 
             for (auto bucketCursor = bucketCollection.find(filter.view(), opts); auto bucket: bucketCursor) {
                 // Per document, not around the loop: Bucket::fromDocument() reads every field with
@@ -250,8 +244,7 @@ namespace Euclid::Database {
             opts.upsert(true);
             opts.return_document(mongocxx::options::return_document::k_after);
 
-            const auto entry = Database::instance().client();
-            auto bucketCollection = (*entry)[Database::instance().databaseName()][BUCKET_COLLECTION];
+            auto bucketCollection = Database::instance().collection(BUCKET_COLLECTION);
 
             if (auto result = bucketCollection.find_one_and_update(filter.view(), update.view(), opts)) {
                 return Entity::ESM::Bucket::fromDocument(result->view());
@@ -285,8 +278,7 @@ namespace Euclid::Database {
                 filter.append(kvp("internal", make_document(kvp("$ne", true))));
             }
 
-            const auto entry = Database::instance().client();
-            auto bucketCollection = (*entry)[Database::instance().databaseName()][BUCKET_COLLECTION];
+            auto bucketCollection = Database::instance().collection(BUCKET_COLLECTION);
 
             const int64_t count = bucketCollection.count_documents(filter.extract());
             return static_cast<long>(count);
@@ -301,8 +293,7 @@ namespace Euclid::Database {
     void MongoEsmRepository::removeBucketByName(const std::string &name) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto bucketCollection = (*entry)[Database::instance().databaseName()][BUCKET_COLLECTION];
+            auto bucketCollection = Database::instance().collection(BUCKET_COLLECTION);
 
             const auto result = bucketCollection.delete_many(make_document(kvp("name", name)));
             log_debug << "Bucket deleted, count: " << result->deleted_count();
@@ -315,8 +306,7 @@ namespace Euclid::Database {
     void MongoEsmRepository::deleteBucketByErn(const std::string &ern) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto bucketCollection = (*entry)[Database::instance().databaseName()][BUCKET_COLLECTION];
+            auto bucketCollection = Database::instance().collection(BUCKET_COLLECTION);
 
             const auto result = bucketCollection.delete_many(make_document(kvp("ern", ern)));
             log_debug << "Bucket deleted, count: " << result->deleted_count();
@@ -329,8 +319,7 @@ namespace Euclid::Database {
     void MongoEsmRepository::clearBuckets() {
 
         try {
-            const auto entry = Database::instance().client();
-            auto bucketCollection = (*entry)[Database::instance().databaseName()][BUCKET_COLLECTION];
+            auto bucketCollection = Database::instance().collection(BUCKET_COLLECTION);
 
             const auto result = bucketCollection.delete_many({});
             log_debug << "All buckets deleted, count: " << result->deleted_count();
@@ -364,8 +353,7 @@ namespace Euclid::Database {
             opts.upsert(true);
             opts.return_document(mongocxx::options::return_document::k_after);
 
-            const auto entry = Database::instance().client();
-            auto objectCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
+            auto objectCollection = Database::instance().collection(OBJECT_COLLECTION);
 
             if (auto result = objectCollection.find_one_and_update(filter.view(), update.view(), opts)) {
                 return Entity::ESM::Object::fromDocument(result->view());
@@ -382,8 +370,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto objectCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
+            auto objectCollection = Database::instance().collection(OBJECT_COLLECTION);
 
             if (auto mResult = objectCollection.find_one(make_document(kvp("bucketErn", bucketErn), kvp("key", key)))) {
                 return Entity::ESM::Object::fromDocument(mResult.value());
@@ -399,8 +386,7 @@ namespace Euclid::Database {
 
         try {
 
-            const auto entry = Database::instance().client();
-            auto objectCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
+            auto objectCollection = Database::instance().collection(OBJECT_COLLECTION);
 
             if (auto mResult = objectCollection.find_one(make_document(kvp("ern", ern)))) {
                 return Entity::ESM::Object::fromDocument(mResult.value());
@@ -415,8 +401,7 @@ namespace Euclid::Database {
     long MongoEsmRepository::countObjects() const {
 
         try {
-            const auto entry = Database::instance().client();
-            auto messageCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
+            auto messageCollection = Database::instance().collection(OBJECT_COLLECTION);
 
             return messageCollection.count_documents({});
         } catch (const std::exception &e) {
@@ -436,8 +421,7 @@ namespace Euclid::Database {
             if (!includeDirectories) {
                 filter.append(kvp("$nor", make_array(make_document(kvp("key", make_document(kvp("$regex", "/$")))))));
             }
-            const auto entry = Database::instance().client();
-            auto messageCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
+            auto messageCollection = Database::instance().collection(OBJECT_COLLECTION);
 
             return messageCollection.count_documents(filter.view());
         } catch (const std::exception &e) {
@@ -456,8 +440,7 @@ namespace Euclid::Database {
                     kvp("bucketErn", bucketErn),
                     kvp("encryptionKeyErn", make_document(kvp("$nin", make_array("", bsoncxx::types::b_null{})))));
 
-            const auto entry = Database::instance().client();
-            auto objectCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
+            auto objectCollection = Database::instance().collection(OBJECT_COLLECTION);
 
             return objectCollection.count_documents(filter.view());
         } catch (const std::exception &e) {
@@ -491,8 +474,7 @@ namespace Euclid::Database {
             }
 
             std::vector<Entity::ESM::Object> objects;
-            const auto entry = Database::instance().client();
-            auto objectCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
+            auto objectCollection = Database::instance().collection(OBJECT_COLLECTION);
 
             for (auto objectCursor = objectCollection.find(filter.view(), opts); auto object: objectCursor) {
                 objects.push_back(Entity::ESM::Object::fromDocument(object));
@@ -509,8 +491,7 @@ namespace Euclid::Database {
     void MongoEsmRepository::deleteObjectByErn(const std::string &ern) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto bucketCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
+            auto bucketCollection = Database::instance().collection(OBJECT_COLLECTION);
 
             const auto result = bucketCollection.delete_many(make_document(kvp("ern", ern)));
             log_debug << "Object deleted, count: " << result->deleted_count();
@@ -524,8 +505,7 @@ namespace Euclid::Database {
                                                                         const std::string &newErn) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto bucketCollection = (*entry)[Database::instance().databaseName()][BUCKET_COLLECTION];
+            auto bucketCollection = Database::instance().collection(BUCKET_COLLECTION);
 
             const auto update = make_document(
                     kvp("$set", make_document(kvp("name", newName), kvp("ern", newErn))),
@@ -548,8 +528,7 @@ namespace Euclid::Database {
     long MongoEsmRepository::repointSubscriptions(const std::string &oldSourceErn, const std::string &newSourceErn) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto subscriptionCollection = (*entry)[Database::instance().databaseName()][SUBSCRIPTION_COLLECTION];
+            auto subscriptionCollection = Database::instance().collection(SUBSCRIPTION_COLLECTION);
 
             const auto result = subscriptionCollection.update_many(
                     make_document(kvp("sourceErn", oldSourceErn)).view(),
@@ -566,8 +545,7 @@ namespace Euclid::Database {
                                                  const std::string &oldName, const std::string &newName) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto objectCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
+            auto objectCollection = Database::instance().collection(OBJECT_COLLECTION);
 
             // An update pipeline rather than a read-modify-write per object: the new bucketErn is
             // the same for every one of them, and the ERN differs only in the bucket segment,
@@ -587,8 +565,28 @@ namespace Euclid::Database {
                                                          kvp("find", oldSegment),
                                                          kvp("replacement", newSegment)))))));
 
-            const auto result = objectCollection.update_many(make_document(kvp("bucketErn", oldBucketErn)), pipeline);
-            const auto renamed = result ? static_cast<long>(result->modified_count()) : 0;
+            long renamed = 0;
+            if (objectCollection.supports_aggregation()) {
+                const auto result = objectCollection.update_many(make_document(kvp("bucketErn", oldBucketErn)), pipeline);
+                renamed = result ? static_cast<long>(result->modified_count()) : 0;
+            } else {
+                // The same rewrite, one object at a time, for a backend with no server to evaluate
+                // the pipeline. A round trip per object, which is the right trade for a store that
+                // holds a test's worth of them.
+                for (auto cursor = objectCollection.find(make_document(kvp("bucketErn", oldBucketErn))); auto document: cursor) {
+
+                    const auto ern = std::string(document["ern"].get_string().value);
+                    const auto position = ern.find(oldSegment);
+                    const auto rewritten = position == std::string::npos
+                                                   ? ern
+                                                   : ern.substr(0, position) + newSegment + ern.substr(position + oldSegment.size());
+
+                    std::ignore = objectCollection.update_one(
+                            make_document(kvp("_id", document["_id"].get_oid().value)),
+                            make_document(kvp("$set", make_document(kvp("bucketErn", newBucketErn), kvp("ern", rewritten)))));
+                    renamed++;
+                }
+            }
             log_debug << "Bucket objects renamed, count: " << renamed << ", bucket: " << newName;
             return renamed;
 
@@ -619,8 +617,7 @@ namespace Euclid::Database {
             opts.upsert(true);
             opts.return_document(mongocxx::options::return_document::k_after);
 
-            const auto entry = Database::instance().client();
-            auto subscriptionCollection = (*entry)[Database::instance().databaseName()][SUBSCRIPTION_COLLECTION];
+            auto subscriptionCollection = Database::instance().collection(SUBSCRIPTION_COLLECTION);
 
             if (auto result = subscriptionCollection.find_one_and_update(filter.view(), update.view(), opts)) {
                 return Entity::ESM::Subscription::fromDocument(result->view());
@@ -639,8 +636,7 @@ namespace Euclid::Database {
         try {
             const auto filter = make_document(kvp("sourceErn", sourceErn));
 
-            const auto entry = Database::instance().client();
-            auto subscriptionCollection = (*entry)[Database::instance().databaseName()][SUBSCRIPTION_COLLECTION];
+            auto subscriptionCollection = Database::instance().collection(SUBSCRIPTION_COLLECTION);
 
             for (auto cursor = subscriptionCollection.find(filter.view()); auto doc: cursor) {
                 subscriptions.push_back(Entity::ESM::Subscription::fromDocument(doc));
@@ -655,8 +651,7 @@ namespace Euclid::Database {
     void MongoEsmRepository::deleteSubscriptionByErn(const std::string &ern) {
 
         try {
-            const auto entry = Database::instance().client();
-            auto subscriptionCollection = (*entry)[Database::instance().databaseName()][SUBSCRIPTION_COLLECTION];
+            auto subscriptionCollection = Database::instance().collection(SUBSCRIPTION_COLLECTION);
 
             const auto result = subscriptionCollection.delete_many(make_document(kvp("ern", ern)));
             log_debug << "Subscription deleted, ern: " << ern << ", count: " << result->deleted_count();
@@ -671,9 +666,8 @@ namespace Euclid::Database {
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "recount-buckets");
 
         try {
-            const auto entry = Database::instance().client();
-            auto objectCollection = (*entry)[Database::instance().databaseName()][OBJECT_COLLECTION];
-            auto bucketCollection = (*entry)[Database::instance().databaseName()][BUCKET_COLLECTION];
+            auto objectCollection = Database::instance().collection(OBJECT_COLLECTION);
+            auto bucketCollection = Database::instance().collection(BUCKET_COLLECTION);
 
             // One pass over the objects, with the accumulators the loop below actually reads.
             //
@@ -683,51 +677,16 @@ namespace Euclid::Database {
             // ending in "/") is not counted as an object, exactly as EsmServer does when it stores
             // one. Only COMPLETED objects count - a multipart upload in progress has rows that no
             // bucket counter has been told about yet.
-            mongocxx::pipeline pipeline;
-            pipeline.match(make_document(kvp("status", "COMPLETED")));
-            pipeline.group(make_document(
-                    kvp("_id", "$bucketErn"),
-                    kvp("bytes", make_document(kvp("$sum", "$size"))),
-                    // The stored flag, not a test on the key. Reading the key here meant a regular
-                    // expression evaluated against every object in the installation on every pass,
-                    // and - far more expensive - it meant every document had to be fetched to
-                    // answer it. Naming only fields the index carries lets this be served from the
-                    // index alone. An object written before the flag existed has no value and
-                    // counts as a file; see Entity::ESM::Object::directory.
-                    kvp("count", make_document(kvp("$sum", make_document(kvp("$cond", make_array(
-                                                                                 make_document(kvp("$ifNull", make_array("$directory", false))),
-                                                                                 0, 1))))))));
-
+            // Grouped, counted and summed through the neutral path, so a recount works with or
+            // without a server to evaluate a pipeline on - see Collection::group_count.
             struct Counts {
                 long count{};
                 long size{};
             };
             std::unordered_map<std::string, Counts> counted;
 
-            // $sum returns whichever numeric type the values fit in, so the width is not ours to
-            // assume: a bucket of small objects comes back int32 and the same bucket comes back
-            // int64 once it grows, and get_int64() on the first would throw.
-            auto asLong = [](const bsoncxx::document::element &field) -> long {
-                if (!field) return 0;
-                switch (field.type()) {
-                    case bsoncxx::type::k_int64:
-                        return static_cast<long>(field.get_int64().value);
-                    case bsoncxx::type::k_int32:
-                        return field.get_int32().value;
-                    case bsoncxx::type::k_double:
-                        return static_cast<long>(field.get_double().value);
-                    default:
-                        return 0;
-                }
-            };
-
-            for (auto cursor = objectCollection.aggregate(pipeline); auto doc: cursor) {
-                const auto idField = doc["_id"];
-                if (!idField || idField.type() != bsoncxx::type::k_string) continue;
-
-                auto &counts = counted[std::string(idField.get_string().value)];
-                counts.count = asLong(doc["count"]);
-                counts.size = asLong(doc["bytes"]);
+            for (const auto &group: objectCollection.group_count({}, {"bucketErn"}, "size")) {
+                counted[group.key[0]] = {.count = group.count, .size = group.sum};
             }
 
             // Every bucket is written, including the ones the grouping did not mention: a bucket
