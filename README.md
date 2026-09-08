@@ -38,7 +38,8 @@ route - see [Architecture](#architecture).
 | **eag** | API gateway: publishes paths to the outside world and proxies them to EAP application instances | ✅     |
 
 Everything is driven through `euclid-cli`, a single client binary with one subcommand set per module
-(`euclid-cli eqs ...`, `euclid-cli eam ...`), or through the desktop UI - see [Related projects](#related-projects).
+(`euclid-cli eqs ...`, `euclid-cli eam ...`), through the desktop UI, or from a program through the Java or Python
+client libraries - see [Related projects](#related-projects).
 
 ---
 
@@ -374,6 +375,7 @@ own process, which is what `SIGUSR1` re-reads.
 | [euclid-rui](https://github.com/jensvogt/euclid-rui)       | Desktop UI (Qt/QML) - browse and administer queues, topics, buckets, keys, applications and transfer servers, with live metrics |
 | [euclid-jdk](https://github.com/jensvogt/euclid-jdk)       | Java client library for every module                                                                                            |
 | [euclid-spring](https://github.com/jensvogt/euclid-spring) | Spring Boot starter: `@QueueListener`, `@TopicListener` and `@BucketListener`, plus autoconfiguration                           |
+| [euclid-pdk](https://github.com/jensvogt/euclid-pdk)       | Python client library - EAM, ESM, EQS, ENS, EKM and ESS, both signing schemes, and no dependencies beyond the standard library  |
 
 ---
 
