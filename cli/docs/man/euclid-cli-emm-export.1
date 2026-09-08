@@ -39,6 +39,14 @@ buckets and their subscriptions
 .RI ( esm ),
 users/groups/accounts/namespaces
 .RI ( eam ),
+keys
+.RI ( ekm ),
+secrets
+.RI ( ess ),
+applications
+.RI ( eap ),
+transfer servers
+.RI ( ets ),
 or the module registry
 .RI ( emm ).
 .B \-\-full
@@ -75,9 +83,9 @@ types that plain JSON can't represent unambiguously.
 .TP
 .BR \-m ", " \-\-module " " \fIMODULE\fR[,\fIMODULE\fR...]
 Comma-separated modules to export, from
-.IR eam ", " emm ", " emo ", " ens ", " eqs ", "
+.IR eam ", " eap ", " ekm ", " emm ", " emo ", " ens ", " eqs ", " esm ", " ess
 and
-.IR esm .
+.IR ets .
 Mutually exclusive with
 .BR \-\-all ;
 exactly one of the two is required.

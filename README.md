@@ -56,7 +56,7 @@ cd euclid
 cmake -B build -DCMAKE_TOOLCHAIN_FILE=<path-to-vcpkg>/scripts/buildsystems/vcpkg.cmake
 cmake --build build --parallel
 
-./build/bin/euclid-mgr --config dist/linux/etc/euclid.json
+sudo ./build/bin/euclid-mgr --config dist/linux/etc/euclid.json
 ```
 
 In another terminal:
@@ -265,7 +265,7 @@ Every process reads the same JSON config (`--config <path>`, default
 | `euclid.gateway.websocket.max-message-size`     | 1048576     | Max inbound websocket frame size, in bytes                                                                                                                                              |
 | `euclid.gateway.websocket.idle-timeout-seconds` | 300         | Websocket ping/pong idle timeout                                                                                                                                                        |
 | `euclid.gateway.event-socket-path`              | (none)      | Unix domain socket modules push business events to, for websocket clients (`Core::EventPusher`)                                                                                         |
-| `euclid.database.backend`                       | mongodb     | `mongodb`, `emd` (the shared in-memory store) or `memory` (in-process) - see [Running without a database](#running-without-a-database)                                                   |
+| `euclid.database.backend`                       | mongodb     | `mongodb`, `emd` (the shared in-memory store) or `memory` (in-process) - see [Running without a database](#running-without-a-database)                                                  |
 | `euclid.modules.emd.socketPath`                 | (none)      | Socket the memory database listens on; every module reaches the store here                                                                                                              |
 | `euclid.modules.emd.connect-timeout-ms`         | 1000        | How long a module retries reaching the store before a query fails                                                                                                                       |
 | `euclid.logging.level`                          | info        | Level every channel logs at unless it says otherwise                                                                                                                                    |
@@ -286,8 +286,17 @@ point: an installation for a test run, a demo or a container that should leave n
 let the others declare they need it, exactly as `dist/*/etc/euclid.json` already does:
 
 ```json
-"emd": { "active": true, "readiness": "liveness", "socketPath": "/var/run/euclid/euclid-emd.sock" },
-"eam": { "active": true, "dependencies": ["emd"] }
+"emd": {
+  "active": true,
+  "readiness": "liveness",
+  "socketPath": "/var/run/euclid/euclid-emd.sock"
+},
+"eam": {
+  "active": true,
+  "dependencies": [
+    "emd"
+  ]
+}
 ```
 
 The repositories are the ones written for MongoDB - there is one implementation, running against whichever backend is
@@ -308,8 +317,8 @@ database rather than of euclid:
 
 ### Logging channels
 
-Every log record carries a channel: the name of what produced it. A module logs on its own name
-(`esm`, `eag`, `mgr`), and output the manager reads back from a process it started is logged on that
+Every log record carries a channel: the name of what produced it. A module logs on its own name (`esm`, `eag`, `mgr`),
+and output the manager reads back from a process it started is logged on that
 process's channel - `app.<applicationId>` for an application, `module.<name>` for a euclid module.
 Each channel can be given its own level, or turned off, so one talkative application does not bury
 everything euclid itself has to say:
@@ -318,9 +327,12 @@ everything euclid itself has to say:
 "logging": {
   "level": "info",
   "channels": {
-    "app": "warning",        // every application euclid runs
-    "app.parser": "off",     // except this one, which says nothing at all
-    "esm": "debug"           // while ESM is being looked at
+    "app": "warning",
+    // every application euclid runs
+    "app.parser": "off",
+    // except this one, which says nothing at all
+    "esm": "debug"
+    // while ESM is being looked at
   }
 }
 ```
