@@ -252,3 +252,42 @@ set_target_properties(${RETENTION_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 target_link_libraries(${RETENTION_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
 
 add_test(NAME ${RETENTION_BINARY} COMMAND ${RETENTION_BINARY})
+
+set(CONTENT_TYPE_BINARY euclid-content-type-tests)
+
+add_executable(${CONTENT_TYPE_BINARY} ContentTypeTest.cpp)
+set_target_properties(${CONTENT_TYPE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${CONTENT_TYPE_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${CONTENT_TYPE_BINARY} COMMAND ${CONTENT_TYPE_BINARY})
+
+set(OIDC_BINARY euclid-oidc-tests)
+
+add_executable(${OIDC_BINARY} OidcTest.cpp)
+set_target_properties(${OIDC_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${OIDC_BINARY} PRIVATE euclidcore jwt-cpp::jwt-cpp OpenSSL::SSL OpenSSL::Crypto Boost::unit_test_framework)
+
+add_test(NAME ${OIDC_BINARY} COMMAND ${OIDC_BINARY})
+
+set(SAML_BINARY euclid-saml-tests)
+
+add_executable(${SAML_BINARY} SamlTest.cpp)
+set_target_properties(${SAML_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${SAML_BINARY} PRIVATE euclidcore LibXml2::LibXml2
+        unofficial::xmlsec::xmlsec1 unofficial::xmlsec::xmlsec1-openssl
+        OpenSSL::SSL OpenSSL::Crypto Boost::unit_test_framework)
+
+add_test(NAME ${SAML_BINARY} COMMAND ${SAML_BINARY})
+
+set(ONELOGIN_BINARY euclid-onelogin-tests)
+
+add_executable(${ONELOGIN_BINARY} OneLoginTest.cpp ${CMAKE_SOURCE_DIR}/cli/src/eam/OneLogin.cpp)
+set_target_properties(${ONELOGIN_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${ONELOGIN_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/cli/include)
+target_link_libraries(${ONELOGIN_BINARY} PRIVATE euclidcore Boost::json OpenSSL::SSL OpenSSL::Crypto Boost::unit_test_framework)
+
+add_test(NAME ${ONELOGIN_BINARY} COMMAND ${ONELOGIN_BINARY})

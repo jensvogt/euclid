@@ -70,6 +70,13 @@ find_package(libssh CONFIG REQUIRED)
 
 find_package(unofficial-libmagic CONFIG REQUIRED)
 
+# SAML: assertions are XML signatures, and verifying one correctly is a library's job rather than
+# ours - see Core::SamlResponseVerifier. libxml2 comes along with it (and was already here
+# transitively); zlib is what the SAML redirect binding means by DEFLATE.
+find_package(LibXml2 REQUIRED)
+find_package(ZLIB REQUIRED)
+find_package(unofficial-xmlsec CONFIG REQUIRED)
+
 find_library(TCMALLOC_LIBRARY NAMES tcmalloc tcmalloc_minimal)
 if (TCMALLOC_LIBRARY)
     message(STATUS "tcmalloc found, linking all targets against ${TCMALLOC_LIBRARY}")

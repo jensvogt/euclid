@@ -83,9 +83,40 @@ namespace Euclid::main {
     // Service:action pairs reachable without a bearer token - login has no token to present
     // yet, and register's own admin-vs-bootstrap check happens downstream in the access module
     // (it needs to know whether the user store is empty, which only that module can see).
+    //
+    // The OIDC pair is public for the same reason as login, and is no weaker for it: an
+    // authorization is a redirect to somebody else, and a callback is only worth anything to
+    // whoever holds an authorization code the provider signed and a state this installation
+    // sealed.
     static bool isPublicAction(const std::string &service, const std::string &action) {
-        static const std::unordered_set<std::string> kPublic{"eam:login", "eam:register"};
+        static const std::unordered_set<std::string> kPublic{
+                "eam:login", "eam:register",
+                "eam:oidc-authorize", "eam:oidc-login", "eam:oidc-callback",
+                "eam:saml-authorize", "eam:saml-acs", "eam:saml-metadata"
+        };
         return kPublic.contains(service + ":" + action);
+    }
+
+    // The handful of paths a browser can be sent to, and the eam action each stands for.
+    //
+    // Everything else here is addressed by header (see detectEuclidService), which works because
+    // everything else is called by a program. A federated login is not: the browser goes where the
+    // identity provider sends it, carrying nothing this gateway chose, so the only thing that can
+    // identify the request is its path and method. A fixed list of five, all public - not a general
+    // path router.
+    //
+    // The SAML assertion consumer is a POST because that is what the HTTP-POST binding is: the
+    // provider renders a form in the browser and submits it here.
+    static std::string federationRouteAction(const http::request<http::string_body> &req, const std::string &path) {
+
+        if (req.method() == http::verb::get) {
+            if (path == "/eam/oidc/authorize") return "oidc-authorize";
+            if (path == "/eam/oidc/callback") return "oidc-callback";
+            if (path == "/eam/saml/login") return "saml-authorize";
+            if (path == "/eam/saml/metadata") return "saml-metadata";
+        }
+        if (req.method() == http::verb::post && path == "/eam/saml/acs") return "saml-acs";
+        return {};
     }
 
     // Proxies req over a Unix-domain socket at socketPath and hands the backend's response to
@@ -238,6 +269,40 @@ namespace Euclid::main {
         // whole gateway. Mirrors the same guard UnixSocketServer::Session::doRead() already has
         // around Dispatch() for individual module processes.
         try {
+            // ── Federated login endpoints ───────────────────────────────────────
+            // Turned into an ordinary eam call by putting on the headers the browser could not:
+            // from here down it is the same forward as any other, and eam sees the same shape of
+            // request whichever way the flow was driven.
+            if (const auto federationAction = federationRouteAction(req, target); !federationAction.empty()) {
+
+                const auto handle = ctrl.acquireInstance("eam", true);
+                if (!handle) {
+                    done(err(http::status::service_unavailable, "service 'eam' not registered or not running"));
+                    return;
+                }
+
+                // A copy, because the headers have to be added and the caller's request is const -
+                // and held by shared_ptr through the completion, because the forward outlives this
+                // function and reads the request while it is in flight.
+                auto forwarded = std::make_shared<http::request<http::string_body> >(req);
+                forwarded->set("x-euclid-target", "eam");
+                forwarded->set("x-euclid-action", federationAction);
+
+                struct ReleaseGuard {
+                    ServiceController &ctrl;
+                    std::string name;
+                    pid_t pid;
+                    ~ReleaseGuard() { ctrl.releaseInstance(name, pid, true); }
+                };
+                auto guard = std::make_shared<ReleaseGuard>(ctrl, "eam", handle->pid);
+
+                forwardToServiceAsync(ioc, *forwarded, handle->socketPath,
+                                      [done, guard, forwarded](http::response<http::string_body> res) mutable {
+                                          done(std::move(res));
+                                      });
+                return;
+            }
+
             // ── Euclid service dispatch ─────────────────────────────────────────
             if (const auto service = detectEuclidService(req, ctrl); !service.empty()) {
                 const auto action = std::string(req["x-euclid-action"]);

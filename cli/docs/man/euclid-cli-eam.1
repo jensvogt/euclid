@@ -31,8 +31,10 @@ below for how the two levels of administrator access work.
 .SH ACTIONS
 .TP
 .B login
-Authenticates with a user ID and password and stores the returned bearer
-token for use by later commands. See
+Authenticates with a user ID and password - or, with \fB\-\-oidc\fR or
+\fB\-\-saml\fR, through the installation's identity provider in a
+browser - and stores the returned bearer token for use by later commands.
+See
 .BR euclid-cli-eam-login (1).
 .TP
 .B register
@@ -199,8 +201,10 @@ Print top-level usage and exit.
 Print the euclid-cli version and exit.
 .SH AUTHENTICATION
 .B euclid-cli-eam-login (1)
-exchanges a user ID and password for a signed bearer token (a JWT, valid
-for one hour by default) and saves it as JSON at
+exchanges a user ID and password - or an authorization from the
+installation's OpenID Connect or SAML identity provider, with
+\fB\-\-oidc\fR or \fB\-\-saml\fR - for a signed bearer token (a JWT, valid for one hour by default) and saves it as
+JSON at
 .IR $HOME/.euclid/credentials .
 The containing directory is created if needed and both the directory
 (\fI0700\fR) and the file (\fI0600\fR) are restricted to the current user,

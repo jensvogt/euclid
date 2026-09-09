@@ -1,8 +1,293 @@
+// C++ includes
+#include <chrono>
+#include <cstdlib>
+#include <memory>
+
+#include <cctype>
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <termios.h>
+#include <unistd.h>
+#endif
+
+// Boost includes
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/beast/core.hpp>
+#include <boost/beast/http.hpp>
+
+// Euclid includes
 #include <euclid/cli/eam/EamCli.h>
+#include <euclid/core/CryptoUtils.h>
+#include <euclid/core/HttpUtils.h>
+#include <euclid/dto/eam/OidcAuthorizeRequest.h>
+#include <euclid/dto/eam/OidcAuthorizeResponse.h>
+#include <euclid/dto/eam/OidcLoginRequest.h>
+#include <euclid/cli/eam/OneLogin.h>
+#include <euclid/dto/eam/SamlAuthorizeResponse.h>
 
 namespace Euclid::CLI {
 
     namespace po = boost::program_options;
+    namespace net = boost::asio;
+    namespace beast = boost::beast;
+    namespace beast_http = boost::beast::http;
+    using tcp = net::ip::tcp;
+
+    namespace {
+
+        // How long the browser has to come back before the login is given up on. Long enough for
+        // a provider that asks for a second factor, short enough that a forgotten terminal does
+        // not sit on a listening socket all day.
+        constexpr auto kCallbackTimeout = std::chrono::minutes(3);
+
+        // What the person sees in the tab the provider redirected, once the code has been caught.
+        constexpr auto kCallbackPage =
+                "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>euclid</title></head>"
+                "<body style=\"font-family:sans-serif;padding:3rem\"><h1>Signed in</h1>"
+                "<p>You can close this tab and go back to the terminal.</p></body></html>";
+
+        // Catches the one redirect the provider sends back, on a port this process owns for the
+        // length of one login.
+        //
+        // A loopback listener rather than a URL on the euclid gateway because the CLI is a public
+        // client: it has no secret to identify itself with, so the code has to come back to the
+        // machine that asked for it, and 127.0.0.1 is the one address that cannot be reached from
+        // anywhere else. The port is whatever the kernel hands out - it is registered with the
+        // provider as a wildcard loopback URI, which is what providers expect of a native client.
+        class CallbackListener {
+
+        public:
+
+            CallbackListener() : _acceptor(_ioc, tcp::endpoint(net::ip::make_address("127.0.0.1"), 0)) {}
+
+            [[nodiscard]]
+            unsigned short port() const { return _acceptor.local_endpoint().port(); }
+
+            // What the browser eventually brings back: an OIDC code, a SAML session, or the
+            // provider's refusal.
+            struct Callback {
+                std::string code;
+                std::string state;
+                std::string session;
+                std::string error;
+            };
+
+            // Waits for a request that carries one of those, answering anything else (a browser
+            // asking for the favicon, most often) with a 404 and going back to waiting.
+            //
+            // @return true if a callback arrived within the timeout.
+            bool wait(Callback &callback) {
+
+                bool finished = false;
+
+                // Re-arms itself on every request that turns out not to be the callback, so one
+                // stray request does not consume the login.
+                std::function<void()> accept = [&] {
+                    _acceptor.async_accept([&](const beast::error_code &acceptEc, tcp::socket socket) {
+                        if (acceptEc) return;
+
+                        auto stream = std::make_shared<beast::tcp_stream>(std::move(socket));
+                        auto buffer = std::make_shared<beast::flat_buffer>();
+                        auto request = std::make_shared<beast_http::request<beast_http::string_body> >();
+
+                        beast_http::async_read(*stream, *buffer, *request,
+                                               [&, stream, buffer, request](const beast::error_code &readEc, std::size_t) {
+                                                   if (readEc) {
+                                                       accept();
+                                                       return;
+                                                   }
+
+                                                   auto parameters = Core::ParseQueryParameters(request->target());
+
+                                                   // A SAML login arrives as a form post from the
+                                                   // page euclid answered the assertion with, and
+                                                   // carries the whole session in its body.
+                                                   if (request->method() == beast_http::verb::post) {
+                                                       for (auto &[name, value]: Core::ParseQueryParameters("?" + request->body())) {
+                                                           parameters[name] = value;
+                                                       }
+                                                   }
+
+                                                   const auto hasCode = parameters.contains("code");
+                                                   const auto hasSession = parameters.contains("session");
+                                                   const auto hasError = parameters.contains("error");
+
+                                                   if (!hasCode && !hasSession && !hasError) {
+                                                       beast_http::response<beast_http::string_body> notFound{beast_http::status::not_found, request->version()};
+                                                       notFound.prepare_payload();
+                                                       beast::error_code ignored;
+                                                       beast_http::write(*stream, notFound, ignored);
+                                                       accept();
+                                                       return;
+                                                   }
+
+                                                   if (hasCode) callback.code = parameters.at("code");
+                                                   if (hasSession) {
+                                                       try {
+                                                           callback.session = Core::CryptoUtils::Base64UrlDecode(parameters.at("session"));
+                                                       } catch (const std::exception &e) {
+                                                           callback.error = std::string("the session euclid sent back could not be read: ") + e.what();
+                                                       }
+                                                   }
+                                                   if (hasError) {
+                                                       callback.error = parameters.at("error");
+                                                       if (const auto description = parameters.find("error_description"); description != parameters.end()) {
+                                                           callback.error += " (" + description->second + ")";
+                                                       }
+                                                   }
+                                                   if (const auto it = parameters.find("state"); it != parameters.end()) callback.state = it->second;
+
+                                                   beast_http::response<beast_http::string_body> page{beast_http::status::ok, request->version()};
+                                                   page.set(beast_http::field::content_type, "text/html; charset=utf-8");
+                                                   page.body() = kCallbackPage;
+                                                   page.prepare_payload();
+                                                   beast::error_code writeEc;
+                                                   beast_http::write(*stream, page, writeEc);
+
+                                                   finished = true;
+                                               });
+                    });
+                };
+
+                accept();
+
+                const auto deadline = std::chrono::steady_clock::now() + kCallbackTimeout;
+                while (!finished && std::chrono::steady_clock::now() < deadline) {
+                    _ioc.restart();
+                    _ioc.run_for(std::chrono::milliseconds(500));
+                }
+                return finished;
+            }
+
+        private:
+
+            net::io_context _ioc;
+            tcp::acceptor _acceptor;
+        };
+
+        // Best effort, and said out loud either way: the URL is always printed, so a person on a
+        // machine with no browser - over ssh, in a container - can copy it somewhere that has one.
+        void openBrowser(const std::string &url) {
+
+            // Single-quoted for the shell, with any quote in the URL closed and reopened around an
+            // escaped one. Nothing here comes from a stranger, but a URL is exactly the kind of
+            // string that ends up somewhere it was not expected.
+            std::string quoted = "'";
+            for (const char c: url) {
+                if (c == '\'') quoted += "'\\''";
+                else quoted += c;
+            }
+            quoted += "'";
+
+#ifdef _WIN32
+            const std::string command = "start \"\" " + quoted;
+#elif defined(__APPLE__)
+            const std::string command = "open " + quoted + " >/dev/null 2>&1";
+#else
+            const std::string command = "xdg-open " + quoted + " >/dev/null 2>&1";
+#endif
+            std::ignore = std::system(command.c_str());
+        }
+
+        // Reads a password from the terminal without echoing it.
+        //
+        // Only when there is a terminal to read from: under a scheduler there is none, and a
+        // prompt nobody can answer would hang the job rather than fail it. Such a caller supplies
+        // the password through the environment instead.
+        std::string readPassword(const std::string &prompt) {
+
+#ifdef _WIN32
+            const HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
+            DWORD mode = 0;
+            if (!GetConsoleMode(input, &mode)) return {};
+            SetConsoleMode(input, mode & ~ENABLE_ECHO_INPUT);
+#else
+            if (isatty(STDIN_FILENO) == 0) return {};
+            termios original{};
+            if (tcgetattr(STDIN_FILENO, &original) != 0) return {};
+            termios quiet = original;
+            quiet.c_lflag &= ~static_cast<tcflag_t>(ECHO);
+            tcsetattr(STDIN_FILENO, TCSAFLUSH, &quiet);
+#endif
+
+            std::cerr << prompt << std::flush;
+            std::string password;
+            std::getline(std::cin, password);
+            std::cerr << "\n";
+
+#ifdef _WIN32
+            SetConsoleMode(input, mode);
+#else
+            tcsetattr(STDIN_FILENO, TCSAFLUSH, &original);
+#endif
+            return password;
+        }
+
+        // Asks for something at the terminal, echoing it. Empty when there is no terminal, which
+        // is what tells the caller that nobody could be asked.
+        std::string readLine(const std::string &prompt) {
+
+#ifndef _WIN32
+            if (isatty(STDIN_FILENO) == 0) return {};
+#endif
+            std::cerr << prompt << std::flush;
+            std::string line;
+            std::getline(std::cin, line);
+
+            // Codes get pasted with a space in the middle, and read back with a stray carriage
+            // return on Windows terminals.
+            std::erase_if(line, [](const unsigned char c) { return std::isspace(c) != 0; });
+            return line;
+        }
+
+        // What both logins do with what came back: store the token and access key, make the
+        // namespace active if one was asked for, and print the response.
+        //
+        // Shared because a federated login is not a different kind of session - see the eam
+        // module's issueSession() - and because a difference between the two here would be a
+        // difference nobody meant to introduce.
+        int storeSession(const std::string &endpoint, const std::string &caCertPath, const bool pretty,
+                         const boost::json::value &body, const std::string &nameSpace) {
+
+            const auto loginResponse = boost::json::value_to<Dto::EAM::LoginResponse>(body);
+            if (loginResponse.token.empty()) {
+                std::cerr << "error: login response did not contain a token\n";
+                return 1;
+            }
+
+            Credentials::Entry entry{
+                    .token = loginResponse.token,
+                    .userId = loginResponse.user,
+                    .accountId = loginResponse.accountId,
+                    .region = loginResponse.region,
+                    .accessKeyId = loginResponse.accessKeyId,
+                    .secretAccessKey = loginResponse.secretAccessKey,
+                    .isAdmin = loginResponse.isAdmin,
+            };
+
+            if (!nameSpace.empty()) {
+                Dto::EAM::ChangeNamespaceRequest nsRequest;
+                nsRequest.ns = nameSpace;
+
+                const HttpClient nsClient(endpoint, entry, caCertPath);
+                if (const HttpResponse nsResponse = nsClient.Post("eam", "change-namespace", boost::json::value_from(nsRequest)); !nsResponse.IsSuccess()) {
+                    Credentials::Save(entry);
+                    std::cerr << "warning: logged in, but setting namespace failed (HTTP " << nsResponse.statusCode << "): " << boost::json::serialize(nsResponse.body) << std::endl;
+                    return 1;
+                }
+                entry.nameSpace = nameSpace;
+            }
+
+            Credentials::Save(entry);
+
+            Core::WriteJson(std::cout, body, pretty);
+            return 0;
+        }
+
+    }// namespace
 
     namespace {
 
@@ -119,17 +404,26 @@ namespace Euclid::CLI {
     int EamCli::login(const std::vector<std::string> &args) const {
         po::options_description desc("eam login options");
         desc.add_options()
-                ("user,u", po::value<std::string>()->required(), "username")
-                ("password,p", po::value<std::string>()->required(), "password")
+                ("user,u", po::value<std::string>(), "username (not used with --oidc/--saml: the identity provider says who you are)")
+                ("password,p", po::value<std::string>(), "password (not used with --oidc/--saml)")
+                ("oidc,o", po::bool_switch(), "authenticate through the configured OpenID Connect provider in a browser instead of with a password")
+                ("saml", po::bool_switch(), "authenticate through the configured SAML identity provider in a browser instead of with a password")
+                ("onelogin", po::bool_switch(), "authenticate through OneLogin's API instead of a browser: a SAML assertion is fetched with your password and one-time code (see euclid.cli.onelogin)")
+                ("application", po::value<std::string>(), "with --onelogin: which configured OneLogin application to sign in to, e.g. int or prod")
+                ("otp", po::value<std::string>(), "with --onelogin: the one-time code; without it the code is computed from the configured TOTP secret, or asked for")
                 ("namespace,n", po::value<std::string>(), "namespace to make active for this session");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eam", "login", "--user <username> --password <password> [--namespace <name>]",
+            return PrintActionHelp("eam", "login", "--user <username> --password <password> | --oidc | --saml [--namespace <name>]",
                                    "Authenticates against the Euclid access module and, on success, stores the "
                                    "returned bearer token locally so it is used automatically to authenticate "
                                    "subsequent commands. Also provisions a SigV4 access key on first login (or "
                                    "reuses the existing one on later logins) and stores it alongside the token, "
                                    "so a separate 'create-access-key' call is not needed for Euclid-service commands. "
+                                   "With --oidc or --saml, authentication happens in a browser against the identity "
+                                   "provider the installation is configured with (e.g. OneLogin, over OpenID Connect "
+                                   "or SAML 2.0) and no password is asked for or sent; what is stored afterwards is "
+                                   "the same token and access key a password login produces. "
                                    "If --namespace is given, it is validated and set as the session's active namespace "
                                    "(see euclid-cli-eam-change-namespace(1)) - every namespace-scoped command run "
                                    "afterward is automatically restricted to it, until changed again.",
@@ -142,6 +436,48 @@ namespace Euclid::CLI {
             po::notify(vm);
         } catch (const po::error &ex) {
             std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        const auto nameSpace = vm.contains("namespace") ? vm["namespace"].as<std::string>() : std::string{};
+
+        // Checked here rather than through po::required(), because which options are required
+        // depends on the other option: --user/--password are the whole request in a password
+        // login and are meaningless in a federated one.
+        const bool oidc = vm["oidc"].as<bool>();
+        const bool oneLogin = vm["onelogin"].as<bool>();
+        const bool saml = vm["saml"].as<bool>() && !oneLogin;// --saml --onelogin means the API flow
+
+        if (oidc && (saml || oneLogin)) {
+            std::cerr << "error: --oidc and --saml are two different identity providers; pick one\n";
+            return 1;
+        }
+
+        if (oneLogin) {
+            // Unlike the browser flows, this one signs a person in directly, so a user name is
+            // meaningful here - it is the OneLogin account, not a euclid one. A password on the
+            // command line is still refused: it would sit in the shell history and in the process
+            // list, and there are three better places to put it.
+            if (vm.contains("password")) {
+                std::cerr << "error: --password is not accepted here; set EUCLID_ONELOGIN_PASSWORD, put it in euclid.cli.onelogin.password, or let it be asked for\n";
+                return 1;
+            }
+            return loginWithOneLogin(nameSpace,
+                                     vm.contains("application") ? vm["application"].as<std::string>() : std::string{},
+                                     vm.contains("user") ? vm["user"].as<std::string>() : std::string{},
+                                     vm.contains("otp") ? vm["otp"].as<std::string>() : std::string{});
+        }
+
+        if (oidc || saml) {
+            if (vm.contains("user") || vm.contains("password")) {
+                std::cerr << "error: --oidc and --saml authenticate through the identity provider; --user and --password are not used\n";
+                return 1;
+            }
+            return oidc ? loginWithOidc(nameSpace) : loginWithSaml(nameSpace);
+        }
+
+        if (!vm.contains("user") || !vm.contains("password")) {
+            std::cerr << "error: --user and --password are required, unless --oidc, --saml or --onelogin is given\n\n" << desc << std::endl;
             return 1;
         }
 
@@ -158,39 +494,196 @@ namespace Euclid::CLI {
                 return 1;
             }
 
-            const auto loginResponse = boost::json::value_to<Dto::EAM::LoginResponse>(response.body);
-            if (loginResponse.token.empty()) {
-                std::cerr << "error: login response did not contain a token\n";
+            return storeSession(_endpoint, _caCertPath, _pretty, response.body, nameSpace);
+
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::loginWithOidc(const std::string &nameSpace) const {
+
+        try {
+            // The listener comes first: the redirect URI has to name the port it ended up on, and
+            // the provider is told that URI before it ever sends anybody back to it.
+            CallbackListener listener;
+
+            Dto::EAM::OidcAuthorizeRequest authorizeRequest;
+            authorizeRequest.redirectUri = "http://127.0.0.1:" + std::to_string(listener.port()) + "/callback";
+
+            const HttpClient client(_endpoint, {}, _caCertPath);
+            const HttpResponse authorizeResponse = client.Post("eam", "oidc-authorize", boost::json::value_from(authorizeRequest));
+            if (!authorizeResponse.IsSuccess()) {
+                std::cerr << "error: could not start the OIDC login (HTTP " << authorizeResponse.statusCode << "): "
+                          << boost::json::serialize(authorizeResponse.body) << std::endl;
                 return 1;
             }
-            Credentials::Entry entry{
-                    .token = loginResponse.token,
-                    .userId = loginResponse.user,
-                    .accountId = loginResponse.accountId,
-                    .region = loginResponse.region,
-                    .accessKeyId = loginResponse.accessKeyId,
-                    .secretAccessKey = loginResponse.secretAccessKey,
-                    .isAdmin = loginResponse.isAdmin,
-            };
 
-            if (vm.contains("namespace")) {
-                const auto ns = vm["namespace"].as<std::string>();
-                Dto::EAM::ChangeNamespaceRequest nsRequest;
-                nsRequest.ns = ns;
-
-                const HttpClient nsClient(_endpoint, entry, _caCertPath);
-                if (const HttpResponse nsResponse = nsClient.Post("eam", "change-namespace", boost::json::value_from(nsRequest)); !nsResponse.IsSuccess()) {
-                    Credentials::Save(entry);
-                    std::cerr << "warning: logged in, but setting namespace failed (HTTP " << nsResponse.statusCode << "): " << boost::json::serialize(nsResponse.body) << std::endl;
-                    return 1;
-                }
-                entry.nameSpace = ns;
+            const auto authorization = boost::json::value_to<Dto::EAM::OidcAuthorizeResponse>(authorizeResponse.body);
+            if (authorization.authorizationUrl.empty()) {
+                std::cerr << "error: the server did not say where to authenticate\n";
+                return 1;
             }
 
-            Credentials::Save(entry);
+            // Printed before the browser is opened, and printed whether or not opening it works:
+            // on a machine without one - over ssh, in a container - this line is the whole flow.
+            std::cerr << "Opening your browser to sign in. If it does not open, go to:\n\n  "
+                      << authorization.authorizationUrl << "\n\nWaiting for the callback ...\n";
+            openBrowser(authorization.authorizationUrl);
 
-            Core::WriteJson(std::cout, response.body, _pretty);
-            return 0;
+            CallbackListener::Callback callback;
+            if (!listener.wait(callback)) {
+                std::cerr << "error: no callback from the identity provider within three minutes\n";
+                return 1;
+            }
+            if (!callback.error.empty()) {
+                std::cerr << "error: the identity provider refused the login: " << callback.error << std::endl;
+                return 1;
+            }
+
+            // The state that comes back has to be the one that went out. EAM checks this too -
+            // it cannot open a state it did not seal - but a mismatch caught here says plainly
+            // that the callback belongs to a different login attempt.
+            if (callback.state != authorization.state) {
+                std::cerr << "error: the callback does not belong to this login attempt\n";
+                return 1;
+            }
+
+            Dto::EAM::OidcLoginRequest loginRequest;
+            loginRequest.code = callback.code;
+            loginRequest.state = callback.state;
+
+            const HttpResponse response = client.Post("eam", "oidc-login", boost::json::value_from(loginRequest));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: login failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+
+            return storeSession(_endpoint, _caCertPath, _pretty, response.body, nameSpace);
+
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::loginWithSaml(const std::string &nameSpace) const {
+
+        try {
+            CallbackListener listener;
+
+            // Where euclid should send the browser once the assertion has been accepted. Unlike
+            // the OIDC flow, this is not a redirect URI the identity provider ever sees: the
+            // provider posts its assertion to the gateway, and only afterwards does euclid hand
+            // the finished session to this listener. Nothing about the CLI has to be registered
+            // with the provider.
+            boost::json::object request{{"returnTo", "http://127.0.0.1:" + std::to_string(listener.port()) + "/callback"}};
+
+            const HttpClient client(_endpoint, {}, _caCertPath);
+            const HttpResponse authorizeResponse = client.Post("eam", "saml-authorize", request);
+            if (!authorizeResponse.IsSuccess()) {
+                std::cerr << "error: could not start the SAML login (HTTP " << authorizeResponse.statusCode << "): "
+                          << boost::json::serialize(authorizeResponse.body) << std::endl;
+                return 1;
+            }
+
+            const auto authentication = boost::json::value_to<Dto::EAM::SamlAuthorizeResponse>(authorizeResponse.body);
+            if (authentication.authenticationUrl.empty()) {
+                std::cerr << "error: the server did not say where to authenticate\n";
+                return 1;
+            }
+
+            std::cerr << "Opening your browser to sign in. If it does not open, go to:\n\n  "
+                      << authentication.authenticationUrl << "\n\nWaiting for the callback ...\n";
+            openBrowser(authentication.authenticationUrl);
+
+            CallbackListener::Callback callback;
+            if (!listener.wait(callback)) {
+                std::cerr << "error: no callback from the identity provider within three minutes\n";
+                return 1;
+            }
+            if (!callback.error.empty()) {
+                std::cerr << "error: the identity provider refused the login: " << callback.error << std::endl;
+                return 1;
+            }
+            if (callback.session.empty()) {
+                std::cerr << "error: the callback carried no session\n";
+                return 1;
+            }
+
+            boost::system::error_code ec;
+            const auto session = boost::json::parse(callback.session, ec);
+            if (ec) {
+                std::cerr << "error: the session euclid sent back is not valid JSON\n";
+                return 1;
+            }
+
+            return storeSession(_endpoint, _caCertPath, _pretty, session, nameSpace);
+
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::loginWithOneLogin(const std::string &nameSpace, const std::string &application,
+                                  const std::string &user, const std::string &oneTimeCode) const {
+
+        try {
+            auto config = OneLoginConfiguration::Read();
+            if (!application.empty()) config.application = application;
+            if (!user.empty()) config.user = user;
+
+            if (const auto problems = config.Validate(); !problems.empty()) {
+                std::cerr << "error: OneLogin is not configured for this:\n";
+                for (const auto &problem: problems) std::cerr << "  - " << problem << "\n";
+                std::cerr << "\nSet euclid.cli.onelogin in the configuration file, or the matching EUCLID_ONELOGIN_* variables.\n";
+                return 1;
+            }
+
+            auto password = config.password;
+            if (password.empty()) password = readPassword("OneLogin password for " + config.user + ": ");
+            if (password.empty()) {
+                std::cerr << "error: no password: set EUCLID_ONELOGIN_PASSWORD, put it in euclid.cli.onelogin.password, or run this where a terminal can ask for it\n";
+                return 1;
+            }
+
+            std::cerr << "Asking OneLogin for a SAML assertion ...\n";
+            const OneLoginClient client(config, _caCertPath);
+
+            // Asked for only if OneLogin actually wants one, and only if it could not be computed:
+            // see OneLoginClient::OneTimeCodeProvider.
+            const auto assertion = client.SamlAssertion(password, oneTimeCode, [](const std::string &deviceType) {
+                return readLine(deviceType.empty() ? "OneLogin one-time code: "
+                                                   : "OneLogin one-time code (" + deviceType + "): ");
+            });
+
+            // Handed to euclid the same way a browser's form post would deliver it, and verified
+            // the same way - the signature is what is trusted, not how it arrived.
+            const boost::json::object request{{"samlResponse", assertion}, {"relayState", ""}};
+
+            const HttpClient euclid(_endpoint, {}, _caCertPath);
+            const HttpResponse response = euclid.Post("eam", "saml-acs", request);
+            if (!response.IsSuccess()) {
+                std::cerr << "error: euclid refused the assertion (HTTP " << response.statusCode << "): "
+                          << boost::json::serialize(response.body) << std::endl;
+
+                // The one refusal worth explaining, because it is a setting rather than a mistake:
+                // an assertion fetched this way answers no request euclid made.
+                if (boost::json::serialize(response.body).find("Unsolicited logins are not enabled") != std::string::npos) {
+                    std::cerr << "\nAn assertion fetched through OneLogin's API is unsolicited by definition - there is no\n"
+                                 "login request from euclid for it to answer. Set euclid.modules.eam.saml.allow-idp-initiated\n"
+                                 "to true on the server to accept these.\n";
+                }
+                return 1;
+            }
+
+            return storeSession(_endpoint, _caCertPath, _pretty, response.body, nameSpace);
+
+        } catch (const OneLoginError &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
         } catch (const std::exception &ex) {
             std::cerr << "error: " << ex.what() << std::endl;
             return 1;
