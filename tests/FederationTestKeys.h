@@ -45,6 +45,31 @@ namespace Euclid::Test {
             "7rYKY7HjO/l6dEymUy0q/KBvlw==\n"
             "-----END PRIVATE KEY-----\n";
 
+    // A self-signed certificate over kProviderKey, which is all a SAML deployment ever uses a
+    // certificate for: a container for a public key. Checked in rather than generated at run time
+    // so the tests need no openssl binary, no temporary files and no shell - none of which a
+    // Windows runner has in the shape a POSIX one does. Valid until 2046 and protecting nothing.
+    constexpr auto kProviderCertificate =
+            "-----BEGIN CERTIFICATE-----\n"
+            "MIIDBDCCAeygAwIBAgIBATANBgkqhkiG9w0BAQsFADAbMRkwFwYDVQQDDBBldWNs\n"
+            "aWQtc2FtbC10ZXN0MB4XDTI2MDkwOTIxMTIwOVoXDTQ2MDkwNDIxMTIwOVowGzEZ\n"
+            "MBcGA1UEAwwQZXVjbGlkLXNhbWwtdGVzdDCCASIwDQYJKoZIhvcNAQEBBQADggEP\n"
+            "ADCCAQoCggEBAInsPIiGCaN6v4yk+2zWAKg16iitQ5Ys/WMvmP+lNEqnn3Nf57nJ\n"
+            "JilL0H5JodVNPOahWXISC8xDrko96IIpKzftA1zUSR2RzCPyAEYjtNsf8m4oeOHF\n"
+            "Gkbawlpl0ogctodYrGLYndiqwn8hbHTKhTmvRdbacFhdj2dpQ5ozOIjHZV0rTiqr\n"
+            "NwfovBjWi/29Mi3+ocYEYm1Xn8yWQsR6BX4CJL76dwRlSR4SavRk3Hf6SlvuVcDC\n"
+            "6WQtU2dN3TYic16pDK05CBGHY5bDVjNObNHTQ0/NsD+nM/NVS8Tel/2fxQSPqT40\n"
+            "tXASNTQQtrDZDbkXrjZvrbyBXVmpeGJhkb0CAwEAAaNTMFEwHQYDVR0OBBYEFGJJ\n"
+            "59VHz8qC8tLAkRiqraPgq7ICMB8GA1UdIwQYMBaAFGJJ59VHz8qC8tLAkRiqraPg\n"
+            "q7ICMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAD7VoGO5c6ik\n"
+            "lVoiuPQqg8fih8rAoyd3LoJoe0S4/pFbOKvK+GYs/tfoSgVfghjj4J56hfeKI+SL\n"
+            "pxlV7SFwhYJEl0iUEanqtOd6zzWi0QSwHmSNsgLbAVCyeGKUX6/o+5sNL+6lp4Bb\n"
+            "0XE+nj/owor+S9tqaQuHsLXvoElUdRuqWlHiEM0rMkBu6Bti42YcinzRppxd22Tc\n"
+            "GxX+WcGEXP5Tt8lkl0OiJQzOHVf9U9kGzryzaa5iCTNpbyzHKDaXQoHcJE+ZR2fq\n"
+            "99QFQGUs6GkNTnUBdMwifixeLkF34gaLfjyIqR43CV5kODaxFpE/5Q+3J3jf6MXc\n"
+            "XXbRElhC8SA=\n"
+            "-----END CERTIFICATE-----\n";
+
     // A different key, published by nobody - for the token that is signed by the wrong hands.
     constexpr auto kStrangerKey =
             "-----BEGIN PRIVATE KEY-----\n"
