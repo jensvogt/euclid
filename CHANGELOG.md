@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.83](https://github.com/jensvogt/euclid/compare/1.0.82...v1.0.83) (2026-09-09)
+
+
+### Bug Fixes
+
+* add oidc, SAML and onelogin as authentication options ([97b27b3](https://github.com/jensvogt/euclid/commit/97b27b30f7ead13694d8e3434c785c565638916f))
+
 ## [1.0.82](https://github.com/jensvogt/euclid/compare/1.0.81...v1.0.82) (2026-09-08)
 
 
