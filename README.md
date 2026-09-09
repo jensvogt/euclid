@@ -413,7 +413,8 @@ browser. The password and the one-time code go to OneLogin and nowhere else.
 ```
 
 Every value can come from the file or from the environment (`EUCLID_ONELOGIN_PASSWORD`, `EUCLID_ONELOGIN_OTP_KEY`,
-`EUCLID_ONELOGIN_CLIENT_ID`, ...), and the environment wins over the file. The two personal ones can also be left out
+`EUCLID_ONELOGIN_CLIENT_ID`, ...), and the environment wins over the file. `--password` and `--otp` win over both, at the
+cost of standing in the shell history and the process list. The two personal ones can also be left out
 entirely and typed instead:
 
 ```
@@ -423,10 +424,41 @@ OneLogin one-time code (OneLogin Protect): 424242
 ```
 
 The password is asked for without echo; the code is asked for only if OneLogin actually wants one and no seed is
-configured, and at the moment it is wanted rather than up front, so what you type has its full thirty seconds. Where
+configured, and at the moment it is wanted rather than up front, so what you type has its full thirty seconds. A code the
+provider refuses is asked for again rather than throwing the login away.
+
+With more than one second factor enrolled, the CLI lists them and asks which one - because a code from the wrong
+authenticator is refused with a message that never says so:
+
+```
+OneLogin has more than one second factor enrolled:
+  1) OneLogin Protect (111)
+  2) Google Authenticator (222)
+Which one? [1] 2
+```
+
+`--device "Google Authenticator"` (or just `--device google`, or the numeric ID, or `onelogin.device` in the file) skips
+the question. Where
 there is no terminal - a scheduled job - the login says so instead of waiting, and `otp-key` or `EUCLID_ONELOGIN_OTP_KEY`
 is what makes it unattended. Keeping a TOTP seed beside the password turns two factors back into one, so it is worth
 supplying the seed only where nobody can be asked.
+
+Setting the server side up from this flow is otherwise circular - euclid refuses an assertion until it knows the
+provider, and what it needs to know is written in the assertion - so the CLI will read one out instead of posting it:
+
+```bash
+$ euclid-cli eam login --onelogin --application int --show-assertion
+What the assertion says (unverified - this is what the document claims):
+
+  euclid.modules.eam.saml.idp-entity-id : https://app.onelogin.com/saml/metadata/abc123
+  euclid.modules.eam.saml.entity-id     : https://your-service.example.com/saml
+  euclid.modules.eam.saml.acs-url       : https://your-service.example.com/saml/acs
+  ...
+```
+
+Those three have to match what the OneLogin application already says - an application registered for some other service
+has that service's audience and recipient, and euclid checks both. The signing certificate is the one thing not in the
+assertion; it comes from the application's SSO tab.
 
 One consequence is unavoidable: an assertion fetched this way answers no authentication request of euclid's, so it is
 **unsolicited** as far as the service provider is concerned. The installation has to allow those:
@@ -434,6 +466,9 @@ One consequence is unavoidable: an assertion fetched this way answers no authent
 ```json
 "saml": { "allow-idp-initiated": true }
 ```
+
+An installation that only ever consumes assertions this way needs no `idp-sso-url`: that is where a browser would be
+sent, and this flow sends nobody anywhere.
 
 ### Running without a database
 

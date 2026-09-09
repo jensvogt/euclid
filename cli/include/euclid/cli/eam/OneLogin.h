@@ -81,6 +81,18 @@ namespace Euclid::CLI {
         std::string application;
 
         /**
+         * @brief Which enrolled second factor to use, by device ID or by the name OneLogin gives
+         * its type ("Google Authenticator", "OneLogin Protect").
+         *
+         * @par
+         * Only matters for somebody with more than one enrolled, and then it matters a lot: a code
+         * read from one authenticator will not verify against another, and the failure OneLogin
+         * reports for that says nothing about which device it was expecting. Empty asks, where
+         * there is a terminal to ask at.
+         */
+        std::string device;
+
+        /**
          * @brief Application IDs by name, from euclid.cli.onelogin.app-ids.
          */
         std::map<std::string, std::string> applications;
@@ -138,6 +150,23 @@ namespace Euclid::CLI {
     public:
 
         /**
+         * @brief One enrolled second factor.
+         */
+        struct Device {
+
+            /**
+             * @brief OneLogin's identifier for it, which is what verify_factor is given.
+             */
+            std::string id;
+
+            /**
+             * @brief What kind it is - "OneLogin Protect", "Google Authenticator" - which is the
+             * only part a person recognises.
+             */
+            std::string type;
+        };
+
+        /**
          * @brief Constructs the client.
          *
          * @param config where to go and who to say we are.
@@ -159,6 +188,13 @@ namespace Euclid::CLI {
         using OneTimeCodeProvider = std::function<std::string(const std::string &deviceType)>;
 
         /**
+         * @brief Asked which device to use, when OneLogin offers several and the configuration
+         * does not say. Returns an index into @p devices, or anything out of range to take the
+         * first.
+         */
+        using DeviceChooser = std::function<std::size_t(const std::vector<Device> &devices)>;
+
+        /**
          * @brief Runs the whole exchange and returns the assertion.
          *
          * @param password the person's password.
@@ -171,7 +207,8 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         std::string SamlAssertion(const std::string &password, const std::string &oneTimeCode,
-                                  const OneTimeCodeProvider &askForCode = {}) const;
+                                  const OneTimeCodeProvider &askForCode = {},
+                                  const DeviceChooser &chooseDevice = {}) const;
 
         /**
          * @brief What OneLogin answered when asked for an assertion: either the assertion, or a
@@ -193,15 +230,16 @@ namespace Euclid::CLI {
             std::string stateToken;
 
             /**
-             * @brief The device the second factor is expected from.
+             * @brief Every device OneLogin will accept a factor from, in the order it offered
+             * them.
+             *
+             * @par
+             * All of them, not just the first: an account with an authenticator app and a hardware
+             * token has two, and picking one of them silently is how a login fails with "Failed
+             * authentication with this factor" for a code that was perfectly correct - for the
+             * other device.
              */
-            std::string deviceId;
-
-            /**
-             * @brief What kind of device that is - "OneLogin Protect", "Google Authenticator" -
-             * so that a person being asked for a code is told where to look for it.
-             */
-            std::string deviceType;
+            std::vector<Device> devices;
 
             /**
              * @brief What OneLogin said, for the log or the error message.

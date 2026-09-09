@@ -121,12 +121,21 @@ namespace Euclid::CLI {
          * @param application which configured OneLogin application to ask for, or empty for the
          * only one.
          * @param user OneLogin user to sign in as, or empty for the configured one.
-         * @param oneTimeCode second factor, or empty to compute it from the configured TOTP secret.
+         * @param oneTimeCode second factor, or empty to compute it from the configured TOTP
+         * secret, or to be asked for it.
+         * @param device which enrolled second factor to use, by id or type, or empty to be asked
+         * when there is more than one.
+         * @param givenPassword the OneLogin password as typed on the command line, or empty to
+         * take it from the environment, the configuration or the terminal.
+         * @param showAssertion print what the assertion says and stop, rather than logging in -
+         * for setting the server's SAML block up from a real assertion.
          * @return the process exit code.
          */
         [[nodiscard]]
         int loginWithOneLogin(const std::string &nameSpace, const std::string &application,
-                              const std::string &user, const std::string &oneTimeCode) const;
+                              const std::string &user, const std::string &oneTimeCode,
+                              const std::string &device, const std::string &givenPassword,
+                              bool showAssertion) const;
 
         /**
          * @brief Register a new user
