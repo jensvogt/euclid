@@ -5,7 +5,8 @@
 #include <memory>
 
 #ifdef _WIN32
-#include <windows.h>
+#include <conio.h>
+#include <io.h>
 #else
 #include <termios.h>
 #include <unistd.h>
@@ -192,37 +193,57 @@ namespace Euclid::CLI {
             std::ignore = std::system(command.c_str());
         }
 
+        // Whether there is somebody to ask. Under a scheduler there is not, and a prompt nobody
+        // can answer would hang the job rather than fail it - such a caller supplies what is wanted
+        // through the environment instead.
+        bool hasTerminal() {
+#ifdef _WIN32
+            return _isatty(_fileno(stdin)) != 0;
+#else
+            return isatty(STDIN_FILENO) != 0;
+#endif
+        }
+
         // Reads a password from the terminal without echoing it.
-        //
-        // Only when there is a terminal to read from: under a scheduler there is none, and a
-        // prompt nobody can answer would hang the job rather than fail it. Such a caller supplies
-        // the password through the environment instead.
         std::string readPassword(const std::string &prompt) {
 
+            if (!hasTerminal()) return {};
+            std::cerr << prompt << std::flush;
+
 #ifdef _WIN32
-            const HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
-            DWORD mode = 0;
-            if (!GetConsoleMode(input, &mode)) return {};
-            SetConsoleMode(input, mode & ~ENABLE_ECHO_INPUT);
+
+            // _getch() reads the console directly and echoes nothing, so there is no console mode
+            // to turn off and back on - and no need for <windows.h>, whose macros this file would
+            // rather not have.
+            std::string password;
+            for (;;) {
+                const int typed = _getch();
+                if (typed == '\r' || typed == '\n' || typed == EOF) break;
+                if (typed == 3) return {};// Ctrl-C
+                if (typed == '\b' || typed == 127) {
+                    if (!password.empty()) password.pop_back();
+                    continue;
+                }
+                password += static_cast<char>(typed);
+            }
+
 #else
-            if (isatty(STDIN_FILENO) == 0) return {};
+
+            // Echo off for the duration, and back on however this returns.
             termios original{};
             if (tcgetattr(STDIN_FILENO, &original) != 0) return {};
             termios quiet = original;
             quiet.c_lflag &= ~static_cast<tcflag_t>(ECHO);
             tcsetattr(STDIN_FILENO, TCSAFLUSH, &quiet);
-#endif
 
-            std::cerr << prompt << std::flush;
             std::string password;
             std::getline(std::cin, password);
-            std::cerr << "\n";
 
-#ifdef _WIN32
-            SetConsoleMode(input, mode);
-#else
             tcsetattr(STDIN_FILENO, TCSAFLUSH, &original);
+
 #endif
+
+            std::cerr << "\n";
             return password;
         }
 
@@ -230,9 +251,8 @@ namespace Euclid::CLI {
         // is what tells the caller that nobody could be asked.
         std::string readLine(const std::string &prompt) {
 
-#ifndef _WIN32
-            if (isatty(STDIN_FILENO) == 0) return {};
-#endif
+            if (!hasTerminal()) return {};
+
             std::cerr << prompt << std::flush;
             std::string line;
             std::getline(std::cin, line);
