@@ -385,7 +385,6 @@ namespace Euclid::Core {
         if (entityId.empty()) problems.emplace_back("saml.entity-id is not set");
         if (acsUrl.empty()) problems.emplace_back("saml.acs-url is not set");
         if (idpEntityId.empty()) problems.emplace_back("saml.idp-entity-id is not set");
-        if (idpSsoUrl.empty()) problems.emplace_back("saml.idp-sso-url is not set");
 
         if (idpCertificate.empty() && idpCertificateFile.empty()) {
             problems.emplace_back("neither saml.idp-certificate nor saml.idp-certificate-file is set; there is nothing to verify assertions against");
@@ -397,6 +396,67 @@ namespace Euclid::Core {
             problems.emplace_back("saml.idp-certificate-file cannot be read: " + idpCertificateFile);
         }
         return problems;
+    }
+
+    std::vector<std::string> SamlConfiguration::ValidateForAuthentication() const {
+
+        auto problems = Validate();
+        if (!enabled) return problems;
+
+        // Only starting a login needs this: it is where the browser is sent. Consuming an assertion
+        // that arrived some other way does not.
+        if (idpSsoUrl.empty()) problems.emplace_back("saml.idp-sso-url is not set");
+        return problems;
+    }
+
+    std::optional<SamlDescription> SamlResponseVerifier::Describe(const std::string &responseXml) {
+
+        try {
+            DocumentGuard guard{parseDocument(responseXml)};
+            const xmlNodePtr response = xmlDocGetRootElement(guard.document);
+            if (!isElement(response, kProtocolNs, "Response")) return std::nullopt;
+
+            const auto assertions = findAll(response, kAssertionNs, "Assertion");
+            if (assertions.empty()) return std::nullopt;
+            const xmlNodePtr assertion = assertions.front();
+
+            SamlDescription description;
+            description.destination = attribute(response, "Destination");
+            description.issuer = textOf(firstChild(assertion, kAssertionNs, "Issuer"));
+            if (description.issuer.empty()) description.issuer = textOf(firstChild(response, kAssertionNs, "Issuer"));
+
+            const xmlNodePtr conditions = firstChild(assertion, kAssertionNs, "Conditions");
+            description.notOnOrAfter = attribute(conditions, "NotOnOrAfter");
+            for (const xmlNodePtr restriction: childrenNamed(conditions, kAssertionNs, "AudienceRestriction")) {
+                if (const xmlNodePtr audience = firstChild(restriction, kAssertionNs, "Audience"); audience != nullptr) {
+                    description.audience = textOf(audience);
+                }
+            }
+
+            const xmlNodePtr subject = firstChild(assertion, kAssertionNs, "Subject");
+            description.nameId = textOf(firstChild(subject, kAssertionNs, "NameID"));
+            for (const xmlNodePtr confirmation: childrenNamed(subject, kAssertionNs, "SubjectConfirmation")) {
+                if (const xmlNodePtr data = firstChild(confirmation, kAssertionNs, "SubjectConfirmationData"); data != nullptr) {
+                    description.recipient = attribute(data, "Recipient");
+                }
+            }
+
+            description.hasSignature = !findAll(response, kSignatureNs, "Signature").empty();
+
+            for (const xmlNodePtr statement: childrenNamed(assertion, kAssertionNs, "AttributeStatement")) {
+                for (const xmlNodePtr attributeNode: childrenNamed(statement, kAssertionNs, "Attribute")) {
+                    const auto name = attribute(attributeNode, "Name");
+                    const auto friendlyName = attribute(attributeNode, "FriendlyName");
+                    const auto values = childrenNamed(attributeNode, kAssertionNs, "AttributeValue");
+                    description.attributes.push_back((friendlyName.empty() ? name : friendlyName + " (" + name + ")") +
+                                                     " = " + (values.empty() ? "" : textOf(values.front())));
+                }
+            }
+            return description;
+
+        } catch (const std::exception &) {
+            return std::nullopt;
+        }
     }
 
     std::string SamlConfiguration::IdpCertificatePem() const {

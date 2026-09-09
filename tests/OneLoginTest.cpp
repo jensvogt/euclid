@@ -95,17 +95,51 @@ BOOST_AUTO_TEST_CASE(a_second_factor_challenge_is_read) {
     BOOST_TEST(parsed.stateToken == "xyz-state-token");
 
     // The device ID arrives as a number, and goes back out as the string the next call wants.
-    BOOST_TEST(parsed.deviceId == "1234567");
+    BOOST_REQUIRE(parsed.devices.size() == 1);
+    BOOST_TEST(parsed.devices.front().id == "1234567");
 
     // Carried so that somebody being asked for a code is told where to look for it.
-    BOOST_TEST(parsed.deviceType == "OneLogin Protect");
+    BOOST_TEST(parsed.devices.front().type == "OneLogin Protect");
     BOOST_TEST(parsed.message.find("MFA is required") != std::string::npos);
 }
 
 BOOST_AUTO_TEST_CASE(a_device_id_that_is_already_a_string_is_read_too) {
 
     const auto answer = boost::json::parse(R"({"data":[{"state_token":"t","devices":[{"device_id":"98765"}]}]})");
-    BOOST_TEST(OneLoginClient::ParseAssertionAnswer(answer).deviceId == "98765");
+    BOOST_TEST(OneLoginClient::ParseAssertionAnswer(answer).devices.front().id == "98765");
+}
+
+BOOST_AUTO_TEST_CASE(every_enrolled_device_is_kept_in_order) {
+
+    // The case that matters: two devices, and the one a person actually uses is not the first.
+    // Taking the first silently is how a perfectly correct code gets refused, which is why all of
+    // them are carried through to where the choice can be made.
+    const auto answer = boost::json::parse(R"({
+        "status": {"message": "MFA is required for this user"},
+        "data": [{
+            "state_token": "st",
+            "devices": [
+                {"device_id": 111, "device_type": "OneLogin Protect"},
+                {"device_id": 222, "device_type": "Google Authenticator"}
+            ]
+        }]
+    })");
+    const auto parsed = OneLoginClient::ParseAssertionAnswer(answer);
+
+    BOOST_REQUIRE(parsed.devices.size() == 2);
+    BOOST_TEST(parsed.devices[0].type == "OneLogin Protect");
+    BOOST_TEST(parsed.devices[1].id == "222");
+    BOOST_TEST(parsed.devices[1].type == "Google Authenticator");
+}
+
+BOOST_AUTO_TEST_CASE(a_device_without_an_id_is_not_offered) {
+
+    // Nothing can be verified against a device that cannot be named to verify_factor.
+    const auto answer = boost::json::parse(R"({"data":[{"state_token":"t","devices":[{"device_type":"Unnamed"},{"device_id":7,"device_type":"Real"}]}]})");
+    const auto parsed = OneLoginClient::ParseAssertionAnswer(answer);
+
+    BOOST_REQUIRE(parsed.devices.size() == 1);
+    BOOST_TEST(parsed.devices.front().id == "7");
 }
 
 BOOST_AUTO_TEST_CASE(the_verified_assertion_is_read) {

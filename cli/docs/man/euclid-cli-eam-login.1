@@ -54,8 +54,10 @@ User ID to authenticate as. Required, unless \fB\-\-oidc\fR or
 \fB\-\-saml\fR is given.
 .TP
 .BR \-p ", " \-\-password " " \fIPASSWORD\fR
-Password for the user. Required, unless \fB\-\-oidc\fR or
-\fB\-\-saml\fR is given.
+Password for the user. Required for a euclid password login. With
+\fB\-\-onelogin\fR it is your OneLogin password and is optional - see
+that option for where it is taken from otherwise. Not used with
+\fB\-\-oidc\fR or \fB\-\-saml\fR.
 .TP
 .BR \-o ", " \-\-oidc
 Authenticate through the configured OpenID Connect provider (e.g.
@@ -106,9 +108,21 @@ to euclid's assertion consumer service, which verifies it exactly as it
 verifies one that arrived through a browser. Your password and one-time
 code go to OneLogin and nowhere else.
 .IP
-The password is taken from \fIEUCLID_ONELOGIN_PASSWORD\fR, then from
+The password is taken from \fB\-\-password\fR if it is given, then from
+\fIEUCLID_ONELOGIN_PASSWORD\fR, then from
 \fIeuclid.cli.onelogin.password\fR, and is otherwise asked for at the
-terminal without echo.
+terminal without echo. Passing it on the command line works but is worth
+avoiding where it can be: it is kept in the shell history and is visible in
+the process list while the command runs, which the environment variable and
+the prompt are not.
+.IP
+When more than one second factor is enrolled, which of them the code must
+come from is taken from \fB\-\-device\fR, then from
+\fIeuclid.cli.onelogin.device\fR, and is otherwise asked - listing what
+OneLogin offers. This matters more than it looks: a code read from one
+authenticator does not verify against another, and what OneLogin says when
+that happens ("Failed authentication with this factor") does not mention
+the device at all.
 .IP
 The one-time code, when OneLogin asks for one, is taken from
 \fB\-\-otp\fR, then computed from
@@ -129,7 +143,29 @@ to sign in to, e.g. \fIint\fR or \fIprod\fR. Not needed when
 .TP
 .BR \-\-otp " " \fICODE\fR
 With \fB\-\-onelogin\fR: the one-time code. Without it the code is
-computed from the configured TOTP secret, or asked for at the terminal.
+computed from the configured TOTP secret, or asked for at the terminal. A
+code the provider refuses is asked for again, up to three times, without
+starting the login over.
+.TP
+.BR \-\-device " " \fIID\fR|\fITYPE\fR
+With \fB\-\-onelogin\fR: which enrolled second factor to use, by device
+ID or by type - \fIGoogle Authenticator\fR, or just \fIgoogle\fR; the
+type is matched loosely and without regard to case. Only needed where more
+than one is enrolled, and only to skip the question. Where two are enrolled
+of the same kind, the ID is what tells them apart.
+.TP
+.B \-\-show\-assertion
+With \fB\-\-onelogin\fR: fetch the assertion, print what it says, and
+stop without logging in.
+.IP
+For setting the server up, which is otherwise circular: euclid refuses an
+assertion until it has been configured for the provider, and what to
+configure it with - the issuer, the audience and the recipient - is written
+in the assertion. This prints those three under the settings they belong
+to, along with the subject and the attributes available for
+\fIsaml.username\-attribute\fR. Nothing is verified: it is what the
+document claims, which is exactly what is wanted before there is a
+certificate to check it against.
 .TP
 .BR \-n ", " \-\-namespace " " \fINAME\fR
 Namespace to make active for this session. Must exist, and the user must

@@ -463,8 +463,60 @@ BOOST_AUTO_TEST_CASE(an_enabled_configuration_names_what_is_missing) {
     SamlConfiguration config;
     config.enabled = true;
 
-    // entity-id, acs-url, idp-entity-id, idp-sso-url and a certificate.
-    BOOST_TEST(config.Validate().size() == 5);
+    // entity-id, acs-url, idp-entity-id and a certificate; the SSO URL is only needed to start a
+    // login, and is reported by ValidateForAuthentication().
+    BOOST_TEST(config.Validate().size() == 4);
+    BOOST_TEST(config.ValidateForAuthentication().size() == 5);
+}
+
+BOOST_AUTO_TEST_CASE(an_sso_url_is_needed_only_to_start_a_login) {
+
+    // An installation whose people fetch assertions from their provider's API never sends anybody
+    // anywhere, so it has no use for an SSO URL - and must not be refused for the want of one.
+    auto config = configuration();
+    config.idpSsoUrl.clear();
+
+    BOOST_TEST(config.Validate().empty());
+    BOOST_TEST(config.ValidateForAuthentication().size() == 1);
+    BOOST_TEST(config.ValidateForAuthentication().front().find("idp-sso-url") != std::string::npos);
+}
+
+BOOST_AUTO_TEST_CASE(an_assertion_says_what_to_configure) {
+
+    // The way out of the chicken and egg problem: what euclid has to be told about a provider is
+    // written in any assertion that provider sends.
+    const auto description = Euclid::Core::SamlResponseVerifier::Describe(buildResponse());
+
+    BOOST_REQUIRE(description.has_value());
+    BOOST_TEST(description->issuer == kIdpEntityId);
+    BOOST_TEST(description->audience == kSpEntityId);
+    BOOST_TEST(description->recipient == kAcsUrl);
+    BOOST_TEST(description->nameId == "jane.federated@example.com");
+    BOOST_TEST(description->hasSignature);
+    BOOST_REQUIRE(description->attributes.size() == 1);
+    BOOST_TEST(description->attributes.front() == "email = jane.federated@example.com");
+}
+
+BOOST_AUTO_TEST_CASE(describing_checks_nothing) {
+
+    // Worth stating in a test, because it would be a bad thing to forget: this reads what an
+    // unauthenticated document claims. An assertion signed by a stranger describes itself just as
+    // readily, and Verify() is what decides whether any of it is true.
+    AssertionOptions options;
+    options.signingKey = kStrangerKey;
+
+    const auto description = Euclid::Core::SamlResponseVerifier::Describe(buildResponse(options));
+    BOOST_REQUIRE(description.has_value());
+    BOOST_TEST(description->issuer == kIdpEntityId);
+
+    std::string error;
+    BOOST_TEST(!verify(buildResponse(options), error).has_value());
+}
+
+BOOST_AUTO_TEST_CASE(something_that_is_not_a_response_describes_as_nothing) {
+
+    BOOST_TEST(!Euclid::Core::SamlResponseVerifier::Describe("<html>not saml</html>").has_value());
+    BOOST_TEST(!Euclid::Core::SamlResponseVerifier::Describe("").has_value());
 }
 
 BOOST_AUTO_TEST_CASE(two_certificates_are_one_too_many) {

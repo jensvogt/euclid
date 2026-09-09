@@ -1,9 +1,8 @@
 // C++ includes
+#include <cctype>
 #include <chrono>
 #include <cstdlib>
 #include <memory>
-
-#include <cctype>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -20,12 +19,13 @@
 
 // Euclid includes
 #include <euclid/cli/eam/EamCli.h>
+#include <euclid/cli/eam/OneLogin.h>
 #include <euclid/core/CryptoUtils.h>
 #include <euclid/core/HttpUtils.h>
+#include <euclid/core/SamlProvider.h>
 #include <euclid/dto/eam/OidcAuthorizeRequest.h>
 #include <euclid/dto/eam/OidcAuthorizeResponse.h>
 #include <euclid/dto/eam/OidcLoginRequest.h>
-#include <euclid/cli/eam/OneLogin.h>
 #include <euclid/dto/eam/SamlAuthorizeResponse.h>
 
 namespace Euclid::CLI {
@@ -404,26 +404,33 @@ namespace Euclid::CLI {
     int EamCli::login(const std::vector<std::string> &args) const {
         po::options_description desc("eam login options");
         desc.add_options()
-                ("user,u", po::value<std::string>(), "username (not used with --oidc/--saml: the identity provider says who you are)")
-                ("password,p", po::value<std::string>(), "password (not used with --oidc/--saml)")
+                ("user,u", po::value<std::string>(), "username; with --onelogin the OneLogin account to sign in as, and with --oidc/--saml not used at all (the identity provider says who you are)")
+                ("password,p", po::value<std::string>(), "password; with --onelogin the OneLogin password (otherwise taken from EUCLID_ONELOGIN_PASSWORD, the configuration, or asked for), and not used at all with --oidc/--saml")
                 ("oidc,o", po::bool_switch(), "authenticate through the configured OpenID Connect provider in a browser instead of with a password")
                 ("saml", po::bool_switch(), "authenticate through the configured SAML identity provider in a browser instead of with a password")
                 ("onelogin", po::bool_switch(), "authenticate through OneLogin's API instead of a browser: a SAML assertion is fetched with your password and one-time code (see euclid.cli.onelogin)")
                 ("application", po::value<std::string>(), "with --onelogin: which configured OneLogin application to sign in to, e.g. int or prod")
                 ("otp", po::value<std::string>(), "with --onelogin: the one-time code; without it the code is computed from the configured TOTP secret, or asked for")
+                ("device", po::value<std::string>(), "with --onelogin: which enrolled second factor to use, by device id or type (e.g. \"Google Authenticator\"); asked for when several are enrolled")
+                ("show-assertion", po::bool_switch(), "with --onelogin: print what the assertion says - the issuer, audience and recipient euclid has to be configured with - instead of logging in")
                 ("namespace,n", po::value<std::string>(), "namespace to make active for this session");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eam", "login", "--user <username> --password <password> | --oidc | --saml [--namespace <name>]",
+            return PrintActionHelp("eam", "login",
+                                   "--user <username> --password <password> | --oidc | --saml | --onelogin [--application <name>] [--namespace <name>]",
                                    "Authenticates against the Euclid access module and, on success, stores the "
                                    "returned bearer token locally so it is used automatically to authenticate "
                                    "subsequent commands. Also provisions a SigV4 access key on first login (or "
                                    "reuses the existing one on later logins) and stores it alongside the token, "
                                    "so a separate 'create-access-key' call is not needed for Euclid-service commands. "
-                                   "With --oidc or --saml, authentication happens in a browser against the identity "
-                                   "provider the installation is configured with (e.g. OneLogin, over OpenID Connect "
-                                   "or SAML 2.0) and no password is asked for or sent; what is stored afterwards is "
-                                   "the same token and access key a password login produces. "
+                                   "There are four ways to prove who you are, and all of them end in the same session: "
+                                   "a euclid user ID and password; --oidc, which authenticates in a browser against "
+                                   "the configured OpenID Connect provider; --saml, which does the same over SAML 2.0; "
+                                   "and --onelogin, which fetches a SAML assertion from OneLogin's API with your "
+                                   "OneLogin password and one-time code, for a login where no browser can be opened - "
+                                   "that password may be given with --password, but is better taken from "
+                                   "EUCLID_ONELOGIN_PASSWORD, from euclid.cli.onelogin, or from the prompt. Neither "
+                                   "--oidc nor --saml asks for or sends any password at all. "
                                    "If --namespace is given, it is validated and set as the session's active namespace "
                                    "(see euclid-cli-eam-change-namespace(1)) - every namespace-scoped command run "
                                    "afterward is automatically restricted to it, until changed again.",
@@ -454,18 +461,23 @@ namespace Euclid::CLI {
         }
 
         if (oneLogin) {
-            // Unlike the browser flows, this one signs a person in directly, so a user name is
-            // meaningful here - it is the OneLogin account, not a euclid one. A password on the
-            // command line is still refused: it would sit in the shell history and in the process
-            // list, and there are three better places to put it.
+            // Unlike the browser flows, this one signs a person in directly, so both are meaningful
+            // here - the OneLogin account and its password, not a euclid one.
             if (vm.contains("password")) {
-                std::cerr << "error: --password is not accepted here; set EUCLID_ONELOGIN_PASSWORD, put it in euclid.cli.onelogin.password, or let it be asked for\n";
-                return 1;
+                // Said once, not enforced: a password on a command line is visible in the shell
+                // history and, while the command runs, in the process list. Whoever passes one
+                // anyway has usually decided that already - in a script, or on a machine only they
+                // use - and that is their call to make.
+                std::cerr << "note: a password on the command line is visible in your shell history and the process list;"
+                             " EUCLID_ONELOGIN_PASSWORD avoids both\n";
             }
             return loginWithOneLogin(nameSpace,
                                      vm.contains("application") ? vm["application"].as<std::string>() : std::string{},
                                      vm.contains("user") ? vm["user"].as<std::string>() : std::string{},
-                                     vm.contains("otp") ? vm["otp"].as<std::string>() : std::string{});
+                                     vm.contains("otp") ? vm["otp"].as<std::string>() : std::string{},
+                                     vm.contains("device") ? vm["device"].as<std::string>() : std::string{},
+                                     vm.contains("password") ? vm["password"].as<std::string>() : std::string{},
+                                     vm["show-assertion"].as<bool>());
         }
 
         if (oidc || saml) {
@@ -628,12 +640,19 @@ namespace Euclid::CLI {
     }
 
     int EamCli::loginWithOneLogin(const std::string &nameSpace, const std::string &application,
-                                  const std::string &user, const std::string &oneTimeCode) const {
+                                  const std::string &user, const std::string &oneTimeCode,
+                                  const std::string &device, const std::string &givenPassword,
+                                  const bool showAssertion) const {
 
         try {
             auto config = OneLoginConfiguration::Read();
             if (!application.empty()) config.application = application;
             if (!user.empty()) config.user = user;
+            if (!device.empty()) config.device = device;
+
+            // What was typed on the command line beats what the environment and the file say: it
+            // is the most explicit thing the person did.
+            if (!givenPassword.empty()) config.password = givenPassword;
 
             if (const auto problems = config.Validate(); !problems.empty()) {
                 std::cerr << "error: OneLogin is not configured for this:\n";
@@ -654,10 +673,61 @@ namespace Euclid::CLI {
 
             // Asked for only if OneLogin actually wants one, and only if it could not be computed:
             // see OneLoginClient::OneTimeCodeProvider.
-            const auto assertion = client.SamlAssertion(password, oneTimeCode, [](const std::string &deviceType) {
-                return readLine(deviceType.empty() ? "OneLogin one-time code: "
-                                                   : "OneLogin one-time code (" + deviceType + "): ");
-            });
+            const auto assertion = client.SamlAssertion(
+                    password, oneTimeCode,
+                    [](const std::string &deviceType) {
+                        return readLine(deviceType.empty() ? "OneLogin one-time code: "
+                                                           : "OneLogin one-time code (" + deviceType + "): ");
+                    },
+                    [](const std::vector<OneLoginClient::Device> &devices) -> std::size_t {
+                        // Listed rather than guessed at. Which of somebody's authenticators comes
+                        // back first is OneLogin's business, not theirs, and a code from the wrong
+                        // one is refused in a way that never says so.
+                        std::cerr << "OneLogin has more than one second factor enrolled:\n";
+                        for (std::size_t i = 0; i < devices.size(); ++i) {
+                            std::cerr << "  " << i + 1 << ") " << devices[i].type << " (" << devices[i].id << ")\n";
+                        }
+
+                        const auto answer = readLine("Which one? [1] ");
+                        if (answer.empty()) return 0;
+
+                        try {
+                            const auto picked = std::stoul(answer);
+                            if (picked >= 1 && picked <= devices.size()) return picked - 1;
+                        } catch (const std::exception &) {
+                            // Not a number: fall through to the first, which is what the prompt
+                            // offered as the default anyway.
+                        }
+                        return 0;
+                    });
+
+            // Setting an installation up is a chicken and egg problem otherwise: euclid refuses an
+            // assertion until it is configured for this provider, and what to configure is written
+            // in the assertion. So it can be read out instead of posted.
+            if (showAssertion) {
+                const auto description = Core::SamlResponseVerifier::Describe(Core::CryptoUtils::Base64Decode(assertion));
+                if (!description.has_value()) {
+                    std::cerr << "error: OneLogin returned something that is not a SAML response\n";
+                    return 1;
+                }
+
+                std::cout << "What the assertion says (unverified - this is what the document claims):\n\n"
+                          << "  euclid.modules.eam.saml.idp-entity-id : " << description->issuer << "\n"
+                          << "  euclid.modules.eam.saml.entity-id     : " << description->audience << "\n"
+                          << "  euclid.modules.eam.saml.acs-url       : " << description->recipient << "\n\n"
+                          << "  subject                               : " << description->nameId << "\n"
+                          << "  valid until                           : " << description->notOnOrAfter << "\n"
+                          << "  signed                                : " << (description->hasSignature ? "yes" : "no") << "\n";
+
+                if (!description->attributes.empty()) {
+                    std::cout << "\n  attributes (for saml.username-attribute / saml.email-attribute):\n";
+                    for (const auto &attribute: description->attributes) std::cout << "    " << attribute << "\n";
+                }
+
+                std::cout << "\nThe signing certificate is not in the assertion; take it from the application's SSO tab\n"
+                             "in OneLogin and point saml.idp-certificate-file at it.\n";
+                return 0;
+            }
 
             // Handed to euclid the same way a browser's form post would deliver it, and verified
             // the same way - the signature is what is trusted, not how it arrived.
