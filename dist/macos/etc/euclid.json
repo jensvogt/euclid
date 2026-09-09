@@ -55,7 +55,32 @@
         "minInstances": 1,
         "maxInstances": 2,
         "threads": 2,
-        "jwt-secret": "changeme-set-a-real-secret-in-production"
+        "jwt-secret": "changeme-set-a-real-secret-in-production",
+        "oidc": {
+          "enabled": false,
+          "issuer": "https://<your-subdomain>.onelogin.com/oidc/2",
+          "client-id": "",
+          "client-secret": "",
+          "redirect-uri": "https://localhost:5566/eam/oidc/callback",
+          "scopes": "openid profile email",
+          "username-claim": "preferred_username",
+          "email-claim": "email",
+          "jit-provisioning": true,
+          "link-existing-users": false
+        },
+        "saml": {
+          "enabled": false,
+          "entity-id": "https://localhost:5566/eam/saml/metadata",
+          "acs-url": "https://localhost:5566/eam/saml/acs",
+          "idp-entity-id": "",
+          "idp-sso-url": "",
+          "idp-certificate-file": "/usr/local/euclid/etc/saml-idp.crt",
+          "username-attribute": "",
+          "email-attribute": "email",
+          "jit-provisioning": true,
+          "link-existing-users": false,
+          "allow-idp-initiated": false
+        }
       },
       "esm": {
         "dependencies": [

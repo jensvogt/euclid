@@ -5,15 +5,27 @@ euclid-cli-eam-login \- authenticate to Euclid and store a session token
 .B euclid-cli
 [\fB\-\-endpoint\fR \fIURL\fR]
 .B eam login
-.BR \-\-user | \-u
+.RB { \-\-user | \-u
 .I USERID
 .BR \-\-password | \-p
 .I PASSWORD
+|
+.BR \-\-oidc | \-o
+|
+.B \-\-saml
+|
+.B \-\-onelogin
+}
 [\fB\-\-namespace\fR|\fB\-n\fR \fINAME\fR]
 .SH DESCRIPTION
 Sends the given user ID and password to the eam service's
 .I login
-action. On success, the returned JWT bearer token is saved to
+action, or - with
+.B \-\-oidc
+or
+.B \-\-saml
+- authenticates in a browser against the identity provider the
+installation is configured with (see those options below). On success, the returned JWT bearer token is saved to
 .I $HOME/.euclid/credentials
 (see
 .BR euclid-cli-eam (1)
@@ -38,10 +50,86 @@ output.
 .SH OPTIONS
 .TP
 .BR \-u ", " \-\-user " " \fIUSERID\fR
-User ID to authenticate as. Required.
+User ID to authenticate as. Required, unless \fB\-\-oidc\fR or
+\fB\-\-saml\fR is given.
 .TP
 .BR \-p ", " \-\-password " " \fIPASSWORD\fR
-Password for the user. Required.
+Password for the user. Required, unless \fB\-\-oidc\fR or
+\fB\-\-saml\fR is given.
+.TP
+.BR \-o ", " \-\-oidc
+Authenticate through the configured OpenID Connect provider (e.g.
+OneLogin) instead of with a password. No password is asked for or sent.
+.IP
+The authorization URL is printed and opened in a browser; if no browser
+opens - over
+.BR ssh (1),
+in a container - the printed URL can be pasted into one anywhere, as long
+as it can reach both the provider and this machine. The redirect is caught
+on a loopback port this process listens on for the length of one login, so
+nothing outside this machine can receive the authorization code. Three
+minutes are allowed for the browser to come back.
+.IP
+What is stored afterwards is exactly what a password login stores: the same
+kind of token and the same SigV4 access key. A user signing in this way for
+the first time is created automatically if the installation is configured
+for it (\fIoidc.jit\-provisioning\fR), with no grants - an administrator
+still decides what they may do (see
+.BR euclid-cli-eam-grant-namespace-access (1)).
+.IP
+Cannot be combined with \fB\-\-user\fR, \fB\-\-password\fR or
+\fB\-\-saml\fR: the identity provider is what says who you are.
+.TP
+.B \-\-saml
+Authenticate through the configured SAML 2.0 identity provider instead of
+with a password. No password is asked for or sent.
+.IP
+Works like \fB\-\-oidc\fR from where you sit - a URL is printed and
+opened in a browser - but the return leg differs: the provider posts its
+assertion to euclid's assertion consumer service, not to this process, and
+euclid then hands the finished session to a loopback listener this process
+owns for the length of one login. Nothing about the CLI has to be
+registered with the identity provider.
+.IP
+Cannot be combined with \fB\-\-user\fR, \fB\-\-password\fR or
+\fB\-\-oidc\fR.
+.TP
+.B \-\-onelogin
+Authenticate through OneLogin's API rather than a browser, for a login
+that has to run unattended.
+.IP
+euclid-cli identifies itself to OneLogin with the API credential pair from
+\fIeuclid.cli.onelogin\fR (Administration → Developers → API Credentials
+in OneLogin - not an OIDC client and not a SAML entity), signs you in with
+your password and second factor, and posts the assertion OneLogin returns
+to euclid's assertion consumer service, which verifies it exactly as it
+verifies one that arrived through a browser. Your password and one-time
+code go to OneLogin and nowhere else.
+.IP
+The password is taken from \fIEUCLID_ONELOGIN_PASSWORD\fR, then from
+\fIeuclid.cli.onelogin.password\fR, and is otherwise asked for at the
+terminal without echo.
+.IP
+The one-time code, when OneLogin asks for one, is taken from
+\fB\-\-otp\fR, then computed from
+\fIeuclid.cli.onelogin.otp\-key\fR (or \fIEUCLID_ONELOGIN_OTP_KEY\fR),
+and is otherwise asked for at the terminal - naming the device it should
+come from. It is asked for at the moment OneLogin wants it rather than up
+front, so a code typed here has its full lifetime. Where there is no
+terminal to ask at, the login fails saying so rather than waiting.
+.IP
+An assertion fetched this way answers no request euclid made, so the server
+has to accept unsolicited assertions
+(\fIeuclid.modules.eam.saml.allow\-idp\-initiated\fR).
+.TP
+.BR \-\-application " " \fINAME\fR
+With \fB\-\-onelogin\fR: which of the configured OneLogin applications
+to sign in to, e.g. \fIint\fR or \fIprod\fR. Not needed when
+\fIeuclid.cli.onelogin\fR names only one.
+.TP
+.BR \-\-otp " " \fICODE\fR
+With \fB\-\-onelogin\fR: the one-time code. Without it the code is
+computed from the configured TOTP secret, or asked for at the terminal.
 .TP
 .BR \-n ", " \-\-namespace " " \fINAME\fR
 Namespace to make active for this session. Must exist, and the user must
@@ -60,6 +148,10 @@ Missing/invalid arguments, the server could not be reached, the
 credentials were rejected (\fIHTTP 401\fR, "Invalid credentials"), the
 response did not contain a token, or (only when \fB\-\-namespace\fR was
 given) the namespace step failed - login still succeeded in that case.
+With \fB\-\-oidc\fR or \fB\-\-saml\fR: additionally when the identity
+provider refused the login, no callback arrived within three minutes, the
+callback belonged to a different login attempt, or the installation has no
+usable federation configuration.
 .SH EXAMPLES
 .RS
 .nf
@@ -68,6 +160,16 @@ euclid-cli --endpoint http://localhost:5566 eam login \e
 
 euclid-cli --endpoint http://localhost:5566 eam login \e
     --user jdoe --password 'hunter2' --namespace production
+
+euclid-cli --endpoint http://localhost:5566 eam login --oidc
+
+euclid-cli --endpoint http://localhost:5566 eam login --oidc \e
+    --namespace production
+
+euclid-cli --endpoint http://localhost:5566 eam login --saml
+
+EUCLID_ONELOGIN_PASSWORD=... euclid-cli eam login --onelogin \e
+    --application prod
 .fi
 .RE
 .SH FILES

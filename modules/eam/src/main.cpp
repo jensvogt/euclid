@@ -10,6 +10,8 @@
 #include <euclid/core/Configuration.h>
 #include <euclid/core/HttpActionServer.h>
 #include <euclid/core/LogStream.h>
+#include <euclid/core/OidcClient.h>
+#include <euclid/core/SamlProvider.h>
 #include <euclid/core/Version.h>
 #include <euclid/core/monitoring/MetricsPusher.h>
 #include <euclid/database/RepositoryFactory.h>
@@ -235,6 +237,31 @@ int main(const int argc, char *argv[]) {
 
     // ── Validate JWT signing secret ─────────────────────
     if (!Euclid::EAM::EamServer::ValidateJwtSecret()) return 1;
+
+    // ── Report the OIDC configuration ───────────────────
+    // Said at startup rather than discovered at the first login attempt, because a configuration
+    // mistake here is otherwise invisible until somebody tries to sign in and gets a 500. Not
+    // fatal: password login is unaffected by any of it, and refusing to start would turn a
+    // federation that was configured wrongly into an installation nobody can log into at all.
+    if (const auto oidc = Euclid::Core::OidcConfiguration::FromConfiguration("eam"); oidc.enabled) {
+        const auto problems = oidc.Validate();
+        for (const auto &problem: problems) log_error << "OIDC login is enabled but not usable: " << problem;
+        if (problems.empty()) {
+            log_info << "OIDC login enabled, issuer: " << oidc.issuer << ", clientId: " << oidc.clientId
+                     << ", jitProvisioning: " << std::boolalpha << oidc.jitProvisioning;
+        }
+    }
+
+    // ── Report the SAML configuration ───────────────────
+    if (const auto saml = Euclid::Core::SamlConfiguration::FromConfiguration("eam"); saml.enabled) {
+        const auto problems = saml.Validate();
+        for (const auto &problem: problems) log_error << "SAML login is enabled but not usable: " << problem;
+        if (problems.empty()) {
+            log_info << "SAML login enabled, idpEntityId: " << saml.idpEntityId << ", entityId: " << saml.entityId
+                     << ", jitProvisioning: " << std::boolalpha << saml.jitProvisioning
+                     << ", idpInitiated: " << saml.allowIdpInitiated;
+        }
+    }
 
     // ── Initialize Database ─────────────────────────────
     if (const int error = initializeDatabase(cfg); error != 0) return error;

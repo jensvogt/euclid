@@ -175,6 +175,18 @@ namespace Euclid::Core {
         static std::string sha256Hex(const std::string &str);
 
         /**
+         * @brief Calculates the SHA-256 sum of a string, as raw bytes.
+         *
+         * The same digest sha256Hex() returns, unencoded - for callers that have to encode it
+         * some other way, e.g. an OAuth PKCE code challenge, which is base64url over the raw
+         * digest and would be wrong if computed over its hex text.
+         *
+         * @param str input string.
+         * @return the 32-byte digest, as raw bytes.
+         */
+        static std::string sha256Raw(const std::string &str);
+
+        /**
          * @brief Computes an HMAC-SHA256 over data, keyed with key.
          *
          * Used to build the SigV4 signing-key derivation chain (Core::SigV4), which needs the
@@ -201,6 +213,27 @@ namespace Euclid::Core {
          * @return decoded raw bytes.
          */
         static std::string Base64Decode(const std::string &data);
+
+        /**
+         * @brief Base64url-encodes arbitrary bytes, unpadded (RFC 4648 §5).
+         *
+         * The encoding every OAuth/OIDC value uses - PKCE verifiers and challenges, and the
+         * segments of a JWT - because it travels in URLs, where '+', '/' and '=' do not.
+         *
+         * @param data raw bytes to encode.
+         * @return base64url-encoded string, without '=' padding.
+         */
+        static std::string Base64UrlEncode(const std::string &data);
+
+        /**
+         * @brief Decodes a base64url-encoded string, with or without padding.
+         *
+         * @param data base64url-encoded input, as produced by Base64UrlEncode() or by an OIDC
+         * provider (JWK components arrive this way).
+         * @return decoded raw bytes.
+         * @throws std::runtime_error if the input is not valid base64url.
+         */
+        static std::string Base64UrlDecode(const std::string &data);
     };
 
 }// namespace Euclid::Core

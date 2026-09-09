@@ -96,14 +96,19 @@ namespace Euclid::ESM {
         // rather than a file to read them out of. An encrypted object has no such file: sniffing
         // what is on disk would describe the ciphertext, which is the same shapeless bytes for
         // every object there is.
-        std::string contentTypeForBuffer(const std::string_view data) {
-            return Core::ContentTypeUtils::fromContent(std::string(data.substr(0, std::min(data.size(), kContentTypeSniffBytes))));
+        //
+        // The key is consulted only when those bytes turn out to describe no format at all - see
+        // Core::ContentTypeUtils::detect(), and note that a prefix of a JSON document is exactly
+        // that case.
+        std::string contentTypeForBuffer(const std::string_view data, const std::string &key) {
+            return Core::ContentTypeUtils::detect(std::string(data.substr(0, std::min(data.size(), kContentTypeSniffBytes))), key);
         }
 
-        // Determines a content type by sniffing the first kContentTypeSniffBytes bytes of the
-        // assembled object with libmagic (Core::ContentTypeUtils), rather than trusting the key's
-        // file extension.
-        std::string contentTypeForFile(const std::filesystem::path &path) {
+        // The same, for an object that is on disk in the clear: the first kContentTypeSniffBytes
+        // bytes of the assembled file, and its key where they say nothing. Deliberately the same
+        // prefix the encrypted path can sniff, so that identical content stored in an encrypted
+        // and an unencrypted bucket is not described two different ways.
+        std::string contentTypeForFile(const std::filesystem::path &path, const std::string &key) {
             std::ifstream file(path, std::ios::binary);
             if (!file.is_open()) return "application/octet-stream";
 
@@ -111,7 +116,7 @@ namespace Euclid::ESM {
             file.read(prefix.data(), static_cast<std::streamsize>(prefix.size()));
             prefix.resize(static_cast<std::size_t>(file.gcount()));
 
-            return Core::ContentTypeUtils::fromContent(prefix);
+            return Core::ContentTypeUtils::detect(prefix, key);
         }
     }// namespace
 
@@ -1175,7 +1180,7 @@ namespace Euclid::ESM {
         // object stored in the clear, and for an encrypted one the only way to get a checksum and a
         // content type that describe the object instead of its ciphertext.
         const auto md5Sum = Core::CryptoUtils::md5Sum(data);
-        const auto contentType = contentTypeForBuffer(data);
+        const auto contentType = contentTypeForBuffer(data, key);
 
         Database::Entity::ESM::Object object;
         if (existingObject) object.oid = existingObject->oid;
@@ -1593,7 +1598,7 @@ namespace Euclid::ESM {
                     // Post-processing: MD5 the assembled file and sniff its content type from its
                     // first bytes before marking the object COMPLETED.
                     md5Sum = Core::CryptoUtils::md5SumFile(destPath.string());
-                    contentType = contentTypeForFile(destPath);
+                    contentType = contentTypeForFile(destPath, key);
 
                 } else {
                     // The same assembly, except that the assembled object is encrypted as it is
@@ -1621,7 +1626,7 @@ namespace Euclid::ESM {
 
                     assembledSize = static_cast<std::size_t>(encryptor.finish());
                     md5Sum = digest.hex();
-                    contentType = contentTypeForBuffer(sniff);
+                    contentType = contentTypeForBuffer(sniff, key);
                 }
 
                 std::filesystem::remove_all(uploadDir, ec);
@@ -1799,7 +1804,9 @@ namespace Euclid::ESM {
         log_info << "ESM get object, bucket: " << bucketErn << ", key: " << key << ", size: " << data.size();
 
         response<string_body> res{status::ok, req.version()};
-        res.set(field::content_type, "application/octet-stream");
+        // The whole object, so what it was recorded as is what it is - unlike download-part below,
+        // where a slice of a JSON document is not itself JSON and stays bytes.
+        res.set(field::content_type, object->contentType.empty() ? "application/octet-stream" : object->contentType);
         res.keep_alive(req.keep_alive());
         res.body() = std::move(data);
         res.prepare_payload();

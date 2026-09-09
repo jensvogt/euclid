@@ -79,6 +79,56 @@ namespace Euclid::CLI {
         int login(const std::vector<std::string> &args) const;
 
         /**
+         * @brief Login through the configured OIDC provider, e.g. OneLogin.
+         *
+         * @par
+         * Opens a browser at the provider, catches the redirect that comes back on a loopback
+         * listener this process owns for the duration, and hands the code to EAM - which is what
+         * makes the CLI a public client that never sees a password, and why the listener is on
+         * 127.0.0.1 and lives for one login.
+         *
+         * @param nameSpace namespace to make active for the session, or empty for none.
+         * @return the process exit code.
+         */
+        [[nodiscard]]
+        int loginWithOidc(const std::string &nameSpace) const;
+
+        /**
+         * @brief Login through the configured SAML identity provider.
+         *
+         * @par
+         * The same shape as loginWithOidc(): a browser does the talking and a loopback listener
+         * catches what comes back. What comes back differs - a SAML assertion is posted to the
+         * gateway, not to this process, so euclid answers the browser with a page that posts the
+         * finished session here instead.
+         *
+         * @param nameSpace namespace to make active for the session, or empty for none.
+         * @return the process exit code.
+         */
+        [[nodiscard]]
+        int loginWithSaml(const std::string &nameSpace) const;
+
+        /**
+         * @brief Login through OneLogin's API, with no browser.
+         *
+         * @par
+         * OneLogin can mint a SAML assertion over its API for a person who presents a password and
+         * a second factor - which is what makes an unattended login possible. The password and the
+         * one-time code go to OneLogin and nowhere else; euclid is handed the finished assertion
+         * and verifies it exactly as it verifies one that came through a browser.
+         *
+         * @param nameSpace namespace to make active for the session, or empty for none.
+         * @param application which configured OneLogin application to ask for, or empty for the
+         * only one.
+         * @param user OneLogin user to sign in as, or empty for the configured one.
+         * @param oneTimeCode second factor, or empty to compute it from the configured TOTP secret.
+         * @return the process exit code.
+         */
+        [[nodiscard]]
+        int loginWithOneLogin(const std::string &nameSpace, const std::string &application,
+                              const std::string &user, const std::string &oneTimeCode) const;
+
+        /**
          * @brief Register a new user
          *
          * @param args action arguments
