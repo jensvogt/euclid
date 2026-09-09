@@ -1,4 +1,6 @@
 // C++ includes
+#include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <vector>
 
@@ -24,6 +26,11 @@ namespace Euclid::CLI {
                 }
             }
             return Core::Configuration::instance().getOr<std::string>("euclid.cli.onelogin." + configKey, "");
+        }
+
+        std::string lowercase(std::string value) {
+            std::ranges::transform(value, value.begin(), [](const unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            return value;
         }
 
         std::string apiBase(const std::string &subDomain) {
@@ -70,6 +77,7 @@ namespace Euclid::CLI {
         config.password = setting("password", "EUCLID_ONELOGIN_PASSWORD");
         config.otpKey = setting("otp-key", "EUCLID_ONELOGIN_OTP_KEY");
         config.application = setting("application", "EUCLID_ONELOGIN_APPLICATION");
+        config.device = setting("device", "EUCLID_ONELOGIN_DEVICE");
 
         // One application, or several by name - "int" and "prod", typically. Both spellings are
         // accepted because an installation with one environment should not have to invent a name
@@ -147,18 +155,21 @@ namespace Euclid::CLI {
         result.message = errorMessage(answer);
         result.stateToken = Core::GetStringValue(*payload, "state_token");
 
-        // The device to satisfy. More than one may be offered; the first is what a person with one
-        // authenticator has, and choosing between them is not something an unattended login can do.
+        // Every device offered, in order. Which one is meant is decided later, where the
+        // configuration and the person can have a say.
         if (const auto *devices = payload->as_object().if_contains("devices");
-            devices != nullptr && devices->is_array() && !devices->as_array().empty()) {
+            devices != nullptr && devices->is_array()) {
 
-            const auto &device = devices->as_array().front();
-            if (device.is_object()) {
+            for (const auto &device: devices->as_array()) {
+                if (!device.is_object()) continue;
+
+                Device entry;
                 if (const auto *id = device.as_object().if_contains("device_id"); id != nullptr) {
-                    result.deviceId = id->is_string() ? std::string(id->as_string())
-                                                      : std::to_string(Core::GetLongValue(device, "device_id"));
+                    entry.id = id->is_string() ? std::string(id->as_string())
+                                               : std::to_string(Core::GetLongValue(device, "device_id"));
                 }
-                result.deviceType = Core::GetStringValue(device, "device_type");
+                entry.type = Core::GetStringValue(device, "device_type");
+                if (!entry.id.empty()) result.devices.push_back(entry);
             }
         }
 
@@ -170,7 +181,8 @@ namespace Euclid::CLI {
     }
 
     std::string OneLoginClient::SamlAssertion(const std::string &password, const std::string &oneTimeCode,
-                                              const OneTimeCodeProvider &askForCode) const {
+                                              const OneTimeCodeProvider &askForCode,
+                                              const DeviceChooser &chooseDevice) const {
 
         const auto base = _config.baseUrl.empty() ? apiBase(_config.subDomain) : _config.baseUrl;
         const auto appId = _config.ApplicationId();
@@ -212,42 +224,98 @@ namespace Euclid::CLI {
         const auto parsed = ParseAssertionAnswer(assertionBody);
         if (!parsed.assertion.empty()) return parsed.assertion;
 
-        // 3. The second factor, which most accounts will have.
-        // In the order that costs the person the least: what they already gave, then what can be
-        // computed for them, and only then a question.
+        if (parsed.devices.empty()) {
+            throw OneLoginError("OneLogin wants a second factor but named no device to get one from");
+        }
+
+        // 3. Which device the code has to come from. A code from the wrong one is refused in a way
+        // that says nothing about why, so this is worth being deliberate about: what was asked for,
+        // then the only one there is, then what the person picks.
+        std::size_t chosen = 0;
+        if (!_config.device.empty()) {
+
+            // The ID exactly, or the type however it was typed: "Google Authenticator", "google",
+            // "AUTHENTICATOR". Nobody should have to reproduce a provider's capitalisation to name
+            // their own authenticator.
+            const auto wanted = lowercase(_config.device);
+            const auto match = std::ranges::find_if(parsed.devices, [&wanted](const Device &candidate) {
+                return lowercase(candidate.id) == wanted || lowercase(candidate.type).find(wanted) != std::string::npos;
+            });
+            if (match == parsed.devices.end()) {
+                std::string offered;
+                for (const auto &candidate: parsed.devices) {
+                    offered += (offered.empty() ? "" : ", ") + candidate.type + " (" + candidate.id + ")";
+                }
+                throw OneLoginError("No enrolled device matches '" + _config.device + "'; OneLogin offers: " + offered);
+            }
+            chosen = static_cast<std::size_t>(std::distance(parsed.devices.begin(), match));
+        } else if (parsed.devices.size() > 1 && chooseDevice) {
+            if (const auto picked = chooseDevice(parsed.devices); picked < parsed.devices.size()) chosen = picked;
+        }
+        const auto &device = parsed.devices[chosen];
+
+        // 4. The code, in the order that costs the person the least: what they already gave, then
+        // what can be computed for them, and only then a question.
         std::string code = oneTimeCode;
+        bool codeWasAsked = false;
         if (code.empty() && !_config.otpKey.empty()) code = Core::Totp::Code(_config.otpKey);
-        if (code.empty() && askForCode) code = askForCode(parsed.deviceType);
+        if (code.empty() && askForCode) {
+            code = askForCode(device.type);
+            codeWasAsked = true;
+        }
         if (code.empty()) {
             throw OneLoginError("OneLogin wants a one-time code, and there was no way to get one: pass --otp, set"
                                 " EUCLID_ONELOGIN_OTP_KEY or onelogin.otp-key, or run this where a terminal can ask for it");
         }
 
-        const boost::json::object verification{
-                {"app_id", appId},
-                {"device_id", parsed.deviceId},
-                {"state_token", parsed.stateToken},
-                {"otp_token", code},
-                {"do_not_notify", true},
-        };
-        const auto verifyAnswer = Core::WebFetch(base + "/api/2/saml_assertion/verify_factor",
-                                                 {.method = "POST",
-                                                  .body = boost::json::serialize(verification),
-                                                  .authorization = "Bearer " + accessToken,
-                                                  .caCertFile = _caCertPath});
-        const auto verifyBody = parseJson(verifyAnswer.body, "the second-factor request");
-        if (!verifyAnswer.IsSuccess()) {
-            const auto message = errorMessage(verifyBody);
-            throw OneLoginError("OneLogin refused the one-time code: " +
-                                (message.empty() ? "HTTP " + std::to_string(verifyAnswer.status) : message));
-        }
+        // A rejected code is worth another go rather than another password: the state token stays
+        // valid for a few minutes, and a code mistyped or read a second too late is the ordinary
+        // reason for one. Only when it was typed - retyping a computed one would produce the same
+        // digits until the window turns over.
+        constexpr int kAttempts = 3;
+        for (int attempt = 1;; ++attempt) {
 
-        const auto verified = ParseAssertionAnswer(verifyBody);
-        if (verified.assertion.empty()) {
-            throw OneLoginError(verified.message.empty() ? "OneLogin accepted the one-time code but returned no assertion"
-                                                         : verified.message);
+            const boost::json::object verification{
+                    {"app_id", appId},
+                    {"device_id", device.id},
+                    {"state_token", parsed.stateToken},
+                    {"otp_token", code},
+                    {"do_not_notify", true},
+            };
+            const auto verifyAnswer = Core::WebFetch(base + "/api/2/saml_assertion/verify_factor",
+                                                     {.method = "POST",
+                                                      .body = boost::json::serialize(verification),
+                                                      .authorization = "Bearer " + accessToken,
+                                                      .caCertFile = _caCertPath});
+            const auto verifyBody = parseJson(verifyAnswer.body, "the second-factor request");
+
+            if (verifyAnswer.IsSuccess()) {
+                const auto verified = ParseAssertionAnswer(verifyBody);
+                if (verified.assertion.empty()) {
+                    throw OneLoginError(verified.message.empty() ? "OneLogin accepted the one-time code but returned no assertion"
+                                                                 : verified.message);
+                }
+                return verified.assertion;
+            }
+
+            const auto message = errorMessage(verifyBody);
+            if (!codeWasAsked || !askForCode || attempt >= kAttempts) {
+
+                // Which device was used, and whether there were others - the two things OneLogin's
+                // own message leaves out and the two most likely reasons for it.
+                std::string detail = " (device: " + device.type + " " + device.id;
+                if (parsed.devices.size() > 1) {
+                    detail += ", one of " + std::to_string(parsed.devices.size()) + " enrolled - --device picks another";
+                }
+                detail += ")";
+                throw OneLoginError("OneLogin refused the one-time code: " +
+                                    (message.empty() ? "HTTP " + std::to_string(verifyAnswer.status) : message) + detail);
+            }
+
+            code = askForCode(device.type + " - " + (message.empty() ? "refused" : message) +
+                              ", attempt " + std::to_string(attempt + 1) + " of " + std::to_string(kAttempts));
+            if (code.empty()) throw OneLoginError("No one-time code given");
         }
-        return verified.assertion;
     }
 
 }// namespace Euclid::CLI

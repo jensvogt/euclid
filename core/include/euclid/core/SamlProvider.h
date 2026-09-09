@@ -139,12 +139,28 @@ namespace Euclid::Core {
         static SamlConfiguration FromConfiguration(const std::string &module);
 
         /**
-         * @brief What is missing or wrong, one message per problem.
+         * @brief What is missing or wrong before an assertion can be *verified*, one message per
+         * problem.
          *
-         * @return an empty vector when the configuration is usable.
+         * @par
+         * Deliberately not everything: an installation that only ever consumes assertions - one
+         * whose people get them from their provider's API rather than through a browser - needs no
+         * SSO URL, and refusing its logins for the want of one would be refusing them over a
+         * setting nothing was going to read.
+         *
+         * @return an empty vector when assertions can be verified.
          */
         [[nodiscard]]
         std::vector<std::string> Validate() const;
+
+        /**
+         * @brief What is additionally missing before a login can be *started* from here - the
+         * browser flow, which has to know where to send somebody.
+         *
+         * @return Validate()'s problems, plus any that only matter for starting a login.
+         */
+        [[nodiscard]]
+        std::vector<std::string> ValidateForAuthentication() const;
 
         /**
          * @brief The identity provider's certificate, from wherever it is configured.
@@ -160,6 +176,61 @@ namespace Euclid::Core {
          */
         [[nodiscard]]
         bool IsReturnToAllowed(const std::string &returnTo) const;
+    };
+
+    /**
+     * @brief What an assertion says about itself, read without checking any of it.
+     *
+     * @par
+     * For setting an installation up. The three values euclid has to be configured with - the
+     * issuer to expect, the audience it answers to, the endpoint it is addressed as - are all
+     * stated in any assertion the provider will send, and reading them off one is a great deal
+     * easier than finding them in an administration console. Nothing here is verified, and it must
+     * not be treated as if it were: it is what an unauthenticated document claims.
+     */
+    struct SamlDescription {
+
+        /**
+         * @brief The Issuer, which is what saml.idp-entity-id has to be.
+         */
+        std::string issuer;
+
+        /**
+         * @brief The Audience, which is what saml.entity-id has to be.
+         */
+        std::string audience;
+
+        /**
+         * @brief The subject confirmation's Recipient, which is what saml.acs-url has to be.
+         */
+        std::string recipient;
+
+        /**
+         * @brief The Destination the response names, if any.
+         */
+        std::string destination;
+
+        /**
+         * @brief The NameID - who this says the person is.
+         */
+        std::string nameId;
+
+        /**
+         * @brief When the assertion stops being valid.
+         */
+        std::string notOnOrAfter;
+
+        /**
+         * @brief Whether it carries a signature at all. Whether that signature is any good is
+         * SamlResponseVerifier::Verify()'s question, not this one's.
+         */
+        bool hasSignature{false};
+
+        /**
+         * @brief The attribute statement, as "name=value" pairs - where a username or an email
+         * would be found, for saml.username-attribute.
+         */
+        std::vector<std::string> attributes;
     };
 
     /**
@@ -206,6 +277,15 @@ namespace Euclid::Core {
         [[nodiscard]]
         static std::optional<FederatedIdentity> Verify(const std::string &responseXml, const SamlConfiguration &config,
                                                        const std::string &expectedInResponseTo, std::string &error);
+
+        /**
+         * @brief Reads what a response says about itself, checking none of it.
+         *
+         * @param responseXml the decoded SAML response document.
+         * @return what it claims, or std::nullopt if it is not a SAML response at all.
+         */
+        [[nodiscard]]
+        static std::optional<SamlDescription> Describe(const std::string &responseXml);
     };
 
     /**

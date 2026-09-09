@@ -547,14 +547,19 @@ namespace Euclid::EAM {
     }// namespace
 
     // Reads the SAML configuration, or answers with why there is nothing to read.
-    static std::optional<Core::SamlConfiguration> samlConfiguration(const request<string_body> &req, std::optional<response<string_body> > &refusal) {
+    //
+    // What "usable" means depends on what is being asked for: starting a login needs somewhere to
+    // send the browser, consuming an assertion does not. An installation whose people get their
+    // assertions from their provider's API only ever does the second.
+    static std::optional<Core::SamlConfiguration> samlConfiguration(const request<string_body> &req, std::optional<response<string_body> > &refusal,
+                                                                    const bool forAuthentication = false) {
 
         auto config = Core::SamlConfiguration::FromConfiguration("eam");
         if (!config.enabled) {
             refusal = EamServer::ErrorResponse(req, status::not_found, "SAML login is not enabled");
             return std::nullopt;
         }
-        if (const auto problems = config.Validate(); !problems.empty()) {
+        if (const auto problems = forAuthentication ? config.ValidateForAuthentication() : config.Validate(); !problems.empty()) {
             std::string message;
             for (const auto &problem: problems) {
                 if (!message.empty()) message += "; ";
@@ -594,7 +599,7 @@ namespace Euclid::EAM {
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "saml-authorize");
 
         std::optional<response<string_body> > refusal;
-        const auto config = samlConfiguration(req, refusal);
+        const auto config = samlConfiguration(req, refusal, true);
         if (!config.has_value()) return *refusal;
 
         const bool browser = req.method() == verb::get;

@@ -3,9 +3,7 @@
 
 // C++ includes
 #include <chrono>
-#include <cstdlib>
-#include <fstream>
-#include <sstream>
+#include <ctime>
 #include <string>
 
 // libxml2 includes
@@ -39,6 +37,7 @@ using Euclid::Core::SamlResponseVerifier;
 
 namespace {
 
+    using Euclid::Test::kProviderCertificate;
     using Euclid::Test::kProviderKey;
     using Euclid::Test::kStrangerKey;
 
@@ -47,33 +46,18 @@ namespace {
     constexpr auto kAcsUrl = "https://euclid.example.com:5566/eam/saml/acs";
     constexpr auto kRequestId = "_a1b2c3d4e5f6";
 
-    // The provider's certificate, in the PEM form an operator pastes into the configuration.
-    // Derived from kProviderKey once, at first use.
-    std::string providerCertificate() {
-
-        static const std::string pem = [] {
-            // A self-signed certificate over the test key, made with the key itself - which is all
-            // a SAML deployment ever uses a certificate for: it is a container for a public key.
-            const std::string keyFile = "/tmp/euclid-saml-test-key.pem";
-            const std::string certFile = "/tmp/euclid-saml-test-cert.pem";
-
-            std::ofstream(keyFile) << kProviderKey;
-            const std::string command = "openssl req -x509 -new -key " + keyFile + " -out " + certFile +
-                                        " -days 3650 -subj '/CN=euclid-saml-test' 2>/dev/null";
-            std::ignore = std::system(command.c_str());
-
-            std::ifstream in(certFile);
-            std::ostringstream contents;
-            contents << in.rdbuf();
-            return contents.str();
-        }();
-        return pem;
-    }
-
     std::string instant(const std::chrono::seconds offset) {
+
         const auto when = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now() + offset);
+
+        // gmtime_r is POSIX and gmtime_s is what Windows has, with its arguments the other way
+        // round. Neither is going anywhere, so the two lines are simply written out.
         std::tm tm{};
+#ifdef _WIN32
+        gmtime_s(&tm, &when);
+#else
         gmtime_r(&when, &tm);
+#endif
         char buffer[32];
         std::strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%SZ", &tm);
         return buffer;
@@ -193,7 +177,7 @@ namespace {
         config.acsUrl = kAcsUrl;
         config.idpEntityId = kIdpEntityId;
         config.idpSsoUrl = "https://example.onelogin.com/trust/saml2/http-redirect/sso/12345";
-        config.idpCertificate = providerCertificate();
+        config.idpCertificate = kProviderCertificate;
         config.emailAttribute = "email";
         return config;
     }
@@ -463,8 +447,60 @@ BOOST_AUTO_TEST_CASE(an_enabled_configuration_names_what_is_missing) {
     SamlConfiguration config;
     config.enabled = true;
 
-    // entity-id, acs-url, idp-entity-id, idp-sso-url and a certificate.
-    BOOST_TEST(config.Validate().size() == 5);
+    // entity-id, acs-url, idp-entity-id and a certificate; the SSO URL is only needed to start a
+    // login, and is reported by ValidateForAuthentication().
+    BOOST_TEST(config.Validate().size() == 4);
+    BOOST_TEST(config.ValidateForAuthentication().size() == 5);
+}
+
+BOOST_AUTO_TEST_CASE(an_sso_url_is_needed_only_to_start_a_login) {
+
+    // An installation whose people fetch assertions from their provider's API never sends anybody
+    // anywhere, so it has no use for an SSO URL - and must not be refused for the want of one.
+    auto config = configuration();
+    config.idpSsoUrl.clear();
+
+    BOOST_TEST(config.Validate().empty());
+    BOOST_TEST(config.ValidateForAuthentication().size() == 1);
+    BOOST_TEST(config.ValidateForAuthentication().front().find("idp-sso-url") != std::string::npos);
+}
+
+BOOST_AUTO_TEST_CASE(an_assertion_says_what_to_configure) {
+
+    // The way out of the chicken and egg problem: what euclid has to be told about a provider is
+    // written in any assertion that provider sends.
+    const auto description = Euclid::Core::SamlResponseVerifier::Describe(buildResponse());
+
+    BOOST_REQUIRE(description.has_value());
+    BOOST_TEST(description->issuer == kIdpEntityId);
+    BOOST_TEST(description->audience == kSpEntityId);
+    BOOST_TEST(description->recipient == kAcsUrl);
+    BOOST_TEST(description->nameId == "jane.federated@example.com");
+    BOOST_TEST(description->hasSignature);
+    BOOST_REQUIRE(description->attributes.size() == 1);
+    BOOST_TEST(description->attributes.front() == "email = jane.federated@example.com");
+}
+
+BOOST_AUTO_TEST_CASE(describing_checks_nothing) {
+
+    // Worth stating in a test, because it would be a bad thing to forget: this reads what an
+    // unauthenticated document claims. An assertion signed by a stranger describes itself just as
+    // readily, and Verify() is what decides whether any of it is true.
+    AssertionOptions options;
+    options.signingKey = kStrangerKey;
+
+    const auto description = Euclid::Core::SamlResponseVerifier::Describe(buildResponse(options));
+    BOOST_REQUIRE(description.has_value());
+    BOOST_TEST(description->issuer == kIdpEntityId);
+
+    std::string error;
+    BOOST_TEST(!verify(buildResponse(options), error).has_value());
+}
+
+BOOST_AUTO_TEST_CASE(something_that_is_not_a_response_describes_as_nothing) {
+
+    BOOST_TEST(!Euclid::Core::SamlResponseVerifier::Describe("<html>not saml</html>").has_value());
+    BOOST_TEST(!Euclid::Core::SamlResponseVerifier::Describe("").has_value());
 }
 
 BOOST_AUTO_TEST_CASE(two_certificates_are_one_too_many) {
