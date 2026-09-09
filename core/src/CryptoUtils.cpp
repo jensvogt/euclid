@@ -1,4 +1,5 @@
 // C++ includes
+#include <algorithm>
 #include <cstring>
 #include <fstream>
 #include <iomanip>
@@ -298,6 +299,20 @@ namespace Euclid::Core {
         return toHex(digest, digestLength);
     }
 
+    std::string CryptoUtils::sha256Raw(const std::string &str) {
+
+        unsigned char digest[EVP_MAX_MD_SIZE];
+        unsigned int digestLength = 0;
+
+        EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+        EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr);
+        EVP_DigestUpdate(ctx, str.data(), str.size());
+        EVP_DigestFinal_ex(ctx, digest, &digestLength);
+        EVP_MD_CTX_free(ctx);
+
+        return {reinterpret_cast<const char *>(digest), digestLength};
+    }
+
     std::vector<unsigned char> CryptoUtils::hmacSha256(const std::vector<unsigned char> &key, const std::string &data) {
 
         unsigned char digest[EVP_MAX_MD_SIZE];
@@ -330,6 +345,43 @@ namespace Euclid::Core {
         if (data.size() >= 2 && data[data.size() - 2] == '=') ++padding;
         decoded.resize(static_cast<std::size_t>(len) - padding);
         return decoded;
+    }
+
+    std::string CryptoUtils::Base64UrlEncode(const std::string &data) {
+
+        std::string encoded = Base64Encode(data);
+
+        // The padding goes rather than being translated: RFC 7515 requires it absent, and a '='
+        // in a query parameter would have to be percent-encoded by every caller that puts one
+        // there.
+        encoded.erase(encoded.find_last_not_of('=') + 1);
+        std::ranges::replace(encoded, '+', '-');
+        std::ranges::replace(encoded, '/', '_');
+        return encoded;
+    }
+
+    std::string CryptoUtils::Base64UrlDecode(const std::string &data) {
+
+        std::string encoded = data;
+        std::ranges::replace(encoded, '-', '+');
+        std::ranges::replace(encoded, '_', '/');
+
+        // Put back what Base64UrlEncode() (or the provider) left off - EVP_DecodeBlock only
+        // accepts input in whole 4-character groups. A remainder of one is not a truncated
+        // group any padding could complete, it is malformed input.
+        switch (encoded.size() % 4) {
+            case 0:
+                break;
+            case 2:
+                encoded += "==";
+                break;
+            case 3:
+                encoded += "=";
+                break;
+            default:
+                throw std::runtime_error("Invalid base64url input");
+        }
+        return Base64Decode(encoded);
     }
 
 }// namespace Euclid::Core

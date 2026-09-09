@@ -115,6 +115,27 @@ namespace Euclid::Database {
         return {};
     }
 
+    std::optional<Entity::EAM::User> MongoEamRepository::findUserByFederatedSubject(const std::string &provider, const std::string &subject) const {
+
+        // Refused rather than looked up: every password user carries an empty provider and subject,
+        // so an empty search value would match one of them arbitrarily and hand a federated login
+        // somebody else's account.
+        if (provider.empty() || subject.empty()) return {};
+
+        try {
+
+            auto userCollection = Database::instance().collection(USER_COLLECTION);
+
+            if (auto result = userCollection.find_one(make_document(kvp("federatedProvider", provider), kvp("federatedSubject", subject)))) {
+                return Entity::EAM::User::fromDocument(result.value());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Get user by federated subject failed, provider: " << provider << ", subject: " << subject << ", error: " << e.what();
+        }
+        return {};
+    }
+
     std::optional<Entity::EAM::User> MongoEamRepository::findUserByErn(const std::string &ern) const {
 
         try {

@@ -16,6 +16,8 @@
 #include <euclid/database/Database.h>
 #include <EmmServer.h>
 
+#include <ranges>
+
 namespace Euclid::EMM {
 
     namespace beast = boost::beast;
@@ -50,26 +52,26 @@ namespace Euclid::EMM {
 
         const std::unordered_map<std::string, ModuleExportSpec> &moduleExportSpecs() {
             static const std::unordered_map<std::string, ModuleExportSpec> specs{
-                    {"eqs", {{"eqs_queue"}, {"eqs_message"}}},
-                    {"ens", {{"ens_topic", "ens_subscription"}, {"ens_message"}}},
-                    {"esm", {{"esm_bucket", "esm_subscription"}, {"esm_object"}}},
-                    {"eam", {{"eam_user", "eam_usergroup", "eam_account", "eam_namespace"}, {}}},
-                    {"emm", {{"emm_module"}, {}}},
-                    {"emo", {{"emo_data"}, {}}},
-                    {"eap", {{"eap_application"}, {}}},
-                    {"ets", {{"ets_server"}, {}}},
+                    {"eqs", {.topLevel = {"eqs_queue"}, .fullOnly = {"eqs_message"}}},
+                    {"ens", {.topLevel = {"ens_topic", "ens_subscription"}, .fullOnly = {"ens_message"}}},
+                    {"esm", {.topLevel = {"esm_bucket", "esm_subscription"}, .fullOnly = {"esm_object"}}},
+                    {"eam", {.topLevel = {"eam_user", "eam_usergroup", "eam_account", "eam_namespace"}, .fullOnly = {}}},
+                    {"emm", {.topLevel = {"emm_module"}, .fullOnly = {}}},
+                    {"emo", {.topLevel = {"emo_data"}, .fullOnly = {}}},
+                    {"eap", {.topLevel = {"eap_application"}, .fullOnly = {}}},
+                    {"ets", {.topLevel = {"ets_server"}, .fullOnly = {}}},
                     // Note what an ekm export carries: Database::Entity::EKM::Key stores its
                     // material base64-encoded but not encrypted, on the understanding that it
                     // never leaves the server. Here it does - a backup of a key store that omits
                     // the keys restores nothing - so the file is as sensitive as the database it
                     // came from and wants the same handling.
-                    {"ekm", {{"ekm_key"}, {}}},
+                    {"ekm", {.topLevel = {"ekm_key"}, .fullOnly = {}}},
                     // A secret's value is stored encrypted under an EKM key, so an ess export on
                     // its own is ciphertext and worth nothing without the key that sealed it. Taken
                     // together with ekm it is the lock and the key in one file - which needs no
                     // rule of its own, because asking for ekm already requires a passphrase and
                     // that is exactly the file this would be part of.
-                    {"ess", {{"ess_secret"}, {}}},
+                    {"ess", {.topLevel = {"ess_secret"}, .fullOnly = {}}},
             };
             return specs;
         }
@@ -97,8 +99,9 @@ namespace Euclid::EMM {
         // caller may hand back a salt from an earlier response - the export of a multi-module
         // archive is one request per module, and every frame in one file has to share a key.
         std::pair<std::string, std::string> archiveKey(const std::string &passphrase, const std::string &saltBase64) {
-            const auto salt = saltBase64.empty() ? Core::CryptoUtils::GenerateSalt(kSaltLength)
-                                                 : Core::CryptoUtils::Base64Decode(saltBase64);
+            const auto salt = saltBase64.empty()
+                                  ? Core::CryptoUtils::GenerateSalt(kSaltLength)
+                                  : Core::CryptoUtils::Base64Decode(saltBase64);
             if (salt.size() < kSaltLength) {
                 throw std::runtime_error("salt is too short");
             }
@@ -289,7 +292,7 @@ namespace Euclid::EMM {
         const auto &specs = moduleExportSpecs();
         std::vector<std::string> modules;
         if (all) {
-            for (const auto &[name, spec]: specs) modules.push_back(name);
+            for (const auto &name: specs | std::views::keys) modules.push_back(name);
             std::ranges::sort(modules);
         } else {
             for (const auto &module: requestedModules) {
@@ -297,7 +300,7 @@ namespace Euclid::EMM {
                     // Listed from the specs rather than spelled out, so the message cannot fall
                     // behind the map the way a hand-written list already had.
                     std::vector<std::string> known;
-                    for (const auto &[name, spec]: specs) known.push_back(name);
+                    for (const auto &name: specs | std::views::keys) known.push_back(name);
                     std::ranges::sort(known);
                     std::string expected;
                     for (const auto &name: known) expected += (expected.empty() ? "" : ", ") + name;
@@ -522,12 +525,16 @@ namespace Euclid::EMM {
 
         // Checked against whatever the other limit will end up being - the one being set now, or
         // the one already standing - so the pair can never be left crossed.
-        const auto effectiveMin = minInstances >= 0 ? minInstances
-                                  : module->desiredMinInstances >= 0 ? module->desiredMinInstances
-                                                                     : module->minInstances;
-        const auto effectiveMax = maxInstances >= 0 ? maxInstances
-                                  : module->desiredMaxInstances >= 0 ? module->desiredMaxInstances
-                                                                     : module->maxInstances;
+        const auto effectiveMin = minInstances >= 0
+                                      ? minInstances
+                                      : module->desiredMinInstances >= 0
+                                      ? module->desiredMinInstances
+                                      : module->minInstances;
+        const auto effectiveMax = maxInstances >= 0
+                                      ? maxInstances
+                                      : module->desiredMaxInstances >= 0
+                                      ? module->desiredMaxInstances
+                                      : module->maxInstances;
         if (effectiveMin > effectiveMax) {
             return EmmServer::ErrorResponse(req, status::bad_request,
                                             "minInstances (" + std::to_string(effectiveMin) + ") cannot exceed maxInstances (" + std::to_string(effectiveMax) + ")");
@@ -540,13 +547,13 @@ namespace Euclid::EMM {
         log_info << "EMM set-instances, module: " << name << ", minInstances: " << effectiveMin << ", maxInstances: " << effectiveMax;
 
         return EmmServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
-                                                                {"name", name},
-                                                                {"minInstances", effectiveMin},
-                                                                {"maxInstances", effectiveMax},
-                                                                // What the pool looks like right now; the manager moves it
-                                                                // toward the limits above on its next reconcile.
-                                                                {"runningInstances", static_cast<long>(module->instances.size())},
-                                                        }));
+                                               {"name", name},
+                                               {"minInstances", effectiveMin},
+                                               {"maxInstances", effectiveMax},
+                                               // What the pool looks like right now; the manager moves it
+                                               // toward the limits above on its next reconcile.
+                                               {"runningInstances", static_cast<long>(module->instances.size())},
+                                       }));
     }
 
     static response<string_body> handleSetThreads(const request<string_body> &req) {
@@ -590,13 +597,13 @@ namespace Euclid::EMM {
         log_info << "EMM set-threads, module: " << name << ", threads: " << threads;
 
         return EmmServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
-                                                                {"name", name},
-                                                                {"threads", threads},
-                                                                // A thread count is fixed when a process starts, so this
-                                                                // is how many instances the manager still has to cycle
-                                                                // through before every one of them is running with it.
-                                                                {"runningInstances", static_cast<long>(module->instances.size())},
-                                                        }));
+                                               {"name", name},
+                                               {"threads", threads},
+                                               // A thread count is fixed when a process starts, so this
+                                               // is how many instances the manager still has to cycle
+                                               // through before every one of them is running with it.
+                                               {"runningInstances", static_cast<long>(module->instances.size())},
+                                       }));
     }
 
     // Records the level a module's own output is logged at by the manager, which reads it on its
@@ -652,10 +659,10 @@ namespace Euclid::EMM {
         log_info << "EMM set-log-level, module: " << name << ", level: " << (canonical.empty() ? "(configured default)" : canonical);
 
         return EmmServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
-                                                                {"name", name},
-                                                                {"logLevel", canonical},
-                                                                {"channel", std::string(Core::LogStream::kModuleChannel) + "." + name},
-                                                        }));
+                                               {"name", name},
+                                               {"logLevel", canonical},
+                                               {"channel", std::string(Core::LogStream::kModuleChannel) + "." + name},
+                                       }));
     }
 
     // Shared by stop-module and start-module, which differ only in the state they record and in
@@ -706,13 +713,13 @@ namespace Euclid::EMM {
         }
 
         return EmmServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
-                                                                {"name", name},
-                                                                {"stopped", stopped},
-                                                                // What the pool still looks like: the manager stops or
-                                                                // starts the instances on its next reconcile, so this is
-                                                                // the count before it has acted, not after.
-                                                                {"runningInstances", static_cast<long>(module->instances.size())},
-                                                        }));
+                                               {"name", name},
+                                               {"stopped", stopped},
+                                               // What the pool still looks like: the manager stops or
+                                               // starts the instances on its next reconcile, so this is
+                                               // the count before it has acted, not after.
+                                               {"runningInstances", static_cast<long>(module->instances.size())},
+                                       }));
     }
 
     static response<string_body> handleStopModule(const request<string_body> &req) {
@@ -761,11 +768,11 @@ namespace Euclid::EMM {
         log_info << "EMM restart-module, module: " << name << ", instances: " << module->instances.size();
 
         return EmmServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
-                                                                {"name", name},
-                                                                // How many instances the manager will cycle through, one
-                                                                // per reconcile tick, starting on the next one.
-                                                                {"runningInstances", static_cast<long>(module->instances.size())},
-                                                        }));
+                                               {"name", name},
+                                               // How many instances the manager will cycle through, one
+                                               // per reconcile tick, starting on the next one.
+                                               {"runningInstances", static_cast<long>(module->instances.size())},
+                                       }));
     }
 
     // ── Request dispatcher ───────────────────────────────────────────────────
