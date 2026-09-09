@@ -100,6 +100,23 @@ namespace Euclid::Database::Entity::EAM {
         std::string granted;
     };
 
+    /**
+     * @brief A SAML assertion this user has already been let in with.
+     */
+    struct SeenAssertion {
+
+        /**
+         * @brief The assertion's ID, as the identity provider minted it.
+         */
+        std::string assertionId;
+
+        /**
+         * @brief When the assertion stops being valid, ISO8601 - after which its ID is no longer
+         * worth remembering, because it would be refused on its own expiry.
+         */
+        std::string expiresAt;
+    };
+
     struct User {
 
         /**
@@ -154,6 +171,30 @@ namespace Euclid::Database::Entity::EAM {
         bool loginEnabled{true};
 
         /**
+         * @brief Which federation this user signs in through - "oidc", "saml" - or empty for a
+         * user that signs in with a password.
+         *
+         * @par
+         * Part of what a federated login is matched on, not decoration: an OIDC subject and a SAML
+         * NameID come from unrelated namespaces, and one that happens to read like the other must
+         * not find this user.
+         */
+        std::string federatedProvider;
+
+        /**
+         * @brief The provider's own identifier for this person - an OIDC "sub" claim or a SAML
+         * NameID - or empty for a password user.
+         *
+         * @par
+         * A provider's subject is the only thing about a person that is guaranteed not to change:
+         * names and email addresses get edited, and matching a federated login on either of those
+         * would either orphan the account or, worse, hand it to whoever inherits the old address.
+         * This is what a federated login is matched on; the user ID remains what everything else
+         * in euclid refers to.
+         */
+        std::string federatedSubject;
+
+        /**
          * @brief ERNs of the resources this user may act on, or empty for no restriction.
          *
          * @par
@@ -166,6 +207,19 @@ namespace Euclid::Database::Entity::EAM {
         std::vector<std::string> resourceGrants;
 
         std::vector<AccessKey> accessKeys;
+
+        /**
+         * @brief SAML assertions recently accepted for this user, so that none of them is accepted
+         * twice.
+         *
+         * @par
+         * Replay protection has to be shared, not per process: eam runs as a pool, and an
+         * assertion refused by the instance that has already seen it would simply be presented to
+         * the next one. This is the state every instance already reads on every login, so it is
+         * where the record goes. Entries are dropped as they expire, the same way sessions are, so
+         * this stays a handful of items - an assertion is valid for minutes.
+         */
+        std::vector<SeenAssertion> seenAssertions;
 
         /**
          * @brief Login sessions, one appended per successful login and the expired ones dropped

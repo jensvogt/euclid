@@ -277,6 +277,163 @@ Every process reads the same JSON config (`--config <path>`, default
 | `euclid.modules.eag.certificate`                | (none)      | Name of the EKM certificate an HTTPS listener serves; a self-signed one is generated under that name if it does not exist                                                               |
 | `euclid.modules.eag.basic-auth-cache-seconds`   | 60          | How long a verified Basic credential stays verified; 0 checks every request                                                                                                             |
 | `euclid.modules.eap.http-port-min` / `-max`     | 9000 / 9999 | Range the manager hands application instances their own HTTP port from                                                                                                                  |
+| `euclid.modules.eam.oidc.enabled`               | false       | Offer login through an OpenID Connect provider alongside passwords - see [Signing in with an identity provider](#signing-in-with-an-identity-provider)                                  |
+| `euclid.modules.eam.saml.enabled`               | false       | Offer login through a SAML 2.0 identity provider, the same way                                                                                                                          |
+
+### Signing in with an identity provider
+
+People can sign in with an existing account at an identity provider - OneLogin, Okta, Entra ID, Keycloak - instead of a
+euclid password, over **OpenID Connect** or **SAML 2.0**. Euclid is the relying party (the service provider, in SAML's
+words): the provider proves who somebody is, and euclid issues the session it would have issued anyway. The token, the
+SigV4 access key and the grants are the same ones a password login produces, and nothing downstream can tell the three
+apart.
+
+Both can be enabled at once - they are separate blocks and separate endpoints, and a person can be federated through
+either.
+
+#### OpenID Connect
+
+Register euclid with the provider as a web application, then fill in the `oidc` block of the `eam` module:
+
+```json
+"eam": {
+  "oidc": {
+    "enabled": true,
+    "issuer": "https://your-subdomain.onelogin.com/oidc/2",
+    "client-id": "...",
+    "client-secret": "...",
+    "redirect-uri": "https://euclid.example.com:5566/eam/oidc/callback",
+    "username-claim": "preferred_username",
+    "jit-provisioning": true,
+    "link-existing-users": false
+  }
+}
+```
+
+The three endpoints are discovered from the issuer, so only these have to be configured. Register two redirect URIs with
+the provider: the `redirect-uri` above, for signing in through a browser, and a wildcard loopback URI
+(`http://127.0.0.1:*/callback`) for the CLI, which catches its own callback on a port it owns for the length of one
+login. Then:
+
+```bash
+euclid-cli eam login --oidc          # opens a browser; no password is asked for or sent
+```
+
+A browser can also be pointed straight at `https://<gateway>/eam/oidc/authorize`, which redirects to the provider and
+completes at `/eam/oidc/callback`; add `?return-to=<url>` to have the browser sent on to your own page afterwards, with
+the token in the URL fragment. Because that redirect carries the token, where it may point is configured rather than
+chosen by whoever built the link - a path on the gateway is always allowed, and anywhere else has to be listed:
+
+```json
+"return-to-prefixes": ["https://console.example.com/"]
+```
+
+A front end that would rather drive the flow itself posts to the `oidc-authorize` and `oidc-login` actions, the same two
+the CLI uses.
+
+Two things are worth deciding deliberately:
+
+- **`jit-provisioning`** (on by default) creates a euclid user the first time somebody signs in, with **nothing
+  granted**. The provider says who a person is; what they may do here is still euclid's question, answered with
+  `euclid-cli eam grant-namespace-access`. Turn it off to refuse anybody an administrator has not created first.
+- **`link-existing-users`** (off by default) decides whether a federated login may adopt an existing euclid user of the
+  same name. Off, because with it on, whoever the provider calls `admin` becomes euclid's `admin`. Turn it on only where
+  the provider is genuinely the authority on user names.
+
+A person is matched on the provider's `sub` claim, not on their name or email address, so renaming somebody in the
+provider does not give them a second account - and somebody who inherits a recycled email address does not inherit an
+account with it.
+
+#### SAML 2.0
+
+Register euclid as an application in the provider and paste in what it asks for - euclid publishes its own metadata at
+`https://<gateway>/eam/saml/metadata`, which most providers will read directly. Then fill in the `saml` block from the
+provider's own metadata:
+
+```json
+"eam": {
+  "saml": {
+    "enabled": true,
+    "entity-id": "https://euclid.example.com:5566/eam/saml/metadata",
+    "acs-url": "https://euclid.example.com:5566/eam/saml/acs",
+    "idp-entity-id": "https://app.onelogin.com/saml/metadata/abc123",
+    "idp-sso-url": "https://your-subdomain.onelogin.com/trust/saml2/http-redirect/sso/abc123",
+    "idp-certificate-file": "/usr/local/euclid/etc/saml-idp.crt",
+    "username-attribute": "",
+    "jit-provisioning": true,
+    "allow-idp-initiated": false
+  }
+}
+```
+
+`idp-certificate-file` is the provider's signing certificate, downloaded from the same page as the SSO URL. It is the
+whole basis for trusting an assertion, so it is required - there is no discovery to fall back on and no "trust on first
+use". Assertions have to be signed and unencrypted; assertion encryption is not supported and is refused with a message
+saying so.
+
+```bash
+euclid-cli eam login --saml       # opens a browser; the CLI needs nothing registered with the provider
+```
+
+A browser can go straight to `https://<gateway>/eam/saml/login`, and `?return-to=<url>` works exactly as it does for
+OIDC. `allow-idp-initiated` decides whether an assertion that answers no request of euclid's - somebody clicking the
+euclid tile in the provider's portal - is accepted; it is off by default, because such an assertion cannot be tied to a
+login euclid started.
+
+The same `jit-provisioning` and `link-existing-users` rules apply as for OIDC, and a person is matched on the assertion's
+NameID for the same reason. Each assertion is accepted once: its ID is recorded against the user until it expires, so a
+captured assertion cannot be replayed - including at a different eam instance.
+
+#### SAML without a browser (OneLogin's API)
+
+OneLogin can also mint an assertion over its API, for a login that has to run where no browser can - a scheduled job, a
+container, an ssh session. `euclid-cli` speaks that flow directly:
+
+```bash
+euclid-cli eam login --onelogin                       # asks for the password, computes the one-time code
+euclid-cli eam login --onelogin --application prod    # when several applications are configured
+```
+
+The CLI authenticates itself to OneLogin with an **API credential pair** (Administration → Developers → API
+Credentials - not an OIDC client and not a SAML entity), signs the person in with their password and second factor, and
+posts the resulting assertion to euclid's ACS, which verifies it exactly as it verifies one that arrived through a
+browser. The password and the one-time code go to OneLogin and nowhere else.
+
+```json
+"cli": {
+  "onelogin": {
+    "sub-domain": "your-subdomain",
+    "client-id": "...",
+    "client-secret": "...",
+    "user": "you@example.com",
+    "app-ids": { "int": "111111", "prod": "222222" },
+    "otp-key": ""
+  }
+}
+```
+
+Every value can come from the file or from the environment (`EUCLID_ONELOGIN_PASSWORD`, `EUCLID_ONELOGIN_OTP_KEY`,
+`EUCLID_ONELOGIN_CLIENT_ID`, ...), and the environment wins over the file. The two personal ones can also be left out
+entirely and typed instead:
+
+```
+$ euclid-cli eam login --user jens.vogt@example.com --onelogin --application int
+Asking OneLogin for a SAML assertion ...
+OneLogin one-time code (OneLogin Protect): 424242
+```
+
+The password is asked for without echo; the code is asked for only if OneLogin actually wants one and no seed is
+configured, and at the moment it is wanted rather than up front, so what you type has its full thirty seconds. Where
+there is no terminal - a scheduled job - the login says so instead of waiting, and `otp-key` or `EUCLID_ONELOGIN_OTP_KEY`
+is what makes it unattended. Keeping a TOTP seed beside the password turns two factors back into one, so it is worth
+supplying the seed only where nobody can be asked.
+
+One consequence is unavoidable: an assertion fetched this way answers no authentication request of euclid's, so it is
+**unsolicited** as far as the service provider is concerned. The installation has to allow those:
+
+```json
+"saml": { "allow-idp-initiated": true }
+```
 
 ### Running without a database
 

@@ -73,6 +73,16 @@ namespace Euclid::Database {
         std::optional<Entity::EAM::User> findUserByEmail(const std::string &email) const override;
 
         /**
+         * @brief Returns a user by the identity provider subject it signs in as.
+         *
+         * @param provider federation the subject belongs to: "oidc" or "saml"
+         * @param subject provider subject to find
+         * @return optional of found user
+         */
+        [[nodiscard]]
+        std::optional<Entity::EAM::User> findUserByFederatedSubject(const std::string &provider, const std::string &subject) const override;
+
+        /**
          * @brief Returns a user by ERN.
          *
          * @param ern ERN to find

@@ -66,6 +66,21 @@ namespace Euclid::Database::Entity::EAM {
             return grant;
         }
 
+        bsoncxx::document::value seenAssertionToDocument(const SeenAssertion &seen) {
+            return bsoncxx::builder::basic::make_document(
+                    bsoncxx::builder::basic::kvp("assertionId", seen.assertionId),
+                    bsoncxx::builder::basic::kvp("expiresAt", seen.expiresAt));
+        }
+
+        SeenAssertion seenAssertionFromDocument(const bsoncxx::document::view &document) {
+            SeenAssertion seen;
+            for (const auto &field: document) {
+                if (const auto k = field.key(); k == "assertionId") seen.assertionId = std::string(field.get_string().value);
+                else if (k == "expiresAt") seen.expiresAt = std::string(field.get_string().value);
+            }
+            return seen;
+        }
+
     }// namespace
 
     bsoncxx::document::value User::toDocument() const {
@@ -79,6 +94,9 @@ namespace Euclid::Database::Entity::EAM {
         bsoncxx::builder::basic::array resourceGrantsArray;
         for (const auto &resourceErn: resourceGrants) resourceGrantsArray.append(resourceErn);
 
+        bsoncxx::builder::basic::array seenAssertionsArray;
+        for (const auto &seen: seenAssertions) seenAssertionsArray.append(seenAssertionToDocument(seen));
+
         bsoncxx::builder::basic::array accountGrantsArray;
         for (const auto &grant: accountGrants) accountGrantsArray.append(accountGrantToDocument(grant));
 
@@ -90,6 +108,9 @@ namespace Euclid::Database::Entity::EAM {
                 bsoncxx::builder::basic::kvp("accountId", accountId),
                 bsoncxx::builder::basic::kvp("region", region),
                 bsoncxx::builder::basic::kvp("loginEnabled", loginEnabled),
+                bsoncxx::builder::basic::kvp("federatedProvider", federatedProvider),
+                bsoncxx::builder::basic::kvp("federatedSubject", federatedSubject),
+                bsoncxx::builder::basic::kvp("seenAssertions", seenAssertionsArray),
                 bsoncxx::builder::basic::kvp("resourceGrants", resourceGrantsArray),
                 bsoncxx::builder::basic::kvp("accessKeys", accessKeysArray),
                 bsoncxx::builder::basic::kvp("sessions", sessionsArray),
@@ -112,6 +133,11 @@ namespace Euclid::Database::Entity::EAM {
             else if (key == "accountId") user.accountId = std::string(field.get_string().value);
             else if (key == "region") user.region = std::string(field.get_string().value);
             else if (key == "loginEnabled") user.loginEnabled = field.get_bool().value;
+            else if (key == "federatedProvider") user.federatedProvider = std::string(field.get_string().value);
+            else if (key == "federatedSubject") user.federatedSubject = std::string(field.get_string().value);
+            else if (key == "seenAssertions") {
+                for (const auto &elem: field.get_array().value) user.seenAssertions.push_back(seenAssertionFromDocument(elem.get_document().value));
+            }
             else if (key == "resourceGrants") {
                 for (const auto &elem: field.get_array().value) user.resourceGrants.emplace_back(elem.get_string().value);
             } else if (key == "accessKeys") {

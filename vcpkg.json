@@ -9,6 +9,7 @@
     "libarchive",
     "libmagic",
     "libssh",
+    "xmlsec",
     "openssl",
     "mongo-cxx-driver"
   ],

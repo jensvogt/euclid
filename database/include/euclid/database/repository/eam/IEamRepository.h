@@ -62,6 +62,21 @@ namespace Euclid::Database {
         virtual std::optional<Entity::EAM::User> findUserByEmail(const std::string &email) const = 0;
 
         /**
+         * @brief Searches for a user by the identity provider subject it signs in as.
+         *
+         * @par
+         * How a federated login finds its user (see Entity::EAM::User::federatedSubject). An empty
+         * provider or subject matches nothing rather than matching every password user, which is
+         * what a lookup by field value would otherwise do.
+         *
+         * @param provider Which federation the subject belongs to: "oidc" or "saml".
+         * @param subject The provider's subject - an OIDC "sub" claim or a SAML NameID.
+         * @return The matching user, or an empty optional if no match is found.
+         */
+        [[nodiscard]]
+        virtual std::optional<Entity::EAM::User> findUserByFederatedSubject(const std::string &provider, const std::string &subject) const = 0;
+
+        /**
          * @brief Searches for a user by its ERN.
          *
          * @param ern The ERN to search for.
