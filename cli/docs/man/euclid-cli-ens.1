@@ -30,6 +30,56 @@ list, resolve, publish to, tag, purge and delete topics.
 Some actions are still client-side only in this release - see the
 .B STATUS
 column below and each action's own man page for details.
+.SH HOLDING DELIVERY
+A topic can be stopped, which holds what is published to it instead of
+handing it to the subscribers, and started again, which hands over
+everything it held \- oldest first, each message with the body,
+attributes and priority it was published with. See
+.BR euclid-cli-ens-stop-topic (1)
+and
+.BR euclid-cli-ens-start-topic (1).
+.PP
+Publishing is unaffected either way: a publish to a stopped topic is
+accepted and stored exactly as before. What stops is the fan-out, which
+is what makes this the thing to do while a subscriber is being
+redeployed \- rather than unsubscribing it, which loses whatever
+arrives meanwhile.
+.PP
+A held message expires on the same schedule as any other, so a topic
+left stopped for longer than its retention period loses what it was
+holding.
+.PP
+Which state a topic is in is its
+.IR status " \-"
+.I RUNNING
+or
+.I STOPPED
+\- reported by
+.BR euclid-cli-ens-list-topics (1)
+for every topic, and by
+.BR euclid-cli-ens-get-topic-metadata (1)
+together with
+.IR held ,
+how many messages are waiting for the topic to be started again.
+.SH RETENTION
+A published message is kept for fourteen days and then removed by the
+database.
+.PP
+A topic is not consumed the way a queue is: a publish fans the message
+out there and then, and what stays behind is a record of what was
+published. Nothing was ever going to remove those, so a topic grew
+without limit \- and since every topic shares one collection, the cost
+was paid by every publish in the installation.
+.PP
+The period comes from
+.I euclid.modules.ens.retention-period
+unless a topic has been given one of its own with
+.BR euclid-cli-ens-set-topic-retention (1).
+It applies to messages published afterwards; the ones already stored
+keep the expiry they were given. Messages published before retention
+existed carry none at all and are left alone \- clearing those out is
+.BR euclid-cli-ens-purge-topic (1),
+a deliberate act rather than a side effect of upgrading.
 .SH ACTIONS
 .TP
 .B create-topic
@@ -88,6 +138,20 @@ Adds a tag to a topic.
 .B Not yet wired to a server handler in this release.
 See
 .BR euclid-cli-ens-add-topic-tag (1).
+.TP
+.B start-topic
+Starts delivering to a topic's subscribers again, handing over what it
+held while stopped. See
+.BR euclid-cli-ens-start-topic (1).
+.TP
+.B stop-topic
+Stops delivering to a topic's subscribers; publishes are still accepted
+and stored. See
+.BR euclid-cli-ens-stop-topic (1).
+.TP
+.B set-topic-retention
+Sets how long a topic keeps the messages published to it. See
+.BR euclid-cli-ens-set-topic-retention (1).
 .TP
 .B set-topic-tag
 Sets the value of an existing topic tag.
@@ -284,6 +348,9 @@ euclid-cli --endpoint http://localhost:5566 ens delete-topic \e
 .BR euclid-cli-ens-unsubscribe (1),
 .BR euclid-cli-ens-list-subscriptions (1),
 .BR euclid-cli-ens-add-topic-tag (1),
+.BR euclid-cli-ens-start-topic (1),
+.BR euclid-cli-ens-stop-topic (1),
+.BR euclid-cli-ens-set-topic-retention (1),
 .BR euclid-cli-ens-set-topic-tag (1),
 .BR euclid-cli-ens-delete-topic-tag (1),
 .BR euclid-cli-ens-purge-topic (1),

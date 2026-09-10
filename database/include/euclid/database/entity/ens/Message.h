@@ -24,6 +24,17 @@ namespace Euclid::Database::Entity::ENS {
     using std::chrono::system_clock;
 
     /**
+     * @brief A message that has been handed to the topic's subscribers.
+     */
+    constexpr auto kStatusPublished = "PUBLISHED";
+
+    /**
+     * @brief A message stored while its topic was stopped, waiting to be delivered when it is
+     * started again - see Entity::ENS::Topic::delivering.
+     */
+    constexpr auto kStatusHeld = "HELD";
+
+    /**
      * @brief ENS message entity
      *
      * @author jens.vogt\@opitz-consulting.com
@@ -103,6 +114,32 @@ namespace Euclid::Database::Entity::ENS {
          * machine.
          */
         std::string status = "PUBLISHED";
+
+        /**
+         * @brief The priority the publisher asked for.
+         *
+         * @par
+         * It means nothing to the topic - a topic is not consumed from - and everything to the
+         * queues the message is fanned out to. Kept with the message because a held message is
+         * delivered later, and a replay that dropped the priority would quietly turn urgent work
+         * into ordinary work.
+         */
+        std::string priority = "MIDDLE";
+
+        /**
+         * @brief When this message stops being kept.
+         *
+         * @par
+         * Set at publish time to now() plus the topic's retention period, and acted on by the TTL
+         * index on this field - so the removing is the database's, not a sweep of euclid's.
+         *
+         * @par
+         * A message published before retention existed carries no expiry, and a TTL index ignores
+         * a document whose field is absent: those are left alone rather than swept up by a
+         * deployment. Clearing out what a topic collected before that is a deliberate act, not a
+         * side effect of upgrading.
+         */
+        system_clock::time_point expiresAt{};
 
         /**
          * @brief Creation date

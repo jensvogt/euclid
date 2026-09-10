@@ -190,6 +190,37 @@ namespace Euclid::ENS {
     // Creates a message on topicErn and fans it out to every SQS-type subscription of that topic
     // - one EventBus event per subscription, so an eqs instance (any one of them, via the claim
     // mechanism) creates the corresponding queue message. Other subscription types are ignored.
+    // Hands one message to every queue subscribed to the topic, and says how many that was.
+    //
+    // The only place a topic message becomes a queue message. Shared by a publish and by a start,
+    // so a message delivered late is delivered exactly as it would have been at the time - same
+    // payload, same attributes, same priority.
+    static long deliverToSubscriptions(const std::string &topicErn, const std::string &messageId, const std::string &body,
+                                       const boost::json::object &attributesJson, const boost::json::object &systemAttributes,
+                                       const std::string &priority) {
+
+        const auto repo = Database::RepositoryFactory::instance().ensRepository();
+
+        long delivered = 0;
+        for (const auto &subscription: repo->listSubscriptionsBySourceErn(topicErn)) {
+            if (subscription.type != "SQS") continue;
+            const boost::json::value payload = {
+                    {"body", body},
+                    {"attributes", attributesJson},
+                    // Carried straight through: a topic in the middle of a chain must not be where
+                    // the envelope stops, or a correlation id identifies only the hops before it.
+                    {"systemAttributes", systemAttributes},
+                    {"priority", priority},
+            };
+            Database::EventBus::instance().Publish("ens.message.published", payload, "ens",
+                                                   {.targetErn = subscription.targetErn,
+                                                    .sourceErn = topicErn,
+                                                    .messageId = messageId});
+            ++delivered;
+        }
+        return delivered;
+    }
+
     // Shared by handlePublishMessage (a direct client publish) and
     // handleObjectPublishedNotification (an ESM object-created notification arriving via an
     // SNS-type ESM subscription), so a topic behaves the same regardless of who published to it.
@@ -211,34 +242,26 @@ namespace Euclid::ENS {
             entityAttributes[key] = Dto::ENS::EnsMapper::toEntity(variant);
         }
         const auto repo = Database::RepositoryFactory::instance().ensRepository();
-        const Database::Entity::ENS::Message message = repo->publishMessage(messageId, ern, topicErn, body, entityAttributes);
+        const Database::Entity::ENS::Message message = repo->publishMessage(messageId, ern, topicErn, body, entityAttributes, priority);
 
         // Counted here rather than in handlePublishMessage, so that a message arriving from an
         // ESM object notification counts the same as one a client published - both reach a topic
         // only through this function.
         recordMessages(kMessagesSent, kBytesSent, topicErn, 1, message.size);
 
+        // Held rather than handed on: the topic is stopped, and what was published while it was
+        // stopped is delivered by start-topic instead - see handleStartTopic.
+        if (message.status == Database::Entity::ENS::kStatusHeld) {
+            log_debug << "ENS message held, topicErn: " << topicErn << ", messageId: " << message.messageId;
+            return message;
+        }
+
         boost::json::object attributesJson;
         for (const auto &[key, variant]: attributes) {
             attributesJson[key] = boost::json::value_from(variant);
         }
-        long delivered = 0;
-        for (const auto &subscription: repo->listSubscriptionsBySourceErn(topicErn)) {
-            if (subscription.type != "SQS") continue;
-            const boost::json::value payload = {
-                    {"body", body},
-                    {"attributes", attributesJson},
-                    // Carried straight through: a topic in the middle of a chain must not be where
-                    // the envelope stops, or a correlation id identifies only the hops before it.
-                    {"systemAttributes", systemAttributes},
-                    {"priority", priority},
-            };
-            Database::EventBus::instance().Publish("ens.message.published", payload, "ens",
-                                                   {.targetErn = subscription.targetErn,
-                                                    .sourceErn = topicErn,
-                                                    .messageId = message.messageId});
-            ++delivered;
-        }
+
+        const auto delivered = deliverToSubscriptions(topicErn, message.messageId, body, attributesJson, systemAttributes, priority);
         recordMessages(kMessagesReceived, kBytesReceived, topicErn, delivered, delivered * message.size);
 
         return message;
@@ -449,6 +472,13 @@ namespace Euclid::ENS {
         response.ern = topic->ern;
         response.size = topic->size;
         response.messages = topic->available + topic->send + topic->send;
+        response.status = topic->status();
+        response.retentionPeriod = topic->retentionPeriod;
+
+        // Counted only for a topic that is stopped: for a running one it is always zero, and the
+        // query is not worth making to say so.
+        response.held = topic->delivering ? 0 : repo->countHeldMessages(topic->ern);
+
         return EnsServer::JsonResponse(req, status::ok, response.toJson());
     }
 
@@ -636,6 +666,128 @@ namespace Euclid::ENS {
         return EnsServer::JsonResponse(req, status::ok);
     }
 
+    // Sets how long a topic keeps what is published to it.
+    //
+    // Takes effect for messages published afterwards. The ones already stored keep the expiry they
+    // were given, because that is what a TTL index acts on and rewriting every message of a busy
+    // topic to shorten its history is not something one call should quietly do.
+    // Stops a topic delivering, or starts it again and hands over what it held meanwhile.
+    //
+    // Sharing one function because the two differ in one flag and in what follows from it, and
+    // because a start that did not deliver the backlog would make a stop a quiet way of losing
+    // messages rather than a way of holding them.
+    static response<string_body> setTopicDelivering(const request<string_body> &req, const bool delivering) {
+
+        const auto action = delivering ? "start-topic" : "stop-topic";
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", action);
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto ern = Core::GetStringValue(jv, "ern");
+        if (ern.empty()) return EnsServer::ErrorResponse(req, status::bad_request, "ern is required");
+
+        const auto repo = Database::RepositoryFactory::instance().ensRepository();
+        std::optional<Database::Entity::ENS::Topic> topic = repo->findTopicByErn(ern);
+        if (!topic.has_value()) {
+            return EnsServer::ErrorResponse(req, status::not_found, "Topic not found, ern: " + ern);
+        }
+
+        const bool wasDelivering = topic->delivering;
+        topic->delivering = delivering;
+        topic = repo->upsertTopic(topic.value());
+        log_info << "ENS " << action << ", ern: " << ern << ", wasDelivering: " << std::boolalpha << wasDelivering;
+
+        long released = 0;
+        if (delivering) {
+
+            // A page at a time, and each message marked as it goes: a topic that collected a
+            // fortnight of traffic does not have to fit in memory, and a start interrupted halfway
+            // through has delivered a prefix of the backlog rather than none of it. Running it
+            // again picks up where it stopped.
+            constexpr long kPage = 500;
+            while (true) {
+
+                const auto held = repo->listHeldMessages(ern, kPage);
+                if (held.empty()) break;
+
+                for (const auto &message: held) {
+
+                    boost::json::object attributesJson;
+                    for (const auto &[key, variant]: message.attributes) {
+                        attributesJson[key] = boost::json::value_from(Dto::ENS::EnsMapper::toDto(variant));
+                    }
+                    boost::json::object systemAttributes;
+                    for (const auto &[key, variant]: message.systemAttributes) {
+                        systemAttributes[key] = boost::json::value_from(Dto::ENS::EnsMapper::toDto(variant));
+                    }
+
+                    deliverToSubscriptions(ern, message.messageId, message.body, attributesJson, systemAttributes, message.priority);
+
+                    // Marked whatever the fan-out found: a topic with no subscriptions left has
+                    // nothing to deliver to, and leaving its held messages held would mean every
+                    // later start walked past them again.
+                    repo->markMessageDelivered(message.messageId);
+                    ++released;
+                }
+
+                if (static_cast<long>(held.size()) < kPage) break;
+            }
+
+            repo->recordResend(ern, released);
+            if (released > 0) log_info << "ENS start-topic delivered held messages, ern: " << ern << ", messages: " << released;
+        }
+
+        return EnsServer::JsonResponse(req, status::ok,
+                                       boost::json::serialize(boost::json::object{
+                                               {"ern", topic->ern},
+                                               {"status", topic->status()},
+                                               {"released", released}}));
+    }
+
+    static response<string_body> handleStartTopic(const request<string_body> &req) {
+        return setTopicDelivering(req, true);
+    }
+
+    static response<string_body> handleStopTopic(const request<string_body> &req) {
+        return setTopicDelivering(req, false);
+    }
+
+    static response<string_body> handleSetTopicRetention(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-topic-retention");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto [ern, retentionPeriod] = boost::json::value_to<Dto::ENS::SetTopicRetentionRequest>(jv);
+        log_info << "ENS SetTopicRetention, ern: " << ern << ", retentionPeriod: " << retentionPeriod;
+
+        if (retentionPeriod < 0) {
+            return EnsServer::ErrorResponse(req, status::bad_request,
+                                            "retentionPeriod cannot be negative; zero follows the installation default");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().ensRepository();
+        std::optional<Database::Entity::ENS::Topic> topic = repo->findTopicByErn(ern);
+        if (!topic.has_value()) {
+            return EnsServer::ErrorResponse(req, status::not_found, "Topic not found, ern: " + ern);
+        }
+
+        topic->retentionPeriod = retentionPeriod;
+        topic = repo->upsertTopic(topic.value());
+
+        return EnsServer::JsonResponse(req, status::ok,
+                                       boost::json::serialize(boost::json::object{
+                                               {"ern", topic->ern},
+                                               {"retentionPeriod", topic->retentionPeriod}}));
+    }
+
     static response<string_body> handleDeleteTopicTag(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-topic-tag");
@@ -789,6 +941,9 @@ namespace Euclid::ENS {
             AddMetadata,
             AddTopicTag,
             SetTopicTag,
+            SetTopicRetention,
+            StartTopic,
+            StopTopic,
             DeleteTopicTag,
             Subscribe,
             Unsubscribe,
@@ -812,21 +967,13 @@ namespace Euclid::ENS {
         if (action == "get-topic-metadata") return Command::GetMetadata;
         if (action == "add-topic-tag") return Command::AddTopicTag;
         if (action == "set-topic-tag") return Command::SetTopicTag;
+        if (action == "set-topic-retention") return Command::SetTopicRetention;
+        if (action == "start-topic") return Command::StartTopic;
+        if (action == "stop-topic") return Command::StopTopic;
         if (action == "delete-topic-tag") return Command::DeleteTopicTag;
         if (action == "subscribe") return Command::Subscribe;
         if (action == "unsubscribe") return Command::Unsubscribe;
         if (action == "list-subscriptions") return Command::ListSubscriptions;
-        // if (action == "delete-message") return Command::DeleteMessage;
-        // if (action == "purge-queue") return Command::PurgeQueue;
-        // if (action == "purge-all-queues") return Command::PurgeAllQueues;
-        // if (action == "get-message-count") return Command::GetMessageCount;
-        // if (action == "get-queue-metadata") return Command::GetQueueMetadata;
-        // if (action == "get-message-metadata") return Command::GetMessageMetadata;
-        // if (action == "add-metadata") return Command::AddMetadata;
-        // if (action == "add-queue-tag") return Command::AddQueueTag;
-        // if (action == "set-queue-tag") return Command::SetQueueTag;
-        // if (action == "delete-queue-tag") return Command::DeleteQueueTag;
-        // if (action == "get-metrics") return Command::GetMetrics;
         return Command::Unknown;
     }
 
@@ -869,10 +1016,7 @@ namespace Euclid::ENS {
 
             case Command::GetMessageCount:
                 return handleGetMessageCount(req);
-            //
-            // case Command::GetQueueMetadata:
-            //     return handleGetQueueMetadata(req);
-            //
+
             case Command::GetMessageAttribute:
                 return handleGetMessageAttribute(req);
 
@@ -887,6 +1031,15 @@ namespace Euclid::ENS {
 
             case Command::SetTopicTag:
                 return handleSetTopicTag(req);
+
+            case Command::SetTopicRetention:
+                return handleSetTopicRetention(req);
+
+            case Command::StartTopic:
+                return handleStartTopic(req);
+
+            case Command::StopTopic:
+                return handleStopTopic(req);
 
             case Command::DeleteTopicTag:
                 return handleDeleteTopicTag(req);

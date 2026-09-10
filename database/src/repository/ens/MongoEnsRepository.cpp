@@ -9,12 +9,30 @@
 #include <thread>
 
 // Euclid includes
+#include <euclid/core/Configuration.h>
 #include <euclid/core/ContentTypeUtils.h>
 #include <euclid/core/CryptoUtils.h>
 #include <euclid/core/UuidUtils.h>
 #include <euclid/database/repository/ens/MongoEnsRepository.h>
 
 namespace Euclid::Database {
+
+    namespace {
+
+        /**
+         * @brief How long a published message lives when its topic has not been given a period of
+         * its own.
+         *
+         * Read per publish rather than once, because Configuration is an in-memory lookup and an
+         * operator who changes the setting should not have to restart the module to mean it.
+         */
+        long defaultRetentionPeriod() {
+            const auto configured = Core::Configuration::instance().getOr<int>(
+                    "euclid.modules.ens.retention-period", static_cast<int>(Entity::ENS::kDefaultRetentionPeriod));
+            return configured > 0 ? configured : Entity::ENS::kDefaultRetentionPeriod;
+        }
+
+    }// namespace
 
     MongoEnsRepository::MongoEnsRepository() {
         ensureIndexes();
@@ -58,6 +76,17 @@ namespace Euclid::Database {
             // same way, so this is what keeps both proportional to one topic's traffic rather than
             // to the collection.
             messageCollection.create_index(make_document(kvp("topicErn", 1)));
+
+            // Retention, enforced by the database. expireAfterSeconds is zero because the moment is
+            // already in the document - the field is when the message expires, not when it was
+            // published - which is the same shape eqs_message and ees_events use.
+            //
+            // A TTL index ignores a document that has no such field, so this removes nothing that
+            // was published before retention existed. Those topics stay as they are until somebody
+            // purges them on purpose; what this stops is the next one filling up the same way.
+            mongocxx::options::index expiresAtOpts;
+            expiresAtOpts.expire_after(std::chrono::seconds(0));
+            messageCollection.create_index(make_document(kvp("expiresAt", 1)), expiresAtOpts);
 
         } catch (const std::exception &e) {
             log_error << "Ensure ENS indexes failed, error: " << e.what();
@@ -484,7 +513,78 @@ namespace Euclid::Database {
         }
     }
 
-    Entity::ENS::Message MongoEnsRepository::publishMessage(const std::string &messageId, const std::string &ern, const std::string &topicErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes) {
+    std::vector<Entity::ENS::Message> MongoEnsRepository::listHeldMessages(const std::string &topicErn, const long limit) const {
+
+        std::vector<Entity::ENS::Message> messages;
+        try {
+
+            mongocxx::options::find opts;
+            opts.sort(make_document(kvp("created", 1)));
+            if (limit > 0) opts.limit(limit);
+
+            const auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
+            const auto filter = make_document(kvp("topicErn", topicErn), kvp("status", Entity::ENS::kStatusHeld));
+
+            for (auto cursor = messageCollection.find(filter.view(), opts); const auto &document: cursor) {
+                Entity::ENS::Message message;
+                message.FromDocument(document);
+                messages.push_back(message);
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "List held messages failed, topicErn: " << topicErn << ", error: " << e.what();
+            throw;
+        }
+        return messages;
+    }
+
+    long MongoEnsRepository::countHeldMessages(const std::string &topicErn) const {
+
+        try {
+            const auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
+            return static_cast<long>(messageCollection.count_documents(
+                    make_document(kvp("topicErn", topicErn), kvp("status", Entity::ENS::kStatusHeld)).view()));
+
+        } catch (const std::exception &e) {
+            log_error << "Count held messages failed, topicErn: " << topicErn << ", error: " << e.what();
+        }
+        return 0;
+    }
+
+    void MongoEnsRepository::markMessageDelivered(const std::string &messageId) {
+
+        try {
+            const auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
+            const auto update = make_document(
+                    kvp("$set", make_document(kvp("status", Entity::ENS::kStatusPublished))),
+                    kvp("$currentDate", make_document(kvp("modified", true))));
+
+            messageCollection.update_one(make_document(kvp("messageId", messageId)).view(), update.view());
+
+        } catch (const std::exception &e) {
+            log_error << "Mark message delivered failed, messageId: " << messageId << ", error: " << e.what();
+            throw;
+        }
+    }
+
+    void MongoEnsRepository::recordResend(const std::string &topicErn, const long count) {
+
+        if (count <= 0) return;
+
+        try {
+            const auto topicCollection = Database::instance().collection(TOPIC_COLLECTION);
+            const auto update = make_document(
+                    kvp("$inc", make_document(kvp("resend", static_cast<int64_t>(count)))),
+                    kvp("$currentDate", make_document(kvp("modified", true))));
+
+            topicCollection.update_one(make_document(kvp("ern", topicErn)).view(), update.view());
+
+        } catch (const std::exception &e) {
+            log_error << "Record resend failed, topicErn: " << topicErn << ", error: " << e.what();
+        }
+    }
+
+    Entity::ENS::Message MongoEnsRepository::publishMessage(const std::string &messageId, const std::string &ern, const std::string &topicErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes, const std::string &priority) {
 
         Entity::ENS::Message message;
         message.ern = ern;
@@ -494,7 +594,12 @@ namespace Euclid::Database {
         message.messageId = messageId;
         message.contentType = Core::ContentTypeUtils::fromContent(message.body);
         message.attributes = attributes;
-        message.status = "PUBLISHED";
+        message.priority = priority;
+
+        // Decided here rather than by the caller, because this is where the topic is read: a
+        // message published to a stopped topic is stored held, and the caller learns not to fan it
+        // out from the status it gets back.
+        message.status = Entity::ENS::kStatusPublished;
 
         try {
 
@@ -504,6 +609,14 @@ namespace Euclid::Database {
             const auto queueFilter = make_document(kvp("ern", topicErn));
             if (auto queueResult = queueCollection.find_one(queueFilter.view())) {
                 const auto queue = Entity::ENS::Topic::fromDocument(queueResult->view());
+
+                // The whole of what retention costs a publish: one date on the document, taken from
+                // the topic this read has already fetched. A topic that has not been given a period
+                // of its own follows the installation's, rather than having frozen a copy of it.
+                const auto retention = queue.retentionPeriod > 0 ? queue.retentionPeriod : defaultRetentionPeriod();
+                message.expiresAt = std::chrono::system_clock::now() + std::chrono::seconds(retention);
+
+                if (!queue.delivering) message.status = Entity::ENS::kStatusHeld;
 
                 const auto update = make_document(
                         kvp("$inc", make_document(
