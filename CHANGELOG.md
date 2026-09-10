@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.1](https://github.com/jensvogt/euclid/compare/1.1.0...v1.1.1) (2026-09-10)
+
+
+### Bug Fixes
+
+* ad nodeJS SDK ([7667eee](https://github.com/jensvogt/euclid/commit/7667eee793385bf504b43fab96d2fb3c912b7bfd))
+* add ENS topic start/stop, ENS topic retention ([0d8c0d8](https://github.com/jensvogt/euclid/commit/0d8c0d8c697a87fe1e4ab06ead65834df5667d4e))
+
 ## [1.1.0](https://github.com/jensvogt/euclid/compare/1.0.84...v1.1.0) (2026-09-10)
 
 
