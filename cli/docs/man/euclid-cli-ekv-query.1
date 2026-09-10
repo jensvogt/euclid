@@ -1,0 +1,128 @@
+.TH EUCLID-CLI-EKV-QUERY 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ekv-query \- read one partition's items, in sort-key order
+.SH SYNOPSIS
+.B euclid-cli ekv query
+.BR \-\-table | \-t
+.I TABLE
+.BR \-\-partition\-key | \-p
+.I JSON
+[\fB\-\-operator\fR|\fB\-o\fR \fIOP\fR \fB\-\-value\fR|\fB\-v\fR \fIJSON\fR]
+[\fB\-\-upper\fR|\fB\-u\fR \fIJSON\fR]
+[\fB\-\-descending\fR|\fB\-d\fR]
+[\fB\-\-page\-size\fR \fIN\fR]
+[\fB\-\-page\-index\fR \fIN\fR]
+.SH DESCRIPTION
+Reads the items of one partition, in sort-key order.
+.PP
+A query always names one partition exactly \- that is what makes it a
+query rather than a scan, and what lets the database walk an index
+instead of reading the table. Without an operator the whole partition
+comes back; with one, the part of it the sort key selects.
+.PP
+Every operator is a bound on the sort key, answered from the index in
+order. A table with no sort key has nothing to narrow by, and asking it
+to is an error rather than a query that quietly ignores half of what it
+was told.
+.SH VALUES ARE JSON
+The partition key and the bounds are given as JSON, so a string is
+quoted and a number is not:
+.PP
+.RS
+.nf
+--partition-key '"4711"'    # against a string key
+--partition-key 4711        # against a number key
+.fi
+.RE
+.PP
+The single quotes are the shell's, keeping the JSON quotes intact. A
+value of the wrong type is refused: it would otherwise match nothing,
+which looks exactly like an empty partition.
+.SH OPERATORS
+.TP
+.B eq
+The sort key equals the value.
+.TP
+.BR lt ", " le ", " gt ", " ge
+Less than, at most, greater than, at least.
+.TP
+.B between
+From
+.B \-\-value
+to
+.BR \-\-upper ,
+both included.
+.TP
+.B begins-with
+The sort key starts with the value. Strings only \- a prefix of a
+number is not a thing, and asking for one is an error rather than
+nonsense.
+.SH OPTIONS
+.TP
+.BR \-t ", " \-\-table " " \fITABLE\fR
+Table to query. Required.
+.TP
+.BR \-p ", " \-\-partition\-key " " \fIJSON\fR
+The partition key's value. Required.
+.TP
+.BR \-o ", " \-\-operator " " \fIOP\fR
+How to narrow by sort key. Needs a
+.BR \-\-value .
+.TP
+.BR \-v ", " \-\-value " " \fIJSON\fR
+What to compare the sort key against; the lower bound for
+.BR between .
+.TP
+.BR \-u ", " \-\-upper " " \fIJSON\fR
+The upper bound, for
+.B between
+only.
+.TP
+.BR \-d ", " \-\-descending
+Read in descending sort-key order \- newest first, where the sort key
+is a timestamp.
+.TP
+.BR \-\-page\-size " " \fIN\fR
+Most to return.
+.TP
+.BR \-\-page\-index " " \fIN\fR
+Zero-based page, applied when a page size is given.
+.SH EXIT STATUS
+.TP
+.B 0
+The items are printed, with how many came back.
+.TP
+.B 1
+No such table, the partition key was of the wrong type, the operator
+was not one of the seven, an operator was given without a value, the
+table has no sort key to narrow by, or
+.B begins-with
+was asked of a key that is not a string.
+.SH EXAMPLES
+.RS
+.nf
+# Everything one supplier ever delivered, oldest first
+euclid-cli ekv query --table deliveries --partition-key '"4711"'
+
+# The most recent delivery
+euclid-cli ekv query -t deliveries -p '"4711"' --descending --page-size 1
+
+# One month of them
+euclid-cli ekv query -t deliveries -p '"4711"' \e
+    --operator begins-with --value '"2026-09"'
+
+# A window, both ends included
+euclid-cli ekv query -t deliveries -p '"4711"' --operator between \e
+    --value '"2026-09-01"' --upper '"2026-09-30T23:59:59Z"'
+
+# Versions after 9, ordered as numbers
+euclid-cli ekv query -t versions -p '"handbook"' --operator gt --value 9
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ekv (1),
+.BR euclid-cli-ekv-create-table (1),
+.BR euclid-cli-ekv-get-item (1),
+.BR euclid-cli-ekv-scan (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

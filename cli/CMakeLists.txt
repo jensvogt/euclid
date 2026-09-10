@@ -1,7 +1,7 @@
 
 set(BINARY euclid-cli)
 
-add_executable(${BINARY} src/http/HttpClient.cpp src/credentials/Credentials.cpp src/eam/EamCli.cpp src/eam/OneLogin.cpp src/eqs/EqsCli.cpp
+add_executable(${BINARY} src/http/HttpClient.cpp src/credentials/Credentials.cpp src/eam/EamCli.cpp src/eam/OneLogin.cpp src/ekv/EkvCli.cpp src/eqs/EqsCli.cpp
         src/ens/EnsCli.cpp src/esm/EsmCli.cpp src/ees/EesCli.cpp src/ekm/EkmCli.cpp src/ets/EtsCli.cpp src/eap/EapCli.cpp src/eag/EagCli.cpp src/emm/EmmCli.cpp src/ess/EssCli.cpp src/main.cpp)
 
 target_include_directories(${BINARY} PRIVATE include ${CMAKE_SOURCE_DIR}/include ${CMAKE_BINARY_DIR}/generated ${CMAKE_SOURCE_DIR}/../dto/include)

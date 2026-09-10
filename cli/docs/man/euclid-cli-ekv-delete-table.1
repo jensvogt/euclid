@@ -1,0 +1,43 @@
+.TH EUCLID-CLI-EKV-DELETE-TABLE 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ekv-delete-table \- delete a table and everything in it
+.SH SYNOPSIS
+.B euclid-cli ekv delete-table
+.BR \-\-name | \-n
+.I TABLE
+.SH DESCRIPTION
+Deletes a table and every item in it, and says how many items went with
+it.
+.PP
+There is no undo, no recycle bin and no confirmation prompt. What the
+table held is gone when this returns. Export it first with
+.BR euclid-cli-ekv-scan (1)
+if it is worth keeping.
+.PP
+The items are removed before the table's own record, so an interrupted
+delete leaves items without a table rather than a table nobody can
+read. Deleting it again clears them.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name " " \fITABLE\fR
+Table name. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The table is gone; the number of items deleted is printed.
+.TP
+.B 1
+No table of that name exists in this account.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli ekv scan --table deliveries > deliveries-backup.json
+euclid-cli ekv delete-table --name deliveries
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ekv (1),
+.BR euclid-cli-ekv-create-table (1),
+.BR euclid-cli-ekv-scan (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

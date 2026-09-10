@@ -1,0 +1,58 @@
+.TH EUCLID-CLI-EKV-DELETE-ITEM 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ekv-delete-item \- remove one item by its key
+.SH SYNOPSIS
+.B euclid-cli ekv delete-item
+.BR \-\-table | \-t
+.I TABLE
+.RB { \-\-key | \-k
+.I JSON
+|
+.B \-\-key\-file
+.IR PATH }
+.SH DESCRIPTION
+Removes one item and says whether there was one to remove.
+.PP
+Deleting something that is not there is not an error \- the outcome
+asked for is the outcome you get \- so the answer carries
+.I deleted
+as true or false rather than failing. That is what makes it safe to run
+twice.
+.PP
+The key is an object of the table's key attributes, exactly as for
+.BR euclid-cli-ekv-get-item (1).
+There is no delete-by-query and no delete-by-prefix: removing a
+partition means reading it with
+.BR euclid-cli-ekv-query (1)
+and deleting the items, or deleting the table.
+.SH OPTIONS
+.TP
+.BR \-t ", " \-\-table " " \fITABLE\fR
+Table to remove from. Required.
+.TP
+.BR \-k ", " \-\-key " " \fIJSON\fR
+The key attributes, as a JSON object.
+.TP
+.BR \-\-key\-file " " \fIPATH\fR
+A file holding the key as JSON.
+.SH EXIT STATUS
+.TP
+.B 0
+The request was carried out; whether an item was removed is in the
+answer.
+.TP
+.B 1
+No such table, or the key was missing an attribute or carried one of
+the wrong type.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli ekv delete-item --table suppliers --key '{"supplierId":"4711"}'
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ekv (1),
+.BR euclid-cli-ekv-get-item (1),
+.BR euclid-cli-ekv-delete-table (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
