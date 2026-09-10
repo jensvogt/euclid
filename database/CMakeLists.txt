@@ -10,7 +10,9 @@ set(SOURCES src/Database.cpp src/Collection.cpp src/EventBus.cpp src/entity/com/
         src/repository/ekm/MongoEkmRepository.cpp src/entity/ekm/Key.cpp src/entity/ekm/Certificate.cpp
         src/entity/ets/TransferServer.cpp src/repository/ets/MongoEtsRepository.cpp
         src/entity/eag/Route.cpp src/repository/eag/MongoEagRepository.cpp
-        src/entity/ess/Secret.cpp src/repository/ess/MongoEssRepository.cpp src/emd/DocumentStore.cpp src/emd/RemoteDocumentStore.cpp
+        src/entity/ess/Secret.cpp src/repository/ess/MongoEssRepository.cpp
+        src/entity/ekv/Value.cpp src/entity/ekv/Table.cpp src/entity/ekv/Item.cpp
+        src/entity/ekv/SortCondition.cpp src/repository/ekv/MongoEkvRepository.cpp src/emd/DocumentStore.cpp src/emd/RemoteDocumentStore.cpp
         src/entity/eap/Application.cpp src/repository/eap/MongoEapRepository.cpp)
 
 add_library(${LIBRARY} STATIC ${SOURCES})

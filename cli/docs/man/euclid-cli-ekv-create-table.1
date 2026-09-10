@@ -1,0 +1,85 @@
+.TH EUCLID-CLI-EKV-CREATE-TABLE 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ekv-create-table \- create a key/value table
+.SH SYNOPSIS
+.B euclid-cli ekv create-table
+.BR \-\-name | \-n
+.I TABLE
+.BR \-\-partition\-key | \-p
+.I ATTRIBUTE
+[\fB\-\-partition\-key\-type\fR \fITYPE\fR]
+[\fB\-\-sort\-key\fR|\fB\-s\fR \fIATTRIBUTE\fR]
+[\fB\-\-sort\-key\-type\fR \fITYPE\fR]
+.SH DESCRIPTION
+Creates a table and fixes what its items are keyed on. Both are
+decisions for the life of the table: there is no altering a key
+afterwards, and no adding a sort key to a table that was made without
+one \- the items would have nowhere to put it.
+.PP
+Every item written to the table has to carry the partition key
+attribute, and the sort key attribute if one is declared, each with the
+declared type. An item that does not is refused.
+.PP
+The type matters for ordering. A
+.I number
+sort key orders 2, 9, 10, 100; the same values under a
+.I string
+key order 10 before 9. Declare what the values are.
+.PP
+Without a sort key, items can only be read one at a time by
+.BR euclid-cli-ekv-get-item (1)
+or enumerated by
+.BR euclid-cli-ekv-scan (1).
+With one, a partition can be read as a range by
+.BR euclid-cli-ekv-query (1),
+which is the reason to have one.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name " " \fITABLE\fR
+Table name, unique within the account. Required.
+.TP
+.BR \-p ", " \-\-partition\-key " " \fIATTRIBUTE\fR
+The attribute every item is identified by. Required.
+.TP
+.BR \-\-partition\-key\-type " " \fITYPE\fR
+Its type: \fIstring\fR, \fInumber\fR or \fIbinary\fR. Defaults to
+\fIstring\fR.
+.TP
+.BR \-s ", " \-\-sort\-key " " \fIATTRIBUTE\fR
+The attribute items within a partition are ordered by. Optional, and
+has to be a different attribute from the partition key.
+.TP
+.BR \-\-sort\-key\-type " " \fITYPE\fR
+Its type: \fIstring\fR, \fInumber\fR or \fIbinary\fR. Defaults to
+\fIstring\fR. Ignored when there is no sort key.
+.SH EXIT STATUS
+.TP
+.B 0
+The table was created; its description is printed.
+.TP
+.B 1
+A table of that name exists already, a key attribute was empty, started
+with \fI$\fR or contained \fI.\fR, the two keys named the same
+attribute, or a type was none of the three.
+.SH EXAMPLES
+.RS
+.nf
+# One record per supplier, read by id
+euclid-cli ekv create-table --name suppliers --partition-key supplierId
+
+# Many deliveries per supplier, in the order they arrived
+euclid-cli ekv create-table --name deliveries \e
+    --partition-key supplierId --sort-key deliveredAt
+
+# Versions of a document, ordered as numbers rather than as text
+euclid-cli ekv create-table --name versions \e
+    --partition-key docId --sort-key version --sort-key-type number
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ekv (1),
+.BR euclid-cli-ekv-describe-table (1),
+.BR euclid-cli-ekv-delete-table (1),
+.BR euclid-cli-ekv-put-item (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

@@ -31,6 +31,7 @@ route - see [Architecture](#architecture).
 | **ees** | Events: subscribe to what the other modules publish                                             | ✅     |
 | **ekm** | Key management: cryptographic keys, encrypt/decrypt, TLS certificates                           | ✅     |
 | **ess** | Secrets store: passwords and connection details, encrypted under an EKM key                     | ✅     |
+| **ekv** | Key/value store: tables of JSON items, looked up by key and queried by sort-key range           | ✅     |
 | **emm** | Module management: start, stop, restart, instance and thread limits, export/import              | ✅     |
 | **ets** | Transfer servers: FTP and SFTP endpoints onto ESM buckets                                       | ✅     |
 | **eap** | Applications: Java, Python, Node.js, Rust or C++ processes euclid runs, scales and supervises   | ✅     |
@@ -469,6 +470,39 @@ One consequence is unavoidable: an assertion fetched this way answers no authent
 
 An installation that only ever consumes assertions this way needs no `idp-sso-url`: that is where a browser would be
 sent, and this flow sends nobody anywhere.
+
+### The key/value store
+
+`ekv` holds tables of items: a record identified by a **partition key**, optionally ordered within that partition by a
+**sort key**. It is for the data that has no business being an object in a bucket - a record read one at a time by name
+and updated in place, rather than a file written once and listed by prefix.
+
+```bash
+euclid-cli ekv create-table --name suppliers --partition-key supplierId
+euclid-cli ekv put-item --table suppliers --item-file supplier.json
+euclid-cli ekv get-item --table suppliers --key '{"supplierId":"4711"}'
+
+# A sort key makes a partition readable as a range
+euclid-cli ekv create-table --name deliveries --partition-key supplierId --sort-key deliveredAt
+euclid-cli ekv query --table deliveries --partition-key '"4711"' --operator begins-with --value '"2026-09"'
+```
+
+Items are ordinary JSON objects, nested as deeply as you like, with no type annotations to write and none to read back -
+and the types survive the round trip: a number comes back a number, `3` does not become `3.0`, and an empty object stays
+an empty object. Keys are typed when the table is created (`string`, `number` or `binary`), which is what makes a range
+query mean what it should: a `number` sort key orders 2, 9, 10, 100 rather than "10" before "9".
+
+Four things are worth knowing before you model against it:
+
+- **`put-item` replaces**, it does not merge. Writing `{"supplierId":"4711","name":"x"}` over a fuller record leaves that
+  record with two attributes. Read-modify-write until `update-item` exists.
+- **Attribute names** may not be empty, start with `$` or contain `.` - refused at the door rather than escaped, so what
+  you read back is exactly what you wrote.
+- **`_created` and `_modified`** are added to every item that is read. An attribute of the same name would be shadowed.
+- **Paging is by page size and index**, as everywhere else in euclid, rather than by cursor.
+
+Not there yet, in the order they are likely to arrive: `update-item` and conditional writes, batch reads and writes,
+secondary indexes, a TTL attribute, and item changes published on the event bus.
 
 ### Running without a database
 

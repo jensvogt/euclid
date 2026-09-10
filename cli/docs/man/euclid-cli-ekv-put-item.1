@@ -1,0 +1,92 @@
+.TH EUCLID-CLI-EKV-PUT-ITEM 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ekv-put-item \- write an item
+.SH SYNOPSIS
+.B euclid-cli ekv put-item
+.BR \-\-table | \-t
+.I TABLE
+.RB { \-\-item | \-i
+.I JSON
+|
+.B \-\-item\-file
+.IR PATH }
+.SH DESCRIPTION
+Writes an item, replacing whatever was stored under its key.
+.PP
+.B It replaces rather than merges.
+Writing
+.I {"supplierId":"4711","name":"x"}
+over a record of twenty attributes leaves a record of two. There is no
+partial update yet, so changing one field means reading the item,
+editing it and writing it back \- and two of those racing will lose one
+of the edits.
+.PP
+The item is an ordinary JSON object and may nest as deeply as you like.
+It has to carry the table's key attributes with the types the table
+declared; anything else is yours. Types survive the round trip: a
+number comes back a number,
+.I 3
+does not become
+.IR 3.0 ,
+and an empty object stays an empty object.
+.PP
+Attribute names may not be empty, start with
+.I $
+or contain
+.IR . " \-"
+refused here rather than escaped, so that what you read back is exactly
+what you wrote. Values may not nest more than 32 deep.
+.PP
+An item's
+.I _created
+is set the first time it is written and left alone afterwards;
+.I _modified
+moves on every write. Both are the server's, taken from its clock.
+.SH OPTIONS
+.TP
+.BR \-t ", " \-\-table " " \fITABLE\fR
+Table to write to. Required.
+.TP
+.BR \-i ", " \-\-item " " \fIJSON\fR
+The item, as a JSON object.
+.TP
+.BR \-\-item\-file " " \fIPATH\fR
+A file holding the item as JSON. Use this for anything you would not
+want to quote into a shell twice. Give one of this and
+.BR \-\-item ,
+not both.
+.SH EXIT STATUS
+.TP
+.B 0
+The item was written; it is printed back as stored.
+.TP
+.B 1
+No such table, the item was not an object, it was missing a key
+attribute or carried one of the wrong type, an attribute name could not
+be stored, or the JSON did not parse.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli ekv put-item --table suppliers --item-file supplier.json
+
+euclid-cli ekv put-item --table deliveries --item \e
+    '{"supplierId":"4711","deliveredAt":"2026-09-10T22:00:00Z","files":7}'
+.fi
+.RE
+.PP
+Changing one field of an existing record, whole:
+.PP
+.RS
+.nf
+euclid-cli ekv get-item --table suppliers --key '{"supplierId":"4711"}' \e
+    | jq '.active = false | del(._created, ._modified)' > supplier.json
+euclid-cli ekv put-item --table suppliers --item-file supplier.json
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ekv (1),
+.BR euclid-cli-ekv-get-item (1),
+.BR euclid-cli-ekv-delete-item (1),
+.BR euclid-cli-ekv-create-table (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

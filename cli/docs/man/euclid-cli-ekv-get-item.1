@@ -1,0 +1,71 @@
+.TH EUCLID-CLI-EKV-GET-ITEM 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ekv-get-item \- read one item by its key
+.SH SYNOPSIS
+.B euclid-cli ekv get-item
+.BR \-\-table | \-t
+.I TABLE
+.RB { \-\-key | \-k
+.I JSON
+|
+.B \-\-key\-file
+.IR PATH }
+.SH DESCRIPTION
+Reads one item and prints it as it was written, plus
+.I _created
+and
+.IR _modified .
+.PP
+The key is an object of the table's key attributes and nothing else \-
+.I {"supplierId":"4711"}
+for a table keyed on
+.I supplierId
+alone, and both attributes for a table with a sort key. Extra
+attributes are refused rather than ignored, because a key that is not
+exactly the key is usually a caller who thinks the table is keyed on
+something else.
+.PP
+An item that is not there is an error, not an empty answer: "there is
+no such item" and "here is an item with nothing in it" are different
+things, and a caller should not have to tell them apart by inspecting
+what came back.
+.SH OPTIONS
+.TP
+.BR \-t ", " \-\-table " " \fITABLE\fR
+Table to read from. Required.
+.TP
+.BR \-k ", " \-\-key " " \fIJSON\fR
+The key attributes, as a JSON object.
+.TP
+.BR \-\-key\-file " " \fIPATH\fR
+A file holding the key as JSON. Give one of this and
+.BR \-\-key ,
+not both.
+.SH EXIT STATUS
+.TP
+.B 0
+The item is printed.
+.TP
+.B 1
+No such table, no such item, the key was missing an attribute or
+carried one of the wrong type, or it named an attribute the table is
+not keyed on.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli ekv get-item --table suppliers --key '{"supplierId":"4711"}'
+
+euclid-cli ekv get-item --table deliveries \e
+    --key '{"supplierId":"4711","deliveredAt":"2026-09-10T22:00:00Z"}'
+
+# One field of it
+euclid-cli ekv get-item -t suppliers -k '{"supplierId":"4711"}' \e
+    | jq -r .delivery.format
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ekv (1),
+.BR euclid-cli-ekv-put-item (1),
+.BR euclid-cli-ekv-query (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

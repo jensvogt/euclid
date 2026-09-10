@@ -15,6 +15,8 @@
 #include <euclid/core/monitoring/MetricsPusher.h>
 #include <euclid/database/EventBus.h>
 #include <euclid/database/repository/eam/IEamRepository.h>
+#include <euclid/database/repository/ekv/IEkvRepository.h>
+#include <euclid/database/repository/ekv/MongoEkvRepository.h>
 #include <euclid/database/repository/eam/MongoEamRepository.h>
 #include <euclid/database/repository/ekm/IEkmRepository.h>
 #include <euclid/database/repository/ekm/MongoEkmRepository.h>
@@ -112,6 +114,7 @@ namespace Euclid::Database {
             std::ignore = eagRepository();
             std::ignore = eapRepository();
             std::ignore = essRepository();
+            std::ignore = ekvRepository();
 
             // The event bus sets its indexes up the same way, on the first Subscribe or Publish -
             // which for EES is the subscribe-events call of whichever client got there first.
@@ -163,6 +166,12 @@ namespace Euclid::Database {
         [[nodiscard]]
         std::shared_ptr<IEssRepository> essRepository() const {
             static auto repo = createEssRepository();
+            return repo;
+        }
+
+        [[nodiscard]]
+        std::shared_ptr<IEkvRepository> ekvRepository() const {
+            static auto repo = createEkvRepository();
             return repo;
         }
 
@@ -279,6 +288,12 @@ namespace Euclid::Database {
         }
 
         [[nodiscard]]
+        std::shared_ptr<IEkvRepository> createEkvRepository() const {
+            // One implementation whatever the backend, as everywhere else here - see
+            // createEssRepository().
+            return std::make_shared<MongoEkvRepository>();
+        }
+
         std::shared_ptr<IEssRepository> createEssRepository() const {
             // MongoEssRepository whatever the backend: it talks to
             // Database::collection(), which is MongoDB, an in-process document store or the
