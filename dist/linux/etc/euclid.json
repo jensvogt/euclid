@@ -162,6 +162,18 @@
         "maxInstances": 4,
         "threads": 2
       },
+      "ekv": {
+        "dependencies": [
+          "emd"
+        ],
+        "active": true,
+        "name": "ekv",
+        "socketPath": "/var/run/euclid/euclid-ekv.sock",
+        "executable": "/usr/local/euclid/bin/euclid-ekv",
+        "minInstances": 1,
+        "maxInstances": 4,
+        "threads": 4
+      },
       "ess": {
         "dependencies": [
           "emd"

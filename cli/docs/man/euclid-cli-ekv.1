@@ -1,0 +1,213 @@
+.TH EUCLID-CLI-EKV 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ekv \- store and read items in a key/value table
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+[\fB\-\-loglevel\fR \fILEVEL\fR]
+.B ekv
+.I action
+[\fIaction-options\fR...]
+.SH DESCRIPTION
+The
+.B ekv
+module is euclid's key/value store: tables of items, each identified by
+a
+.B partition key
+and optionally ordered within that partition by a
+.BR "sort key" .
+.PP
+It is for the data that has no business being an object in a bucket \-
+a record read one at a time by name and updated in place, rather than a
+file written once and found again by listing a prefix. A store of
+supplier records, of per-tenant settings, of the last state of
+something: things that are looked up, not streamed.
+.SH ITEMS ARE JSON
+An item is an ordinary JSON object. It nests as deeply as you like,
+there are no type annotations to write and none to read back, and the
+types survive the round trip: a number written as a number is read as a
+number,
+.I 3
+does not come back as
+.IR 3.0 ,
+an empty object stays an empty object, and a list keeps its order.
+.PP
+Attribute names may not be empty, start with
+.I $
+or contain
+.IR . " \-"
+those are refused when the item is written rather than quietly escaped,
+so that what is read back is exactly what was written.
+.PP
+Every item that is read carries
+.I _created
+and
+.IR _modified ,
+added by the server. An attribute of either name would be shadowed by
+them.
+.SH KEYS
+A table declares what its items are keyed on when it is created, and
+what type that key has \-
+.IR string ,
+.I number
+or
+.IR binary .
+Every item written has to carry that attribute, with that type; one
+that does not is refused rather than stored where no lookup could find
+it.
+.PP
+The type is not decoration. A
+.I number
+sort key orders 2, 9, 10, 100; the same values under a
+.I string
+key order 10 before 9, because that is what those characters do. Choose
+the type the values actually have.
+.PP
+With no sort key, an item is identified by its partition key alone and
+can only be read one at a time. With one, the items sharing a partition
+key are ordered by it, and
+.BR euclid-cli-ekv-query (1)
+can read any range of them \- which is the only reason to declare one.
+.SH WRITES REPLACE
+.BR euclid-cli-ekv-put-item (1)
+writes the item you give it, whole. It does not merge with what was
+there: writing
+.I {"supplierId":"4711","name":"x"}
+over a record of twenty attributes leaves a record of two.
+.PP
+There is no partial update yet. Until there is, a partial change is a
+read, an edit and a write, and two of those racing will lose one of the
+edits.
+.SH NAMESPACES
+A table belongs to the account you are logged in to and to the
+namespace the session is scoped to \- see
+.BR euclid-cli-eam-change-namespace (1).
+Two environments each having a
+.I suppliers
+table is the ordinary case rather than a collision.
+.SH ACTIONS
+.TP
+.B create-table
+Creates a table and says what its items are keyed on. See
+.BR euclid-cli-ekv-create-table (1).
+.TP
+.B describe-table
+Shows a table's key and how many items it holds. See
+.BR euclid-cli-ekv-describe-table (1).
+.TP
+.B list-tables
+Lists the account's tables. See
+.BR euclid-cli-ekv-list-tables (1).
+.TP
+.B delete-table
+Deletes a table and everything in it. See
+.BR euclid-cli-ekv-delete-table (1).
+.TP
+.B put-item
+Writes an item, replacing whatever was under its key. See
+.BR euclid-cli-ekv-put-item (1).
+.TP
+.B get-item
+Reads one item by its key. See
+.BR euclid-cli-ekv-get-item (1).
+.TP
+.B delete-item
+Removes one item by its key. See
+.BR euclid-cli-ekv-delete-item (1).
+.TP
+.B query
+Reads one partition's items, in sort-key order. See
+.BR euclid-cli-ekv-query (1).
+.TP
+.B scan
+Reads a table's items, a page at a time. See
+.BR euclid-cli-ekv-scan (1).
+.SH VALUES ON THE COMMAND LINE
+Anywhere a key or a bound is given, it is given as JSON \- so a string
+is quoted and a number is not:
+.PP
+.RS
+.nf
+--partition-key '"4711"'     # a string key
+--partition-key 4711         # a number key
+.fi
+.RE
+.PP
+The shell's single quotes keep the JSON quotes from being eaten. Items
+and keys can be read from a file instead, with
+.B \-\-item\-file
+and
+.BR \-\-key\-file ,
+which is what to use for anything you would not want to quote twice.
+.SH GLOBAL OPTIONS
+These options are given to
+.B euclid-cli
+itself, before the
+.I ekv
+module name.
+.TP
+.BR \-e ", " \-\-endpoint " " \fIURL\fR
+Euclid gateway endpoint to talk to, e.g. \fIhttps://localhost:5566\fR.
+.TP
+.BR \-\-ca\-cert " " \fIPATH\fR
+Path to a PEM CA certificate to trust in addition to the system trust
+store, e.g. for self-signed development certificates.
+.TP
+.BR \-l ", " \-\-loglevel " " \fILEVEL\fR
+Log level: one of \fItrace\fR, \fIdebug\fR, \fIinfo\fR, \fIwarning\fR,
+\fIerror\fR, \fIfatal\fR. Defaults to \fIinfo\fR.
+.TP
+.BR \-h ", " \-\-help
+Print top-level usage and exit.
+.SH AUTHENTICATION
+.B ekv
+commands are authenticated using the session created by
+.BR euclid-cli-eam-login (1),
+loaded from
+.IR $HOME/.euclid/credentials ,
+and signed with RFC 9421 HTTP Message Signatures using the stored
+access key if there is one.
+.SH LIMITS
+What is not there yet, in the order it is likely to arrive: partial
+updates and conditional writes, batch reads and writes, secondary
+indexes, a time-to-live attribute, and item changes published on the
+event bus.
+.PP
+Paging is by page size and index, as everywhere else in euclid, rather
+than by a cursor. A page taken from a table that is being written to at
+the same time can repeat an item or miss one.
+.SH EXIT STATUS
+.TP
+.B 0
+The action completed successfully.
+.TP
+.B 1
+Argument parsing failed, the request could not be sent, or the server
+rejected it. Details are printed to standard error.
+.SH EXAMPLES
+A store of supplier records, and a log of what each of them delivered:
+.PP
+.RS
+.nf
+euclid-cli ekv create-table --name suppliers --partition-key supplierId
+euclid-cli ekv put-item --table suppliers --item-file supplier.json
+euclid-cli ekv get-item --table suppliers --key '{"supplierId":"4711"}'
+
+euclid-cli ekv create-table --name deliveries \e
+    --partition-key supplierId --sort-key deliveredAt
+
+euclid-cli ekv query --table deliveries --partition-key '"4711"' \e
+    --operator begins-with --value '"2026-09"'
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli (1),
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-esm (1),
+.BR euclid-cli-ekv-create-table (1),
+.BR euclid-cli-ekv-put-item (1),
+.BR euclid-cli-ekv-get-item (1),
+.BR euclid-cli-ekv-query (1),
+.BR euclid-cli-ekv-scan (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

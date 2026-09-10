@@ -291,3 +291,12 @@ target_include_directories(${ONELOGIN_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/cli/in
 target_link_libraries(${ONELOGIN_BINARY} PRIVATE euclidcore Boost::json OpenSSL::SSL OpenSSL::Crypto Boost::unit_test_framework)
 
 add_test(NAME ${ONELOGIN_BINARY} COMMAND ${ONELOGIN_BINARY})
+
+set(EKV_VALUE_BINARY euclid-ekv-value-tests)
+
+add_executable(${EKV_VALUE_BINARY} EkvValueTest.cpp)
+set_target_properties(${EKV_VALUE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${EKV_VALUE_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${EKV_VALUE_BINARY} COMMAND ${EKV_VALUE_BINARY})

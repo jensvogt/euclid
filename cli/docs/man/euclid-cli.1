@@ -66,6 +66,11 @@ without a queue of your own. See
 Key management: cryptographic keys, encryption and decryption. See
 .BR euclid-cli-ekm (1).
 .TP
+.B ekv
+Key/value store: tables of JSON items, read one at a time by key and
+queried by sort-key range. See
+.BR euclid-cli-ekv (1).
+.TP
 .B emm
 Module management: what the manager is running, and export/import of a
 module's collections. See
@@ -260,6 +265,7 @@ euclid-cli --endpoint https://euclid.example.com:5566 \e
 .BR euclid-cli-ens (1),
 .BR euclid-cli-ees (1),
 .BR euclid-cli-ekm (1),
+.BR euclid-cli-ekv (1),
 .BR euclid-cli-emm (1),
 .BR euclid-cli-ets (1),
 .BR euclid-cli-eap (1),

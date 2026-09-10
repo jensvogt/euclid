@@ -14,6 +14,7 @@
 #include <euclid/cli/eag/EagCli.h>
 #include <euclid/cli/ees/EesCli.h>
 #include <euclid/cli/ekm/EkmCli.h>
+#include <euclid/cli/ekv/EkvCli.h>
 #include <euclid/cli/ess/EssCli.h>
 #include <euclid/cli/emm/EmmCli.h>
 #include <euclid/cli/ens/EnsCli.h>
@@ -59,6 +60,7 @@ int main(const int argc, char *argv[]) {
             "\tESS Euclid secrets store (passwords, connection details, encrypted under an EKM key)\n"
             "\tEMM Euclid module management (start, stop, restart, auto-scaler)\n"
             "\tETS Euclid transfer server (FTP/SFTP endpoints onto ESM buckets)\n"
+            "\tEKV Euclid key/value store (tables, items)\n"
             "\tEAP Euclid applications (Java, Python, Node.js, Rust or C++ processes euclid runs and scales)\n"
             "\tEAG Euclid API gateway (publishes paths and proxies them to EAP application instances)\n";
 
@@ -208,6 +210,11 @@ int main(const int argc, char *argv[]) {
         const auto authToken = Euclid::CLI::Credentials::Load();
         const Euclid::CLI::EesCli ees(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), pretty, caCert);
         return ees.process(action, args);
+    }
+    if (module == "ekv") {
+        const auto authToken = Euclid::CLI::Credentials::Load();
+        const Euclid::CLI::EkvCli ekv(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), pretty, caCert);
+        return ekv.process(action, args);
     }
     if (module == "eag") {
         const auto authToken = Euclid::CLI::Credentials::Load();

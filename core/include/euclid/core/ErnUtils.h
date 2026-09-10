@@ -223,6 +223,22 @@ namespace Euclid::Core {
     }
 
     /**
+     * @brief Creates an EKV table ERN
+     *
+     * @par
+     * Namespace-scoped, like a bucket or a queue: two environments each having a "suppliers" table
+     * is the ordinary case rather than a collision.
+     *
+     * @param accountId account ID
+     * @param nameSpace namespace within accountId the table belongs to; empty means unscoped
+     * @param name table name
+     * @return the ERN
+     */
+    inline std::string createEkvTableErn(const std::string &accountId, const std::string &nameSpace, const std::string &name) {
+        return createErn("ekv", accountId, nameSpace, "table:" + name);
+    }
+
+    /**
      * @brief Creates a ESM bucket ERN
      *
      * @param accountId account ID

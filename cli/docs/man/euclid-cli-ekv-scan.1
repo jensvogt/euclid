@@ -1,0 +1,63 @@
+.TH EUCLID-CLI-EKV-SCAN 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ekv-scan \- read a table's items, a page at a time
+.SH SYNOPSIS
+.B euclid-cli ekv scan
+.BR \-\-table | \-t
+.I TABLE
+[\fB\-\-page\-size\fR \fIN\fR]
+[\fB\-\-page\-index\fR \fIN\fR]
+.SH DESCRIPTION
+Reads a table's items in key order, without regard to their key, and
+says how many the table holds in total.
+.PP
+It reads everything, which is what a scan is. Use it to enumerate,
+export, migrate or debug a table, and
+.BR euclid-cli-ekv-query (1)
+to serve requests: a scan's cost grows with the table, a query's with
+the answer.
+.PP
+Items come back ordered by partition key and then sort key, so paging
+through a quiet table sees each item once. A table being written to
+while it is paged through can still repeat an item or miss one \-
+paging is by page size and index rather than by a cursor, and inserts
+move items between pages.
+.SH OPTIONS
+.TP
+.BR \-t ", " \-\-table " " \fITABLE\fR
+Table to scan. Required.
+.TP
+.BR \-\-page\-size " " \fIN\fR
+Most to return. Without it, every item in the table, which for a large
+one is a large answer.
+.TP
+.BR \-\-page\-index " " \fIN\fR
+Zero-based page, applied when a page size is given.
+.SH EXIT STATUS
+.TP
+.B 0
+The items are printed, with how many came back and how many there are.
+.TP
+.B 1
+No such table, or the request could not be sent.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli ekv scan --table suppliers
+
+# Export a table, a thousand at a time
+page=0
+while true; do
+    got=$(euclid-cli ekv scan -t suppliers --page-size 1000 --page-index $page)
+    [ "$(echo "$got" | jq '.count')" -eq 0 ] && break
+    echo "$got" | jq -c '.items[]' >> suppliers.ndjson
+    page=$((page + 1))
+done
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ekv (1),
+.BR euclid-cli-ekv-query (1),
+.BR euclid-cli-ekv-delete-table (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
