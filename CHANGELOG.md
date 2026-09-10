@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/jensvogt/euclid/compare/1.0.84...v1.1.0) (2026-09-10)
+
+
+### Features
+
+* add key/value database, new module ekv ([957b7c2](https://github.com/jensvogt/euclid/commit/957b7c2b1502deba98eb0ffa585363dbe1f3fd84))
+
 ## [1.0.84](https://github.com/jensvogt/euclid/compare/v1.0.83...v1.0.84) (2026-09-09)
 
 
