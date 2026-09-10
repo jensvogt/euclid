@@ -6,6 +6,40 @@ namespace Euclid::CLI {
 
     namespace {
 
+        // Seconds, or a number with a unit: 90m, 36h, 14d. Nothing cleverer - a period is one
+        // number and one unit, and anybody who wants a fortnight can write 14d rather than count
+        // it out in seconds.
+        bool parseDuration(const std::string &text, long &seconds) {
+
+            if (text.empty()) return false;
+
+            long multiplier = 1;
+            std::string digits = text;
+            switch (const char last = text.back()) {
+                case 's':
+                case 'm':
+                case 'h':
+                case 'd':
+                    multiplier = last == 's' ? 1 : last == 'm' ? 60 : last == 'h' ? 3600 : 86400;
+                    digits = text.substr(0, text.size() - 1);
+                    break;
+                default:
+                    break;
+            }
+            if (digits.empty() || digits.find_first_not_of("0123456789") != std::string::npos) return false;
+
+            try {
+                seconds = std::stol(digits) * multiplier;
+            } catch (const std::exception &) {
+                return false;
+            }
+            return seconds >= 0;
+        }
+
+    }// namespace
+
+    namespace {
+
         /**
          * @brief Resolves a value that may be given literally or as "file://path", in which case it is read from the referenced file instead.
          */
@@ -46,6 +80,9 @@ namespace Euclid::CLI {
                                            {"purge-all-topic", "Purge all topics by deleting all messages"},
                                            {"purge-topic", "Purge a topic by deleting all messages"},
                                            {"set-message-attribute", "Sets the value of a message attribute"},
+                                           {"set-topic-retention", "Sets how long a topic keeps the messages published to it"},
+                                           {"start-topic", "Starts delivering to a topic's subscribers, handing over what it held"},
+                                           {"stop-topic", "Stops delivering to a topic's subscribers; publishes are still stored"},
                                            {"set-topic-tag", "Sets the value of an existing topic tag"},
                                            {"subscribe", "Subscribes a target resource (an EQS queue) to a topic"},
                                            {"unsubscribe", "Deletes a subscription"},
@@ -80,6 +117,15 @@ namespace Euclid::CLI {
         }
         if (action == "delete-topic-tag") {
             return deleteTopicTag(args);
+        }
+        if (action == "set-topic-retention") {
+            return setTopicRetention(args);
+        }
+        if (action == "start-topic") {
+            return setTopicDelivering(args, true);
+        }
+        if (action == "stop-topic") {
+            return setTopicDelivering(args, false);
         }
         if (action == "delete-topic") {
             return deleteTopic(args);
@@ -731,6 +777,112 @@ namespace Euclid::CLI {
                 std::cerr << "error: set-topic-tag failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EnsCli::setTopicRetention(const std::vector<std::string> &args) const {
+        po::options_description desc("set topic retention options");
+        desc.add_options()
+                ("topic,t", po::value<std::string>()->required(), "topic name; a full ERN also works and is what reaches another namespace")
+                ("retention-period,r", po::value<std::string>()->required(),
+                 "how long to keep a published message: seconds, or a duration such as 14d, 36h or 90m; 0 follows the installation default");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ens", "set-topic-retention", "--topic <name|ern> --retention-period <duration>",
+                                   "Sets how long messages published to a topic are kept. Published messages are not "
+                                   "consumed the way queue messages are - a topic fans them out and keeps what was "
+                                   "published - so without a retention period they would stay forever, and every "
+                                   "topic shares one collection. "
+                                   "The period applies to messages published afterwards: the ones already stored keep "
+                                   "the expiry they were given when they were published. A period of 0 means the topic "
+                                   "has none of its own and follows euclid.modules.ens.retention-period, which is where "
+                                   "every topic starts out and which defaults to 14 days.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        long seconds = 0;
+        if (const auto given = vm["retention-period"].as<std::string>(); !parseDuration(given, seconds)) {
+            std::cerr << "error: --retention-period has to be a number of seconds or a duration like 14d, 36h or 90m, and was '"
+                      << given << "'\n";
+            return 1;
+        }
+
+        Dto::ENS::SetTopicRetentionRequest request;
+        request.ern = vm["topic"].as<std::string>();
+        request.retentionPeriod = seconds;
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ens", "set-topic-retention", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: set-topic-retention failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EnsCli::setTopicDelivering(const std::vector<std::string> &args, const bool delivering) const {
+
+        const std::string action = delivering ? "start-topic" : "stop-topic";
+
+        po::options_description desc(action + " options");
+        desc.add_options()("topic,t", po::value<std::string>()->required(),
+                           "topic name; a full ERN also works and is what reaches another namespace");
+
+        if (IsHelpRequest(args)) {
+            return delivering
+                           ? PrintActionHelp("ens", action, "--topic <name|ern>",
+                                             "Starts delivering to a topic's subscribers again, and hands over what the topic "
+                                             "held while it was stopped - oldest first, with the payload, attributes and "
+                                             "priority each message was published with. Says how many that was. "
+                                             "A topic that was already delivering is left as it is and releases nothing.",
+                                             desc)
+                           : PrintActionHelp("ens", action, "--topic <name|ern>",
+                                             "Stops delivering to a topic's subscribers. Publishing carries on and the "
+                                             "messages are stored as usual - they are simply held rather than handed on, and "
+                                             "'ens start-topic' delivers them when the subscriber is ready for them. "
+                                             "A held message expires like any other, so a topic left stopped for longer than "
+                                             "its retention period loses what it was holding.",
+                                             desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        const boost::json::object request{{"ern", vm["topic"].as<std::string>()}};
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ens", action, request);
+            if (!response.IsSuccess()) {
+                std::cerr << "error: " << action << " failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
             return 0;
         } catch (const std::exception &ex) {
             std::cerr << "error: " << ex.what() << std::endl;

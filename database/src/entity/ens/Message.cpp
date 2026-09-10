@@ -26,7 +26,8 @@ namespace Euclid::Database::Entity::ENS {
             systemAttrsDoc.append(bsoncxx::builder::basic::kvp(k, v.ToDocument()));
         }
 
-        return bsoncxx::builder::basic::make_document(
+        bsoncxx::builder::basic::document document;
+        document.append(
                 bsoncxx::builder::basic::kvp("ern", ern),
                 bsoncxx::builder::basic::kvp("topicErn", topicErn),
                 bsoncxx::builder::basic::kvp("body", body),
@@ -35,9 +36,18 @@ namespace Euclid::Database::Entity::ENS {
                 bsoncxx::builder::basic::kvp("receiptHandle", receiptHandle),
                 bsoncxx::builder::basic::kvp("contentType", contentType),
                 bsoncxx::builder::basic::kvp("status", status),
+                bsoncxx::builder::basic::kvp("priority", priority),
                 bsoncxx::builder::basic::kvp("lastReceived", bsoncxx::types::b_date(lastReceived)),
                 bsoncxx::builder::basic::kvp("attributes", attrsDoc.extract()),
                 bsoncxx::builder::basic::kvp("systemAttributes", systemAttrsDoc.extract()));
+
+        // Written only when there is one. An unset expiry is the epoch, and a TTL index reading
+        // that would delete the message the moment it was stored - so a message that has no expiry
+        // has no field, which is also what a message published before retention existed looks like.
+        if (expiresAt.time_since_epoch().count() > 0) {
+            document.append(bsoncxx::builder::basic::kvp("expiresAt", bsoncxx::types::b_date(expiresAt)));
+        }
+        return document.extract();
     }
 
     void Message::FromDocument(const std::optional<bsoncxx::document::view> &document) {
@@ -52,7 +62,9 @@ namespace Euclid::Database::Entity::ENS {
             else if (key == "receiptHandle") receiptHandle = std::string(field.get_string().value);
             else if (key == "contentType") contentType = std::string(field.get_string().value);
             else if (key == "status") status = std::string(field.get_string().value);
+            else if (key == "priority") priority = std::string(field.get_string().value);
             else if (key == "lastReceived") lastReceived = system_clock::time_point{field.get_date().value};
+            else if (key == "expiresAt") expiresAt = system_clock::time_point{field.get_date().value};
             else if (key == "created") created = system_clock::time_point{field.get_date().value};
             else if (key == "modified") modified = system_clock::time_point{field.get_date().value};
             else if (key == "systemAttributes") {

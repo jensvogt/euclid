@@ -1,0 +1,65 @@
+.TH EUCLID-CLI-ENS-START-TOPIC 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ens-start-topic \- start delivering a topic's messages, and hand over what it held
+.SH SYNOPSIS
+.B euclid-cli ens start-topic
+.BR \-\-topic | \-t
+.I NAME
+.SH DESCRIPTION
+Starts a stopped topic delivering to its subscribers again, and hands
+over everything it held while it was stopped.
+.PP
+The backlog goes out oldest first \- the order it was published in \-
+each message with the body, attributes and priority it was published
+with, to the subscriptions the topic has now. A message held at
+.I HIGH
+priority still arrives at the queue as
+.IR HIGH .
+The answer says how many were released, and the count is added to the
+topic's
+.I resend
+total.
+.SH WHAT A SUBSCRIBER SEES
+Exactly what it would have seen at the time, later. There is no marker
+saying a message was delayed, no reordering, and no de-duplication: a
+subscriber added while the topic was stopped receives the whole backlog,
+because the fan-out happens now and it is subscribed now.
+.PP
+A topic that is already delivering releases nothing and is left as it
+is, so running this twice is harmless \- as is running it against a
+topic that was never stopped.
+.SH INTERRUPTIONS
+The backlog is read and delivered a page at a time, and each message is
+marked as it goes. A start that is interrupted halfway through has
+delivered a prefix of the backlog rather than none of it, and running it
+again picks up where it stopped rather than sending the whole thing
+twice.
+.SH OPTIONS
+.TP
+.BR \-t ", " \-\-topic " " \fINAME\fR
+Topic name. A full ERN also works, and is what reaches another
+namespace. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The topic is delivering; its ERN, delivery state and the number of
+messages released are printed.
+.TP
+.B 1
+No topic of that name.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli ens start-topic --topic orders
+{"ern":"ern:ens:eu-central-1:000000000000::topic:orders",
+ "status":"RUNNING","released":3}
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ens (1),
+.BR euclid-cli-ens-stop-topic (1),
+.BR euclid-cli-ens-set-topic-retention (1),
+.BR euclid-cli-ens-list-messages (1),
+.BR euclid-cli-ens-publish-message (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

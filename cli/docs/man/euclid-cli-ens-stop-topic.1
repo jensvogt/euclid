@@ -1,0 +1,75 @@
+.TH EUCLID-CLI-ENS-STOP-TOPIC 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ens-stop-topic \- stop delivering a topic's messages to its subscribers
+.SH SYNOPSIS
+.B euclid-cli ens stop-topic
+.BR \-\-topic | \-t
+.I NAME
+.SH DESCRIPTION
+Stops handing a topic's messages to its subscribers.
+.PP
+Publishing carries on. A message published to a stopped topic is
+accepted, stored and counted exactly as before \- it is simply held
+rather than fanned out, and
+.BR euclid-cli-ens-start-topic (1)
+hands over everything that was held, oldest first.
+.PP
+That is the point of stopping a topic rather than unsubscribing from it:
+a subscriber being redeployed, or a downstream system taken down for the
+evening, is a reason to hold what arrives rather than to lose it. The
+publisher does not have to know, and does not have to stop.
+.SH WHAT IT DOES NOT DO
+It does not touch the subscriptions, which are still there and still
+listed by
+.BR euclid-cli-ens-list-subscriptions (1).
+It does not stop other topics: this is one topic's delivery, not the
+module's.
+.PP
+And it does not suspend retention. A held message expires like any
+other, so a topic left stopped for longer than its retention period \-
+fourteen days unless it says otherwise, see
+.BR euclid-cli-ens-set-topic-retention (1)
+\- loses what it was holding, oldest first. Stopping a topic is for
+hours and days, not for months.
+.SH OPTIONS
+.TP
+.BR \-t ", " \-\-topic " " \fINAME\fR
+Topic name. A full ERN also works, and is what reaches another
+namespace. Required.
+.SH SEEING IT
+A stopped topic reports
+.I STOPPED
+as its status, which
+.BR euclid-cli-ens-list-topics (1)
+prints for every topic and
+.BR euclid-cli-ens-get-topic-metadata (1)
+prints alongside
+.IR held ,
+the number of messages waiting for the topic to be started again.
+.SH EXIT STATUS
+.TP
+.B 0
+The topic is stopped; its ERN and status are printed. Stopping one that
+is already stopped does nothing and is not an error.
+.TP
+.B 1
+No topic of that name.
+.SH EXAMPLES
+.RS
+.nf
+# While the consumer is redeployed
+euclid-cli ens stop-topic --topic orders
+euclid-cli ens start-topic --topic orders
+
+# What it is holding
+euclid-cli ens list-messages --topic orders
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ens (1),
+.BR euclid-cli-ens-start-topic (1),
+.BR euclid-cli-ens-set-topic-retention (1),
+.BR euclid-cli-ens-list-subscriptions (1),
+.BR euclid-cli-ens-publish-message (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

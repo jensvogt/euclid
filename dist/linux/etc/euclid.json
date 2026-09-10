@@ -123,6 +123,7 @@
         "executable": "/usr/local/euclid/bin/euclid-ens",
         "minInstances": 1,
         "maxInstances": 4,
+        "retention-period": 1209600,
         "threads": 8
       },
       "emo": {

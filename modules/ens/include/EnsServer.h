@@ -30,6 +30,7 @@
 #include <euclid/dto/ens/DeleteTopicRequest.h>
 #include <euclid/dto/ens/DeleteTopicTagRequest.h>
 #include <euclid/dto/ens/EnsMapper.h>
+#include <euclid/dto/ens/SetTopicRetentionRequest.h>
 #include <euclid/dto/ens/GetMessageAttributeRequest.h>
 #include <euclid/dto/ens/GetMessageAttributeResponse.h>
 #include <euclid/dto/ens/GetMessageCountRequest.h>
