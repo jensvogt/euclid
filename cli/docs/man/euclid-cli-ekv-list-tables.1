@@ -1,0 +1,51 @@
+.TH EUCLID-CLI-EKV-LIST-TABLES 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ekv-list-tables \- list the account's tables
+.SH SYNOPSIS
+.B euclid-cli ekv list-tables
+[\fB\-\-prefix\fR|\fB\-p\fR \fITEXT\fR]
+[\fB\-\-page\-size\fR \fIN\fR]
+[\fB\-\-page\-index\fR \fIN\fR]
+[\fB\-\-sort\-column\fR \fIFIELD\fR]
+[\fB\-\-sort\-direction\fR \fIasc\fR|\fIdesc\fR]
+.SH DESCRIPTION
+Lists the tables of the account you are logged in to, each with its
+key, its ERN and how many items it holds.
+.PP
+Each count is a count, so a listing of many tables costs one query per
+table. On an installation with a great many of them, ask for a page.
+.SH OPTIONS
+.TP
+.BR \-p ", " \-\-prefix " " \fITEXT\fR
+Only tables whose name starts with this.
+.TP
+.BR \-\-page\-size " " \fIN\fR
+Most to return. Without it, all of them.
+.TP
+.BR \-\-page\-index " " \fIN\fR
+Zero-based page, applied when a page size is given.
+.TP
+.BR \-\-sort\-column " " \fIFIELD\fR
+Field to sort by. Defaults to the name.
+.TP
+.BR \-\-sort\-direction " " \fIasc\fR|\fIdesc\fR
+Which way to sort. Defaults to ascending.
+.SH EXIT STATUS
+.TP
+.B 0
+The listing is printed, with the account's total table count.
+.TP
+.B 1
+The request could not be sent or was rejected.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli ekv list-tables
+euclid-cli ekv list-tables --prefix supplier --page-size 20
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ekv (1),
+.BR euclid-cli-ekv-describe-table (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
