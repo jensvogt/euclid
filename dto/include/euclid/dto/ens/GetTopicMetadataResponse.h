@@ -52,6 +52,23 @@ namespace Euclid::Dto::ENS {
         long messages{};
 
         /**
+         * @brief Whether the topic is delivering: RUNNING, or STOPPED while it holds what is
+         * published to it - see euclid-cli-ens-stop-topic(1).
+         */
+        std::string status{"RUNNING"};
+
+        /**
+         * @brief How long a published message is kept, in seconds. Zero means the topic follows
+         * euclid.modules.ens.retention-period.
+         */
+        long retentionPeriod{};
+
+        /**
+         * @brief How many messages are held, waiting for the topic to be started again.
+         */
+        long held{};
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -68,6 +85,9 @@ namespace Euclid::Dto::ENS {
             r.nameSpace = Core::GetStringValue(v, "nameSpace");
             r.name = Core::GetStringValue(v, "name");
             r.ern = Core::GetStringValue(v, "ern");
+            r.status = Core::GetStringValue(v, "status");
+            r.retentionPeriod = Core::GetLongValue(v, "retentionPeriod", 0);
+            r.held = Core::GetLongValue(v, "held", 0);
             r.size = Core::GetLongValue(v, "size");
             r.messages = Core::GetLongValue(v, "messages");
             return r;
@@ -83,6 +103,9 @@ namespace Euclid::Dto::ENS {
                     {"ern", obj.ern},
                     {"size", obj.size},
                     {"messages", obj.messages},
+                    {"status", obj.status},
+                    {"retentionPeriod", obj.retentionPeriod},
+                    {"held", obj.held},
             };
         }
     };

@@ -27,6 +27,26 @@ and namespace; see
 .B NAMES AND ERNS
 in
 .BR euclid-cli-ens (1).
+.SH WHAT IS REPORTED
+Besides the topic's region, account, owner, namespace, name, ERN, size
+and message count:
+.TP
+.I status
+.I RUNNING
+or
+.IR STOPPED " \-"
+see
+.BR euclid-cli-ens-stop-topic (1).
+.TP
+.I held
+How many messages are waiting for a stopped topic to be started again.
+Zero for a running one, which is not counted.
+.TP
+.I retentionPeriod
+How long a published message is kept, in seconds;
+.I 0
+means the topic follows
+.IR euclid.modules.ens.retention-period .
 .SH EXIT STATUS
 .TP
 .B 0

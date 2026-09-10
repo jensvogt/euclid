@@ -39,6 +39,8 @@ namespace Euclid::Dto::ENS {
         dto.size = entity.size;
         dto.messages = entity.available;
         dto.maxMessageLength = entity.maxMessageLength;
+        dto.status = entity.status();
+        dto.retentionPeriod = entity.retentionPeriod;
         dto.created = entity.created;
         dto.modified = entity.modified;
         return dto;
@@ -61,6 +63,11 @@ namespace Euclid::Dto::ENS {
         entity.size = dto.size;
         entity.available = dto.messages;
         entity.maxMessageLength = dto.maxMessageLength;
+
+        // Anything but the stopped word means running, including an empty one: a DTO that came
+        // from a caller who has never heard of this must not read as a stopped topic.
+        entity.delivering = dto.status != Database::Entity::ENS::kStatusStopped;
+        entity.retentionPeriod = dto.retentionPeriod;
         entity.tags = dto.tags;
         entity.created = dto.created;
         entity.modified = dto.modified;

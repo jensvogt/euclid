@@ -161,7 +161,17 @@ namespace Euclid::Database {
          * @param attributes message attributes
          * @return the newly created message entity
          */
-        Entity::ENS::Message publishMessage(const std::string &messageId, const std::string &ern, const std::string &topicErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes) override;
+        Entity::ENS::Message publishMessage(const std::string &messageId, const std::string &ern, const std::string &topicErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes, const std::string &priority) override;
+
+        [[nodiscard]]
+        std::vector<Entity::ENS::Message> listHeldMessages(const std::string &topicErn, long limit) const override;
+
+        [[nodiscard]]
+        long countHeldMessages(const std::string &topicErn) const override;
+
+        void markMessageDelivered(const std::string &messageId) override;
+
+        void recordResend(const std::string &topicErn, long count) override;
 
         /**
          * @brief Receives up to maxCount available messages from a topic, long-polling for up to waitTime seconds

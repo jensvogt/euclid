@@ -41,6 +41,8 @@ namespace Euclid::Database::Entity::ENS {
                 bsoncxx::builder::basic::kvp("send", static_cast<int64_t>(send)),
                 bsoncxx::builder::basic::kvp("resend", static_cast<int64_t>(resend)),
                 bsoncxx::builder::basic::kvp("maxMessageLength", static_cast<int64_t>(maxMessageLength)),
+                bsoncxx::builder::basic::kvp("retentionPeriod", static_cast<int64_t>(retentionPeriod)),
+                bsoncxx::builder::basic::kvp("delivering", delivering),
                 bsoncxx::builder::basic::kvp("tags", tagsDoc.extract()));
         // bsoncxx::builder::basic::kvp("defaultMessageAttributes", defaultMessageAttributesDoc.extract()));
     }
@@ -62,6 +64,8 @@ namespace Euclid::Database::Entity::ENS {
             else if (key == "send") topic.send = getBsonInt(field);
             else if (key == "resend") topic.resend = getBsonInt(field);
             else if (key == "maxMessageLength") topic.maxMessageLength = getBsonInt(field);
+            else if (key == "retentionPeriod") topic.retentionPeriod = getBsonInt(field);
+            else if (key == "delivering") topic.delivering = field.get_bool().value;
             else if (key == "created") topic.created = system_clock::time_point{field.get_date().value};
             else if (key == "modified") topic.modified = system_clock::time_point{field.get_date().value};
             else if (key == "tags") {
