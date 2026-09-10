@@ -49,6 +49,18 @@ namespace Euclid::Dto::ENS {
         long maxMessageLength = 1024 * 1024;
 
         /**
+         * @brief Whether the topic is delivering: RUNNING, or STOPPED while it holds what is
+         * published to it - see euclid-cli-ens-stop-topic(1).
+         */
+        std::string status = "RUNNING";
+
+        /**
+         * @brief How long a message published to this topic is kept, in seconds. Zero means the
+         * topic follows the installation's own setting.
+         */
+        long retentionPeriod = 0;
+
+        /**
          * @brief Creation date
          */
         system_clock::time_point created;
@@ -84,6 +96,8 @@ namespace Euclid::Dto::ENS {
             r.size = Core::GetLongValue(v, "size", 0);
             r.messages = Core::GetLongValue(v, "messages", 0);
             r.maxMessageLength = Core::GetLongValue(v, "maxMessageLength", 1024 * 1024);
+            r.status = Core::GetStringValue(v, "status");
+            r.retentionPeriod = Core::GetLongValue(v, "retentionPeriod", 0);
             r.created = Core::GetDatetimeValue(v, "created");
             r.modified = Core::GetDatetimeValue(v, "modified");
             return r;
@@ -98,6 +112,8 @@ namespace Euclid::Dto::ENS {
                     {"size", obj.size},
                     {"messages", obj.messages},
                     {"maxMessageLength", obj.maxMessageLength},
+                    {"status", obj.status},
+                    {"retentionPeriod", obj.retentionPeriod},
                     {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
             };

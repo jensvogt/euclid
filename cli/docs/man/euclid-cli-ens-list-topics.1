@@ -25,6 +25,20 @@ Defaults to \fI-1\fR.
 .TP
 .BR \-c ", " \-\-sort\-column " " \fICOLUMN\fR
 Column to sort results by. Defaults to \fIname\fR.
+.SH WHAT IS LISTED
+Each topic comes with its name, ERN, owner, size and message count, its
+.I status
+\-
+.I RUNNING
+or
+.I STOPPED
+, see
+.BR euclid-cli-ens-stop-topic (1)
+\- and its
+.IR retentionPeriod ,
+which is
+.I 0
+for a topic that follows the installation's own setting.
 .SH EXIT STATUS
 .TP
 .B 0

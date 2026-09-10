@@ -1,0 +1,81 @@
+.TH EUCLID-CLI-ENS-SET-TOPIC-RETENTION 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ens-set-topic-retention \- set how long a topic keeps what is published to it
+.SH SYNOPSIS
+.B euclid-cli ens set-topic-retention
+.BR \-\-topic | \-t
+.I NAME
+.BR \-\-retention\-period | \-r
+.I DURATION
+.SH DESCRIPTION
+Sets how long messages published to a topic are kept.
+.PP
+A topic is not consumed the way a queue is: a publish fans the message
+out to the subscriptions there and then, and what stays behind is the
+record of what was published. Nothing was ever going to remove it, so
+without a retention period a topic grows without limit \- and since
+every topic shares one collection, that cost is paid by every publish in
+the installation rather than by the topic that collected it.
+.SH WHEN IT TAKES EFFECT
+For messages published afterwards. The ones already stored keep the
+expiry they were given when they were published.
+.PP
+That is deliberate: the expiry is a date on each message and the
+database removes it from there, so shortening a busy topic's retention
+would otherwise mean rewriting every message it holds \- and lengthening
+it could not bring back what has already gone. To clear out what a topic
+has now, use
+.BR euclid-cli-ens-purge-topic (1).
+.SH THE DEFAULT
+A topic starts with no period of its own, which is written as
+.IR 0 ,
+and follows
+.I euclid.modules.ens.retention-period
+\- fourteen days unless the installation says otherwise. Setting a topic
+back to
+.I 0
+returns it to following that, including any later change to it.
+.PP
+Longer than a queue message's four days, because the two are different
+things: a queue message is consumed and gone, and this is a record of
+what was sent.
+.SH OPTIONS
+.TP
+.BR \-t ", " \-\-topic " " \fINAME\fR
+Topic name. A full ERN also works, and is what reaches another
+namespace. Required.
+.TP
+.BR \-r ", " \-\-retention\-period " " \fIDURATION\fR
+How long to keep a published message: a number of seconds, or a number
+with a unit \- \fIs\fR, \fIm\fR, \fIh\fR or \fId\fR, as in \fI14d\fR,
+\fI36h\fR or \fI90m\fR. \fI0\fR gives the topic no period of its own and
+follows the installation's. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The period was set; the topic's ERN and its new period are printed.
+.TP
+.B 1
+No topic of that name, the period was negative, or it was neither a
+number of seconds nor a duration this understands.
+.SH EXAMPLES
+.RS
+.nf
+# Three days, for a topic whose history is only of short-term interest
+euclid-cli ens set-topic-retention --topic orders --retention-period 3d
+
+# The same thing in seconds
+euclid-cli ens set-topic-retention --topic orders --retention-period 259200
+
+# Back to following the installation's default
+euclid-cli ens set-topic-retention --topic orders --retention-period 0
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ens (1),
+.BR euclid-cli-ens-create-topic (1),
+.BR euclid-cli-ens-publish-message (1),
+.BR euclid-cli-ens-purge-topic (1),
+.BR euclid-cli-ens-get-topic-metadata (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

@@ -31,6 +31,7 @@
 #include <euclid/dto/ens/ListMessagesRequest.h>
 #include <euclid/dto/ens/ListTopicsRequest.h>
 #include <euclid/dto/ens/PublishMessageRequest.h>
+#include <euclid/dto/ens/SetTopicRetentionRequest.h>
 #include <euclid/dto/ens/PurgeAllTopicsRequest.h>
 #include <euclid/dto/ens/PurgeTopicRequest.h>
 #include <euclid/dto/ens/SetMessageAttributeRequest.h>
@@ -216,6 +217,25 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int deleteTopicTag(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Sets how long a topic keeps the messages published to it
+         *
+         * @param args action arguments
+         * @return process exit code
+         */
+        [[nodiscard]]
+        int setTopicRetention(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Starts or stops a topic delivering to its subscribers
+         *
+         * @param args action arguments
+         * @param delivering true to start, false to stop
+         * @return process exit code
+         */
+        [[nodiscard]]
+        int setTopicDelivering(const std::vector<std::string> &args, bool delivering) const;
 
         /**
          * @brief Subscribes a target resource (e.g. an EQS queue) to a topic.

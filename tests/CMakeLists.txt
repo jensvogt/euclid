@@ -300,3 +300,21 @@ set_target_properties(${EKV_VALUE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 target_link_libraries(${EKV_VALUE_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
 
 add_test(NAME ${EKV_VALUE_BINARY} COMMAND ${EKV_VALUE_BINARY})
+
+set(TOPIC_RETENTION_BINARY euclid-ens-topic-retention-tests)
+
+add_executable(${TOPIC_RETENTION_BINARY} TopicRetentionTest.cpp)
+set_target_properties(${TOPIC_RETENTION_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${TOPIC_RETENTION_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${TOPIC_RETENTION_BINARY} COMMAND ${TOPIC_RETENTION_BINARY})
+
+set(TOPIC_DELIVERY_BINARY euclid-ens-topic-delivery-tests)
+
+add_executable(${TOPIC_DELIVERY_BINARY} TopicDeliveryTest.cpp)
+set_target_properties(${TOPIC_DELIVERY_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${TOPIC_DELIVERY_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${TOPIC_DELIVERY_BINARY} COMMAND ${TOPIC_DELIVERY_BINARY})

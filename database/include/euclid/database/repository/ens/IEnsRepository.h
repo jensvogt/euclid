@@ -187,7 +187,52 @@ namespace Euclid::Database {
          * @param attributes message attributes.
          * @return the newly created message entity.
          */
-        virtual Entity::ENS::Message publishMessage(const std::string &messageId, const std::string &ern, const std::string &topicErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes) = 0;
+        virtual Entity::ENS::Message publishMessage(const std::string &messageId, const std::string &ern, const std::string &topicErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes, const std::string &priority = "MIDDLE") = 0;
+
+        /**
+         * @brief The messages stored while a topic was stopped, oldest first.
+         *
+         * @par
+         * What start-topic delivers. Oldest first because that is the order they were published
+         * in, and a subscriber catching up on an evening's traffic should see it in the order it
+         * happened.
+         *
+         * @param topicErn topic whose held messages to read.
+         * @param limit most to return; a start reads them in pages rather than all at once, so a
+         * topic that collected a fortnight of traffic does not have to fit in memory.
+         * @return the held messages.
+         */
+        [[nodiscard]]
+        virtual std::vector<Entity::ENS::Message> listHeldMessages(const std::string &topicErn, long limit) const = 0;
+
+        /**
+         * @brief How many messages a topic is holding.
+         *
+         * @param topicErn topic to count for.
+         * @return the number held.
+         */
+        [[nodiscard]]
+        virtual long countHeldMessages(const std::string &topicErn) const = 0;
+
+        /**
+         * @brief Marks one held message as delivered.
+         *
+         * @param messageId the message.
+         */
+        virtual void markMessageDelivered(const std::string &messageId) = 0;
+
+        /**
+         * @brief Adds to a topic's count of messages delivered a second time round.
+         *
+         * @par
+         * A targeted increment rather than a write of the whole topic, because a publish arriving
+         * at the same moment increments the same document - and a read-modify-write would drop
+         * whichever of the two finished first.
+         *
+         * @param topicErn topic to count against.
+         * @param count how many were delivered.
+         */
+        virtual void recordResend(const std::string &topicErn, long count) = 0;
 
         /**
          * @brief Deletes ENS topic messages from the repository.
