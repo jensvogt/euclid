@@ -326,6 +326,28 @@ namespace Euclid::main {
         bool modulesRunning() const;
 
         /**
+         * @brief Brings up the document store and waits until it answers, on the backends where it
+         * is a module this manager starts.
+         *
+         * @par
+         * The manager reads the module registry before it starts anything - which modules were
+         * stopped through "emm stop-module" is desired state, and outlives the manager. On the
+         * "emd" backend that registry lives in a module this manager has not started yet, so the
+         * read cannot succeed until it has. Starting it first is the whole of the fix.
+         *
+         * @par
+         * Waiting for the process is not enough. emd binds its own fixed address rather than the
+         * per-instance socket it is handed, so it is judged by staying alive (see main.cpp) and
+         * start() returns as soon as it exists - which is before it is listening. So the wait is
+         * for the socket the store client will actually connect to.
+         *
+         * @par
+         * Does nothing on any other backend: MongoDB is somebody else's process and is either
+         * reachable or not, and the in-process store is there as soon as this process is.
+         */
+        void startDocumentStore();
+
+        /**
          * @brief Initiates the startup process for all registered services.
          */
         void startAll();

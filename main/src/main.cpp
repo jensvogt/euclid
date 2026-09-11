@@ -676,7 +676,23 @@ static int RunManager(const CliOptions &opts, [[maybe_unused]] const bool report
     // and (for applications) an ever-staler credentials file nobody refreshes any more. So the
     // leftovers are killed before the records that name them are dropped.
     if (takeManagerLock(cfg.getOr<std::string>("euclid.data-dir", "/usr/local/euclid/data"))) {
-        killLeftoverInstances();
+
+        // Reading the records means asking the store, and on the memory backends the store is a
+        // process this manager has not launched yet. Where it is a module of its own (emd), one
+        // left listening by a previous run holds records that are real and worth acting on - so
+        // that case is asked; where nothing is listening there is nothing to read, and asking
+        // would only wait out the client's connect retry and log an error about a store that is
+        // started a few lines further on. The in-process store has no socket and nothing stale by
+        // construction: it starts empty because it starts.
+        const auto storeListening = [&cfg] {
+            if (!Euclid::Database::Database::instance().inMemory()) return true;
+            if (cfg.getOr<std::string>("euclid.database.backend", "mongodb") != "emd") return false;
+            std::error_code ec;
+            return std::filesystem::exists(
+                    cfg.getOr<std::string>("euclid.modules.emd.socketPath", "/var/run/euclid/euclid-emd.sock"), ec);
+        }();
+
+        if (storeListening) killLeftoverInstances();
 
         // The records, only when there is a database that outlived the last run. On the memory
         // database there is nothing stale by construction - the store starts empty because it

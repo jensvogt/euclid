@@ -1447,7 +1447,61 @@ namespace Euclid::main {
         return true;
     }
 
+    void ServiceController::startDocumentStore() {
+
+        // The module that holds the store, on the one backend where the store is a module at all.
+        constexpr auto kStoreModule = "emd";
+
+        const auto &configuration = Core::Configuration::instance();
+        if (configuration.getOr<std::string>("euclid.database.backend", "mongodb") != kStoreModule) return;
+
+        int timeoutMs = 0;
+        {
+            std::lock_guard lock(_mutex);
+            const auto *group = getGroup(kStoreModule);
+            if (!group) {
+                // Configured to read from a module that is not configured. Nothing here can fix
+                // that, and saying so once is better than the alternative - every query this
+                // manager makes failing against a socket that will never exist.
+                log_error << "Database backend is '" << kStoreModule << "' but no such module is configured; "
+                          << "the manager has no store to read from";
+                return;
+            }
+            // The module's own readiness budget, which is what every other module is given to
+            // produce a socket - there is no reason for the store to be held to a different one.
+            timeoutMs = group->config.readyTimeoutMs;
+        }
+
+        // Out of dependency order on purpose: every other module waits for what it depends on, and
+        // this is the one the manager itself depends on. start() only spawns instances that are
+        // not already running, so the ordinary pass over the start order below finds it up and
+        // spawns nothing.
+        start(kStoreModule);
+
+        // The address the store client connects to, which is the one emd binds for itself - not
+        // the per-instance socket the manager handed it. Read from the same configuration key
+        // RepositoryFactory uses, so the two cannot drift apart.
+        const auto socketPath = configuration.getOr<std::string>(
+                "euclid.modules." + std::string(kStoreModule) + ".socketPath", "/var/run/euclid/euclid-emd.sock");
+
+        if (!waitForSocket(socketPath, timeoutMs)) {
+            // Not a reason to refuse to start: the store may yet come up, and every repository call
+            // retries its own connect anyway. What is lost is the read below, so this says what
+            // that costs rather than only that a timeout happened.
+            log_error << "The memory database is not listening at " << socketPath << " after " << timeoutMs
+                      << "ms; starting every module as though none had been stopped";
+            return;
+        }
+
+        log_info << "Memory database ready, socket: " << socketPath;
+    }
+
     void ServiceController::startAll() {
+
+        // Before the read below rather than after: on the emd backend that read goes to a module
+        // this manager starts, and asking before it is listening is why a fresh start logged an
+        // error for every query it made on its way up.
+        startDocumentStore();
 
         // What was stopped through "emm stop-module" is desired state, so it outlives the manager:
         // read before anything is started, rather than started and then stopped again seconds

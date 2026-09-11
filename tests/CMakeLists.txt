@@ -318,3 +318,12 @@ set_target_properties(${TOPIC_DELIVERY_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES O
 target_link_libraries(${TOPIC_DELIVERY_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
 
 add_test(NAME ${TOPIC_DELIVERY_BINARY} COMMAND ${TOPIC_DELIVERY_BINARY})
+
+set(SOCKET_BIND_BINARY euclid-unix-socket-bind-tests)
+
+add_executable(${SOCKET_BIND_BINARY} UnixSocketServerBindTest.cpp)
+set_target_properties(${SOCKET_BIND_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${SOCKET_BIND_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${SOCKET_BIND_BINARY} COMMAND ${SOCKET_BIND_BINARY})
