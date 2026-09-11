@@ -588,7 +588,7 @@ jobs:
           --deb-compression xz \
           --version "${{ env.SEMVER }}" \
           --architecture amd64 \
-          --license "GPL-3.0-or-later" \
+          --license "MPL-2.0" \
           --maintainer "Jens Vogt <jens.vogt@opitz-consulting.com>" \
           --description "Euclid Cloud Services" \
           --category utils \
@@ -754,7 +754,7 @@ jobs:
           --description "Euclid - Euclid Cloud Service" \
           --url "https://github.com/jensvogt/euclid" \
           --vendor "Euclid Project" \
-          --license "GPL-3.0-or-later" \
+          --license "MPL-2.0" \
           --depends systemd \
           --depends file-libs \
           --depends gperftools-libs \
@@ -884,7 +884,7 @@ jobs:
           --deb-compression xz \
           --version "${{ env.SEMVER }}" \
           --architecture amd64 \
-          --license "GPL-3.0-or-later" \
+          --license "MPL-2.0" \
           --maintainer "Jens Vogt <jens.vogt@opitz-consulting.com>" \
           --description "Euclid command line interface" \
           --url "https://github.com/jensvogt/euclid" \
@@ -916,7 +916,7 @@ jobs:
           --description "Euclid command line interface" \
           --url "https://github.com/jensvogt/euclid" \
           --vendor "Euclid Project" \
-          --license "GPL-3.0-or-later" \
+          --license "MPL-2.0" \
           --depends gperftools-libs \
           --depends libunwind \
           --depends xz-libs \
