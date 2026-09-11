@@ -35,25 +35,54 @@ namespace Euclid::Database {
         std::optional<Entity::EAG::Route> upsertRoute(Entity::EAG::Route &route) override;
 
         [[nodiscard]]
-        std::optional<Entity::EAG::Route> findRouteByRouteId(const std::string &routeId) const override;
+        std::optional<Entity::EAG::Route> findRouteByRouteId(const std::string &accountId, const std::string &nameSpace,
+                                                             const std::string &routeId) const override;
 
         [[nodiscard]]
         std::optional<Entity::EAG::Route> findRouteByErn(const std::string &ern) const override;
 
         [[nodiscard]]
-        std::vector<Entity::EAG::Route> listRoutes(const std::string &prefix) const override;
+        std::vector<Entity::EAG::Route> listRoutes(const std::string &accountId, const std::string &nameSpace,
+                                                   const std::string &prefix) const override;
+
+        /**
+         * @brief Every route in the installation - for the gateway and the path-claim check only
+         *
+         * @param prefix path prefix filter
+         * @return matching routes
+         */
+        [[nodiscard]]
+        std::vector<Entity::EAG::Route> listAllRoutes(const std::string &prefix) const override;
 
         [[nodiscard]]
-        bool routeExists(const std::string &routeId) const override;
+        bool routeExists(const std::string &accountId, const std::string &nameSpace,
+                         const std::string &routeId) const override;
 
-        void deleteRoute(const std::string &routeId) override;
+        void deleteRoute(const std::string &accountId, const std::string &nameSpace,
+                         const std::string &routeId) override;
 
         [[nodiscard]]
-        long countRoutes() const override;
+        long countRoutes(const std::string &accountId, const std::string &nameSpace) const override;
 
         void clear() override;
 
     private:
+
+        /**
+         * @brief The filter that picks exactly one route.
+         */
+        [[nodiscard]]
+        static bsoncxx::document::value routeFilter(const std::string &accountId, const std::string &nameSpace,
+                                                    const std::string &routeId);
+
+        /**
+         * @brief Routes matching a path prefix, within whatever scope is given.
+         *
+         * @param prefix path prefix filter; empty matches all.
+         * @param scope extra equality fields to filter on, empty for the whole installation.
+         */
+        [[nodiscard]]
+        static std::vector<Entity::EAG::Route> findRoutes(const std::string &prefix, const bsoncxx::document::view &scope);
 
         /**
          * @brief Collection name

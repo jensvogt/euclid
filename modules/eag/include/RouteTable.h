@@ -4,6 +4,9 @@
 
 #pragma once
 
+// Euclid includes
+#include <Backends.h>
+
 // C++ includes
 #include <chrono>
 #include <mutex>
@@ -129,7 +132,7 @@ namespace Euclid::EAG {
          * being served name.
          */
         [[nodiscard]]
-        std::vector<std::string> applicationIds() const;
+        std::vector<ApplicationRef> applications() const;
 
         /**
          * @brief How many routes are currently served.

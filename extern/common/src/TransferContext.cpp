@@ -20,11 +20,14 @@ namespace Euclid::Transfer {
     namespace http = beast::http;
     namespace local = boost::asio::local;
 
-    std::optional<TransferContext> TransferContext::Load(const std::string &serverId) {
+    std::optional<TransferContext> TransferContext::Load(const std::string &runtimeName) {
 
-        const auto server = Database::RepositoryFactory::instance().etsRepository()->findServerByServerId(serverId);
+        // By the name the manager started this process under - what --transfer-server carries -
+        // rather than by the serverId it is defined as: a serverId is unique only within an
+        // account and a namespace, and a process on a host has neither to look itself up with.
+        const auto server = Database::RepositoryFactory::instance().etsRepository()->findServerByRuntimeName(runtimeName);
         if (!server.has_value()) {
-            log_error << "Transfer server definition not found, serverId: " << serverId;
+            log_error << "Transfer server definition not found, runtimeName: " << runtimeName;
             return std::nullopt;
         }
         return TransferContext(*server);

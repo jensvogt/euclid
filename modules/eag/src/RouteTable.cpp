@@ -16,7 +16,10 @@ namespace Euclid::EAG {
     bool RouteTable::refresh() {
 
         try {
-            auto routes = Database::RepositoryFactory::instance().eagRepository()->listRoutes("");
+            // Every route in the installation: one gateway process carries every listener, and a
+            // listener is bound to a namespace rather than to an account - so a table holding only
+            // one namespace's routes would leave every other port answering 404.
+            auto routes = Database::RepositoryFactory::instance().eagRepository()->listAllRoutes("");
 
             // Inactive routes are dropped here rather than filtered on every request: a route
             // somebody has taken out of service is not one the gateway has to keep considering.
@@ -81,12 +84,21 @@ namespace Euclid::EAG {
         return result;
     }
 
-    std::vector<std::string> RouteTable::applicationIds() const {
+    std::vector<ApplicationRef> RouteTable::applications() const {
 
-        std::set<std::string> distinct;
+        // All three fields, because an applicationId names an application only within an account
+        // and a namespace - and a route carries the ones it was created in. Not the name the
+        // application runs under: only its own definition knows that, and Backends is what reads
+        // it, on the timer rather than per request.
+        std::set<ApplicationRef> distinct;
         {
             std::lock_guard lock(_mutex);
-            for (const auto &route: _routes) distinct.insert(route.applicationId);
+            for (const auto &route: _routes) {
+                if (route.applicationId.empty()) continue;
+                distinct.insert(ApplicationRef{.accountId = route.accountId,
+                                               .nameSpace = route.nameSpace,
+                                               .applicationId = route.applicationId});
+            }
         }
         return {distinct.begin(), distinct.end()};
     }

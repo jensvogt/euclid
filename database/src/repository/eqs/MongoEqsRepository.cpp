@@ -260,24 +260,23 @@ namespace Euclid::Database {
         return 0;
     }
 
-    bool MongoEqsRepository::queueExists(const std::string &name) const {
+    bool MongoEqsRepository::queueExists(const std::string &accountId, const std::string &nameSpace, const std::string &name) const {
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "queueExists");
 
         try {
 
-            document query{};
-            if (!name.empty()) {
-                query.append(kvp("name", name));
-            }
+            // All three fields, in the order the unique index names them, so the answer is about
+            // the caller's own queue rather than about anyone in the installation holding the name.
+            const auto query = make_document(kvp("accountId", accountId), kvp("namespace", nameSpace), kvp("name", name));
 
             auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
 
-            const auto result = queueCollection.find_one(query.extract());
-            log_trace << "Sqs exists, name: " << name << ", exists: " << std::boolalpha << result.has_value();
+            const auto result = queueCollection.find_one(query.view());
+            log_trace << "Sqs exists, accountId: " << accountId << ", namespace: " << nameSpace << ", name: " << name << ", exists: " << std::boolalpha << result.has_value();
             return result.has_value();
 
         } catch (const std::exception &e) {
-            log_error << "Sqs exists failed, name: " << ", error: " << e.what();
+            log_error << "Sqs exists failed, name: " << name << ", error: " << e.what();
         }
         return false;
     }
@@ -302,14 +301,19 @@ namespace Euclid::Database {
         return {};
     }
 
-    std::optional<Entity::EQS::Queue> MongoEqsRepository::findQueueByName(const std::string &name) const {
+    std::optional<Entity::EQS::Queue> MongoEqsRepository::findQueueByName(const std::string &accountId, const std::string &nameSpace, const std::string &name) const {
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "findQueueByName");
 
         try {
 
             auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
 
-            if (auto mResult = queueCollection.find_one(make_document(kvp("name", name)))) {
+            // A name identifies a queue only together with the account and namespace that own it,
+            // so resolving one without them would hand a caller somebody else's queue - which is
+            // also how it would have received its messages, since everything downstream works off
+            // the ERN this returns.
+            const auto filter = make_document(kvp("accountId", accountId), kvp("namespace", nameSpace), kvp("name", name));
+            if (auto mResult = queueCollection.find_one(filter.view())) {
                 return Entity::EQS::Queue::fromDocument(mResult.value());
             }
 
@@ -450,21 +454,26 @@ namespace Euclid::Database {
         return -1;
     }
 
-    void MongoEqsRepository::removeQueueByName(const std::string &name) {
+    void MongoEqsRepository::removeQueueByName(const std::string &accountId, const std::string &nameSpace, const std::string &name) {
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "removeQueueByName");
 
         try {
             auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
             auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
+            // Matches the unique index, so this deletes the one queue the caller named. Filtered
+            // on the name alone it deleted every account's queue of that name, along with all of
+            // their messages.
+            const auto filter = make_document(kvp("accountId", accountId), kvp("namespace", nameSpace), kvp("name", name));
+
             std::vector<std::string> erns;
-            for (auto cursor = queueCollection.find(make_document(kvp("name", name))); auto doc: cursor) {
+            for (auto cursor = queueCollection.find(filter.view()); auto doc: cursor) {
                 if (const auto ernField = doc["ern"]; ernField && ernField.type() == bsoncxx::type::k_string) {
                     erns.emplace_back(ernField.get_string().value);
                 }
             }
 
-            const auto result = queueCollection.delete_many(make_document(kvp("name", name)));
+            const auto result = queueCollection.delete_many(filter.view());
             log_debug << "EQS deleted, count: " << result->deleted_count();
             for (const auto &ern: erns) forgetQueueConfig(ern);
 
@@ -911,19 +920,26 @@ namespace Euclid::Database {
         }
     }
 
-    void MongoEqsRepository::purgeAllQueues(const std::string &region, const std::string &accountId) {
+    void MongoEqsRepository::purgeAllQueues(const std::string &region, const std::string &accountId, const std::string &nameSpace) {
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "purgeAllQueues");
 
         try {
             auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
             auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
-            // Filters on the entity's own region/accountId fields now that they exist, rather
-            // than the previous full-scan-and-substring-match-on-ERN workaround.
+            // Filters on the entity's own region/accountId/namespace fields now that they exist,
+            // rather than the previous full-scan-and-substring-match-on-ERN workaround. An empty
+            // nameSpace means "every namespace of the account" - which a filter on the field
+            // itself cannot say, so it is only appended when one was given.
+            document scopeFilter{};
+            scopeFilter.append(kvp("region", region), kvp("accountId", accountId));
+            if (!nameSpace.empty()) {
+                scopeFilter.append(kvp("namespace", nameSpace));
+            }
+
             array ernArray;
             long queueCount = 0;
-            const auto scopeFilter = make_document(kvp("region", region), kvp("accountId", accountId));
-            for (auto queueCursor = queueCollection.find(scopeFilter.view()); auto queue: queueCursor) {
+            for (auto queueCursor = queueCollection.find(scopeFilter.extract()); auto queue: queueCursor) {
                 ernArray.append(Entity::EQS::Queue::fromDocument(queue).ern);
                 ++queueCount;
             }

@@ -90,6 +90,24 @@ namespace Euclid::Core {
         static std::string GenerateAccessKeyId();
 
         /**
+         * @brief Generates a short random id, for names a person has to read back.
+         *
+         * @par
+         * Lower case, and without the four characters that are read as each other in a terminal
+         * or over a telephone - l, 1, o and 0 - which leaves an alphabet of exactly 32 and so a
+         * uniform draw from a byte, with none of the modulo bias a 36-character alphabet has.
+         *
+         * @par
+         * Eight characters is 40 bits. It is not a UUID and is not meant to be unguessable - what
+         * it is for is being unique among the handful of things it names, with whatever index it
+         * ends up in as the one that actually decides.
+         *
+         * @param length how many characters.
+         * @return the id.
+         */
+        static std::string GenerateShortId(std::size_t length = 8);
+
+        /**
          * @brief Generates an Euclid-style secret access key.
          *
          * @return 40 cryptographically random bytes, base64-encoded.

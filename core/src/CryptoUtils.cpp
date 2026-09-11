@@ -119,6 +119,19 @@ namespace Euclid::Core {
         return id;
     }
 
+    std::string CryptoUtils::GenerateShortId(const std::size_t length) {
+        // 32 characters exactly, so that b % 32 is uniform over a random byte - and none of them
+        // is one of l/1/o/0. See the header for why that matters.
+        static constexpr char kAlphabet[] = "abcdefghijkmnpqrstuvwxyz23456789";
+        static_assert(sizeof(kAlphabet) - 1 == 32);
+
+        const auto random = randomBytes(length);
+        std::string id;
+        id.reserve(length);
+        for (const unsigned char b: random) id += kAlphabet[b % (sizeof(kAlphabet) - 1)];
+        return id;
+    }
+
     std::string CryptoUtils::GenerateSecretAccessKey() {
         constexpr std::size_t kSecretBytes = 40;
 

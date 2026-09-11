@@ -185,7 +185,8 @@ namespace Euclid::EQS {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-queue-ern");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
@@ -193,7 +194,11 @@ namespace Euclid::EQS {
         const auto request = boost::json::value_to<Dto::EQS::GetQueueErnRequest>(jv);
         log_info << "EQS GetQueueErn, name: " << request.name;
 
-        const std::optional<Database::Entity::EQS::Queue> queue = Database::RepositoryFactory::instance().eqsRepository()->findQueueByName(request.name);
+        // Resolved against the caller's own account and namespace, the same pair create-queue
+        // built the ERN from - a bare name means "my queue of that name", and cannot reach into
+        // another account's or another namespace's queue of the same name.
+        const auto ns = std::string(req["x-euclid-namespace"]);
+        const std::optional<Database::Entity::EQS::Queue> queue = Database::RepositoryFactory::instance().eqsRepository()->findQueueByName(auth.user->accountId, ns, request.name);
         log_debug << "Got EQS queue, name: " << request.name << ", ern: " << (queue.has_value() ? queue->ern : "(none)");
 
         if (!queue.has_value()) {
@@ -597,7 +602,7 @@ namespace Euclid::EQS {
         log_info << "EQS PurgeAllQueues";
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
-        repo->purgeAllQueues(request.region, request.accountId);
+        repo->purgeAllQueues(request.region, request.accountId, request.nameSpace);
 
         return EqsServer::JsonResponse(req, status::ok);
     }

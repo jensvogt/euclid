@@ -147,10 +147,12 @@ namespace Euclid::EAP {
         // handed out at spawn time and change as the pool scales, so they cannot be configured
         // anywhere. An API gateway in front of an application - euclid's own (see the eag module)
         // or an external one - discovers its backends from exactly this.
-        boost::json::array applicationEndpoints(const std::string &applicationId) {
+        // By the name the application runs under, not the one it is defined under: the module rows
+        // are the manager's, and it registers each pool under Entity::EAP::RuntimeName().
+        boost::json::array applicationEndpoints(const std::string &runtimeName) {
             boost::json::array instances;
             for (const auto &module: Database::RepositoryFactory::instance().emmRepository()->findAll()) {
-                if (module.name != applicationId) continue;
+                if (module.name != runtimeName) continue;
                 for (const auto &instance: module.instances) {
                     if (instance.state != Database::Entity::ModuleState::RUNNING) continue;
                     instances.push_back(boost::json::object{
@@ -169,8 +171,12 @@ namespace Euclid::EAP {
         // application can do - it signs the calls it makes, and euclid attributes them to this
         // principal instead of to whoever happened to deploy it. Nobody has to hand an application
         // a human's credentials, and nothing an application leaks is a person's.
-        std::string technicalUserId(const std::string &applicationId) {
-            return "app-" + applicationId;
+        //
+        // Built from the runtime name rather than the bare id, because an EAM userId is unique
+        // across the installation: two namespaces each deploying a "billing" would otherwise be
+        // handed the same principal, and the second deployment would rewrite the first's grants.
+        std::string technicalUserId(const std::string &runtimeName) {
+            return "app-" + runtimeName;
         }
 
         // Turns the bucket and queue names a caller deployed the application with into the ERNs the
@@ -180,12 +186,18 @@ namespace Euclid::EAP {
         //
         // Returns std::nullopt on the first name that does not resolve, so a typo is reported at
         // deployment rather than becoming an application that is quietly denied at run time.
-        std::optional<std::vector<std::string> > resolveResources(const std::vector<std::string> &buckets, const std::vector<std::string> &queues, std::string &unresolved) {
+        //
+        // Resolved in the account and namespace the application is being deployed into - the same
+        // one its technical user is granted and runs in - so a name means the deployer's own
+        // resource rather than whoever else in the installation has a bucket or queue called that.
+        std::optional<std::vector<std::string> > resolveResources(const std::string &accountId, const std::string &nameSpace,
+                                                                  const std::vector<std::string> &buckets, const std::vector<std::string> &queues,
+                                                                  std::string &unresolved) {
 
             std::vector<std::string> resources;
 
             for (const auto &name: buckets) {
-                const auto bucket = Database::RepositoryFactory::instance().esmRepository()->findBucketByName(name);
+                const auto bucket = Database::RepositoryFactory::instance().esmRepository()->findBucketByName(accountId, nameSpace, name);
                 if (!bucket.has_value()) {
                     unresolved = "bucket '" + name + "'";
                     return std::nullopt;
@@ -194,7 +206,7 @@ namespace Euclid::EAP {
             }
 
             for (const auto &name: queues) {
-                const auto queue = Database::RepositoryFactory::instance().eqsRepository()->findQueueByName(name);
+                const auto queue = Database::RepositoryFactory::instance().eqsRepository()->findQueueByName(accountId, nameSpace, name);
                 if (!queue.has_value()) {
                     unresolved = "queue '" + name + "'";
                     return std::nullopt;
@@ -204,7 +216,7 @@ namespace Euclid::EAP {
             return resources;
         }
 
-        Database::Entity::EAM::User createTechnicalUser(const std::string &applicationId, const std::string &accountId,
+        Database::Entity::EAM::User createTechnicalUser(const std::string &runtimeName, const std::string &accountId,
                                                         const std::string &region, const std::string &nameSpace,
                                                         const std::vector<std::string> &resources) {
 
@@ -229,7 +241,7 @@ namespace Euclid::EAP {
             if (!nameSpace.empty()) grant.namespaces.push_back(nameSpace);
 
             Database::Entity::EAM::User user;
-            user.userId = technicalUserId(applicationId);
+            user.userId = technicalUserId(runtimeName);
             user.accountId = accountId;
             user.region = region;
             user.ern = Core::createEamUserErn(accountId, user.userId);
@@ -257,10 +269,29 @@ namespace Euclid::EAP {
 
         // Whether this principal is one EAP made for this application, and may therefore be
         // removed with it. A user the caller named themselves is theirs, and is left alone.
-        bool isOwnedTechnicalUser(const std::string &applicationId, const std::string &userId) {
-            if (userId != technicalUserId(applicationId)) return false;
-            const auto user = Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(userId);
+        // Whether this principal is one EAP made for this application, and may therefore be
+        // removed with it. A user the caller named themselves is theirs, and is left alone.
+        //
+        // A name comparison is enough because the name it is compared against never changes: the
+        // runtime name is issued once and then held, whatever else about the application is
+        // edited afterwards.
+        bool isOwnedTechnicalUser(const Application &application) {
+            if (application.userId != technicalUserId(Database::Entity::EAP::RuntimeName(application))) return false;
+            const auto user = Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(application.userId);
             return user.has_value() && !user->loginEnabled;
+        }
+
+        // A name no application is running under. The suffix is random, so this is all but always
+        // the first candidate - it is checked because "all but always" is not a guarantee, and a
+        // second application quietly sharing a directory and a socket with a first is not a
+        // failure anybody would enjoy diagnosing.
+        std::string issueRuntimeName(const std::string &applicationId) {
+            const auto repository = Database::RepositoryFactory::instance().eapRepository();
+            for (int attempt = 0; attempt < 8; ++attempt) {
+                auto candidate = Database::Entity::GenerateRuntimeName(applicationId);
+                if (!repository->findApplicationByRuntimeName(candidate).has_value()) return candidate;
+            }
+            throw std::runtime_error("could not find a free runtime name for application " + applicationId);
         }
 
         boost::json::object toJson(const Application &application) {
@@ -274,13 +305,24 @@ namespace Euclid::EAP {
             boost::json::array resources;
             for (const auto &resource: application.resources) resources.push_back(boost::json::string(resource));
 
-            const auto endpoints = applicationEndpoints(application.applicationId);
+            const auto endpoints = applicationEndpoints(Database::Entity::EAP::RuntimeName(application));
             const auto count = static_cast<long>(endpoints.size());
 
             return boost::json::object{
                     {"applicationId", application.applicationId},
+                    // What an operator needs to find anything belonging to this application on a
+                    // host: its directory under the data dir, its row in the module list, its
+                    // socket, its log channel and the principal named after it are all called this
+                    // and not what the application is defined as. Reported for an application from
+                    // before the field existed too, where it is the bare applicationId.
+                    {"runtimeName", Database::Entity::EAP::RuntimeName(application)},
                     {"ern", application.ern},
                     {"accountId", application.accountId},
+                    // The other half of what identifies the application, and the only way to see
+                    // where one ended up after a move: an applicationId is unique within
+                    // (accountId, namespace), so the id alone does not say which application this
+                    // is. Empty for an application at the account root.
+                    {"namespace", application.nameSpace},
                     {"region", application.region},
                     {"runtime", RuntimeToString(application.runtime)},
                     {"bucketErn", application.bucketErn},
@@ -348,10 +390,16 @@ namespace Euclid::EAP {
         const auto applicationId = stringField(obj, "applicationId");
         if (applicationId.empty()) return EapServer::ErrorResponse(req, status::bad_request, "applicationId is required");
 
+        const auto ns = std::string(req["x-euclid-namespace"]);
+
         const auto repo = Database::RepositoryFactory::instance().eapRepository();
-        if (repo->applicationExists(applicationId)) {
+        if (repo->applicationExists(auth.user->accountId, ns, applicationId)) {
             return EapServer::ErrorResponse(req, status::conflict, "Application already exists: " + applicationId);
         }
+
+        // Issued here and never again: the name this application will be run, supervised, stored
+        // and logged under for as long as it exists, whatever is edited about it afterwards.
+        const auto runtimeName = issueRuntimeName(applicationId);
 
         const auto runtime = RuntimeFromString(stringField(obj, "runtime"));
         if (runtime == Runtime::UNKNOWN) {
@@ -365,7 +413,10 @@ namespace Euclid::EAP {
         if (bucketName.empty()) return EapServer::ErrorResponse(req, status::bad_request, "bucket is required");
 
         const auto esmRepository = Database::RepositoryFactory::instance().esmRepository();
-        const auto bucket = esmRepository->findBucketByName(bucketName);
+        // The deployer's own account and namespace, the same pair the application is created in -
+        // the artifact is then looked for in this bucket, so a name resolved anywhere else would
+        // deploy whatever another account happened to store under the same key.
+        const auto bucket = esmRepository->findBucketByName(auth.user->accountId, ns, bucketName);
         if (!bucket.has_value()) {
             return EapServer::ErrorResponse(req, status::not_found, "Bucket not found: " + bucketName);
         }
@@ -404,15 +455,16 @@ namespace Euclid::EAP {
         // What this application is allowed to touch, resolved from names to ERNs now so a typo is
         // a rejected deployment rather than an application that runs and is denied everything.
         std::string unresolved;
-        const auto resources = resolveResources(stringArray(obj, "buckets"), stringArray(obj, "queues"), unresolved);
+        const auto resources = resolveResources(auth.user->accountId, ns,
+                                                stringArray(obj, "buckets"), stringArray(obj, "queues"), unresolved);
         if (!resources.has_value()) {
             return EapServer::ErrorResponse(req, status::not_found, "Not found: " + unresolved);
         }
 
         auto userId = stringField(obj, "user");
         if (userId.empty()) {
-            userId = createTechnicalUser(applicationId, auth.user->accountId, auth.user->region,
-                                         std::string(req["x-euclid-namespace"]), *resources)
+            userId = createTechnicalUser(runtimeName, auth.user->accountId, auth.user->region,
+                                         ns, *resources)
                              .userId;
         } else {
             const auto user = Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(userId);
@@ -427,14 +479,15 @@ namespace Euclid::EAP {
 
         Application application;
         application.applicationId = applicationId;
+        application.runtimeName = runtimeName;
         application.accountId = auth.user->accountId;
         application.region = auth.user->region;
         // The namespace the application will work in, which is the one it is being created in -
         // the same one its technical user is granted just above. Written here so the manager can
         // hand it to the application in its credentials, which is what lets the application name
         // a queue or topic instead of spelling out a full ERN.
-        application.nameSpace = std::string(req["x-euclid-namespace"]);
-        application.ern = Core::createEapApplicationErn(application.accountId, applicationId);
+        application.nameSpace = ns;
+        application.ern = Core::createEapApplicationErn(application.accountId, ns, applicationId);
         application.runtime = runtime;
         application.bucketErn = bucket->ern;
         application.artifactKey = artifactKey;
@@ -472,8 +525,9 @@ namespace Euclid::EAP {
         const auto &obj = jv.as_object();
 
         const auto applicationId = stringField(obj, "applicationId");
+        const auto ns = std::string(req["x-euclid-namespace"]);
         const auto repo = Database::RepositoryFactory::instance().eapRepository();
-        auto application = repo->findApplicationByApplicationId(applicationId);
+        auto application = repo->findApplicationByApplicationId(auth.user->accountId, ns, applicationId);
         if (!application.has_value()) {
             return EapServer::ErrorResponse(req, status::not_found, "Application not found: " + applicationId);
         }
@@ -509,7 +563,20 @@ namespace Euclid::EAP {
         // way an application created before applications carried one can acquire it without being
         // deleted and made again. Sending it empty moves the application back to the account root,
         // which is a legitimate thing to ask for, so absent and empty mean different things here.
+        //
+        // It is now a move rather than a field change: the namespace is part of what identifies the
+        // application, so the row it lives in, the ERN it is known by, the name it runs under and
+        // the principal named after that all follow it. What that costs is handled below, once the
+        // resources this application may touch have been resolved in the namespace it is moving to.
+        const auto previousNameSpace = application->nameSpace;
         if (obj.contains("namespace")) application->nameSpace = stringField(obj, "namespace");
+        const bool namespaceChanged = application->nameSpace != previousNameSpace;
+
+        if (namespaceChanged && repo->applicationExists(application->accountId, application->nameSpace, applicationId)) {
+            return EapServer::ErrorResponse(req, status::conflict,
+                                            "Namespace '" + application->nameSpace + "' already has an application called '" + applicationId + "'");
+        }
+
         if (obj.contains("version")) application->version = stringField(obj, "version");
         if (obj.contains("command")) application->command = stringField(obj, "command");
         if (obj.contains("arguments")) application->arguments = stringArray(obj, "arguments");
@@ -520,7 +587,11 @@ namespace Euclid::EAP {
 
         if (obj.contains("buckets") || obj.contains("queues")) {
             std::string unresolved;
-            const auto resources = resolveResources(stringArray(obj, "buckets"), stringArray(obj, "queues"), unresolved);
+            // The application's own account and namespace rather than the request's: the grants
+            // being rewritten are the application's, and it is the namespace set just above - the
+            // one it will actually run in - that decides which queue a bare name means to it.
+            const auto resources = resolveResources(application->accountId, application->nameSpace,
+                                                    stringArray(obj, "buckets"), stringArray(obj, "queues"), unresolved);
             if (!resources.has_value()) {
                 return EapServer::ErrorResponse(req, status::not_found, "Not found: " + unresolved);
             }
@@ -530,7 +601,7 @@ namespace Euclid::EAP {
             // definition whose resources changed and whose principal did not would go on being
             // enforced against the old list. Only a principal EAP owns is rewritten; a user the
             // caller named is theirs to grant.
-            if (isOwnedTechnicalUser(applicationId, application->userId)) {
+            if (isOwnedTechnicalUser(*application)) {
                 const auto eamRepository = Database::RepositoryFactory::instance().eamRepository();
                 if (auto principal = eamRepository->findUserByUserId(application->userId); principal.has_value()) {
                     principal->resourceGrants = *resources;
@@ -539,6 +610,40 @@ namespace Euclid::EAP {
                             << ", resources: " << resources->size();
                 }
             }
+        }
+
+        if (namespaceChanged) {
+            // The ERN carries the namespace, so it is rebuilt rather than left describing where the
+            // application used to be.
+            application->ern = Core::createEapApplicationErn(application->accountId, application->nameSpace, applicationId);
+
+            // The principal keeps its name and its key - the runtime name it was made after does
+            // not move - but what it is allowed to reach does: a grant is checked against the
+            // namespace a request names, so a principal still granted the old one would be refused
+            // everywhere its application now works. A user the caller named is theirs, and is left
+            // exactly as it is.
+            if (isOwnedTechnicalUser(*application)) {
+                const auto eamRepository = Database::RepositoryFactory::instance().eamRepository();
+                if (auto principal = eamRepository->findUserByUserId(application->userId); principal.has_value()) {
+                    for (auto &grant: principal->accountGrants) {
+                        if (grant.accountId != application->accountId) continue;
+                        grant.namespaces.clear();
+                        if (!application->nameSpace.empty()) grant.namespaces.push_back(application->nameSpace);
+                    }
+                    eamRepository->upsertUser(*principal);
+                    log_info << "EAP moved technical user's grant with its application, userId: " << principal->userId
+                            << ", namespace: '" << previousNameSpace << "' -> '" << application->nameSpace << "'";
+                }
+            }
+
+            // The row the application used to live in: the namespace is part of what identifies it,
+            // so this is a move between rows rather than a field write. Removed before the new one
+            // is written, so a failure in between leaves the application where it was rather than
+            // in both places.
+            repo->deleteApplication(application->accountId, previousNameSpace, applicationId);
+            log_info << "EAP moved application, applicationId: " << applicationId
+                    << ", namespace: '" << previousNameSpace << "' -> '" << application->nameSpace << "'"
+                    << ", runtimeName: " << Database::Entity::EAP::RuntimeName(*application) << " (unchanged)";
         }
 
         const auto stored = repo->upsertApplication(*application);
@@ -574,8 +679,9 @@ namespace Euclid::EAP {
         const auto &obj = jv.as_object();
 
         const auto applicationId = stringField(obj, "applicationId");
+        const auto ns = std::string(req["x-euclid-namespace"]);
         const auto repo = Database::RepositoryFactory::instance().eapRepository();
-        auto application = repo->findApplicationByApplicationId(applicationId);
+        auto application = repo->findApplicationByApplicationId(auth.user->accountId, ns, applicationId);
         if (!application.has_value()) {
             return EapServer::ErrorResponse(req, status::not_found, "Application not found: " + applicationId);
         }
@@ -634,8 +740,12 @@ namespace Euclid::EAP {
         std::string prefix;
         if (jv.is_object()) prefix = stringField(jv.as_object(), "prefix");
 
+        // The caller's own namespace, not the installation: every other action here resolves an
+        // applicationId in the namespace the request was made in, so a listing that crossed
+        // namespaces would show applications the caller cannot then address.
+        const auto ns = std::string(req["x-euclid-namespace"]);
         boost::json::array applications;
-        for (const auto &application: Database::RepositoryFactory::instance().eapRepository()->listApplications(prefix)) {
+        for (const auto &application: Database::RepositoryFactory::instance().eapRepository()->listApplications(auth.user->accountId, ns, prefix)) {
             applications.push_back(toJson(application));
         }
 
@@ -654,7 +764,8 @@ namespace Euclid::EAP {
         if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
 
         const auto applicationId = stringField(jv.as_object(), "applicationId");
-        const auto application = Database::RepositoryFactory::instance().eapRepository()->findApplicationByApplicationId(applicationId);
+        const auto ns = std::string(req["x-euclid-namespace"]);
+        const auto application = Database::RepositoryFactory::instance().eapRepository()->findApplicationByApplicationId(auth.user->accountId, ns, applicationId);
         if (!application.has_value()) {
             return EapServer::ErrorResponse(req, status::not_found, "Application not found: " + applicationId);
         }
@@ -674,21 +785,22 @@ namespace Euclid::EAP {
         if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
 
         const auto applicationId = stringField(jv.as_object(), "applicationId");
+        const auto ns = std::string(req["x-euclid-namespace"]);
         const auto repo = Database::RepositoryFactory::instance().eapRepository();
-        if (!repo->applicationExists(applicationId)) {
+        if (!repo->applicationExists(auth.user->accountId, ns, applicationId)) {
             return EapServer::ErrorResponse(req, status::not_found, "Application not found: " + applicationId);
         }
 
         // Deleting the definition is what stops the processes: the reconciler runs whatever is
         // defined and RUNNING, so a definition that no longer exists is torn down on the next tick.
-        const auto application = repo->findApplicationByApplicationId(applicationId);
-        repo->deleteApplication(applicationId);
+        const auto application = repo->findApplicationByApplicationId(auth.user->accountId, ns, applicationId);
+        repo->deleteApplication(auth.user->accountId, ns, applicationId);
         log_info << "EAP deleted application, applicationId: " << applicationId;
 
         // The principal goes with the application it was made for - a credential outliving the
         // thing it was issued to is exactly the orphan this arrangement exists to avoid. A user
         // the caller named themselves is left alone.
-        if (application.has_value() && isOwnedTechnicalUser(applicationId, application->userId)) {
+        if (application.has_value() && isOwnedTechnicalUser(*application)) {
             Database::RepositoryFactory::instance().eamRepository()->deleteUser(application->userId);
             log_info << "EAP deleted technical user, userId: " << application->userId;
         }
@@ -711,8 +823,9 @@ namespace Euclid::EAP {
         if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
 
         const auto applicationId = stringField(jv.as_object(), "applicationId");
+        const auto ns = std::string(req["x-euclid-namespace"]);
         const auto repo = Database::RepositoryFactory::instance().eapRepository();
-        auto application = repo->findApplicationByApplicationId(applicationId);
+        auto application = repo->findApplicationByApplicationId(auth.user->accountId, ns, applicationId);
         if (!application.has_value()) {
             return EapServer::ErrorResponse(req, status::not_found, "Application not found: " + applicationId);
         }
@@ -747,6 +860,7 @@ namespace Euclid::EAP {
         if (applicationId.empty()) {
             return EapServer::ErrorResponse(req, status::bad_request, "applicationId is required");
         }
+        const auto ns = std::string(req["x-euclid-namespace"]);
 
         // An empty level puts the application back under whatever euclid.logging.channels says,
         // which is how a level set here is taken back rather than merely changed.
@@ -764,8 +878,11 @@ namespace Euclid::EAP {
             canonical = *parsed;
         }
 
+        // Read before it is written, because the answer names the channel the level was set on -
+        // and only the application itself knows what it runs under.
         const auto repo = Database::RepositoryFactory::instance().eapRepository();
-        if (!repo->setApplicationLogLevel(applicationId, canonical)) {
+        const auto application = repo->findApplicationByApplicationId(auth.user->accountId, ns, applicationId);
+        if (!application.has_value() || !repo->setApplicationLogLevel(auth.user->accountId, ns, applicationId, canonical)) {
             return EapServer::ErrorResponse(req, status::not_found, "Application not found: " + applicationId);
         }
         log_info << "EAP set application log level, applicationId: " << applicationId
@@ -774,7 +891,10 @@ namespace Euclid::EAP {
         return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
                                                                 {"applicationId", applicationId},
                                                                 {"logLevel", canonical},
-                                                                {"channel", std::string(Core::LogStream::kApplicationChannel) + "." + applicationId}}));
+                                                                // The channel the manager actually logs the application on, which is
+                                                                // named after what it runs as rather than what it is defined as.
+                                                                {"channel", std::string(Core::LogStream::kApplicationChannel) + "."
+                                                                                    + Database::Entity::EAP::RuntimeName(*application)}}));
     }
 
     // ── Request dispatcher ───────────────────────────────────────────────────

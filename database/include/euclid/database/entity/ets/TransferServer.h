@@ -16,6 +16,7 @@
 #include <bsoncxx/document/view-fwd.hpp>
 
 // Euclid includes
+#include <euclid/database/entity/RuntimeName.h>
 #include <euclid/database/entity/ets/TransferProtocol.h>
 #include <euclid/database/entity/ets/TransferServerState.h>
 
@@ -41,12 +42,34 @@ namespace Euclid::Database::Entity::ETS {
         std::string oid;
 
         /**
-         * @brief Name identifying this server, unique across the installation.
+         * @brief Name identifying this server within its account and namespace.
          *
-         * Doubles as the manager's module name for the spawned process, which is why it has to
-         * be unique: two servers sharing a name would share a process pool.
+         * What a person creates, names and asks for. Not what the server runs as - see
+         * @ref runtimeName.
          */
         std::string serverId;
+
+        /**
+         * @brief The name the manager runs this server under, issued once and never changed.
+         *
+         * @par
+         * Everything outside the definition is keyed by this: the process pool, the module row the
+         * manager registers, the unix socket, the log channel, and the --transfer-server argument
+         * the spawned process reads its own definition back by. None of those has an account or a
+         * namespace to live in, so none of them can be keyed by a serverId, which is unique only
+         * within one.
+         *
+         * @par
+         * Stored rather than derived so that it holds still: what a server is called on a host
+         * should not change because its definition was edited. See Entity::GenerateRuntimeName().
+         *
+         * @par
+         * Empty on servers created before this field existed. They ran under their bare serverId,
+         * and RuntimeName() goes on returning exactly that for them, so nothing about them moves.
+         * Written only when set - see toDocument() - so the unique index on this field skips them
+         * rather than seeing every one of them as the same empty name.
+         */
+        std::string runtimeName;
 
         /**
          * @brief Euclid resource name
@@ -57,6 +80,15 @@ namespace Euclid::Database::Entity::ETS {
          * @brief Account this server belongs to
          */
         std::string accountId;
+
+        /**
+         * @brief Namespace this server belongs to, and whose bucket it serves.
+         *
+         * @par
+         * Part of the server's identity: a serverId is unique within (accountId, nameSpace), and
+         * the ERN carries all three. Empty for a server at the account root.
+         */
+        std::string nameSpace;
 
         /**
          * @brief Region this server belongs to
@@ -185,5 +217,13 @@ namespace Euclid::Database::Entity::ETS {
          */
         static TransferServer fromDocument(const std::optional<bsoncxx::document::view> &document);
     };
+
+    /**
+     * @brief The name a transfer server runs under, as opposed to the name it is defined under.
+     *
+     * @param server the server
+     * @return its runtimeName, or its bare serverId for one created before that field existed
+     */
+    std::string RuntimeName(const TransferServer &server);
 
 }// namespace Euclid::Database::Entity::ETS

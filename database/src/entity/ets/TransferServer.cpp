@@ -3,6 +3,7 @@
 //
 
 #include <bsoncxx/builder/basic/array.hpp>
+#include <bsoncxx/builder/concatenate.hpp>
 #include <euclid/database/entity/ets/TransferServer.h>
 
 namespace Euclid::Database::Entity::ETS {
@@ -33,10 +34,20 @@ namespace Euclid::Database::Entity::ETS {
         bsoncxx::builder::basic::array directoriesArray;
         for (const auto &directory: directories) directoriesArray.append(directory);
 
-        return bsoncxx::builder::basic::make_document(
+        bsoncxx::builder::basic::document document;
+
+        // Only when it has one. A server from before this field existed runs under its bare
+        // serverId, and writing "" here would put every one of them under the same empty name as
+        // far as the unique index is concerned - where a missing field is skipped entirely.
+        if (!runtimeName.empty()) {
+            document.append(bsoncxx::builder::basic::kvp("runtimeName", runtimeName));
+        }
+
+        document.append(bsoncxx::builder::concatenate(bsoncxx::builder::basic::make_document(
                 bsoncxx::builder::basic::kvp("serverId", serverId),
                 bsoncxx::builder::basic::kvp("ern", ern),
                 bsoncxx::builder::basic::kvp("accountId", accountId),
+                bsoncxx::builder::basic::kvp("namespace", nameSpace),
                 bsoncxx::builder::basic::kvp("region", region),
                 bsoncxx::builder::basic::kvp("protocol", TransferProtocolToString(protocol)),
                 bsoncxx::builder::basic::kvp("address", address),
@@ -52,7 +63,10 @@ namespace Euclid::Database::Entity::ETS {
                 bsoncxx::builder::basic::kvp("pasvMin", static_cast<std::int64_t>(pasvMin)),
                 bsoncxx::builder::basic::kvp("pasvMax", static_cast<std::int64_t>(pasvMax)),
                 bsoncxx::builder::basic::kvp("created", bsoncxx::types::b_date(created)),
-                bsoncxx::builder::basic::kvp("modified", bsoncxx::types::b_date(modified)));
+                bsoncxx::builder::basic::kvp("modified", bsoncxx::types::b_date(modified)))
+                                                        .view()));
+
+        return document.extract();
     }
 
     TransferServer TransferServer::fromDocument(const std::optional<bsoncxx::document::view> &document) {
@@ -62,8 +76,13 @@ namespace Euclid::Database::Entity::ETS {
         for (const auto &field: *document) {
             if (const auto key = field.key(); key == "_id") server.oid = field.get_oid().value.to_string();
             else if (key == "serverId") server.serverId = std::string(field.get_string().value);
+            // Absent on every server created before it existed - see RuntimeName(), which is what
+            // decides what such a server runs under.
+            else if (key == "runtimeName") server.runtimeName = std::string(field.get_string().value);
             else if (key == "ern") server.ern = std::string(field.get_string().value);
             else if (key == "accountId") server.accountId = std::string(field.get_string().value);
+            // Absent on every server created before servers carried one.
+            else if (key == "namespace") server.nameSpace = std::string(field.get_string().value);
             else if (key == "region") server.region = std::string(field.get_string().value);
             else if (key == "protocol") server.protocol = TransferProtocolFromString(std::string(field.get_string().value));
             else if (key == "address") server.address = std::string(field.get_string().value);
@@ -85,6 +104,13 @@ namespace Euclid::Database::Entity::ETS {
             else if (key == "modified") server.modified = std::chrono::system_clock::time_point{field.get_date().value};
         }
         return server;
+    }
+
+    std::string RuntimeName(const TransferServer &server) {
+        // The bare serverId for a server created before runtimeName existed, because that is what
+        // it is running under this minute: its module row, its socket and the argument the spawned
+        // process identifies itself by are all that, and answering anything else would strand it.
+        return server.runtimeName.empty() ? server.serverId : server.runtimeName;
     }
 
 }// namespace Euclid::Database::Entity::ETS

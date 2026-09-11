@@ -36,21 +36,28 @@ namespace Euclid::Database {
         virtual Entity::EKV::Table createTable(Entity::EKV::Table &table) = 0;
 
         /**
-         * @brief Whether an account has a table of this name.
+         * @brief Whether an account's namespace has a table of this name.
+         *
+         * @par
+         * A table name is unique only within (accountId, nameSpace) - the same three fields the
+         * unique index is built on, and the same three its ERN is built from - so all three are
+         * needed to name one table. Throughout this interface an empty nameSpace means the
+         * account's unscoped tables, not "any namespace".
          */
         [[nodiscard]]
-        virtual bool tableExists(const std::string &accountId, const std::string &name) const = 0;
+        virtual bool tableExists(const std::string &accountId, const std::string &nameSpace, const std::string &name) const = 0;
 
         /**
-         * @brief Finds a table by name within an account.
+         * @brief Finds a table by name within an account and namespace.
          */
         [[nodiscard]]
-        virtual std::optional<Entity::EKV::Table> findTable(const std::string &accountId, const std::string &name) const = 0;
+        virtual std::optional<Entity::EKV::Table> findTable(const std::string &accountId, const std::string &nameSpace, const std::string &name) const = 0;
 
         /**
-         * @brief Lists an account's tables.
+         * @brief Lists the tables of one namespace of an account.
          *
          * @param accountId account whose tables to list.
+         * @param nameSpace namespace within accountId whose tables to list.
          * @param prefix only tables whose name starts with this; empty matches all.
          * @param pageSize most to return; 0 or less means no limit.
          * @param pageIndex zero-based page, applied when pageSize is set.
@@ -58,27 +65,29 @@ namespace Euclid::Database {
          * @param sortDirection "asc" or "desc".
          */
         [[nodiscard]]
-        virtual std::vector<Entity::EKV::Table> listTables(const std::string &accountId, const std::string &prefix, long pageSize,
+        virtual std::vector<Entity::EKV::Table> listTables(const std::string &accountId, const std::string &nameSpace,
+                                                           const std::string &prefix, long pageSize,
                                                            long pageIndex, const std::string &sortColumn,
                                                            const std::string &sortDirection = "asc") const = 0;
 
         /**
-         * @brief How many tables an account has.
+         * @brief How many tables an account has in one namespace.
          */
         [[nodiscard]]
-        virtual long countTables(const std::string &accountId) const = 0;
+        virtual long countTables(const std::string &accountId, const std::string &nameSpace) const = 0;
 
         /**
          * @brief Deletes a table and everything in it.
          *
          * @return how many items went with it.
          */
-        virtual long deleteTable(const std::string &accountId, const std::string &name) = 0;
+        virtual long deleteTable(const std::string &accountId, const std::string &nameSpace, const std::string &name) = 0;
 
         /**
          * @brief Writes an item, replacing whatever was stored under its key.
          *
-         * @param item the item, with its key already taken from its attributes.
+         * @param item the item, with its key already taken from its attributes and its namespace
+         * already copied from its table by Entity::EKV::Item::FromAttributes().
          * @return the stored item.
          */
         virtual Entity::EKV::Item putItem(Entity::EKV::Item &item) = 0;
@@ -89,7 +98,8 @@ namespace Euclid::Database {
          * @param sortKey the sort key value, or std::nullopt for a table without one.
          */
         [[nodiscard]]
-        virtual std::optional<Entity::EKV::Item> getItem(const std::string &accountId, const std::string &tableName,
+        virtual std::optional<Entity::EKV::Item> getItem(const std::string &accountId, const std::string &nameSpace,
+                                                         const std::string &tableName,
                                                          const Entity::EKV::Value &partitionKey,
                                                          const std::optional<Entity::EKV::Value> &sortKey) const = 0;
 
@@ -98,7 +108,8 @@ namespace Euclid::Database {
          *
          * @return true if there was one to remove.
          */
-        virtual bool deleteItem(const std::string &accountId, const std::string &tableName,
+        virtual bool deleteItem(const std::string &accountId, const std::string &nameSpace,
+                                const std::string &tableName,
                                 const Entity::EKV::Value &partitionKey,
                                 const std::optional<Entity::EKV::Value> &sortKey) = 0;
 
@@ -111,7 +122,8 @@ namespace Euclid::Database {
          * @param pageIndex zero-based page, applied when pageSize is set.
          */
         [[nodiscard]]
-        virtual std::vector<Entity::EKV::Item> query(const std::string &accountId, const std::string &tableName,
+        virtual std::vector<Entity::EKV::Item> query(const std::string &accountId, const std::string &nameSpace,
+                                                     const std::string &tableName,
                                                      const Entity::EKV::Value &partitionKey,
                                                      const Entity::EKV::SortCondition &condition, bool forward,
                                                      long pageSize, long pageIndex) const = 0;
@@ -125,14 +137,15 @@ namespace Euclid::Database {
          * up, migrate or debug.
          */
         [[nodiscard]]
-        virtual std::vector<Entity::EKV::Item> scan(const std::string &accountId, const std::string &tableName,
+        virtual std::vector<Entity::EKV::Item> scan(const std::string &accountId, const std::string &nameSpace,
+                                                    const std::string &tableName,
                                                     long pageSize, long pageIndex) const = 0;
 
         /**
          * @brief How many items a table holds.
          */
         [[nodiscard]]
-        virtual long countItems(const std::string &accountId, const std::string &tableName) const = 0;
+        virtual long countItems(const std::string &accountId, const std::string &nameSpace, const std::string &tableName) const = 0;
     };
 
 }// namespace Euclid::Database

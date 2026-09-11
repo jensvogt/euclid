@@ -48,11 +48,14 @@ namespace Euclid::Database {
         virtual Entity::EQS::Queue upsertQueue(Entity::EQS::Queue &queue) = 0;
 
         /**
-         * @brief Removes the specified element or elements from the collection or data structure.
+         * @brief Removes a queue, and its messages, by name within the account and namespace that
+         * owns it.
          *
+         * @param accountId account the queue belongs to.
+         * @param nameSpace namespace within accountId; empty means the account's unscoped queues.
          * @param name The name of the queue to be removed.
          */
-        virtual void removeQueueByName(const std::string &name) = 0;
+        virtual void removeQueueByName(const std::string &accountId, const std::string &nameSpace, const std::string &name) = 0;
 
         /**
          * @brief Removes the specified element or elements from the collection or data structure by ERN.
@@ -62,13 +65,20 @@ namespace Euclid::Database {
         virtual void deleteQueueByErn(const std::string &ern) = 0;
 
         /**
-         * @brief Searches for a queue by its name.
+         * @brief Searches for a queue by its name within the account and namespace that owns it.
          *
+         * @par
+         * A queue name is unique only within (accountId, nameSpace) - the same three fields the
+         * unique index is built on - so all three are needed to name one queue.
+         *
+         * @param accountId account the queue belongs to.
+         * @param nameSpace namespace within accountId the queue belongs to; empty means the
+         * account's unscoped queues, not "any namespace".
          * @param name The name of the queue to search for.
-         * @return The item matching the given name, or nullptr if no match is found.
+         * @return The queue matching the given name, or an empty optional if no match is found.
          */
         [[nodiscard]]
-        virtual std::optional<Entity::EQS::Queue> findQueueByName(const std::string &name) const = 0;
+        virtual std::optional<Entity::EQS::Queue> findQueueByName(const std::string &accountId, const std::string &nameSpace, const std::string &name) const = 0;
 
         /**
          * @brief Locates a queue in the repository by its unique identifier.
@@ -142,13 +152,16 @@ namespace Euclid::Database {
                                      const std::string &sourceQueueErn) = 0;
 
         /**
-         * @brief Checks if a queue with the specified name exists in the repository.
+         * @brief Checks if a queue with the specified name exists in the given account and
+         * namespace.
          *
+         * @param accountId account the queue would belong to.
+         * @param nameSpace namespace within accountId; empty means the account's unscoped queues.
          * @param name The name of the queue to check for existence.
-         * @return True if a queue with the given name exists, otherwise false.
+         * @return True if a queue with the given name exists there, otherwise false.
          */
         [[nodiscard]]
-        virtual bool queueExists(const std::string &name) const = 0;
+        virtual bool queueExists(const std::string &accountId, const std::string &nameSpace, const std::string &name) const = 0;
 
         /**
          * @brief Retrieves the total count of queues in the repository.
@@ -247,12 +260,14 @@ namespace Euclid::Database {
         virtual void purgeQueue(const std::string &queueErn) = 0;
 
         /**
-         * @brief Deletes all messages of every queue in a region/account.
+         * @brief Deletes all messages of every queue in a region/account/nameSpace.
          *
          * @param region region of the queues to purge.
          * @param accountId account ID of the queues to purge.
+         * @param nameSpace namespace of the queues to purge; empty purges every namespace of the
+         * account.
          */
-        virtual void purgeAllQueues(const std::string &region, const std::string &accountId) = 0;
+        virtual void purgeAllQueues(const std::string &region, const std::string &accountId, const std::string &nameSpace) = 0;
 
         /**
          * @brief Searches for a message by its name.

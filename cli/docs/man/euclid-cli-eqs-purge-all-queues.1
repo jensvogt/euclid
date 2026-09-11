@@ -7,9 +7,14 @@ euclid-cli-eqs-purge-all-queues \- delete all messages from every queue in a reg
 .I REGION
 .BR \-\-accountId | \-a
 .I ACCOUNT-ID
+[\fB\-\-namespace\fR|\fB\-n\fR \fINAMESPACE\fR]
 .SH DESCRIPTION
 Deletes all messages from every queue in the given region and account.
-No queue is deleted, only its messages. This cannot be undone.
+If
+.B \-\-namespace
+is given, only queues in that namespace are purged; otherwise every
+queue in the region/account is purged regardless of namespace. No queue
+is deleted, only its messages. This cannot be undone.
 .SH OPTIONS
 .TP
 .BR \-r ", " \-\-region " " \fIREGION\fR
@@ -17,6 +22,10 @@ Region whose queues should be purged. Required.
 .TP
 .BR \-a ", " \-\-accountId " " \fIACCOUNT-ID\fR
 Account ID whose queues should be purged. Required.
+.TP
+.BR \-n ", " \-\-namespace " " \fINAMESPACE\fR
+Only purge queues in this namespace. Optional; if omitted, all
+namespaces are purged.
 .SH EXIT STATUS
 .TP
 .B 0
@@ -29,6 +38,9 @@ Missing/invalid arguments or the server could not be reached.
 .nf
 euclid-cli --endpoint http://localhost:5566 eqs purge-all-queues \e
     --region eu-central-1 --accountId 000000000000
+
+euclid-cli --endpoint http://localhost:5566 eqs purge-all-queues \e
+    --region eu-central-1 --accountId 000000000000 --namespace production
 .fi
 .RE
 .SH SEE ALSO
