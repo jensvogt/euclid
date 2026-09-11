@@ -12,6 +12,9 @@
     "data-dir": "/usr/local/euclid/data",
     "temp-dir": "/usr/local/euclid/data/tmp",
     "magic-file": "/usr/local/euclid/etc/magic.mgc",
+    "database": {
+      "backend": "emd"
+    },
     "gateway": {
       "http": {
         "host": "localhost",
@@ -35,7 +38,7 @@
     },
     "modules": {
       "emd": {
-        "active": false,
+        "active": true,
         "name": "emd",
         "socketPath": "/var/run/euclid/euclid-emd.sock",
         "executable": "/usr/local/euclid/bin/euclid-emd",
@@ -117,7 +120,7 @@
         "dependencies": [
           "emd"
         ],
-        "active": false,
+        "active": true,
         "name": "ens",
         "socketPath": "/var/run/euclid/euclid-ens.sock",
         "executable": "/usr/local/euclid/bin/euclid-ens",

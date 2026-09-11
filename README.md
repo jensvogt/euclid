@@ -5,79 +5,95 @@
 ![Language](https://img.shields.io/github/languages/top/jensvogt/euclid)
 ![CI](https://img.shields.io/github/actions/workflow/status/jensvogt/euclid/test.yml)
 
-> A lightweight, modular cloud-services emulator written in modern C++ - one small
-> gateway process, independent per-service module processes, and a single CLI.
+> The services an application usually needs a cloud for - queues, topics, object storage, a
+> key/value store, secrets, identity, an API gateway - on one machine, as one supervised process
+> tree. Written in modern C++, with no database required.
 
 ---
 
 ## What is this?
 
-euclid runs a local gateway that authenticates requests and routes them, by service name, to one of several independent
-module processes it manages as subprocesses - each communicating with the gateway over a Unix domain socket. Persistence
-is pluggable: MongoDB for state that survives a restart, or an in-memory store for a disposable installation that needs
-no database at all - either inside one process, or held by the EMD module and shared by all of them over a socket.
+Most applications need a handful of the same things: somewhere to put a file, a queue to hand work
+to, a place to keep a password, something to check who is calling, and something to publish an HTTP
+endpoint. Assembling that yourself means running MinIO, RabbitMQ, Vault, Keycloak and nginx, and
+keeping five sets of concepts, credentials and configuration in your head.
 
-Requests to that gateway are authenticated one of three ways: a JWT bearer token from `eam login`, an
-[RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) HTTP Message Signature (the default for signed calls), or AWS-style
-SigV4 for clients that need it. See [Signing](#signing) below. The API gateway (`eag`) is separate and decides per
-route - see [Architecture](#architecture).
+euclid is those things as one thing. A single gateway process authenticates every request and routes
+it over a Unix socket to the module that owns that service; the modules are separate processes it
+starts, supervises and restarts. It will also run **your** applications the same way - Java, Python,
+Node.js, Rust or C++ - scale them, hand them their credentials, and publish them through its own API
+gateway.
 
-| Module  | What it does                                                                                    | Status |
-|---------|-------------------------------------------------------------------------------------------------|--------|
-| **eam** | Users, user groups, accounts, namespaces, JWT login sessions and access keys                    | ✅     |
-| **eqs** | Queues: delayed and dead-letter delivery, priority-weighted receive, long polling               | ✅     |
-| **ens** | Notifications: publish/subscribe topics fanning out to queues                                   | ✅     |
-| **esm** | Storage: buckets and objects, multipart transfer, encryption at rest                            | ✅     |
-| **ees** | Events: subscribe to what the other modules publish                                             | ✅     |
-| **ekm** | Key management: cryptographic keys, encrypt/decrypt, TLS certificates                           | ✅     |
-| **ess** | Secrets store: passwords and connection details, encrypted under an EKM key                     | ✅     |
-| **ekv** | Key/value store: tables of JSON items, looked up by key and queried by sort-key range           | ✅     |
-| **emm** | Module management: start, stop, restart, instance and thread limits, export/import              | ✅     |
-| **ets** | Transfer servers: FTP and SFTP endpoints onto ESM buckets                                       | ✅     |
-| **eap** | Applications: Java, Python, Node.js, Rust or C++ processes euclid runs, scales and supervises   | ✅     |
-| **emo** | Monitoring: metric collection, rollup and retention behind the other modules                    | ✅     |
-| **eag** | API gateway: publishes paths to the outside world and proxies them to EAP application instances | ✅     |
+It is small enough to run on a laptop, a build agent or an industrial PC, and self-contained enough
+to run somewhere with no internet at all.
+
+**It is not an AWS emulator.** The AWS SDKs will not talk to it - euclid speaks its own API, with its
+own CLI and its own Java, Python and Node.js clients. What it borrows from the large providers is the
+*shape* of the services and the way resources are named, because those ideas are good and widely
+understood. If what you want is to point an existing AWS SDK somewhere local, you want LocalStack,
+not this.
+
+| Module  | What it does                                                                                    | Familiar as     | Status |
+|---------|-------------------------------------------------------------------------------------------------|-----------------|--------|
+| **eam** | Users, user groups, accounts, namespaces, JWT login sessions and access keys                    | IAM             | ✅      |
+| **eqs** | Queues: delayed and dead-letter delivery, priority-weighted receive, long polling               | SQS             | ✅      |
+| **ens** | Notifications: publish/subscribe topics fanning out to queues                                   | SNS             | ✅      |
+| **esm** | Storage: buckets and objects, multipart transfer, encryption at rest                            | S3              | ✅      |
+| **ekv** | Key/value store: tables of JSON items, looked up by key and queried by sort-key range           | DynamoDB        | ✅      |
+| **ess** | Secrets store: passwords and connection details, encrypted under an EKM key                     | Secrets Manager | ✅      |
+| **ekm** | Key management: cryptographic keys, encrypt/decrypt, TLS certificates                           | KMS             | ✅      |
+| **eap** | Applications: Java, Python, Node.js, Rust or C++ processes euclid runs, scales and supervises   | ECS / App Runner| ✅      |
+| **eag** | API gateway: publishes paths to the outside world and proxies them to EAP application instances | API Gateway     | ✅      |
+| **ets** | Transfer servers: FTP and SFTP endpoints onto ESM buckets                                       | Transfer Family | ✅      |
+| **ees** | Events: subscribe to what the other modules publish                                             | EventBridge     | ✅      |
+| **emo** | Monitoring: metric collection, rollup and retention behind the other modules                    | CloudWatch      | ✅      |
+| **emm** | Module management: start, stop, restart, instance and thread limits, export/import              | -               | ✅      |
 
 Everything is driven through `euclid-cli`, a single client binary with one subcommand set per module
-(`euclid-cli eqs ...`, `euclid-cli eam ...`), through the desktop UI, or from a program through the Java, Python or
-Node.js client libraries - see [Related projects](#related-projects).
+(`euclid-cli eqs ...`, `euclid-cli eam ...`), through the desktop UI, or from a program through the
+Java, Python or Node.js client libraries - see [Related projects](#related-projects).
 
 ---
 
 ## Quick start
 
-Build and run everything. The shipped configuration uses MongoDB. For an installation that should leave nothing behind,
-set `euclid.database.backend` to `emd` and activate the `emd` module - see
-[Running without a database](#running-without-a-database). The `memory` backend lives inside one process and does not
-carry a login from the module that issued it to the module being called, so it will not do for the flow below:
+Nothing to install and nothing to configure. The image runs on an in-memory store held by its own
+EMD module, so there is no database to set up and nothing is left behind when the container goes:
 
 ```bash
-git clone https://github.com/jensvogt/euclid.git
-cd euclid
-cmake -B build -DCMAKE_TOOLCHAIN_FILE=<path-to-vcpkg>/scripts/buildsystems/vcpkg.cmake
-cmake --build build --parallel
-
-sudo ./build/bin/euclid-mgr --config dist/linux/etc/euclid.json
+docker run -d --name euclid -p 5566:5566 -p 4567:4567 -p 8080:8080 jensvogt/euclid:latest
 ```
 
-In another terminal:
+The CLI ships inside the image. The gateway serves HTTPS with a self-signed certificate, so point the
+client at it once and give the rest of the session a short name:
 
 ```bash
-export PATH="$PWD/build/bin:$PATH"
+alias ec='docker exec -i euclid euclid-cli --ca-cert /usr/local/euclid/etc/euclid_cert.crt'
 
-# First run bootstraps a default administrator (userId: admin, password: admin) -
-# change the password immediately in anything but a throwaway dev setup.
-euclid-cli eam login --user admin --password admin
+# The first run bootstraps an administrator (userId: admin, password: admin) -
+# change it immediately in anything but a throwaway.
+ec eam login --user admin --password admin
 
-euclid-cli eqs create-queue --name my-queue
-euclid-cli eqs send-message --queue my-queue --body "hello" --priority HIGH
-euclid-cli eqs receive-messages --queue my-queue --maxCount 10
+ec eqs create-queue --name my-queue
+ec eqs send-message --queue my-queue --body "hello" --priority HIGH
+ec eqs receive-messages --queue my-queue --maxCount 10
 
 # A secret is encrypted under an EKM key on the way in; --value-stdin keeps it
 # out of the process list and the shell history.
-openssl rand -base64 24 | euclid-cli ess create-secret --name db-password --value-stdin
-euclid-cli ess get-secret --name db-password --raw
+openssl rand -base64 24 | ec ess create-secret --name db-password --value-stdin
+ec ess get-secret --name db-password --raw
 ```
+
+That is the whole of it. `docker rm -f euclid` and nothing remains.
+
+To keep what you store, point the same image at MongoDB: mount a configuration with
+`euclid.database.backend` set to `mongodb` and fill in the `euclid.mongodb` block - see
+[Configuration](#configuration) and [Running without a database](#running-without-a-database) for what
+each backend does and does not do.
+
+Native packages for Debian/Ubuntu, RHEL/Fedora, macOS and Windows are under
+[Installation](#installation), and [Build from source](#build-from-source) if you would rather compile
+it.
 
 ---
 
@@ -159,8 +175,13 @@ Switch a single call with `--signature sigv4`, or an installation with `euclid.c
 ### Docker
 
 ```bash
-docker run -p 5566:5566 -p 4567:4567 jensvogt/euclid:latest
+docker run -d --name euclid -p 5566:5566 -p 4567:4567 -p 8080:8080 jensvogt/euclid:latest
 ```
+
+The image needs no database: it ships with `euclid.database.backend` set to `emd`, the in-memory store
+held by its own module, and keeps nothing across a restart. To persist, mount a configuration over
+`/usr/local/euclid/etc/euclid.json` with the backend set to `mongodb` and the `euclid.mongodb` block
+filled in. The ports are the gateway (5566), the UI (4567) and the API gateway (8080).
 
 ### Debian / Ubuntu
 
@@ -251,6 +272,14 @@ cmake --build build --parallel
 Requires a C++23 compiler (GCC 14+/Clang), CMake 3.28+, and
 [vcpkg](https://github.com/microsoft/vcpkg) (dependencies are resolved from
 `vcpkg.json` automatically). Binaries land in `build/bin/`.
+
+The shipped `dist/*/etc/euclid.json` configurations expect MongoDB. To run a build without one, set
+`euclid.database.backend` to `emd` and activate the `emd` module, as `dist/docker/etc/euclid.json`
+does - see [Running without a database](#running-without-a-database):
+
+```bash
+sudo ./build/bin/euclid-mgr --config dist/docker/etc/euclid.json
+```
 
 ---
 
@@ -633,4 +662,5 @@ Open an issue or PR.
 
 ## License
 
-[GPL-3.0](LICENSE)
+[MPL-2.0](LICENSE). Changes to euclid's own source files stay open; using, running or integrating it
+puts no obligation on the rest of your code.

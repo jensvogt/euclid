@@ -69,17 +69,31 @@ RUN mkdir -p /usr/local/euclid/data/tmp && \
 # Install frontend
 COPY --from=buildfrontend /usr/src/euclid-ui/dist/euclid-ui/browser/ /usr/local/euclid/frontend/
 
-# Install euclid
+# Install euclid.
+#
+# Every module the shipped configuration activates, plus the two transfer executables ETS spawns -
+# a module whose binary is missing is one the manager reports as failing to start for the life of
+# the container, which is a poor first impression of an image meant to need no setup at all.
 COPY --from=build /usr/src/euclid/build/bin/euclid-mgr /usr/local/euclid/bin/
 COPY --from=build /usr/src/euclid/build/bin/euclid-cli /usr/local/euclid/bin/
+# The document store. The image runs on it rather than on MongoDB - see euclid.database.backend
+# in the bundled configuration - so nothing else here starts without it.
+COPY --from=build /usr/src/euclid/build/bin/euclid-emd /usr/local/euclid/bin/
 COPY --from=build /usr/src/euclid/build/bin/euclid-eam /usr/local/euclid/bin/
 COPY --from=build /usr/src/euclid/build/bin/euclid-eqs /usr/local/euclid/bin/
 COPY --from=build /usr/src/euclid/build/bin/euclid-ens /usr/local/euclid/bin/
+COPY --from=build /usr/src/euclid/build/bin/euclid-ees /usr/local/euclid/bin/
 COPY --from=build /usr/src/euclid/build/bin/euclid-emo /usr/local/euclid/bin/
 COPY --from=build /usr/src/euclid/build/bin/euclid-esm /usr/local/euclid/bin/
 COPY --from=build /usr/src/euclid/build/bin/euclid-eap /usr/local/euclid/bin/
 COPY --from=build /usr/src/euclid/build/bin/euclid-ekm /usr/local/euclid/bin/
+COPY --from=build /usr/src/euclid/build/bin/euclid-ekv /usr/local/euclid/bin/
+COPY --from=build /usr/src/euclid/build/bin/euclid-ess /usr/local/euclid/bin/
 COPY --from=build /usr/src/euclid/build/bin/euclid-emm /usr/local/euclid/bin/
+COPY --from=build /usr/src/euclid/build/bin/euclid-eag /usr/local/euclid/bin/
+COPY --from=build /usr/src/euclid/build/bin/euclid-ets /usr/local/euclid/bin/
+COPY --from=build /usr/src/euclid/build/bin/euclid-ftp /usr/local/euclid/bin/
+COPY --from=build /usr/src/euclid/build/bin/euclid-sftp /usr/local/euclid/bin/
 COPY --from=build /usr/src/euclid/build/vcpkg_installed/x64-linux/share/libmagic/misc/magic.mgc /usr/local/euclid/etc/magic.mgc
 COPY --from=build /usr/src/euclid/dist/docker/etc/ssh_host_key /usr/local/euclid/etc/ssh_host_key
 COPY --from=build /usr/src/euclid/dist/docker/etc/euclid_cert.crt /usr/local/euclid/etc/euclid_cert.crt
