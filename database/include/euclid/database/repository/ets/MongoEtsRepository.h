@@ -50,7 +50,17 @@ namespace Euclid::Database {
          * @return transfer server, if it exists
          */
         [[nodiscard]]
-        std::optional<Entity::ETS::TransferServer> findServerByServerId(const std::string &serverId) const override;
+        std::optional<Entity::ETS::TransferServer> findServerByServerId(const std::string &accountId, const std::string &nameSpace,
+                                                                        const std::string &serverId) const override;
+
+        /**
+         * @brief Find the server running under a name, wherever it is defined
+         *
+         * @param runtimeName the name to look for
+         * @return server, if one is running under it
+         */
+        [[nodiscard]]
+        std::optional<Entity::ETS::TransferServer> findServerByRuntimeName(const std::string &runtimeName) const override;
 
         /**
          * @brief Find a transfer server by ERN
@@ -68,7 +78,8 @@ namespace Euclid::Database {
          * @return true if it exists
          */
         [[nodiscard]]
-        bool serverExists(const std::string &serverId) const override;
+        bool serverExists(const std::string &accountId, const std::string &nameSpace,
+                          const std::string &serverId) const override;
 
         /**
          * @brief List transfer servers
@@ -77,7 +88,17 @@ namespace Euclid::Database {
          * @return matching transfer servers
          */
         [[nodiscard]]
-        std::vector<Entity::ETS::TransferServer> listServers(const std::string &prefix) const override;
+        std::vector<Entity::ETS::TransferServer> listServers(const std::string &accountId, const std::string &nameSpace,
+                                                             const std::string &prefix) const override;
+
+        /**
+         * @brief Every transfer server in the installation - for the manager and host-wide checks
+         *
+         * @param prefix server ID prefix filter
+         * @return matching servers
+         */
+        [[nodiscard]]
+        std::vector<Entity::ETS::TransferServer> listAllServers(const std::string &prefix) const override;
 
         /**
          * @brief Count transfer servers
@@ -85,14 +106,15 @@ namespace Euclid::Database {
          * @return number of transfer servers
          */
         [[nodiscard]]
-        long countServers() const override;
+        long countServers(const std::string &accountId, const std::string &nameSpace) const override;
 
         /**
          * @brief Delete a transfer server
          *
          * @param serverId server ID
          */
-        void deleteServer(const std::string &serverId) override;
+        void deleteServer(const std::string &accountId, const std::string &nameSpace,
+                          const std::string &serverId) override;
 
         /**
          * @brief Remove all transfer servers
@@ -100,6 +122,13 @@ namespace Euclid::Database {
         void clear() override;
 
     private:
+
+        /**
+         * @brief The filter that picks exactly one transfer server.
+         */
+        [[nodiscard]]
+        static bsoncxx::document::value serverFilter(const std::string &accountId, const std::string &nameSpace,
+                                                     const std::string &serverId);
 
         /**
          * @brief Collection name

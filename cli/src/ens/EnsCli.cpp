@@ -402,8 +402,11 @@ namespace Euclid::CLI {
         Dto::ENS::PurgeAllTopicsRequest request;
         request.region = vm["region"].as<std::string>();
         request.accountId = vm["accountId"].as<std::string>();
+        // vm is keyed by the option's own name, "namespace" - asking it for "nameSpace" inserted an
+        // empty value and threw bad_any_cast out of a spot no try block covers, so passing the
+        // option this branch exists for was the one way to make the command abort.
         if (vm.contains("namespace")) {
-            request.nameSpace = vm["nameSpace"].as<std::string>();
+            request.nameSpace = vm["namespace"].as<std::string>();
         }
 
         try {

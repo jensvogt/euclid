@@ -167,7 +167,7 @@ namespace Euclid::EAG {
         // Only the applications the routes actually name, taken from the table that was just
         // refreshed, so the two cannot disagree about which applications matter - and so a failed
         // route read leaves the backends of the routes still being served alone.
-        _backends.refresh(_routes.applicationIds());
+        _backends.refresh(_routes.applications());
     }
 
     void ProxyServer::accept(const std::size_t index) {
@@ -328,7 +328,9 @@ namespace Euclid::EAG {
             return;
         }
 
-        const auto port = _backends.next(match->applicationId);
+        const auto port = _backends.next(ApplicationRef{.accountId = match->accountId,
+                                                        .nameSpace = match->nameSpace,
+                                                        .applicationId = match->applicationId});
         if (!port.has_value()) {
             // The route is configured and the application is simply not there: scaled to zero,
             // still starting, or never given a port. Said as 503 rather than 404, because the

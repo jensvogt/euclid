@@ -13,6 +13,8 @@ using Euclid::Database::Entity::EAP::ApplicationState;
 using Euclid::Database::Entity::EAP::RedeployRefusal;
 using Euclid::Database::Entity::EAP::Runtime;
 using Euclid::Database::Entity::EAP::RuntimeCommandPrefix;
+using Euclid::Database::Entity::GenerateRuntimeName;
+using Euclid::Database::Entity::EAP::RuntimeName;
 using Euclid::Database::Entity::EAP::VersionFromArtifactName;
 
 // An application definition is the whole contract between EAP, the manager and the process it
@@ -25,8 +27,10 @@ namespace {
     Application demoApplication() {
         Application application;
         application.applicationId = "orders";
-        application.ern = "ern:eap:eu-central-1:000000000000:application:orders";
+        application.runtimeName = "orders-a3f2k9x1";
+        application.ern = "ern:eap:eu-central-1:000000000000:development:application:orders";
         application.accountId = "000000000000";
+        application.nameSpace = "development";
         application.region = "eu-central-1";
         application.runtime = Runtime::JAVA;
         application.bucketErn = "ern:esm:eu-central-1:000000000000:development:bucket:apps";
@@ -54,8 +58,10 @@ BOOST_AUTO_TEST_CASE(ApplicationSurvivesABsonRoundTrip) {
     const auto restored = Application::fromDocument(application.toDocument().view());
 
     BOOST_TEST(restored.applicationId == "orders");
+    BOOST_TEST(restored.runtimeName == "orders-a3f2k9x1");
     BOOST_TEST(restored.ern == application.ern);
     BOOST_TEST(restored.accountId == "000000000000");
+    BOOST_TEST(restored.nameSpace == "development");
     BOOST_TEST(restored.region == "eu-central-1");
     BOOST_TEST((restored.runtime == Runtime::JAVA));
     BOOST_TEST(restored.bucketErn == application.bucketErn);
@@ -113,15 +119,97 @@ BOOST_AUTO_TEST_CASE(RepositoryKeepsOneRowPerApplicationId) {
     application.maxInstances = 16;
     std::ignore = repository.upsertApplication(application);
 
-    BOOST_TEST(repository.countApplications() == 1);
-    BOOST_TEST_REQUIRE(repository.applicationExists("orders"));
-    BOOST_TEST(repository.findApplicationByApplicationId("orders")->maxInstances == 16);
+    BOOST_TEST(repository.countApplications("000000000000", "development") == 1);
+    BOOST_TEST_REQUIRE(repository.applicationExists("000000000000", "development", "orders"));
+    BOOST_TEST(repository.findApplicationByApplicationId("000000000000", "development", "orders")->maxInstances == 16);
     BOOST_TEST(repository.findApplicationByErn(application.ern).has_value());
-    BOOST_TEST(repository.listApplications("ord").size() == 1U);
-    BOOST_TEST(repository.listApplications("zzz").empty());
+    BOOST_TEST(repository.listApplications("000000000000", "development", "ord").size() == 1U);
+    BOOST_TEST(repository.listApplications("000000000000", "development", "zzz").empty());
 
-    repository.deleteApplication("orders");
-    BOOST_TEST(repository.countApplications() == 0);
+    // The same id in another namespace is another application, and is not what any of these find.
+    BOOST_TEST(!repository.applicationExists("000000000000", "production", "orders"));
+    BOOST_TEST(!repository.findApplicationByApplicationId("000000000000", "production", "orders").has_value());
+    BOOST_TEST(repository.countApplications("000000000000", "production") == 0);
+
+    repository.deleteApplication("000000000000", "development", "orders");
+    BOOST_TEST(repository.countApplications("000000000000", "development") == 0);
+}
+
+BOOST_AUTO_TEST_CASE(TwoNamespacesMayEachDefineTheSameApplication) {
+    Euclid::Database::Database::instance().initializeMemory();
+    MongoEapRepository repository;
+
+    auto development = demoApplication();
+    auto production = demoApplication();
+    production.nameSpace = "production";
+    production.runtimeName = "orders-b7c1m2p9";
+    production.ern = "ern:eap:eu-central-1:000000000000:production:application:orders";
+    production.maxInstances = 3;
+
+    std::ignore = repository.upsertApplication(development);
+    std::ignore = repository.upsertApplication(production);
+
+    // Two applications, not one overwritten by the other: the namespace is part of what identifies
+    // an application, so "orders" in development and "orders" in production are different things.
+    BOOST_TEST(repository.countApplications("000000000000", "development") == 1);
+    BOOST_TEST(repository.countApplications("000000000000", "production") == 1);
+    BOOST_TEST(repository.findApplicationByApplicationId("000000000000", "development", "orders")->maxInstances == 8);
+    BOOST_TEST(repository.findApplicationByApplicationId("000000000000", "production", "orders")->maxInstances == 3);
+
+    // The manager runs both, and it is the runtime name that keeps them apart there: one process
+    // pool, one data directory, one socket and one module row each. Neither is derived from
+    // anything, so neither can be made to collide by how the applications are named or moved.
+    BOOST_TEST(RuntimeName(development) == "orders-a3f2k9x1");
+    BOOST_TEST(RuntimeName(production) == "orders-b7c1m2p9");
+
+    // The manager needs every application on the host, whatever namespace defines it - a
+    // reconciler that saw one namespace's would tear down the rest as undefined.
+    BOOST_TEST(repository.listAllApplications("").size() == 2U);
+    BOOST_TEST(repository.listApplications("000000000000", "development", "").size() == 1U);
+
+    // Deleting one leaves the other alone.
+    repository.deleteApplication("000000000000", "development", "orders");
+    BOOST_TEST(repository.listAllApplications("").size() == 1U);
+    BOOST_TEST(repository.findApplicationByApplicationId("000000000000", "production", "orders").has_value());
+}
+
+BOOST_AUTO_TEST_CASE(AnApplicationFromBeforeRuntimeNamesKeepsRunningUnderItsOwnId) {
+    // Nothing on a host moves because this field was added. An application deployed before it
+    // existed has none, and it is running under its bare applicationId this minute - its
+    // directory, its module row, its socket and its principal are all named that - so that is what
+    // it goes on running under.
+    Application legacy;
+    legacy.applicationId = "orders";
+    legacy.accountId = "000000000000";
+    legacy.nameSpace = "development";
+    BOOST_TEST(legacy.runtimeName.empty());
+    BOOST_TEST(RuntimeName(legacy) == "orders");
+
+    // And it stays absent through a round trip rather than being written as an empty name, which
+    // the unique index would read as one name every such application shares.
+    const auto restored = Application::fromDocument(legacy.toDocument().view());
+    BOOST_TEST(restored.runtimeName.empty());
+    BOOST_TEST(RuntimeName(restored) == "orders");
+    BOOST_TEST(!legacy.toDocument().view().find("runtimeName").operator*());
+}
+
+BOOST_AUTO_TEST_CASE(AnIssuedRuntimeNameSaysWhichApplicationItIs) {
+    // Readable, so that ps output, a module list, a log channel and a directory under the data dir
+    // all still say which application they belong to...
+    const auto issued = GenerateRuntimeName("orders");
+    BOOST_TEST(issued.starts_with("orders-"));
+
+    // ...and unique, which is what the suffix is for. Two applications called the same thing in
+    // two namespaces are issued different names, with nothing having to coordinate that.
+    BOOST_TEST(GenerateRuntimeName("orders") != GenerateRuntimeName("orders"));
+
+    // Long enough to be worth having: 8 characters of an alphabet of 32.
+    BOOST_TEST(issued.size() == std::string("orders-").size() + 8U);
+
+    // The whole of this ends up in a unix socket path, which is capped at 108 bytes, so the id it
+    // is built from is cut rather than allowed to take the name past that.
+    const std::string long_id(80, 'x');
+    BOOST_TEST(GenerateRuntimeName(long_id).size() == 32U + 1U + 8U);
 }
 
 BOOST_AUTO_TEST_CASE(ALogLevelIsNotAChangeOfDefinition) {
@@ -132,8 +220,8 @@ BOOST_AUTO_TEST_CASE(ALogLevelIsNotAChangeOfDefinition) {
     application.logLevel.clear();
     const auto stored = repository.upsertApplication(application);
 
-    BOOST_TEST_REQUIRE(repository.setApplicationLogLevel("orders", "off"));
-    const auto changed = repository.findApplicationByApplicationId("orders");
+    BOOST_TEST_REQUIRE(repository.setApplicationLogLevel("000000000000", "development", "orders", "off"));
+    const auto changed = repository.findApplicationByApplicationId("000000000000", "development", "orders");
     BOOST_TEST_REQUIRE(changed.has_value());
     BOOST_TEST(changed->logLevel == "off");
 
@@ -148,11 +236,13 @@ BOOST_AUTO_TEST_CASE(ALogLevelIsNotAChangeOfDefinition) {
     BOOST_TEST(changed->artifactKey == stored.artifactKey);
 
     // An empty level is how the setting is taken back, rather than a level of its own.
-    BOOST_TEST_REQUIRE(repository.setApplicationLogLevel("orders", ""));
-    BOOST_TEST(repository.findApplicationByApplicationId("orders")->logLevel.empty());
+    BOOST_TEST_REQUIRE(repository.setApplicationLogLevel("000000000000", "development", "orders", ""));
+    BOOST_TEST(repository.findApplicationByApplicationId("000000000000", "development", "orders")->logLevel.empty());
 
-    // And an application nobody has defined is reported rather than silently accepted.
-    BOOST_TEST(!repository.setApplicationLogLevel("nothing-of-that-name", "debug"));
+    // And an application nobody has defined is reported rather than silently accepted - including
+    // one that exists, but not in the namespace the caller named.
+    BOOST_TEST(!repository.setApplicationLogLevel("000000000000", "development", "nothing-of-that-name", "debug"));
+    BOOST_TEST(!repository.setApplicationLogLevel("000000000000", "production", "orders", "debug"));
 }
 
 BOOST_AUTO_TEST_CASE(TechnicalPrincipalIsAnIdentityThatCannotLogIn) {
@@ -166,7 +256,7 @@ BOOST_AUTO_TEST_CASE(TechnicalPrincipalIsAnIdentityThatCannotLogIn) {
     key.active = true;
 
     Euclid::Database::Entity::EAM::User principal;
-    principal.userId = "app-orders";
+    principal.userId = "app-orders-a3f2k9x1";
     principal.accountId = "000000000000";
     principal.region = "eu-central-1";
     principal.loginEnabled = false;
@@ -183,7 +273,12 @@ BOOST_AUTO_TEST_CASE(TechnicalPrincipalIsAnIdentityThatCannotLogIn) {
     principal.resourceGrants = {"ern:esm:eu-central-1:000000000000:development:bucket:inbox"};
 
     const auto restored = Euclid::Database::Entity::EAM::User::fromDocument(principal.toDocument().view());
-    BOOST_TEST(restored.userId == "app-orders");
+    // Named after what the application runs as, not what it is defined as: an EAM userId is unique
+    // across the installation, so a principal named for the bare id would be one principal for
+    // every namespace's "orders". And because that name never changes, neither does this - an
+    // application that moves namespace keeps its principal and its key.
+    BOOST_TEST(restored.userId == "app-orders-a3f2k9x1");
+    BOOST_TEST(restored.userId == "app-" + RuntimeName(demoApplication()));
     BOOST_TEST(restored.resourceGrants == (std::vector<std::string>{"ern:esm:eu-central-1:000000000000:development:bucket:inbox"}));
     BOOST_TEST(!restored.loginEnabled);
     BOOST_TEST(restored.password.empty());

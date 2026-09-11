@@ -482,7 +482,10 @@ namespace Euclid::main {
 
     void ServiceController::reconcileTransferServers() {
 
-        const auto servers = Database::RepositoryFactory::instance().etsRepository()->listServers("");
+        // Every transfer server in the installation: this host runs them all, whatever account or
+        // namespace defines them, and a reconciler that saw only one namespace's would treat every
+        // other namespace's running server as undefined and tear it down.
+        const auto servers = Database::RepositoryFactory::instance().etsRepository()->listAllServers("");
 
         // Transfer servers are spawned from the same two executables every other deployment
         // uses; only the --transfer-server argument tells one instance apart from another.
@@ -499,21 +502,28 @@ namespace Euclid::main {
         std::set<std::string> defined;
 
         for (const auto &server: servers) {
-            defined.insert(server.serverId);
+
+            // What the manager knows this server as. Everything below is keyed by it - the process
+            // pool, the module row, the socket, and the argument the spawned process reads its own
+            // definition back by - none of which has an account or a namespace to keep two
+            // same-named servers apart. Issued once when the server was created and held ever
+            // since, so none of those moves because the definition was edited.
+            const auto runtimeName = Database::Entity::ETS::RuntimeName(server);
+            defined.insert(runtimeName);
 
             const bool wantRunning = server.desiredState == Database::Entity::ETS::TransferServerState::RUNNING;
             bool registered;
             {
                 std::lock_guard lock(_mutex);
-                registered = _services.contains(server.serverId);
+                registered = _services.contains(runtimeName);
             }
 
             if (wantRunning && !registered) {
                 Dto::ModuleConfig config;
-                config.name = server.serverId;
+                config.name = runtimeName;
                 config.executable = server.protocol == Database::Entity::ETS::TransferProtocol::FTP ? ftpExecutable : sftpExecutable;
-                config.args = {"--config", configuration.filePath().string(), "--transfer-server", server.serverId};
-                config.socketPath = socketDir + "/euclid-transfer-" + server.serverId + ".sock";
+                config.args = {"--config", configuration.filePath().string(), "--transfer-server", runtimeName};
+                config.socketPath = socketDir + "/euclid-transfer-" + runtimeName + ".sock";
                 config.maxRestarts = -1;
                 config.autoRestart = true;
                 // Deliberately single-instance: two processes cannot share a listening port, so
@@ -521,15 +531,15 @@ namespace Euclid::main {
                 config.minInstances = 1;
                 config.maxInstances = 1;
 
-                log_info << "Transfer server starting, serverId: " << server.serverId
+                log_info << "Transfer server starting, serverId: " << runtimeName
                         << ", protocol: " << Database::Entity::ETS::TransferProtocolToString(server.protocol) << ", port: " << server.port;
                 registerModule(config);
-                start(server.serverId);
+                start(runtimeName);
 
             } else if (!wantRunning && registered) {
-                log_info << "Transfer server stopping, serverId: " << server.serverId;
-                stop(server.serverId);
-                deregisterModule(server.serverId);
+                log_info << "Transfer server stopping, serverId: " << runtimeName;
+                stop(runtimeName);
+                deregisterModule(runtimeName);
             }
         }
 
@@ -555,14 +565,18 @@ namespace Euclid::main {
     namespace {
 
         // Where an application's artifact is materialised, one directory per application.
-        std::filesystem::path applicationDir(const std::string &applicationId) {
+        //
+        // By the name it runs under (Entity::EAP::RuntimeName()), not the one it is defined under:
+        // a data directory is a path on a host, with no account or namespace to live in, so two
+        // namespaces each defining a "billing" would otherwise be handed the same directory.
+        std::filesystem::path applicationDir(const std::string &runtimeName) {
 #ifdef _WIN32
             constexpr auto kDefaultDataDir = R"(C:\Program Files\euclid\data\application)";
 #else
             constexpr auto kDefaultDataDir = "/usr/local/euclid/data/application";
 #endif
             const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.eap.data-dir", kDefaultDataDir);
-            return std::filesystem::path(dataDir) / applicationId;
+            return std::filesystem::path(dataDir) / runtimeName;
         }
 
         // Copies the artifact out of ESM's object storage next to where the application will run.
@@ -597,7 +611,7 @@ namespace Euclid::main {
                 return std::nullopt;
             }
 
-            const auto directory = applicationDir(application.applicationId);
+            const auto directory = applicationDir(Database::Entity::EAP::RuntimeName(application));
             std::filesystem::create_directories(directory, ec);
             if (ec) {
                 log_error << "Could not create application directory, path: " << directory.string() << ", error: " << ec.message();
@@ -679,8 +693,8 @@ namespace Euclid::main {
             return std::chrono::seconds(std::max(60L, Core::Configuration::instance().getOr<long>("euclid.modules.eap.credentials-ttl-seconds", kDefaultTtlSeconds)));
         }
 
-        std::filesystem::path credentialsPath(const std::string &applicationId) {
-            return applicationDir(applicationId) / "credentials";
+        std::filesystem::path credentialsPath(const std::string &runtimeName) {
+            return applicationDir(runtimeName) / "credentials";
         }
 
         // Writes the application's current credentials: a bearer token for the identity it runs
@@ -737,7 +751,7 @@ namespace Euclid::main {
                     {"endpoint", scheme + std::string("://") + host + ":" + std::to_string(port)},
             };
 
-            const auto path = credentialsPath(application.applicationId);
+            const auto path = credentialsPath(Database::Entity::EAP::RuntimeName(application));
             std::error_code ec;
             std::filesystem::create_directories(path.parent_path(), ec);
 
@@ -765,9 +779,9 @@ namespace Euclid::main {
         // Whether the credentials on disk are missing, unreadable, or close enough to expiry to be
         // worth replacing. Half the lifetime is the threshold, so an application always has at
         // least that long left in hand however unluckily a reconcile tick lands.
-        bool credentialsNeedRefresh(const std::string &applicationId) {
+        bool credentialsNeedRefresh(const std::string &runtimeName) {
 
-            std::ifstream in(credentialsPath(applicationId));
+            std::ifstream in(credentialsPath(runtimeName));
             if (!in) return true;
 
             try {
@@ -818,7 +832,7 @@ namespace Euclid::main {
             environment["EUCLID_SIGNATURE"] = "rfc9421";
 
             // Where the short-lived credentials are, and when the process should look again.
-            environment["EUCLID_CREDENTIALS_FILE"] = credentialsPath(application.applicationId).string();
+            environment["EUCLID_CREDENTIALS_FILE"] = credentialsPath(Database::Entity::EAP::RuntimeName(application)).string();
 
             const auto user = Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(application.userId);
 
@@ -850,7 +864,8 @@ namespace Euclid::main {
         void applyApplicationLogLevel(const Database::Entity::EAP::Application &application,
                                       const std::map<std::string, std::string> &channelLevels) {
 
-            const auto channel = std::string(Core::LogStream::kApplicationChannel) + "." + application.applicationId;
+            const auto channel = std::string(Core::LogStream::kApplicationChannel) + "."
+                                 + Database::Entity::EAP::RuntimeName(application);
             const auto current = channelLevels.find(channel);
 
             if (application.logLevel.empty()) {
@@ -866,7 +881,10 @@ namespace Euclid::main {
 
     void ServiceController::reconcileApplications() {
 
-        const auto applications = Database::RepositoryFactory::instance().eapRepository()->listApplications("");
+        // Every application in the installation: this host runs them all, whatever account or
+        // namespace defines them, and a reconciler that saw only one namespace's would treat every
+        // other namespace's running pool as undefined and tear it down.
+        const auto applications = Database::RepositoryFactory::instance().eapRepository()->listAllApplications("");
 
         const auto &configuration = Core::Configuration::instance();
         const auto socketDir = configuration.getOr<std::string>("euclid.modules.eap.socket-dir", "/var/run/euclid");
@@ -878,7 +896,14 @@ namespace Euclid::main {
         const auto channelLevels = Core::LogStream::ChannelSeverities();
 
         for (const auto &application: applications) {
-            defined.insert(application.applicationId);
+
+            // What the manager knows this application as. Everything below is keyed by it - the
+            // process pool, the module row, the directory, the socket and the log channel - none
+            // of which has an account or a namespace to keep two same-named applications apart.
+            // Issued once when the application was created and held ever since, so none of those
+            // moves because something about the definition was edited.
+            const auto runtimeName = Database::Entity::EAP::RuntimeName(application);
+            defined.insert(runtimeName);
 
             applyApplicationLogLevel(application, channelLevels);
 
@@ -889,7 +914,7 @@ namespace Euclid::main {
             std::string runningRevision;
             {
                 std::lock_guard lock(_mutex);
-                if (const auto it = _services.find(application.applicationId); it != _services.end()) {
+                if (const auto it = _services.find(runtimeName); it != _services.end()) {
                     registered = true;
                     if (const auto env = it->second.config.environment.find("EUCLID_APPLICATION_REVISION");
                         env != it->second.config.environment.end()) {
@@ -909,19 +934,19 @@ namespace Euclid::main {
             // running with the previous definition's credentials - which by then have been
             // deleted along with the principal that owned them.
             if (wantRunning && registered && runningRevision != revision) {
-                log_info << "Application definition changed, restarting, applicationId: " << application.applicationId
+                log_info << "Application definition changed, restarting, applicationId: " << runtimeName
                         << ", revision: " << runningRevision << " -> " << revision;
-                stop(application.applicationId);
-                deregisterModule(application.applicationId);
+                stop(runtimeName);
+                deregisterModule(runtimeName);
                 registered = false;
             }
 
             // Rewritten while the application runs, not only when it starts: that is the whole
             // point of putting them in a file. An instance started an hour ago is holding a token
             // that is about to expire, and the only thing that can replace it is this.
-            if (wantRunning && credentialsNeedRefresh(application.applicationId)) {
+            if (wantRunning && credentialsNeedRefresh(runtimeName)) {
                 if (writeApplicationCredentials(application)) {
-                    log_debug << "Application credentials refreshed, applicationId: " << application.applicationId;
+                    log_debug << "Application credentials refreshed, applicationId: " << runtimeName;
                 }
             }
 
@@ -937,7 +962,7 @@ namespace Euclid::main {
             // by the reconcile tick that runs this: a module that never comes up is reported by
             // its own supervision, and this simply keeps saying what it is waiting for.
             if (wantRunning && !registered && !modulesRunning()) {
-                log_info << "Application waiting for the modules to come up, applicationId: " << application.applicationId;
+                log_info << "Application waiting for the modules to come up, applicationId: " << runtimeName;
                 continue;
             }
 
@@ -950,7 +975,7 @@ namespace Euclid::main {
                 // as its argument, or the artifact itself. An application that spells out its own
                 // command overrides all of it.
                 Dto::ModuleConfig config;
-                config.name = application.applicationId;
+                config.name = runtimeName;
                 const auto prefix = Database::Entity::EAP::RuntimeCommandPrefix(application.runtime);
                 if (!application.command.empty()) {
                     config.executable = application.command;
@@ -965,8 +990,8 @@ namespace Euclid::main {
                 for (const auto &argument: application.arguments) config.args.push_back(argument);
 
                 config.environment = applicationEnvironment(application);
-                config.workingDir = applicationDir(application.applicationId).string();
-                config.socketPath = socketDir + "/euclid-application-" + application.applicationId + ".sock";
+                config.workingDir = applicationDir(runtimeName).string();
+                config.socketPath = socketDir + "/euclid-application-" + runtimeName + ".sock";
                 config.readyTimeoutMs = static_cast<int>(application.readyTimeoutMs);
                 config.maxRestarts = -1;
                 config.autoRestart = true;
@@ -978,16 +1003,16 @@ namespace Euclid::main {
                 config.minInstances = static_cast<int>(application.minInstances);
                 config.maxInstances = static_cast<int>(application.maxInstances);
 
-                log_info << "Application starting, applicationId: " << application.applicationId
+                log_info << "Application starting, applicationId: " << runtimeName
                         << ", runtime: " << RuntimeToString(application.runtime) << ", command: " << config.executable
                         << ", instances: " << config.minInstances << "-" << config.maxInstances;
                 registerModule(config);
-                start(application.applicationId);
+                start(runtimeName);
 
             } else if (!wantRunning && registered) {
-                log_info << "Application stopping, applicationId: " << application.applicationId;
-                stop(application.applicationId);
-                deregisterModule(application.applicationId);
+                log_info << "Application stopping, applicationId: " << runtimeName;
+                stop(runtimeName);
+                deregisterModule(runtimeName);
             }
         }
 
@@ -1470,11 +1495,13 @@ namespace Euclid::main {
         std::set<std::string> transferServers;
         std::set<std::string> applications;
         try {
-            for (const auto &server: Database::RepositoryFactory::instance().etsRepository()->listServers("")) {
-                transferServers.insert(server.serverId);
+            for (const auto &server: Database::RepositoryFactory::instance().etsRepository()->listAllServers("")) {
+                // Matched against the pool names in _services below, which are runtime names.
+                transferServers.insert(Database::Entity::ETS::RuntimeName(server));
             }
-            for (const auto &application: Database::RepositoryFactory::instance().eapRepository()->listApplications("")) {
-                applications.insert(application.applicationId);
+            for (const auto &application: Database::RepositoryFactory::instance().eapRepository()->listAllApplications("")) {
+                // Matched against the pool names in _services below, which are runtime names.
+                applications.insert(Database::Entity::EAP::RuntimeName(application));
             }
         } catch (const std::exception &e) {
             // Shutdown must not depend on the database being reachable. Without the definitions

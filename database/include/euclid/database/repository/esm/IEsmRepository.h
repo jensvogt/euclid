@@ -36,11 +36,13 @@ namespace Euclid::Database {
         virtual Entity::ESM::Bucket upsertBucket(Entity::ESM::Bucket &bucket) = 0;
 
         /**
-         * @brief Removes a bucket by its name.
+         * @brief Removes a bucket by its name, within the account and namespace that owns it.
          *
+         * @param accountId account the bucket belongs to.
+         * @param nameSpace namespace within accountId; empty means the account's unscoped buckets.
          * @param name The name of the bucket to be removed.
          */
-        virtual void removeBucketByName(const std::string &name) = 0;
+        virtual void removeBucketByName(const std::string &accountId, const std::string &nameSpace, const std::string &name) = 0;
 
         /**
          * @brief Removes a bucket by its ERN.
@@ -50,13 +52,20 @@ namespace Euclid::Database {
         virtual void deleteBucketByErn(const std::string &ern) = 0;
 
         /**
-         * @brief Searches for a bucket by its name.
+         * @brief Searches for a bucket by its name within the account and namespace that owns it.
          *
+         * @par
+         * A bucket name is unique only within (accountId, nameSpace) - the same three fields the
+         * unique index is built on - so all three are needed to name one bucket.
+         *
+         * @param accountId account the bucket belongs to.
+         * @param nameSpace namespace within accountId the bucket belongs to; empty means the
+         * account's unscoped buckets, not "any namespace".
          * @param name The name of the bucket to search for.
          * @return The matching bucket, or an empty optional if no match is found.
          */
         [[nodiscard]]
-        virtual std::optional<Entity::ESM::Bucket> findBucketByName(const std::string &name) const = 0;
+        virtual std::optional<Entity::ESM::Bucket> findBucketByName(const std::string &accountId, const std::string &nameSpace, const std::string &name) const = 0;
 
         /**
          * @brief Locates a bucket in the repository by its unique identifier.
@@ -93,13 +102,16 @@ namespace Euclid::Database {
         virtual std::vector<Entity::ESM::Bucket> listBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc", bool includeInternal = false) const = 0;
 
         /**
-         * @brief Checks if a bucket with the specified name exists in the repository.
+         * @brief Checks if a bucket with the specified name exists in the given account and
+         * namespace.
          *
+         * @param accountId account the bucket would belong to.
+         * @param nameSpace namespace within accountId; empty means the account's unscoped buckets.
          * @param name The name of the bucket to check for existence.
-         * @return True if a bucket with the given name exists, otherwise false.
+         * @return True if a bucket with the given name exists there, otherwise false.
          */
         [[nodiscard]]
-        virtual bool bucketExists(const std::string &name) const = 0;
+        virtual bool bucketExists(const std::string &accountId, const std::string &nameSpace, const std::string &name) const = 0;
 
         /**
          * @brief Retrieves the total count of buckets in the repository.

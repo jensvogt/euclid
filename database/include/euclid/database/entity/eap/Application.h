@@ -17,6 +17,7 @@
 #include <bsoncxx/document/view-fwd.hpp>
 
 // Euclid includes
+#include <euclid/database/entity/RuntimeName.h>
 #include <euclid/database/entity/eap/ApplicationState.h>
 #include <euclid/database/entity/eap/Runtime.h>
 
@@ -50,12 +51,34 @@ namespace Euclid::Database::Entity::EAP {
         std::string oid;
 
         /**
-         * @brief Name identifying this application, unique across the installation.
+         * @brief Name identifying this application within its account and namespace.
          *
-         * Doubles as the manager's module name for the spawned processes, which is why it has to
-         * be unique: two applications sharing a name would share a process pool.
+         * What a person deploys, names and asks for: unique within (accountId, nameSpace), like
+         * every other named resource. Not what the application runs as - see @ref runtimeName.
          */
         std::string applicationId;
+
+        /**
+         * @brief The name the manager runs this application under, issued once and never changed.
+         *
+         * @par
+         * Everything outside the definition is keyed by this: the process pool, the module row the
+         * manager registers, the data directory, the unix socket, the log channel and the
+         * technical principal named after it. None of those has an account or a namespace to live
+         * in, so none of them can be keyed by an applicationId, which is unique only within one.
+         *
+         * @par
+         * Stored rather than derived so that it holds still. An application that moves to another
+         * namespace keeps its directory, its module row, its principal and its processes; only
+         * where it looks resources up changes, which is the only thing that should.
+         *
+         * @par
+         * Empty on applications deployed before this field existed. They ran under their bare
+         * applicationId, and RuntimeName() goes on returning exactly that for them, so nothing
+         * about them moves. Written only when set - see toDocument() - so that the unique index on
+         * this field skips them rather than seeing every one of them as the same empty name.
+         */
+        std::string runtimeName;
 
         /**
          * @brief Euclid resource name
@@ -73,13 +96,13 @@ namespace Euclid::Database::Entity::EAP {
         std::string region;
 
         /**
-         * @brief Namespace this application's own requests run in.
+         * @brief Namespace this application belongs to, and whose resources it works with.
          *
          * @par
-         * Not part of the application's identity - an application ERN is account-scoped, not
-         * namespace-scoped, and two namespaces cannot hold applications of the same name. This is
-         * where the application *works*: the namespace its queue, topic and bucket names are
-         * resolved in, sent as x-euclid-namespace on every call it makes.
+         * Part of the application's identity: an applicationId is unique within
+         * (accountId, nameSpace), and the ERN carries all three. It is also where the application
+         * *works* - the namespace its queue, topic and bucket names are resolved in, sent as
+         * x-euclid-namespace on every call it makes.
          *
          * @par
          * Empty on every application created before this existed, and on any created by a client
@@ -236,6 +259,30 @@ namespace Euclid::Database::Entity::EAP {
          */
         static Application fromDocument(const std::optional<bsoncxx::document::view> &document);
     };
+
+    /**
+     * @brief The name an application runs under, as opposed to the name it is defined under.
+     *
+     * @par
+     * An applicationId is unique within (accountId, nameSpace), like every other named resource.
+     * Its runtime identity cannot be: the manager keys its process pools by name, registers each
+     * as an EMM module (whose names are installation-wide), gives each a data directory, a unix
+     * socket and a log channel, and not one of those has an account or a namespace to live in.
+     *
+     * @par
+     * So it is a name of its own - @ref Application::runtimeName, issued once by
+     * GenerateRuntimeName() and then never touched. Deriving it from the account, namespace and id
+     * instead would make it change whenever they do: moving an application to another namespace
+     * would move its directory, rename its module row and its principal, and bounce it, for a
+     * change that has nothing to do with how it runs.
+     *
+     * @param application the application
+     * @return the name to run it under
+     */
+    std::string RuntimeName(const Application &application);
+
+    // An application's runtime name is issued by Entity::GenerateRuntimeName() - see
+    // euclid/database/entity/RuntimeName.h, which a transfer server uses for the same purpose.
 
     /**
      * @brief Reads a version out of an artifact's own name.
