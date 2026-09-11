@@ -41,6 +41,7 @@ namespace Euclid::Database::Entity::EKV {
         Item item;
         item.tableName = table.name;
         item.accountId = table.accountId;
+        item.nameSpace = table.nameSpace;
         item.region = table.region;
         item.partitionKey = partition->second;
         item.attributes = attributes;
@@ -69,6 +70,7 @@ namespace Euclid::Database::Entity::EKV {
         builder::document document;
         document.append(builder::kvp("tableName", tableName),
                         builder::kvp("accountId", accountId),
+                        builder::kvp("namespace", nameSpace),
                         builder::kvp("region", region));
 
         // The key values in their own types, so the database compares them as numbers where they
@@ -94,6 +96,7 @@ namespace Euclid::Database::Entity::EKV {
             if (const auto key = field.key(); key == "_id") item.oid = field.get_oid().value.to_string();
             else if (key == "tableName") item.tableName = std::string(field.get_string().value);
             else if (key == "accountId") item.accountId = std::string(field.get_string().value);
+            else if (key == "namespace") item.nameSpace = std::string(field.get_string().value);
             else if (key == "region") item.region = std::string(field.get_string().value);
             else if (key == "pk") item.partitionKey = Value::FromBson(field.get_value());
             else if (key == "sk") item.sortKey = Value::FromBson(field.get_value());

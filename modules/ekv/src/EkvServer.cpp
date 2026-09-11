@@ -78,6 +78,10 @@ namespace Euclid::EKV {
     }
 
     // The table a request is about, or the response that says why there is none.
+    //
+    // Resolved in the caller's own account and namespace, the pair create-table built the table's
+    // ERN from. Every item call below then works off the table this returns rather than off the
+    // header again, so an item lands in the same namespace as the table it was addressed through.
     static std::optional<Table> tableFor(const request<string_body> &req, const AuthResult &auth, const std::string &name,
                                          std::optional<response<string_body> > &refusal) {
 
@@ -86,7 +90,8 @@ namespace Euclid::EKV {
             return std::nullopt;
         }
 
-        const auto table = Database::RepositoryFactory::instance().ekvRepository()->findTable(auth.user->accountId, name);
+        const auto table = Database::RepositoryFactory::instance().ekvRepository()->findTable(
+                auth.user->accountId, std::string(req["x-euclid-namespace"]), name);
         if (!table.has_value()) {
             refusal = EkvServer::ErrorResponse(req, status::not_found, "Table does not exist: " + name);
             return std::nullopt;
@@ -184,12 +189,12 @@ namespace Euclid::EKV {
             return EkvServer::ErrorResponse(req, status::bad_request, "sortKeyType has to be string, number or binary");
         }
 
+        const auto ns = std::string(req["x-euclid-namespace"]);
+
         const auto repository = Database::RepositoryFactory::instance().ekvRepository();
-        if (repository->tableExists(auth.user->accountId, request.name)) {
+        if (repository->tableExists(auth.user->accountId, ns, request.name)) {
             return EkvServer::ErrorResponse(req, status::conflict, "Table exists already: " + request.name);
         }
-
-        const auto ns = std::string(req["x-euclid-namespace"]);
 
         Table table;
         table.name = request.name;
@@ -227,7 +232,7 @@ namespace Euclid::EKV {
         if (!table.has_value()) return *refusal;
 
         const auto repository = Database::RepositoryFactory::instance().ekvRepository();
-        return EkvServer::JsonResponse(req, status::ok, describe(*table, repository->countItems(auth.user->accountId, table->name)).toJson());
+        return EkvServer::JsonResponse(req, status::ok, describe(*table, repository->countItems(table->accountId, table->nameSpace, table->name)).toJson());
     }
 
     static response<string_body> handleListTables(const request<string_body> &req) {
@@ -243,19 +248,23 @@ namespace Euclid::EKV {
         const auto request = boost::json::value_to<Dto::EKV::ListTablesRequest>(jv);
         const auto repository = Database::RepositoryFactory::instance().ekvRepository();
 
-        const auto tables = repository->listTables(auth.user->accountId, request.prefix, request.pageSize,
+        // One namespace's tables, not the account's: a listing that crossed namespaces would show
+        // a caller tables they cannot address, since every other action here resolves a table name
+        // in the namespace the request was made in.
+        const auto ns = std::string(req["x-euclid-namespace"]);
+        const auto tables = repository->listTables(auth.user->accountId, ns, request.prefix, request.pageSize,
                                                    request.pageIndex, request.sortColumn, request.sortDirection);
 
         boost::json::array described;
         described.reserve(tables.size());
         for (const auto &table: tables) {
-            described.push_back(boost::json::parse(describe(table, repository->countItems(auth.user->accountId, table.name)).toJson()));
+            described.push_back(boost::json::parse(describe(table, repository->countItems(table.accountId, table.nameSpace, table.name)).toJson()));
         }
 
         return EkvServer::JsonResponse(req, status::ok,
                                        boost::json::serialize(boost::json::object{
                                                {"tables", described},
-                                               {"total", repository->countTables(auth.user->accountId)}}));
+                                               {"total", repository->countTables(auth.user->accountId, ns)}}));
     }
 
     static response<string_body> handleDeleteTable(const request<string_body> &req) {
@@ -274,7 +283,7 @@ namespace Euclid::EKV {
         const auto table = tableFor(req, auth, request.name, refusal);
         if (!table.has_value()) return *refusal;
 
-        const auto removed = Database::RepositoryFactory::instance().ekvRepository()->deleteTable(auth.user->accountId, table->name);
+        const auto removed = Database::RepositoryFactory::instance().ekvRepository()->deleteTable(table->accountId, table->nameSpace, table->name);
         log_info << "EKV DeleteTable, table: " << table->name << ", items: " << removed;
 
         return EkvServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{{"deletedItems", removed}}));
@@ -343,7 +352,7 @@ namespace Euclid::EKV {
             return EkvServer::ErrorResponse(req, status::bad_request, error);
         }
 
-        const auto item = Database::RepositoryFactory::instance().ekvRepository()->getItem(auth.user->accountId, table->name, partitionKey, sortKey);
+        const auto item = Database::RepositoryFactory::instance().ekvRepository()->getItem(table->accountId, table->nameSpace, table->name, partitionKey, sortKey);
         if (!item.has_value()) {
             // A 404 rather than an empty answer: "there is no such item" and "here is an item with
             // nothing in it" are different, and a caller should not have to tell them apart.
@@ -376,7 +385,7 @@ namespace Euclid::EKV {
             return EkvServer::ErrorResponse(req, status::bad_request, error);
         }
 
-        const auto deleted = Database::RepositoryFactory::instance().ekvRepository()->deleteItem(auth.user->accountId, table->name, partitionKey, sortKey);
+        const auto deleted = Database::RepositoryFactory::instance().ekvRepository()->deleteItem(table->accountId, table->nameSpace, table->name, partitionKey, sortKey);
         log_debug << "EKV DeleteItem, table: " << table->name << ", deleted: " << deleted;
 
         return EkvServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{{"deleted", deleted}}));
@@ -445,7 +454,7 @@ namespace Euclid::EKV {
             }
         }
 
-        const auto items = Database::RepositoryFactory::instance().ekvRepository()->query(auth.user->accountId, table->name, partitionKey,
+        const auto items = Database::RepositoryFactory::instance().ekvRepository()->query(table->accountId, table->nameSpace, table->name, partitionKey,
                                                                                           condition, request.forward,
                                                                                           request.pageSize, request.pageIndex);
 
@@ -474,7 +483,7 @@ namespace Euclid::EKV {
         if (!table.has_value()) return *refusal;
 
         const auto repository = Database::RepositoryFactory::instance().ekvRepository();
-        const auto items = repository->scan(auth.user->accountId, table->name, request.pageSize, request.pageIndex);
+        const auto items = repository->scan(table->accountId, table->nameSpace, table->name, request.pageSize, request.pageIndex);
 
         boost::json::array array;
         array.reserve(items.size());
@@ -484,7 +493,7 @@ namespace Euclid::EKV {
                                        boost::json::serialize(boost::json::object{
                                                {"items", array},
                                                {"count", static_cast<long>(items.size())},
-                                               {"total", repository->countItems(auth.user->accountId, table->name)}}));
+                                               {"total", repository->countItems(table->accountId, table->nameSpace, table->name)}}));
     }
 
     // ── Request dispatcher ───────────────────────────────────────────────────

@@ -22,6 +22,11 @@ namespace Euclid::Dto::EQS {
         std::string accountId;
 
         /**
+         * @brief Name space of the queues; empty purges every namespace of the account
+         */
+        std::string nameSpace;
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]]
@@ -43,6 +48,7 @@ namespace Euclid::Dto::EQS {
             PurgeAllQueuesRequest r;
             r.region = Core::GetStringValue(v, "region");
             r.accountId = Core::GetStringValue(v, "accountId");
+            r.nameSpace = Core::GetStringValue(v, "nameSpace");
             return r;
         }
 
@@ -50,6 +56,7 @@ namespace Euclid::Dto::EQS {
             jv = {
                     {"region", obj.region},
                     {"accountId", obj.accountId},
+                    {"nameSpace", obj.nameSpace},
             };
         }
     };

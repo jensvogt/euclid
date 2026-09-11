@@ -54,11 +54,27 @@ namespace Euclid::ETS {
             return fallback;
         }
 
+        // A name no transfer server is running under. The suffix is random, so this is all but
+        // always the first candidate - it is checked because "all but always" is not a guarantee,
+        // and two servers quietly sharing a pool and a socket is not a failure anybody would enjoy
+        // diagnosing.
+        std::string issueRuntimeName(const std::string &serverId) {
+            const auto repository = Database::RepositoryFactory::instance().etsRepository();
+            for (int attempt = 0; attempt < 8; ++attempt) {
+                auto candidate = Database::Entity::GenerateRuntimeName(serverId);
+                if (!repository->findServerByRuntimeName(candidate).has_value()) return candidate;
+            }
+            throw std::runtime_error("could not find a free runtime name for transfer server " + serverId);
+        }
+
         // The manager publishes each module's live instances, so a server's *observed* state is
         // read from there rather than stored - the definition only ever carries what it should be.
-        std::string observedState(const std::string &serverId) {
+        //
+        // By the name the server runs under, not the one it is defined under: the module rows are
+        // the manager's, and it registers each pool under Entity::ETS::RuntimeName().
+        std::string observedState(const std::string &runtimeName) {
             for (const auto &module: Database::RepositoryFactory::instance().emmRepository()->findAll()) {
-                if (module.name != serverId) continue;
+                if (module.name != runtimeName) continue;
                 for (const auto &instance: module.instances) {
                     if (instance.state == Database::Entity::ModuleState::RUNNING) return "RUNNING";
                 }
@@ -80,8 +96,15 @@ namespace Euclid::ETS {
 
             return boost::json::object{
                     {"serverId", server.serverId},
+                    // What an operator needs to find anything belonging to this server on a host:
+                    // its row in the module list, its socket, its log channel and the
+                    // --transfer-server argument it was started with are all called this.
+                    {"runtimeName", Database::Entity::ETS::RuntimeName(server)},
                     {"ern", server.ern},
                     {"accountId", server.accountId},
+                    // The other half of what identifies the server: a serverId is unique within
+                    // (accountId, namespace). Empty for a server at the account root.
+                    {"namespace", server.nameSpace},
                     {"region", server.region},
                     {"protocol", TransferProtocolToString(server.protocol)},
                     {"address", server.address},
@@ -93,7 +116,7 @@ namespace Euclid::ETS {
                     {"userGroups", userGroups},
                     {"directories", directories},
                     {"desiredState", TransferServerStateToString(server.desiredState)},
-                    {"state", observedState(server.serverId)},
+                    {"state", observedState(Database::Entity::ETS::RuntimeName(server))},
                     {"hostKey", server.hostKey},
                     {"pasvMin", server.pasvMin},
                     {"pasvMax", server.pasvMax},
@@ -145,7 +168,8 @@ namespace Euclid::ETS {
         if (serverId.empty()) return EtsServer::ErrorResponse(req, status::bad_request, "serverId is required");
 
         const auto repo = Database::RepositoryFactory::instance().etsRepository();
-        if (repo->serverExists(serverId)) {
+        const auto ns = std::string(req["x-euclid-namespace"]);
+        if (repo->serverExists(auth.user->accountId, ns, serverId)) {
             return EtsServer::ErrorResponse(req, status::conflict, "Transfer server already exists: " + serverId);
         }
 
@@ -161,7 +185,10 @@ namespace Euclid::ETS {
 
         // Two servers on one port would leave whichever started second permanently failing to
         // bind, with nothing in the definition to explain why.
-        for (const auto &existing: repo->listServers("")) {
+        // Every server on the host, whoever owns it: a TCP port is not partitioned by account or
+        // namespace, so two accounts binding the same one would leave whichever started second
+        // permanently failing with nothing in either definition to explain why.
+        for (const auto &existing: repo->listAllServers("")) {
             if (existing.port == port) {
                 return EtsServer::ErrorResponse(req, status::conflict,
                                                 "port " + std::to_string(port) + " is already used by transfer server '" + existing.serverId + "'");
@@ -173,7 +200,10 @@ namespace Euclid::ETS {
         const auto bucketName = stringField(obj, "bucket");
         if (bucketName.empty()) return EtsServer::ErrorResponse(req, status::bad_request, "bucket is required");
 
-        const auto bucket = Database::RepositoryFactory::instance().esmRepository()->findBucketByName(bucketName);
+        // Resolved in the creator's own account and namespace: a bucket name means nothing without
+        // them, and a server whose name matched some other account's bucket would serve that
+        // account's objects to its clients.
+        const auto bucket = Database::RepositoryFactory::instance().esmRepository()->findBucketByName(auth.user->accountId, ns, bucketName);
         if (!bucket.has_value()) {
             return EtsServer::ErrorResponse(req, status::not_found, "Bucket not found: " + bucketName);
         }
@@ -182,7 +212,11 @@ namespace Euclid::ETS {
         server.serverId = serverId;
         server.accountId = auth.user->accountId;
         server.region = auth.user->region;
-        server.ern = Core::createEtsServerErn(server.accountId, serverId);
+        server.nameSpace = ns;
+        // Issued here and never again: the name this server will be run, supervised and logged
+        // under for as long as it exists, and the one it identifies itself by when it starts.
+        server.runtimeName = issueRuntimeName(serverId);
+        server.ern = Core::createEtsServerErn(server.accountId, ns, serverId);
         server.protocol = protocol;
         server.address = stringField(obj, "address", "0.0.0.0");
         server.port = port;
@@ -218,7 +252,7 @@ namespace Euclid::ETS {
 
         const auto serverId = stringField(obj, "serverId");
         const auto repo = Database::RepositoryFactory::instance().etsRepository();
-        auto server = repo->findServerByServerId(serverId);
+        auto server = repo->findServerByServerId(auth.user->accountId, std::string(req["x-euclid-namespace"]), serverId);
         if (!server.has_value()) {
             return EtsServer::ErrorResponse(req, status::not_found, "Transfer server not found: " + serverId);
         }
@@ -239,7 +273,9 @@ namespace Euclid::ETS {
 
         if (obj.contains("bucket")) {
             const auto bucketName = stringField(obj, "bucket");
-            const auto bucket = Database::RepositoryFactory::instance().esmRepository()->findBucketByName(bucketName);
+            // The server's own account, as create-server resolved it, with the namespace the
+            // request is made in - a transfer server carries no namespace of its own to use.
+            const auto bucket = Database::RepositoryFactory::instance().esmRepository()->findBucketByName(server->accountId, server->nameSpace, bucketName);
             if (!bucket.has_value()) return EtsServer::ErrorResponse(req, status::not_found, "Bucket not found: " + bucketName);
             server->bucketName = bucket->name;
             server->bucketErn = bucket->ern;
@@ -265,7 +301,10 @@ namespace Euclid::ETS {
         if (jv.is_object()) prefix = stringField(jv.as_object(), "prefix");
 
         boost::json::array servers;
-        for (const auto &server: Database::RepositoryFactory::instance().etsRepository()->listServers(prefix)) {
+        // The caller's own namespace, not the installation: every other action here resolves a
+        // serverId in the namespace the request was made in.
+        for (const auto &server: Database::RepositoryFactory::instance().etsRepository()->listServers(
+                     auth.user->accountId, std::string(req["x-euclid-namespace"]), prefix)) {
             servers.push_back(toJson(server));
         }
 
@@ -284,7 +323,8 @@ namespace Euclid::ETS {
         if (!jv.is_object()) return EtsServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
 
         const auto serverId = stringField(jv.as_object(), "serverId");
-        const auto server = Database::RepositoryFactory::instance().etsRepository()->findServerByServerId(serverId);
+        const auto server = Database::RepositoryFactory::instance().etsRepository()->findServerByServerId(
+                auth.user->accountId, std::string(req["x-euclid-namespace"]), serverId);
         if (!server.has_value()) {
             return EtsServer::ErrorResponse(req, status::not_found, "Transfer server not found: " + serverId);
         }
@@ -305,13 +345,14 @@ namespace Euclid::ETS {
 
         const auto serverId = stringField(jv.as_object(), "serverId");
         const auto repo = Database::RepositoryFactory::instance().etsRepository();
-        if (!repo->serverExists(serverId)) {
+        const auto ns = std::string(req["x-euclid-namespace"]);
+        if (!repo->serverExists(auth.user->accountId, ns, serverId)) {
             return EtsServer::ErrorResponse(req, status::not_found, "Transfer server not found: " + serverId);
         }
 
         // Deleting the definition is what stops the process: the reconciler runs whatever is
         // defined and RUNNING, so a definition that no longer exists is torn down on the next tick.
-        repo->deleteServer(serverId);
+        repo->deleteServer(auth.user->accountId, ns, serverId);
         log_info << "ETS deleted transfer server, serverId: " << serverId;
 
         return EtsServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{{"serverId", serverId}, {"deleted", true}}));
@@ -334,7 +375,7 @@ namespace Euclid::ETS {
 
         const auto serverId = stringField(jv.as_object(), "serverId");
         const auto repo = Database::RepositoryFactory::instance().etsRepository();
-        auto server = repo->findServerByServerId(serverId);
+        auto server = repo->findServerByServerId(auth.user->accountId, std::string(req["x-euclid-namespace"]), serverId);
         if (!server.has_value()) {
             return EtsServer::ErrorResponse(req, status::not_found, "Transfer server not found: " + serverId);
         }

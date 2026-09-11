@@ -2,6 +2,7 @@
 // Created by vogje01 on 9/5/26.
 //
 
+#include <bsoncxx/builder/concatenate.hpp>
 #include <euclid/database/repository/eag/MongoEagRepository.h>
 
 namespace Euclid::Database {
@@ -21,11 +22,19 @@ namespace Euclid::Database {
         try {
             auto collection = Database::instance().collection(COLLECTION);
 
-            // A duplicate routeId would give the gateway two definitions of the same resource and
-            // no way to say which is meant.
+            // Compound on (accountId, namespace, routeId) rather than routeId alone - a route is
+            // named within its account and namespace, like every other resource.
+            //
+            // What still has to be unique more widely is the path a route claims, and that is not
+            // this index's business: a listener is bound to a namespace and answers on a port of
+            // its own, so "which route serves this path" is settled per namespace rather than per
+            // account - see EagServer's pathTaken(), which enforces exactly that.
+            //
+            // NOTE: replacing a pre-existing unique index on "routeId" alone requires dropping that
+            // old index first (db.eag_route.dropIndex("routeId_1")) - Mongo won't do it itself.
             mongocxx::options::index routeIdOpts;
             routeIdOpts.unique(true);
-            collection.create_index(make_document(kvp("routeId", 1)), routeIdOpts);
+            collection.create_index(make_document(kvp("accountId", 1), kvp("namespace", 1), kvp("routeId", 1)), routeIdOpts);
 
             mongocxx::options::index ernOpts;
             ernOpts.unique(true);
@@ -38,6 +47,12 @@ namespace Euclid::Database {
         } catch (const std::exception &e) {
             log_error << "Ensure route indexes failed, error: " << e.what();
         }
+    }
+
+    bsoncxx::document::value MongoEagRepository::routeFilter(const std::string &accountId, const std::string &nameSpace,
+                                                             const std::string &routeId) {
+        // The three fields the unique index is built on, in its order.
+        return make_document(kvp("accountId", accountId), kvp("namespace", nameSpace), kvp("routeId", routeId));
     }
 
     std::optional<Entity::EAG::Route> MongoEagRepository::upsertRoute(Entity::EAG::Route &route) {
@@ -58,7 +73,10 @@ namespace Euclid::Database {
             opts.upsert(true);
             opts.return_document(mongocxx::options::return_document::k_after);
 
-            if (auto result = collection.find_one_and_update(make_document(kvp("routeId", route.routeId)).view(),
+            // Matches the unique index: filtered on the routeId alone this would find another
+            // account's route of that name and overwrite where it points.
+            const auto filter = routeFilter(route.accountId, route.nameSpace, route.routeId);
+            if (auto result = collection.find_one_and_update(filter.view(),
                                                              make_document(kvp("$set", route.toDocument())).view(), opts)) {
                 return Entity::EAG::Route::fromDocument(result->view());
             }
@@ -73,11 +91,12 @@ namespace Euclid::Database {
         return std::nullopt;
     }
 
-    std::optional<Entity::EAG::Route> MongoEagRepository::findRouteByRouteId(const std::string &routeId) const {
+    std::optional<Entity::EAG::Route> MongoEagRepository::findRouteByRouteId(const std::string &accountId, const std::string &nameSpace,
+                                                                             const std::string &routeId) const {
 
         try {
             auto collection = Database::instance().collection(COLLECTION);
-            if (const auto result = collection.find_one(make_document(kvp("routeId", routeId)))) {
+            if (const auto result = collection.find_one(routeFilter(accountId, nameSpace, routeId).view())) {
                 return Entity::EAG::Route::fromDocument(result->view());
             }
         } catch (const std::exception &e) {
@@ -99,7 +118,17 @@ namespace Euclid::Database {
         return std::nullopt;
     }
 
-    std::vector<Entity::EAG::Route> MongoEagRepository::listRoutes(const std::string &prefix) const {
+    std::vector<Entity::EAG::Route> MongoEagRepository::listRoutes(const std::string &accountId, const std::string &nameSpace,
+                                                                   const std::string &prefix) const {
+        return findRoutes(prefix, make_document(kvp("accountId", accountId), kvp("namespace", nameSpace)).view());
+    }
+
+    std::vector<Entity::EAG::Route> MongoEagRepository::listAllRoutes(const std::string &prefix) const {
+        return findRoutes(prefix, {});
+    }
+
+    std::vector<Entity::EAG::Route> MongoEagRepository::findRoutes(const std::string &prefix,
+                                                                   const bsoncxx::document::view &scope) {
 
         std::vector<Entity::EAG::Route> routes;
         try {
@@ -115,6 +144,7 @@ namespace Euclid::Database {
             }
 
             bsoncxx::builder::basic::document filter;
+            filter.append(bsoncxx::builder::concatenate(scope));
             if (!prefix.empty()) filter.append(kvp("path", make_document(kvp("$regex", "^" + quoted))));
 
             for (auto cursor = collection.find(filter.view()); auto doc: cursor) {
@@ -126,33 +156,35 @@ namespace Euclid::Database {
         return routes;
     }
 
-    bool MongoEagRepository::routeExists(const std::string &routeId) const {
+    bool MongoEagRepository::routeExists(const std::string &accountId, const std::string &nameSpace,
+                                         const std::string &routeId) const {
 
         try {
             auto collection = Database::instance().collection(COLLECTION);
-            return collection.count_documents(make_document(kvp("routeId", routeId))) > 0;
+            return collection.count_documents(routeFilter(accountId, nameSpace, routeId).view()) > 0;
         } catch (const std::exception &e) {
             log_error << "Route exists failed, routeId: " << routeId << ", error: " << e.what();
         }
         return false;
     }
 
-    void MongoEagRepository::deleteRoute(const std::string &routeId) {
+    void MongoEagRepository::deleteRoute(const std::string &accountId, const std::string &nameSpace,
+                                        const std::string &routeId) {
 
         try {
             auto collection = Database::instance().collection(COLLECTION);
-            const auto result = collection.delete_many(make_document(kvp("routeId", routeId)));
+            const auto result = collection.delete_many(routeFilter(accountId, nameSpace, routeId).view());
             log_debug << "Route deleted, routeId: " << routeId << ", count: " << (result ? result->deleted_count() : 0);
         } catch (const std::exception &e) {
             log_error << "Delete route failed, routeId: " << routeId << ", error: " << e.what();
         }
     }
 
-    long MongoEagRepository::countRoutes() const {
+    long MongoEagRepository::countRoutes(const std::string &accountId, const std::string &nameSpace) const {
 
         try {
             auto collection = Database::instance().collection(COLLECTION);
-            return static_cast<long>(collection.count_documents({}));
+            return static_cast<long>(collection.count_documents(make_document(kvp("accountId", accountId), kvp("namespace", nameSpace)).view()));
         } catch (const std::exception &e) {
             log_error << "Count routes failed, error: " << e.what();
         }

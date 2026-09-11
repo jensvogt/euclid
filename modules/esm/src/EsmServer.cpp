@@ -759,14 +759,19 @@ namespace Euclid::ESM {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-bucket-ern");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::ESM::GetBucketErnRequest>(jv);
 
-        const std::optional<Database::Entity::ESM::Bucket> bucket = Database::RepositoryFactory::instance().esmRepository()->findBucketByName(request.name);
+        // Resolved against the caller's own account and namespace, the same pair create-bucket
+        // built the ERN from - a bare name means "my bucket of that name", and cannot reach into
+        // another account's or another namespace's bucket of the same name.
+        const auto ns = std::string(req["x-euclid-namespace"]);
+        const std::optional<Database::Entity::ESM::Bucket> bucket = Database::RepositoryFactory::instance().esmRepository()->findBucketByName(auth.user->accountId, ns, request.name);
         log_debug << "EMS bucket ERN, name: " << request.name << ", ern: " << (bucket.has_value() ? bucket->ern : "(none)");
 
         if (!bucket.has_value()) {
@@ -1025,13 +1030,20 @@ namespace Euclid::ESM {
         }
         // Refused rather than merged: two buckets cannot share a name, and an operator who meant
         // to move objects between them has copy-object and move-object for that.
-        if (repo->findBucketByName(request.newName).has_value()) {
+        //
+        // Checked in the renamed bucket's own account and namespace rather than the caller's,
+        // because that is where the new name has to be free - it is the pair the new ERN is built
+        // from a few lines below - and because a name taken in some other account says nothing
+        // about whether this rename can go ahead.
+        if (repo->findBucketByName(bucket->accountId, bucket->nameSpace, request.newName).has_value()) {
             return ErrorResponse(req, status::conflict, "Bucket already exists, name: " + request.newName);
         }
 
         // A transfer server names the bucket it serves, and its clients are mid-session; changing
         // the bucket underneath it would leave uploads going to an ERN that no longer exists.
-        for (const auto servers = Database::RepositoryFactory::instance().etsRepository()->listServers("");
+        // Every server on the host: a transfer server serves a bucket by ERN, which is unique
+        // installation-wide, so one in any account or namespace can be the one mid-session.
+        for (const auto servers = Database::RepositoryFactory::instance().etsRepository()->listAllServers("");
              const auto &server: servers) {
             if (server.bucketErn == request.ern) {
                 return ErrorResponse(req, status::conflict,

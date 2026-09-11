@@ -54,11 +54,13 @@ namespace Euclid::Database {
         Entity::EQS::Queue upsertQueue(Entity::EQS::Queue &queue) override;
 
         /**
-         * @brief Removes a queue entity
+         * @brief Removes a queue entity by name, within the account and namespace that owns it
          *
-         * @param name module name
+         * @param accountId account the queue belongs to
+         * @param nameSpace namespace within accountId; empty means the account's unscoped queues
+         * @param name queue name
          */
-        void removeQueueByName(const std::string &name) override;
+        void removeQueueByName(const std::string &accountId, const std::string &nameSpace, const std::string &name) override;
 
         /**
          * @brief Removes a queue entity by ERN
@@ -68,13 +70,15 @@ namespace Euclid::Database {
         void deleteQueueByErn(const std::string &ern) override;
 
         /**
-         * @brief Find by queue name
+         * @brief Find by queue name, within the account and namespace that owns it
          *
+         * @param accountId account the queue belongs to
+         * @param nameSpace namespace within accountId; empty means the account's unscoped queues
          * @param name queue name
          * @return optional queue
          */
         [[nodiscard]]
-        std::optional<Entity::EQS::Queue> findQueueByName(const std::string &name) const override;
+        std::optional<Entity::EQS::Queue> findQueueByName(const std::string &accountId, const std::string &nameSpace, const std::string &name) const override;
 
         /**
          * @brief Find by queue ID
@@ -114,13 +118,15 @@ namespace Euclid::Database {
                              const std::string &sourceQueueErn) override;
 
         /**
-         * @brief Check the existence of the module by name
+         * @brief Check the existence of a queue by name, within an account and namespace
          *
-         * @param name module name check existence
-         * @return true if module exists
+         * @param accountId account the queue would belong to
+         * @param nameSpace namespace within accountId; empty means the account's unscoped queues
+         * @param name queue name to check existence of
+         * @return true if the queue exists there
          */
         [[nodiscard]]
-        bool queueExists(const std::string &name) const override;
+        bool queueExists(const std::string &accountId, const std::string &nameSpace, const std::string &name) const override;
 
         /**
          * @brief Get the total number of modules
@@ -190,12 +196,13 @@ namespace Euclid::Database {
         void purgeQueue(const std::string &queueErn) override;
 
         /**
-         * @brief Deletes all messages of every queue in a region/account
+         * @brief Deletes all messages of every queue in a region/account/nameSpace
          *
          * @param region region of the queues to purge
          * @param accountId account ID of the queues to purge
+         * @param nameSpace namespace of the queues to purge; empty purges every namespace
          */
-        void purgeAllQueues(const std::string &region, const std::string &accountId) override;
+        void purgeAllQueues(const std::string &region, const std::string &accountId, const std::string &nameSpace) override;
 
         /**
          * @brief Find by message name

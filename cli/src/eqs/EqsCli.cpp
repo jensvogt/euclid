@@ -414,11 +414,13 @@ namespace Euclid::CLI {
         po::options_description desc("purge all queues options");
         desc.add_options()
                 ("region,r", po::value<std::string>()->required(), "region")
-                ("accountId,a", po::value<std::string>()->required(), "account ID");
+                ("accountId,a", po::value<std::string>()->required(), "account ID")
+                ("namespace,n", po::value<std::string>(), "name space");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "purge-all-queues", "--region <region> --accountId <accountId>",
-                                   "Deletes all messages from every EQS queue in the given region and account.",
+            return PrintActionHelp("eqs", "purge-all-queues", "--region <region> --accountId <accountId> --namespace <namespace>",
+                                   "Deletes all messages from every EQS queue in the given region, account and namespace. If no namespace is specified "
+                                   "purges all queues of the region/accountId.",
                                    desc);
         }
 
@@ -434,6 +436,9 @@ namespace Euclid::CLI {
         Dto::EQS::PurgeAllQueuesRequest request;
         request.region = vm["region"].as<std::string>();
         request.accountId = vm["accountId"].as<std::string>();
+        if (vm.contains("namespace")) {
+            request.nameSpace = vm["namespace"].as<std::string>();
+        }
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
