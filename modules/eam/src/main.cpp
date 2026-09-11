@@ -177,23 +177,41 @@ static void ensureDefaultObjects(const Euclid::Core::Configuration &cfg) {
             user = repo->upsertUser(user);
         }
 
+        // The group every administrator check goes through - see Database::IsEamAdmin() - so an
+        // installation without it has nobody who can administer anything. Created whether or not
+        // there is a user to put in it: the group is what the check looks for, and membership is a
+        // separate question that an operator can answer later through the API.
+        //
+        // Left exactly as it is when it already exists. Its membership is then somebody's decision,
+        // and re-adding an administrator that was deliberately removed is not this function's
+        // business.
         if (!repo->userGroupExists(kDefaultAdminUserGroup)) {
 
-            Euclid::Database::Entity::EAM::User user = repo->findUserByUserId(kDefaultAdminUserId).value();
-
             Euclid::Database::Entity::EAM::UserGroup userGroup;
-            userGroup.ern = Euclid::Core::createEamUserGroupErn(accountId, kDefaultAdminUserId);
+            // Named after the group, not after the user that usually ends up in it: the two are
+            // different names ("administrator" and "admin"), and an ERN saying the second for a
+            // group called the first is wrong wherever anybody reads it.
+            userGroup.ern = Euclid::Core::createEamUserGroupErn(accountId, kDefaultAdminUserGroup);
             userGroup.name = kDefaultAdminUserGroup;
             userGroup.description = "Euclid default administrators group";
-            userGroup.userIds.push_back(user.userId);
             userGroup.accountId = accountId;
             userGroup.region = cfg.getOr<std::string>("euclid.region", "eu-central-1");
-            userGroup.userIds.push_back(user.userId);
+
+            // The bootstrap administrator, if there is one. Looked up rather than assumed: this
+            // runs on every start, including on an installation whose "admin" user was renamed or
+            // removed long ago, and an empty administrators group is a far better outcome there
+            // than an exception that abandons the rest of this function.
+            if (const auto user = repo->findUserByUserId(kDefaultAdminUserId); user.has_value()) {
+                userGroup.userIds.push_back(user->userId);
+            }
+
             userGroup.created = std::chrono::system_clock::now();
             userGroup.modified = std::chrono::system_clock::now();
             userGroup = repo->upsertUserGroup(userGroup);
 
-            log_warning << "No admin user group was configured; created default admin user group (name: '" << kDefaultAdminUserId << ", region: '" << cfg.getOr<std::string>("euclid.region", "") << "', accountId: '" << accountId << "')";
+            log_warning << "No administrator user group existed; created it (name: '" << userGroup.name
+                        << "', region: '" << userGroup.region << "', accountId: '" << accountId
+                        << "', members: " << userGroup.userIds.size() << ")";
         }
 
         // Grant the bootstrap admin an explicit record too - membership in the administrator
