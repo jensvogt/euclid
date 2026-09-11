@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.2](https://github.com/jensvogt/euclid/compare/1.1.1...v1.1.2) (2026-09-11)
+
+
+### Bug Fixes
+
+* full sccount/namespace scope ([8b86014](https://github.com/jensvogt/euclid/commit/8b860148f7fb40e594d94bb6ac6bc1597654e7c8))
+
 ## [1.1.1](https://github.com/jensvogt/euclid/compare/1.1.0...v1.1.1) (2026-09-10)
 
 
