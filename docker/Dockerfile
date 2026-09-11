@@ -64,7 +64,8 @@ RUN mkdir -p /usr/local/euclid/data/tmp && \
     mkdir -p /usr/local/euclid/etc && \
     mkdir -p /usr/local/euclid/init && \
     mkdir -p /usr/local/euclid/log && \
-    mkdir -p /usr/local/euclid/frontend
+    mkdir -p /usr/local/euclid/frontend && \
+    mkdir -p /var/run/euclid
 
 # Install frontend
 COPY --from=buildfrontend /usr/src/euclid-ui/dist/euclid-ui/browser/ /usr/local/euclid/frontend/

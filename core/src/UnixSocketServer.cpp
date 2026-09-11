@@ -7,6 +7,7 @@
 #include <condition_variable>
 #include <csignal>
 #include <cstdio>
+#include <filesystem>
 #include <mutex>
 #include <optional>
 #if defined(_WIN32)
@@ -96,6 +97,21 @@ namespace Euclid::Core {
 
     UnixSocketServer::UnixSocketServer(std::string serviceName, std::string socketPath, const int threads)
         : _serviceName(std::move(serviceName)), _socketPath(std::move(socketPath)), _ioc(threads), _acceptor(_ioc), _threads(threads) {
+
+        // The directory first. bind() answers ENOENT - "No such file or directory" - when the
+        // *parent* is missing, which reads as though the socket itself were expected to exist and
+        // sends anybody debugging it looking for the wrong thing.
+        //
+        // It is routinely missing, and not only on a fresh container: sockets live under /var/run,
+        // which is a tmpfs on Linux and is therefore empty again after every reboot. A directory
+        // created by a package at install time does not survive, so creating it here - on the one
+        // path every module and the gateway bind through - is what makes a socket path in the
+        // configuration mean what it says without anything else having to prepare the ground.
+        if (const auto parent = std::filesystem::path(_socketPath).parent_path(); !parent.empty()) {
+            if (std::error_code ec; !std::filesystem::create_directories(parent, ec) && ec) {
+                log_warning << "Could not create the socket directory, path: " << parent.string() << ", error: " << ec.message();
+            }
+        }
 
         std::remove(_socketPath.c_str());
 
