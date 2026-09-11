@@ -27,15 +27,34 @@ namespace Euclid::Database {
         ensureIndexes();
     }
 
+    // NOTE: both indexes below gained "namespace", and replacing a pre-existing index requires
+    // dropping the old one first - Mongo won't do it automatically:
+    //
+    //   db.ekv_table.dropIndex("accountId_1_name_1")
+    //   db.ekv_item.dropIndex("accountId_1_tableName_1_pk_1_sk_1")
+    //
+    // Items also need the field backfilled before they are addressable again, since a filter on
+    // namespace does not match a document that lacks it - an existing item would otherwise read as
+    // missing. Each item takes its table's namespace, which is unambiguous precisely because the
+    // old index allowed an account only one table of a given name:
+    //
+    //   db.ekv_table.find().forEach(t => db.ekv_item.updateMany(
+    //       {accountId: t.accountId, tableName: t.name, namespace: {$exists: false}},
+    //       {$set: {namespace: t.namespace || ""}}))
+    //
+    // Tables need no backfill: Table::toDocument() has always written the field.
     void MongoEkvRepository::ensureIndexes() const {
 
         try {
             const auto tables = Database::instance().collection(TABLE_COLLECTION);
 
-            // A table name is unique within an account, the same way every other named resource is.
+            // A table name is unique within an account and a namespace, the same way every other
+            // named resource is - and the same three fields createEkvTableErn() builds the table's
+            // ERN from, which the previous (accountId, name) index contradicted: it refused a
+            // second namespace the "suppliers" table its own ERN said was a different table.
             mongocxx::options::index tableOpts;
             tableOpts.unique(true);
-            tables.create_index(make_document(kvp("accountId", 1), kvp("name", 1)), tableOpts);
+            tables.create_index(make_document(kvp("accountId", 1), kvp("namespace", 1), kvp("name", 1)), tableOpts);
 
             const auto items = Database::instance().collection(ITEM_COLLECTION);
 
@@ -43,9 +62,14 @@ namespace Euclid::Database {
             // definition; compound in this order, because it answers all three things asked of it:
             // one item by its whole key, one partition's items in sort order, and one table's
             // items for a scan.
+            //
+            // namespace sits next to accountId because an item is addressed through its table, and
+            // a table is only identified by all three: without it, the two namespaces the table
+            // index now allows would share one item space, and a put into either would overwrite
+            // the other's item of the same key.
             mongocxx::options::index itemOpts;
             itemOpts.unique(true);
-            items.create_index(make_document(kvp("accountId", 1), kvp("tableName", 1), kvp("pk", 1), kvp("sk", 1)), itemOpts);
+            items.create_index(make_document(kvp("accountId", 1), kvp("namespace", 1), kvp("tableName", 1), kvp("pk", 1), kvp("sk", 1)), itemOpts);
 
         } catch (const std::exception &e) {
             log_error << "Ensure EKV indexes failed, error: " << e.what();
@@ -54,6 +78,18 @@ namespace Euclid::Database {
 
     // ── Tables ───────────────────────────────────────────────────────────────
 
+    bsoncxx::document::value MongoEkvRepository::tableFilter(const std::string &accountId, const std::string &nameSpace,
+                                                             const std::string &name) {
+        // The three fields the unique index is built on, in its order - which is what makes this a
+        // lookup rather than a scan, and what keeps one account's namespaces apart.
+        return make_document(kvp("accountId", accountId), kvp("namespace", nameSpace), kvp("name", name));
+    }
+
+    bsoncxx::document::value MongoEkvRepository::scopeFilter(const std::string &accountId, const std::string &nameSpace,
+                                                             const std::string &tableName) {
+        return make_document(kvp("accountId", accountId), kvp("namespace", nameSpace), kvp("tableName", tableName));
+    }
+
     Entity::EKV::Table MongoEkvRepository::createTable(Entity::EKV::Table &table) {
 
         try {
@@ -61,7 +97,7 @@ namespace Euclid::Database {
             const auto result = collection.insert_one(table.toDocument().view());
             if (!result) throw std::runtime_error("insert returned no result, table: " + table.name);
 
-            return findTable(table.accountId, table.name).value_or(table);
+            return findTable(table.accountId, table.nameSpace, table.name).value_or(table);
 
         } catch (const std::exception &e) {
             log_error << "Create table failed, table: " << table.name << ", error: " << e.what();
@@ -69,11 +105,11 @@ namespace Euclid::Database {
         }
     }
 
-    bool MongoEkvRepository::tableExists(const std::string &accountId, const std::string &name) const {
+    bool MongoEkvRepository::tableExists(const std::string &accountId, const std::string &nameSpace, const std::string &name) const {
 
         try {
             const auto collection = Database::instance().collection(TABLE_COLLECTION);
-            return collection.find_one(make_document(kvp("accountId", accountId), kvp("name", name))).has_value();
+            return collection.find_one(tableFilter(accountId, nameSpace, name).view()).has_value();
 
         } catch (const std::exception &e) {
             log_error << "Table exists failed, table: " << name << ", error: " << e.what();
@@ -81,11 +117,11 @@ namespace Euclid::Database {
         return false;
     }
 
-    std::optional<Entity::EKV::Table> MongoEkvRepository::findTable(const std::string &accountId, const std::string &name) const {
+    std::optional<Entity::EKV::Table> MongoEkvRepository::findTable(const std::string &accountId, const std::string &nameSpace, const std::string &name) const {
 
         try {
             const auto collection = Database::instance().collection(TABLE_COLLECTION);
-            if (auto result = collection.find_one(make_document(kvp("accountId", accountId), kvp("name", name)))) {
+            if (auto result = collection.find_one(tableFilter(accountId, nameSpace, name).view())) {
                 return Entity::EKV::Table::fromDocument(result.value());
             }
 
@@ -95,14 +131,15 @@ namespace Euclid::Database {
         return {};
     }
 
-    std::vector<Entity::EKV::Table> MongoEkvRepository::listTables(const std::string &accountId, const std::string &prefix, const long pageSize,
+    std::vector<Entity::EKV::Table> MongoEkvRepository::listTables(const std::string &accountId, const std::string &nameSpace,
+                                                                   const std::string &prefix, const long pageSize,
                                                                    const long pageIndex, const std::string &sortColumn,
                                                                    const std::string &sortDirection) const {
 
         std::vector<Entity::EKV::Table> tables;
         try {
             document filter;
-            filter.append(kvp("accountId", accountId));
+            filter.append(kvp("accountId", accountId), kvp("namespace", nameSpace));
             if (!prefix.empty()) {
                 filter.append(kvp("name", make_document(kvp("$gte", prefix), kvp("$lt", prefix + kAfterEveryString))));
             }
@@ -125,11 +162,11 @@ namespace Euclid::Database {
         return tables;
     }
 
-    long MongoEkvRepository::countTables(const std::string &accountId) const {
+    long MongoEkvRepository::countTables(const std::string &accountId, const std::string &nameSpace) const {
 
         try {
             const auto collection = Database::instance().collection(TABLE_COLLECTION);
-            return static_cast<long>(collection.count_documents(make_document(kvp("accountId", accountId))));
+            return static_cast<long>(collection.count_documents(make_document(kvp("accountId", accountId), kvp("namespace", nameSpace))));
 
         } catch (const std::exception &e) {
             log_error << "Count tables failed, accountId: " << accountId << ", error: " << e.what();
@@ -137,17 +174,17 @@ namespace Euclid::Database {
         return 0;
     }
 
-    long MongoEkvRepository::deleteTable(const std::string &accountId, const std::string &name) {
+    long MongoEkvRepository::deleteTable(const std::string &accountId, const std::string &nameSpace, const std::string &name) {
 
         try {
             // The items first. A table whose row is gone but whose items are not would be invisible
             // and undeletable; items without a table are merely orphaned, and the next attempt
             // clears them.
             const auto items = Database::instance().collection(ITEM_COLLECTION);
-            const auto removed = items.delete_many(make_document(kvp("accountId", accountId), kvp("tableName", name)));
+            const auto removed = items.delete_many(scopeFilter(accountId, nameSpace, name).view());
 
             const auto tables = Database::instance().collection(TABLE_COLLECTION);
-            tables.delete_one(make_document(kvp("accountId", accountId), kvp("name", name)));
+            tables.delete_one(tableFilter(accountId, nameSpace, name).view());
 
             return removed ? static_cast<long>(removed->deleted_count()) : 0;
 
@@ -159,12 +196,13 @@ namespace Euclid::Database {
 
     // ── Items ────────────────────────────────────────────────────────────────
 
-    bsoncxx::document::value MongoEkvRepository::keyFilter(const std::string &accountId, const std::string &tableName,
+    bsoncxx::document::value MongoEkvRepository::keyFilter(const std::string &accountId, const std::string &nameSpace,
+                                                           const std::string &tableName,
                                                            const Entity::EKV::Value &partitionKey,
                                                            const std::optional<Entity::EKV::Value> &sortKey) {
 
         document filter;
-        filter.append(kvp("accountId", accountId), kvp("tableName", tableName));
+        filter.append(kvp("accountId", accountId), kvp("namespace", nameSpace), kvp("tableName", tableName));
         partitionKey.AppendTo(filter, "pk");
 
         // Absent rather than null when the table has no sort key, so this matches the document
@@ -178,7 +216,7 @@ namespace Euclid::Database {
     Entity::EKV::Item MongoEkvRepository::putItem(Entity::EKV::Item &item) {
 
         try {
-            const auto filter = keyFilter(item.accountId, item.tableName, item.partitionKey, item.sortKey);
+            const auto filter = keyFilter(item.accountId, item.nameSpace, item.tableName, item.partitionKey, item.sortKey);
 
             const auto update = make_document(
                     kvp("$set", item.toDocument()),
@@ -202,13 +240,14 @@ namespace Euclid::Database {
         }
     }
 
-    std::optional<Entity::EKV::Item> MongoEkvRepository::getItem(const std::string &accountId, const std::string &tableName,
+    std::optional<Entity::EKV::Item> MongoEkvRepository::getItem(const std::string &accountId, const std::string &nameSpace,
+                                                                 const std::string &tableName,
                                                                  const Entity::EKV::Value &partitionKey,
                                                                  const std::optional<Entity::EKV::Value> &sortKey) const {
 
         try {
             const auto collection = Database::instance().collection(ITEM_COLLECTION);
-            if (auto result = collection.find_one(keyFilter(accountId, tableName, partitionKey, sortKey).view())) {
+            if (auto result = collection.find_one(keyFilter(accountId, nameSpace, tableName, partitionKey, sortKey).view())) {
                 return Entity::EKV::Item::fromDocument(result.value());
             }
 
@@ -218,13 +257,14 @@ namespace Euclid::Database {
         return {};
     }
 
-    bool MongoEkvRepository::deleteItem(const std::string &accountId, const std::string &tableName,
+    bool MongoEkvRepository::deleteItem(const std::string &accountId, const std::string &nameSpace,
+                                        const std::string &tableName,
                                         const Entity::EKV::Value &partitionKey,
                                         const std::optional<Entity::EKV::Value> &sortKey) {
 
         try {
             const auto collection = Database::instance().collection(ITEM_COLLECTION);
-            const auto result = collection.delete_one(keyFilter(accountId, tableName, partitionKey, sortKey).view());
+            const auto result = collection.delete_one(keyFilter(accountId, nameSpace, tableName, partitionKey, sortKey).view());
             return result && result->deleted_count() > 0;
 
         } catch (const std::exception &e) {
@@ -233,7 +273,8 @@ namespace Euclid::Database {
         }
     }
 
-    std::vector<Entity::EKV::Item> MongoEkvRepository::query(const std::string &accountId, const std::string &tableName,
+    std::vector<Entity::EKV::Item> MongoEkvRepository::query(const std::string &accountId, const std::string &nameSpace,
+                                                             const std::string &tableName,
                                                              const Entity::EKV::Value &partitionKey,
                                                              const Entity::EKV::SortCondition &condition, const bool forward,
                                                              const long pageSize, const long pageIndex) const {
@@ -241,7 +282,7 @@ namespace Euclid::Database {
         std::vector<Entity::EKV::Item> items;
         try {
             document filter;
-            filter.append(kvp("accountId", accountId), kvp("tableName", tableName));
+            filter.append(kvp("accountId", accountId), kvp("namespace", nameSpace), kvp("tableName", tableName));
             partitionKey.AppendTo(filter, "pk");
 
             // Every one of these is a bound on the indexed sort key, which is what lets the
@@ -307,7 +348,8 @@ namespace Euclid::Database {
         return items;
     }
 
-    std::vector<Entity::EKV::Item> MongoEkvRepository::scan(const std::string &accountId, const std::string &tableName,
+    std::vector<Entity::EKV::Item> MongoEkvRepository::scan(const std::string &accountId, const std::string &nameSpace,
+                                                            const std::string &tableName,
                                                             const long pageSize, const long pageIndex) const {
 
         std::vector<Entity::EKV::Item> items;
@@ -324,7 +366,7 @@ namespace Euclid::Database {
             }
 
             const auto collection = Database::instance().collection(ITEM_COLLECTION);
-            const auto filter = make_document(kvp("accountId", accountId), kvp("tableName", tableName));
+            const auto filter = scopeFilter(accountId, nameSpace, tableName);
             for (auto cursor = collection.find(filter.view(), opts); const auto &document: cursor) {
                 items.push_back(Entity::EKV::Item::fromDocument(document));
             }
@@ -336,11 +378,11 @@ namespace Euclid::Database {
         return items;
     }
 
-    long MongoEkvRepository::countItems(const std::string &accountId, const std::string &tableName) const {
+    long MongoEkvRepository::countItems(const std::string &accountId, const std::string &nameSpace, const std::string &tableName) const {
 
         try {
             const auto collection = Database::instance().collection(ITEM_COLLECTION);
-            return static_cast<long>(collection.count_documents(make_document(kvp("accountId", accountId), kvp("tableName", tableName))));
+            return static_cast<long>(collection.count_documents(scopeFilter(accountId, nameSpace, tableName).view()));
 
         } catch (const std::exception &e) {
             log_error << "Count items failed, table: " << tableName << ", error: " << e.what();

@@ -44,6 +44,17 @@ namespace Euclid::Database::Entity::EKV {
         std::string accountId;
 
         /**
+         * @brief Namespace the table belongs to, or empty for an unscoped one.
+         *
+         * @par
+         * Copied from the table rather than taken from the request: it is part of what identifies
+         * the item, and two namespaces of one account may each have a "suppliers" table whose
+         * items are nothing to do with each other. Serialized as "namespace", like every other
+         * entity's.
+         */
+        std::string nameSpace;
+
+        /**
          * @brief Region the item was written in.
          */
         std::string region;

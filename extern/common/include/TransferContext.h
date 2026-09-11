@@ -27,13 +27,15 @@ namespace Euclid::Transfer {
     public:
 
         /**
-         * @brief Loads the transfer server definition with this ID.
+         * @brief Loads the definition of the transfer server this process was started as.
          *
-         * @param serverId server ID, as passed to --transfer-server.
+         * @param runtimeName the name the manager started it under, as passed to
+         * --transfer-server. Not the serverId the server is defined as: that is unique only within
+         * an account and a namespace, and this process has neither - see Entity::ETS::RuntimeName().
          * @return the context, or std::nullopt if no such server is defined.
          */
         [[nodiscard]]
-        static std::optional<TransferContext> Load(const std::string &serverId);
+        static std::optional<TransferContext> Load(const std::string &runtimeName);
 
         /**
          * @brief The definition this process is running.

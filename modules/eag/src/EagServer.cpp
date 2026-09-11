@@ -88,7 +88,12 @@ namespace Euclid::EAG {
         // An empty method list means every method, so it overlaps with everything.
         std::optional<std::string> pathTaken(const std::string &path, const std::vector<std::string> &methods,
                                              const std::string &nameSpace, const std::string &routeId) {
-            for (const auto &route: Database::RepositoryFactory::instance().eagRepository()->listRoutes(path)) {
+            // Every route in the installation, not just the caller's: a routeId belongs to an
+            // account and a namespace, but a *path* is claimed from whoever asks for it next. A
+            // listener is bound to a namespace and knows nothing about accounts, so two accounts
+            // publishing the same path in one namespace would leave the gateway picking between
+            // them by sort order - which is exactly what this refuses.
+            for (const auto &route: Database::RepositoryFactory::instance().eagRepository()->listAllRoutes(path)) {
                 if (route.path != path || route.routeId == routeId) continue;
 
                 // Scoped to the namespace, because a listener only ever sees its own: development
@@ -220,19 +225,27 @@ namespace Euclid::EAG {
             return EagServer::ErrorResponse(req, status::bad_request, "Not an HTTP method: " + unknownMethod);
         }
 
+        // The namespace the route publishes in, which is not always the caller's own - a route may
+        // be created for another namespace by naming it. Read before the existence check, because
+        // it is part of what identifies the route.
+        const auto nameSpace = stringField(obj, "namespace", std::string(req["x-euclid-namespace"]));
+
         const auto repository = Database::RepositoryFactory::instance().eagRepository();
-        if (repository->routeExists(routeId)) {
+        if (repository->routeExists(auth.user->accountId, nameSpace, routeId)) {
             return EagServer::ErrorResponse(req, status::conflict, "Route exists already, routeId: " + routeId);
         }
-        const auto nameSpace = stringField(obj, "namespace", std::string(req["x-euclid-namespace"]));
         if (const auto taken = pathTaken(path, *methods, nameSpace, routeId)) {
             return EagServer::ErrorResponse(req, status::conflict, "Path and method are already routed by routeId: " + *taken);
         }
 
         // The application has to exist. A route to nothing answers 503 for every request, which
         // looks like an application that is down rather than one that was never deployed.
+        //
+        // In the route's own account and namespace: that is where the gateway will look for the
+        // application's instances, so an application of that name anywhere else is not the one
+        // this route would reach.
         if (!applicationId.empty()
-            && !Database::RepositoryFactory::instance().eapRepository()->findApplicationByApplicationId(applicationId).has_value()) {
+            && !Database::RepositoryFactory::instance().eapRepository()->findApplicationByApplicationId(auth.user->accountId, nameSpace, applicationId).has_value()) {
             return EagServer::ErrorResponse(req, status::not_found, "Application not found, applicationId: " + applicationId);
         }
 
@@ -287,7 +300,7 @@ namespace Euclid::EAG {
         if (routeId.empty()) return EagServer::ErrorResponse(req, status::bad_request, "routeId is required");
 
         const auto repository = Database::RepositoryFactory::instance().eagRepository();
-        auto route = repository->findRouteByRouteId(routeId);
+        auto route = repository->findRouteByRouteId(auth.user->accountId, std::string(req["x-euclid-namespace"]), routeId);
         if (!route.has_value()) {
             return EagServer::ErrorResponse(req, status::not_found, "Route not found, routeId: " + routeId);
         }
@@ -316,7 +329,7 @@ namespace Euclid::EAG {
         }
         if (obj.contains("applicationId")) {
             const auto applicationId = stringField(obj, "applicationId");
-            if (!Database::RepositoryFactory::instance().eapRepository()->findApplicationByApplicationId(applicationId).has_value()) {
+            if (!Database::RepositoryFactory::instance().eapRepository()->findApplicationByApplicationId(route->accountId, route->nameSpace, applicationId).has_value()) {
                 return EagServer::ErrorResponse(req, status::not_found, "Application not found, applicationId: " + applicationId);
             }
             // Moving a route to an application means it is no longer a module route, and the
@@ -373,8 +386,11 @@ namespace Euclid::EAG {
         std::string prefix;
         if (jv.is_object()) prefix = stringField(jv.as_object(), "prefix");
 
+        // The caller's own namespace, not the installation: every other action here resolves a
+        // routeId in the namespace the request was made in.
         boost::json::array routes;
-        for (const auto &route: Database::RepositoryFactory::instance().eagRepository()->listRoutes(prefix)) {
+        for (const auto &route: Database::RepositoryFactory::instance().eagRepository()->listRoutes(
+                     auth.user->accountId, std::string(req["x-euclid-namespace"]), prefix)) {
             routes.push_back(toJson(route));
         }
 
@@ -395,7 +411,8 @@ namespace Euclid::EAG {
         const auto routeId = stringField(jv.as_object(), "routeId");
         if (routeId.empty()) return EagServer::ErrorResponse(req, status::bad_request, "routeId is required");
 
-        const auto route = Database::RepositoryFactory::instance().eagRepository()->findRouteByRouteId(routeId);
+        const auto route = Database::RepositoryFactory::instance().eagRepository()->findRouteByRouteId(
+                auth.user->accountId, std::string(req["x-euclid-namespace"]), routeId);
         if (!route.has_value()) {
             return EagServer::ErrorResponse(req, status::not_found, "Route not found, routeId: " + routeId);
         }
@@ -417,7 +434,8 @@ namespace Euclid::EAG {
         const auto routeId = stringField(jv.as_object(), "routeId");
         if (routeId.empty()) return EagServer::ErrorResponse(req, status::bad_request, "routeId is required");
 
-        Database::RepositoryFactory::instance().eagRepository()->deleteRoute(routeId);
+        Database::RepositoryFactory::instance().eagRepository()->deleteRoute(
+                auth.user->accountId, std::string(req["x-euclid-namespace"]), routeId);
         log_info << "EAG route deleted, routeId: " << routeId;
 
         return EagServer::JsonResponse(req, status::ok);

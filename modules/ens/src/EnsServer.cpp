@@ -117,7 +117,8 @@ namespace Euclid::ENS {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-topic-ern");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
@@ -125,7 +126,11 @@ namespace Euclid::ENS {
         const auto request = boost::json::value_to<Dto::ENS::GetTopicErnRequest>(jv);
         log_info << "ENS GetTopicErn, name: " << request.name;
 
-        const std::optional<Database::Entity::ENS::Topic> topic = Database::RepositoryFactory::instance().ensRepository()->findTopicByName(request.name);
+        // Resolved against the caller's own account and namespace, the same pair create-topic
+        // built the ERN from - a bare name means "my topic of that name", and cannot reach into
+        // another account's or another namespace's topic of the same name.
+        const auto ns = std::string(req["x-euclid-namespace"]);
+        const std::optional<Database::Entity::ENS::Topic> topic = Database::RepositoryFactory::instance().ensRepository()->findTopicByName(auth.user->accountId, ns, request.name);
         log_debug << "Got ENS topic ern, name: " << request.name << ", ern: " << (topic.has_value() ? topic->ern : "(none)");
 
         if (!topic.has_value()) {

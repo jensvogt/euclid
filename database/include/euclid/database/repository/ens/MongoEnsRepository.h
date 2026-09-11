@@ -81,13 +81,15 @@ namespace Euclid::Database {
         void deleteTopicByErn(const std::string &ern) override;
 
         /**
-         * @brief Find by topic name
+         * @brief Find by topic name, within the account and namespace that owns it
          *
+         * @param accountId account the topic belongs to
+         * @param nameSpace namespace within accountId; empty means the account's unscoped topics
          * @param name topic name
          * @return optional topic
          */
         [[nodiscard]]
-        std::optional<Entity::ENS::Topic> findTopicByName(const std::string &name) const override;
+        std::optional<Entity::ENS::Topic> findTopicByName(const std::string &accountId, const std::string &nameSpace, const std::string &name) const override;
 
         /**
          * @brief Find by topic ID
@@ -121,13 +123,15 @@ namespace Euclid::Database {
         std::vector<Entity::ENS::Topic> listTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const override;
 
         /**
-         * @brief Check the existence of the module by name
+         * @brief Check the existence of a topic by name, within an account and namespace
          *
-         * @param name module name check existence
-         * @return true if module exists
+         * @param accountId account the topic would belong to
+         * @param nameSpace namespace within accountId; empty means the account's unscoped topics
+         * @param name topic name to check existence of
+         * @return true if the topic exists there
          */
         [[nodiscard]]
-        bool topicExists(const std::string &name) const override;
+        bool topicExists(const std::string &accountId, const std::string &nameSpace, const std::string &name) const override;
 
         /**
          * @brief Get the total number of modules

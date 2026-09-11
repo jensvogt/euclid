@@ -49,7 +49,8 @@ namespace Euclid::Database {
          * @return the route, or std::nullopt if there is none.
          */
         [[nodiscard]]
-        virtual std::optional<Entity::EAG::Route> findRouteByRouteId(const std::string &routeId) const = 0;
+        virtual std::optional<Entity::EAG::Route> findRouteByRouteId(const std::string &accountId, const std::string &nameSpace,
+                                                                     const std::string &routeId) const = 0;
 
         /**
          * @brief Finds a route by its ERN.
@@ -74,7 +75,24 @@ namespace Euclid::Database {
          * @return the routes.
          */
         [[nodiscard]]
-        virtual std::vector<Entity::EAG::Route> listRoutes(const std::string &prefix) const = 0;
+        virtual std::vector<Entity::EAG::Route> listRoutes(const std::string &accountId, const std::string &nameSpace,
+                                                           const std::string &prefix) const = 0;
+
+        /**
+         * @brief Every route in the installation, whatever account or namespace it belongs to.
+         *
+         * @par
+         * For the gateway, which serves them all: a listener is bound to a namespace and answers
+         * on a port of its own, and one gateway process carries every listener - so a route table
+         * that saw only one namespace's routes would leave every other port answering 404. Also
+         * for the path-claim check, which asks what is published on a path rather than who
+         * published it. Nothing that answers for one caller should use this.
+         *
+         * @param prefix only routes whose path starts with this are returned; empty matches all.
+         * @return matching routes.
+         */
+        [[nodiscard]]
+        virtual std::vector<Entity::EAG::Route> listAllRoutes(const std::string &prefix) const = 0;
 
         /**
          * @brief Whether a route of this name exists.
@@ -83,14 +101,16 @@ namespace Euclid::Database {
          * @return true if it exists.
          */
         [[nodiscard]]
-        virtual bool routeExists(const std::string &routeId) const = 0;
+        virtual bool routeExists(const std::string &accountId, const std::string &nameSpace,
+                                 const std::string &routeId) const = 0;
 
         /**
          * @brief Deletes a route by the name it is managed under.
          *
          * @param routeId route name.
          */
-        virtual void deleteRoute(const std::string &routeId) = 0;
+        virtual void deleteRoute(const std::string &accountId, const std::string &nameSpace,
+                                 const std::string &routeId) = 0;
 
         /**
          * @brief Total number of routes.
@@ -98,7 +118,7 @@ namespace Euclid::Database {
          * @return the count.
          */
         [[nodiscard]]
-        virtual long countRoutes() const = 0;
+        virtual long countRoutes(const std::string &accountId, const std::string &nameSpace) const = 0;
 
         /**
          * @brief Removes every route.

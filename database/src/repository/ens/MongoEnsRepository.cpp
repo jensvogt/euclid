@@ -43,9 +43,17 @@ namespace Euclid::Database {
         try {
             auto topicCollection = Database::instance().collection(TOPIC_COLLECTION);
 
+            // Compound on (accountId, namespace, name) rather than name alone - topic names only
+            // need to be unique within their own account/namespace, not globally, and the topic's
+            // ERN already carries all three (createEnsTopicErn()). The name-only index this
+            // replaces meant one account taking the name "orders" stopped every other account and
+            // every other namespace from having a topic of that name at all. NOTE: replacing a
+            // pre-existing unique index on "name" alone requires dropping that old index first
+            // (Mongo won't do this automatically), and will fail if duplicate names already exist
+            // across accounts in production data - this is an operational migration step.
             mongocxx::options::index topicNameOpts;
             topicNameOpts.unique(true);
-            topicCollection.create_index(make_document(kvp("name", 1)), topicNameOpts);
+            topicCollection.create_index(make_document(kvp("accountId", 1), kvp("namespace", 1), kvp("name", 1)), topicNameOpts);
 
             mongocxx::options::index topicErnOpts;
             topicErnOpts.unique(true);
@@ -93,23 +101,22 @@ namespace Euclid::Database {
         }
     }
 
-    bool MongoEnsRepository::topicExists(const std::string &name) const {
+    bool MongoEnsRepository::topicExists(const std::string &accountId, const std::string &nameSpace, const std::string &name) const {
 
         try {
 
-            document query{};
-            if (!name.empty()) {
-                query.append(kvp("name", name));
-            }
+            // All three fields, in the order the unique index names them, so the answer is about
+            // the caller's own topic rather than about anyone in the installation holding the name.
+            const auto query = make_document(kvp("accountId", accountId), kvp("namespace", nameSpace), kvp("name", name));
 
             auto topicCollection = Database::instance().collection(TOPIC_COLLECTION);
 
-            const auto result = topicCollection.find_one(query.extract());
-            log_trace << "Topic exists, name: " << name << ", exists: " << std::boolalpha << result.has_value();
+            const auto result = topicCollection.find_one(query.view());
+            log_trace << "Topic exists, accountId: " << accountId << ", namespace: " << nameSpace << ", name: " << name << ", exists: " << std::boolalpha << result.has_value();
             return result.has_value();
 
         } catch (const std::exception &e) {
-            log_error << "Topic exists failed, name: " << ", error: " << e.what();
+            log_error << "Topic exists failed, name: " << name << ", error: " << e.what();
         }
         return false;
     }
@@ -134,13 +141,18 @@ namespace Euclid::Database {
     //     return {};
     // }
 
-    std::optional<Entity::ENS::Topic> MongoEnsRepository::findTopicByName(const std::string &name) const {
+    std::optional<Entity::ENS::Topic> MongoEnsRepository::findTopicByName(const std::string &accountId, const std::string &nameSpace, const std::string &name) const {
 
         try {
 
             auto topicCollection = Database::instance().collection(TOPIC_COLLECTION);
 
-            if (auto mResult = topicCollection.find_one(make_document(kvp("name", name)))) {
+            // A name identifies a topic only together with the account and namespace that own it,
+            // so resolving one without them would hand a caller somebody else's topic - which is
+            // also how it would have read its messages, since everything downstream works off the
+            // ERN this returns.
+            const auto filter = make_document(kvp("accountId", accountId), kvp("namespace", nameSpace), kvp("name", name));
+            if (auto mResult = topicCollection.find_one(filter.view())) {
                 return Entity::ENS::Topic::fromDocument(mResult.value());
             }
 
@@ -207,7 +219,10 @@ namespace Euclid::Database {
 
         try {
 
-            const auto filter = make_document(kvp("name", topic.name));
+            // Matches the unique index: an upsert filtered on the name alone would find another
+            // account's topic of that name and overwrite it, and on the insert path it would race
+            // the index into a duplicate-key error instead of creating the caller's own topic.
+            const auto filter = make_document(kvp("accountId", topic.accountId), kvp("namespace", topic.nameSpace), kvp("name", topic.name));
             const auto update = make_document(
                     kvp("$set", topic.toDocument()),
                     kvp("$setOnInsert", make_document(
@@ -231,7 +246,7 @@ namespace Euclid::Database {
             }
 
         } catch (const std::exception &e) {
-            log_error << "Upsert SQS queue failed, error: " << e.what();
+            log_error << "Upsert ENS topic failed, error: " << e.what();
         }
         return topic;
     }
@@ -824,18 +839,25 @@ namespace Euclid::Database {
     void MongoEnsRepository::purgeAllTopics(const std::string &region, const std::string &accountId, const std::string &nameSpace) {
 
         try {
-            const std::string marker = nameSpace.empty() ? ":" + region + ":" + accountId + ":" : ":" + region + ":" + accountId + ":" + nameSpace + ":";
-
             auto topicCollection = Database::instance().collection(TOPIC_COLLECTION);
             auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
+            // Filters on the topic's own region/accountId/namespace fields, rather than the
+            // previous full scan matching a substring of the ERN: those fields are what the
+            // uniqueness of a topic is defined in terms of, and an empty nameSpace means "every
+            // namespace of the account" here - which a filter on the field itself cannot say, so
+            // it is only appended when one was given.
+            document scopeFilter{};
+            scopeFilter.append(kvp("region", region), kvp("accountId", accountId));
+            if (!nameSpace.empty()) {
+                scopeFilter.append(kvp("namespace", nameSpace));
+            }
+
             array ernArray;
             long topicCount = 0;
-            for (auto queueCursor = topicCollection.find({}); auto queue: queueCursor) {
-                if (const auto entity = Entity::ENS::Topic::fromDocument(queue); entity.ern.find(marker) != std::string::npos) {
-                    ernArray.append(entity.ern);
-                    ++topicCount;
-                }
+            for (auto topicCursor = topicCollection.find(scopeFilter.extract()); auto topic: topicCursor) {
+                ernArray.append(Entity::ENS::Topic::fromDocument(topic).ern);
+                ++topicCount;
             }
 
             if (topicCount == 0) {
@@ -845,7 +867,9 @@ namespace Euclid::Database {
 
             const auto queueFilter = make_document(kvp("ern", make_document(kvp("$in", ernArray.view()))));
 
-            const auto messageResult = messageCollection.delete_many(make_document(kvp("queueErn", make_document(kvp("$in", ernArray.view())))));
+            // topicErn, not queueErn: an ENS message has no queueErn at all, so the purge this
+            // replaces matched nothing and left every message of every purged topic behind.
+            const auto messageResult = messageCollection.delete_many(make_document(kvp("topicErn", make_document(kvp("$in", ernArray.view())))));
             log_debug << "Topics purged, region: " << region << ", accountId: " << accountId << ", topicCount: " << topicCount << ", messageCount: " << messageResult->deleted_count();
 
             const auto update = make_document(

@@ -15,6 +15,30 @@
 namespace Euclid::EAG {
 
     /**
+     * @brief An application as a route names it: the three fields that identify one.
+     *
+     * @par
+     * What a route carries, and what a request being proxied has in hand - as opposed to the name
+     * the application runs under, which only the application's own definition knows. Backends
+     * resolves the one into the other while it refreshes, so that serving a request stays a lookup
+     * in a map.
+     */
+    struct ApplicationRef {
+
+        std::string accountId;
+        std::string nameSpace;
+        std::string applicationId;
+
+        /**
+         * @brief The key these three make, which is what Backends is keyed by.
+         */
+        [[nodiscard]]
+        std::string key() const { return accountId + "/" + nameSpace + "/" + applicationId; }
+
+        bool operator<(const ApplicationRef &other) const { return key() < other.key(); }
+    };
+
+    /**
      * @brief Where an application's instances can be reached, and whose turn it is.
      *
      * @par
@@ -42,9 +66,11 @@ namespace Euclid::EAG {
          * away stops answering either way, and the alternative is dropping every backend because
          * the database was briefly unreachable.
          *
-         * @param applicationIds applications the route table currently names.
+         * @param applications the applications the route table points at. Each is looked up to
+         * find the name it runs under, which is what the module registry knows it by - see
+         * Entity::EAP::RuntimeName().
          */
-        void refresh(const std::vector<std::string> &applicationIds);
+        void refresh(const std::vector<ApplicationRef> &applications);
 
         /**
          * @brief The next instance to send a request to, or nothing if the application has none.
@@ -54,17 +80,17 @@ namespace Euclid::EAG {
          * routes pointing at one application share the rotation rather than each hammering the
          * instance the other just used.
          *
-         * @param applicationId application to reach.
+         * @param application application to reach.
          * @return the port of the instance whose turn it is.
          */
         [[nodiscard]]
-        std::optional<int> next(const std::string &applicationId);
+        std::optional<int> next(const ApplicationRef &application);
 
         /**
          * @brief How many instances an application currently has, for reporting.
          */
         [[nodiscard]]
-        std::size_t count(const std::string &applicationId) const;
+        std::size_t count(const ApplicationRef &application) const;
 
     private:
 

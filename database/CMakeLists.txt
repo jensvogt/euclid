@@ -13,7 +13,8 @@ set(SOURCES src/Database.cpp src/Collection.cpp src/EventBus.cpp src/entity/com/
         src/entity/ess/Secret.cpp src/repository/ess/MongoEssRepository.cpp
         src/entity/ekv/Value.cpp src/entity/ekv/Table.cpp src/entity/ekv/Item.cpp
         src/entity/ekv/SortCondition.cpp src/repository/ekv/MongoEkvRepository.cpp src/emd/DocumentStore.cpp src/emd/RemoteDocumentStore.cpp
-        src/entity/eap/Application.cpp src/repository/eap/MongoEapRepository.cpp)
+        src/entity/eap/Application.cpp src/repository/eap/MongoEapRepository.cpp
+        src/entity/RuntimeName.cpp)
 
 add_library(${LIBRARY} STATIC ${SOURCES})
 target_include_directories(${LIBRARY} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/../core/include)

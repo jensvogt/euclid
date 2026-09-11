@@ -5,6 +5,7 @@
 #include <regex>
 
 #include <bsoncxx/builder/basic/array.hpp>
+#include <bsoncxx/builder/concatenate.hpp>
 #include <euclid/database/entity/eap/Application.h>
 
 namespace Euclid::Database::Entity::EAP {
@@ -35,7 +36,16 @@ namespace Euclid::Database::Entity::EAP {
         bsoncxx::builder::basic::document environmentDoc;
         for (const auto &[name, value]: environment) environmentDoc.append(bsoncxx::builder::basic::kvp(name, value));
 
-        return bsoncxx::builder::basic::make_document(
+        bsoncxx::builder::basic::document document;
+
+        // Only when it has one. An application from before this field existed runs under its bare
+        // applicationId, and writing "" here would put every one of them under the same empty name
+        // as far as the unique index is concerned - where a missing field is skipped entirely.
+        if (!runtimeName.empty()) {
+            document.append(bsoncxx::builder::basic::kvp("runtimeName", runtimeName));
+        }
+
+        document.append(bsoncxx::builder::concatenate(bsoncxx::builder::basic::make_document(
                 bsoncxx::builder::basic::kvp("applicationId", applicationId),
                 bsoncxx::builder::basic::kvp("ern", ern),
                 bsoncxx::builder::basic::kvp("accountId", accountId),
@@ -57,7 +67,10 @@ namespace Euclid::Database::Entity::EAP {
                 bsoncxx::builder::basic::kvp("desiredState", ApplicationStateToString(desiredState)),
                 bsoncxx::builder::basic::kvp("logLevel", logLevel),
                 bsoncxx::builder::basic::kvp("created", bsoncxx::types::b_date(created)),
-                bsoncxx::builder::basic::kvp("modified", bsoncxx::types::b_date(modified)));
+                bsoncxx::builder::basic::kvp("modified", bsoncxx::types::b_date(modified)))
+                                                        .view()));
+
+        return document.extract();
     }
 
     Application Application::fromDocument(const std::optional<bsoncxx::document::view> &document) {
@@ -67,6 +80,9 @@ namespace Euclid::Database::Entity::EAP {
         for (const auto &field: *document) {
             if (const auto key = field.key(); key == "_id") application.oid = field.get_oid().value.to_string();
             else if (key == "applicationId") application.applicationId = std::string(field.get_string().value);
+            // Absent on every application deployed before it existed - see RuntimeName(), which is
+            // what decides what such an application runs under.
+            else if (key == "runtimeName") application.runtimeName = std::string(field.get_string().value);
             else if (key == "ern") application.ern = std::string(field.get_string().value);
             else if (key == "accountId") application.accountId = std::string(field.get_string().value);
             else if (key == "region") application.region = std::string(field.get_string().value);
@@ -97,6 +113,13 @@ namespace Euclid::Database::Entity::EAP {
             else if (key == "modified") application.modified = std::chrono::system_clock::time_point{field.get_date().value};
         }
         return application;
+    }
+
+    std::string RuntimeName(const Application &application) {
+        // The bare applicationId for an application deployed before runtimeName existed, because
+        // that is what it is running under this minute: its directory, its module row and its
+        // principal are all named that, and answering anything else here would strand all three.
+        return application.runtimeName.empty() ? application.applicationId : application.runtimeName;
     }
 
     std::string VersionFromArtifactName(const std::string &name) {

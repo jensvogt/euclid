@@ -89,13 +89,20 @@ namespace Euclid::Database {
         virtual void deleteTopicByErn(const std::string &ern) = 0;
 
         /**
-         * @brief Searches for a topic by its name.
+         * @brief Searches for a topic by its name within the account and namespace that owns it.
          *
+         * @par
+         * A topic name is unique only within (accountId, nameSpace) - the same three fields the
+         * unique index is built on - so all three are needed to name one topic.
+         *
+         * @param accountId account the topic belongs to.
+         * @param nameSpace namespace within accountId the topic belongs to; empty means the
+         * account's unscoped topics, not "any namespace".
          * @param name The name of the topic to search for.
-         * @return The item matching the given name, or nullptr if no match is found.
+         * @return The topic matching the given name, or an empty optional if no match is found.
          */
         [[nodiscard]]
-        virtual std::optional<Entity::ENS::Topic> findTopicByName(const std::string &name) const = 0;
+        virtual std::optional<Entity::ENS::Topic> findTopicByName(const std::string &accountId, const std::string &nameSpace, const std::string &name) const = 0;
 
         /**
          * @brief Locates a queue in the repository by its unique identifier.
@@ -135,13 +142,16 @@ namespace Euclid::Database {
         virtual std::vector<Entity::ENS::Topic> listTopics(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const = 0;
 
         /**
-         * @brief Checks if a topic with the specified name exists in the repository.
+         * @brief Checks if a topic with the specified name exists in the given account and
+         * namespace.
          *
+         * @param accountId account the topic would belong to.
+         * @param nameSpace namespace within accountId; empty means the account's unscoped topics.
          * @param name The name of the topic to check for existence.
-         * @return True if a topic with the given name exists, otherwise false.
+         * @return True if a topic with the given name exists there, otherwise false.
          */
         [[nodiscard]]
-        virtual bool topicExists(const std::string &name) const = 0;
+        virtual bool topicExists(const std::string &accountId, const std::string &nameSpace, const std::string &name) const = 0;
 
         /**
          * @brief Retrieves the total count of topics in the repository.

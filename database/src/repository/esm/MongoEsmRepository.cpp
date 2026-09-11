@@ -97,19 +97,18 @@ namespace Euclid::Database {
         }
     }
 
-    bool MongoEsmRepository::bucketExists(const std::string &name) const {
+    bool MongoEsmRepository::bucketExists(const std::string &accountId, const std::string &nameSpace, const std::string &name) const {
 
         try {
 
-            document query{};
-            if (!name.empty()) {
-                query.append(kvp("name", name));
-            }
+            // All three fields, in the order the unique index names them, so the answer is about
+            // the caller's own bucket rather than about anyone in the installation holding the name.
+            const auto query = make_document(kvp("accountId", accountId), kvp("namespace", nameSpace), kvp("name", name));
 
             auto bucketCollection = Database::instance().collection(BUCKET_COLLECTION);
 
-            const auto result = bucketCollection.find_one(query.extract());
-            log_trace << "Bucket exists, name: " << name << ", exists: " << std::boolalpha << result.has_value();
+            const auto result = bucketCollection.find_one(query.view());
+            log_trace << "Bucket exists, accountId: " << accountId << ", namespace: " << nameSpace << ", name: " << name << ", exists: " << std::boolalpha << result.has_value();
             return result.has_value();
 
         } catch (const std::exception &e) {
@@ -137,13 +136,18 @@ namespace Euclid::Database {
         return {};
     }
 
-    std::optional<Entity::ESM::Bucket> MongoEsmRepository::findBucketByName(const std::string &name) const {
+    std::optional<Entity::ESM::Bucket> MongoEsmRepository::findBucketByName(const std::string &accountId, const std::string &nameSpace, const std::string &name) const {
 
         try {
 
             auto bucketCollection = Database::instance().collection(BUCKET_COLLECTION);
 
-            if (auto mResult = bucketCollection.find_one(make_document(kvp("name", name)))) {
+            // A name identifies a bucket only together with the account and namespace that own it,
+            // so resolving one without them would hand a caller somebody else's bucket - which is
+            // also how it would have read its objects, since everything downstream works off the
+            // ERN this returns.
+            const auto filter = make_document(kvp("accountId", accountId), kvp("namespace", nameSpace), kvp("name", name));
+            if (auto mResult = bucketCollection.find_one(filter.view())) {
                 return Entity::ESM::Bucket::fromDocument(mResult.value());
             }
 
@@ -290,12 +294,16 @@ namespace Euclid::Database {
         return -1;
     }
 
-    void MongoEsmRepository::removeBucketByName(const std::string &name) {
+    void MongoEsmRepository::removeBucketByName(const std::string &accountId, const std::string &nameSpace, const std::string &name) {
 
         try {
             auto bucketCollection = Database::instance().collection(BUCKET_COLLECTION);
 
-            const auto result = bucketCollection.delete_many(make_document(kvp("name", name)));
+            // delete_many on the name alone would have taken every account's bucket of that name
+            // with it. The filter matches the unique index, so this can now delete at most the one
+            // bucket the caller named.
+            const auto filter = make_document(kvp("accountId", accountId), kvp("namespace", nameSpace), kvp("name", name));
+            const auto result = bucketCollection.delete_many(filter.view());
             log_debug << "Bucket deleted, count: " << result->deleted_count();
 
         } catch (const std::exception &e) {

@@ -46,11 +46,13 @@ namespace Euclid::Database {
         Entity::ESM::Bucket upsertBucket(Entity::ESM::Bucket &bucket) override;
 
         /**
-         * @brief Removes a bucket entity by name
+         * @brief Removes a bucket entity by name, within the account and namespace that owns it
          *
+         * @param accountId account the bucket belongs to
+         * @param nameSpace namespace within accountId; empty means the account's unscoped buckets
          * @param name bucket name
          */
-        void removeBucketByName(const std::string &name) override;
+        void removeBucketByName(const std::string &accountId, const std::string &nameSpace, const std::string &name) override;
 
         /**
          * @brief Removes a bucket entity by ERN
@@ -60,13 +62,15 @@ namespace Euclid::Database {
         void deleteBucketByErn(const std::string &ern) override;
 
         /**
-         * @brief Find by bucket name
+         * @brief Find by bucket name, within the account and namespace that owns it
          *
+         * @param accountId account the bucket belongs to
+         * @param nameSpace namespace within accountId; empty means the account's unscoped buckets
          * @param name bucket name
          * @return optional bucket
          */
         [[nodiscard]]
-        std::optional<Entity::ESM::Bucket> findBucketByName(const std::string &name) const override;
+        std::optional<Entity::ESM::Bucket> findBucketByName(const std::string &accountId, const std::string &nameSpace, const std::string &name) const override;
 
         /**
          * @brief Find by bucket ID
@@ -99,13 +103,15 @@ namespace Euclid::Database {
         std::vector<Entity::ESM::Bucket> listBuckets(const std::string &accountId, const std::string &namespaceName, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection, bool includeInternal = false) const override;
 
         /**
-         * @brief Check the existence of a bucket by name
+         * @brief Check the existence of a bucket by name, within an account and namespace
          *
-         * @param name bucket name to check existence
-         * @return true if the bucket exists
+         * @param accountId account the bucket would belong to
+         * @param nameSpace namespace within accountId; empty means the account's unscoped buckets
+         * @param name bucket name to check existence of
+         * @return true if the bucket exists there
          */
         [[nodiscard]]
-        bool bucketExists(const std::string &name) const override;
+        bool bucketExists(const std::string &accountId, const std::string &nameSpace, const std::string &name) const override;
 
         /**
          * @brief Get the total number of buckets

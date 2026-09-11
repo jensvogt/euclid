@@ -266,23 +266,36 @@ namespace Euclid::Core {
     /**
      * @brief Creates an ERN for an EAP application.
      *
+     * @par
+     * Namespace-scoped, like a queue or a bucket: an applicationId is unique within
+     * (accountId, nameSpace), so two namespaces may each define a "billing". What they may not
+     * share is the name they *run* under - see Entity::EAP::RuntimeName(), which is a different
+     * name for a different purpose.
+     *
      * @param accountId account ID
+     * @param nameSpace namespace within accountId the application belongs to; empty means unscoped
      * @param name application ID
      * @return the application's ERN
      */
-    inline std::string createEapApplicationErn(const std::string &accountId, const std::string &name) {
-        return createErn("eap", accountId, "application:" + name);
+    inline std::string createEapApplicationErn(const std::string &accountId, const std::string &nameSpace, const std::string &name) {
+        return createErn("eap", accountId, nameSpace, "application:" + name);
     }
 
     /**
      * @brief Creates an ERN for an ETS transfer server.
      *
+     * @par
+     * Namespace-scoped, like a queue or a bucket: a serverId is unique within
+     * (accountId, nameSpace). What two servers may not share is the name they *run* under, which
+     * is a different name for a different purpose - see Entity::ETS::RuntimeName().
+     *
      * @param accountId account ID
+     * @param nameSpace namespace within accountId the server belongs to; empty means unscoped
      * @param name server ID
      * @return the transfer server's ERN
      */
-    inline std::string createEtsServerErn(const std::string &accountId, const std::string &name) {
-        return createErn("ets", accountId, "transferServer:" + name);
+    inline std::string createEtsServerErn(const std::string &accountId, const std::string &nameSpace, const std::string &name) {
+        return createErn("ets", accountId, nameSpace, "transferServer:" + name);
     }
 
     /**

@@ -43,7 +43,24 @@ namespace Euclid::Database {
          * @return the server, or std::nullopt if no server has that ID.
          */
         [[nodiscard]]
-        virtual std::optional<Entity::ETS::TransferServer> findServerByServerId(const std::string &serverId) const = 0;
+        virtual std::optional<Entity::ETS::TransferServer> findServerByServerId(const std::string &accountId, const std::string &nameSpace,
+                                                                                const std::string &serverId) const = 0;
+
+        /**
+         * @brief Finds the transfer server running under a name, wherever it is defined.
+         *
+         * @par
+         * The one lookup that spans the installation, because the name it takes does too: a
+         * process pool, a unix socket and the --transfer-server argument a spawned server
+         * identifies itself by are not partitioned by account or namespace. Used to check a newly
+         * issued runtime name is free, and by the spawned process to read its own definition back.
+         * Answers for servers from before the field existed as well, which run under their bare id.
+         *
+         * @param runtimeName the name to look for - see Entity::ETS::RuntimeName().
+         * @return the server running under it, or std::nullopt if none is.
+         */
+        [[nodiscard]]
+        virtual std::optional<Entity::ETS::TransferServer> findServerByRuntimeName(const std::string &runtimeName) const = 0;
 
         /**
          * @brief Finds a transfer server by its ERN.
@@ -61,7 +78,8 @@ namespace Euclid::Database {
          * @return true if it exists.
          */
         [[nodiscard]]
-        virtual bool serverExists(const std::string &serverId) const = 0;
+        virtual bool serverExists(const std::string &accountId, const std::string &nameSpace,
+                                  const std::string &serverId) const = 0;
 
         /**
          * @brief Lists transfer servers, ordered by server ID.
@@ -70,7 +88,22 @@ namespace Euclid::Database {
          * @return matching servers.
          */
         [[nodiscard]]
-        virtual std::vector<Entity::ETS::TransferServer> listServers(const std::string &prefix) const = 0;
+        virtual std::vector<Entity::ETS::TransferServer> listServers(const std::string &accountId, const std::string &nameSpace,
+                                                                     const std::string &prefix) const = 0;
+
+        /**
+         * @brief Every transfer server in the installation, whatever account or namespace defines it.
+         *
+         * @par
+         * For the manager, which runs them all, and for the checks that are about a host rather
+         * than about a caller - two servers may not share a TCP port, whoever owns them. Nothing
+         * serving one caller should use this.
+         *
+         * @param prefix only servers whose ID starts with this are returned; empty matches all.
+         * @return matching servers, sorted by ID.
+         */
+        [[nodiscard]]
+        virtual std::vector<Entity::ETS::TransferServer> listAllServers(const std::string &prefix) const = 0;
 
         /**
          * @brief Counts transfer servers.
@@ -78,14 +111,15 @@ namespace Euclid::Database {
          * @return number of stored servers.
          */
         [[nodiscard]]
-        virtual long countServers() const = 0;
+        virtual long countServers(const std::string &accountId, const std::string &nameSpace) const = 0;
 
         /**
          * @brief Deletes a transfer server.
          *
          * @param serverId server ID.
          */
-        virtual void deleteServer(const std::string &serverId) = 0;
+        virtual void deleteServer(const std::string &accountId, const std::string &nameSpace,
+                                  const std::string &serverId) = 0;
 
         /**
          * @brief Removes every transfer server.
