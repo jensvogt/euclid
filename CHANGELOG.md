@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.3](https://github.com/jensvogt/euclid/compare/v1.1.2...v1.1.3) (2026-09-11)
+
+
+### Bug Fixes
+
+* licensing ([9acf98e](https://github.com/jensvogt/euclid/commit/9acf98e1bdde9f50e358c893b8b653dfab6280b6))
+
 ## [1.1.2](https://github.com/jensvogt/euclid/compare/1.1.1...v1.1.2) (2026-09-11)
 
 
