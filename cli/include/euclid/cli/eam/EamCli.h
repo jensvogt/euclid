@@ -22,6 +22,15 @@
 #include <euclid/dto/eam/ChangeNamespaceRequest.h>
 #include <euclid/dto/eam/CreateAccountRequest.h>
 #include <euclid/dto/eam/CreateNamespaceRequest.h>
+#include <euclid/dto/eam/CheckPermissionRequest.h>
+#include <euclid/dto/eam/CreateRoleRequest.h>
+#include <euclid/dto/eam/DeleteRoleRequest.h>
+#include <euclid/dto/eam/GetRoleRequest.h>
+#include <euclid/dto/eam/GrantRoleRequest.h>
+#include <euclid/dto/eam/ListGrantsRequest.h>
+#include <euclid/dto/eam/ListRolesRequest.h>
+#include <euclid/dto/eam/RevokeRoleRequest.h>
+#include <euclid/dto/eam/UpdateRoleRequest.h>
 #include <euclid/dto/eam/CreateUserGroupRequest.h>
 #include <euclid/dto/eam/DeleteAccessKeyRequest.h>
 #include <euclid/dto/eam/DeleteAccountRequest.h>
@@ -203,6 +212,70 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int createUserGroup(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Creates a role: a named set of permissions
+         *
+         * @param args action arguments
+         * @return process exit code
+         */
+        [[nodiscard]]
+        int createRole(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Replaces what a role grants
+         */
+        [[nodiscard]]
+        int updateRole(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Shows one role and what it grants
+         */
+        [[nodiscard]]
+        int getRole(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Lists the roles this account can bind, built-in ones included
+         */
+        [[nodiscard]]
+        int listRoles(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Deletes a role, unless it is still granted
+         */
+        [[nodiscard]]
+        int deleteRole(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Gives a role to a user or user group, scoped
+         */
+        [[nodiscard]]
+        int grantRole(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Removes one grant by its id
+         */
+        [[nodiscard]]
+        int revokeRole(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Lists grants, by principal or by role
+         */
+        [[nodiscard]]
+        int listGrants(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Lists every permission a role can hold
+         */
+        [[nodiscard]]
+        int listPermissions(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Asks whether a user may do something, and why
+         */
+        [[nodiscard]]
+        int checkPermission(const std::vector<std::string> &args) const;
+
 
         int listUserGroups(const std::vector<std::string> &args) const;
 

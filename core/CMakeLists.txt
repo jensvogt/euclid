@@ -2,7 +2,7 @@ set(LIBRARY euclidcore)
 set(SOURCES src/LogStream.cpp src/Configuration.cpp src/SystemUtils.cpp src/HttpUtils.cpp src/UuidUtils.cpp
         src/DateTimeUtils.cpp src/PasswordUtils.cpp src/JwtUtils.cpp src/UnixSocketServer.cpp
         src/HttpActionServer.cpp src/CronExpression.cpp src/Scheduler.cpp src/CryptoUtils.cpp src/CertificateUtils.cpp src/SigV4.cpp
-        src/HttpSignature.cpp
+        src/HttpSignature.cpp src/Permissions.cpp src/BuiltinRoles.cpp
         src/ContentTypeUtils.cpp src/DirUtils.cpp src/ObjectCipher.cpp src/Federation.cpp src/OidcClient.cpp src/SamlProvider.cpp src/Totp.cpp src/WebClient.cpp include/euclid/core/ErnUtils.h src/monitoring/MonitoringCollector.cpp
         src/monitoring/MetricsPusher.cpp src/ZipUtils.cpp src/WsFrame.cpp src/EventPusher.cpp)
 

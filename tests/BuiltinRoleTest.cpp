@@ -1,0 +1,230 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+#define BOOST_TEST_MODULE BuiltinRoleTest
+#include <boost/test/unit_test.hpp>
+
+// C++ includes
+#include <algorithm>
+#include <string>
+
+// Euclid includes
+#include <euclid/core/BuiltinRoles.h>
+#include <euclid/core/Permissions.h>
+
+using Euclid::Core::BuiltinRoles;
+using Euclid::Core::Permissions;
+
+// The built-in roles are the only roles that are not stored, so they are the only ones that can be
+// wrong without an administrator having written them that way. Two things have to hold: every
+// permission they name has to exist - a renamed action would otherwise empty a role silently - and
+// the rules that compute them have to keep meaning what they say as the vocabulary grows.
+
+namespace {
+
+    bool grants(const std::string_view role, const std::string_view permission) {
+        return std::ranges::any_of(BuiltinRoles::PermissionsOf(role), [&](const auto &granted) {
+            return Permissions::Matches(granted, permission);
+        });
+    }
+
+    // The entries of a role that are not wildcards, which are the ones that must name real actions.
+    std::vector<std::string> literalsOf(const std::string_view role) {
+        std::vector<std::string> literals;
+        for (const auto &permission: BuiltinRoles::PermissionsOf(role)) {
+            if (!permission.ends_with(":*") && permission != Permissions::Everything) literals.push_back(permission);
+        }
+        return literals;
+    }
+
+}// namespace
+
+BOOST_AUTO_TEST_CASE(EveryBuiltinRoleNamesOnlyRealPermissions) {
+
+    // The failure this prevents: an action is renamed, a role keeps naming the old one, and
+    // everybody bound to it silently loses the right it was granted for.
+    for (const auto &role: BuiltinRoles::Names()) {
+        for (const auto &permission: literalsOf(role)) {
+            BOOST_TEST(Permissions::Exists(permission),
+                       "built-in role '" + role + "' grants '" + permission + "', which no module dispatches");
+        }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(EveryBuiltinRoleGrantsSomething) {
+
+    for (const auto &role: BuiltinRoles::Names()) {
+        BOOST_TEST(!BuiltinRoles::PermissionsOf(role).empty(), "built-in role '" + role + "' grants nothing");
+    }
+}
+
+BOOST_AUTO_TEST_CASE(EveryBuiltinRoleIsDescribedAndFound) {
+
+    for (const auto &role: BuiltinRoles::Names()) {
+        BOOST_TEST(BuiltinRoles::Exists(role));
+        BOOST_TEST(!BuiltinRoles::DescriptionOf(role).empty(), "built-in role '" + role + "' has no description");
+    }
+
+    BOOST_TEST(!BuiltinRoles::Exists("not-a-role"));
+    BOOST_TEST(BuiltinRoles::PermissionsOf("not-a-role").empty());
+    BOOST_TEST(BuiltinRoles::DescriptionOf("not-a-role").empty());
+}
+
+// There is no `administrator` role: installation administration is user-group membership, because
+// roles are per account and EMM has to be reachable by something no role can name.
+BOOST_AUTO_TEST_CASE(ThereIsNoAdministratorRole) {
+
+    BOOST_TEST(!BuiltinRoles::Exists("administrator"));
+    BOOST_TEST(!std::ranges::contains(BuiltinRoles::Names(), std::string("administrator")));
+}
+
+// ── account-administrator ───────────────────────────────────────────────────
+
+BOOST_AUTO_TEST_CASE(AccountAdministratorGrantsEveryPermission) {
+
+    for (const auto &permission: Permissions::All()) {
+        BOOST_TEST(grants(BuiltinRoles::AccountAdministrator, permission), permission + " is not granted by account-administrator");
+    }
+}
+
+BOOST_AUTO_TEST_CASE(AccountAdministratorStillDoesNotReachTheUnbindableModules) {
+
+    // The strongest role there is, and it is still not installation administration.
+    BOOST_TEST(!grants(BuiltinRoles::AccountAdministrator, "emm:import"));
+    BOOST_TEST(!grants(BuiltinRoles::AccountAdministrator, "emd:replace-one"));
+}
+
+// ── operator ────────────────────────────────────────────────────────────────
+
+BOOST_AUTO_TEST_CASE(OperatorRunsThingsButDoesNotRemoveThem) {
+
+    BOOST_TEST(grants(BuiltinRoles::Operator, "eqs:create-queue"));
+    BOOST_TEST(grants(BuiltinRoles::Operator, "eqs:send-message"));
+    BOOST_TEST(grants(BuiltinRoles::Operator, "ens:start-topic"));
+    BOOST_TEST(grants(BuiltinRoles::Operator, "eap:start-application"));
+    BOOST_TEST(grants(BuiltinRoles::Operator, "eap:redeploy-application"));
+
+    BOOST_TEST(!grants(BuiltinRoles::Operator, "eqs:delete-queue"));
+    BOOST_TEST(!grants(BuiltinRoles::Operator, "ens:delete-topic"));
+    BOOST_TEST(!grants(BuiltinRoles::Operator, "ens:purge-topic"));
+    BOOST_TEST(!grants(BuiltinRoles::Operator, "esm:purge-bucket"));
+}
+
+BOOST_AUTO_TEST_CASE(OperatorDoesNotAdministerAccess) {
+
+    // Running the installation and deciding who may use it are different jobs.
+    BOOST_TEST(!grants(BuiltinRoles::Operator, "eam:register"));
+    BOOST_TEST(!grants(BuiltinRoles::Operator, "eam:create-account"));
+    BOOST_TEST(!grants(BuiltinRoles::Operator, "eam:list-users"));
+}
+
+// The rule is applied to the vocabulary rather than transcribed from it, so this holds for actions
+// nobody has written yet.
+BOOST_AUTO_TEST_CASE(OperatorIsExactlyTheRuleItClaims) {
+
+    for (const auto &permission: Permissions::All()) {
+        const auto action = permission.substr(permission.find(':') + 1);
+        const bool destructive = action.starts_with("delete-") || action.starts_with("purge-");
+        const bool accessManagement = permission.starts_with("eam:");
+
+        BOOST_TEST(grants(BuiltinRoles::Operator, permission) == (!destructive && !accessManagement),
+                   permission + " is on the wrong side of the operator rule");
+    }
+}
+
+// ── reader ──────────────────────────────────────────────────────────────────
+
+BOOST_AUTO_TEST_CASE(ReaderOnlyReads) {
+
+    BOOST_TEST(grants(BuiltinRoles::Reader, "eqs:list-queues"));
+    BOOST_TEST(grants(BuiltinRoles::Reader, "ens:get-topic-metadata"));
+    BOOST_TEST(grants(BuiltinRoles::Reader, "ekv:describe-table"));
+
+    BOOST_TEST(!grants(BuiltinRoles::Reader, "ens:publish-message"));
+    BOOST_TEST(!grants(BuiltinRoles::Reader, "eqs:send-message"));
+    BOOST_TEST(!grants(BuiltinRoles::Reader, "esm:delete-bucket"));
+    BOOST_TEST(!grants(BuiltinRoles::Reader, "ens:create-topic"));
+}
+
+BOOST_AUTO_TEST_CASE(ReaderIsExactlyTheRuleItClaims) {
+
+    for (const auto &permission: Permissions::All()) {
+        const auto action = permission.substr(permission.find(':') + 1);
+        const bool reads = action.starts_with("list-") || action.starts_with("get-") || action.starts_with("describe-");
+
+        BOOST_TEST(grants(BuiltinRoles::Reader, permission) == reads, permission + " is on the wrong side of the reader rule");
+    }
+}
+
+// Worth stating: reader includes eam:list-users, which is a read but is also who-can-see-whom. It
+// is deliberate - a reader role that hid the user list would still show every queue and object -
+// but it is the entry somebody will ask about.
+BOOST_AUTO_TEST_CASE(ReaderIncludesAccessManagementReads) {
+
+    BOOST_TEST(grants(BuiltinRoles::Reader, "eam:list-users"));
+    BOOST_TEST(!grants(BuiltinRoles::Reader, "eam:delete-user"));
+}
+
+// ── publisher, consumer, application ────────────────────────────────────────
+
+BOOST_AUTO_TEST_CASE(PublisherPublishesAndNothingElse) {
+
+    BOOST_TEST(grants(BuiltinRoles::Publisher, "ens:publish-message"));
+    BOOST_TEST(grants(BuiltinRoles::Publisher, "eqs:send-message"));
+    // It has to be able to resolve a name, or it can only address what it was told the ERN of.
+    BOOST_TEST(grants(BuiltinRoles::Publisher, "ens:get-topic-ern"));
+    BOOST_TEST(grants(BuiltinRoles::Publisher, "eqs:get-queue-ern"));
+
+    BOOST_TEST(!grants(BuiltinRoles::Publisher, "eqs:receive-messages"));
+    BOOST_TEST(!grants(BuiltinRoles::Publisher, "ens:create-topic"));
+    BOOST_TEST(!grants(BuiltinRoles::Publisher, "ens:delete-topic"));
+}
+
+BOOST_AUTO_TEST_CASE(ConsumerConsumesAndNothingElse) {
+
+    BOOST_TEST(grants(BuiltinRoles::Consumer, "eqs:receive-messages"));
+    BOOST_TEST(grants(BuiltinRoles::Consumer, "eqs:delete-message"));
+    BOOST_TEST(grants(BuiltinRoles::Consumer, "ens:subscribe"));
+    BOOST_TEST(grants(BuiltinRoles::Consumer, "ens:unsubscribe"));
+
+    BOOST_TEST(!grants(BuiltinRoles::Consumer, "eqs:send-message"));
+    BOOST_TEST(!grants(BuiltinRoles::Consumer, "eqs:delete-queue"));
+    BOOST_TEST(!grants(BuiltinRoles::Consumer, "ens:publish-message"));
+}
+
+// EQS dispatches one command under two names. A consumer that reached only one of them would work
+// or not depending on which spelling its client happened to send.
+BOOST_AUTO_TEST_CASE(ConsumerReachesBothSpellingsOfSetVisibility) {
+
+    BOOST_TEST(grants(BuiltinRoles::Consumer, "eqs:set-visibility"));
+    BOOST_TEST(grants(BuiltinRoles::Consumer, "eqs:set-message-visibility"));
+}
+
+BOOST_AUTO_TEST_CASE(ApplicationIsPublisherAndConsumerPlusObjects) {
+
+    for (const auto &permission: BuiltinRoles::PermissionsOf(BuiltinRoles::Publisher)) {
+        BOOST_TEST(grants(BuiltinRoles::Application, permission), "application does not grant publisher's " + permission);
+    }
+    for (const auto &permission: BuiltinRoles::PermissionsOf(BuiltinRoles::Consumer)) {
+        BOOST_TEST(grants(BuiltinRoles::Application, permission), "application does not grant consumer's " + permission);
+    }
+
+    BOOST_TEST(grants(BuiltinRoles::Application, "esm:get-object"));
+    BOOST_TEST(grants(BuiltinRoles::Application, "esm:put-object"));
+
+    BOOST_TEST(!grants(BuiltinRoles::Application, "esm:delete-bucket"));
+    BOOST_TEST(!grants(BuiltinRoles::Application, "esm:create-bucket"));
+    BOOST_TEST(!grants(BuiltinRoles::Application, "eam:register"));
+}
+
+BOOST_AUTO_TEST_CASE(NoBuiltinRoleGrantsDuplicatePermissions) {
+
+    for (const auto &role: BuiltinRoles::Names()) {
+        const auto &permissions = BuiltinRoles::PermissionsOf(role);
+        BOOST_TEST(std::ranges::is_sorted(permissions), "built-in role '" + role + "' is not sorted");
+
+        const bool duplicated = std::ranges::adjacent_find(permissions) != permissions.end();
+        BOOST_TEST(!duplicated, "built-in role '" + role + "' names a permission twice");
+    }
+}
