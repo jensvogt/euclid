@@ -60,7 +60,7 @@ namespace Euclid::Dto::ENS {
 
         /**
          * @brief How long a message published to this topic is kept, in seconds. Zero means the
-         * topic follows the installation's own setting.
+         * topic follows the installation's own setting; -1 means it keeps everything.
          */
         long retentionPeriod = 0;
 

@@ -39,6 +39,30 @@ returns it to following that, including any later change to it.
 Longer than a queue message's four days, because the two are different
 things: a queue message is consumed and gone, and this is a record of
 what was sent.
+.SH KEEPING EVERYTHING
+A period of
+.I \-1
+\- also spelled
+.I forever
+\- keeps every message published to the topic.
+.PP
+It is not a very long period. The message is stored with no expiry at
+all, which is what a message published before retention existed looks
+like and what the database's TTL index ignores, so nothing is ever going
+to come along and remove it. That also means the topic grows without
+limit, and since every topic shares one collection, that growth is paid
+for by every publish in the installation. Only
+.BR euclid-cli-ens-purge-topic (1)
+empties it again.
+.PP
+A topic set to
+.I \-1
+has made a decision, so it no longer follows
+.I euclid.modules.ens.retention-period
+\- in either direction. An installation may set that setting to
+.I \-1
+as well, which makes keeping everything the default for topics that have
+no period of their own.
 .SH OPTIONS
 .TP
 .BR \-t ", " \-\-topic " " \fINAME\fR
@@ -49,15 +73,17 @@ namespace. Required.
 How long to keep a published message: a number of seconds, or a number
 with a unit \- \fIs\fR, \fIm\fR, \fIh\fR or \fId\fR, as in \fI14d\fR,
 \fI36h\fR or \fI90m\fR. \fI0\fR gives the topic no period of its own and
-follows the installation's. Required.
+follows the installation's. \fI\-1\fR, or the word \fIforever\fR, keeps
+every message. A unit on \fI\-1\fR is not accepted \- \fI\-1d\fR is
+neither a duration nor forever. Required.
 .SH EXIT STATUS
 .TP
 .B 0
 The period was set; the topic's ERN and its new period are printed.
 .TP
 .B 1
-No topic of that name, the period was negative, or it was neither a
-number of seconds nor a duration this understands.
+No topic of that name, the period was below \fI\-1\fR, or it was neither
+a number of seconds nor a duration this understands.
 .SH EXAMPLES
 .RS
 .nf
@@ -69,6 +95,10 @@ euclid-cli ens set-topic-retention --topic orders --retention-period 259200
 
 # Back to following the installation's default
 euclid-cli ens set-topic-retention --topic orders --retention-period 0
+
+# Keep everything published here, for an audit trail nothing may remove
+euclid-cli ens set-topic-retention --topic audit --retention-period forever
+euclid-cli ens set-topic-retention --topic audit --retention-period -1
 .fi
 .RE
 .SH SEE ALSO

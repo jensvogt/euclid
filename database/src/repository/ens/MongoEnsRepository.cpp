@@ -29,11 +29,32 @@ namespace Euclid::Database {
          *
          * Read per publish rather than once, because Configuration is an in-memory lookup and an
          * operator who changes the setting should not have to restart the module to mean it.
+         *
+         * An installation may say -1 here for the same reason a topic may: keep everything. Any
+         * other value that cannot be meant - zero, or a negative that is not -1 - falls back to the
+         * built-in default, because left as given a zero would stamp every message as expiring the
+         * moment it was published.
          */
         long defaultRetentionPeriod() {
             const auto configured = Core::Configuration::instance().getOr<int>(
                     "euclid.modules.ens.retention-period", static_cast<int>(Entity::ENS::kDefaultRetentionPeriod));
+            if (configured == Entity::ENS::kRetentionForever) return Entity::ENS::kRetentionForever;
             return configured > 0 ? configured : Entity::ENS::kDefaultRetentionPeriod;
+        }
+
+        /**
+         * @brief The retention period that actually applies to a message published to this topic.
+         *
+         * One place rather than one expression at the publish, because the three cases read as a
+         * rule only together: the topic's own period, the installation's when it has none, and
+         * "forever" when either of them says so.
+         *
+         * @param topic the topic being published to.
+         * @return seconds, or Entity::ENS::kRetentionForever for a message that is never removed.
+         */
+        long effectiveRetentionPeriod(const Entity::ENS::Topic &topic) {
+            if (topic.retentionPeriod == Entity::ENS::kRetentionForever) return Entity::ENS::kRetentionForever;
+            return topic.retentionPeriod > 0 ? topic.retentionPeriod : defaultRetentionPeriod();
         }
 
     }// namespace
@@ -632,8 +653,11 @@ namespace Euclid::Database {
                 // The whole of what retention costs a publish: one date on the document, taken from
                 // the topic this read has already fetched. A topic that has not been given a period
                 // of its own follows the installation's, rather than having frozen a copy of it.
-                const auto retention = queue.retentionPeriod > 0 ? queue.retentionPeriod : defaultRetentionPeriod();
-                message.expiresAt = std::chrono::system_clock::now() + std::chrono::seconds(retention);
+                // A topic that keeps forever gets no date at all - Message::ToDocument() then writes
+                // no expiresAt field, and the TTL index has nothing to act on.
+                if (const auto retention = effectiveRetentionPeriod(queue); retention != Entity::ENS::kRetentionForever) {
+                    message.expiresAt = std::chrono::system_clock::now() + std::chrono::seconds(retention);
+                }
 
                 if (!queue.delivering) message.status = Entity::ENS::kStatusHeld;
 

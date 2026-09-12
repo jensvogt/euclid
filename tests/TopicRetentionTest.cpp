@@ -16,6 +16,7 @@
 
 using Euclid::Database::MongoEnsRepository;
 using Euclid::Database::Entity::ENS::kDefaultRetentionPeriod;
+using Euclid::Database::Entity::ENS::kRetentionForever;
 
 // A published message used to stay forever. A topic is fanned out at publish time, so nothing ever
 // consumed one and nothing ever removed it - and every topic shares one collection, so the cost of
@@ -38,7 +39,8 @@ namespace {
         return "ern:ens:eu-central-1:000000000000:development:topic:" + name;
     }
 
-    // A topic with a retention period of its own, or none at all when the period is zero.
+    // A topic with a retention period of its own, none at all when the period is zero, or one that
+    // keeps everything when it is -1.
     void addTopic(MongoEnsRepository &repo, const std::string &ern, const long retentionPeriod) {
         Euclid::Database::Entity::ENS::Topic topic;
         topic.ern = ern;
@@ -59,6 +61,12 @@ namespace {
 
     bool isAbout(const long actual, const long expected) {
         return actual > expected - 3 && actual <= expected;
+    }
+
+    // No expiry at all, which is how "keep forever" is stored - not a distant date. The epoch is
+    // what an unset time_point reads as, and what Message::ToDocument() takes as "write no field".
+    bool hasNoExpiry(const Euclid::Database::Entity::ENS::Message &message) {
+        return message.expiresAt.time_since_epoch().count() == 0;
     }
 
     // Puts the setting back, so the order the tests run in cannot change what they mean.
@@ -125,8 +133,8 @@ BOOST_AUTO_TEST_CASE(ATopicsOwnPeriodBeatsTheConfiguredOne) {
 
 BOOST_AUTO_TEST_CASE(AnUnusableConfiguredPeriodFallsBackToTheDefault) {
 
-    // Zero and negative both mean "somebody set this to something that cannot be meant". Left as
-    // given, a zero would stamp every message as expiring the moment it was published.
+    // Zero means "somebody set this to something that cannot be meant". Left as given, it would
+    // stamp every message as expiring the moment it was published.
     const ConfiguredRetention configured{0};
 
     auto repo = freshRepository();
@@ -134,6 +142,68 @@ BOOST_AUTO_TEST_CASE(AnUnusableConfiguredPeriodFallsBackToTheDefault) {
     addTopic(repo, ern, 0);
 
     BOOST_TEST(isAbout(secondsUntilExpiry(publish(repo, ern, "msg-bad")), kDefaultRetentionPeriod));
+}
+
+BOOST_AUTO_TEST_CASE(ATopicSetToForeverStampsNoExpiry) {
+
+    // The point of -1: not a very distant date that quietly comes due one day, but no date at all,
+    // which is what the TTL index ignores.
+    auto repo = freshRepository();
+    const auto ern = topicErn("keeps-everything");
+    addTopic(repo, ern, kRetentionForever);
+
+    BOOST_TEST(hasNoExpiry(publish(repo, ern, "msg-forever")));
+}
+
+BOOST_AUTO_TEST_CASE(ForeverOnTheTopicBeatsTheConfiguredPeriod) {
+
+    // A topic that has said "keep everything" has made a decision, so it does not follow the
+    // installation - in either direction.
+    const ConfiguredRetention configured{7200};
+
+    auto repo = freshRepository();
+    const auto ern = topicErn("forever-beats-configured");
+    addTopic(repo, ern, kRetentionForever);
+
+    BOOST_TEST(hasNoExpiry(publish(repo, ern, "msg-forever-own")));
+}
+
+BOOST_AUTO_TEST_CASE(AnInstallationCanKeepEverythingToo) {
+
+    // -1 in the configuration is the same decision made once for every topic that has not made one
+    // of its own.
+    const ConfiguredRetention configured{static_cast<int>(kRetentionForever)};
+
+    auto repo = freshRepository();
+    const auto ern = topicErn("installation-keeps-everything");
+    addTopic(repo, ern, 0);
+
+    BOOST_TEST(hasNoExpiry(publish(repo, ern, "msg-installation-forever")));
+}
+
+BOOST_AUTO_TEST_CASE(ATopicsOwnPeriodBeatsAForeverInstallation) {
+
+    // The other way round: an installation that keeps everything still lets one topic say how long
+    // it wants its own messages kept.
+    const ConfiguredRetention configured{static_cast<int>(kRetentionForever)};
+
+    auto repo = freshRepository();
+    const auto ern = topicErn("own-beats-forever");
+    addTopic(repo, ern, 3600);
+
+    BOOST_TEST(isAbout(secondsUntilExpiry(publish(repo, ern, "msg-own-over-forever")), 3600));
+}
+
+BOOST_AUTO_TEST_CASE(AForeverMessageStoresNoExpiryField) {
+
+    // Through to the document, because that is what the TTL index actually reads - an expiry that
+    // survived as the epoch would delete the message the moment it was stored.
+    auto repo = freshRepository();
+    const auto ern = topicErn("forever-document");
+    addTopic(repo, ern, kRetentionForever);
+
+    const auto published = publish(repo, ern, "msg-forever-document");
+    BOOST_TEST(!published.ToDocument().view()["expiresAt"]);
 }
 
 BOOST_AUTO_TEST_CASE(TheExpiryIsStoredWithTheMessage) {

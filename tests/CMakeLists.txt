@@ -327,3 +327,13 @@ set_target_properties(${SOCKET_BIND_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 target_link_libraries(${SOCKET_BIND_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
 
 add_test(NAME ${SOCKET_BIND_BINARY} COMMAND ${SOCKET_BIND_BINARY})
+
+set(EMM_EXPORT_IMPORT_BINARY euclid-emm-export-import-tests)
+
+add_executable(${EMM_EXPORT_IMPORT_BINARY} EmmExportImportTest.cpp ${CMAKE_SOURCE_DIR}/modules/emm/src/ExportImport.cpp)
+set_target_properties(${EMM_EXPORT_IMPORT_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${EMM_EXPORT_IMPORT_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/emm/include)
+target_link_libraries(${EMM_EXPORT_IMPORT_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${EMM_EXPORT_IMPORT_BINARY} COMMAND ${EMM_EXPORT_IMPORT_BINARY})
