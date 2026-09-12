@@ -61,6 +61,34 @@ namespace Euclid::Database::Entity::ENS {
     constexpr long kRetentionForever = -1;
 
     /**
+     * @brief The largest message a topic accepts when it has not been given a limit of its own,
+     * in bytes.
+     *
+     * @par
+     * One mebibyte, the same figure EQS uses for a queue message and the same one create-topic
+     * defaults to. Named because three places have to agree on it: the entity's own default, what a
+     * create request falls back to when the caller omits the field, and what a publish measures
+     * against for a topic stored before the limit meant anything.
+     */
+    constexpr long kDefaultMaxMessageLength = 1024 * 1024;
+
+    /**
+     * @brief The limit a publish is actually measured against.
+     *
+     * @par
+     * A topic carrying no limit of its own - zero, which is what a create-topic that omitted the
+     * field used to store - is measured against the default rather than refusing everything. Named
+     * rather than written out at the one place that checks it, because "zero means unset" is a rule
+     * about the data and not about the handler that happens to read it.
+     *
+     * @param configured what the topic holds.
+     * @return the limit in bytes, always positive.
+     */
+    constexpr long EffectiveMaxMessageLength(const long configured) {
+        return configured > 0 ? configured : kDefaultMaxMessageLength;
+    }
+
+    /**
      * @brief A topic that hands what is published to it to its subscribers.
      */
     constexpr auto kStatusRunning = "RUNNING";
@@ -123,9 +151,15 @@ namespace Euclid::Database::Entity::ENS {
         long resend{};
 
         /**
-         * @brief Maximal message length in bytes
+         * @brief Maximal message length in bytes.
+         *
+         * @par
+         * Zero means no limit of this topic's own, which is what a topic created before the field
+         * was sent, or by a client that omitted it, holds. A publish measures against
+         * kDefaultMaxMessageLength in that case rather than refusing everything - see
+         * set-topic-max-message-length for giving the topic a limit it means.
          */
-        long maxMessageLength = 1024 * 1024;
+        long maxMessageLength = kDefaultMaxMessageLength;
 
         /**
          * @brief Whether messages published to this topic are handed to its subscribers.

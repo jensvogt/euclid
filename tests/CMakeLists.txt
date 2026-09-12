@@ -337,3 +337,12 @@ target_include_directories(${EMM_EXPORT_IMPORT_BINARY} PRIVATE ${CMAKE_SOURCE_DI
 target_link_libraries(${EMM_EXPORT_IMPORT_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
 
 add_test(NAME ${EMM_EXPORT_IMPORT_BINARY} COMMAND ${EMM_EXPORT_IMPORT_BINARY})
+
+set(MAX_MESSAGE_LENGTH_BINARY euclid-max-message-length-tests)
+
+add_executable(${MAX_MESSAGE_LENGTH_BINARY} MaxMessageLengthTest.cpp)
+set_target_properties(${MAX_MESSAGE_LENGTH_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${MAX_MESSAGE_LENGTH_BINARY} PRIVATE eucliddto Boost::unit_test_framework)
+
+add_test(NAME ${MAX_MESSAGE_LENGTH_BINARY} COMMAND ${MAX_MESSAGE_LENGTH_BINARY})

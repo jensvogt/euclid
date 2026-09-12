@@ -35,6 +35,7 @@
 #include <euclid/dto/ens/ListMessagesRequest.h>
 #include <euclid/dto/ens/ListTopicsRequest.h>
 #include <euclid/dto/ens/PublishMessageRequest.h>
+#include <euclid/dto/ens/SetTopicMaxMessageLengthRequest.h>
 #include <euclid/dto/ens/SetTopicRetentionRequest.h>
 #include <euclid/dto/ens/PurgeAllTopicsRequest.h>
 #include <euclid/dto/ens/PurgeTopicRequest.h>
@@ -230,6 +231,15 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int setTopicRetention(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Sets the largest message a topic accepts
+         *
+         * @param args action arguments
+         * @return process exit code
+         */
+        [[nodiscard]]
+        int setTopicMaxMessageLength(const std::vector<std::string> &args) const;
 
         /**
          * @brief Starts or stops a topic delivering to its subscribers
