@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.5](https://github.com/jensvogt/euclid/compare/1.1.4...v1.1.5) (2026-09-12)
+
+
+### Bug Fixes
+
+* docker issues using the in-memory database ([5261c45](https://github.com/jensvogt/euclid/commit/5261c4567288a639520c9f2d49cb4afd9205b94b))
+
 ## [1.1.4](https://github.com/jensvogt/euclid/compare/1.1.3...v1.1.4) (2026-09-11)
 
 
