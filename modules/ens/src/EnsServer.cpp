@@ -777,9 +777,13 @@ namespace Euclid::ENS {
         const auto [ern, retentionPeriod] = boost::json::value_to<Dto::ENS::SetTopicRetentionRequest>(jv);
         log_info << "ENS SetTopicRetention, ern: " << ern << ", retentionPeriod: " << retentionPeriod;
 
-        if (retentionPeriod < 0) {
+        // -1 is the one negative that means something: keep everything published here. Anything
+        // below it is a typo or an underflow, and stamping messages with a date in the past would
+        // delete them as fast as they arrived.
+        if (retentionPeriod < Database::Entity::ENS::kRetentionForever) {
             return EnsServer::ErrorResponse(req, status::bad_request,
-                                            "retentionPeriod cannot be negative; zero follows the installation default");
+                                            "retentionPeriod has to be seconds, 0 to follow the installation default, "
+                                            "or -1 to keep messages forever");
         }
 
         const auto repo = Database::RepositoryFactory::instance().ensRepository();

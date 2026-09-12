@@ -1,6 +1,6 @@
 set(BINARY euclid-emm)
 
-add_executable(${BINARY} src/main.cpp src/EmmServer.cpp)
+add_executable(${BINARY} src/main.cpp src/EmmServer.cpp src/ExportImport.cpp)
 
 set_target_properties(${BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 

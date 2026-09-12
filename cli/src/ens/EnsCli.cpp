@@ -12,10 +12,17 @@ namespace Euclid::CLI {
 
         // Seconds, or a number with a unit: 90m, 36h, 14d. Nothing cleverer - a period is one
         // number and one unit, and anybody who wants a fortnight can write 14d rather than count
-        // it out in seconds.
-        bool parseDuration(const std::string &text, long &seconds) {
+        // it out in seconds. Plus the one value that is not a length at all, -1.
+        bool parseRetentionPeriod(const std::string &text, long &seconds) {
 
             if (text.empty()) return false;
+
+            // "forever", spelled the way the API takes it. Accepted only on its own: "-1d" is not a
+            // duration and not forever either, and reading it as one would be a guess.
+            if (text == "-1" || text == "forever" || text == "never") {
+                seconds = -1;
+                return true;
+            }
 
             long multiplier = 1;
             std::string digits = text;
@@ -796,7 +803,8 @@ namespace Euclid::CLI {
         desc.add_options()
                 ("topic,t", po::value<std::string>()->required(), "topic name; a full ERN also works and is what reaches another namespace")
                 ("retention-period,r", po::value<std::string>()->required(),
-                 "how long to keep a published message: seconds, or a duration such as 14d, 36h or 90m; 0 follows the installation default");
+                 "how long to keep a published message: seconds, or a duration such as 14d, 36h or 90m; "
+                 "0 follows the installation default; -1 (or 'forever') never removes it");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("ens", "set-topic-retention", "--topic <name|ern> --retention-period <duration>",
@@ -807,7 +815,10 @@ namespace Euclid::CLI {
                                    "The period applies to messages published afterwards: the ones already stored keep "
                                    "the expiry they were given when they were published. A period of 0 means the topic "
                                    "has none of its own and follows euclid.modules.ens.retention-period, which is where "
-                                   "every topic starts out and which defaults to 14 days.",
+                                   "every topic starts out and which defaults to 14 days. "
+                                   "A period of -1, also spelled 'forever', stores each message with no expiry at all, "
+                                   "so nothing ever removes it; that topic then grows without limit, and only "
+                                   "purge-topic empties it.",
                                    desc);
         }
 
@@ -821,8 +832,9 @@ namespace Euclid::CLI {
         }
 
         long seconds = 0;
-        if (const auto given = vm["retention-period"].as<std::string>(); !parseDuration(given, seconds)) {
-            std::cerr << "error: --retention-period has to be a number of seconds or a duration like 14d, 36h or 90m, and was '"
+        if (const auto given = vm["retention-period"].as<std::string>(); !parseRetentionPeriod(given, seconds)) {
+            std::cerr << "error: --retention-period has to be a number of seconds, a duration like 14d, 36h or 90m, "
+                         "or -1 ('forever') to keep messages indefinitely, and was '"
                       << given << "'\n";
             return 1;
         }

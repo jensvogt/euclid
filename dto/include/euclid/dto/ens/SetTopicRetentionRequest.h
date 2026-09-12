@@ -34,6 +34,10 @@ namespace Euclid::Dto::ENS {
          *
          * Zero means the topic has no period of its own and follows
          * euclid.modules.ens.retention-period, which is where a topic starts out.
+         *
+         * Minus one means keep everything: the message is stored with no expiry at all, rather than
+         * with a very distant one, so nothing ever comes along to remove it. Anything below -1 is
+         * refused.
          */
         long retentionPeriod{0};
 
