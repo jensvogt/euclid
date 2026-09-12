@@ -33,6 +33,12 @@ namespace Euclid::Dto::EQS {
         /**
          * @brief Maximal length of a message in bytes
          */
+        /**
+         * @brief One mebibyte when the caller omits the field, rather than the zero a plain read
+         * would give: a client that says nothing about the size of its messages means "the usual",
+         * not "a queue that accepts nothing" - and since a send is measured against this, reading
+         * an absent field as zero would refuse every message sent to such a queue.
+         */
         long maxMessageLength = 1024 * 1024;
 
         /**
@@ -84,7 +90,7 @@ namespace Euclid::Dto::EQS {
             r.name = Core::GetStringValue(v, "name");
             r.visibility = Core::GetLongValue(v, "visibility");
             r.maxRetries = Core::GetLongValue(v, "maxRetries");
-            r.maxMessageLength = Core::GetLongValue(v, "maxMessageLength");
+            r.maxMessageLength = Core::GetLongValue(v, "maxMessageLength", 1024 * 1024);
             r.dlqName = Core::GetStringValue(v, "dlqName");
             r.delay = Core::GetLongValue(v, "delay");
             r.priority = Core::GetStringValue(v, "priority");

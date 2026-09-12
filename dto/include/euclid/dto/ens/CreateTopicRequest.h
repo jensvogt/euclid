@@ -21,7 +21,13 @@ namespace Euclid::Dto::ENS {
         std::string name;
 
         /**
-         * @brief Maximal length of a message in bytes
+         * @brief Maximal length of a message in bytes.
+         *
+         * @par
+         * One mebibyte when the caller omits the field, rather than the zero a plain read would
+         * give: a client that says nothing about the size of its messages means "the usual", not
+         * "a topic that accepts nothing" - and since a publish is measured against this, reading
+         * an absent field as zero would refuse every message sent to such a topic.
          */
         long maxMessageLength = 1024 * 1024;
 
@@ -44,7 +50,7 @@ namespace Euclid::Dto::ENS {
         friend CreateTopicRequest tag_invoke(boost::json::value_to_tag<CreateTopicRequest>, boost::json::value const &v) {
             CreateTopicRequest r;
             r.name = Core::GetStringValue(v, "name");
-            r.maxMessageLength = Core::GetLongValue(v, "maxMessageLength");
+            r.maxMessageLength = Core::GetLongValue(v, "maxMessageLength", 1024 * 1024);
             return r;
         }
 

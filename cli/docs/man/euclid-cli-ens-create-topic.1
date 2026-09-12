@@ -19,6 +19,10 @@ Name of the topic to create. Required.
 .TP
 .BR \-l ", " \-\-max\-length " " \fIBYTES\fR
 Maximum message body length, in bytes. Defaults to \fI1048576\fR (1 MiB).
+A
+.BR euclid-cli-ens-publish-message (1)
+whose body is larger is refused with HTTP 400. Changing it afterwards is
+.BR euclid-cli-ens-set-topic-max-message-length (1).
 .SH EXIT STATUS
 .TP
 .B 0

@@ -29,6 +29,9 @@ to the dead letter queue (if any). Defaults to \fI3\fR.
 .TP
 .BR \-l ", " \-\-max\-length " " \fIBYTES\fR
 Maximum message body length, in bytes. Defaults to \fI1048576\fR (1 MiB).
+A
+.BR euclid-cli-eqs-send-message (1)
+whose body is larger is refused with HTTP 400.
 .TP
 .BR \-d ", " \-\-dlq\-name " " \fINAME\fR
 Name of an existing queue to use as the dead letter queue. Optional; if

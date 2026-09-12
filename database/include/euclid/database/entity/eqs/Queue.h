@@ -40,6 +40,34 @@ namespace Euclid::Database::Entity::EQS {
     constexpr long kDefaultRetentionPeriod = 4 * 24 * 60 * 60;
 
     /**
+     * @brief The largest message a queue accepts when it has not been given a limit of its own,
+     * in bytes.
+     *
+     * @par
+     * One mebibyte, the same figure ENS uses for a topic message and the same one create-queue
+     * defaults to. Named because three places have to agree on it: the entity's own default, what a
+     * create request falls back to when the caller omits the field, and what a send measures
+     * against for a queue stored before the limit meant anything.
+     */
+    constexpr long kDefaultMaxMessageLength = 1024 * 1024;
+
+    /**
+     * @brief The limit a send is actually measured against.
+     *
+     * @par
+     * A queue carrying no limit of its own - zero, which is what a create-queue that omitted the
+     * field used to store - is measured against the default rather than refusing everything. Named
+     * rather than written out at the one place that checks it, because "zero means unset" is a rule
+     * about the data and not about the handler that happens to read it.
+     *
+     * @param configured what the queue holds.
+     * @return the limit in bytes, always positive.
+     */
+    constexpr long EffectiveMaxMessageLength(const long configured) {
+        return configured > 0 ? configured : kDefaultMaxMessageLength;
+    }
+
+    /**
      * @brief SQS queue entity
      *
      * @author jens.vogt\@opitz-consulting.com
@@ -107,9 +135,14 @@ namespace Euclid::Database::Entity::EQS {
         long visibility = 30;
 
         /**
-         * @brief Maximal message length in bytes
+         * @brief Maximal message length in bytes.
+         *
+         * @par
+         * Zero means no limit of this queue's own, which is what a queue created before the field
+         * was sent, or by a client that omitted it, holds. A send measures against
+         * kDefaultMaxMessageLength in that case rather than refusing everything.
          */
-        long maxMessageLength = 1024 * 1024;
+        long maxMessageLength = kDefaultMaxMessageLength;
 
         /**
          * @brief Maximal receive count
