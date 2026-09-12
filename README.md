@@ -28,10 +28,10 @@ It is small enough to run on a laptop, a build agent or an industrial PC, and se
 to run somewhere with no internet at all.
 
 **It is not an AWS emulator.** The AWS SDKs will not talk to it - euclid speaks its own API, with its
-own CLI and its own Java, Python and Node.js clients. What it borrows from the large providers is the
-*shape* of the services and the way resources are named, because those ideas are good and widely
-understood. If what you want is to point an existing AWS SDK somewhere local, you want LocalStack,
-not this.
+own CLI and its own Java, Python, Node.js and C++ clients. What it borrows from the large providers
+is the *shape* of the services and the way resources are named, because those ideas are good and
+widely understood. If what you want is to point an existing AWS SDK somewhere local, you want
+LocalStack, not this.
 
 | Module  | What it does                                                                                    | Familiar as     | Status |
 |---------|-------------------------------------------------------------------------------------------------|-----------------|--------|
@@ -51,7 +51,7 @@ not this.
 
 Everything is driven through `euclid-cli`, a single client binary with one subcommand set per module
 (`euclid-cli eqs ...`, `euclid-cli eam ...`), through the desktop UI, or from a program through the
-Java, Python or Node.js client libraries - see [Related projects](#related-projects).
+Java, Python, Node.js or C++ client libraries - see [Related projects](#related-projects).
 
 ---
 
@@ -645,6 +645,7 @@ own process, which is what `SIGUSR1` re-reads.
 | [euclid-spring](https://github.com/jensvogt/euclid-spring) | Spring Boot starter: `@QueueListener`, `@TopicListener` and `@BucketListener`, plus autoconfiguration                           |
 | [euclid-pdk](https://github.com/jensvogt/euclid-pdk)       | Python client library - EAM, ESM, EQS, ENS, EKM and ESS, both signing schemes, and no dependencies beyond the standard library  |
 | [euclid-ndk](https://github.com/jensvogt/euclid-ndk)       | Node.js client library - nine modules, both signing schemes, ESM with TypeScript types, and no runtime dependencies at all      |
+| [euclid-cdk](https://github.com/jensvogt/euclid-cdk)       | C++ client library - eight modules, both signing schemes, and a shared and a static library from one build                      |
 
 ---
 

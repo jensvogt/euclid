@@ -44,6 +44,23 @@ namespace Euclid::Database::Entity::ENS {
     constexpr long kDefaultRetentionPeriod = 14 * 24 * 60 * 60;
 
     /**
+     * @brief The retention period that keeps a published message forever.
+     *
+     * @par
+     * Minus one rather than zero, because zero is already taken and means the opposite of a
+     * decision: a topic that has never been told what it wants and follows the installation. This
+     * is a decision - keep everything published here - and a topic that has made it does not follow
+     * a later change to the installation's period either.
+     *
+     * @par
+     * What it does is leave Message::expiresAt unset, which is exactly what a message published
+     * before retention existed looks like, and what the TTL index ignores. So "forever" is not a
+     * very large number that quietly comes due in 2098; it is the absence of an expiry, and the
+     * database is never asked to remove the message at all.
+     */
+    constexpr long kRetentionForever = -1;
+
+    /**
      * @brief A topic that hands what is published to it to its subscribers.
      */
     constexpr auto kStatusRunning = "RUNNING";
@@ -140,6 +157,11 @@ namespace Euclid::Database::Entity::ENS {
          * wants follows {@code euclid.modules.ens.retention-period} as it changes, instead of
          * having frozen a copy of whatever the default was on the day it was created. A topic that
          * has been given a period of its own keeps it - see the set-topic-retention action.
+         *
+         * @par
+         * {@link kRetentionForever} (-1) keeps every message published to this topic, by stamping
+         * no expiry on it at all. It is the one value that opts out of retention rather than
+         * choosing a length of it, which is why it is a sign rather than a large number.
          *
          * @par
          * Enforced by the database rather than by a sweep: each message is stamped with when it

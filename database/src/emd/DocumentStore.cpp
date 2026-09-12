@@ -524,6 +524,29 @@ namespace Euclid::Database::Emd {
             return result.extract();
         }
 
+        /**
+         * @brief The "_id" of a document, or of an equality filter on one, when it is an ObjectId.
+         */
+        std::optional<bsoncxx::oid> oidOf(const bsoncxx::document::view &document) {
+            const auto element = document["_id"];
+            if (element && element.type() == bsoncxx::type::k_oid) return element.get_oid().value;
+            return std::nullopt;
+        }
+
+        /**
+         * @brief The id an upsert should create a document under.
+         *
+         * @par
+         * The one the caller named - in the document it is writing, or in the filter that did not
+         * match - and a fresh one only when neither says. MongoDB does the same, and an EMM import
+         * depends on it: a restored document has to keep the id it was exported under, or importing
+         * the same file a second time matches nothing and stores another copy of everything.
+         */
+        bsoncxx::oid upsertId(const bsoncxx::document::view &document, const bsoncxx::document::view &filter) {
+            if (const auto fromDocument = oidOf(document); fromDocument.has_value()) return *fromDocument;
+            return oidOf(filter).value_or(bsoncxx::oid{});
+        }
+
         bool sameDocument(const bsoncxx::document::view &left, const bsoncxx::document::view &right) {
             return left.length() == right.length() && std::memcmp(left.data(), right.data(), left.length()) == 0;
         }
@@ -658,7 +681,8 @@ namespace Euclid::Database::Emd {
         if (!upsert) return {};
 
         const auto seed = seedFromFilter(filter);
-        auto created = withId(applyUpdate(seed.view(), update, true).view(), bsoncxx::oid{});
+        const auto applied = applyUpdate(seed.view(), update, true);
+        auto created = withId(applied.view(), upsertId(applied.view(), filter));
         const auto id = created["_id"].get_oid().value;
 
         CheckUnique(target, created.view(), -1);
@@ -710,7 +734,7 @@ namespace Euclid::Database::Emd {
 
         if (!upsert) return {};
 
-        auto created = withId(replacement, bsoncxx::oid{});
+        auto created = withId(replacement, upsertId(replacement, filter));
         const auto id = created["_id"].get_oid().value;
         CheckUnique(target, created.view(), -1);
         target.documents.push_back(std::move(created));
