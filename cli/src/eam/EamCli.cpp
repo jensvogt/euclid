@@ -339,21 +339,31 @@ namespace Euclid::CLI {
                                            {"create-access-key", "Create a SigV4 access key and store it locally"},
                                            {"create-account", "Create a new account"},
                                            {"create-namespace", "Create a new namespace under an account"},
+                                           {"check-permission", "Asks whether a user may do something, and why"},
+                                           {"create-role", "Create a role: a named set of permissions"},
                                            {"create-user-group", "Create a new user group"},
                                            {"delete-access-key", "Delete one of your access keys"},
                                            {"delete-account", "Delete an existing account"},
                                            {"delete-namespace", "Delete an existing namespace"},
                                            {"delete-user", "Delete a user account"},
+                                           {"delete-role", "Delete a role"},
                                            {"delete-user-group", "Delete an existing user group"},
                                            {"grant-namespace-access", "Grant a user access to a namespace within an account"},
+                                           {"get-role", "Show one role and what it grants"},
+                                           {"grant-role", "Give a role to a user or user group"},
                                            {"list-access-keys", "List your access keys"},
                                            {"list-accounts", "List accounts"},
+                                           {"list-grants", "List grants, by principal or by role"},
+                                           {"list-permissions", "List every permission a role can hold"},
                                            {"list-namespaces", "List namespaces under an account"},
+                                           {"list-roles", "List the roles this account can bind"},
                                            {"list-user-groups", "List user groups"},
                                            {"list-users", "List user accounts"},
                                            {"login", "Authenticate and store a bearer token and SigV4 access key"},
                                            {"register", "Register a new user account"},
                                            {"revoke-namespace-access", "Revoke a user's access to a namespace within an account"},
+                                           {"revoke-role", "Remove one grant"},
+                                           {"update-role", "Replace what a role grants"},
                                            {"user-group-add-user", "Add an user to an user group"},
                                            {"user-group-remove-user", "Removes an user to an user group"},
                                    });
@@ -378,6 +388,36 @@ namespace Euclid::CLI {
         }
         if (action == "delete-access-key") {
             return deleteAccessKey(args);
+        }
+        if (action == "create-role") {
+            return createRole(args);
+        }
+        if (action == "update-role") {
+            return updateRole(args);
+        }
+        if (action == "get-role") {
+            return getRole(args);
+        }
+        if (action == "list-roles") {
+            return listRoles(args);
+        }
+        if (action == "delete-role") {
+            return deleteRole(args);
+        }
+        if (action == "grant-role") {
+            return grantRole(args);
+        }
+        if (action == "revoke-role") {
+            return revokeRole(args);
+        }
+        if (action == "list-grants") {
+            return listGrants(args);
+        }
+        if (action == "list-permissions") {
+            return listPermissions(args);
+        }
+        if (action == "check-permission") {
+            return checkPermission(args);
         }
         if (action == "create-user-group") {
             return createUserGroup(args);
@@ -1625,6 +1665,459 @@ namespace Euclid::CLI {
             Credentials::Save(*entry);
 
             std::cout << (ns.empty() ? "Namespace cleared.\n" : "Namespace set to '" + ns + "'.\n");
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+
+    int EamCli::createRole(const std::vector<std::string> &args) const {
+        po::options_description desc("eam create-role options");
+        desc.add_options()
+                ("name,n", po::value<std::string>()->required(), "role name, unique within your account")
+                ("permission,p", po::value<std::vector<std::string>>()->multitoken()->required(),
+                 "a permission the role grants, as <module>:<action>, <module>:* or *:*; repeat for several")
+                ("description,d", po::value<std::string>()->default_value(""), "what the role is for");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "create-role", "--name <name> --permission <module:action>... [--description <text>]",
+                                   "Creates a role in your own account: a named set of permissions, which grant-role then gives to a "
+                                   "user or a user group. Every permission is checked against what the modules actually "
+                                   "dispatch - see list-permissions - so a role cannot be created holding one that grants "
+                                   "nothing. The six built-in roles cannot be redefined. Requires administrator privileges.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EAM::CreateRoleRequest request;
+        request.name = vm["name"].as<std::string>();
+        request.description = vm["description"].as<std::string>();
+        request.permissions = vm["permission"].as<std::vector<std::string>>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eam", "create-role", boost::json::value_from(request));
+
+            if (!response.IsSuccess()) {
+                reportFailure("create-role", response);
+                return 1;
+            }
+
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::updateRole(const std::vector<std::string> &args) const {
+        po::options_description desc("eam update-role options");
+        desc.add_options()
+                ("name,n", po::value<std::string>()->required(), "role name")
+                ("permission,p", po::value<std::vector<std::string>>()->multitoken()->required(),
+                 "the role's permissions after this call; repeat for several")
+                ("description,d", po::value<std::string>()->default_value(""), "what the role is for");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "update-role", "--name <name> --permission <module:action>... [--description <text>]",
+                                   "Replaces what a role grants. Replaces rather than merges: the role holds exactly the permissions "
+                                   "given here afterwards, so one left out is taken away - which is the only way to narrow a "
+                                   "role. Everyone bound to it is affected at once. Built-in roles cannot be changed. "
+                                   "Requires administrator privileges.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EAM::UpdateRoleRequest request;
+        request.name = vm["name"].as<std::string>();
+        request.description = vm["description"].as<std::string>();
+        request.permissions = vm["permission"].as<std::vector<std::string>>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eam", "update-role", boost::json::value_from(request));
+
+            if (!response.IsSuccess()) {
+                reportFailure("update-role", response);
+                return 1;
+            }
+
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::getRole(const std::vector<std::string> &args) const {
+        po::options_description desc("eam get-role options");
+        desc.add_options()
+                ("name,n", po::value<std::string>()->required(), "role name; a built-in name also works");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "get-role", "--name <name>",
+                                   "Shows one role and what it grants. Your account's own role of that name, or the built-in one - "
+                                   "resolved in that order, which is the order a grant resolves in, so this shows what a "
+                                   "grant of that name would actually use. Requires administrator privileges.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EAM::GetRoleRequest request;
+        request.name = vm["name"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eam", "get-role", boost::json::value_from(request));
+
+            if (!response.IsSuccess()) {
+                reportFailure("get-role", response);
+                return 1;
+            }
+
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::listRoles(const std::vector<std::string> &args) const {
+        po::options_description desc("eam list-roles options");
+        desc.add_options()
+                ("prefix,x", po::value<std::string>()->default_value(""), "only roles whose name starts with this")
+                ("page-size,s", po::value<long>()->default_value(10), "maximum number of stored roles to return")
+                ("page-index,i", po::value<long>()->default_value(0), "zero-based page index")
+                ("sort-column,c", po::value<std::string>()->default_value("name"), "field to sort by")
+                ("sort-direction,r", po::value<std::string>()->default_value("asc"), "asc or desc")
+                ("no-builtin", po::bool_switch(), "leave out the built-in roles");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "list-roles", "[--prefix <prefix>] [--page-size <n>] [--page-index <n>] [--no-builtin]",
+                                   "Lists the roles your account can bind. The six built-in roles come first and are not paged - they "
+                                   "are computed rather than stored, so there is no page to put them on - and 'total' counts "
+                                   "your account's own roles. Requires administrator privileges.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EAM::ListRolesRequest request;
+        request.prefix = vm["prefix"].as<std::string>();
+        request.pageSize = vm["page-size"].as<long>();
+        request.pageIndex = vm["page-index"].as<long>();
+        request.sortColumn = vm["sort-column"].as<std::string>();
+        request.sortDirection = vm["sort-direction"].as<std::string>();
+        request.includeBuiltin = !vm["no-builtin"].as<bool>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eam", "list-roles", boost::json::value_from(request));
+
+            if (!response.IsSuccess()) {
+                reportFailure("list-roles", response);
+                return 1;
+            }
+
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::deleteRole(const std::vector<std::string> &args) const {
+        po::options_description desc("eam delete-role options");
+        desc.add_options()
+                ("name,n", po::value<std::string>()->required(), "role name");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "delete-role", "--name <name>",
+                                   "Deletes one of your account's roles. Refused while any grant still names it - revoke those first, "
+                                   "which 'list-grants --role <name>' lists. That is deliberate: deleting a role out from under "
+                                   "its grants would leave grants that quietly do nothing. Built-in roles cannot be deleted. "
+                                   "Requires administrator privileges.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EAM::DeleteRoleRequest request;
+        request.name = vm["name"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eam", "delete-role", boost::json::value_from(request));
+
+            if (!response.IsSuccess()) {
+                reportFailure("delete-role", response);
+                return 1;
+            }
+
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::grantRole(const std::vector<std::string> &args) const {
+        po::options_description desc("eam grant-role options");
+        desc.add_options()
+                ("role,o", po::value<std::string>()->required(), "role name; a built-in name also works")
+                ("principal,p", po::value<std::string>()->required(),
+                 "who gets it: a user ERN or a user-group ERN - the ERN says which")
+                ("namespace,e", po::value<std::vector<std::string>>()->multitoken()->default_value({"*"}, "*"),
+                 "namespaces it applies in; * means every namespace of the account")
+                ("resource,u", po::value<std::vector<std::string>>()->multitoken()->default_value({"*"}, "*"),
+                 "ERN patterns it applies to, each exact or ending in *; * means every resource");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "grant-role", "--role <name> --principal <ern> [--namespace <name>...] [--resource <ern>...]",
+                                   "Gives a role to a user or a user group, scoped to namespaces and resources. The role and the "
+                                   "principal both have to exist - a grant naming either one that does not would be inert, and "
+                                   "nobody would find out until somebody was refused something they were told they had. "
+                                   "Answers with the grant's id, which is what revoke-role takes. "
+                                   "Requires administrator privileges.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EAM::GrantRoleRequest request;
+        request.role = vm["role"].as<std::string>();
+        request.principal = vm["principal"].as<std::string>();
+        request.namespaces = vm["namespace"].as<std::vector<std::string>>();
+        request.resources = vm["resource"].as<std::vector<std::string>>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eam", "grant-role", boost::json::value_from(request));
+
+            if (!response.IsSuccess()) {
+                reportFailure("grant-role", response);
+                return 1;
+            }
+
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::revokeRole(const std::vector<std::string> &args) const {
+        po::options_description desc("eam revoke-role options");
+        desc.add_options()
+                ("grant-id,g", po::value<std::string>()->required(), "the grant's id, as grant-role and list-grants report it");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "revoke-role", "--grant-id <id>",
+                                   "Removes one grant, by its own id rather than by role and principal: the same role may be granted "
+                                   "to the same principal twice with different scope, and revoking has to say which. "
+                                   "'list-grants --principal <ern>' shows the ids. Requires administrator privileges.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EAM::RevokeRoleRequest request;
+        request.grantId = vm["grant-id"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eam", "revoke-role", boost::json::value_from(request));
+
+            if (!response.IsSuccess()) {
+                reportFailure("revoke-role", response);
+                return 1;
+            }
+
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::listGrants(const std::vector<std::string> &args) const {
+        po::options_description desc("eam list-grants options");
+        desc.add_options()
+                ("principal,p", po::value<std::string>()->default_value(""), "a user or user-group ERN: what may they do")
+                ("role,o", po::value<std::string>()->default_value(""), "a role name: who can do this");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "list-grants", "--principal <ern> | --role <name>",
+                                   "Lists grants, either by principal or by role - the two questions this model exists to answer. "
+                                   "Give exactly one. Note that --principal shows that principal's own grants and not those "
+                                   "of the groups it belongs to, which is a different question; check-permission answers the "
+                                   "combined one. Requires administrator privileges.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EAM::ListGrantsRequest request;
+        request.principal = vm["principal"].as<std::string>();
+        request.role = vm["role"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eam", "list-grants", boost::json::value_from(request));
+
+            if (!response.IsSuccess()) {
+                reportFailure("list-grants", response);
+                return 1;
+            }
+
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::checkPermission(const std::vector<std::string> &args) const {
+        po::options_description desc("eam check-permission options");
+        desc.add_options()
+                ("user,u", po::value<std::string>()->required(), "the user to ask about")
+                ("target,t", po::value<std::string>()->required(), "module, e.g. ens")
+                ("action,a", po::value<std::string>()->required(), "action, e.g. publish-message")
+                ("namespace,e", po::value<std::string>()->default_value(""), "namespace to ask about; empty is the account root")
+                ("resource,r", po::value<std::string>()->default_value(""), "the resource, for actions that name one");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "check-permission", "--user <userId> --target <module> --action <action> [--namespace <name>] [--resource <ern>]",
+                                   "Asks whether a user would be allowed to do something, and says why. Answers with the verdict, the "
+                                   "reason, and the role whose grant decided it - counting the grants of every group the user "
+                                   "belongs to, the way a real request would. Requires administrator privileges.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EAM::CheckPermissionRequest request;
+        request.userId = vm["user"].as<std::string>();
+        request.target = vm["target"].as<std::string>();
+        request.action = vm["action"].as<std::string>();
+        request.nameSpace = vm["namespace"].as<std::string>();
+        request.resourceErn = vm["resource"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eam", "check-permission", boost::json::value_from(request));
+
+            if (!response.IsSuccess()) {
+                reportFailure("check-permission", response);
+                return 1;
+            }
+
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::listPermissions(const std::vector<std::string> &args) const {
+
+        if (IsHelpRequest(args)) {
+            po::options_description desc("eam list-permissions options");
+            return PrintActionHelp("eam", "list-permissions", "",
+                                   "Lists every permission a role can hold, as <module>:<action>. Generated from what the "
+                                   "modules actually dispatch, so it is exactly what can be granted - and the two modules "
+                                   "that are never grantable, emd and emm, are named separately rather than silently "
+                                   "missing. Readable by anybody logged in: it is the vocabulary, not anybody's access.",
+                                   desc);
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eam", "list-permissions", boost::json::object{});
+
+            if (!response.IsSuccess()) {
+                reportFailure("list-permissions", response);
+                return 1;
+            }
+
+            Core::WriteJson(std::cout, response.body, _pretty);
             return 0;
         } catch (const std::exception &ex) {
             std::cerr << "error: " << ex.what() << std::endl;

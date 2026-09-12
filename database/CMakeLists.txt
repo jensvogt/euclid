@@ -3,7 +3,7 @@ set(SOURCES src/Database.cpp src/Collection.cpp src/EventBus.cpp src/entity/com/
         src/entity/eqs/RedrivePolicy.cpp src/entity/eqs/Queue.cpp src/entity/eqs/Message.cpp
         src/entity/eqs/PriorityWeights.cpp src/repository/emm/MongoEmmRepository.cpp src/entity/ens/Message.cpp
         src/repository/eqs/MongoEqsRepository.cpp src/entity/eam/User.cpp src/entity/eam/UserGroup.cpp
-        src/entity/eam/Account.cpp src/entity/eam/Namespace.cpp src/repository/eam/MongoEamRepository.cpp
+        src/entity/eam/Account.cpp src/entity/eam/Namespace.cpp src/entity/eam/Role.cpp src/entity/eam/Grant.cpp src/Authorization.cpp src/repository/eam/MongoEamRepository.cpp
         src/entity/emo/MonitoringData.cpp src/repository/emo/MongoEmoRepository.cpp src/entity/esm/Bucket.cpp
         src/entity/esm/Object.cpp src/entity/esm/Subscription.cpp src/repository/esm/MongoEsmRepository.cpp
         src/entity/ens/Topic.cpp src/entity/ens/Subscription.cpp src/repository/ens/MongoEnsRepository.cpp

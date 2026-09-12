@@ -18,6 +18,8 @@
 #include <euclid/database/entity/eam/Account.h>
 #include <euclid/database/entity/eam/Namespace.h>
 #include <euclid/database/entity/eam/User.h>
+#include <euclid/database/entity/eam/Grant.h>
+#include <euclid/database/entity/eam/Role.h>
 #include <euclid/database/entity/eam/UserGroup.h>
 
 namespace Euclid::Database {
@@ -215,6 +217,124 @@ namespace Euclid::Database {
          * @param name The name of the group to be removed.
          */
         virtual void deleteUserGroup(const std::string &name) const = 0;
+
+        // ── Roles and grants ────────────────────────────────────────────────
+        //
+        // A role is a named set of permissions belonging to one account; a grant gives one role to
+        // one principal, scoped by account, namespace and resource. The built-in roles
+        // (Core::BuiltinRoles) are never stored and never returned by any of these - they are
+        // computed, and a caller that wants "every role this account can bind" asks for both.
+        //
+        // See docs/role-concept.md.
+
+        /**
+         * @brief Inserts a new role or updates an existing one.
+         *
+         * @param role the role to insert or update; matched on its account and name.
+         * @return the stored role.
+         */
+        virtual Entity::EAM::Role upsertRole(Entity::EAM::Role &role) = 0;
+
+        /**
+         * @brief Searches for a role by name, within one account.
+         *
+         * @param accountId the owning account - a role name is unique only within one.
+         * @param name the role name.
+         * @return the matching role, or an empty optional.
+         */
+        [[nodiscard]]
+        virtual std::optional<Entity::EAM::Role> findRoleByName(const std::string &accountId, const std::string &name) const = 0;
+
+        /**
+         * @brief The number of stored roles in one account.
+         *
+         * @param accountId the owning account.
+         */
+        [[nodiscard]]
+        virtual long countRoles(const std::string &accountId) const = 0;
+
+        /**
+         * @brief Lists one account's stored roles.
+         *
+         * @param accountId the owning account.
+         * @param prefix only roles whose name starts with this; empty matches all.
+         * @param pageSize maximum to return; 0 or less means no limit.
+         * @param pageIndex zero-based page index, applied when pageSize is set.
+         * @param sortColumn field to sort by, e.g. "name"; empty means unsorted.
+         * @param sortDirection "asc" or "desc".
+         * @return the matching, paged and sorted roles.
+         */
+        [[nodiscard]]
+        virtual std::vector<Entity::EAM::Role> listRoles(const std::string &accountId, const std::string &prefix, long pageSize,
+                                                         long pageIndex, const std::string &sortColumn,
+                                                         const std::string &sortDirection = "asc") const = 0;
+
+        /**
+         * @brief Removes a role.
+         *
+         * @par
+         * Says nothing about the grants that name it - a caller refuses the deletion while any
+         * exist rather than leaving grants pointing at nothing. See findGrantsByRole().
+         *
+         * @param accountId the owning account.
+         * @param name the role name.
+         */
+        virtual void deleteRole(const std::string &accountId, const std::string &name) const = 0;
+
+        /**
+         * @brief Records a grant.
+         *
+         * @par
+         * Inserts rather than upserts: the same role may be granted to the same principal twice
+         * with different namespaces or resources, and both are real. Revoking takes the grant's
+         * own id.
+         *
+         * @param grant the grant to record.
+         * @return the stored grant, with its id.
+         */
+        virtual Entity::EAM::Grant addGrant(Entity::EAM::Grant &grant) = 0;
+
+        /**
+         * @brief Every grant held by any of these principals.
+         *
+         * @par
+         * The one query authorization runs. Takes the whole list - the user's own ERN and every
+         * group they belong to - because a caller's rights are the union of all of them, and one
+         * query is what makes that affordable per request.
+         *
+         * @param principals user and user-group ERNs.
+         * @return their grants, in no particular order.
+         */
+        [[nodiscard]]
+        virtual std::vector<Entity::EAM::Grant> findGrantsByPrincipals(const std::vector<std::string> &principals) const = 0;
+
+        /**
+         * @brief Every grant of one role, for answering "who can do this" and for refusing to
+         * delete a role that is still in use.
+         *
+         * @param accountId the role's account.
+         * @param role the role name.
+         */
+        [[nodiscard]]
+        virtual std::vector<Entity::EAM::Grant> findGrantsByRole(const std::string &accountId, const std::string &role) const = 0;
+
+        /**
+         * @brief Removes one grant by its id.
+         *
+         * @param oid the grant's id, as addGrant() returned it.
+         */
+        virtual void deleteGrant(const std::string &oid) const = 0;
+
+        /**
+         * @brief Removes every grant held by a principal, for when a user or group is deleted.
+         *
+         * @par
+         * Without this, deleting a user and creating another with the same ID would hand the new
+         * one the old one's rights.
+         *
+         * @param principal user or user-group ERN.
+         */
+        virtual void deleteGrantsByPrincipal(const std::string &principal) const = 0;
 
         /**
          * @brief Inserts a new account or updates an existing one in the repository.
