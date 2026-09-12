@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.7](https://github.com/jensvogt/euclid/compare/1.1.6...v1.1.7) (2026-09-12)
+
+
+### Bug Fixes
+
+* introduce a role concept, based on modules actions ([736cb44](https://github.com/jensvogt/euclid/commit/736cb44e56a5e62b8f514cbdf065289f053ca3bd))
+
 ## [1.1.6](https://github.com/jensvogt/euclid/compare/1.1.5...v1.1.6) (2026-09-12)
 
 
