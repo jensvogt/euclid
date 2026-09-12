@@ -295,8 +295,28 @@ namespace Euclid::ENS {
         // misspelled or unresolved topic name becomes a pile of rows belonging to no topic. The
         // EventBus path below has always checked; this is the same check on the client path.
         const auto repo = Database::RepositoryFactory::instance().ensRepository();
-        if (!repo->findTopicByErn(request.ern).has_value()) {
+        const auto topic = repo->findTopicByErn(request.ern);
+        if (!topic.has_value()) {
             return EnsServer::ErrorResponse(req, status::not_found, "Topic not found, ern: " + request.ern);
+        }
+
+        // The body alone, which is what Message::size counts and what get-topic-metadata reports -
+        // so the limit an operator sets is measured in the same units as the numbers they compare
+        // it against. Attributes travel alongside and are not counted.
+        //
+        // A topic carrying no limit of its own is measured against the default rather than refused:
+        // a create-topic that omitted the field used to store zero, and every topic made that way
+        // would otherwise stop accepting anything the moment this check arrived.
+        //
+        // Checked here rather than inside publishToTopic(), which is also the path an ESM
+        // object-created notification takes: that one is euclid's own envelope rather than a
+        // caller's payload, there is nobody to return a 400 to, and refusing it would leave the
+        // event to be retried forever or dropped without a word.
+        const auto maxMessageLength = Database::Entity::ENS::EffectiveMaxMessageLength(topic->maxMessageLength);
+        if (const auto length = static_cast<long>(request.body.size()); length > maxMessageLength) {
+            return EnsServer::ErrorResponse(req, status::bad_request,
+                                            "message is " + std::to_string(length) + " bytes, and this topic accepts " +
+                                                    std::to_string(maxMessageLength) + " - see set-topic-max-message-length");
         }
 
         // Checked here for the same reason send-message checks it: a topic message's priority only
@@ -801,6 +821,43 @@ namespace Euclid::ENS {
                                                {"retentionPeriod", topic->retentionPeriod}}));
     }
 
+    static response<string_body> handleSetTopicMaxMessageLength(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-topic-max-message-length");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto [ern, maxMessageLength] = boost::json::value_to<Dto::ENS::SetTopicMaxMessageLengthRequest>(jv);
+        log_info << "ENS SetTopicMaxMessageLength, ern: " << ern << ", maxMessageLength: " << maxMessageLength;
+
+        // Zero is not "no limit", it is a topic that accepts nothing, and a negative one is a typo.
+        // Taking nothing for a while is what stop-topic is for, and it says so reversibly.
+        if (maxMessageLength <= 0) {
+            return EnsServer::ErrorResponse(req, status::bad_request,
+                                            "maxMessageLength has to be a positive number of bytes");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().ensRepository();
+        std::optional<Database::Entity::ENS::Topic> topic = repo->findTopicByErn(ern);
+        if (!topic.has_value()) {
+            return EnsServer::ErrorResponse(req, status::not_found, "Topic not found, ern: " + ern);
+        }
+
+        // What is published from here on, and nothing else: a message already in the topic was
+        // accepted under the rule in force when it arrived, and lowering the limit is not a reason
+        // to go back and lose it.
+        topic->maxMessageLength = maxMessageLength;
+        topic = repo->upsertTopic(topic.value());
+
+        return EnsServer::JsonResponse(req, status::ok,
+                                       boost::json::serialize(boost::json::object{
+                                               {"ern", topic->ern},
+                                               {"maxMessageLength", topic->maxMessageLength}}));
+    }
+
     static response<string_body> handleDeleteTopicTag(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-topic-tag");
@@ -955,6 +1012,7 @@ namespace Euclid::ENS {
             AddTopicTag,
             SetTopicTag,
             SetTopicRetention,
+            SetTopicMaxMessageLength,
             StartTopic,
             StopTopic,
             DeleteTopicTag,
@@ -981,6 +1039,7 @@ namespace Euclid::ENS {
         if (action == "add-topic-tag") return Command::AddTopicTag;
         if (action == "set-topic-tag") return Command::SetTopicTag;
         if (action == "set-topic-retention") return Command::SetTopicRetention;
+        if (action == "set-topic-max-message-length") return Command::SetTopicMaxMessageLength;
         if (action == "start-topic") return Command::StartTopic;
         if (action == "stop-topic") return Command::StopTopic;
         if (action == "delete-topic-tag") return Command::DeleteTopicTag;
@@ -1047,6 +1106,9 @@ namespace Euclid::ENS {
 
             case Command::SetTopicRetention:
                 return handleSetTopicRetention(req);
+
+            case Command::SetTopicMaxMessageLength:
+                return handleSetTopicMaxMessageLength(req);
 
             case Command::StartTopic:
                 return handleStartTopic(req);
