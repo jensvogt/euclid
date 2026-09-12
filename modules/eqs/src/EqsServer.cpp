@@ -292,6 +292,21 @@ namespace Euclid::EQS {
         }
         if (const auto denied = denyUngrantedQueue(req, auth, request.ern)) return *denied;
 
+        // The body alone, which is what Message::size counts and what get-queue-metadata reports,
+        // so the limit an operator sets is measured in the same units as the numbers they compare
+        // it against. Attributes travel alongside and are not counted. Checked after the grant, so
+        // a caller with no business here learns that and not the size of somebody else's queue.
+        //
+        // A queue carrying no limit of its own is measured against the default rather than refused:
+        // a create-queue that omitted the field used to store zero, and every queue made that way
+        // would otherwise stop accepting anything the moment this check arrived.
+        const auto maxMessageLength = Database::Entity::EQS::EffectiveMaxMessageLength(queue->maxMessageLength);
+        if (const auto length = static_cast<long>(request.body.size()); length > maxMessageLength) {
+            return EqsServer::ErrorResponse(req, status::bad_request,
+                                            "message is " + std::to_string(length) + " bytes, and this queue accepts " +
+                                                    std::to_string(maxMessageLength));
+        }
+
         const std::string messageId = Core::UuidUtils::CreateRandomUuid();
         const std::string ern = Core::createEqsMessageErn(auth.user.value().accountId, messageId);
 
@@ -910,6 +925,90 @@ namespace Euclid::EQS {
                                                {"visibility", queue->visibility}}));
     }
 
+    static response<string_body> handleSetQueueDelay(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-queue-delay");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EQS::SetQueueDelayRequest>(jv);
+        if (request.ern.empty()) {
+            return EqsServer::ErrorResponse(req, status::bad_request, "Queue ERN missing");
+        }
+        // The bound AWS SQS holds DelaySeconds to. A delay is for smoothing a burst or letting a
+        // writer finish, not for scheduling: something that has to wait a quarter of an hour wants
+        // a timestamp of its own rather than a queue that holds everything back.
+        if (request.delay < 0 || request.delay > 900) {
+            return EqsServer::ErrorResponse(req, status::bad_request, "Delay must be between 0 and 900 seconds");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().eqsRepository();
+        std::optional<Database::Entity::EQS::Queue> queue = repo->findQueueByErn(request.ern);
+        if (!queue.has_value()) {
+            return EqsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + request.ern);
+        }
+
+        log_info << "EQS SetQueueDelay, ern: " << request.ern << ", delay: " << queue->delay << " -> " << request.delay;
+
+        // Only what is sent from here on. A message already waiting had its delay turned into a
+        // timestamp when it arrived, and moving that now would either release a message early or
+        // hold back one that was promised sooner.
+        queue->delay = request.delay;
+        queue = repo->upsertQueue(queue.value());
+
+        return EqsServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                               {"ern", request.ern},
+                                               {"delay", queue->delay}}));
+    }
+
+    static response<string_body> handleSetQueueMaxMessageLength(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-queue-max-message-length");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EQS::SetQueueMaxMessageLengthRequest>(jv);
+        if (request.ern.empty()) {
+            return EqsServer::ErrorResponse(req, status::bad_request, "Queue ERN missing");
+        }
+        // Zero is allowed and is not "accept nothing": it is the queue carrying no limit of its
+        // own, which is what a queue created before the limit meant anything holds, and what
+        // EffectiveMaxMessageLength() measures against the installation's figure instead.
+        if (request.maxMessageLength < 0) {
+            return EqsServer::ErrorResponse(req, status::bad_request,
+                                            "maxMessageLength cannot be negative; zero follows the default of "
+                                                    + std::to_string(Database::Entity::EQS::kDefaultMaxMessageLength) + " bytes");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().eqsRepository();
+        std::optional<Database::Entity::EQS::Queue> queue = repo->findQueueByErn(request.ern);
+        if (!queue.has_value()) {
+            return EqsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + request.ern);
+        }
+
+        log_info << "EQS SetQueueMaxMessageLength, ern: " << request.ern
+                 << ", maxMessageLength: " << queue->maxMessageLength << " -> " << request.maxMessageLength;
+
+        // What is sent from here on. A message already in the queue was measured against the limit
+        // in force when it arrived, and lowering this is not a reason to go back and reject it.
+        queue->maxMessageLength = request.maxMessageLength;
+        queue = repo->upsertQueue(queue.value());
+
+        return EqsServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                               {"ern", request.ern},
+                                               {"maxMessageLength", queue->maxMessageLength},
+                                               // What a send is actually measured against, which is
+                                               // not the stored figure when that is zero.
+                                               {"effectiveMaxMessageLength",
+                                                Database::Entity::EQS::EffectiveMaxMessageLength(queue->maxMessageLength)}}));
+    }
+
     static response<string_body> handleSetQueueTag(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-queue-tag");
@@ -979,6 +1078,8 @@ namespace Euclid::EQS {
             ReceiveMessages,
             SetVisibility,
             SetQueueVisibility,
+            SetQueueDelay,
+            SetQueueMaxMessageLength,
             StopQueue,
             StartQueue,
             DeleteMessage,
@@ -1008,6 +1109,8 @@ namespace Euclid::EQS {
         // client built against it.
         if (action == "set-visibility" || action == "set-message-visibility") return Command::SetVisibility;
         if (action == "set-queue-visibility") return Command::SetQueueVisibility;
+        if (action == "set-queue-delay") return Command::SetQueueDelay;
+        if (action == "set-queue-max-message-length") return Command::SetQueueMaxMessageLength;
         if (action == "stop-queue") return Command::StopQueue;
         if (action == "start-queue") return Command::StartQueue;
         if (action == "delete-message") return Command::DeleteMessage;
@@ -1064,6 +1167,12 @@ namespace Euclid::EQS {
 
             case Command::SetQueueVisibility:
                 return handleSetQueueVisibility(req);
+
+            case Command::SetQueueDelay:
+                return handleSetQueueDelay(req);
+
+            case Command::SetQueueMaxMessageLength:
+                return handleSetQueueMaxMessageLength(req);
 
             case Command::StopQueue:
                 return handleStopQueue(req);

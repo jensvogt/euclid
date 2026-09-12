@@ -4,6 +4,9 @@
 
 #include <euclid/cli/ens/EnsCli.h>
 
+// C++ includes
+#include <limits>
+
 namespace Euclid::CLI {
 
     namespace po = boost::program_options;
@@ -45,6 +48,48 @@ namespace Euclid::CLI {
                 return false;
             }
             return seconds >= 0;
+        }
+
+        // Bytes, or a number with a unit: 512k, 2M, 1G. Binary multiples, because the limit this
+        // parses sits beside a default of 1024*1024 - an operator who writes 1M means that number,
+        // not 1000000. Zero and negatives are refused here rather than sent: a topic that accepts
+        // nothing is a mistake, and saying so costs no round trip.
+        bool parseByteSize(const std::string &text, long &bytes) {
+
+            if (text.empty()) return false;
+
+            long multiplier = 1;
+            std::string digits = text;
+            switch (const char last = text.back()) {
+                case 'b':
+                case 'B':
+                case 'k':
+                case 'K':
+                case 'm':
+                case 'M':
+                case 'g':
+                case 'G':
+                    multiplier = last == 'b' || last == 'B'   ? 1
+                                 : last == 'k' || last == 'K' ? 1024
+                                 : last == 'm' || last == 'M' ? 1024 * 1024
+                                                              : 1024 * 1024 * 1024;
+                    digits = text.substr(0, text.size() - 1);
+                    break;
+                default:
+                    break;
+            }
+            if (digits.empty() || digits.find_first_not_of("0123456789") != std::string::npos) return false;
+
+            try {
+                const long value = std::stol(digits);
+                // Checked before multiplying rather than after: "99999999999G" overflows silently
+                // and would arrive at the server as whatever the wrap happened to produce.
+                if (value > std::numeric_limits<long>::max() / multiplier) return false;
+                bytes = value * multiplier;
+            } catch (const std::exception &) {
+                return false;
+            }
+            return bytes > 0;
         }
 
     }// namespace
@@ -91,6 +136,7 @@ namespace Euclid::CLI {
                                            {"purge-all-topic", "Purge all topics by deleting all messages"},
                                            {"purge-topic", "Purge a topic by deleting all messages"},
                                            {"set-message-attribute", "Sets the value of a message attribute"},
+                                           {"set-topic-max-message-length", "Sets the largest message a topic accepts"},
                                            {"set-topic-retention", "Sets how long a topic keeps the messages published to it"},
                                            {"start-topic", "Starts delivering to a topic's subscribers, handing over what it held"},
                                            {"stop-topic", "Stops delivering to a topic's subscribers; publishes are still stored"},
@@ -131,6 +177,9 @@ namespace Euclid::CLI {
         }
         if (action == "set-topic-retention") {
             return setTopicRetention(args);
+        }
+        if (action == "set-topic-max-message-length") {
+            return setTopicMaxMessageLength(args);
         }
         if (action == "start-topic") {
             return setTopicDelivering(args, true);
@@ -848,6 +897,62 @@ namespace Euclid::CLI {
             const HttpResponse response = client.Post("ens", "set-topic-retention", boost::json::value_from(request));
             if (!response.IsSuccess()) {
                 std::cerr << "error: set-topic-retention failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EnsCli::setTopicMaxMessageLength(const std::vector<std::string> &args) const {
+        po::options_description desc("set topic max message length options");
+        desc.add_options()
+                ("topic,t", po::value<std::string>()->required(), "topic name; a full ERN also works and is what reaches another namespace")
+                ("max-length,m", po::value<std::string>()->required(),
+                 "the largest message the topic accepts: bytes, or a size such as 512k, 2M or 1G");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ens", "set-topic-max-message-length", "--topic <name|ern> --max-length <size>",
+                                   "Sets the largest message a topic accepts, which create-topic set to 1M and which "
+                                   "this is the only way to change afterwards. A publish-message whose body is larger "
+                                   "is refused with HTTP 400, naming both the size sent and the limit; the body alone "
+                                   "is measured, which is the same number get-topic-metadata reports as 'size'. "
+                                   "It applies to what is published from here on: a message already in the topic was "
+                                   "accepted under the rule in force when it arrived, and lowering the limit neither "
+                                   "re-checks nor removes it. "
+                                   "The size has to be positive - a topic that accepts nothing is a mistake rather than "
+                                   "a configuration, and stop-topic is what says 'take nothing for now', reversibly.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        long bytes = 0;
+        if (const auto given = vm["max-length"].as<std::string>(); !parseByteSize(given, bytes)) {
+            std::cerr << "error: --max-length has to be a positive number of bytes or a size like 512k, 2M or 1G, and was '"
+                      << given << "'\n";
+            return 1;
+        }
+
+        Dto::ENS::SetTopicMaxMessageLengthRequest request;
+        request.ern = vm["topic"].as<std::string>();
+        request.maxMessageLength = bytes;
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ens", "set-topic-max-message-length", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: set-topic-max-message-length failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);

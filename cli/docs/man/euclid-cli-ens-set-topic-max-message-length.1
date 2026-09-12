@@ -1,0 +1,89 @@
+.TH EUCLID-CLI-ENS-SET-TOPIC-MAX-MESSAGE-LENGTH 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ens-set-topic-max-message-length \- set the largest message a topic accepts
+.SH SYNOPSIS
+.B euclid-cli ens set-topic-max-message-length
+.BR \-\-topic | \-t
+.I NAME
+.BR \-\-max\-length | \-m
+.I SIZE
+.SH DESCRIPTION
+Sets the largest message a topic accepts.
+.PP
+.BR euclid-cli-ens-create-topic (1)
+takes this as
+.BR \-\-max\-length ,
+defaulting to 1M, and this is the only way to change it afterwards \- a
+topic is otherwise created once and lives with the limit it was given.
+.PP
+A
+.BR euclid-cli-ens-publish-message (1)
+whose body is larger is refused with HTTP 400, naming both the size sent
+and the limit. The body alone is measured \- the same number
+.BR euclid-cli-ens-get-topic-metadata (1)
+reports as
+.IR size ,
+so the limit is in the same units as the figures it is compared against.
+Message attributes travel alongside and are not counted.
+.PP
+A topic that carries no limit of its own \- one created before the field
+was sent, which stored a zero \- is measured against the 1M default
+rather than refusing everything.
+.SH WHEN IT TAKES EFFECT
+For messages published afterwards. A message already in the topic was
+accepted under the rule in force when it arrived, and lowering the limit
+neither re-checks nor removes it.
+.PP
+That is deliberate, and the same rule
+.BR euclid-cli-ens-set-topic-retention (1)
+follows: what a topic holds is the record of what was published, and a
+setting changed today is not a reason to lose what was accepted
+yesterday. To empty a topic, use
+.BR euclid-cli-ens-purge-topic (1).
+.SH THE SIZE HAS TO BE POSITIVE
+Zero is refused rather than read as "no limit": a topic that accepts
+nothing is a mistake rather than a configuration. Taking nothing for a
+while is
+.BR euclid-cli-ens-stop-topic (1),
+which says so reversibly and keeps what arrives meanwhile.
+.SH OPTIONS
+.TP
+.BR \-t ", " \-\-topic " " \fINAME\fR
+Topic name. A full ERN also works, and is what reaches another
+namespace. Required.
+.TP
+.BR \-m ", " \-\-max\-length " " \fISIZE\fR
+The largest message to accept: a number of bytes, or a number with a
+unit \- \fIb\fR, \fIk\fR, \fIm\fR or \fIg\fR, as in \fI512k\fR, \fI2M\fR
+or \fI1G\fR. The units are binary, so \fI1M\fR is 1048576 bytes, which
+is the number a topic starts out with. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The limit was set; the topic's ERN and its new limit are printed.
+.TP
+.B 1
+No topic of that name, the size was zero or negative, or it was neither
+a number of bytes nor a size this understands.
+.SH EXAMPLES
+.RS
+.nf
+# Four megabytes, for a topic carrying rendered documents
+euclid-cli ens set-topic-max-message-length --topic reports --max-length 4M
+
+# The same thing in bytes
+euclid-cli ens set-topic-max-message-length --topic reports --max-length 4194304
+
+# Back to the size a topic is created with
+euclid-cli ens set-topic-max-message-length --topic reports --max-length 1M
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ens (1),
+.BR euclid-cli-ens-create-topic (1),
+.BR euclid-cli-ens-publish-message (1),
+.BR euclid-cli-ens-set-topic-retention (1),
+.BR euclid-cli-ens-stop-topic (1),
+.BR euclid-cli-ens-get-topic-metadata (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
