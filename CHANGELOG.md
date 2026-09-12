@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.6](https://github.com/jensvogt/euclid/compare/1.1.5...v1.1.6) (2026-09-12)
+
+
+### Bug Fixes
+
+* ENS/EQS maxMessageLength, delay, retention editable ([bb55c30](https://github.com/jensvogt/euclid/commit/bb55c309f441d61e1ad4c12e466b5c317b67edb2))
+
 ## [1.1.5](https://github.com/jensvogt/euclid/compare/1.1.4...v1.1.5) (2026-09-12)
 
 
