@@ -1476,6 +1476,479 @@ namespace Euclid::EAM {
 
     namespace {
         // Actions the access service accepts via the "x-euclid-action" header.
+
+    // ── Roles and grants ─────────────────────────────────────────────────────
+    //
+    // Administrator-only for now, the way every other access-management action here is: these
+    // decide what everybody else may do, and until the gate exists (docs/role-concept.md §9 step 3)
+    // there is no role that could be granted to delegate them safely.
+
+    // A role as the API reports it. Stored roles and built-in ones answer the same shape, with
+    // "builtin" as the only way to tell - so a caller knows which it may change without having to
+    // know the six names.
+    static Dto::EAM::Role toRoleDto(const Database::Entity::EAM::Role &role) {
+        Dto::EAM::Role dto;
+        dto.name = role.name;
+        dto.ern = role.ern;
+        dto.accountId = role.accountId;
+        dto.region = role.region;
+        dto.description = role.description;
+        dto.permissions = role.permissions;
+        dto.builtin = false;
+        dto.created = Core::DateTimeUtils::ToISO8601(role.created);
+        dto.modified = Core::DateTimeUtils::ToISO8601(role.modified);
+        return dto;
+    }
+
+    static Dto::EAM::Role toBuiltinRoleDto(const std::string &name, const std::string &accountId, const std::string &region) {
+        Dto::EAM::Role dto;
+        dto.name = name;
+        dto.ern = Core::createEamRoleErn(accountId, name);
+        dto.accountId = accountId;
+        dto.region = region;
+        dto.description = Core::BuiltinRoles::DescriptionOf(name);
+        dto.permissions = Core::BuiltinRoles::PermissionsOf(name);
+        dto.builtin = true;
+        return dto;
+    }
+
+    static Dto::EAM::Grant toGrantDto(const Database::Entity::EAM::Grant &grant) {
+        Dto::EAM::Grant dto;
+        dto.grantId = grant.oid;
+        dto.role = grant.role;
+        dto.principal = grant.principal;
+        dto.accountId = grant.accountId;
+        dto.namespaces = grant.namespaces;
+        dto.resources = grant.resources;
+        dto.granted = Core::DateTimeUtils::ToISO8601(grant.granted);
+        dto.grantedBy = grant.grantedBy;
+        return dto;
+    }
+
+    // Every permission a role names has to exist. A role holding "ens:publish-mesage" would grant
+    // nothing and say so to nobody, which is worse than being refused: the administrator believes
+    // they granted something and the user believes they were not.
+    static std::optional<std::string> invalidPermission(const std::vector<std::string> &permissions) {
+        for (const auto &permission: permissions) {
+            if (permission == Core::Permissions::Everything) continue;
+            if (permission.ends_with(":*")) {
+                if (const auto module = permission.substr(0, permission.size() - 2); Core::Permissions::IsBindable(module)) continue;
+                return permission;
+            }
+            if (!Core::Permissions::Exists(permission)) return permission;
+        }
+        return std::nullopt;
+    }
+
+    // Every ERN a caller's grants can hang off: their own, and each group they belong to. Their
+    // rights are the union of all of them, which is why this is one list and one query rather than
+    // a loop of lookups.
+    static std::vector<std::string> principalsOf(const Database::Entity::EAM::User &user) {
+
+        std::vector<std::string> principals{user.ern};
+
+        // Groups are installation-wide, so this asks for all of them. The set is small - a handful
+        // per installation - and this runs on check-permission, not on every request.
+        for (const auto repo = Database::RepositoryFactory::instance().eamRepository();
+             const auto &group: repo->listUserGroups("", 0, 0, "name")) {
+            if (std::ranges::contains(group.userIds, user.userId)) principals.push_back(group.ern);
+        }
+        return principals;
+    }
+
+    static response<string_body> handleCreateRole(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "create-role");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+        if (!isAdmin(*auth.user)) {
+            return EamServer::ErrorResponse(req, status::forbidden, "Administrator privileges required");
+        }
+
+        boost::json::value jv;
+        if (const auto err = EamServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EAM::CreateRoleRequest>(jv);
+        if (request.name.empty()) {
+            return EamServer::ErrorResponse(req, status::bad_request, "name is required");
+        }
+        if (request.permissions.empty()) {
+            return EamServer::ErrorResponse(req, status::bad_request, "a role with no permissions grants nothing; give it at least one");
+        }
+        // A stored role may not shadow a built-in one: a grant resolves the account's own roles
+        // first, so it would silently replace the built-in for that account alone.
+        if (Core::BuiltinRoles::Exists(request.name)) {
+            return EamServer::ErrorResponse(req, status::conflict, "'" + request.name + "' is a built-in role and cannot be redefined");
+        }
+        if (const auto bad = invalidPermission(request.permissions)) {
+            return EamServer::ErrorResponse(req, status::bad_request,
+                                            "'" + *bad + "' is not a permission any module answers - see list-permissions");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().eamRepository();
+        if (repo->findRoleByName(auth.user->accountId, request.name).has_value()) {
+            return EamServer::ErrorResponse(req, status::conflict, "Role already exists");
+        }
+
+        Database::Entity::EAM::Role role;
+        role.name = request.name;
+        role.description = request.description;
+        role.permissions = request.permissions;
+        role.accountId = auth.user->accountId;
+        role.region = auth.user->region;
+        role.ern = Core::createEamRoleErn(auth.user->accountId, request.name);
+        role.created = std::chrono::system_clock::now();
+        role.modified = role.created;
+
+        const auto saved = repo->upsertRole(role);
+        log_info << "Role created, name: " << saved.name << ", accountId: " << saved.accountId << ", permissions: " << saved.permissions.size();
+
+        Dto::EAM::RoleResponse response;
+        response.role = toRoleDto(saved);
+        return EamServer::JsonResponse(req, status::created, response.toJson());
+    }
+
+    static response<string_body> handleUpdateRole(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "update-role");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+        if (!isAdmin(*auth.user)) {
+            return EamServer::ErrorResponse(req, status::forbidden, "Administrator privileges required");
+        }
+
+        boost::json::value jv;
+        if (const auto err = EamServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EAM::UpdateRoleRequest>(jv);
+        if (request.name.empty()) {
+            return EamServer::ErrorResponse(req, status::bad_request, "name is required");
+        }
+        if (Core::BuiltinRoles::Exists(request.name)) {
+            return EamServer::ErrorResponse(req, status::forbidden, "'" + request.name + "' is a built-in role and cannot be changed");
+        }
+        if (request.permissions.empty()) {
+            return EamServer::ErrorResponse(req, status::bad_request, "a role with no permissions grants nothing; give it at least one");
+        }
+        if (const auto bad = invalidPermission(request.permissions)) {
+            return EamServer::ErrorResponse(req, status::bad_request,
+                                            "'" + *bad + "' is not a permission any module answers - see list-permissions");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().eamRepository();
+        auto existing = repo->findRoleByName(auth.user->accountId, request.name);
+        if (!existing.has_value()) {
+            return EamServer::ErrorResponse(req, status::not_found, "Role not found, name: " + request.name);
+        }
+
+        // Replaces rather than merges - a permission left out is taken away, which is the only way
+        // to narrow a role at all.
+        existing->description = request.description;
+        existing->permissions = request.permissions;
+        existing->modified = std::chrono::system_clock::now();
+
+        const auto saved = repo->upsertRole(*existing);
+        log_info << "Role updated, name: " << saved.name << ", accountId: " << saved.accountId << ", permissions: " << saved.permissions.size();
+
+        Dto::EAM::RoleResponse response;
+        response.role = toRoleDto(saved);
+        return EamServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    static response<string_body> handleGetRole(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-role");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+        if (!isAdmin(*auth.user)) {
+            return EamServer::ErrorResponse(req, status::forbidden, "Administrator privileges required");
+        }
+
+        boost::json::value jv;
+        if (const auto err = EamServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EAM::GetRoleRequest>(jv);
+        if (request.name.empty()) {
+            return EamServer::ErrorResponse(req, status::bad_request, "name is required");
+        }
+
+        Dto::EAM::RoleResponse response;
+
+        // The account's own first, then the built-ins - the same order a grant resolves in, so what
+        // this shows is what a grant of that name would actually use.
+        if (const auto stored = Database::RepositoryFactory::instance().eamRepository()->findRoleByName(auth.user->accountId, request.name)) {
+            response.role = toRoleDto(*stored);
+        } else if (Core::BuiltinRoles::Exists(request.name)) {
+            response.role = toBuiltinRoleDto(request.name, auth.user->accountId, auth.user->region);
+        } else {
+            return EamServer::ErrorResponse(req, status::not_found, "Role not found, name: " + request.name);
+        }
+
+        return EamServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    static response<string_body> handleListRoles(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-roles");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+        if (!isAdmin(*auth.user)) {
+            return EamServer::ErrorResponse(req, status::forbidden, "Administrator privileges required");
+        }
+
+        boost::json::value jv;
+        if (const auto err = EamServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EAM::ListRolesRequest>(jv);
+        const auto repo = Database::RepositoryFactory::instance().eamRepository();
+
+        Dto::EAM::ListRolesResponse response;
+
+        // Built-in roles first, and outside the paging: they are not stored, so there is no page to
+        // put them on, and a caller listing roles almost always wants to see what it can bind.
+        if (request.includeBuiltin) {
+            for (const auto &name: Core::BuiltinRoles::Names()) {
+                if (!request.prefix.empty() && !name.starts_with(request.prefix)) continue;
+                response.roles.push_back(toBuiltinRoleDto(name, auth.user->accountId, auth.user->region));
+            }
+        }
+
+        for (const auto &role: repo->listRoles(auth.user->accountId, request.prefix, request.pageSize, request.pageIndex,
+                                               request.sortColumn, request.sortDirection)) {
+            response.roles.push_back(toRoleDto(role));
+        }
+        response.total = repo->countRoles(auth.user->accountId);
+
+        return EamServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    static response<string_body> handleDeleteRole(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-role");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+        if (!isAdmin(*auth.user)) {
+            return EamServer::ErrorResponse(req, status::forbidden, "Administrator privileges required");
+        }
+
+        boost::json::value jv;
+        if (const auto err = EamServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EAM::DeleteRoleRequest>(jv);
+        if (request.name.empty()) {
+            return EamServer::ErrorResponse(req, status::bad_request, "name is required");
+        }
+        if (Core::BuiltinRoles::Exists(request.name)) {
+            return EamServer::ErrorResponse(req, status::forbidden, "'" + request.name + "' is a built-in role and cannot be deleted");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().eamRepository();
+        if (!repo->findRoleByName(auth.user->accountId, request.name).has_value()) {
+            return EamServer::ErrorResponse(req, status::not_found, "Role not found, name: " + request.name);
+        }
+
+        // Refused rather than cascading. Deleting a role out from under its grants leaves grants
+        // that quietly do nothing, and revoking somebody's access is a decision to take on purpose.
+        if (const auto grants = repo->findGrantsByRole(auth.user->accountId, request.name); !grants.empty()) {
+            return EamServer::ErrorResponse(req, status::conflict,
+                                            "Role is still granted to " + std::to_string(grants.size()) +
+                                                    " principal(s); revoke those grants first - see list-grants --role");
+        }
+
+        repo->deleteRole(auth.user->accountId, request.name);
+        log_info << "Role deleted, name: " << request.name << ", accountId: " << auth.user->accountId;
+
+        return EamServer::JsonResponse(req, status::ok);
+    }
+
+    static response<string_body> handleGrantRole(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "grant-role");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+        if (!isAdmin(*auth.user)) {
+            return EamServer::ErrorResponse(req, status::forbidden, "Administrator privileges required");
+        }
+
+        boost::json::value jv;
+        if (const auto err = EamServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EAM::GrantRoleRequest>(jv);
+        if (request.role.empty() || request.principal.empty()) {
+            return EamServer::ErrorResponse(req, status::bad_request, "role and principal are required");
+        }
+        // A grant that applies in no namespace grants nothing, which is a mistake rather than a
+        // configuration - said now rather than stored as a silent no-op.
+        if (request.namespaces.empty()) {
+            return EamServer::ErrorResponse(req, status::bad_request,
+                                            R"(namespaces is required; use ["*"] for every namespace of the account)");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().eamRepository();
+
+        // The role has to exist, here, now - a grant naming a role that does not exist is inert,
+        // and nobody would find out until somebody was refused something they were told they had.
+        if (!repo->findRoleByName(auth.user->accountId, request.role).has_value() && !Core::BuiltinRoles::Exists(request.role)) {
+            return EamServer::ErrorResponse(req, status::not_found, "Role not found, name: " + request.role);
+        }
+
+        // And so does the principal. One field for users and groups, so which of the two is
+        // decided by which lookup answers.
+        const bool isUser = repo->findUserByErn(request.principal).has_value();
+        if (!isUser && !repo->findUserGroupByErn(request.principal).has_value()) {
+            return EamServer::ErrorResponse(req, status::not_found, "No user or user group with ERN " + request.principal);
+        }
+
+        Database::Entity::EAM::Grant grant;
+        grant.role = request.role;
+        grant.principal = request.principal;
+        grant.accountId = auth.user->accountId;
+        grant.namespaces = request.namespaces;
+        grant.resources = request.resources;
+        grant.granted = std::chrono::system_clock::now();
+        grant.grantedBy = auth.user->userId;
+
+        const auto saved = repo->addGrant(grant);
+        log_info << "Role granted, role: " << saved.role << ", principal: " << saved.principal
+                 << ", accountId: " << saved.accountId << ", by: " << saved.grantedBy;
+
+        Dto::EAM::GrantRoleResponse response;
+        response.grant = toGrantDto(saved);
+        return EamServer::JsonResponse(req, status::created, response.toJson());
+    }
+
+    static response<string_body> handleRevokeRole(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "revoke-role");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+        if (!isAdmin(*auth.user)) {
+            return EamServer::ErrorResponse(req, status::forbidden, "Administrator privileges required");
+        }
+
+        boost::json::value jv;
+        if (const auto err = EamServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EAM::RevokeRoleRequest>(jv);
+        if (request.grantId.empty()) {
+            return EamServer::ErrorResponse(req, status::bad_request, "grantId is required - see list-grants");
+        }
+
+        Database::RepositoryFactory::instance().eamRepository()->deleteGrant(request.grantId);
+        log_info << "Role revoked, grantId: " << request.grantId << ", by: " << auth.user->userId;
+
+        return EamServer::JsonResponse(req, status::ok);
+    }
+
+    static response<string_body> handleListGrants(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-grants");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+        if (!isAdmin(*auth.user)) {
+            return EamServer::ErrorResponse(req, status::forbidden, "Administrator privileges required");
+        }
+
+        boost::json::value jv;
+        if (const auto err = EamServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EAM::ListGrantsRequest>(jv);
+        if (request.principal.empty() == request.role.empty()) {
+            return EamServer::ErrorResponse(req, status::bad_request,
+                                            "give exactly one of principal or role - 'what may they do' and 'who can do this' "
+                                            "are different questions");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().eamRepository();
+
+        Dto::EAM::ListGrantsResponse response;
+        const auto grants = request.principal.empty()
+                                    ? repo->findGrantsByRole(auth.user->accountId, request.role)
+                                    : repo->findGrantsByPrincipals({request.principal});
+
+        for (const auto &grant: grants) response.grants.push_back(toGrantDto(grant));
+        response.total = static_cast<long>(response.grants.size());
+
+        return EamServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    static response<string_body> handleListPermissions(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-permissions");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        // Readable by anybody logged in, unlike the rest of these: it is the vocabulary, not
+        // anybody's access, and a user asking what could be granted is asking nothing private.
+        Dto::EAM::ListPermissionsResponse response;
+        response.permissions = Core::Permissions::All();
+        response.modules = Core::Permissions::Modules();
+        response.unbindableModules = Core::Permissions::UnbindableModules();
+
+        return EamServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    static response<string_body> handleCheckPermission(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "check-permission");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+        if (!isAdmin(*auth.user)) {
+            return EamServer::ErrorResponse(req, status::forbidden, "Administrator privileges required");
+        }
+
+        boost::json::value jv;
+        if (const auto err = EamServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EAM::CheckPermissionRequest>(jv);
+        if (request.userId.empty() || request.target.empty() || request.action.empty()) {
+            return EamServer::ErrorResponse(req, status::bad_request, "userId, target and action are required");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().eamRepository();
+        const auto subject = repo->findUserByUserId(request.userId);
+        if (!subject.has_value()) {
+            return EamServer::ErrorResponse(req, status::not_found, "User not found, userId: " + request.userId);
+        }
+
+        Dto::EAM::CheckPermissionResponse response;
+
+        // The two short-circuits, answered as such rather than silently: an installation
+        // administrator is allowed everything without holding a single grant, and saying so is the
+        // whole point of this action.
+        if (Database::IsCachedEamAdmin(subject->userId)) {
+            response.allowed = true;
+            response.reason = "member of the administrator user group, which is allowed everything and holds no grants";
+            return EamServer::JsonResponse(req, status::ok, response.toJson());
+        }
+
+        const auto result = Database::Authorization::Allows(
+                {.target = request.target, .action = request.action, .accountId = subject->accountId,
+                 .nameSpace = request.nameSpace, .resourceErn = request.resourceErn},
+                repo->findGrantsByPrincipals(principalsOf(*subject)),
+                [&repo](const std::string &accountId, const std::string &role) -> std::optional<std::vector<std::string>> {
+                    if (const auto stored = repo->findRoleByName(accountId, role)) return stored->permissions;
+                    if (Core::BuiltinRoles::Exists(role)) return Core::BuiltinRoles::PermissionsOf(role);
+                    return std::nullopt;
+                });
+
+        response.allowed = result.allowed;
+        response.reason = result.reason;
+        response.role = result.role;
+
+        return EamServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
         enum class Action {
             Unknown,
             Login,
@@ -1504,6 +1977,16 @@ namespace Euclid::EAM {
             GrantNamespaceAccess,
             RevokeNamespaceAccess,
             ChangeNamespace,
+            CreateRole,
+            UpdateRole,
+            GetRole,
+            ListRoles,
+            DeleteRole,
+            GrantRole,
+            RevokeRole,
+            ListGrants,
+            ListPermissions,
+            CheckPermission,
             GetMetrics
         };
     }
@@ -1537,6 +2020,16 @@ namespace Euclid::EAM {
         if (action == "grant-namespace-access") return Action::GrantNamespaceAccess;
         if (action == "revoke-namespace-access") return Action::RevokeNamespaceAccess;
         if (action == "change-namespace") return Action::ChangeNamespace;
+        if (action == "create-role") return Action::CreateRole;
+        if (action == "update-role") return Action::UpdateRole;
+        if (action == "get-role") return Action::GetRole;
+        if (action == "list-roles") return Action::ListRoles;
+        if (action == "delete-role") return Action::DeleteRole;
+        if (action == "grant-role") return Action::GrantRole;
+        if (action == "revoke-role") return Action::RevokeRole;
+        if (action == "list-grants") return Action::ListGrants;
+        if (action == "list-permissions") return Action::ListPermissions;
+        if (action == "check-permission") return Action::CheckPermission;
         if (action == "get-metrics") return Action::GetMetrics;
         return Action::Unknown;
     }
@@ -1629,6 +2122,26 @@ namespace Euclid::EAM {
             case Action::ChangeNamespace:
                 return handleChangeNamespace(req);
 
+            case Action::CreateRole:
+                return handleCreateRole(req);
+            case Action::UpdateRole:
+                return handleUpdateRole(req);
+            case Action::GetRole:
+                return handleGetRole(req);
+            case Action::ListRoles:
+                return handleListRoles(req);
+            case Action::DeleteRole:
+                return handleDeleteRole(req);
+            case Action::GrantRole:
+                return handleGrantRole(req);
+            case Action::RevokeRole:
+                return handleRevokeRole(req);
+            case Action::ListGrants:
+                return handleListGrants(req);
+            case Action::ListPermissions:
+                return handleListPermissions(req);
+            case Action::CheckPermission:
+                return handleCheckPermission(req);
             case Action::GetMetrics:
                 return EamServer::MetricsResponse(req);
 

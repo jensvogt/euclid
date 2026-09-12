@@ -224,6 +224,33 @@ namespace Euclid::Database {
          */
         void deleteUserGroup(const std::string &name) const override;
 
+        Entity::EAM::Role upsertRole(Entity::EAM::Role &role) override;
+
+        [[nodiscard]]
+        std::optional<Entity::EAM::Role> findRoleByName(const std::string &accountId, const std::string &name) const override;
+
+        [[nodiscard]]
+        long countRoles(const std::string &accountId) const override;
+
+        [[nodiscard]]
+        std::vector<Entity::EAM::Role> listRoles(const std::string &accountId, const std::string &prefix, long pageSize,
+                                                 long pageIndex, const std::string &sortColumn,
+                                                 const std::string &sortDirection = "asc") const override;
+
+        void deleteRole(const std::string &accountId, const std::string &name) const override;
+
+        Entity::EAM::Grant addGrant(Entity::EAM::Grant &grant) override;
+
+        [[nodiscard]]
+        std::vector<Entity::EAM::Grant> findGrantsByPrincipals(const std::vector<std::string> &principals) const override;
+
+        [[nodiscard]]
+        std::vector<Entity::EAM::Grant> findGrantsByRole(const std::string &accountId, const std::string &role) const override;
+
+        void deleteGrant(const std::string &oid) const override;
+
+        void deleteGrantsByPrincipal(const std::string &principal) const override;
+
         /**
          * @brief Update an existing account or insert a new account.
          *
@@ -377,6 +404,8 @@ namespace Euclid::Database {
         static constexpr auto USER_GROUP_COLLECTION = "eam_usergroup";
         static constexpr auto ACCOUNT_COLLECTION = "eam_account";
         static constexpr auto NAMESPACE_COLLECTION = "eam_namespace";
+        static constexpr auto ROLE_COLLECTION = "eam_role";
+        static constexpr auto GRANT_COLLECTION = "eam_grant";
 
         /**
          * @brief Creates the indexes required for efficient user lookup, if they do not already exist.

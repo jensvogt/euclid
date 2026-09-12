@@ -674,4 +674,197 @@ namespace Euclid::Database {
         }
     }
 
+    // ── Roles and grants ────────────────────────────────────────────────────
+
+    Entity::EAM::Role MongoEamRepository::upsertRole(Entity::EAM::Role &role) {
+
+        try {
+
+            // Account and name together: a role name is unique within an account, not across the
+            // installation, so matching on the name alone would have one account's role overwrite
+            // another's.
+            const auto filter = make_document(kvp("accountId", role.accountId), kvp("name", role.name));
+            const auto update = make_document(kvp("$set", role.toDocument()));
+
+            mongocxx::options::find_one_and_update opts;
+            opts.upsert(true);
+            opts.return_document(mongocxx::options::return_document::k_after);
+
+            auto roleCollection = Database::instance().collection(ROLE_COLLECTION);
+
+            if (auto result = roleCollection.find_one_and_update(filter.view(), update.view(), opts)) {
+                return Entity::EAM::Role::fromDocument(result->view());
+            }
+            throw std::runtime_error("upsert returned no document, name: " + role.name);
+
+        } catch (const std::exception &e) {
+            log_error << "Upsert role failed, accountId: " << role.accountId << ", name: " << role.name << ", error: " << e.what();
+            throw;
+        }
+    }
+
+    std::optional<Entity::EAM::Role> MongoEamRepository::findRoleByName(const std::string &accountId, const std::string &name) const {
+
+        try {
+
+            auto roleCollection = Database::instance().collection(ROLE_COLLECTION);
+
+            if (const auto result = roleCollection.find_one(make_document(kvp("accountId", accountId), kvp("name", name)))) {
+                return Entity::EAM::Role::fromDocument(result->view());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Find role failed, accountId: " << accountId << ", name: " << name << ", error: " << e.what();
+        }
+        return {};
+    }
+
+    long MongoEamRepository::countRoles(const std::string &accountId) const {
+
+        try {
+            auto roleCollection = Database::instance().collection(ROLE_COLLECTION);
+
+            return static_cast<long>(roleCollection.count_documents(make_document(kvp("accountId", accountId))));
+
+        } catch (const std::exception &e) {
+            log_error << "Count roles failed, accountId: " << accountId << ", error: " << e.what();
+        }
+        return -1;
+    }
+
+    std::vector<Entity::EAM::Role> MongoEamRepository::listRoles(const std::string &accountId, const std::string &prefix, const long pageSize,
+                                                                 const long pageIndex, const std::string &sortColumn,
+                                                                 const std::string &sortDirection) const {
+
+        std::vector<Entity::EAM::Role> roles;
+        try {
+
+            const auto filter = prefix.empty()
+                                        ? make_document(kvp("accountId", accountId))
+                                        : make_document(kvp("accountId", accountId), kvp("name", make_document(kvp("$regex", "^" + prefix))));
+
+            mongocxx::options::find opts;
+            if (!sortColumn.empty()) {
+                opts.sort(make_document(kvp(sortColumn, sortDirection == "asc" ? 1 : -1)));
+            }
+            if (pageSize > 0) {
+                opts.limit(pageSize);
+                opts.skip(std::max<long>(pageIndex, 0) * pageSize);
+            }
+
+            auto roleCollection = Database::instance().collection(ROLE_COLLECTION);
+
+            for (auto cursor = roleCollection.find(filter.view(), opts); auto doc: cursor) {
+                roles.push_back(Entity::EAM::Role::fromDocument(doc));
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "List roles failed, accountId: " << accountId << ", error: " << e.what();
+        }
+        return roles;
+    }
+
+    void MongoEamRepository::deleteRole(const std::string &accountId, const std::string &name) const {
+
+        try {
+            auto roleCollection = Database::instance().collection(ROLE_COLLECTION);
+
+            const auto result = roleCollection.delete_many(make_document(kvp("accountId", accountId), kvp("name", name)));
+            log_debug << "Role deleted, accountId: " << accountId << ", name: " << name << ", count: " << result->deleted_count();
+
+        } catch (const std::exception &e) {
+            log_error << "Delete role failed, accountId: " << accountId << ", name: " << name << ", error: " << e.what();
+        }
+    }
+
+    Entity::EAM::Grant MongoEamRepository::addGrant(Entity::EAM::Grant &grant) {
+
+        try {
+
+            auto grantCollection = Database::instance().collection(GRANT_COLLECTION);
+
+            // Inserted, not upserted: the same role granted to the same principal in two namespaces
+            // is two grants, and collapsing them would silently drop one of the two scopes.
+            const auto oid = grantCollection.insert_one(grant.toDocument().view());
+            if (oid.has_value()) grant.oid = oid->to_string();
+
+            log_debug << "Grant added, role: " << grant.role << ", principal: " << grant.principal;
+            return grant;
+
+        } catch (const std::exception &e) {
+            log_error << "Add grant failed, role: " << grant.role << ", principal: " << grant.principal << ", error: " << e.what();
+            throw;
+        }
+    }
+
+    std::vector<Entity::EAM::Grant> MongoEamRepository::findGrantsByPrincipals(const std::vector<std::string> &principals) const {
+
+        std::vector<Entity::EAM::Grant> grants;
+
+        // No principals is not "every grant" - it is a caller who is nobody, and the honest answer
+        // is nothing rather than everything.
+        if (principals.empty()) return grants;
+
+        try {
+
+            bsoncxx::builder::basic::array principalArray;
+            for (const auto &principal: principals) principalArray.append(principal);
+
+            const auto filter = make_document(kvp("principal", make_document(kvp("$in", principalArray))));
+
+            auto grantCollection = Database::instance().collection(GRANT_COLLECTION);
+
+            for (auto cursor = grantCollection.find(filter.view()); auto doc: cursor) {
+                grants.push_back(Entity::EAM::Grant::fromDocument(doc));
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Find grants failed, principals: " << principals.size() << ", error: " << e.what();
+        }
+        return grants;
+    }
+
+    std::vector<Entity::EAM::Grant> MongoEamRepository::findGrantsByRole(const std::string &accountId, const std::string &role) const {
+
+        std::vector<Entity::EAM::Grant> grants;
+        try {
+
+            auto grantCollection = Database::instance().collection(GRANT_COLLECTION);
+
+            for (auto cursor = grantCollection.find(make_document(kvp("accountId", accountId), kvp("role", role))); auto doc: cursor) {
+                grants.push_back(Entity::EAM::Grant::fromDocument(doc));
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Find grants by role failed, accountId: " << accountId << ", role: " << role << ", error: " << e.what();
+        }
+        return grants;
+    }
+
+    void MongoEamRepository::deleteGrant(const std::string &oid) const {
+
+        try {
+            auto grantCollection = Database::instance().collection(GRANT_COLLECTION);
+
+            const auto result = grantCollection.delete_one(make_document(kvp("_id", bsoncxx::oid(oid))));
+            log_debug << "Grant deleted, oid: " << oid << ", count: " << (result.has_value() ? result->deleted_count() : 0);
+
+        } catch (const std::exception &e) {
+            log_error << "Delete grant failed, oid: " << oid << ", error: " << e.what();
+        }
+    }
+
+    void MongoEamRepository::deleteGrantsByPrincipal(const std::string &principal) const {
+
+        try {
+            auto grantCollection = Database::instance().collection(GRANT_COLLECTION);
+
+            const auto result = grantCollection.delete_many(make_document(kvp("principal", principal)));
+            log_debug << "Grants deleted, principal: " << principal << ", count: " << result->deleted_count();
+
+        } catch (const std::exception &e) {
+            log_error << "Delete grants failed, principal: " << principal << ", error: " << e.what();
+        }
+    }
+
 }// namespace Euclid::Database

@@ -105,6 +105,17 @@ namespace Euclid::Core {
     }
 
     /**
+     * @brief Creates an EAM role ERN
+     *
+     * @param accountId account ID
+     * @param name role name, unique within the account
+     * @return resource ERN
+     */
+    inline std::string createEamRoleErn(const std::string &accountId, const std::string &name) {
+        return createErn("eam", accountId, "role:" + name);
+    }
+
+    /**
      * @brief Creates an EAM account ERN
      *
      * @param accountId account ID

@@ -346,3 +346,42 @@ set_target_properties(${MAX_MESSAGE_LENGTH_BINARY} PROPERTIES CXX_SCAN_FOR_MODUL
 target_link_libraries(${MAX_MESSAGE_LENGTH_BINARY} PRIVATE eucliddto Boost::unit_test_framework)
 
 add_test(NAME ${MAX_MESSAGE_LENGTH_BINARY} COMMAND ${MAX_MESSAGE_LENGTH_BINARY})
+
+set(PERMISSION_VOCABULARY_BINARY euclid-permission-vocabulary-tests)
+
+add_executable(${PERMISSION_VOCABULARY_BINARY} PermissionVocabularyTest.cpp)
+set_target_properties(${PERMISSION_VOCABULARY_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+# This test reads the module sources rather than linking them - what it checks is the text of the
+# dispatch tables against Core::Permissions::All().
+target_compile_definitions(${PERMISSION_VOCABULARY_BINARY} PRIVATE EUCLID_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_link_libraries(${PERMISSION_VOCABULARY_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${PERMISSION_VOCABULARY_BINARY} COMMAND ${PERMISSION_VOCABULARY_BINARY})
+
+set(BUILTIN_ROLE_BINARY euclid-builtin-role-tests)
+
+add_executable(${BUILTIN_ROLE_BINARY} BuiltinRoleTest.cpp)
+set_target_properties(${BUILTIN_ROLE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${BUILTIN_ROLE_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${BUILTIN_ROLE_BINARY} COMMAND ${BUILTIN_ROLE_BINARY})
+
+set(AUTHORIZATION_BINARY euclid-authorization-tests)
+
+add_executable(${AUTHORIZATION_BINARY} AuthorizationTest.cpp)
+set_target_properties(${AUTHORIZATION_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${AUTHORIZATION_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${AUTHORIZATION_BINARY} COMMAND ${AUTHORIZATION_BINARY})
+
+set(ROLE_REPOSITORY_BINARY euclid-role-repository-tests)
+
+add_executable(${ROLE_REPOSITORY_BINARY} RoleRepositoryTest.cpp)
+set_target_properties(${ROLE_REPOSITORY_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${ROLE_REPOSITORY_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${ROLE_REPOSITORY_BINARY} COMMAND ${ROLE_REPOSITORY_BINARY})
