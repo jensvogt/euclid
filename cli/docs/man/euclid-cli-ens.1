@@ -80,6 +80,14 @@ keep the expiry they were given. Messages published before retention
 existed carry none at all and are left alone \- clearing those out is
 .BR euclid-cli-ens-purge-topic (1),
 a deliberate act rather than a side effect of upgrading.
+.PP
+A period of
+.I \-1
+opts out: the message is stored with no expiry, exactly like one
+published before retention existed, so nothing removes it and the topic
+grows without limit. It can be set on one topic, or on
+.I euclid.modules.ens.retention-period
+for every topic that has no period of its own.
 .SH ACTIONS
 .TP
 .B create-topic

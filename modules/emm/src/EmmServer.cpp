@@ -6,19 +6,13 @@
 #include <algorithm>
 #include <unordered_set>
 
-// Mongo includes
-#include <bsoncxx/builder/basic/document.hpp>
-#include <bsoncxx/builder/basic/kvp.hpp>
-#include <bsoncxx/json.hpp>
-#include <mongocxx/collection.hpp>
-#include <mongocxx/options/replace.hpp>
-
 // Euclid includes
 #include <euclid/core/CryptoUtils.h>
 #include <euclid/core/DateTimeUtils.h>
 #include <euclid/core/JsonUtils.h>
 #include <euclid/database/Database.h>
 #include <EmmServer.h>
+#include <ExportImport.h>
 
 #include <ranges>
 
@@ -113,19 +107,6 @@ namespace Euclid::EMM {
                     Core::CryptoUtils::DeriveKeyPbkdf2(passphrase, salt, kKdfIterations, kKeyLength)};
         }
 
-        // Renders one collection as a JSON array of its documents. Each document round-trips through
-        // bsoncxx's relaxed Extended JSON (ISO dates, plain numbers, {"$oid": ...} for ObjectIds) on
-        // the way to a boost::json::value, rather than being hand-assembled from known fields - export
-        // is meant to reflect whatever is actually stored, including fields no repository method
-        // happens to read back out.
-        boost::json::array exportCollection(mongocxx::collection collection) {
-            boost::json::array docs;
-            for (auto cursor = collection.find({}); const auto &doc: cursor) {
-                docs.push_back(boost::json::parse(bsoncxx::to_json(doc, bsoncxx::ExtendedJsonMode::k_relaxed)));
-            }
-            return docs;
-        }
-
         // Collection name -> owning module, derived from moduleExportSpecs() (the single source of
         // truth for which collections belong to a module). "import" uses this to reject any collection
         // name it doesn't recognize instead of blindly writing wherever an import file happens to name
@@ -143,34 +124,6 @@ namespace Euclid::EMM {
             return result;
         }
 
-        // Upserts one collection's worth of documents (by "_id", replacing the whole document rather
-        // than merging fields, so a restore reflects the export exactly - including fields since
-        // removed from the live document). Each document is parsed independently so one malformed
-        // entry - the file is external input, possibly hand-edited - fails on its own instead of
-        // aborting the rest of the collection.
-        std::pair<long, long> importCollection(mongocxx::collection collection, const boost::json::array &docs) {
-            namespace basic = bsoncxx::builder::basic;
-            long imported = 0;
-            long failed = 0;
-            mongocxx::options::replace opts;
-            opts.upsert(true);
-            for (const auto &doc: docs) {
-                try {
-                    const auto bsonDoc = bsoncxx::from_json(boost::json::serialize(doc));
-                    const auto idElement = bsonDoc.view()["_id"];
-                    if (!idElement) {
-                        ++failed;
-                        continue;
-                    }
-                    collection.replace_one(basic::make_document(basic::kvp("_id", idElement.get_value())), bsonDoc.view(), opts);
-                    ++imported;
-                } catch (const std::exception &e) {
-                    log_warning << "emm import: skipping malformed document, collection: " << std::string(collection.name()) << ", error: " << e.what();
-                    ++failed;
-                }
-            }
-            return {imported, failed};
-        }
     }// namespace
 
     static AuthResult authenticate(const request<string_body> &req) {
@@ -314,18 +267,15 @@ namespace Euclid::EMM {
             }
         }
 
-        const auto entry = Database::Database::instance().client();
-        auto db = (*entry)[Database::Database::instance().databaseName()];
-
         boost::json::object collections;
         for (const auto &module: modules) {
             const auto &spec = specs.at(module);
             for (const auto &collectionName: spec.topLevel) {
-                collections[collectionName] = exportCollection(db[collectionName]);
+                collections[collectionName] = ExportCollection(Database::Database::instance().collection(collectionName));
             }
             if (full) {
                 for (const auto &collectionName: spec.fullOnly) {
-                    collections[collectionName] = exportCollection(db[collectionName]);
+                    collections[collectionName] = ExportCollection(Database::Database::instance().collection(collectionName));
                 }
             }
         }
@@ -440,8 +390,6 @@ namespace Euclid::EMM {
         const std::unordered_set<std::string> allowedModules(moduleFilter.begin(), moduleFilter.end());
 
         const auto &collModules = collectionModules();
-        const auto entry = Database::Database::instance().client();
-        auto db = (*entry)[Database::Database::instance().databaseName()];
 
         boost::json::object imported;
         boost::json::array skipped;
@@ -461,7 +409,7 @@ namespace Euclid::EMM {
                 continue;
             }
 
-            const auto [count, failed] = importCollection(db[name], docsValue.as_array());
+            const auto [count, failed] = ImportCollection(Database::Database::instance().collection(name), name, docsValue.as_array());
             boost::json::object result{{"imported", count}};
             if (failed > 0) result["failed"] = failed;
             imported[name] = std::move(result);
