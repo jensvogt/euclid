@@ -8,6 +8,9 @@
 
 #include <euclid/database/entity/emm/Module.h>
 
+// C++ includes
+#include <optional>
+
 namespace Euclid::Database::Entity {
 
     namespace {

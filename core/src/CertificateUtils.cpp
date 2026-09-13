@@ -12,6 +12,7 @@
 #include <iomanip>
 #include <memory>
 #include <sstream>
+#include <stdexcept>
 
 // Platform includes, for the address parsing the subject alternative names need
 #ifdef _WIN32

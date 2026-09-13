@@ -18,7 +18,11 @@ A transfer server ties three modules together. Clients authenticate
 with their
 .BR euclid-cli-eam (1)
 credentials, and are admitted only if the server names them directly or
-they belong to one of its permitted user groups. Whatever they upload is
+they belong to one of its permitted user groups. What they may then
+.I do
+is a second question, answered by the roles granted to them - see
+.B WHAT A CLIENT MAY DO
+below. Whatever they upload is
 stored as an object in the server's
 .BR euclid-cli-esm (1)
 bucket, and every listing and download reads back out of that bucket -
@@ -91,6 +95,135 @@ Marks a server as one that should be running. See
 Marks a server as one that should not be running, keeping its
 definition. See
 .BR euclid-cli-ets-stop-server (1).
+.SH WHAT A CLIENT MAY DO
+Being listed on a server admits a client; it does not decide what the
+client may do once it is on. That comes from the roles granted to it,
+the same ones that authorize everything else in euclid, and it is
+deny-by-default: a user with no grant that reaches this server is
+refused every command.
+.PP
+Seven permissions, checked by
+.BR euclid-ftp (8)
+and
+.BR euclid-sftp (8)
+before each command runs:
+.TP
+.B ets:list-directory
+FTP
+.IR LIST ", " NLST ", " CWD ", " CDUP ", " SIZE ", " MDTM ;
+SFTP
+.IR OPENDIR ", " STAT ", " LSTAT .
+Everything that says what is there.
+.TP
+.B ets:get-file
+FTP
+.IR RETR ;
+SFTP
+.I OPEN
+for reading. Downloads.
+.TP
+.B ets:put-file
+FTP
+.IR STOR ;
+SFTP
+.I OPEN
+for writing, and
+.IR SETSTAT .
+Uploads, including overwriting a file that is already there.
+.TP
+.B ets:rename-file
+SFTP
+.IR RENAME .
+FTP has no rename command on these servers.
+.TP
+.B ets:delete-file
+FTP
+.IR DELE ;
+SFTP
+.IR REMOVE .
+.TP
+.B ets:create-directory
+FTP
+.IR MKD ;
+SFTP
+.IR MKDIR .
+.TP
+.B ets:delete-directory
+FTP
+.IR RMD ;
+SFTP
+.IR RMDIR .
+.PP
+A request working through a handle the client already holds - SFTP
+.IR READ ", " WRITE ", " FSTAT ", " READDIR " and " CLOSE
+- is not checked again. The
+.I OPEN
+or
+.I OPENDIR
+that produced the handle is what decided it, so a download costs one
+decision rather than one per block.
+.SH GRANTING THEM
+The built-in
+.I transfer
+role is all seven, which is what a full-access client needs:
+.PP
+.RS
+.nf
+euclid-cli eam grant-role --role transfer \e
+    --principal ern:eam:eu-central-1:000000000000:userGroup:suppliers \e
+    --namespace production
+.fi
+.RE
+.PP
+Grant the same role to the user or the user group the server already
+lists, and onboarding stays one operation. To narrow it, write a role
+holding fewer of the seven with
+.BR euclid-cli-eam-create-role (1)
+\- a drop-box that may upload and list but never delete or overwrite is
+.I ets:put-file
+and
+.I ets:list-directory
+and nothing else.
+.PP
+Two built-in roles reach these without naming them, because they are
+computed from the vocabulary by rule:
+.I reader
+covers
+.I ets:list-directory
+and
+.IR ets:get-file ,
+and
+.I operator
+covers everything except the two
+.IR delete- s.
+So a user who already holds
+.I operator
+in the server's namespace keeps working with no new grant.
+.PP
+Scope a grant to one server by naming its ERN as the resource, which
+.BR euclid-cli-ets-get-server (1)
+prints:
+.PP
+.RS
+.nf
+euclid-cli eam grant-role --role transfer \e
+    --principal ern:eam:eu-central-1:000000000000:user:acme \e
+    --namespace production \e
+    --resource ern:ets:eu-central-1:000000000000:production:server:incoming
+.fi
+.RE
+.PP
+A grant naming no resource applies to every transfer server in the
+account, which is usually what a single-server installation wants.
+.PP
+Nothing here scopes by path: a client is confined to its home prefix by
+the server's
+.B \-\-home\-directory
+and that is the only path boundary there is.
+.BR euclid-cli-eam-check-permission (1)
+answers why a client was refused; the servers log the same reason, and
+send the client a bare "permission denied" rather than naming a role
+down a control connection.
 .SH GLOBAL OPTIONS
 These options are given to
 .B euclid-cli
@@ -196,6 +329,10 @@ euclid-cli --endpoint http://localhost:5566 ets list-servers
 .BR euclid-cli-ets-start-server (1),
 .BR euclid-cli-ets-stop-server (1),
 .BR euclid-cli-eam-login (1),
+.BR euclid-cli-eam-grant-role (1),
+.BR euclid-cli-eam-create-role (1),
+.BR euclid-cli-eam-check-permission (1),
+.BR euclid-cli-eam-list-permissions (1),
 .BR euclid-cli-esm (1)
 .SH AUTHOR
 Jens Vogt <jens.vogt@opitz-consulting.com>

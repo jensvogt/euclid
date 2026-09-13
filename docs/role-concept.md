@@ -169,7 +169,7 @@ kept alongside it (§5); a user's rights are its bindings and nothing else.
 
 ### 3.4 Built-in roles
 
-Nobody should have to write out 180 permissions to get started.
+Nobody should have to write out 189 permissions to get started.
 
 | Role | Roughly |
 |---|---|
@@ -179,6 +179,13 @@ Nobody should have to write out 180 permissions to get started.
 | `publisher` | `ens:publish-message`, `eqs:send-message`, plus the `get-*-ern` lookups needed to address them. |
 | `consumer` | `eqs:receive-messages`, `eqs:delete-message`, `eqs:set-visibility`, `ens:subscribe`, `ens:unsubscribe`. |
 | `application` | What EAP hands a deployed application: `publisher` + `consumer` + `esm:get-object`/`esm:put-object`, always bound with an explicit `resources` list. This is what `resourceGrants` was reaching for. |
+| `transfer` | Everything an FTP or SFTP client can do: the seven `ets:` transfer permissions of §4.3. Not `ets:start-server` and friends — a client that may upload must not be able to stop the server it uploads to. |
+
+The first three are *computed* from the vocabulary by rule, so a module that gains an action gains
+it in them on the next build. The last four are short lists, checked entry by entry against the
+vocabulary by `BuiltinRoleTest`. `transfer` is a list because "everything a transfer client can do"
+is not a shape the vocabulary has — and because the point of granting something narrower is to
+grant fewer than all seven.
 
 There is deliberately **no `administrator` role**. Installation administration is not a role binding
 — it stays exactly what it is today, membership in the `administrator` user group, bootstrapped in
@@ -264,6 +271,63 @@ The point is not that it is restricted — it is not — but that it is *nameabl
 is indistinguishable from a user's in the logs, and the honest answer to "did a person do this or
 did euclid?" is that nobody knows. A reserved principal makes the internal path one line in a log
 and one entry in `check-permission`'s answer instead of an unexplained allow.
+
+### 4.3 FTP and SFTP are a third enforcement point
+
+The two enforcement points above are both about HTTP requests on a module socket. A transfer server
+speaks neither: an FTP verb arrives on a control connection and an SFTP request as a packet, and
+neither reaches `Core::HttpActionServer` at all. Yet these are the callers most in need of being
+restricted — an external supplier with an FTP password is the least trusted principal an
+installation has.
+
+So `euclid-ftp` and `euclid-sftp` check a permission themselves, before running each command, via
+`Transfer::TransferAuthorizer` — the same `Database::Authorization::Allows()`, the same grants, the
+same roles.
+
+| Permission | FTP | SFTP |
+|---|---|---|
+| `ets:list-directory` | LIST, NLST, CWD, CDUP, SIZE, MDTM | OPENDIR, STAT, LSTAT |
+| `ets:get-file` | RETR | OPEN for reading |
+| `ets:put-file` | STOR | OPEN for writing, SETSTAT, FSETSTAT |
+| `ets:rename-file` | — (no RNFR/RNTO) | RENAME |
+| `ets:delete-file` | DELE | REMOVE |
+| `ets:create-directory` | MKD | MKDIR |
+| `ets:delete-directory` | RMD | RMDIR |
+
+Four things decided here that are worth stating, because each could reasonably have gone the other
+way:
+
+- **They are `ets:`, not a module of their own.** They belong to the module whose servers they
+  are, so one grant mechanism covers them and `list-permissions` is still the whole vocabulary.
+  `PermissionVocabularyTest` derives them from the two session sources — `permitted("get-file")`
+  literals — exactly as it derives the rest from the dispatch tables, and asserts the two `ets:`
+  sets do not overlap.
+- **The resource is the transfer server's ERN**, so a grant can be narrowed to one server.
+  Deliberately *not* the path: a client is already confined to its home prefix, and a second
+  path-shaped access model would be one too many to reason about.
+- **Handles are checked once.** SFTP READ/WRITE/FSTAT/READDIR/CLOSE are not re-checked; the
+  OPEN or OPENDIR that produced the handle is what decided it. Otherwise a download costs one
+  evaluation per 32 KB block.
+- **The client is never told why.** The reason names roles and grants; it goes to the log. The
+  client gets `550 Permission denied` or `SSH_FX_PERMISSION_DENIED`.
+
+ESM's own grants still apply underneath all of this — every call a session makes carries the
+client's own token. But they apply to the *bucket*, and there is no ESM permission meaning "may
+upload but not delete", because an overwrite and a delete both go through `esm:delete-object`. The
+distinction a transfer server needs is between commands, so it is drawn where the commands are.
+
+**This is a breaking change for any installation already running a transfer server.** Being listed
+in a server's `userIds`/`userGroups` used to be the whole of authorization; now it only admits the
+client. Grant the `transfer` role to the same users or groups the server already names:
+
+```
+euclid-cli eam grant-role --role transfer \
+    --principal ern:eam:eu-central-1:000000000000:userGroup:suppliers \
+    --namespace production
+```
+
+Many users need nothing: `reader` covers `ets:list-directory` and `ets:get-file` by the `get-`/
+`list-` rule, and `operator` covers everything but the two `delete-`s.
 
 ---
 
@@ -453,10 +517,20 @@ The order that keeps an installation working throughout:
      `shadow` would mean "authorize nobody" while reading as "not yet". The gate always enforces,
      and `HttpActionServer::RequireEnforcingAuthorization()` — called from the constructor, so
      every module gets it — refuses to start on a configuration file that still names either.
-   - ⬜ **The five client repos** still carry `AccountGrant` on their `User` DTO.
+   - ✅ **The five client repos.** euclid-rui keeps the old QML-facing shape and builds it from
+     roles; jdk, pdk, ndk and cdk dropped `AccountGrant` outright and gained
+     `grant-role`/`revoke-role`/`list-grants`/`check-permission`/`list-permissions`.
+7. **FTP and SFTP**, which the six steps above never covered because they are not HTTP — see §4.3.
+   - ✅ **Done.** Seven `ets:` permissions checked in `FtpSession`/`SftpSession` through
+     `Transfer::TransferAuthorizer`, plus the built-in `transfer` role so the migration is one
+     grant per server rather than a hand-written role per installation.
+   - This step *is* the breaking one for transfer users, and it has no shadow mode: there was no
+     old mechanism to run beside, only an absence. An installation upgrading has to grant before
+     its clients reconnect.
 
 Steps 1–3 are additive and reversible. Step 5 is the one that can lock people out, which is what
-step 4 exists to prevent.
+step 4 exists to prevent. Step 7 locks out transfer clients specifically, and the only mitigation
+is that `reader` and `operator` already cover most of what they do.
 
 ---
 

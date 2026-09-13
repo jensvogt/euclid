@@ -8,6 +8,9 @@
 
 #include <euclid/core/Scheduler.h>
 
+// C++ includes
+#include <utility>
+
 // Euclid includes
 #include <euclid/core/LogStream.h>
 #include <euclid/core/UuidUtils.h>

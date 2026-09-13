@@ -6,7 +6,9 @@
 #include <boost/test/unit_test.hpp>
 
 // C++ includes
+#include <algorithm>
 #include <cstdint>
+#include <stdexcept>
 #include <string>
 
 // MongoDB includes

@@ -8,6 +8,7 @@
 
 // C++ includes
 #include <stdexcept>
+#include <utility>
 
 // MongoDB includes
 #include <bsoncxx/builder/basic/document.hpp>
