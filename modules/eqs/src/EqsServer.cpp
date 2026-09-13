@@ -83,10 +83,16 @@ namespace Euclid::EQS {
     // same reasoning: which queue a request is about is named in its body, so only a handler can
     // ask. A caller with no resource grants at all, which is every human, is unaffected.
     static std::optional<response<string_body> > denyUngrantedQueue(const request<string_body> &req, const AuthResult &auth, const std::string &queueErn) {
+
         if (!auth.user.has_value()) return std::nullopt;
-        if (EqsServer::IsResourceAllowed(auth.user->userId, queueErn)) return std::nullopt;
-        log_warning << "EQS resource denied, userId: " << auth.user->userId << ", queueErn: " << queueErn;
-        return EqsServer::ErrorResponse(req, status::forbidden, "Not authorized for this queue: " + queueErn);
+
+        // See ESM's denyUngrantedBucket.
+
+        if (auto refusal = EqsServer::AuthorizeResource(req, queueErn)) {
+            log_warning << "EQS resource denied, userId: " << auth.user->userId << ", queueErn: " << queueErn;
+            return refusal;
+        }
+        return std::nullopt;
     }
 
     // Fills in the caller identity shared by every response DTO's "metadata" object. The
@@ -1428,7 +1434,7 @@ namespace Euclid::EQS {
         Core::Scheduler::instance().Cancel(_resetMessagesTaskId);
     }
 
-    response<string_body> EqsServer::Dispatch(const request<string_body> &req) {
+    response<string_body> EqsServer::DispatchAction(const request<string_body> &req) {
         return dispatch(req);
     }
 

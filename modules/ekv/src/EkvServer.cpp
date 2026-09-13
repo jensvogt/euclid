@@ -582,7 +582,7 @@ namespace Euclid::EKV {
 
     EkvServer::EkvServer(std::string socketPath, const int threads) : HttpActionServer("EKV", std::move(socketPath), threads) {}
 
-    response<string_body> EkvServer::Dispatch(const request<string_body> &req) {
+    response<string_body> EkvServer::DispatchAction(const request<string_body> &req) {
         return dispatch(req);
     }
 

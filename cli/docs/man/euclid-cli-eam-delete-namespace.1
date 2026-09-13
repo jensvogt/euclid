@@ -17,10 +17,10 @@ action.
 .PP
 The caller must be a global administrator, or hold account-scoped
 administrator privileges on \fIACCOUNTID\fR (see
-.BR euclid-cli-eam-grant-namespace-access (1)).
+.BR euclid-cli-eam-grant-role (1)).
 .PP
 Every user grant referencing this namespace must first be revoked (see
-.BR euclid-cli-eam-revoke-namespace-access (1)) -
+.BR euclid-cli-eam-grant-role (1)) -
 the server rejects the request with \fIHTTP 409\fR otherwise.
 .SH OPTIONS
 .TP
@@ -54,6 +54,5 @@ euclid-cli --endpoint http://localhost:5566 eam delete-namespace \e
 .BR euclid-cli-eam-login (1),
 .BR euclid-cli-eam-create-namespace (1),
 .BR euclid-cli-eam-list-namespaces (1),
-.BR euclid-cli-eam-revoke-namespace-access (1)
 .SH AUTHOR
 Jens Vogt <jens.vogt@opitz-consulting.com>

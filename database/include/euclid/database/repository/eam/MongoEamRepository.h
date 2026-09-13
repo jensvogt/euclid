@@ -245,11 +245,15 @@ namespace Euclid::Database {
         std::vector<Entity::EAM::Grant> findGrantsByPrincipals(const std::vector<std::string> &principals) const override;
 
         [[nodiscard]]
+        std::vector<Entity::EAM::Grant> findGrantsByAccount(const std::string &accountId) const override;
+
+        [[nodiscard]]
         std::vector<Entity::EAM::Grant> findGrantsByRole(const std::string &accountId, const std::string &role) const override;
 
         void deleteGrant(const std::string &oid) const override;
 
         void deleteGrantsByPrincipal(const std::string &principal) const override;
+
 
         /**
          * @brief Update an existing account or insert a new account.

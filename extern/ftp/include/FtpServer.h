@@ -102,7 +102,7 @@ namespace Euclid::FTP {
          */
         [[nodiscard]]
         boost::beast::http::response<boost::beast::http::string_body>
-        Dispatch(const boost::beast::http::request<boost::beast::http::string_body> &req) override;
+        DispatchAction(const boost::beast::http::request<boost::beast::http::string_body> &req) override;
 
     private:
 

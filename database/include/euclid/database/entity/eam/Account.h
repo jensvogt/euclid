@@ -17,7 +17,8 @@ namespace Euclid::Database::Entity::EAM {
 
     /**
      * @brief A tenant account. Namespaces and their resources are scoped under an account, and
-     * users are granted access to specific (account, namespace) pairs - see User::accountGrants.
+     * users are granted access to specific (account, namespace) pairs by a role binding scoped to
+     * them - see Entity::EAM::Grant.
      */
     struct Account {
 
@@ -38,7 +39,7 @@ namespace Euclid::Database::Entity::EAM {
         std::string name;
 
         /**
-         * @brief Euclid resource name, e.g. "ern:euclid:eam:eu-central-1:<accountId>:account:<accountId>"
+         * @brief Euclid resource name, e.g. "ern:eam:eu-central-1:<accountId>:account:<accountId>"
          * (see Core::createEamAccountErn()).
          */
         std::string ern;

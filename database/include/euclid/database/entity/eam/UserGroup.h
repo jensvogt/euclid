@@ -33,7 +33,7 @@ namespace Euclid::Database::Entity::EAM {
         std::string name;
 
         /**
-         * @brief Euclid resource name, e.g. "ern:euclid:access:eu-central-1:<accountId>:usergroup:<name>"
+         * @brief Euclid resource name, e.g. "ern:eam:eu-central-1:<accountId>:userGroup:<name>"
          * (see Core::createAccessUserGroupErn()).
          */
         std::string ern;

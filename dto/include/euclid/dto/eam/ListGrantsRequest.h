@@ -32,9 +32,19 @@ namespace Euclid::Dto::EAM {
         std::string principal;
 
         /**
-         * @brief A role name. When set, answers every grant of that role in the caller's account.
+         * @brief A role name. When set, answers every grant of that role in the account.
          */
         std::string role;
+
+        /**
+         * @brief Account to look in. The caller's own when empty.
+         *
+         * @par
+         * Naming another needs administrator rights on it, the same as granting in one does - a
+         * listing of who may do what in an account is not something to hand out more freely than
+         * the ability to change it.
+         */
+        std::string accountId;
 
         /**
          * @brief Serializes this to a JSON string
@@ -56,6 +66,7 @@ namespace Euclid::Dto::EAM {
             ListGrantsRequest r;
             r.principal = Core::GetStringValue(v, "principal");
             r.role = Core::GetStringValue(v, "role");
+            r.accountId = Core::GetStringValue(v, "accountId");
             return r;
         }
 
@@ -63,6 +74,7 @@ namespace Euclid::Dto::EAM {
             jv = {
                     {"principal", obj.principal},
                     {"role", obj.role},
+                    {"accountId", obj.accountId},
             };
         }
     };

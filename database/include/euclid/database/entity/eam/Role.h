@@ -58,7 +58,7 @@ namespace Euclid::Database::Entity::EAM {
 
         /**
          * @brief Euclid resource name, e.g.
-         * "ern:euclid:eam:eu-central-1:<accountId>::role/<name>".
+         * "ern:eam:eu-central-1:<accountId>:role:<name>".
          */
         std::string ern;
 

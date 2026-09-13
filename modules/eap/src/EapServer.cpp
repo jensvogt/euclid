@@ -232,18 +232,6 @@ namespace Euclid::EAP {
             key.active = true;
             key.created = now;
 
-            // Without a grant the principal can authenticate and do nothing: every module runs the
-            // caller's account through Core::HttpActionServer::GrantLookup, and a user with no
-            // grant for the account it names is refused. So it is granted its own account here -
-            // the same account the application belongs to, and no other - plus the namespace the
-            // application was created in, since a request that names one is checked against the
-            // grant's namespace list rather than the account alone.
-            Database::Entity::EAM::AccountGrant grant;
-            grant.accountId = accountId;
-            grant.isAdmin = false;
-            grant.granted = now;
-            if (!nameSpace.empty()) grant.namespaces.push_back(nameSpace);
-
             Database::Entity::EAM::User user;
             user.userId = technicalUserId(runtimeName);
             user.accountId = accountId;
@@ -260,14 +248,29 @@ namespace Euclid::EAP {
             user.email = user.userId + "@euclid.invalid";
             user.loginEnabled = false;
             user.accessKeys.push_back(key);
-            user.accountGrants.push_back(grant);
-            // Named resources narrow the principal to exactly them. Naming none leaves it able to
-            // reach everything in its account, which is what an application that was deployed
-            // without saying what it needs has always been able to do.
-            user.resourceGrants = resources;
 
-            const auto stored = Database::RepositoryFactory::instance().eamRepository()->upsertUser(user);
-            log_info << "EAP created technical user, userId: " << user.userId << ", accessKeyId: " << key.accessKeyId;
+            const auto repository = Database::RepositoryFactory::instance().eamRepository();
+            const auto stored = repository->upsertUser(user);
+
+            // Without a grant the principal authenticates and can do nothing - which is the right
+            // default now, and was not before: it used to be able to reach everything in its
+            // account unless the deployment named resources. The `application` role is what an
+            // application is for: publish, consume, and read and write objects. Nothing else.
+            Database::Entity::EAM::Grant grant;
+            grant.role = std::string(Core::BuiltinRoles::Application);
+            grant.principal = stored.ern;
+            grant.accountId = accountId;
+            grant.namespaces = nameSpace.empty() ? std::vector<std::string>{"*"} : std::vector{nameSpace};
+            // Named resources narrow it to exactly them. Naming none leaves it able to reach the
+            // account's resources through that role, which is what a deployment that said nothing
+            // about what it needs has always got.
+            grant.resources = resources.empty() ? std::vector<std::string>{"*"} : resources;
+            grant.granted = std::chrono::system_clock::now();
+            grant.grantedBy = "eap";
+            std::ignore = repository->addGrant(grant);
+
+            log_info << "EAP created technical user, userId: " << user.userId << ", accessKeyId: " << key.accessKeyId
+                     << ", role: " << grant.role << ", resources: " << grant.resources.size();
             return stored;
         }
 
@@ -608,8 +611,27 @@ namespace Euclid::EAP {
             if (isOwnedTechnicalUser(*application)) {
                 const auto eamRepository = Database::RepositoryFactory::instance().eamRepository();
                 if (auto principal = eamRepository->findUserByUserId(application->userId); principal.has_value()) {
-                    principal->resourceGrants = *resources;
-                    eamRepository->upsertUser(*principal);
+
+                    // Replaced rather than added to: the declared resource list is the whole of
+                    // what the application may reach, so one that dropped a bucket has to lose it.
+                    // Revoking the old grant and writing a new one is how a grant's scope changes -
+                    // a grant is immutable once written, and its id is what revoke takes.
+                    for (const auto &existing: eamRepository->findGrantsByPrincipals({principal->ern})) {
+                        if (existing.role == std::string(Core::BuiltinRoles::Application)) {
+                            eamRepository->deleteGrant(existing.oid);
+                        }
+                    }
+
+                    Database::Entity::EAM::Grant grant;
+                    grant.role = std::string(Core::BuiltinRoles::Application);
+                    grant.principal = principal->ern;
+                    grant.accountId = principal->accountId;
+                    grant.namespaces = {"*"};
+                    grant.resources = resources->empty() ? std::vector<std::string>{"*"} : *resources;
+                    grant.granted = std::chrono::system_clock::now();
+                    grant.grantedBy = "eap";
+                    std::ignore = eamRepository->addGrant(grant);
+
                     log_info << "EAP updated technical user resource grants, userId: " << principal->userId
                             << ", resources: " << resources->size();
                 }
@@ -629,12 +651,24 @@ namespace Euclid::EAP {
             if (isOwnedTechnicalUser(*application)) {
                 const auto eamRepository = Database::RepositoryFactory::instance().eamRepository();
                 if (auto principal = eamRepository->findUserByUserId(application->userId); principal.has_value()) {
-                    for (auto &grant: principal->accountGrants) {
-                        if (grant.accountId != application->accountId) continue;
-                        grant.namespaces.clear();
-                        if (!application->nameSpace.empty()) grant.namespaces.push_back(application->nameSpace);
+
+                    // Re-granted rather than edited: a grant's scope is fixed once written, so
+                    // moving one means revoking it and writing the same role in the new namespace.
+                    // Its resources travel unchanged - the application reaches the same buckets and
+                    // queues, from somewhere else.
+                    for (const auto &existing: eamRepository->findGrantsByPrincipals({principal->ern})) {
+                        if (existing.role != std::string(Core::BuiltinRoles::Application)) continue;
+
+                        Database::Entity::EAM::Grant moved = existing;
+                        moved.oid.clear();
+                        moved.namespaces = application->nameSpace.empty() ? std::vector<std::string>{"*"}
+                                                                          : std::vector{application->nameSpace};
+                        moved.granted = std::chrono::system_clock::now();
+                        moved.grantedBy = "eap";
+
+                        eamRepository->deleteGrant(existing.oid);
+                        std::ignore = eamRepository->addGrant(moved);
                     }
-                    eamRepository->upsertUser(*principal);
                     log_info << "EAP moved technical user's grant with its application, userId: " << principal->userId
                             << ", namespace: '" << previousNameSpace << "' -> '" << application->nameSpace << "'";
                 }
@@ -929,7 +963,7 @@ namespace Euclid::EAP {
 
     EapServer::EapServer(std::string socketPath, const int threads) : HttpActionServer("EAP", std::move(socketPath), threads) {}
 
-    response<string_body> EapServer::Dispatch(const request<string_body> &req) {
+    response<string_body> EapServer::DispatchAction(const request<string_body> &req) {
         return dispatch(req);
     }
 

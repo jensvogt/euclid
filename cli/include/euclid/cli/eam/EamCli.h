@@ -37,7 +37,6 @@
 #include <euclid/dto/eam/DeleteNamespaceRequest.h>
 #include <euclid/dto/eam/DeleteUserGroupRequest.h>
 #include <euclid/dto/eam/DeleteUserRequest.h>
-#include <euclid/dto/eam/GrantNamespaceAccessRequest.h>
 #include <euclid/dto/eam/ListAccessKeysResponse.h>
 #include <euclid/dto/eam/ListAccountsRequest.h>
 #include <euclid/dto/eam/ListNamespacesRequest.h>
@@ -47,7 +46,6 @@
 #include <euclid/dto/eam/LoginRequest.h>
 #include <euclid/dto/eam/LoginResponse.h>
 #include <euclid/dto/eam/RegisterRequest.h>
-#include <euclid/dto/eam/RevokeNamespaceAccessRequest.h>
 #include <euclid/dto/eam/UserGroupAddUserRequest.h>
 #include <euclid/dto/eam/UserGroupRemoveUserRequest.h>
 
@@ -338,24 +336,6 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int deleteNamespace(const std::vector<std::string> &args) const;
-
-        /**
-         * @brief Grants a user access to a namespace within an account
-         *
-         * @param args action arguments
-         * @return
-         */
-        [[nodiscard]]
-        int grantNamespaceAccess(const std::vector<std::string> &args) const;
-
-        /**
-         * @brief Revokes a user's access to a namespace within an account
-         *
-         * @param args action arguments
-         * @return
-         */
-        [[nodiscard]]
-        int revokeNamespaceAccess(const std::vector<std::string> &args) const;
 
         /**
          * @brief Switches the caller's active namespace for this session (persisted in

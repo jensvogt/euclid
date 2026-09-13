@@ -1216,7 +1216,7 @@ namespace Euclid::ENS {
         Core::Scheduler::instance().Cancel(_resetMessagesTaskId);
     }
 
-    response<string_body> EnsServer::Dispatch(const request<string_body> &req) {
+    response<string_body> EnsServer::DispatchAction(const request<string_body> &req) {
         return dispatch(req);
     }
 

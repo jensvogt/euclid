@@ -1,0 +1,97 @@
+.TH EUCLID-CLI-EAM-LIST-PERMISSIONS 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eam-list-permissions \- list every permission a role can hold
+.SH SYNOPSIS
+.B euclid-cli eam list-permissions
+.SH DESCRIPTION
+Prints the whole permission vocabulary: every right that
+.BR euclid-cli-eam-create-role (1)
+can put into a role, as
+.IR <module>:<action> .
+.PP
+A permission is the pair of headers the request it authorizes already
+carries \-
+.I x\-euclid\-target
+and
+.I x\-euclid\-action
+\- joined by a colon. So
+.I ens:publish\-message
+is not a name invented for the access model; it is the request itself,
+spelled the way the wire spells it.
+.SH WHY IT IS GENERATED, NOT WRITTEN DOWN
+The list comes from what the modules actually dispatch, checked against
+their dispatch tables on every build. A vocabulary maintained separately
+from the actions it describes drifts the first time a module gains one,
+and the drift is invisible in both directions: a new action simply cannot
+be granted, or a permission names something that no longer exists and
+quietly grants nothing.
+.PP
+So this is not a copy of what can be granted. It is what can be granted.
+.SH THE MODULES THAT ARE MISSING
+Two modules have no permissions at all, and are named in the response's
+.I unbindableModules
+field rather than being silently absent:
+.TP
+.B emm
+The management module \- export, import, backup and restore. It stays
+reachable by installation administrators only. See
+.BR euclid-cli-emm (1).
+.TP
+.B emd
+The document-store daemon. It dispatches
+.IR find\-one / replace\-one / delete
+against any collection by name, so a grant of it would reach past every
+check every other module makes. It is euclid's own plumbing and nothing
+else uses it.
+.PP
+Nothing can grant these, including
+.IR *:* .
+.BR euclid-cli-eam-check-permission (1)
+refuses an action of theirs with "is not a permission any role can hold"
+rather than "no grant applies", which is the difference between a
+misspelling and a missing grant.
+.SH WHO MAY RUN IT
+Anybody logged in. Unlike the rest of the role commands, this needs no
+administrator privileges: it is the vocabulary, not anybody's access, and
+a user asking what could be granted is asking nothing private.
+.SH OPTIONS
+None.
+.SH OUTPUT
+.TP
+.B permissions
+Every permission, sorted.
+.TP
+.B modules
+The modules whose actions can be granted, sorted.
+.TP
+.B unbindableModules
+The two above.
+.SH EXIT STATUS
+.TP
+.B 0
+The vocabulary was printed.
+.TP
+.B 1
+The request could not be sent, or there is no valid session. If the
+failure was an expired or invalid session (\fIHTTP 401\fR), the stored
+credentials file is removed; run
+.B euclid-cli eam login
+again before retrying.
+.SH EXAMPLES
+.RS
+.nf
+# Everything that can be granted
+euclid-cli --endpoint http://localhost:5566 eam list-permissions
+
+# Just what ENS answers, to build a topic-shaped role
+euclid-cli --endpoint http://localhost:5566 eam list-permissions \e
+    | grep '"ens:'
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-create-role (1),
+.BR euclid-cli-eam-get-role (1),
+.BR euclid-cli-eam-check-permission (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

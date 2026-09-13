@@ -14,7 +14,7 @@ The
 module talks to the Euclid gateway's eam service to authenticate and
 manage the access-control hierarchy: accounts, the namespaces under them
 (e.g. \fIdevelopment\fR, \fIintegration\fR, \fIproduction\fR), users, user
-groups, per-user namespace grants, and which namespace the current session
+groups, the roles granted to them, and which namespace the current session
 is restricted to. Every
 .B eam
 command sends a single JSON request to the gateway
@@ -119,21 +119,100 @@ remaining user grants. Requires administrator privileges on that account.
 See
 .BR euclid-cli-eam-delete-namespace (1).
 .TP
-.B grant-namespace-access
-Grants a user access to a specific namespace within a specific account.
-Requires administrator privileges on that account. See
-.BR euclid-cli-eam-grant-namespace-access (1).
-.TP
-.B revoke-namespace-access
-Revokes a user's access to a specific namespace within a specific
-account. Requires administrator privileges on that account. See
-.BR euclid-cli-eam-revoke-namespace-access (1).
-.TP
 .B change-namespace
 Switches the active namespace for this session (or clears it), validated
 against the caller's own grants. Self-service; no administrator
 privileges required beyond having been granted the target namespace. See
 .BR euclid-cli-eam-change-namespace (1).
+.TP
+.B create-role
+Creates a role in your account: a named set of permissions. Requires
+administrator privileges. See
+.BR euclid-cli-eam-create-role (1).
+.TP
+.B update-role
+Replaces what a role grants, for everyone bound to it at once. Requires
+administrator privileges. See
+.BR euclid-cli-eam-update-role (1).
+.TP
+.B get-role
+Shows one role and the permissions it holds. Requires administrator
+privileges. See
+.BR euclid-cli-eam-get-role (1).
+.TP
+.B list-roles
+Lists the roles this account can bind: the six built-in ones and the
+account's own. Requires administrator privileges. See
+.BR euclid-cli-eam-list-roles (1).
+.TP
+.B delete-role
+Deletes one of the account's roles; refused while any grant still names
+it. Requires administrator privileges. See
+.BR euclid-cli-eam-delete-role (1).
+.TP
+.B grant-role
+Gives a role to a user or a user group, scoped to namespaces and
+resources. Requires administrator privileges. See
+.BR euclid-cli-eam-grant-role (1).
+.TP
+.B revoke-role
+Removes one grant, by the id it was created with. Requires administrator
+privileges. See
+.BR euclid-cli-eam-revoke-role (1).
+.TP
+.B list-grants
+Lists grants: by principal, by role, or - giving neither - a whole
+account. Requires administrator privileges. See
+.BR euclid-cli-eam-list-grants (1).
+.TP
+.B check-permission
+Asks whether a user would be allowed to do something, counting group
+membership, and says what decided it. Requires administrator privileges.
+See
+.BR euclid-cli-eam-check-permission (1).
+.TP
+.B list-permissions
+Lists every permission a role can hold. Readable by anybody logged in.
+See
+.BR euclid-cli-eam-list-permissions (1).
+.SH ROLES AND GRANTS
+Access is deny-by-default. What a user may do is the union of the roles
+granted to them and to the groups they belong to; there are no deny rules
+and no role hierarchy.
+.PP
+A
+.B role
+is a named set of permissions and says only what may be done. A
+permission is
+.IR <module>:<action> ,
+which is the
+.I x\-euclid\-target
+and
+.I x\-euclid\-action
+headers of the request it authorizes \- so the vocabulary is generated
+from what the modules dispatch rather than invented alongside it. See
+.BR euclid-cli-eam-list-permissions (1).
+.PP
+A
+.B grant
+gives one role to one principal \- a user or a user group, named by ERN
+\- scoped to the namespaces of an account and to ERN patterns for the
+actions that name a resource. A grant's scope is fixed once written; to
+change it, revoke and grant again. The role is resolved when the grant is
+evaluated rather than copied into it, so changing a role changes every
+grant of it at once.
+.PP
+Six roles exist in every account without anybody creating them:
+.IR account\-administrator ,
+.IR operator ,
+.IR reader ,
+.IR publisher ,
+.I consumer
+and
+.IR application .
+They are computed from the permission vocabulary rather than stored, so
+an action a module gains lands in them on the next build. See
+.BR euclid-cli-eam-list-roles (1).
 .SH ADMINISTRATOR PRIVILEGES
 There is no per-user "is admin" field. Instead, two independent levels of
 administrator privilege exist:
@@ -151,14 +230,32 @@ on the
 group.
 .TP
 .B Account-scoped administrator
-A per-user, per-account grant (separate from namespace access grants)
-that allows managing one account's namespaces and namespace-access grants
-without being a global administrator. Account creation and deletion
-themselves are always global-administrator-only.
+A grant of the built-in
+.I account-administrator
+role in one account, which allows managing that account's namespaces
+without being an installation administrator - see
+.BR euclid-cli-eam-create-namespace (1)
+and
+.BR euclid-cli-eam-delete-namespace (1).
+Account creation and deletion themselves are always
+installation-administrator-only, being platform operations rather than
+account ones. Grant it with
+.BR euclid-cli-eam-grant-role (1).
 .PP
-Account-scoped administrator status cannot currently be granted through
-this CLI; it is set when the grant is created programmatically (e.g. the
-bootstrap account grant given to the default administrator user).
+It does not currently extend to the role commands. Every one of them
+except
+.B list-permissions
+requires installation administrator, so an account administrator cannot
+grant roles even within their own account.
+.PP
+Note also that the role it names is the strongest a
+.I role
+can be and still not installation administration: it is
+.IR *:* ,
+which does not reach
+.I emm
+or
+.IR emd .
 .SH GLOBAL OPTIONS
 These options are given to
 .B euclid-cli
@@ -287,9 +384,20 @@ euclid-cli --endpoint http://localhost:5566 eam create-account \e
 euclid-cli --endpoint http://localhost:5566 eam create-namespace \e
     --account-id 123456789012 --name development
 
-euclid-cli --endpoint http://localhost:5566 eam grant-namespace-access \e
-    --user ern:eam:eu-central-1:123456789012:user:jdoe \e
-    --account-id 123456789012 --namespace development
+euclid-cli --endpoint http://localhost:5566 eam grant-role \e
+    --role operator \e
+    --principal ern:eam:eu-central-1:123456789012:user:jdoe \e
+    --account 123456789012 --namespace development
+.fi
+.RE
+.PP
+Check that it landed, and see why if it didn't:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eam check-permission \e
+    --user jdoe --target ens --action publish-message \e
+    --namespace development
 .fi
 .RE
 .PP
@@ -328,8 +436,16 @@ euclid-cli --endpoint http://localhost:5566 eam change-namespace \e
 .BR euclid-cli-eam-create-namespace (1),
 .BR euclid-cli-eam-list-namespaces (1),
 .BR euclid-cli-eam-delete-namespace (1),
-.BR euclid-cli-eam-grant-namespace-access (1),
-.BR euclid-cli-eam-revoke-namespace-access (1),
-.BR euclid-cli-eam-change-namespace (1)
+.BR euclid-cli-eam-change-namespace (1),
+.BR euclid-cli-eam-create-role (1),
+.BR euclid-cli-eam-update-role (1),
+.BR euclid-cli-eam-get-role (1),
+.BR euclid-cli-eam-list-roles (1),
+.BR euclid-cli-eam-delete-role (1),
+.BR euclid-cli-eam-grant-role (1),
+.BR euclid-cli-eam-revoke-role (1),
+.BR euclid-cli-eam-list-grants (1),
+.BR euclid-cli-eam-check-permission (1),
+.BR euclid-cli-eam-list-permissions (1)
 .SH AUTHOR
 Jens Vogt <jens.vogt@opitz-consulting.com>

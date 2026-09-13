@@ -311,7 +311,7 @@ namespace Euclid::EES {
         longPollSlots.limit(threads - 1);
     }
 
-    response<string_body> EesServer::Dispatch(const request<string_body> &req) {
+    response<string_body> EesServer::DispatchAction(const request<string_body> &req) {
         return dispatch(req);
     }
 

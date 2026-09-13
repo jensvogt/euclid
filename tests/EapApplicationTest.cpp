@@ -266,15 +266,9 @@ BOOST_AUTO_TEST_CASE(TechnicalPrincipalIsAnIdentityThatCannotLogIn) {
     principal.loginEnabled = false;
     principal.accessKeys.push_back(key);
 
-    // Its own account, and nothing else: without a grant the principal would authenticate fine
-    // and then be refused by every module's GrantLookup, which checks the account a request names
-    // against the grants its caller holds.
-    Euclid::Database::Entity::EAM::AccountGrant grant;
-    grant.accountId = "000000000000";
-    grant.namespaces = {"development"};
-    principal.accountGrants.push_back(grant);
-
-    principal.resourceGrants = {"ern:esm:eu-central-1:000000000000:development:bucket:inbox"};
+    // What the principal may do no longer lives on the user: EAP grants it the `application` role
+    // over the resources the application declared, and that is a Grant record of its own - see
+    // EapServer's createTechnicalUser and RoleRepositoryTest.
 
     const auto restored = Euclid::Database::Entity::EAM::User::fromDocument(principal.toDocument().view());
     // Named after what the application runs as, not what it is defined as: an EAM userId is unique
@@ -283,16 +277,10 @@ BOOST_AUTO_TEST_CASE(TechnicalPrincipalIsAnIdentityThatCannotLogIn) {
     // application that moves namespace keeps its principal and its key.
     BOOST_TEST(restored.userId == "app-orders-a3f2k9x1");
     BOOST_TEST(restored.userId == "app-" + RuntimeName(demoApplication()));
-    BOOST_TEST(restored.resourceGrants == (std::vector<std::string>{"ern:esm:eu-central-1:000000000000:development:bucket:inbox"}));
     BOOST_TEST(!restored.loginEnabled);
     BOOST_TEST(restored.password.empty());
     BOOST_TEST_REQUIRE(restored.accessKeys.size() == 1U);
     BOOST_TEST(restored.accessKeys[0].accessKeyId == "AKIAEXAMPLE");
-
-    BOOST_TEST_REQUIRE(restored.accountGrants.size() == 1U);
-    BOOST_TEST(restored.accountGrants[0].accountId == "000000000000");
-    BOOST_TEST(!restored.accountGrants[0].isAdmin);
-    BOOST_TEST(restored.accountGrants[0].namespaces == (std::vector<std::string>{"development"}));
 }
 
 BOOST_AUTO_TEST_CASE(UsersWrittenBeforeTheFlagExistedCanStillLogIn) {
@@ -302,7 +290,6 @@ BOOST_AUTO_TEST_CASE(UsersWrittenBeforeTheFlagExistedCanStillLogIn) {
     BOOST_TEST(user.loginEnabled);
     // And are unrestricted: an empty grant list means no resource restriction, so nobody who
     // predates this becomes unable to reach their own buckets.
-    BOOST_TEST(user.resourceGrants.empty());
 }
 
 BOOST_AUTO_TEST_CASE(TwoTechnicalPrincipalsCanCoexist) {

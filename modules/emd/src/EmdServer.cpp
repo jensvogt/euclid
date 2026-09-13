@@ -92,7 +92,7 @@ namespace Euclid::EMD {
 
     EmdServer::EmdServer(std::string socketPath, const int threads) : HttpActionServer("EMD", std::move(socketPath), threads) {}
 
-    response<string_body> EmdServer::Dispatch(const request<string_body> &req) {
+    response<string_body> EmdServer::DispatchAction(const request<string_body> &req) {
 
         const auto action = std::string(req["x-euclid-action"]);
         const auto request = requestOf(req);

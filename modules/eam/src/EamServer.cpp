@@ -22,7 +22,6 @@
 #include <euclid/dto/eam/DeleteAccountRequest.h>
 #include <euclid/dto/eam/DeleteNamespaceRequest.h>
 #include <euclid/dto/eam/DeleteUserGroupRequest.h>
-#include <euclid/dto/eam/GrantNamespaceAccessRequest.h>
 #include <euclid/dto/eam/ListAccountsRequest.h>
 #include <euclid/dto/eam/ListAccountsResponse.h>
 #include <euclid/dto/eam/ListNamespacesRequest.h>
@@ -33,7 +32,6 @@
 #include <euclid/dto/eam/OidcAuthorizeResponse.h>
 #include <euclid/dto/eam/OidcLoginRequest.h>
 #include <euclid/dto/eam/SamlAuthorizeResponse.h>
-#include <euclid/dto/eam/RevokeNamespaceAccessRequest.h>
 #include <euclid/dto/eam/UserGroupAddUserRequest.h>
 
 namespace Euclid::EAM {
@@ -72,13 +70,19 @@ namespace Euclid::EAM {
         return Database::IsEamAdmin(*Database::RepositoryFactory::instance().eamRepository(), user.userId);
     }
 
-    // Whether user may administer accountId's namespaces/grants: either a global administrator,
-    // or holds an account-scoped AccountGrant.isAdmin for that specific account. Account creation
-    // and deletion themselves stay global-admin-only (see handleCreateAccount/handleDeleteAccount)
-    // since those are platform-level operations, not delegable to an account owner.
+    // Whether user may administer accountId's namespaces: either an installation administrator, or
+    // holding the account-administrator role in that account. Account creation and deletion stay
+    // installation-admin-only (see handleCreateAccount/handleDeleteAccount) since those are
+    // platform-level operations, not delegable to an account owner.
     static bool isAccountAdmin(const Database::Entity::EAM::User &user, const std::string &accountId) {
+
         if (isAdmin(user)) return true;
-        return std::ranges::any_of(user.accountGrants, [&](const auto &grant) { return grant.accountId == accountId && grant.isAdmin; });
+
+        const auto role = std::string(Core::BuiltinRoles::AccountAdministrator);
+        const auto repo = Database::RepositoryFactory::instance().eamRepository();
+
+        return std::ranges::any_of(repo->findGrantsByPrincipals(Database::PrincipalsOf(user)),
+                                   [&](const auto &grant) { return grant.role == role && grant.accountId == accountId; });
     }
 
     // Token lifetime, and the matching lifetime given to the Session record created on login -
@@ -1217,14 +1221,17 @@ namespace Euclid::EAM {
             return EamServer::ErrorResponse(req, status::conflict, "Account still has namespaces, delete those first");
         }
 
-        // No index on accountGrants.accountId - acceptable given this is an infrequent,
-        // admin-only operation over an expected-small user set.
-        const auto users = repo->listUsers("", 0, 0, "");
-        const bool stillGranted = std::ranges::any_of(users, [&](const auto &user) {
-            return std::ranges::any_of(user.accountGrants, [&](const auto &grant) { return grant.accountId == request.accountId; });
-        });
+        // Every grant in the account, whoever holds it. Asked per role rather than per user
+        // because that is the index the grant store has - and an account with no roles left has
+        // nothing granted in it by definition.
+        const bool stillGranted = std::ranges::any_of(Core::BuiltinRoles::Names(), [&](const auto &role) {
+                                      return !repo->findGrantsByRole(request.accountId, role).empty();
+                                  }) ||
+                                  std::ranges::any_of(repo->listRoles(request.accountId, "", 0, 0, "name"), [&](const auto &role) {
+                                      return !repo->findGrantsByRole(request.accountId, role.name).empty();
+                                  });
         if (stillGranted) {
-            return EamServer::ErrorResponse(req, status::conflict, "Account still has user grants, revoke those first");
+            return EamServer::ErrorResponse(req, status::conflict, "Account still has role grants, revoke those first");
         }
 
         repo->deleteAccount(request.accountId);
@@ -1331,103 +1338,22 @@ namespace Euclid::EAM {
             return EamServer::ErrorResponse(req, status::not_found, "Namespace not found");
         }
 
-        const auto users = repo->listUsers("", 0, 0, "");
-        const bool stillGranted = std::ranges::any_of(users, [&](const auto &user) {
-            return std::ranges::any_of(user.accountGrants, [&](const auto &grant) {
-                return grant.accountId == request.accountId && std::ranges::contains(grant.namespaces, request.name);
+        // A grant scoped to this namespace by name. One scoped to "*" is not counted: it covers
+        // whatever namespaces the account has, and would make every namespace undeletable.
+        const auto grantsNaming = [&](const std::string &role) {
+            return std::ranges::any_of(repo->findGrantsByRole(request.accountId, role), [&](const auto &grant) {
+                return std::ranges::contains(grant.namespaces, request.name);
             });
-        });
+        };
+        const bool stillGranted = std::ranges::any_of(Core::BuiltinRoles::Names(), grantsNaming) ||
+                                  std::ranges::any_of(repo->listRoles(request.accountId, "", 0, 0, "name"),
+                                                      [&](const auto &role) { return grantsNaming(role.name); });
         if (stillGranted) {
-            return EamServer::ErrorResponse(req, status::conflict, "Namespace still has user grants, revoke those first");
+            return EamServer::ErrorResponse(req, status::conflict, "Namespace still has role grants, revoke those first");
         }
 
         repo->deleteNamespace(request.accountId, request.name);
         log_info << "Namespace deleted, accountId: " << request.accountId << ", name: " << request.name;
-
-        return EamServer::JsonResponse(req, status::ok);
-    }
-
-    static response<string_body> handleGrantNamespaceAccess(const request<string_body> &req) {
-
-        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "grant-namespace-access");
-
-        const auto auth = authenticate(req);
-        if (!auth.user.has_value()) {
-            return unauthorized(req, auth);
-        }
-
-        boost::json::value jv;
-        if (const auto err = EamServer::ParseJsonBody(req, jv)) return *err;
-
-        const auto request = boost::json::value_to<Dto::EAM::GrantNamespaceAccessRequest>(jv);
-        if (request.user.empty() || request.accountId.empty() || request.ns.empty()) {
-            return EamServer::ErrorResponse(req, status::bad_request, "user, accountId and namespace are required");
-        }
-        if (!isAccountAdmin(*auth.user, request.accountId)) {
-            return EamServer::ErrorResponse(req, status::forbidden, "Administrator privileges required for this account");
-        }
-
-        const auto repo = Database::RepositoryFactory::instance().eamRepository();
-        if (!repo->namespaceExists(request.accountId, request.ns)) {
-            return EamServer::ErrorResponse(req, status::conflict, "Namespace does not exist");
-        }
-        if (!repo->userErnExists(request.user)) {
-            return EamServer::ErrorResponse(req, status::conflict, "User does not exist");
-        }
-
-        auto user = repo->findUserByErn(request.user);
-        const auto grantIt = std::ranges::find_if(user->accountGrants, [&](const auto &g) { return g.accountId == request.accountId; });
-        if (grantIt == user->accountGrants.end()) {
-            user->accountGrants.push_back({.accountId = request.accountId, .namespaces = {request.ns}, .granted = Core::DateTimeUtils::ToISO8601(std::chrono::system_clock::now())});
-        } else if (std::ranges::contains(grantIt->namespaces, request.ns)) {
-            return EamServer::ErrorResponse(req, status::conflict, "Grant already exists");
-        } else {
-            grantIt->namespaces.push_back(request.ns);
-        }
-
-        const auto saved = repo->upsertUser(*user);
-        log_info << "Namespace access granted, user: " << saved.userId << ", accountId: " << request.accountId << ", namespace: " << request.ns;
-
-        return EamServer::JsonResponse(req, status::ok);
-    }
-
-    static response<string_body> handleRevokeNamespaceAccess(const request<string_body> &req) {
-
-        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "revoke-namespace-access");
-
-        const auto auth = authenticate(req);
-        if (!auth.user.has_value()) {
-            return unauthorized(req, auth);
-        }
-
-        boost::json::value jv;
-        if (const auto err = EamServer::ParseJsonBody(req, jv)) return *err;
-
-        const auto request = boost::json::value_to<Dto::EAM::RevokeNamespaceAccessRequest>(jv);
-        if (request.user.empty() || request.accountId.empty() || request.ns.empty()) {
-            return EamServer::ErrorResponse(req, status::bad_request, "user, accountId and namespace are required");
-        }
-        if (!isAccountAdmin(*auth.user, request.accountId)) {
-            return EamServer::ErrorResponse(req, status::forbidden, "Administrator privileges required for this account");
-        }
-
-        const auto repo = Database::RepositoryFactory::instance().eamRepository();
-        if (!repo->userErnExists(request.user)) {
-            return EamServer::ErrorResponse(req, status::conflict, "User does not exist");
-        }
-
-        auto user = repo->findUserByErn(request.user);
-        const auto grantIt = std::ranges::find_if(user->accountGrants, [&](const auto &g) { return g.accountId == request.accountId; });
-        if (grantIt == user->accountGrants.end() || !std::ranges::contains(grantIt->namespaces, request.ns)) {
-            return EamServer::ErrorResponse(req, status::conflict, "Grant does not exist");
-        }
-        std::erase(grantIt->namespaces, request.ns);
-        if (grantIt->namespaces.empty()) {
-            std::erase_if(user->accountGrants, [&](const auto &g) { return g.accountId == request.accountId; });
-        }
-
-        const auto saved = repo->upsertUser(*user);
-        log_info << "Namespace access revoked, user: " << saved.userId << ", accountId: " << request.accountId << ", namespace: " << request.ns;
 
         return EamServer::JsonResponse(req, status::ok);
     }
@@ -1461,9 +1387,12 @@ namespace Euclid::EAM {
         }
 
         const bool granted = isAccountAdmin(*auth.user, auth.user->accountId) ||
-                             std::ranges::any_of(auth.user->accountGrants, [&](const auto &grant) {
-                                 return grant.accountId == auth.user->accountId && std::ranges::contains(grant.namespaces, request.ns);
-                             });
+                             std::ranges::any_of(repo->findGrantsByPrincipals(Database::PrincipalsOf(*auth.user)),
+                                                 [&](const auto &grant) {
+                                                     return grant.accountId == auth.user->accountId &&
+                                                            (std::ranges::contains(grant.namespaces, request.ns) ||
+                                                             std::ranges::contains(grant.namespaces, std::string("*")));
+                                                 });
         if (!granted) {
             return EamServer::ErrorResponse(req, status::forbidden, "Namespace access not granted");
         }
@@ -1790,11 +1719,18 @@ namespace Euclid::EAM {
                                             R"(namespaces is required; use ["*"] for every namespace of the account)");
         }
 
+        // The caller's own account unless they named one, and naming another is something only an
+        // administrator of it may do - otherwise granting in an account would be a way into it.
+        const auto accountId = request.accountId.empty() ? auth.user->accountId : request.accountId;
+        if (accountId != auth.user->accountId && !isAccountAdmin(*auth.user, accountId)) {
+            return EamServer::ErrorResponse(req, status::forbidden, "Not an administrator of account " + accountId);
+        }
+
         const auto repo = Database::RepositoryFactory::instance().eamRepository();
 
         // The role has to exist, here, now - a grant naming a role that does not exist is inert,
         // and nobody would find out until somebody was refused something they were told they had.
-        if (!repo->findRoleByName(auth.user->accountId, request.role).has_value() && !Core::BuiltinRoles::Exists(request.role)) {
+        if (!repo->findRoleByName(accountId, request.role).has_value() && !Core::BuiltinRoles::Exists(request.role)) {
             return EamServer::ErrorResponse(req, status::not_found, "Role not found, name: " + request.role);
         }
 
@@ -1808,7 +1744,7 @@ namespace Euclid::EAM {
         Database::Entity::EAM::Grant grant;
         grant.role = request.role;
         grant.principal = request.principal;
-        grant.accountId = auth.user->accountId;
+        grant.accountId = accountId;
         grant.namespaces = request.namespaces;
         grant.resources = request.resources;
         grant.granted = std::chrono::system_clock::now();
@@ -1861,18 +1797,26 @@ namespace Euclid::EAM {
         if (const auto err = EamServer::ParseJsonBody(req, jv)) return *err;
 
         const auto request = boost::json::value_to<Dto::EAM::ListGrantsRequest>(jv);
-        if (request.principal.empty() == request.role.empty()) {
+        if (!request.principal.empty() && !request.role.empty()) {
             return EamServer::ErrorResponse(req, status::bad_request,
-                                            "give exactly one of principal or role - 'what may they do' and 'who can do this' "
+                                            "give principal or role, not both - 'what may they do' and 'who can do this' "
                                             "are different questions");
+        }
+
+        const auto accountId = request.accountId.empty() ? auth.user->accountId : request.accountId;
+        if (accountId != auth.user->accountId && !isAccountAdmin(*auth.user, accountId)) {
+            return EamServer::ErrorResponse(req, status::forbidden, "Not an administrator of account " + accountId);
         }
 
         const auto repo = Database::RepositoryFactory::instance().eamRepository();
 
         Dto::EAM::ListGrantsResponse response;
-        const auto grants = request.principal.empty()
-                                    ? repo->findGrantsByRole(auth.user->accountId, request.role)
-                                    : repo->findGrantsByPrincipals({request.principal});
+        // Neither is a third question - "what is granted here at all" - and the one an
+        // administration view asks: a list of users and what each may do is otherwise one request
+        // per user, which is what the per-user grant lists used to give away for free.
+        const auto grants = !request.principal.empty() ? repo->findGrantsByPrincipals({request.principal})
+                            : !request.role.empty()    ? repo->findGrantsByRole(accountId, request.role)
+                                                       : repo->findGrantsByAccount(accountId);
 
         for (const auto &grant: grants) response.grants.push_back(toGrantDto(grant));
         response.total = static_cast<long>(response.grants.size());
@@ -1949,6 +1893,13 @@ namespace Euclid::EAM {
         return EamServer::JsonResponse(req, status::ok, response.toJson());
     }
 
+
+    // Whether this principal already holds this role in this account, so the migration can be run
+    // twice without granting everything twice.
+    static bool alreadyGranted(const std::vector<Database::Entity::EAM::Grant> &existing, const std::string &role, const std::string &accountId) {
+        return std::ranges::any_of(existing, [&](const auto &grant) { return grant.role == role && grant.accountId == accountId; });
+    }
+
         enum class Action {
             Unknown,
             Login,
@@ -1974,8 +1925,6 @@ namespace Euclid::EAM {
             CreateNamespace,
             ListNamespaces,
             DeleteNamespace,
-            GrantNamespaceAccess,
-            RevokeNamespaceAccess,
             ChangeNamespace,
             CreateRole,
             UpdateRole,
@@ -2017,8 +1966,6 @@ namespace Euclid::EAM {
         if (action == "create-namespace") return Action::CreateNamespace;
         if (action == "list-namespaces") return Action::ListNamespaces;
         if (action == "delete-namespace") return Action::DeleteNamespace;
-        if (action == "grant-namespace-access") return Action::GrantNamespaceAccess;
-        if (action == "revoke-namespace-access") return Action::RevokeNamespaceAccess;
         if (action == "change-namespace") return Action::ChangeNamespace;
         if (action == "create-role") return Action::CreateRole;
         if (action == "update-role") return Action::UpdateRole;
@@ -2113,11 +2060,7 @@ namespace Euclid::EAM {
             case Action::DeleteNamespace:
                 return handleDeleteNamespace(req);
 
-            case Action::GrantNamespaceAccess:
-                return handleGrantNamespaceAccess(req);
 
-            case Action::RevokeNamespaceAccess:
-                return handleRevokeNamespaceAccess(req);
 
             case Action::ChangeNamespace:
                 return handleChangeNamespace(req);
@@ -2163,7 +2106,7 @@ namespace Euclid::EAM {
         Core::Scheduler::instance().Cancel(_currentUsersTaskId);
     }
 
-    response<string_body> EamServer::Dispatch(const request<string_body> &req) {
+    response<string_body> EamServer::DispatchAction(const request<string_body> &req) {
         return dispatch(req);
     }
 

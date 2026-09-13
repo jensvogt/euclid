@@ -16,7 +16,7 @@ action. The caller must be authenticated as a global administrator (see
 The account must first have every one of its namespaces deleted (see
 .BR euclid-cli-eam-delete-namespace (1))
 and every user grant referencing it revoked (see
-.BR euclid-cli-eam-revoke-namespace-access (1)) -
+.BR euclid-cli-eam-grant-role (1)) -
 the server rejects the request with \fIHTTP 409\fR otherwise.
 .SH OPTIONS
 .TP

@@ -142,7 +142,8 @@ int main(const int argc, char *argv[]) {
     Euclid::Database::WireAccessKeyLookup();
     Euclid::Database::WireWorkerThreadsLookup();
     Euclid::Database::WireScopeLookup();
-    Euclid::Database::WireGrantLookup();
+    // Inert until euclid.authorization.mode says otherwise - see docs/role-concept.md §5.
+    Euclid::Database::WireAuthorizationLookup();
 
     try {
         Euclid::Monitoring::EmoServer server(cliOpts->socketPath, Euclid::Core::HttpActionServer::ConfiguredWorkerThreads("emo", 2));
