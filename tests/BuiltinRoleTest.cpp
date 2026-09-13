@@ -218,6 +218,45 @@ BOOST_AUTO_TEST_CASE(ApplicationIsPublisherAndConsumerPlusObjects) {
     BOOST_TEST(!grants(BuiltinRoles::Application, "eam:register"));
 }
 
+// An application does not receive from a topic or a bucket - it receives from a queue of its own
+// that it subscribes to one, so that every instance gets the message rather than whichever asked
+// first. The queue is therefore part of the application and its whole life is the application's to
+// manage. euclid-spring's listener container does exactly this on startup and shutdown, and throws
+// if it cannot, so an application missing any of these does not start at all.
+BOOST_AUTO_TEST_CASE(ApplicationOwnsTheDeliveryQueueItConsumesThrough) {
+
+    BOOST_TEST(grants(BuiltinRoles::Application, "eqs:create-queue"));
+    BOOST_TEST(grants(BuiltinRoles::Application, "eqs:delete-queue"));
+
+    // Not for browsing: this is how a restart finds the queues a run that was killed rather than
+    // stopped left behind, which is the only way they are ever cleaned up.
+    BOOST_TEST(grants(BuiltinRoles::Application, "eqs:list-queues"));
+
+    // And the subscriptions that feed it, on both sides. The list- actions are what make a restart
+    // idempotent: a listener checks whether it is already subscribed instead of subscribing twice.
+    BOOST_TEST(grants(BuiltinRoles::Application, "ens:subscribe"));
+    BOOST_TEST(grants(BuiltinRoles::Application, "ens:unsubscribe"));
+    BOOST_TEST(grants(BuiltinRoles::Application, "ens:list-subscriptions"));
+    BOOST_TEST(grants(BuiltinRoles::Application, "esm:subscribe"));
+    BOOST_TEST(grants(BuiltinRoles::Application, "esm:unsubscribe"));
+    BOOST_TEST(grants(BuiltinRoles::Application, "esm:list-subscriptions"));
+}
+
+// Owning a queue is not owning the thing it is fed from. An application may take down its own
+// delivery queue; it may not take down the topic other applications are also listening to, nor the
+// bucket whose events it subscribed to.
+BOOST_AUTO_TEST_CASE(ApplicationDoesNotReachWhatItSubscribesTo) {
+
+    BOOST_TEST(!grants(BuiltinRoles::Application, "ens:create-topic"));
+    BOOST_TEST(!grants(BuiltinRoles::Application, "ens:delete-topic"));
+    BOOST_TEST(!grants(BuiltinRoles::Application, "ens:purge-topic"));
+    BOOST_TEST(!grants(BuiltinRoles::Application, "esm:delete-bucket"));
+    BOOST_TEST(!grants(BuiltinRoles::Application, "esm:purge-bucket"));
+
+    // Nor the queue's contents wholesale - a consumer deletes the messages it has handled.
+    BOOST_TEST(!grants(BuiltinRoles::Application, "eqs:purge-queue"));
+}
+
 // ── transfer ────────────────────────────────────────────────────────────────
 
 BOOST_AUTO_TEST_CASE(TransferGrantsEveryTransferCommandAndNoServerAdministration) {

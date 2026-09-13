@@ -159,8 +159,30 @@ namespace Euclid::Core {
 
                 // Bound with an explicit resource list, always - which is what makes this narrow
                 // despite covering three modules.
+                //
+                // Publishing and consuming is not enough on its own: an application does not
+                // receive from a topic or a bucket, it receives from a queue of its own that it
+                // subscribes to one. So it has to be able to make that queue, subscribe it, find
+                // it again on the next start, and take it down - including the ones a previous
+                // run left behind when it was killed rather than stopped. That is what
+                // euclid-spring's listener container does at startup and shutdown, and an
+                // application that cannot do it does not start at all.
                 built[std::string(BuiltinRoles::Application)] =
-                        merged(publisherPermissions(), consumerPermissions(), {"esm:get-object", "esm:put-object"});
+                        merged(publisherPermissions(), consumerPermissions(),
+                               {"esm:get-object",
+                                "esm:put-object",
+                                // Its own delivery queue: created on startup, listed to find the
+                                // orphans of runs that did not shut down, deleted on the way out.
+                                "eqs:create-queue",
+                                "eqs:delete-queue",
+                                "eqs:list-queues",
+                                // And the subscriptions that feed it. list-subscriptions is what
+                                // makes a restart idempotent - a listener checks whether it is
+                                // already subscribed rather than subscribing twice.
+                                "ens:list-subscriptions",
+                                "esm:subscribe",
+                                "esm:unsubscribe",
+                                "esm:list-subscriptions"});
 
                 built[std::string(BuiltinRoles::Transfer)] = transferPermissions();
 
@@ -195,7 +217,7 @@ namespace Euclid::Core {
         if (name == Reader) return "Every action that only reads";
         if (name == Publisher) return "Publish to a topic and send to a queue";
         if (name == Consumer) return "Receive from a queue and manage topic subscriptions";
-        if (name == Application) return "What a euclid-deployed application is given: publish, consume, read and write objects";
+        if (name == Application) return "What a euclid-deployed application is given: publish, consume, read and write objects, and own its delivery queue";
         if (name == Transfer) return "Everything an FTP or SFTP client can do: list, download, upload, rename, create and remove directories, including the bucket objects those become";
         return {};
     }

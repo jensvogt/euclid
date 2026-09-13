@@ -178,7 +178,9 @@ Nobody should have to write out 189 permissions to get started.
 | `reader` | `list-*`, `get-*`, `describe-*` across all modules. |
 | `publisher` | `ens:publish-message`, `eqs:send-message`, plus the `get-*-ern` lookups needed to address them. |
 | `consumer` | `eqs:receive-messages`, `eqs:delete-message`, `eqs:set-visibility`, `ens:subscribe`, `ens:unsubscribe`. |
-| `application` | What EAP hands a deployed application: `publisher` + `consumer` + `esm:get-object`/`esm:put-object`, always bound with an explicit `resources` list. This is what `resourceGrants` was reaching for. |
+| `application` | What EAP hands a deployed application: `publisher` + `consumer` + `esm:get-object`/`esm:put-object`, **plus the life of its own delivery queue** — `eqs:create-queue`/`delete-queue`/`list-queues` and `subscribe`/`unsubscribe`/`list-subscriptions` on both ENS and ESM. Always bound with an explicit `resources` list. This is what `resourceGrants` was reaching for. |
+
+The queue part is not a convenience. An application does not receive from a topic or a bucket — it receives from a queue of its own that it subscribes to one, because that is what fans a message out to every instance rather than to whichever instance asked first. So the queue's whole life belongs to the application: created at startup, subscribed, found again on the next start, deleted on shutdown, and swept when a previous run was killed rather than stopped. euclid-spring's listener container does this and throws if it cannot, so an application without these does not start degraded — it does not start. It still cannot touch what it subscribes *to*: no `ens:delete-topic`, no `esm:delete-bucket`, no `eqs:purge-queue`.
 | `transfer` | Everything an FTP or SFTP client can do: the seven `ets:` transfer permissions of §4.3, **plus** `esm:list-objects`/`get-object`/`put-object`/`delete-object`, which is what those commands turn into. Not `ets:start-server` and friends — a client that may upload must not be able to stop the server it uploads to — and no bucket-level ESM action either. |
 
 The first three are *computed* from the vocabulary by rule, so a module that gains an action gains
@@ -245,6 +247,15 @@ RESOURCE_SCOPED = {
     {"ens", {"publish-message", "delete-topic", ...}},
 };
 ```
+
+EQS's destructive pair was the last hole in this: `delete-queue` and `purge-queue` made no
+`AuthorizeResource()` call at all until 2026-09-13, so `eap create-application --queues` bounded
+what an application could send to and receive from and not what it could remove. They are checked
+now, with one exception that is a property of the queue rather than of the caller: a queue that is
+`internal` *and* was created by this caller is its own delivery plumbing, whose name was generated
+at runtime and can never appear in a resource list — see `Queue::isInternalPlumbingOf()`. Both
+halves are needed: `internal` alone lets one application delete another's delivery queue, `owner`
+alone hands a principal the deployed queues it created but was not granted.
 
 The gate refuses any action in that registry whose handler did not call `AuthorizeResource(...)`
 before answering 2xx. In debug builds that is an assertion; in release it is a log line and a

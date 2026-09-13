@@ -181,6 +181,24 @@ target_link_libraries(${TRANSFER_DEFINITION_BINARY} PRIVATE eucliddb Boost::unit
 
 add_test(NAME ${TRANSFER_DEFINITION_BINARY} COMMAND ${TRANSFER_DEFINITION_BINARY})
 
+set(TRANSFER_SCOPE_BINARY euclid-transfer-storage-scope-tests)
+
+add_executable(${TRANSFER_SCOPE_BINARY} TransferStorageScopeTest.cpp)
+set_target_properties(${TRANSFER_SCOPE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${TRANSFER_SCOPE_BINARY} PRIVATE euclidtransfer Boost::unit_test_framework)
+
+add_test(NAME ${TRANSFER_SCOPE_BINARY} COMMAND ${TRANSFER_SCOPE_BINARY})
+
+set(QUEUE_OWNERSHIP_BINARY euclid-eqs-queue-ownership-tests)
+
+add_executable(${QUEUE_OWNERSHIP_BINARY} QueueOwnershipTest.cpp)
+set_target_properties(${QUEUE_OWNERSHIP_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${QUEUE_OWNERSHIP_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${QUEUE_OWNERSHIP_BINARY} COMMAND ${QUEUE_OWNERSHIP_BINARY})
+
 set(CERTIFICATE_BINARY euclid-certificate-utils-tests)
 
 add_executable(${CERTIFICATE_BINARY} CertificateUtilsTest.cpp)

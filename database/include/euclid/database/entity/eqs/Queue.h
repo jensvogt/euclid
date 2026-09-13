@@ -245,6 +245,36 @@ namespace Euclid::Database::Entity::EQS {
          * @param document MongoDB document.
          */
         static Queue fromDocument(const std::optional<bsoncxx::document::view> &document);
+
+        /**
+         * @brief Whether this queue is that caller's own plumbing rather than a queue somebody
+         * deployed.
+         *
+         * @par
+         * An internal queue exists because a delivery has to land somewhere - a topic or a bucket
+         * fans out into it - and it belongs to whoever registered that subscription. Its name is
+         * generated at runtime, so it can never appear in the resource list a deployment writes:
+         * an application's `eap create-application --queues` names the queues it was built to work
+         * with, not the one its listener container invents on each start.
+         *
+         * @par
+         * That is why delete-queue and purge-queue let it through where a deployed queue needs a
+         * resource grant. Requiring one here would mean no application could clean up after
+         * itself, including the queues a run that was killed rather than stopped left behind.
+         *
+         * @par
+         * Both halves are load-bearing. `internal` alone would let one application delete another's
+         * delivery queue and stop it receiving - internal queues are hidden from listings, but a
+         * known ERN is enough to name one. `owner` alone would hand a principal its deployed queues
+         * outside the resource list it was given, since creating a queue is not being granted it.
+         *
+         * @param userId the caller.
+         * @return true if this queue is internal and that caller created it.
+         */
+        [[nodiscard]]
+        bool isInternalPlumbingOf(const std::string &userId) const {
+            return internal && !userId.empty() && owner == userId;
+        }
     };
 
 }// namespace Euclid::Database::Entity::SQS

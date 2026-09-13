@@ -85,12 +85,20 @@ namespace Euclid::Transfer {
          * @param region region this transfer server runs in; sent on every call, since a module
          * rejects a request whose region does not match the one it is configured for.
          * @param accountId account the transfer server (and therefore its bucket) belongs to.
+         * @param nameSpace namespace the transfer server belongs to, and whose bucket it serves.
+         * Sent on every call, like the region and the account: it is what scopes the caller's role
+         * grants, and it is what an object stored through here is recorded in. Omitting it - which
+         * this did until 2026-09-13 - stores every FTP upload with no namespace at all, and asks
+         * ESM's gate about namespace "" while the transfer server's own check asks about the real
+         * one, so a grant scoped to a namespace allows the FTP command and refuses the storage
+         * call behind it.
          * @param serverId ID of the transfer server, recorded on every object stored through it.
          * @param userId the logged-in user, recorded on every object stored through it.
          */
-        TransferStorage(std::string bucketErn, std::string token, std::string region, std::string accountId, std::string serverId, std::string userId)
+        TransferStorage(std::string bucketErn, std::string token, std::string region, std::string accountId,
+                        std::string nameSpace, std::string serverId, std::string userId)
             : _bucketErn(std::move(bucketErn)), _token(std::move(token)), _region(std::move(region)), _accountId(std::move(accountId)),
-              _serverId(std::move(serverId)), _userId(std::move(userId)) {}
+              _nameSpace(std::move(nameSpace)), _serverId(std::move(serverId)), _userId(std::move(userId)) {}
 
         /**
          * @brief Lists the immediate children of a directory.
@@ -208,6 +216,29 @@ namespace Euclid::Transfer {
         [[nodiscard]]
         bool Rename(const std::string &fromKey, const std::string &toKey) const;
 
+        /**
+         * @brief Adds the caller's region, account and namespace to a call's own headers.
+         *
+         * @par
+         * Every module runs Core::HttpActionServer::Authenticate() over these before it looks at
+         * the action, so a call that names neither is answered with 403 as soon as the deployment
+         * configures euclid.region - a bearer token on its own is not enough. The namespace goes
+         * further than that: it is what a role grant is scoped by, and what an object stored
+         * through here is recorded in.
+         *
+         * @par
+         * Public on purpose. These three headers decide which region, account and namespace every
+         * call this class makes is judged in, and a scope reachable only by running an FTP server
+         * against a live euclid is one nobody checks - which is how the namespace came to be
+         * missing from it for as long as it was. TransferStorageScopeTest is why this is not
+         * private.
+         *
+         * @param headers headers this particular call needs, e.g. x-euclid-bucket-ern.
+         * @return those headers plus the scope headers.
+         */
+        [[nodiscard]]
+        std::vector<std::pair<std::string, std::string> > scopedHeaders(std::vector<std::pair<std::string, std::string> > headers) const;
+
     private:
 
         /**
@@ -222,19 +253,6 @@ namespace Euclid::Transfer {
         [[nodiscard]]
         std::optional<std::string> ernOf(const std::string &key) const;
 
-        /**
-         * @brief Adds the caller's region and account to a call's own headers.
-         *
-         * @par
-         * Every module runs Core::HttpActionServer::Authenticate() over these before it looks at
-         * the action, so a call that names neither is answered with 403 as soon as the deployment
-         * configures euclid.region - a bearer token on its own is not enough.
-         *
-         * @param headers headers this particular call needs, e.g. x-euclid-bucket-ern.
-         * @return those headers plus the scope headers.
-         */
-        [[nodiscard]]
-        std::vector<std::pair<std::string, std::string> > scopedHeaders(std::vector<std::pair<std::string, std::string> > headers) const;
 
         /**
          * @brief The attributes every object stored through this view carries: which transfer
@@ -274,6 +292,7 @@ namespace Euclid::Transfer {
         std::string _token;
         std::string _region;
         std::string _accountId;
+        std::string _nameSpace;
         std::string _serverId;
         std::string _userId;
     };
