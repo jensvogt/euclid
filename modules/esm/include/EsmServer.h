@@ -57,6 +57,8 @@
 #include <euclid/dto/esm/GetBucketErnResponse.h>
 #include <euclid/dto/esm/GetBucketSizeRequest.h>
 #include <euclid/dto/esm/GetBucketSizeResponse.h>
+#include <euclid/dto/esm/CountObjectsRequest.h>
+#include <euclid/dto/esm/CountObjectsResponse.h>
 #include <euclid/dto/esm/GetObjectCountRequest.h>
 #include <euclid/dto/esm/GetObjectCountResponse.h>
 #include <euclid/dto/esm/ListBucketsRequest.h>
@@ -107,6 +109,19 @@ namespace Euclid::ESM {
          * @brief Destructor
          */
         ~EsmServer() override;
+
+    private:
+
+        /**
+         * @brief The periodic sweep that resumes a background removal whose worker died.
+         *
+         * @par
+         * Held so the destructor can cancel it: a scheduler task that outlives the server it calls
+         * into is a use-after-free waiting for the next tick.
+         */
+        std::string _purgeSweepTaskId;
+
+    public:
 
     protected:
 
@@ -229,6 +244,17 @@ namespace Euclid::ESM {
 
         [[nodiscard]]
         static response<string_body> handleGetObjectCount(const request<string_body> &req);
+
+        /**
+         * @brief Counts a bucket's objects, optionally under a prefix.
+         *
+         * @par
+         * The counterpart of handleGetObjectCount(), which answers the bucket's stored running
+         * total instead. This one runs a query, so it is exact and can be narrowed, and it costs
+         * what counting costs.
+         */
+        [[nodiscard]]
+        static response<string_body> handleCountObjects(const request<string_body> &req);
 
         [[nodiscard]]
         static response<string_body> handleDeleteObject(const request<string_body> &req);

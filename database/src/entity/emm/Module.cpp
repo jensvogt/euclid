@@ -50,6 +50,7 @@ namespace Euclid::Database::Entity {
             else if (key == "socketPath") instance.socketPath = std::string(field.get_string().value);
             else if (key == "httpPort") instance.httpPort = static_cast<int>(getBsonInt(field));
             else if (key == "restartCount") instance.restartCount = static_cast<int>(getBsonInt(field));
+            else if (key == "backgroundTasks") instance.backgroundTasks = getBsonInt(field);
             else if (key == "created") instance.created = std::chrono::system_clock::time_point{field.get_date().value};
             else if (key == "modified") instance.modified = std::chrono::system_clock::time_point{field.get_date().value};
         }

@@ -1,0 +1,102 @@
+.TH EUCLID-CLI-ESM-COUNT-OBJECTS 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-count-objects \- count a bucket's objects, optionally under a prefix
+.SH SYNOPSIS
+.B euclid-cli esm count-objects
+.BR \-\-bucket | \-b
+.I NAME
+[\fB\-\-prefix\fR|\fB\-p\fR \fIPREFIX\fR]
+[\fB\-\-include\-directories\fR|\fB\-d\fR]
+.SH DESCRIPTION
+Counts the objects in a bucket. The figure is exact at the moment of
+asking, and can be narrowed to a key prefix.
+.SH WHICH OF THE TWO COUNTS TO ASK FOR
+.BR euclid-cli-esm-get-object-count (1)
+answers the same question differently, and the difference is worth
+knowing before choosing:
+.TP
+.B count-objects
+Runs a query. Exact, can be narrowed to a prefix, and costs what
+counting a bucket's objects costs \- which on a bucket of a million is
+not nothing.
+.TP
+.B get-object-count
+Answers the bucket's stored
+.I objects
+figure, a running total kept as objects come and go. One document read
+whatever the bucket holds, always the whole bucket, and only as current
+as the last time the monitoring module recomputed it \- every
+.I euclid.modules.emo.bucket\-count\-period
+seconds.
+.PP
+Ask this one when the answer has to be right, or has to be about part of
+a bucket. Ask that one when it has to be cheap, or is being polled.
+.SH DIRECTORIES
+A directory in a bucket is a zero-byte object whose key ends in a slash,
+which is what lets an empty one exist at all. It is not counted by
+default \- that matches what a listing shows and what the bucket's own
+.I objects
+figure counts, since a directory is not something a client stored.
+.B \-\-include\-directories
+counts them, which is what to use when comparing against a listing taken
+with directories included.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-bucket " " \fINAME\fR
+Bucket name. A full ERN also works, and is what reaches another
+namespace. Required.
+.TP
+.BR \-p ", " \-\-prefix " " \fIPREFIX\fR
+Only count objects whose key starts with this. A prefix is matched
+literally and is not a glob; it names a "directory" only by the
+convention that keys contain slashes. Defaults to empty, which counts
+the whole bucket.
+.TP
+.BR \-d ", " \-\-include\-directories
+Count the markers that stand for directories too.
+.PP
+The bucket may be given by
+.B name
+instead of by ERN, in which case it is resolved in your session's account
+and namespace; see
+.B NAMES AND ERNS
+in
+.BR euclid-cli-esm (1).
+.SH EXIT STATUS
+.TP
+.B 0
+A summary
+.RI ( "{ern, prefix, includeDirectories, count}" )
+is printed as JSON. The prefix is echoed back because a bare number does
+not say what it counted.
+.TP
+.B 1
+Missing or invalid arguments, the server could not be reached, no bucket
+of that name exists, or the caller was not granted that bucket. A bucket
+that is not there is a failure rather than a count of zero \- the two
+would otherwise be indistinguishable, and a typo would read as an empty
+bucket.
+.SH EXAMPLES
+.RS
+.nf
+# Everything in the bucket
+euclid-cli esm count-objects --bucket dropbox
+
+# Just one supplier's inbox
+euclid-cli esm count-objects --bucket dropbox --prefix jvo/incoming/
+
+# What a listing with directories included would show
+euclid-cli esm count-objects --bucket dropbox --include-directories
+
+# Did the purge finish?
+euclid-cli esm count-objects --bucket dropbox --prefix old/
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-get-object-count (1),
+.BR euclid-cli-esm-list-objects (1),
+.BR euclid-cli-esm-get-bucket-size (1),
+.BR euclid-cli-esm-purge-bucket (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

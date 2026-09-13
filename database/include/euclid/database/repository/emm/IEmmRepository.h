@@ -49,6 +49,29 @@ namespace Euclid::Database {
         virtual void upsertInstance(const Entity::Module &module, const Entity::ModuleInstance &instance) = 0;
 
         /**
+         * @brief Records how much work an instance is doing that no request is waiting on.
+         *
+         * @par
+         * Called by the module about itself, and it is the one field of its own record a module
+         * writes. The manager cannot observe this: an `--async` purge is answered at once and
+         * carried on afterwards on a thread, so the request accounting the autoscaler reads has
+         * long since put the instance back to idle while the work runs. Without this the
+         * autoscaler stops exactly such an instance.
+         *
+         * @par
+         * A targeted update of that one field rather than an upsert of the instance, because the
+         * manager owns everything else in the record and writes it as a whole - the two would
+         * otherwise erase each other's work. A record that is not there yet is not created: the
+         * manager makes it when it spawns the process, and a module with nothing to report has
+         * nothing to say.
+         *
+         * @param moduleName the module.
+         * @param instanceId the pool slot, as EUCLID_INSTANCE_ID gave it to the process.
+         * @param tasks how many are running now.
+         */
+        virtual void reportBackgroundTasks(const std::string &moduleName, const std::string &instanceId, long tasks) = 0;
+
+        /**
          * @brief Permanently removes one instance from a module's live instance pool.
          *
          * Only for instances that are truly gone (autoscaler scale-down, or given up on after

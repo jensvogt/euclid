@@ -76,6 +76,32 @@ namespace Euclid::Database::Entity {
         int restartCount{};
 
         /**
+         * @brief Work this instance is doing that no request is waiting on, as it reports it.
+         *
+         * @par
+         * Written by the module, not by the manager - it is the one thing the manager cannot see.
+         * An `--async` purge is answered at once and carried on afterwards on a thread, so
+         * acquireInstance()/releaseInstance() have long since put the instance back to idle while
+         * the work runs. The autoscaler used to stop exactly such an instance, and the removal
+         * went with it.
+         *
+         * @par
+         * Not a load signal: it says "do not stop me", not "start another one". Work like this is
+         * not served any faster by a second instance.
+         *
+         * @par Deliberately absent from toDocument()
+         * Read here and written nowhere in this file, which is not an oversight. The manager
+         * persists an instance with `$set: {"instances.$": <the whole subdocument>}`, so anything
+         * it does not know about is erased every time it touches the record - and it cannot know
+         * this, because the module is the only thing that can count its own threads. The module
+         * writes this one field on its own with a targeted update
+         * (Database::ReportBackgroundTasks()); everything else in this entity belongs to the
+         * manager. Adding it to toDocument() would hand ownership back and make the value flicker
+         * to zero on every state change.
+         */
+        long backgroundTasks{};
+
+        /**
          * @brief Time this instance entry was first persisted.
          */
         std::chrono::system_clock::time_point created = std::chrono::system_clock::now();

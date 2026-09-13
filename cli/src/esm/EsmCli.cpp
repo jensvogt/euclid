@@ -69,9 +69,9 @@ namespace Euclid::CLI {
                                            {"add-bucket-tag", "Adds a tag to a bucket"},
                                            {"add-object-attribute", "Adds an attribute to an object"},
                                            {"copy-object", "Copies an object to another key or bucket"},
+                                           {"count-objects", "Count a bucket's objects, optionally under a prefix"},
                                            {"create-bucket", "Create a new bucket"},
                                            {"delete-objects", "Delete several objects from a bucket, by key or by prefix"},
-                                           {"set-bucket-internal", "Hide a bucket from listings, or stop hiding it"},
                                            {"delete-bucket", "Delete a bucket"},
                                            {"delete-bucket-tag", "Deletes a tag from a bucket"},
                                            {"delete-object", "Deletes an object by ERN"},
@@ -82,7 +82,7 @@ namespace Euclid::CLI {
                                            {"enable-encryption", "Encrypt the objects written to a bucket from now on"},
                                            {"get-bucket-ern", "Resolve a bucket's ERN by name"},
                                            {"get-bucket-size", "Returns the bucket size in bytes"},
-                                           {"get-object-count", "Return the number of objects in a bucket"},
+                                           {"get-object-count", "Return a bucket's stored object count, without counting"},
                                            {"list-buckets", "List buckets"},
                                            {"list-objects", "List objects"},
                                            {"list-object-attributes", "Lists the attributes of an object"},
@@ -90,11 +90,12 @@ namespace Euclid::CLI {
                                            {"move-object", "Moves an object to another key or bucket"},
                                            {"purge-bucket", "Removes all objects from a bucket"},
                                            {"rename-bucket", "Give a bucket another name"},
-                                           {"touch-object", "Re-send notifications for objects already in a bucket"},
                                            {"rename-object", "Renames an object within its bucket"},
+                                           {"set-bucket-internal", "Hide a bucket from listings, or stop hiding it"},
                                            {"set-bucket-tag", "Sets the value of an existing bucket tag"},
                                            {"set-object-attribute", "Sets the value of an existing object attribute"},
                                            {"subscribe", "Subscribes a target resource (an EQS queue or an ENS topic) to a bucket's object-created events"},
+                                           {"touch-object", "Re-send notifications for objects already in a bucket"},
                                            {"unsubscribe", "Deletes a subscription"},
                                            {"upload-file", "Upload a local file to a bucket"},
                                            {"upload-directory", "Upload every file in a local directory to a bucket"},
@@ -150,6 +151,9 @@ namespace Euclid::CLI {
         }
         if (action == "get-object-count") {
             return getObjectCount(args);
+        }
+        if (action == "count-objects") {
+            return countObjects(args);
         }
         if (action == "delete-object") {
             return deleteObject(args);
@@ -1277,16 +1281,64 @@ namespace Euclid::CLI {
         }
     }
 
+    int EsmCli::countObjects(const std::vector<std::string> &args) const {
+        po::options_description desc("count objects options");
+        desc.add_options()
+                ("bucket,b", po::value<std::string>()->required(), "bucket name; a full ERN also works and is what reaches another namespace")
+                ("prefix,p", po::value<std::string>()->default_value(""), "only count objects whose key starts with this")
+                ("include-directories,d", po::bool_switch(), "count the markers that stand for directories too");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", "count-objects", "--bucket <name|ern> [--prefix <prefix>] [--include-directories]",
+                                   "Counts a bucket's objects, and counts them - the figure is exact at the moment of asking and "
+                                   "can be narrowed to a prefix. That is what separates it from get-object-count, which "
+                                   "answers the bucket's stored running total: one document read whatever the bucket holds, "
+                                   "the whole bucket, and only as current as the last time the monitoring module recomputed "
+                                   "it. Use this one when the answer has to be right or has to be about part of a bucket, "
+                                   "and that one when it has to be cheap.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ESM::CountObjectsRequest request;
+        request.ern = vm["bucket"].as<std::string>();
+        request.prefix = vm["prefix"].as<std::string>();
+        request.includeDirectories = vm["include-directories"].as<bool>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("esm", "count-objects", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: count-objects failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
     int EsmCli::getObjectCount(const std::vector<std::string> &args) const {
         po::options_description desc("get object count options");
         desc.add_options()
-                ("bucket,b", po::value<std::string>()->required(), "bucket name; a full ERN also works and is what reaches another namespace")
-                ("prefix,p", po::value<std::string>(), "object key prefix");
+                ("bucket,b", po::value<std::string>()->required(), "bucket name; a full ERN also works and is what reaches another namespace");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("esm", "get-object-count", "--bucket <name|ern>",
-                                   "Returns the number of objects in a bucket, optionally filtered by object key prefix and paginated. The return object contains the "
-                                   "ERN and the number of objects.",
+                                   "Returns the bucket's stored object count: a running total kept as objects come and go, and "
+                                   "recomputed periodically by the monitoring module. One document read whatever the bucket "
+                                   "holds, and always the whole bucket. Use count-objects to count for real, or to count under "
+                                   "a prefix - this took a --prefix until 1.0.73 and ignored it.",
                                    desc);
         }
 
@@ -1301,9 +1353,6 @@ namespace Euclid::CLI {
 
         Dto::ESM::GetObjectCountRequest request;
         request.ern = vm["bucket"].as<std::string>();
-        if (vm.contains("prefix")) {
-            request.prefix = vm["prefix"].as<std::string>();
-        }
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
             const HttpResponse response = client.Post("esm", "get-object-count", boost::json::value_from(request));
