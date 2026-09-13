@@ -19,8 +19,8 @@ namespace Euclid::Core {
      * @brief The roles every installation has without anybody creating them.
      *
      * @par
-     * Nobody should have to write out 182 permissions to grant somebody the right to publish. These
-     * six cover what an installation actually asks for, and a role of an account's own is for the
+     * Nobody should have to write out 189 permissions to grant somebody the right to publish. These
+     * seven cover what an installation actually asks for, and a role of an account's own is for the
      * cases they do not.
      *
      * @par Why they are not stored
@@ -84,6 +84,23 @@ namespace Euclid::Core {
          * objects - always bound with an explicit resource list.
          */
         static constexpr std::string_view Application = "application";
+
+        /**
+         * @brief Everything an FTP or SFTP client can do: list, download, upload, rename, and
+         * create and remove directories.
+         *
+         * @par
+         * The one built-in role that exists for a migration as much as for a use case. Transfer
+         * clients used to be authorized by being listed on the server and nothing else, so
+         * checking permissions there would otherwise mean every existing client stops working
+         * until somebody writes a role by hand. This is that role, written once.
+         *
+         * @par
+         * It is a genuine short list rather than a rule because "everything a transfer client can
+         * do" is not a shape the vocabulary has - it is seven specific permissions, and the point
+         * of granting something narrower (say, upload-only) is to grant fewer than these.
+         */
+        static constexpr std::string_view Transfer = "transfer";
 
         /**
          * @brief Every built-in role's name, sorted.

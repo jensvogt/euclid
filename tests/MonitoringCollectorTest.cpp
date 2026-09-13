@@ -7,6 +7,7 @@
 
 // C++ includes
 #include <algorithm>
+#include <optional>
 #include <ranges>
 
 // Euclid includes

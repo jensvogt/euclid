@@ -5,7 +5,12 @@
 // C++ includes
 #include <algorithm>
 #include <cctype>
+#include <cstddef>
 #include <cstdlib>
+#include <iterator>
+#include <string>
+#include <utility>
+#include <variant>
 #include <vector>
 
 // Euclid includes

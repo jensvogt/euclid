@@ -6,6 +6,7 @@
 #include <ranges>
 #include <set>
 #include <thread>
+#include <utility>
 
 // Mongodb includes
 #include <bsoncxx/builder/basic/array.hpp>

@@ -6,6 +6,7 @@
 #include <boost/test/unit_test.hpp>
 
 // C++ includes
+#include <stdexcept>
 #include <string>
 
 // Euclid includes

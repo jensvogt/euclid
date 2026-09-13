@@ -199,6 +199,7 @@ namespace Euclid::FTP {
         }
 
         _username = identity->userId;
+        _identity = identity;
         _homeDir = _config.rootDir;
         _keyPrefix = Transfer::HomePrefix(_config.transferServer.homeDirectory, identity->userId);
         _storage.emplace(_config.transferServer.bucketErn, identity->token, _config.transferServer.region, _config.transferServer.accountId,
@@ -256,6 +257,9 @@ namespace Euclid::FTP {
     }
 
     void FtpSession::cmdCwd(const std::string &arg) {
+        // Changing directory reveals whether it is there, which is what a listing reveals.
+        if (!permitted("list-directory")) return;
+
         const auto [virtualPath, physicalPath] = resolve(arg);
         if (_storage) {
             // The bucket root always exists; anything else has to resolve to a directory.
@@ -276,6 +280,8 @@ namespace Euclid::FTP {
     }
 
     void FtpSession::cmdMkd(const std::string &arg) {
+        if (!permitted("create-directory")) return;
+
         if (arg.empty()) {
             sendReply(501, "Syntax error in parameters");
             return;
@@ -307,6 +313,8 @@ namespace Euclid::FTP {
     }
 
     void FtpSession::cmdRmd(const std::string &arg) {
+        if (!permitted("delete-directory")) return;
+
         if (arg.empty()) {
             sendReply(501, "Syntax error in parameters");
             return;
@@ -448,6 +456,10 @@ namespace Euclid::FTP {
     }
 
     void FtpSession::cmdList(const std::string &arg) {
+        // Before the 150 and before the data connection: a client told to open one and then
+        // refused is a client left waiting on a socket nobody is going to write to.
+        if (!permitted("list-directory")) return;
+
         const auto [virtualPath, physicalPath] = resolve(arg);
         std::error_code fsEc;
         if (!_storage && !std::filesystem::exists(physicalPath, fsEc)) {
@@ -482,6 +494,9 @@ namespace Euclid::FTP {
     }
 
     void FtpSession::cmdRetr(const std::string &arg) {
+        // Ahead of the download into the spool file, so a refusal costs no bucket read.
+        if (!permitted("get-file")) return;
+
         const auto [virtualPath, physicalPath] = resolve(arg);
         std::error_code fsEc;
 
@@ -541,6 +556,10 @@ namespace Euclid::FTP {
     }
 
     void FtpSession::cmdStor(const std::string &arg) {
+        // Ahead of the 150, so a client that may not upload is told before it sends the bytes
+        // rather than after it has spent the bandwidth.
+        if (!permitted("put-file")) return;
+
         const auto [virtualPath, physicalPath] = resolve(arg);
 
         // In transfer mode the bytes land in a spool file first and are stored as an object once
@@ -605,6 +624,8 @@ namespace Euclid::FTP {
     }
 
     void FtpSession::cmdDele(const std::string &arg) {
+        if (!permitted("delete-file")) return;
+
         const auto [virtualPath, physicalPath] = resolve(arg);
         if (_storage) {
             if (_storage->Remove(keyOf(virtualPath))) {
@@ -628,6 +649,10 @@ namespace Euclid::FTP {
     }
 
     void FtpSession::cmdSize(const std::string &arg) {
+        // SIZE and MDTM answer what a listing answers, one entry at a time, so they are the same
+        // permission - a client refused the listing would otherwise walk the directory with them.
+        if (!permitted("list-directory")) return;
+
         const auto [virtualPath, physicalPath] = resolve(arg);
         std::error_code fsEc;
         if (!std::filesystem::is_regular_file(physicalPath, fsEc)) {
@@ -643,6 +668,8 @@ namespace Euclid::FTP {
     }
 
     void FtpSession::cmdMdtm(const std::string &arg) {
+        if (!permitted("list-directory")) return;
+
         const auto [virtualPath, physicalPath] = resolve(arg);
         std::error_code fsEc;
         if (!std::filesystem::exists(physicalPath, fsEc)) {
@@ -655,6 +682,26 @@ namespace Euclid::FTP {
             return;
         }
         sendReply(213, FormatMdtmTimestamp(ftime));
+    }
+
+    bool FtpSession::permitted(const std::string &action) {
+
+        // Not reachable: handleCommand() turns everything away before login. Answered rather than
+        // asserted because "no identity" must never read as "allowed" if that ever changes.
+        if (!_identity.has_value()) {
+            sendReply(530, "Not logged in");
+            return false;
+        }
+
+        const Transfer::TransferAuthorizer authorizer(_config.transferServer);
+        const auto decision = authorizer.Allows(*_identity, action);
+        if (decision.allowed) return true;
+
+        // The reason names roles and grants, so it goes here and not to the client.
+        log_warning << "FTP command refused, user=" << _username << ", server=" << _config.transferServer.serverId
+                    << ", action=ets:" << action << ", reason: " << decision.reason;
+        sendReply(550, "Permission denied");
+        return false;
     }
 
     std::filesystem::path FtpSession::spoolPath() const {

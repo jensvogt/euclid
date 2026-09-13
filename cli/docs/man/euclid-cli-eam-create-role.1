@@ -19,7 +19,7 @@ The separation is the point: a role is written once and granted many
 times, each time scoped differently. "What an order service may do" is
 one role; the twelve deployments of it are twelve grants.
 .SH BEFORE WRITING ONE
-Check whether one of the six built-in roles already says it \-
+Check whether one of the seven built-in roles already says it \-
 .BR euclid-cli-eam-list-roles (1)
 shows them. They are maintained with the vocabulary, so a module that
 gains an action lands in
@@ -64,9 +64,10 @@ nothing, which is a mistake rather than a configuration.
 .IR operator ,
 .IR reader ,
 .IR publisher ,
-.I consumer
-and
+.IR consumer ,
 .I application
+and
+.I transfer
 cannot be redefined. A grant resolves your account's own roles before the
 built-in ones, so a stored role of that name would silently replace the
 built-in for your account alone \- and an installation where

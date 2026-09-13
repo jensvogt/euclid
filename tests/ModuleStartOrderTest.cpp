@@ -7,6 +7,8 @@
 
 // C++ includes
 #include <algorithm>
+#include <cstddef>
+#include <iterator>
 #include <map>
 #include <string>
 #include <vector>

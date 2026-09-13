@@ -5,6 +5,9 @@
 //#include <awsmock/core/config/Configuration.h>
 #include <euclid/core/LogStream.h>
 #include <euclid/core/Configuration.h>
+
+// C++ includes
+#include <utility>
 //#include <awsmock/core/logging/LoggingServer.h>
 
 namespace Euclid::Core {
