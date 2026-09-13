@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.10](https://github.com/jensvogt/euclid/compare/v1.1.9...v1.1.10) (2026-09-13)
+
+
+### Bug Fixes
+
+* FTP/SFTP directories ([5856fd4](https://github.com/jensvogt/euclid/commit/5856fd41b15cfa10207d2c5b2de9649083c61495))
+
 ## [1.1.9](https://github.com/jensvogt/euclid/compare/v1.1.8...v1.1.9) (2026-09-13)
 
 
