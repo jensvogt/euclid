@@ -49,6 +49,8 @@ namespace Euclid::Database {
          */
         void upsertInstance(const Entity::Module &module, const Entity::ModuleInstance &instance) override;
 
+        void reportBackgroundTasks(const std::string &moduleName, const std::string &instanceId, long tasks) override;
+
         /**
          * @brief Permanently removes one instance from a module's live instance pool. See IEmmRepository.
          */

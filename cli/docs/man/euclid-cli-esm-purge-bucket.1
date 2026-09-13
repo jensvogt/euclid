@@ -38,11 +38,78 @@ carries on unseen behind the abandoned request. With it the answer is
 carrying the object count at the time of asking, and a thread inside ESM
 does the work.
 .PP
-The bucket's counters are adjusted when the removal finishes, from a
-freshly read document rather than the one the thread started with \-
-minutes pass, and anything uploaded meanwhile must still be counted.
-Watch the progress with
+That thread works a page at a time \-
+.I euclid.modules.esm.purge\-page\-size
+objects, a thousand unless the installation says otherwise \- and
+repeats until the bucket has nothing left under the prefix. Two things
+follow. It does not build the whole object list in memory first, which
+on a large enough bucket was the allocation that ended the process and
+the purge with it. And it finishes when the bucket is empty rather than
+when a list taken at the start is exhausted, so a bucket still being
+written to \- by a transfer server delivering into it, say \- is
+emptied rather than reported done with objects still in it.
+.PP
+A run that is interrupted has removed whole pages, so asking again takes
+the rest. If a page comes back and nothing in it can be removed, the
+thread stops and says so rather than asking for the same page for ever;
+the log line names the bucket and the prefix.
+.SH IT SURVIVES THE INSTANCE THAT ACCEPTED IT
+The request is written down before the work starts, and the record is
+removed only when the work is done. The
+.I "HTTP 202"
+carries its
+.I jobId
+\- that record's name.
+.PP
+This matters because a thread is not something the rest of euclid can
+see. Having answered, the instance looks idle to the autoscaler, which
+stops idle instances; a crash, an
+.B "emm restart-module"
+or a manager shutdown do the same. Before the job record, every one of
+those ended the removal silently, with nothing left to say it had been
+asked for.
+.PP
+Now any ESM instance picks up a removal whose worker has stopped. Each
+instance sweeps every
+.I euclid.modules.esm.purge\-sweep\-period
+seconds for a job whose claim has not been refreshed within
+.IR euclid.modules.esm.purge\-claim\-stale\-seconds ,
+and carries it on from the next page. A worker refreshes its claim after
+every page, so "stale" means no page has finished recently rather than
+"this has been running a while" \- a large bucket is legitimately slow
+and is not taken from a worker that is getting on with it.
+.PP
+The autoscaler is also told: an instance reports how much background
+work it is doing, and one reporting any is passed over when an idle
+instance is chosen. That keeps a removal from being interrupted in the
+first place; the job record is what makes it survive when something
+interrupts it anyway.
+.PP
+The synchronous form still takes the whole list at once and removes what
+existed when it started. That is what makes it answerable inside a
+request, and why a bucket too big for that is what
+.B \-\-async
+is for.
+.PP
+The bucket's counters are adjusted when the removal finishes, by the
+database rather than by the thread \- it says how far to move them, not
+what they should be. So anything uploaded while the purge ran is still
+counted, and several purges of one bucket at once each land instead of
+the last one to finish overwriting the others. Watch the progress with
 .BR euclid-cli-esm-get-bucket-size (1).
+.PP
+Running more than one purge on the same bucket at once is therefore safe
+for the counters, and still wasteful: both threads walk the same objects
+and the second finds most of them already gone. One purge with the
+broadest
+.B \-\-prefix
+that covers what you want does the same work once.
+.PP
+The counters are in any case only ever a running total. The monitoring
+module recomputes them from what each bucket actually holds every
+.I euclid.modules.emo.bucket\-count\-period
+seconds - sixty in the shipped configuration - so a figure that drifted
+for any reason corrects itself within that.
 .PP
 The bucket may be given by
 .B name

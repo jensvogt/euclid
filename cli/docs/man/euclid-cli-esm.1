@@ -159,9 +159,14 @@ sorted. See
 .BR euclid-cli-esm-list-objects (1).
 .TP
 .B get-object-count
-Returns the number of objects in a bucket, optionally filtered by
-object key prefix. See
+Returns the bucket's stored object count, without counting: cheap, the
+whole bucket, and only as current as the last recount. See
 .BR euclid-cli-esm-get-object-count (1).
+.TP
+.B count-objects
+Counts a bucket's objects, optionally under a key prefix: exact at the
+moment of asking, and what it costs to count. See
+.BR euclid-cli-esm-count-objects (1).
 .TP
 .B delete-object
 Deletes an object by its ERN. See
@@ -449,6 +454,7 @@ euclid-cli --endpoint http://localhost:5566 esm unsubscribe \e
 .BR euclid-cli-esm-download-bucket (1),
 .BR euclid-cli-esm-list-objects (1),
 .BR euclid-cli-esm-get-object-count (1),
+.BR euclid-cli-esm-count-objects (1),
 .BR euclid-cli-esm-delete-object (1),
 .BR euclid-cli-esm-copy-object (1),
 .BR euclid-cli-esm-move-object (1),

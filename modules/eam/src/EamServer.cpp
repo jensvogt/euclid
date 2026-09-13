@@ -220,6 +220,31 @@ namespace Euclid::EAM {
         return issueSession(*user);
     }
 
+    // Hands back a session with a fresh expiry, for a caller that already has one.
+    //
+    // A session lasts an hour and nothing about that is negotiable, so a client that sits open for
+    // longer has to renew: without this the only way back is to ask the operator for their password
+    // again, which is a poor answer for an application somebody left running over lunch.
+    //
+    // Deliberately not a way *in*. It authenticates like every other action - a still-valid token
+    // or a signed request - so it extends a session rather than creating one, and an expired token
+    // is refused here exactly as it is everywhere else. Renewing is therefore something a client
+    // does before its token runs out, not after.
+    static response<string_body> handleRefreshSession(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "refresh-session");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        log_debug << "Session refreshed, userId: " << auth.user->userId;
+
+        // The same answer login gives, so a client has one shape to handle and can adopt whatever
+        // it needs from it - including the access key, which issueSession() reuses rather than
+        // reissuing.
+        return EamServer::JsonResponse(req, status::ok, issueSession(*auth.user).toJson());
+    }
+
     static response<string_body> handleLogin(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "login");
@@ -1903,6 +1928,7 @@ namespace Euclid::EAM {
         enum class Action {
             Unknown,
             Login,
+            RefreshSession,
             OidcAuthorize,
             OidcLogin,
             SamlAuthorize,
@@ -1942,6 +1968,7 @@ namespace Euclid::EAM {
 
     static Action actionFromString(const std::string &action) {
         if (action == "login") return Action::Login;
+        if (action == "refresh-session") return Action::RefreshSession;
         if (action == "oidc-authorize") return Action::OidcAuthorize;
         // "oidc-callback" is the same action under the name the provider's redirect arrives at -
         // see the gateway's /eam/oidc/callback route.
@@ -1993,6 +2020,9 @@ namespace Euclid::EAM {
 
             case Action::Login:
                 return handleLogin(req);
+
+            case Action::RefreshSession:
+                return handleRefreshSession(req);
 
             case Action::OidcAuthorize:
                 return handleOidcAuthorize(req);

@@ -5,18 +5,29 @@ euclid-cli-esm-get-object-count \- return the number of objects in a bucket
 .B euclid-cli esm get-object-count
 .BR \-\-bucket | \-b
 .I ERN
-[\fB\-\-prefix\fR|\fB\-p\fR \fIPREFIX\fR]
 .SH DESCRIPTION
-Returns the number of objects in a bucket, optionally filtered by
-object key prefix.
+Returns the bucket's stored object count. That figure is a running
+total, moved as objects are written and removed rather than counted on
+demand, so this costs one document read whatever the bucket holds.
+.PP
+It is always the whole bucket, and it is only as current as the last
+time the monitoring module recomputed it from what the bucket actually
+holds \- every
+.I euclid.modules.emo.bucket\-count\-period
+seconds.
+.BR euclid-cli-esm-count-objects (1)
+counts for real, and is the one that takes a prefix.
+.PP
+This command accepted a
+.B \-\-prefix
+until euclid 1.0.73 and silently ignored it, answering the whole
+bucket's figure regardless. The option is gone rather than honoured,
+because the stored total is a property of the bucket and there is no
+per-prefix one to read.
 .SH OPTIONS
 .TP
 .BR \-b ", " \-\-bucket " " \fIERN\fR
 Euclid resource name of the bucket. Required.
-.TP
-.BR \-p ", " \-\-prefix " " \fIPREFIX\fR
-Only count objects whose key starts with this prefix. Optional; if
-omitted, every object in the bucket is counted.
 .PP
 The bucket may be given by
 .B name
@@ -46,15 +57,17 @@ euclid-cli --endpoint http://localhost:5566 esm get-object-count \e
 .fi
 .RE
 .PP
-Count only objects under a given key prefix:
+Count only objects under a given key prefix \- which is the other
+command:
 .RS
 .nf
-euclid-cli --endpoint http://localhost:5566 esm get-object-count \e
+euclid-cli --endpoint http://localhost:5566 esm count-objects \e
     --bucket ern:esm:eu-central-1:000000000000:bucket:reports \e
     --prefix 2025/
 .fi
 .RE
 .SH SEE ALSO
+.BR euclid-cli-esm-count-objects (1),
 .BR euclid-cli-esm (1),
 .BR euclid-cli-esm-list-objects (1),
 .BR euclid-cli-esm-get-bucket-size (1),

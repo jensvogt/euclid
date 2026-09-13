@@ -97,6 +97,9 @@
         "socketPath": "/var/run/euclid/euclid-esm.sock",
         "executable": "/usr/local/euclid/bin/euclid-esm",
         "data-dir": "/usr/local/euclid/data/esm",
+        "purge-page-size": 1000,
+        "purge-sweep-period": 30,
+        "purge-claim-stale-seconds": 60,
         "minInstances": 1,
         "maxInstances": 10,
         "threads": 2
