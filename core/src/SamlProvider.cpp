@@ -10,6 +10,7 @@
 #include <fstream>
 #include <mutex>
 #include <sstream>
+#include <utility>
 
 // zlib includes
 #include <zlib.h>

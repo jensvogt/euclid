@@ -218,6 +218,51 @@ BOOST_AUTO_TEST_CASE(ApplicationIsPublisherAndConsumerPlusObjects) {
     BOOST_TEST(!grants(BuiltinRoles::Application, "eam:register"));
 }
 
+// ── transfer ────────────────────────────────────────────────────────────────
+
+BOOST_AUTO_TEST_CASE(TransferGrantsEveryTransferCommandAndNoServerAdministration) {
+
+    BOOST_TEST(grants(BuiltinRoles::Transfer, "ets:list-directory"));
+    BOOST_TEST(grants(BuiltinRoles::Transfer, "ets:get-file"));
+    BOOST_TEST(grants(BuiltinRoles::Transfer, "ets:put-file"));
+    BOOST_TEST(grants(BuiltinRoles::Transfer, "ets:rename-file"));
+    BOOST_TEST(grants(BuiltinRoles::Transfer, "ets:delete-file"));
+    BOOST_TEST(grants(BuiltinRoles::Transfer, "ets:create-directory"));
+    BOOST_TEST(grants(BuiltinRoles::Transfer, "ets:delete-directory"));
+
+    // The line this role exists on: a client that may upload must not be able to stop the server
+    // it uploads to, and both are ets:.
+    BOOST_TEST(!grants(BuiltinRoles::Transfer, "ets:stop-server"));
+    BOOST_TEST(!grants(BuiltinRoles::Transfer, "ets:start-server"));
+    BOOST_TEST(!grants(BuiltinRoles::Transfer, "ets:create-server"));
+    BOOST_TEST(!grants(BuiltinRoles::Transfer, "ets:delete-server"));
+    BOOST_TEST(!grants(BuiltinRoles::Transfer, "ets:update-server"));
+
+    // And nothing outside ETS at all - an FTP login is not a way into the rest of euclid.
+    BOOST_TEST(!grants(BuiltinRoles::Transfer, "esm:get-object"));
+    BOOST_TEST(!grants(BuiltinRoles::Transfer, "esm:delete-object"));
+    BOOST_TEST(!grants(BuiltinRoles::Transfer, "eam:register"));
+}
+
+// The computed roles have to cover the transfer commands too, or an installation whose users hold
+// `operator` finds its FTP clients refused after an upgrade - which is the whole migration this
+// was meant to avoid making painful.
+BOOST_AUTO_TEST_CASE(ReaderAndOperatorReachTheTransferCommandsTheyShould) {
+
+    // reader reads: list and download, by the get-/list- rule.
+    BOOST_TEST(grants(BuiltinRoles::Reader, "ets:list-directory"));
+    BOOST_TEST(grants(BuiltinRoles::Reader, "ets:get-file"));
+    BOOST_TEST(!grants(BuiltinRoles::Reader, "ets:put-file"));
+    BOOST_TEST(!grants(BuiltinRoles::Reader, "ets:delete-file"));
+
+    // operator does everything that is not destructive.
+    BOOST_TEST(grants(BuiltinRoles::Operator, "ets:put-file"));
+    BOOST_TEST(grants(BuiltinRoles::Operator, "ets:create-directory"));
+    BOOST_TEST(grants(BuiltinRoles::Operator, "ets:rename-file"));
+    BOOST_TEST(!grants(BuiltinRoles::Operator, "ets:delete-file"));
+    BOOST_TEST(!grants(BuiltinRoles::Operator, "ets:delete-directory"));
+}
+
 BOOST_AUTO_TEST_CASE(NoBuiltinRoleGrantsDuplicatePermissions) {
 
     for (const auto &role: BuiltinRoles::Names()) {

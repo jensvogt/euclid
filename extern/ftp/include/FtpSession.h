@@ -28,6 +28,7 @@
 // Euclid includes
 #include <FtpServer.h>
 #include <TransferAuthenticator.h>
+#include <TransferAuthorizer.h>
 #include <TransferStorage.h>
 #include <euclid/core/LogStream.h>
 
@@ -110,6 +111,24 @@ namespace Euclid::FTP {
         [[nodiscard]] ResolvedPath resolve(const std::string &arg) const;
 
         /**
+         * @brief Whether this session may run a command, sending "550 Permission denied" if not.
+         *
+         * @par
+         * Called at the top of each command that does something, with the `ets:` action it needs -
+         * "get-file", "put-file", "delete-file" and so on. Logging in decided only that this user
+         * may use this server; this decides what they may do once they are on it, from the same
+         * roles and grants that authorize everything else in euclid.
+         *
+         * @par
+         * The reply says nothing about which role was missing. That detail goes to the log, where
+         * the operator is, rather than down a control connection.
+         *
+         * @param action the action name, without the "ets:" prefix.
+         * @return true if the command may proceed.
+         */
+        [[nodiscard]] bool permitted(const std::string &action);
+
+        /**
          * @brief Opens the data connection set up by the preceding PASV or PORT command:
          * accepts on the PASV listener, or connects out for PORT. Sends "425" and returns
          * std::nullopt if neither was set up, or the connection attempt fails.
@@ -143,6 +162,15 @@ namespace Euclid::FTP {
          * token: every ESM call is made as the user who logged in, not as the server.
          */
         std::optional<Transfer::TransferStorage> _storage;
+
+        /**
+         * @brief The client that logged in, kept for the permission check each command makes.
+         *
+         * @par
+         * Not just the user id: the identity is also what the bearer token was minted for, so
+         * keeping the whole of it means the two can never describe different users.
+         */
+        std::optional<Transfer::TransferIdentity> _identity;
         boost::asio::streambuf _inputBuffer;
 
         bool _authenticated{false};

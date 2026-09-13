@@ -163,6 +163,15 @@ target_link_libraries(${TRANSFER_HOME_BINARY} PRIVATE euclidtransfer Boost::unit
 
 add_test(NAME ${TRANSFER_HOME_BINARY} COMMAND ${TRANSFER_HOME_BINARY})
 
+set(TRANSFER_AUTHORIZER_BINARY euclid-transfer-authorizer-tests)
+
+add_executable(${TRANSFER_AUTHORIZER_BINARY} TransferAuthorizerTest.cpp)
+set_target_properties(${TRANSFER_AUTHORIZER_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${TRANSFER_AUTHORIZER_BINARY} PRIVATE euclidtransfer Boost::unit_test_framework)
+
+add_test(NAME ${TRANSFER_AUTHORIZER_BINARY} COMMAND ${TRANSFER_AUTHORIZER_BINARY})
+
 set(CERTIFICATE_BINARY euclid-certificate-utils-tests)
 
 add_executable(${CERTIFICATE_BINARY} CertificateUtilsTest.cpp)

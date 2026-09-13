@@ -9,8 +9,12 @@
 // C++ includes
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
+#include <cstring>
+#include <iterator>
 #include <regex>
 #include <stdexcept>
+#include <utility>
 
 // MongoDB includes
 #include <bsoncxx/builder/basic/array.hpp>

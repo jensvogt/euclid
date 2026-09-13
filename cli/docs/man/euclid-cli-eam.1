@@ -141,7 +141,7 @@ privileges. See
 .BR euclid-cli-eam-get-role (1).
 .TP
 .B list-roles
-Lists the roles this account can bind: the six built-in ones and the
+Lists the roles this account can bind: the seven built-in ones and the
 account's own. Requires administrator privileges. See
 .BR euclid-cli-eam-list-roles (1).
 .TP
@@ -202,16 +202,23 @@ change it, revoke and grant again. The role is resolved when the grant is
 evaluated rather than copied into it, so changing a role changes every
 grant of it at once.
 .PP
-Six roles exist in every account without anybody creating them:
+Seven roles exist in every account without anybody creating them:
 .IR account\-administrator ,
 .IR operator ,
 .IR reader ,
 .IR publisher ,
-.I consumer
+.IR consumer ,
+.I application
 and
-.IR application .
-They are computed from the permission vocabulary rather than stored, so
-an action a module gains lands in them on the next build. See
+.IR transfer .
+None is a stored row, so none can be edited or deleted. Three of them -
+.IR account\-administrator ,
+.I operator
+and
+.I reader
+- are moreover computed from the permission vocabulary by rule, so an
+action a module gains lands in them on the next build with nobody to
+remember. See
 .BR euclid-cli-eam-list-roles (1).
 .SH ADMINISTRATOR PRIVILEGES
 There is no per-user "is admin" field. Instead, two independent levels of

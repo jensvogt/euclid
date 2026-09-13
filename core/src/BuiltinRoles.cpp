@@ -94,6 +94,26 @@ namespace Euclid::Core {
             return kPermissions;
         }
 
+        // What an FTP or SFTP client can do, which is not a rule the vocabulary can express: the
+        // transfer permissions are the ets: entries the transfer servers check, and the rest of
+        // ets: is server administration that no transfer client should hold.
+        const std::vector<std::string> &transferPermissions() {
+            static const std::vector<std::string> kPermissions = [] {
+                std::vector<std::string> permissions{
+                        "ets:create-directory",
+                        "ets:delete-directory",
+                        "ets:delete-file",
+                        "ets:get-file",
+                        "ets:list-directory",
+                        "ets:put-file",
+                        "ets:rename-file",
+                };
+                std::ranges::sort(permissions);
+                return permissions;
+            }();
+            return kPermissions;
+        }
+
         std::vector<std::string> merged(const std::vector<std::string> &left, const std::vector<std::string> &right,
                                         const std::vector<std::string> &extra) {
             std::vector<std::string> all;
@@ -129,6 +149,8 @@ namespace Euclid::Core {
                 built[std::string(BuiltinRoles::Application)] =
                         merged(publisherPermissions(), consumerPermissions(), {"esm:get-object", "esm:put-object"});
 
+                built[std::string(BuiltinRoles::Transfer)] = transferPermissions();
+
                 return built;
             }();
             return kRoles;
@@ -161,6 +183,7 @@ namespace Euclid::Core {
         if (name == Publisher) return "Publish to a topic and send to a queue";
         if (name == Consumer) return "Receive from a queue and manage topic subscriptions";
         if (name == Application) return "What a euclid-deployed application is given: publish, consume, read and write objects";
+        if (name == Transfer) return "Everything an FTP or SFTP client can do: list, download, upload, rename, create and remove directories";
         return {};
     }
 

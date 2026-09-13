@@ -37,6 +37,30 @@ marks it as one that should run.
 The bucket is resolved when the server is created, not when it starts,
 so a misspelled bucket name is reported here rather than surfacing later
 as a server that runs but stores nothing.
+.SH ADMITTING A CLIENT IS NOT THE SAME AS ALLOWING IT ANYTHING
+.B \-\-users
+and
+.B \-\-groups
+decide who may log in. What a client may then do - list, download,
+upload, rename, delete - is decided by the roles granted to it, and it
+is deny-by-default, so a newly listed user can log in and do nothing
+until a role reaches them:
+.PP
+.RS
+.nf
+euclid-cli eam grant-role --role transfer \e
+    --principal ern:eam:eu-central-1:000000000000:userGroup:suppliers \e
+    --namespace production
+.fi
+.RE
+.PP
+Granting to the same group named in
+.B \-\-groups
+keeps adding a client to one operation. See
+.B WHAT A CLIENT MAY DO
+in
+.BR euclid-cli-ets (1)
+for the seven permissions and how to grant fewer than all of them.
 .SH OPTIONS
 .TP
 .BR \-n ", " \-\-server\-id " " \fINAME\fR
@@ -143,6 +167,7 @@ euclid-cli --endpoint http://localhost:5566 ets create-server \e
 .BR euclid-cli-ets-start-server (1),
 .BR euclid-cli-ets-delete-server (1),
 .BR euclid-cli-esm-create-bucket (1),
-.BR euclid-cli-eam-create-user-group (1)
+.BR euclid-cli-eam-create-user-group (1),
+.BR euclid-cli-eam-grant-role (1)
 .SH AUTHOR
 Jens Vogt <jens.vogt@opitz-consulting.com>

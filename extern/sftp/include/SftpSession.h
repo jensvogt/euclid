@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -20,6 +21,7 @@
 // Euclid includes
 #include <SftpServer.h>
 #include <TransferAuthenticator.h>
+#include <TransferAuthorizer.h>
 #include <TransferStorage.h>
 
 namespace Euclid::SFTP {
@@ -209,6 +211,27 @@ namespace Euclid::SFTP {
          */
         [[nodiscard]] std::filesystem::path spoolPathFor(const std::string &key) const;
 
+        /**
+         * @brief Whether this session may run a request, replying SSH_FX_PERMISSION_DENIED if not.
+         *
+         * @par
+         * Called at the top of each handler that does something, with the `ets:` action it needs -
+         * "get-file", "put-file", "delete-file" and so on. Authenticating decided only that this
+         * user may use this server; this decides what they may do once they are on it, from the
+         * same roles and grants that authorize everything else in euclid.
+         *
+         * @par
+         * The requests that work through an already-open handle - READ, WRITE, FSTAT, READDIR,
+         * CLOSE - are deliberately not checked again: OPEN and OPENDIR are what decided the handle
+         * could exist, and re-deciding per packet would make a single download cost one evaluation
+         * per 32 KB chunk.
+         *
+         * @param msg the request to answer on refusal.
+         * @param action the action name, without the "ets:" prefix.
+         * @return true if the request may proceed.
+         */
+        [[nodiscard]] bool permitted(sftp_client_message msg, const std::string &action);
+
         ssh_session _session{nullptr};
         ssh_channel _channel{nullptr};
         sftp_session _sftp{nullptr};
@@ -233,6 +256,15 @@ namespace Euclid::SFTP {
          * server.
          */
         std::optional<Transfer::TransferStorage> _storage;
+
+        /**
+         * @brief The client that authenticated, kept for the permission check each request makes.
+         *
+         * @par
+         * Not just the user id: the identity is also what the bearer token was minted for, so
+         * keeping the whole of it means the two can never describe different users.
+         */
+        std::optional<Transfer::TransferIdentity> _identity;
 
         /**
          * @brief Owns every Handle handed out this session. libssh's handle table stores

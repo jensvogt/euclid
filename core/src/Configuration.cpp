@@ -8,6 +8,10 @@
 
 #include <euclid/core/Configuration.h>
 
+// C++ includes
+#include <memory>
+#include <utility>
+
 namespace Euclid::Core {
 
     // ── Load / Reload ─────────────────────────────────────────────────────────
