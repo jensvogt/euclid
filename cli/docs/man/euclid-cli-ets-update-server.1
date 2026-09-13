@@ -8,6 +8,8 @@ euclid-cli-ets-update-server \- change an existing transfer server's settings
 [\fB\-\-port\fR|\fB\-p\fR \fIPORT\fR]
 [\fB\-\-bucket\fR|\fB\-b\fR \fIBUCKET\fR]
 [\fB\-\-address\fR|\fB\-a\fR \fIADDRESS\fR]
+[\fB\-\-home\-dir\fR|\fB\-H\fR \fIPREFIX\fR]
+[\fB\-\-directories\fR|\fB\-D\fR \fILIST\fR]
 [\fB\-\-users\fR|\fB\-u\fR \fILIST\fR]
 [\fB\-\-groups\fR|\fB\-g\fR \fILIST\fR]
 [\fB\-\-host\-key\fR|\fB\-k\fR \fIPATH\fR]
@@ -29,13 +31,30 @@ intended list; to close a server to everyone, note that removing both
 lists entirely is not possible here - a server with neither cannot be
 logged in to, and is better deleted.
 .PP
-A running server keeps running on its old settings: the manager restarts
-a transfer server only when its desired state changes, not when its
-definition does. Run
-.BR euclid-cli-ets-stop-server (1)
-followed by
-.BR euclid-cli-ets-start-server (1)
-to apply the change.
+.SH IT RESTARTS A RUNNING SERVER
+A transfer server process reads its definition once, as it comes up, and
+nothing can tell it afterwards. So a change to a running server is
+applied by restarting it: the manager notices within a few seconds, and
+the server comes back on the new settings.
+.PP
+.B That interrupts whatever is in flight.
+Clients connected to it are disconnected and transfers under way are
+lost; a client that retries will succeed. Editing a busy server is
+therefore not a free operation, and the manager says so in its log at
+warning level when it does this.
+.PP
+Only a change that a starting process would actually read counts.
+Re-sending a setting it already has restarts nothing, so an update that
+changes nothing is free \- the comparison is on the definition, not on
+the fact that it was written.
+.PP
+This is also what makes the settings below take effect at all. Before
+euclid applied them this way, a
+.B \-\-directories
+or
+.B \-\-users
+change on a running server was written, reported as successful, and
+silently did nothing until somebody restarted the server by hand.
 .PP
 The protocol cannot be changed. FTP and SFTP are different processes
 with different settings, so switching one for the other means deleting
@@ -63,6 +82,19 @@ list.
 .BR \-g ", " \-\-groups " " \fILIST\fR
 Comma-separated EAM user groups whose members may log in. Replaces the
 current list.
+.TP
+.BR \-H ", " \-\-home\-dir " " \fIPREFIX\fR
+Key prefix each client's session is rooted at, with \fI{user}\fR standing
+for the login name \- so \fI{user}\fR gives \fIjvo\fR its own
+\fIjvo/\fR and nothing else. The prefix is invisible to the client,
+whose own view stays rooted at \fI/\fR. Pass an empty string to move
+back to the bucket root, where every client sees everything.
+.PP
+Changing this does not move what is already stored: objects keep the
+keys they were written under, so a client rooted somewhere new starts
+out seeing an empty directory. Move the keys with
+.BR euclid-cli-esm-move-object (1)
+if the old contents should follow.
 .TP
 .BR \-D ", " \-\-directories " " \fILIST\fR
 Comma-separated directories every session should find under its home,

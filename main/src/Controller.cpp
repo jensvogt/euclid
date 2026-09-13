@@ -30,6 +30,7 @@
 #include <euclid/core/ObjectCipher.h>
 #include <euclid/database/Database.h>
 #include <euclid/database/RepositoryFactory.h>
+#include <euclid/database/entity/ets/TransferServer.h>
 #include <euclid/dto/emm/EmmMapper.h>
 #include <euclid/manager/Controller.h>
 #include <euclid/manager/ControllerPlatform.h>
@@ -538,12 +539,41 @@ namespace Euclid::main {
                 log_info << "Transfer server starting, serverId: " << runtimeName
                         << ", protocol: " << Database::Entity::ETS::TransferProtocolToString(server.protocol) << ", port: " << server.port;
                 registerModule(config);
+
+                // Before start(), so a definition edited between the two is noticed on the next
+                // tick rather than mistaken for what this process read.
+                {
+                    std::lock_guard lock(_mutex);
+                    if (auto *group = getGroup(runtimeName)) group->appliedDefinition = server.runtimeFingerprint();
+                }
                 start(runtimeName);
 
             } else if (!wantRunning && registered) {
                 log_info << "Transfer server stopping, serverId: " << runtimeName;
                 stop(runtimeName);
                 deregisterModule(runtimeName);
+
+            } else if (wantRunning && registered) {
+
+                // Running, and its definition may have been edited underneath it. The process
+                // cannot be told - it read the definition once, as it came up - so the only way
+                // to apply the change is to start it again, exactly as a changed worker count is
+                // applied. Nothing else in the manager watches ETS, so an edit that is never
+                // reconciled here simply never takes effect.
+                const auto fingerprint = server.runtimeFingerprint();
+
+                std::lock_guard lock(_mutex);
+                auto *group = getGroup(runtimeName);
+                if (group == nullptr || group->appliedDefinition == fingerprint) continue;
+
+                // Said at warning level because it is not free: restarting drops whatever
+                // transfers are in flight, and an operator who edits a busy server should find
+                // out from the log why their clients were disconnected.
+                log_warning << "Transfer server definition changed, restarting, serverId: " << runtimeName
+                            << " - transfers in flight will be interrupted";
+
+                group->appliedDefinition = fingerprint;
+                queueRoll(*group);
             }
         }
 

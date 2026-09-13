@@ -58,6 +58,15 @@ manager restart brings every server marked running back by itself, and
 .B ets
 being unreachable at the moment a change is requested does not lose it.
 .PP
+The same reconcile applies an
+.I edit
+to a running server. A transfer server process reads its definition once
+as it comes up, so the only way to apply a change is to start it again -
+which the manager does, within the same few seconds, and which
+interrupts whatever transfers are in flight. Re-sending a setting the
+server already has restarts nothing. See
+.BR euclid-cli-ets-update-server (1).
+.PP
 All
 .B ets
 commands require administrator privileges; see
@@ -72,7 +81,7 @@ stopped. See
 .TP
 .B update-server
 Changes an existing server's settings; only the options given are
-altered. See
+altered, and a running server is restarted to pick them up. See
 .BR euclid-cli-ets-update-server (1).
 .TP
 .B list-servers
@@ -165,7 +174,8 @@ decision rather than one per block.
 .SH GRANTING THEM
 The built-in
 .I transfer
-role is all seven, which is what a full-access client needs:
+role is all seven, plus the four storage actions they turn into \- which
+is what a full-access client needs and nothing more:
 .PP
 .RS
 .nf
@@ -176,45 +186,91 @@ euclid-cli eam grant-role --role transfer \e
 .RE
 .PP
 Grant the same role to the user or the user group the server already
-lists, and onboarding stays one operation. To narrow it, write a role
-holding fewer of the seven with
-.BR euclid-cli-eam-create-role (1)
-\- a drop-box that may upload and list but never delete or overwrite is
-.I ets:put-file
+lists, and onboarding stays one operation.
+.PP
+The role covers both halves of what a command does. A transfer server
+stores nothing of its own \- a listing is a listing of bucket keys, an
+upload becomes an object \- and every one of those calls is made with
+the client's own token, so
+.BR euclid-cli-esm (1)'s
+own checks apply to it as well. So
+.I transfer
+also holds
+.IR esm:list\-objects ,
+.IR esm:get\-object ,
+.I esm:put\-object
 and
-.I ets:list-directory
-and nothing else.
+.IR esm:delete\-object ,
+which is exactly what the servers call and no more: it cannot create,
+rename, purge or delete a bucket. A role holding only the
+.I ets:
+half would pass the FTP check and be refused one layer down.
+.PP
+Note what that means: those four ESM actions are reachable from any
+client, not only through FTP. Somebody holding
+.I transfer
+can put an object with an SDK. That follows from granting the ability
+rather than the protocol, and scoping the grant is what bounds it.
+.PP
+To narrow it, write a role with
+.BR euclid-cli-eam-create-role (1)
+\- and remember both halves. A drop-box that may upload and list but
+never delete is
+.IR ets:put\-file ,
+.IR ets:list\-directory ,
+.I esm:put\-object
+and
+.IR esm:list\-objects .
 .PP
 Two built-in roles reach these without naming them, because they are
 computed from the vocabulary by rule:
 .I reader
 covers
-.I ets:list-directory
+.IR ets:list\-directory ,
+.IR ets:get\-file ,
+.I esm:list\-objects
 and
-.IR ets:get-file ,
+.IR esm:get\-object ,
 and
 .I operator
-covers everything except the two
+covers everything except the
 .IR delete- s.
 So a user who already holds
 .I operator
 in the server's namespace keeps working with no new grant.
+.SH SCOPING A TRANSFER GRANT
+A grant naming no resource applies to every transfer server in the
+account, and to every bucket. That is usually what a single-server
+installation wants.
 .PP
-Scope a grant to one server by naming its ERN as the resource, which
-.BR euclid-cli-ets-get-server (1)
-prints:
+To narrow it, name
+.I both
+ERNs \- the transfer server's and the bucket's. The two halves of the
+role are checked against different resources: an
+.I ets:
+command against the server, an
+.I esm:
+call against the bucket it lands in. A grant's
+.B \-\-resource
+list matches if
+.I any
+pattern does, so one grant carries both, and naming only one of them
+refuses the other half:
 .PP
 .RS
 .nf
 euclid-cli eam grant-role --role transfer \e
     --principal ern:eam:eu-central-1:000000000000:user:acme \e
     --namespace production \e
-    --resource ern:ets:eu-central-1:000000000000:production:server:incoming
+    --resource ern:ets:eu-central-1:000000000000:production:server:incoming \e
+    --resource ern:esm:eu-central-1:000000000000:production:bucket:dropbox
 .fi
 .RE
 .PP
-A grant naming no resource applies to every transfer server in the
-account, which is usually what a single-server installation wants.
+.BR euclid-cli-ets-get-server (1)
+prints both: the server's own ERN and the
+.I bucketErn
+it fronts.
 .PP
 Nothing here scopes by path: a client is confined to its home prefix by
 the server's

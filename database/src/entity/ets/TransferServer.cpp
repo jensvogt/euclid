@@ -8,6 +8,9 @@
 
 #include <bsoncxx/builder/basic/array.hpp>
 #include <bsoncxx/builder/concatenate.hpp>
+#include <bsoncxx/json.hpp>
+
+// Euclid includes
 #include <euclid/database/entity/ets/TransferServer.h>
 
 namespace Euclid::Database::Entity::ETS {
@@ -71,6 +74,21 @@ namespace Euclid::Database::Entity::ETS {
                                                         .view()));
 
         return document.extract();
+    }
+
+    std::string TransferServer::runtimeFingerprint() const {
+
+        // A copy with the three volatile fields flattened, then the entity's own serialization.
+        // Going through toDocument() is what keeps this honest as the entity grows: a new field
+        // is part of the fingerprint the moment it is stored, and the alternative - listing the
+        // fields a transfer process happens to read - drifts silently, which is exactly the
+        // failure this exists to prevent.
+        TransferServer normalised = *this;
+        normalised.desiredState = TransferServerState::STOPPED;
+        normalised.created = {};
+        normalised.modified = {};
+
+        return bsoncxx::to_json(normalised.toDocument().view());
     }
 
     TransferServer TransferServer::fromDocument(const std::optional<bsoncxx::document::view> &document) {

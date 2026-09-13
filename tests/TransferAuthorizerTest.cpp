@@ -34,6 +34,13 @@ using Euclid::Transfer::TransferIdentity;
 // The account, namespace and resource the check is made against are chosen here rather than by the
 // caller, and getting any of the three wrong fails open in a way no FTP client would report: a
 // resourceErn of "" would make every server-scoped grant match every server.
+//
+// What this file does NOT cover, and cannot: the ESM half. TransferAuthorizer asks about "ets:"
+// only, because that is the half the transfer servers decide themselves - the storage call each
+// command turns into is gated by ESM, with the client's own token, one layer further down. A role
+// that passes everything here and holds no esm: permission still leaves every command refused.
+// That gap is real and was shipped once; it is pinned by BuiltinRoleTest and, derived from
+// TransferStorage.cpp's own CallModule() literals, by PermissionVocabularyTest.
 
 namespace {
 
@@ -193,6 +200,10 @@ BOOST_AUTO_TEST_CASE(AGrantScopedToOneServerDoesNotReachAnother) {
     // The check the authorizer makes on the caller's behalf: the server's own ERN is the resource.
     // Passing no resource here would make this grant answer for every server in the account, and
     // nothing downstream would notice.
+    //
+    // A real grant scoped this way names the bucket's ERN as well - the role's esm: half is
+    // matched against that instead - but the second pattern makes no difference to what is being
+    // checked here, so it is left out to keep the case about one thing.
     const auto identity = userWithGrants({grantOf(std::string(BuiltinRoles::Transfer), {"*"}, {kServerErn})});
 
     BOOST_TEST(TransferAuthorizer(serverOf(kServerErn)).Allows(identity, "put-file").allowed);

@@ -19,6 +19,7 @@
 #include <vector>
 
 // Euclid includes
+#include <euclid/core/BuiltinRoles.h>
 #include <euclid/core/Permissions.h>
 
 using Euclid::Core::Permissions;
@@ -269,6 +270,45 @@ BOOST_AUTO_TEST_CASE(ModulesAreTheModulesThatHaveActions) {
         BOOST_TEST(Permissions::IsBindable(module));
     }
     BOOST_TEST(!Permissions::IsBindable("nonexistent"));
+}
+
+// A transfer server stores nothing of its own: every command it allows becomes a call to another
+// module, made with the client's own token, so that module's gate applies too. The built-in
+// `transfer` role therefore has to cover both halves - and the half that is easy to forget is the
+// one no FTP-side test can see, because the refusal happens a layer down.
+//
+// So the second half is derived rather than listed: every CallModule("<module>", "<action>") in
+// the transfer storage layer must be something `transfer` grants.
+BOOST_AUTO_TEST_CASE(TheTransferRoleCoversEveryModuleCallItsCommandsMake) {
+
+    const auto storage = sourceRoot() / "extern" / "common" / "src" / "TransferStorage.cpp";
+    BOOST_REQUIRE_MESSAGE(fs::is_regular_file(storage), "transfer storage source not found: " + storage.string());
+
+    static const std::regex kCall(R"re(CallModule\("([a-z]+)",\s*"([a-z-]+)")re");
+    const auto text = contentsOf(storage);
+
+    std::set<std::string> required;
+    for (std::sregex_iterator it(text.begin(), text.end(), kCall), end; it != end; ++it) {
+        required.insert((*it)[1].str() + ":" + (*it)[2].str());
+    }
+
+    // Otherwise this passes by finding nothing, which is the one way it could be useless.
+    BOOST_TEST(!required.empty(), "no CallModule(...) found - has the transfer storage layer been rewritten?");
+
+    const auto &granted = Euclid::Core::BuiltinRoles::PermissionsOf(Euclid::Core::BuiltinRoles::Transfer);
+
+    std::set<std::string> missing;
+    for (const auto &permission: required) {
+        const bool covered = std::ranges::any_of(granted, [&](const auto &held) {
+            return Permissions::Matches(held, permission);
+        });
+        if (!covered) missing.insert(permission);
+    }
+
+    BOOST_TEST(missing.empty(),
+               "the transfer servers make these calls and the built-in 'transfer' role does not grant them, so a "
+               "client holding it passes the FTP check and is refused by the module behind it - add to "
+               "core/src/BuiltinRoles.cpp:" + joined(missing));
 }
 
 // ── Matching ────────────────────────────────────────────────────────────────

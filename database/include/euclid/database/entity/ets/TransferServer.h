@@ -220,6 +220,30 @@ namespace Euclid::Database::Entity::ETS {
          * @param document MongoDB document.
          */
         static TransferServer fromDocument(const std::optional<bsoncxx::document::view> &document);
+
+        /**
+         * @brief What a euclid-ftp or euclid-sftp process starting now would read, as one
+         * comparable string.
+         *
+         * @par
+         * Such a process reads its definition exactly once, as it comes up - see
+         * Transfer::TransferContext::Load() - so an edit made while it runs reaches nothing until
+         * it starts again. The manager compares this against what the running process was started
+         * with and restarts the server when the two differ; without it, `ets update-server` on a
+         * running server appears to take and silently does not.
+         *
+         * @par
+         * Derived from toDocument() rather than from a hand-picked field list, so a field added to
+         * this entity later counts without anybody remembering to add it here. Three are excluded
+         * because they move without changing what the process would read: `desiredState`, which is
+         * start/stop and is reconciled separately, and `created`/`modified` - `modified` in
+         * particular is rewritten by an update that changed nothing, and restarting a live server
+         * drops the transfers in flight.
+         *
+         * @return the fingerprint; equal strings mean a restart would change nothing.
+         */
+        [[nodiscard]]
+        std::string runtimeFingerprint() const;
     };
 
     /**
