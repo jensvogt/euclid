@@ -82,13 +82,21 @@ permission \- goes to this process's log rather than to the client,
 because naming roles over the wire would tell a client about the
 installation's access model.
 .PP
-Grant the built-in
+Each permission above is only half of what the command needs. This
+server stores nothing of its own: the call it makes to
+.BR euclid-cli-esm (1)
+carries the client's own token, so that module's gate applies too. The
+built-in
 .I transfer
-role to the users or groups the server lists, or a narrower role of your
-own; see
-.B WHAT A CLIENT MAY DO
-and
+role holds both halves \- the
+.I ets:
+permissions above and the four object actions they turn into.
+.PP
+Grant it to the users or groups the server lists, or a narrower role of
+your own; see
 .B GRANTING THEM
+and
+.B SCOPING A TRANSFER GRANT
 in
 .BR euclid-cli-ets (1).
 .SH OPTIONS

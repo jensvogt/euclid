@@ -87,7 +87,7 @@ namespace Euclid::Core {
 
         /**
          * @brief Everything an FTP or SFTP client can do: list, download, upload, rename, and
-         * create and remove directories.
+         * create and remove directories - including the bucket objects those turn into.
          *
          * @par
          * The one built-in role that exists for a migration as much as for a use case. Transfer
@@ -95,10 +95,23 @@ namespace Euclid::Core {
          * checking permissions there would otherwise mean every existing client stops working
          * until somebody writes a role by hand. This is that role, written once.
          *
+         * @par Why it spans two modules
+         * A transfer server stores nothing of its own. A listing is a listing of bucket keys, an
+         * upload becomes an object, and every one of those calls is made with the client's own
+         * token - so ESM's gate applies to it just as much as the `ets:` check does. A role
+         * holding only the `ets:` half would pass the FTP check and be refused one layer down.
+         * The four `esm:` entries are exactly what Transfer::TransferStorage calls and no more.
+         *
+         * @par
+         * The consequence to know about: this reaches those four ESM actions from *any* client,
+         * not only through FTP. A principal holding it can put an object with the SDK. That is
+         * inherent in granting the ability rather than the protocol, and scoping the grant's
+         * resources to the one bucket is what bounds it.
+         *
          * @par
          * It is a genuine short list rather than a rule because "everything a transfer client can
-         * do" is not a shape the vocabulary has - it is seven specific permissions, and the point
-         * of granting something narrower (say, upload-only) is to grant fewer than these.
+         * do" is not a shape the vocabulary has, and the point of granting something narrower
+         * (say, read-only) is to grant fewer than these.
          */
         static constexpr std::string_view Transfer = "transfer";
 

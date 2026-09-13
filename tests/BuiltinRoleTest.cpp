@@ -238,10 +238,29 @@ BOOST_AUTO_TEST_CASE(TransferGrantsEveryTransferCommandAndNoServerAdministration
     BOOST_TEST(!grants(BuiltinRoles::Transfer, "ets:delete-server"));
     BOOST_TEST(!grants(BuiltinRoles::Transfer, "ets:update-server"));
 
-    // And nothing outside ETS at all - an FTP login is not a way into the rest of euclid.
-    BOOST_TEST(!grants(BuiltinRoles::Transfer, "esm:get-object"));
-    BOOST_TEST(!grants(BuiltinRoles::Transfer, "esm:delete-object"));
     BOOST_TEST(!grants(BuiltinRoles::Transfer, "eam:register"));
+    BOOST_TEST(!grants(BuiltinRoles::Transfer, "eqs:send-message"));
+}
+
+// The half that is easy to leave out and impossible to notice from the ets: side alone: a transfer
+// server stores nothing itself, so every command it allows turns into an ESM call made with the
+// client's own token. A role granting the FTP verb and not the storage action passes the FTP check
+// and is refused one layer down.
+BOOST_AUTO_TEST_CASE(TransferReachesTheBucketItsCommandsGoThrough) {
+
+    // Exactly what Transfer::TransferStorage calls.
+    BOOST_TEST(grants(BuiltinRoles::Transfer, "esm:list-objects"));
+    BOOST_TEST(grants(BuiltinRoles::Transfer, "esm:get-object"));
+    BOOST_TEST(grants(BuiltinRoles::Transfer, "esm:put-object"));
+    BOOST_TEST(grants(BuiltinRoles::Transfer, "esm:delete-object"));
+
+    // And no more of ESM than that. A transfer client works inside a bucket somebody else made
+    // for it, and must not be able to make, rename or remove one.
+    BOOST_TEST(!grants(BuiltinRoles::Transfer, "esm:create-bucket"));
+    BOOST_TEST(!grants(BuiltinRoles::Transfer, "esm:delete-bucket"));
+    BOOST_TEST(!grants(BuiltinRoles::Transfer, "esm:rename-bucket"));
+    BOOST_TEST(!grants(BuiltinRoles::Transfer, "esm:purge-bucket"));
+    BOOST_TEST(!grants(BuiltinRoles::Transfer, "esm:subscribe"));
 }
 
 // The computed roles have to cover the transfer commands too, or an installation whose users hold
