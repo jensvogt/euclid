@@ -9,6 +9,7 @@
 // C++ includes
 #include <stdexcept>
 #include <thread>
+#include <utility>
 
 // Boost includes
 #include <boost/asio/connect.hpp>

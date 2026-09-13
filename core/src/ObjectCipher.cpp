@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <functional>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 // Euclid includes

@@ -4,6 +4,7 @@
 
 // C++ includes
 #include <chrono>
+#include <utility>
 
 // Boost includes
 #include <boost/asio/io_context.hpp>

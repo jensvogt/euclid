@@ -6,6 +6,7 @@
 #include <boost/test/unit_test.hpp>
 
 // C++ includes
+#include <algorithm>
 #include <chrono>
 #include <string>
 

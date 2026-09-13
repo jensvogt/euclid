@@ -173,6 +173,7 @@ namespace Euclid::SFTP {
                 const Transfer::TransferAuthenticator authenticator(_config.transferServer);
                 if (const auto identity = authenticator.Authenticate(user, password)) {
                     _username = identity->userId;
+                    _identity = identity;
                     _homeDir = _config.rootDir;
                     _keyPrefix = Transfer::HomePrefix(_config.transferServer.homeDirectory, identity->userId);
                     _storage.emplace(_config.transferServer.bucketErn, identity->token, _config.transferServer.region, _config.transferServer.accountId,
@@ -319,6 +320,8 @@ namespace Euclid::SFTP {
 
     void SftpSession::handleOpenDir(sftp_client_message msg) {
 
+        if (!permitted(msg, "list-directory")) return;
+
         const auto *filename = sftp_client_message_get_filename(msg);
         const auto resolved = resolve(filename != nullptr ? filename : "");
 
@@ -462,6 +465,14 @@ namespace Euclid::SFTP {
         const auto *filename = sftp_client_message_get_filename(msg);
         const auto resolved = resolve(filename != nullptr ? filename : "");
         const auto flags = sftp_client_message_get_flags(msg);
+
+        // The one request whose permission depends on its arguments: the same packet type opens a
+        // file for reading, for writing, or for both, and a handle opened read-write has to
+        // satisfy both before it exists. Checked here and nowhere else - READ and WRITE against
+        // the resulting handle are not re-checked, so an open that should have been refused would
+        // hand out an unrestricted handle.
+        if ((flags & SSH_FXF_READ) && !permitted(msg, "get-file")) return;
+        if ((flags & SSH_FXF_WRITE) && !permitted(msg, "put-file")) return;
 
         if (_storage) {
             const auto key = keyOf(resolved.virtualPath);
@@ -634,6 +645,10 @@ namespace Euclid::SFTP {
 
     void SftpSession::handleStat(sftp_client_message msg, const bool followSymlinks) {
 
+        // STAT and LSTAT answer what a listing answers, one entry at a time, so they are the same
+        // permission - a client refused OPENDIR would otherwise walk the tree with them.
+        if (!permitted(msg, "list-directory")) return;
+
         const auto *filename = sftp_client_message_get_filename(msg);
         const auto resolved = resolve(filename != nullptr ? filename : "");
 
@@ -697,6 +712,8 @@ namespace Euclid::SFTP {
 
     void SftpSession::handleMkdir(sftp_client_message msg) {
 
+        if (!permitted(msg, "create-directory")) return;
+
         const auto *filename = sftp_client_message_get_filename(msg);
         const auto resolved = resolve(filename != nullptr ? filename : "");
 
@@ -722,6 +739,8 @@ namespace Euclid::SFTP {
     }
 
     void SftpSession::handleRmdir(sftp_client_message msg) {
+
+        if (!permitted(msg, "delete-directory")) return;
 
         const auto *filename = sftp_client_message_get_filename(msg);
         const auto resolved = resolve(filename != nullptr ? filename : "");
@@ -751,6 +770,8 @@ namespace Euclid::SFTP {
 
     void SftpSession::handleRemove(sftp_client_message msg) {
 
+        if (!permitted(msg, "delete-file")) return;
+
         const auto *filename = sftp_client_message_get_filename(msg);
         const auto resolved = resolve(filename != nullptr ? filename : "");
 
@@ -776,6 +797,8 @@ namespace Euclid::SFTP {
     }
 
     void SftpSession::handleRename(sftp_client_message msg) {
+
+        if (!permitted(msg, "rename-file")) return;
 
         const auto *oldName = sftp_client_message_get_filename(msg);
         const auto *newName = sftp_client_message_get_data(msg);
@@ -808,6 +831,11 @@ namespace Euclid::SFTP {
     }
 
     void SftpSession::handleSetstat(sftp_client_message msg) {
+
+        // Whoever may write the file may set its mode - this is the tail of an upload, and a
+        // client allowed to send the bytes and then refused the SETSTAT reports the whole
+        // transfer as failed.
+        if (!permitted(msg, "put-file")) return;
 
         // Clients send SETSTAT routinely after an upload (sftp -p, WinSCP and friends) to apply
         // the local mode and timestamps. Permissions are honoured; ownership and timestamps are
@@ -867,6 +895,27 @@ namespace Euclid::SFTP {
         std::string key = virtualPath;
         while (!key.empty() && key.front() == '/') key.erase(key.begin());
         return _keyPrefix + key;
+    }
+
+    bool SftpSession::permitted(sftp_client_message msg, const std::string &action) {
+
+        // Not reachable: the message loop only runs once authenticate() has returned true.
+        // Answered rather than asserted because "no identity" must never read as "allowed" if
+        // that ever changes.
+        if (!_identity.has_value()) {
+            sftp_reply_status(msg, SSH_FX_PERMISSION_DENIED, "Not authenticated");
+            return false;
+        }
+
+        const Transfer::TransferAuthorizer authorizer(_config.transferServer);
+        const auto decision = authorizer.Allows(*_identity, action);
+        if (decision.allowed) return true;
+
+        // The reason names roles and grants, so it goes here and not to the client.
+        log_warning << "SFTP request refused, user=" << _username << ", server=" << _config.transferServer.serverId
+                    << ", action=ets:" << action << ", reason: " << decision.reason;
+        sftp_reply_status(msg, SSH_FX_PERMISSION_DENIED, "Permission denied");
+        return false;
     }
 
     std::filesystem::path SftpSession::spoolPathFor(const std::string &key) const {

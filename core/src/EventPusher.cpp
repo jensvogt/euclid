@@ -2,6 +2,9 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+// C++ includes
+#include <utility>
+
 // Boost includes
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/local/stream_protocol.hpp>

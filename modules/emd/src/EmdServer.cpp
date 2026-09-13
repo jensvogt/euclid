@@ -8,6 +8,7 @@
 
 // C++ includes
 #include <string>
+#include <utility>
 #include <vector>
 
 // MongoDB includes

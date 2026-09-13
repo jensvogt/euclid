@@ -9,6 +9,9 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+// std::inserter. libstdc++ hands it over through <algorithm>; libc++ does not, so leaving it out
+// builds on Linux and fails on macOS.
+#include <iterator>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -81,6 +84,28 @@ namespace {
         return std::ranges::contains(Permissions::UnbindableModules(), module);
     }
 
+    // The transfer servers are the second place euclid checks a permission, and they are not
+    // modules: an FTP verb arrives on a control connection and an SFTP request as a packet, so
+    // neither passes through a dispatch table with an `action == "..."` in it. What they do
+    // instead is call permitted("get-file") before running the command, which is the same shape of
+    // evidence - the source text of the thing that enforces - so it is derived the same way.
+    std::vector<fs::path> transferSessions() {
+        return {sourceRoot() / "extern" / "ftp" / "src" / "FtpSession.cpp",
+                sourceRoot() / "extern" / "sftp" / "src" / "SftpSession.cpp"};
+    }
+
+    // Every permitted("...") literal. The SFTP form takes the message first - permitted(msg,
+    // "get-file") - so the literal is matched wherever in the argument list it falls.
+    std::set<std::string> transferActionsIn(const fs::path &session) {
+        static const std::regex kPermitted(R"re(permitted\([^)]*"([^"]+)"\))re");
+        const auto text = contentsOf(session);
+        std::set<std::string> actions;
+        for (std::sregex_iterator it(text.begin(), text.end(), kPermitted), end; it != end; ++it) {
+            actions.insert((*it)[1].str());
+        }
+        return actions;
+    }
+
     // What Permissions::All() would have to be for the modules as they stand today.
     std::set<std::string> vocabularyFromSources() {
         std::set<std::string> permissions;
@@ -88,6 +113,11 @@ namespace {
             if (isUnbindable(module)) continue;
             for (const auto &action: actionsIn(server)) {
                 permissions.insert(module + ":" + action);
+            }
+        }
+        for (const auto &session: transferSessions()) {
+            for (const auto &action: transferActionsIn(session)) {
+                permissions.insert("ets:" + action);
             }
         }
         return permissions;
@@ -108,6 +138,42 @@ BOOST_AUTO_TEST_CASE(TheSourcesAreWhereThisThinksTheyAre) {
     BOOST_REQUIRE(fs::is_directory(sourceRoot() / "modules"));
     BOOST_REQUIRE(!moduleServers().empty());
     BOOST_TEST(!vocabularyFromSources().empty());
+
+    // Same hazard for the transfer half: a renamed or moved session file would make the
+    // derivation below silently contribute nothing, and every ets: transfer permission would
+    // then read as stale rather than as unchecked.
+    for (const auto &session: transferSessions()) {
+        BOOST_REQUIRE_MESSAGE(fs::is_regular_file(session), "transfer session source not found: " + session.string());
+        BOOST_TEST(!transferActionsIn(session).empty(),
+                   session.filename().string() + " checks no permission at all, so an FTP/SFTP client is unrestricted there");
+    }
+}
+
+// The transfer servers' permissions are ets: because that is the module their servers belong to,
+// which puts them in the same namespace as ETS's own administration actions. The two sets must not
+// overlap: a client granted "may upload" must not thereby be able to stop the server it is
+// uploading to.
+BOOST_AUTO_TEST_CASE(TheTransferPermissionsAreDistinctFromEtsAdministration)
+{
+    std::set<std::string> fromTransfer;
+    for (const auto &session: transferSessions()) {
+        for (const auto &action: transferActionsIn(session)) fromTransfer.insert("ets:" + action);
+    }
+
+    std::set<std::string> fromEtsServer;
+    for (const auto &[module, server]: moduleServers()) {
+        if (module != "ets") continue;
+        for (const auto &action: actionsIn(server)) fromEtsServer.insert("ets:" + action);
+    }
+
+    BOOST_REQUIRE(!fromTransfer.empty());
+    BOOST_REQUIRE(!fromEtsServer.empty());
+
+    std::set<std::string> both;
+    std::ranges::set_intersection(fromTransfer, fromEtsServer, std::inserter(both, both.end()));
+    BOOST_TEST(both.empty(),
+               "these name both an FTP/SFTP command and an ETS module action, so granting one grants "
+               "the other:" + joined(both));
 }
 
 BOOST_AUTO_TEST_CASE(EveryDispatchedActionHasAPermission) {

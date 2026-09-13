@@ -5,6 +5,7 @@
 // C++ includes
 #include <algorithm>
 #include <ranges>
+#include <utility>
 
 // Euclid includes
 #include <euclid/core/Permissions.h>
@@ -238,12 +239,27 @@ namespace Euclid::Core {
                 "ess:list-secrets",
                 "ess:update-secret",
 
-                // ets - 8 actions
+                // ets - 8 actions, plus 7 the transfer servers themselves check
+                //
+                // The second group is the odd one in this file: those are not x-euclid-action
+                // values on a module socket but FTP verbs and SFTP packet types, checked inside
+                // euclid-ftp and euclid-sftp before the command runs. They are named ets: because
+                // that is the module whose servers they belong to, and a user restricted to
+                // downloads is restricted by the same grant mechanism as everything else rather
+                // than by a second one. PermissionVocabularyTest derives them from the two session
+                // sources exactly as it derives the rest from the dispatch tables.
+                "ets:create-directory",
                 "ets:create-server",
+                "ets:delete-directory",
+                "ets:delete-file",
                 "ets:delete-server",
+                "ets:get-file",
                 "ets:get-metrics",
                 "ets:get-server",
+                "ets:list-directory",
                 "ets:list-servers",
+                "ets:put-file",
+                "ets:rename-file",
                 "ets:start-server",
                 "ets:stop-server",
                 "ets:update-server",

@@ -10,9 +10,9 @@ euclid-cli-eam-list-roles \- list the roles this account can bind
 [\fB\-\-sort\-direction\fR|\fB\-r\fR \fIasc\fR|\fIdesc\fR]
 [\fB\-\-no\-builtin\fR]
 .SH DESCRIPTION
-Lists every role a grant in your account can name: the six built-in ones,
+Lists every role a grant in your account can name: the seven built-in ones,
 then your account's own.
-.SH THE SIX BUILT-IN ROLES
+.SH THE SEVEN BUILT-IN ROLES
 .TP
 .B account-administrator
 Everything, within the account a grant of it names. That is
@@ -39,6 +39,14 @@ Take messages off a queue and manage a topic subscription.
 .B application
 What a euclid-deployed application is given: publish, consume, and read
 and write objects. Always granted with an explicit resource list.
+.TP
+.B transfer
+Everything an FTP or SFTP client can do on a transfer server: list,
+download, upload, rename, and create and remove directories. The one
+built-in that names a short list rather than following a rule, because
+"everything a transfer client can do" is not a shape the vocabulary has.
+See
+.BR euclid-cli-ets (1).
 .PP
 There is deliberately no
 .I administrator
