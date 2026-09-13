@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.12](https://github.com/jensvogt/euclid/compare/1.1.11...v1.1.12) (2026-09-13)
+
+
+### Bug Fixes
+
+* purge bucket async handling ([804df00](https://github.com/jensvogt/euclid/commit/804df0004d5558decda234adb3096400c183c3c9))
+
 ## [1.1.11](https://github.com/jensvogt/euclid/compare/1.1.10...v1.1.11) (2026-09-13)
 
 
