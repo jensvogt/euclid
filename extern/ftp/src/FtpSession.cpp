@@ -203,7 +203,7 @@ namespace Euclid::FTP {
         _homeDir = _config.rootDir;
         _keyPrefix = Transfer::HomePrefix(_config.transferServer.homeDirectory, identity->userId);
         _storage.emplace(_config.transferServer.bucketErn, identity->token, _config.transferServer.region, _config.transferServer.accountId,
-                         _config.transferServer.serverId, identity->userId);
+                         _config.transferServer.nameSpace, _config.transferServer.serverId, identity->userId);
         _cwd = "/";
         _authenticated = true;
         _pendingUser.clear();

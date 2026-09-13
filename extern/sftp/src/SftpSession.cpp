@@ -177,7 +177,7 @@ namespace Euclid::SFTP {
                     _homeDir = _config.rootDir;
                     _keyPrefix = Transfer::HomePrefix(_config.transferServer.homeDirectory, identity->userId);
                     _storage.emplace(_config.transferServer.bucketErn, identity->token, _config.transferServer.region, _config.transferServer.accountId,
-                                     _config.transferServer.serverId, identity->userId);
+                                     _config.transferServer.nameSpace, _config.transferServer.serverId, identity->userId);
                     authenticated = true;
 
                     // The folder skeleton this session's clients expect, created on the way in rather than by

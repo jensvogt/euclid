@@ -37,8 +37,13 @@ Send to a queue, publish to a topic, and resolve the two by name.
 Take messages off a queue and manage a topic subscription.
 .TP
 .B application
-What a euclid-deployed application is given: publish, consume, and read
-and write objects. Always granted with an explicit resource list.
+What a euclid-deployed application is given: publish, consume, read and
+write objects, and own the delivery queue it consumes through \- create
+it, list it, subscribe it to a topic or a bucket, and delete it again.
+An application receives from a queue of its own rather than from the
+topic directly, so that queue is part of the application. It still
+cannot delete the topic or the bucket it subscribes to. Always granted
+with an explicit resource list.
 .TP
 .B transfer
 Everything an FTP or SFTP client can do on a transfer server: list,
