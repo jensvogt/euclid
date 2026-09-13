@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.8](https://github.com/jensvogt/euclid/compare/v1.1.7...v1.1.8) (2026-09-13)
+
+
+### Bug Fixes
+
+* add man-pages, first roles ([f060185](https://github.com/jensvogt/euclid/commit/f060185f457f8c87ccebc4134fc9c111b39a3148))
+
 ## [1.1.7](https://github.com/jensvogt/euclid/compare/1.1.6...v1.1.7) (2026-09-12)
 
 
