@@ -97,6 +97,12 @@ namespace Euclid::Core {
         // What an FTP or SFTP client can do, which is not a rule the vocabulary can express: the
         // transfer permissions are the ets: entries the transfer servers check, and the rest of
         // ets: is server administration that no transfer client should hold.
+        //
+        // The esm: half is not decoration. A transfer server keeps nothing of its own - a listing
+        // is a listing of bucket keys, an upload becomes an object - and every one of those calls
+        // is made with the client's own token, so ESM's gate applies to it. A role holding only
+        // the ets: half would pass the FTP check and be refused one layer down, which is a role
+        // that does not do what its name says.
         const std::vector<std::string> &transferPermissions() {
             static const std::vector<std::string> kPermissions = [] {
                 std::vector<std::string> permissions{
@@ -107,6 +113,13 @@ namespace Euclid::Core {
                         "ets:list-directory",
                         "ets:put-file",
                         "ets:rename-file",
+                        // Exactly what TransferStorage calls, and nothing else: no create-bucket,
+                        // no delete-bucket, no subscriptions. A transfer client works inside a
+                        // bucket somebody else made for it.
+                        "esm:delete-object",
+                        "esm:get-object",
+                        "esm:list-objects",
+                        "esm:put-object",
                 };
                 std::ranges::sort(permissions);
                 return permissions;
@@ -183,7 +196,7 @@ namespace Euclid::Core {
         if (name == Publisher) return "Publish to a topic and send to a queue";
         if (name == Consumer) return "Receive from a queue and manage topic subscriptions";
         if (name == Application) return "What a euclid-deployed application is given: publish, consume, read and write objects";
-        if (name == Transfer) return "Everything an FTP or SFTP client can do: list, download, upload, rename, create and remove directories";
+        if (name == Transfer) return "Everything an FTP or SFTP client can do: list, download, upload, rename, create and remove directories, including the bucket objects those become";
         return {};
     }
 

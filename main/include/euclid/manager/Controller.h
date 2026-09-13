@@ -568,6 +568,23 @@ namespace Euclid::main {
              * not carried out again on every following tick.
              */
             std::chrono::system_clock::time_point appliedRestartAt{};
+
+            /**
+             * @brief The transfer server definition this group's running process was started
+             * with, empty for anything that is not a transfer server.
+             *
+             * @par
+             * A transfer server process reads its own definition once, as it comes up - see
+             * Transfer::TransferContext::Load() - so an edit made while it is running reaches
+             * nothing until it starts again. Held here so reconcileTransferServers() can tell an
+             * edited definition from an unchanged one and restart only on the former.
+             *
+             * @par
+             * Recorded when the group is registered rather than compared against a stored
+             * "observed" flag: registration and process start happen together, so what is
+             * recorded is by construction what the process read.
+             */
+            std::string appliedDefinition;
         };
 
         /**

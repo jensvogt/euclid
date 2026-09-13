@@ -42,10 +42,11 @@ and write objects. Always granted with an explicit resource list.
 .TP
 .B transfer
 Everything an FTP or SFTP client can do on a transfer server: list,
-download, upload, rename, and create and remove directories. The one
-built-in that names a short list rather than following a rule, because
-"everything a transfer client can do" is not a shape the vocabulary has.
-See
+download, upload, rename, and create and remove directories \- plus the
+four ESM object actions those turn into, since a transfer server keeps
+nothing of its own and reaches the bucket as the client. The one
+built-in that spans two modules, and the one that names a short list
+rather than following a rule. See
 .BR euclid-cli-ets (1).
 .PP
 There is deliberately no

@@ -179,7 +179,7 @@ Nobody should have to write out 189 permissions to get started.
 | `publisher` | `ens:publish-message`, `eqs:send-message`, plus the `get-*-ern` lookups needed to address them. |
 | `consumer` | `eqs:receive-messages`, `eqs:delete-message`, `eqs:set-visibility`, `ens:subscribe`, `ens:unsubscribe`. |
 | `application` | What EAP hands a deployed application: `publisher` + `consumer` + `esm:get-object`/`esm:put-object`, always bound with an explicit `resources` list. This is what `resourceGrants` was reaching for. |
-| `transfer` | Everything an FTP or SFTP client can do: the seven `ets:` transfer permissions of §4.3. Not `ets:start-server` and friends — a client that may upload must not be able to stop the server it uploads to. |
+| `transfer` | Everything an FTP or SFTP client can do: the seven `ets:` transfer permissions of §4.3, **plus** `esm:list-objects`/`get-object`/`put-object`/`delete-object`, which is what those commands turn into. Not `ets:start-server` and friends — a client that may upload must not be able to stop the server it uploads to — and no bucket-level ESM action either. |
 
 The first three are *computed* from the vocabulary by rule, so a module that gains an action gains
 it in them on the next build. The last four are short lists, checked entry by entry against the
@@ -326,8 +326,25 @@ euclid-cli eam grant-role --role transfer \
     --namespace production
 ```
 
-Many users need nothing: `reader` covers `ets:list-directory` and `ets:get-file` by the `get-`/
-`list-` rule, and `operator` covers everything but the two `delete-`s.
+Many users need nothing: `reader` covers `ets:list-directory`, `ets:get-file`, `esm:list-objects`
+and `esm:get-object` by the `get-`/`list-` rule, and `operator` covers everything but the
+`delete-`s.
+
+**The role spans two modules, deliberately.** A transfer server stores nothing of its own, and every
+call it makes to ESM carries the client's own token — so ESM's gate applies to it as well as the
+`ets:` check does. A role holding only the `ets:` half passes the FTP check and is refused one layer
+down, which is a role that does not do what its name says. `PermissionVocabularyTest` derives the
+second half from `TransferStorage.cpp`'s `CallModule("esm", "...")` literals and fails if the role
+does not cover one, because no FTP-side test can see that refusal.
+
+Two consequences worth stating:
+
+- Those four ESM actions are reachable from **any** client, not only through FTP. Somebody holding
+  `transfer` can put an object with an SDK. That follows from granting the ability rather than the
+  protocol; scoping the grant is what bounds it.
+- **Scoping needs both ERNs.** The two halves are matched against different resources — an `ets:`
+  command against the transfer server's ERN, an `esm:` call against the bucket's. `Grant::resources`
+  matches if *any* pattern does, so one grant carries both; naming only one refuses the other half.
 
 ---
 
