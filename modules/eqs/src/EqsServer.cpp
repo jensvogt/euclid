@@ -95,6 +95,17 @@ namespace Euclid::EQS {
         return std::nullopt;
     }
 
+    // Whether the queue a destructive request names is the caller's own plumbing - see
+    // Queue::isInternalPlumbingOf() for why that is let through where a deployed queue is not.
+    //
+    // The flags are read from the *stored* queue and never from the request, so a caller cannot
+    // claim somebody else's queue is its own plumbing. A queue that is not there is not exempt
+    // either: the check then falls through to the resource grant rather than past it, so a narrow
+    // grant cannot be probed for which queues exist.
+    static bool isOwnInternalQueue(const std::optional<Database::Entity::EQS::Queue> &queue, const AuthResult &auth) {
+        return queue.has_value() && auth.user.has_value() && queue->isInternalPlumbingOf(auth.user->userId);
+    }
+
     // Fills in the caller identity shared by every response DTO's "metadata" object. The
     // request ID that correlates this response with its request travels as the
     // "x-euclid-request-id" header instead (set centrally in HttpActionServer::JsonResponse).
@@ -171,7 +182,9 @@ namespace Euclid::EQS {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-queue");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        // Hoisted out of the `if` it used to be declared in: the resource check below needs it.
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
@@ -179,7 +192,16 @@ namespace Euclid::EQS {
         const auto request = Dto::EQS::DeleteQueueRequest::fromJson(req.body());
         log_info << "EQS DeleteQueue, ern: " << request.ern;
 
-        Database::RepositoryFactory::instance().eqsRepository()->deleteQueueByErn(request.ern);
+        const auto repo = Database::RepositoryFactory::instance().eqsRepository();
+
+        // Deleting is destructive and was not resource-checked at all until 2026-09-13, so a
+        // principal granted one queue could remove any of them. Its own delivery plumbing is the
+        // exception, because that queue is not something a resource list can name.
+        if (const auto existing = repo->findQueueByErn(request.ern); !isOwnInternalQueue(existing, auth)) {
+            if (const auto denied = denyUngrantedQueue(req, auth, request.ern)) return *denied;
+        }
+
+        repo->deleteQueueByErn(request.ern);
 
         // Anything still queued to be delivered into it has nowhere to go now. Discarded here so
         // the backlog never forms, rather than being rediscovered one event at a time by
@@ -514,7 +536,9 @@ namespace Euclid::EQS {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "purge-queue");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        // Hoisted out of the `if` it used to be declared in: the resource check below needs it.
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
@@ -523,6 +547,12 @@ namespace Euclid::EQS {
         log_info << "EQS PurgeQueue ern: " << request.ern;
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
+
+        // Emptying a queue loses exactly as much as deleting it, so it is held to the same rule.
+        if (const auto existing = repo->findQueueByErn(request.ern); !isOwnInternalQueue(existing, auth)) {
+            if (const auto denied = denyUngrantedQueue(req, auth, request.ern)) return *denied;
+        }
+
         repo->purgeQueue(request.ern);
 
         return EqsServer::JsonResponse(req, status::ok);

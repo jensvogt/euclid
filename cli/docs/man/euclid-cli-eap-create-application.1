@@ -99,7 +99,20 @@ principal keeps account-wide access.
 .TP
 .B \-\-queues " " \fILIST\fR
 Comma-separated names of the queues the application may use, enforced
-the same way by the queueing module.
+the same way by the queueing module \- sending, receiving, deleting and
+purging are all held to this list.
+.PP
+With one exception, and it is not a hole: the application's own
+.I delivery
+queue. An application does not consume from a topic or a bucket, it
+consumes from a queue of its own that it subscribes to one, and the
+listener container invents that queue's name on each start \- so no
+list written here could ever name it. Such a queue is created
+.I internal
+and carries the principal that made it, and only that principal may
+remove it. One application cannot reach another's, and a queue the
+application deployed under a real name is still held to this list even
+though it created that one too.
 .TP
 .BR \-c ", " \-\-command " " \fICMD\fR
 Command to run instead of the runtime's default, for an application that

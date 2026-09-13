@@ -80,8 +80,24 @@ namespace Euclid::Core {
         static constexpr std::string_view Consumer = "consumer";
 
         /**
-         * @brief What a euclid-deployed application is given: publish, consume, and read and write
-         * objects - always bound with an explicit resource list.
+         * @brief What a euclid-deployed application is given: publish, consume, read and write
+         * objects, and own the delivery queue it consumes through - always bound with an explicit
+         * resource list.
+         *
+         * @par Why it owns a queue
+         * An application does not receive from a topic or from a bucket. It receives from a queue
+         * of its own that it subscribes to one, because that is what fans a message out to every
+         * instance rather than to whichever instance asked first. So the queue is part of the
+         * application, not part of the deployment: it is created on startup, subscribed, found
+         * again on the next start, and taken down on shutdown - along with the ones a run that was
+         * killed rather than stopped left behind.
+         *
+         * @par
+         * That is why this holds `eqs:create-queue`, `eqs:delete-queue` and `eqs:list-queues`,
+         * which no other built-in role puts together: `operator` has the first and last and not
+         * the delete, `consumer` has none of them. Without them euclid-spring's listener container
+         * throws on startup rather than starting degraded, so an application missing them does not
+         * run at all.
          */
         static constexpr std::string_view Application = "application";
 

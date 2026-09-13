@@ -76,6 +76,15 @@ namespace Euclid::Transfer {
         // one, so there is nothing to gain from adding it.
         if (!_region.empty()) headers.emplace_back("x-euclid-region", _region);
         if (!_accountId.empty()) headers.emplace_back("x-euclid-account-id", _accountId);
+
+        // The namespace belongs with the other two and was missing from this list until
+        // 2026-09-13. Two things went wrong without it, both silent: an object stored through a
+        // transfer server was recorded with no namespace, so the esm.object.created event it
+        // raised carried an empty one and a subscriber filtering on it never matched; and the
+        // authorization gate was asked about namespace "" while the transfer server's own check
+        // asked about the server's real namespace, so a grant scoped to a namespace passed the
+        // FTP command and was refused on the storage call behind it.
+        if (!_nameSpace.empty()) headers.emplace_back("x-euclid-namespace", _nameSpace);
         return headers;
     }
 
