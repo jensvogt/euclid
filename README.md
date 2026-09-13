@@ -366,7 +366,7 @@ Two things are worth deciding deliberately:
 
 - **`jit-provisioning`** (on by default) creates a euclid user the first time somebody signs in, with **nothing
   granted**. The provider says who a person is; what they may do here is still euclid's question, answered with
-  `euclid-cli eam grant-namespace-access`. Turn it off to refuse anybody an administrator has not created first.
+  `euclid-cli eam grant-role`. Turn it off to refuse anybody an administrator has not created first.
 - **`link-existing-users`** (off by default) decides whether a federated login may adopt an existing euclid user of the
   same name. Off, because with it on, whoever the provider calls `admin` becomes euclid's `admin`. Turn it on only where
   the provider is genuinely the authority on user names.

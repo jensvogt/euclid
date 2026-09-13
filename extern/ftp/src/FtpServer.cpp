@@ -145,7 +145,7 @@ namespace Euclid::FTP {
         }
     }
 
-    response<string_body> FtpServer::Dispatch(const request<string_body> &req) {
+    response<string_body> FtpServer::DispatchAction(const request<string_body> &req) {
         const auto action = std::string(req["x-euclid-action"]);
         if (action == "get-metrics") {
             return MetricsResponse(req);

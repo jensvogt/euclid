@@ -78,32 +78,6 @@ namespace Euclid::Database::Entity::EAM {
      * namespaces. A User can hold any number of these, one per account it has been granted
      * access to - see Core::HttpActionServer::GrantLookup for how this is enforced.
      */
-    struct AccountGrant {
-
-        /**
-         * @brief Account this grant applies to.
-         */
-        std::string accountId;
-
-        /**
-         * @brief Namespaces within accountId this user may access. An empty vector means no
-         * namespace has been granted yet (not "all namespaces").
-         */
-        std::vector<std::string> namespaces;
-
-        /**
-         * @brief Whether this user administers accountId itself (may manage its namespaces and
-         * other users' grants on it), independent of global administrator status (see
-         * Database::IsEamAdmin()).
-         */
-        bool isAdmin{false};
-
-        /**
-         * @brief Timestamp the grant was created, ISO8601.
-         */
-        std::string granted;
-    };
-
     /**
      * @brief A SAML assertion this user has already been let in with.
      */
@@ -134,7 +108,7 @@ namespace Euclid::Database::Entity::EAM {
         std::string userId;
 
         /**
-         * @brief Euclid resource name, e.g. "ern:euclid:eam:eu-central-1:<accountId>:user:<userId>"
+         * @brief Euclid resource name, e.g. "ern:eam:eu-central-1:<accountId>:user:<userId>"
          * (see Core::createEamUserErn()).
          */
         std::string ern;
@@ -198,17 +172,6 @@ namespace Euclid::Database::Entity::EAM {
          */
         std::string federatedSubject;
 
-        /**
-         * @brief ERNs of the resources this user may act on, or empty for no restriction.
-         *
-         * @par
-         * Account and namespace grants say *where* a caller may work; this says *what* it may
-         * touch inside that account - the buckets and queues an application was deployed with,
-         * and nothing else. Empty means unrestricted, which is what every human and every user
-         * written before this field existed is: narrowing a person down to a fixed resource list
-         * is not what this is for.
-         */
-        std::vector<std::string> resourceGrants;
 
         std::vector<AccessKey> accessKeys;
 
@@ -236,13 +199,6 @@ namespace Euclid::Database::Entity::EAM {
          */
         std::vector<Session> sessions;
 
-        /**
-         * @brief Explicit per-(account, namespace) grants held by this user, in addition to
-         * accountId/region above (the user's home account). Empty means no additional accounts
-         * have been granted - a global administrator (see Database::IsEamAdmin()) bypasses this
-         * list entirely.
-         */
-        std::vector<AccountGrant> accountGrants;
 
         /**
          * @brief Creation timestamp, ISO8601.

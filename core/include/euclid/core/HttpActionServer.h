@@ -160,6 +160,135 @@ namespace Euclid::Core {
         static boost::beast::http::response<boost::beast::http::string_body>
         ErrorResponse(const boost::beast::http::request<boost::beast::http::string_body> &req, boost::beast::http::status status, std::string_view message);
 
+
+        /**
+         * @brief Refuses to start when the configuration still asks for a mode that no longer
+         * exists.
+         *
+         * @par
+         * `euclid.authorization.mode` had three values while euclid was moving off the per-user
+         * grant lists. Those lists are gone, so "legacy" and "shadow" - both of which meant "let the
+         * old mechanism decide" - would now mean "let nothing decide". A module that found one of
+         * them in its configuration and started anyway would authorize nobody and say nothing.
+         *
+         * @par
+         * Called from this class's constructor, so every module gets it without opting in. Loud at
+         * deploy time is the worst this can be; silent and open is what it prevents.
+         *
+         * @throws std::runtime_error if the setting is present and is not "enforce".
+         */
+        static void RequireEnforcingAuthorization();
+
+        /**
+         * @brief Whether a caller may do what a request asks, and why.
+         */
+        struct AuthorizationDecision {
+            bool allowed{false};
+            std::string reason;
+        };
+
+        /**
+         * @brief Answers whether a request is authorized.
+         *
+         * @par
+         * Registered rather than called directly, for the reason SetAccessKeyLookup() exists: this
+         * class is in core, and roles, grants and users are in the database module that depends on
+         * it. A process that never registers one is never refused anything - which is what keeps
+         * this change additive until somebody turns it on.
+         *
+         * @param req    the request, for its identity headers.
+         * @param target module target, from x-euclid-target.
+         * @param action module action, from x-euclid-action.
+         */
+        using AuthorizationLookup = std::function<AuthorizationDecision(const boost::beast::http::request<boost::beast::http::string_body> &req,
+                                                                        const std::string &target, const std::string &action)>;
+
+        /**
+         * @brief Registers the lookup the gate consults. See Database::WireAuthorizationLookup().
+         *
+         * @param lookup answers the decision, or nothing to leave the gate inert.
+         */
+        static void SetAuthorizationLookup(AuthorizationLookup lookup);
+
+
+
+
+        /**
+         * @brief The refusal this request earns from the role gate, or nothing to let it through.
+         *
+         * @par
+         * What Dispatch() calls before the module's own handler, and public for the same reason
+         * the resource check next door is: it is a pure function of the request and the registered
+         * lookup, and it is the single decision this whole design turns on. A gate that could only
+         * be exercised by starting a server would be tested by nobody.
+         *
+         * @par
+         * Answers nothing - let it through - in the two cases that are not a considered refusal: no
+         * registered lookup, or a module whose actions no role can name.
+         *
+         * @param req the request.
+         * @return the 403 to send instead, or std::nullopt.
+         */
+        [[nodiscard]]
+        static std::optional<boost::beast::http::response<boost::beast::http::string_body>>
+        Authorize(const boost::beast::http::request<boost::beast::http::string_body> &req);
+
+
+        /**
+         * @brief Whether a caller may act on one named resource, and why.
+         *
+         * @par
+         * The second half of the gate, and the half that cannot live in it. The module and the
+         * action are headers, so Authorize() settles them before any handler runs; the *resource*
+         * is a bucket ERN in a body or a queue ERN in a header, and only the handler knows which
+         * field holds it. So the handler asks, once it has read one - see
+         * docs/role-concept.md §4.1.
+         *
+         * @param req         the request, for its identity headers.
+         * @param target      module target.
+         * @param action      module action.
+         * @param resourceErn the resource the handler has just read out of the request.
+         */
+        using ResourceAuthorizationLookup = std::function<AuthorizationDecision(const boost::beast::http::request<boost::beast::http::string_body> &req,
+                                                                                const std::string &target, const std::string &action,
+                                                                                const std::string &resourceErn)>;
+
+        /**
+         * @brief Registers the lookup AuthorizeResource() consults.
+         */
+        static void SetResourceAuthorizationLookup(ResourceAuthorizationLookup lookup);
+
+        /**
+         * @brief The refusal a caller earns for naming this resource, or nothing to let it through.
+         *
+         * @par
+         * Called by a handler once it has read the resource the request is about.
+         *
+         * @param req         the request.
+         * @param resourceErn the resource it names.
+         * @return the 403 to send instead, or std::nullopt.
+         */
+        [[nodiscard]]
+        static std::optional<boost::beast::http::response<boost::beast::http::string_body>>
+        AuthorizeResource(const boost::beast::http::request<boost::beast::http::string_body> &req,
+                          const std::string &resourceErn);
+
+        /**
+         * @brief Whether a caller may act on one named resource.
+         *
+         * @par
+         * The same question AuthorizeResource() asks, answered as a boolean for the callers that
+         * *filter* rather than refuse - a listing that quietly leaves out what the caller may not
+         * reach, so an application asking what it can read gets an answer instead of a 403.
+         *
+         * @param req         the request.
+         * @param resourceErn the resource.
+         * @return true if the caller may act on it, and true when no lookup is registered.
+         */
+        [[nodiscard]]
+        static bool IsResourceAuthorized(const boost::beast::http::request<boost::beast::http::string_body> &req,
+                                         const std::string &resourceErn);
+
         /**
          * @brief Result of Authenticate(): the verified subject (the token's "sub" claim,
          * e.g. a user ID) if the request carried a valid bearer token and its
@@ -246,68 +375,6 @@ namespace Euclid::Core {
         static void SetScopeLookup(ScopeLookup lookup);
 
         /**
-         * @brief Callback CheckScope (inside Authenticate()) uses to verify the authenticated
-         * subject is actually granted access to the requested account/namespace.
-         *
-         * @param userId authenticated subject (already resolved from a JWT or SigV4 signature)
-         * @param accountId account being accessed
-         * @param ns namespace being accessed, or empty for an account-level-only request
-         * @return true if authorized (e.g. a global/account admin, or a matching grant), false to deny
-         */
-        using GrantLookup = std::function<bool(const std::string &userId, const std::string &accountId, const std::string &ns)>;
-
-        /**
-         * @brief Registers the grant lookup Authenticate() uses to enforce per-user
-         * account/namespace grants.
-         *
-         * Only enforced once wired, and only for requests that carry a non-empty
-         * x-euclid-account-id - deployments/modules that never call this (e.g. ftp) are
-         * unaffected, same backward-compatibility contract as SetScopeLookup().
-         *
-         * @param lookup resolves whether userId is authorized for accountId/ns.
-         */
-        static void SetGrantLookup(GrantLookup lookup);
-
-        /**
-         * @brief Callback IsResourceAllowed() uses to decide whether a caller may act on one
-         * particular resource.
-         *
-         * @param userId authenticated subject.
-         * @param resourceErn ERN of the resource the request names, e.g. a bucket or a queue.
-         * @return true if the caller may act on it.
-         */
-        using ResourceLookup = std::function<bool(const std::string &userId, const std::string &resourceErn)>;
-
-        /**
-         * @brief Registers the resource lookup IsResourceAllowed() consults.
-         *
-         * core doesn't depend on database (database depends on core), so each process wires in
-         * its own Database::RepositoryFactory-backed lookup at startup, once its repository is
-         * initialized. Until this is called, no request is refused on resource grounds - which is
-         * what keeps a module that has not been taught about this behaving as it always did.
-         *
-         * @param lookup resolves whether a user may act on a resource.
-         */
-        static void SetResourceLookup(ResourceLookup lookup);
-
-        /**
-         * @brief Whether an authenticated caller may act on a resource.
-         *
-         * @par
-         * Called by a handler once it has resolved *which* resource the request is about, which
-         * is why this cannot live in Authenticate(): the resource is named in a request body or
-         * a header that only the handler understands. Account and namespace scope are settled
-         * before a handler runs; this is the narrower question of whether this particular bucket
-         * or queue is one the caller was given.
-         *
-         * @param userId authenticated subject.
-         * @param resourceErn ERN of the resource, e.g. "ern:esm:...:bucket:inbox".
-         * @return true if the caller may act on it, and whenever no lookup is wired.
-         */
-        [[nodiscard]]
-        static bool IsResourceAllowed(const std::string &userId, const std::string &resourceErn);
-
-        /**
          * @brief Builds the error response for a failed Authenticate() call: 403 with
          * denialReason if the token verified but the request was out of scope, otherwise 401
          * worded according to whether the token was expired or simply missing/invalid.
@@ -387,6 +454,39 @@ namespace Euclid::Core {
          * @brief Id of the scheduled CPU/memory usage collection task, used to cancel it on destruction.
          */
         std::string _resourceUsageTaskId;
+
+    protected:
+
+        /**
+         * @brief Routes a request to its handler.
+         *
+         * @par
+         * What every module implements, and what Dispatch() calls once a request has got past the
+         * role gate. Renamed from Dispatch() when the gate arrived: a module that implemented
+         * Dispatch() would have replaced the gate rather than sat behind it, and the failure would
+         * have been one module silently ungated.
+         *
+         * @param req request received on the Unix domain socket.
+         * @return the response to send back.
+         */
+        [[nodiscard]]
+        virtual boost::beast::http::response<boost::beast::http::string_body>
+        DispatchAction(const boost::beast::http::request<boost::beast::http::string_body> &req) = 0;
+
+    private:
+
+        /**
+         * @brief The role gate, then the module's own handler.
+         *
+         * @par
+         * final, deliberately. This is the one place every module's requests pass through, and the
+         * whole point of gating here rather than in each handler is that a module cannot be left
+         * out by forgetting - see docs/role-concept.md §4.1.
+         */
+        [[nodiscard]]
+        boost::beast::http::response<boost::beast::http::string_body>
+        Dispatch(const boost::beast::http::request<boost::beast::http::string_body> &req) final;
+
     };
 
 }// namespace Euclid::Core

@@ -1,0 +1,169 @@
+.TH EUCLID-CLI-EAM-CHECK-PERMISSION 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eam-check-permission \- ask whether a user may do something, and why
+.SH SYNOPSIS
+.B euclid-cli eam check-permission
+.BR \-\-user | \-u
+.I USERID
+.BR \-\-target | \-t
+.I MODULE
+.BR \-\-action | \-a
+.I ACTION
+[\fB\-\-namespace\fR|\fB\-e\fR \fINAME\fR]
+[\fB\-\-resource\fR|\fB\-r\fR \fIERN\fR]
+.SH DESCRIPTION
+Answers whether a user would be allowed to do something, and says what
+decided it. Nothing is done and nothing is changed.
+.PP
+It evaluates what a real request would: every grant held by the user and
+by every group they belong to, filtered to the account, the namespace and
+the resource, then matched against what each grant's role holds. This is
+the command that turns "they say they cannot publish" into an answer.
+.SH WHY IT IS NOT JUST LIST-GRANTS
+.BR euclid-cli-eam-list-grants (1)
+with
+.B \-\-principal
+shows a user's
+.I own
+grants. Most rights in a working installation arrive through group
+membership, and those do not appear there. This command counts them.
+.PP
+It also applies the parts of the decision that a list cannot show: whether
+the grant's namespaces cover the one asked about, whether its resource
+patterns cover the resource, and whether the role actually holds the
+permission \- including through a
+.I <module>:*
+or
+.I *:*
+wildcard.
+.SH THE ANSWER
+.TP
+.B allowed
+The verdict.
+.TP
+.B reason
+One line saying what decided it. On an allow, which role granted it and
+to which principal \- so a right that arrived through a group names the
+group. On a refusal, one of three things:
+.RS
+.IP \(bu 3
+.I "no grant applies to this caller in account ..., namespace ..."
+\- nothing was in scope at all. Usually a missing grant, or the right one
+scoped to a different namespace.
+.IP \(bu 3
+.I "no role granted here holds '<permission>'"
+\- something applies and does not cover this action. Usually the wrong
+role.
+.IP \(bu 3
+.I "'<permission>' is not a permission any role can hold"
+\- the module or action does not exist, or belongs to
+.I emm
+or
+.IR emd ,
+which nothing can grant. A misspelling reads like this rather than like a
+missing grant. See
+.BR euclid-cli-eam-list-permissions (1).
+.RE
+.TP
+.B role
+The role whose grant allowed it. Empty on a refusal.
+.PP
+The two questions "is it allowed" and "why" are answered together on
+purpose: a refusal is the case worth explaining, and an operator reading
+one needs to know which of the three it is before they know what to
+change.
+.SH THE TWO SHORT-CIRCUITS
+An installation administrator \- a member of the
+.I administrator
+user group \- is allowed everything without holding a single grant, and
+the answer says so rather than inventing a role. This is why an
+administrator's own access cannot be debugged with this command: the
+answer is always yes.
+.PP
+An action outside the permission vocabulary is refused before any grant
+is looked at. That is what keeps
+.I emm
+and
+.I emd
+unreachable: no permission of theirs exists to be required.
+.SH WHICH ACCOUNT IT ASKS ABOUT
+The subject's own. The account comes from the user named by
+.BR \-\-user ,
+not from an option, so this asks what that user may do where they live.
+.SH OPTIONS
+.TP
+.BR \-u ", " \-\-user " " \fIUSERID\fR
+The user to ask about \- a user id, not an ERN. Required.
+.TP
+.BR \-t ", " \-\-target " " \fIMODULE\fR
+Module, e.g. \fIens\fR. Required.
+.TP
+.BR \-a ", " \-\-action " " \fIACTION\fR
+Action, e.g. \fIpublish\-message\fR. The two together are the permission
+\- the same pair the request itself carries as
+.I x\-euclid\-target
+and
+.IR x\-euclid\-action .
+Required.
+.TP
+.BR \-e ", " \-\-namespace " " \fINAME\fR
+Namespace to ask about. Empty \- the default \- is the account root,
+which only a grant scoped to
+.I *
+or to the empty namespace covers. To ask about a namespace, name it.
+.TP
+.BR \-r ", " \-\-resource " " \fIERN\fR
+The resource, for actions that name one. Left out, the grant's resource
+patterns do not narrow the answer \- which is right for an action that
+names no resource, and optimistic for one that does. Name the resource
+when there is one.
+.SH WHO MAY RUN IT
+Installation administrators \- members of the
+.I administrator
+user group. See
+.B ADMINISTRATOR PRIVILEGES
+in
+.BR euclid-cli-eam (1).
+.SH EXIT STATUS
+.TP
+.B 0
+The question was answered. A refusal is a successful answer \- read
+.IR allowed ,
+not the exit status.
+.TP
+.B 1
+A required option was missing, no user of that id, or the caller is not
+an administrator. If the failure was an expired or invalid session
+(\fIHTTP 401\fR), the stored credentials file is removed; run
+.B euclid-cli eam login
+again before retrying.
+.SH EXAMPLES
+.RS
+.nf
+# Why can't they publish?
+euclid-cli --endpoint http://localhost:5566 eam check-permission \e
+    --user jdoe --target ens --action publish-message \e
+    --namespace production \e
+    --resource ern:ens:eu-central-1:000000000000:production:topic:orders
+
+# The same question with no resource named - answers what the role and
+# namespace allow, before the resource patterns are applied
+euclid-cli --endpoint http://localhost:5566 eam check-permission \e
+    --user jdoe --target ens --action publish-message \e
+    --namespace production
+
+# Does the group membership actually carry what it was supposed to?
+euclid-cli --endpoint http://localhost:5566 eam check-permission \e
+    --user svc-orders --target eqs --action receive-messages \e
+    --namespace production
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-list-grants (1),
+.BR euclid-cli-eam-grant-role (1),
+.BR euclid-cli-eam-list-permissions (1),
+.BR euclid-cli-eam-get-role (1),
+.BR euclid-cli-eam-user-group-add-user (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

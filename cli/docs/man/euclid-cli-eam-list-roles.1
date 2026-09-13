@@ -1,0 +1,142 @@
+.TH EUCLID-CLI-EAM-LIST-ROLES 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eam-list-roles \- list the roles this account can bind
+.SH SYNOPSIS
+.B euclid-cli eam list-roles
+[\fB\-\-prefix\fR|\fB\-x\fR \fIPREFIX\fR]
+[\fB\-\-page\-size\fR|\fB\-s\fR \fIN\fR]
+[\fB\-\-page\-index\fR|\fB\-i\fR \fIN\fR]
+[\fB\-\-sort\-column\fR|\fB\-c\fR \fIFIELD\fR]
+[\fB\-\-sort\-direction\fR|\fB\-r\fR \fIasc\fR|\fIdesc\fR]
+[\fB\-\-no\-builtin\fR]
+.SH DESCRIPTION
+Lists every role a grant in your account can name: the six built-in ones,
+then your account's own.
+.SH THE SIX BUILT-IN ROLES
+.TP
+.B account-administrator
+Everything, within the account a grant of it names. That is
+.IR *:* ,
+which does not reach
+.I emm
+or
+.I emd
+\- so it is the strongest thing a role can say and still not
+installation administration.
+.TP
+.B operator
+Every action except the destructive ones and access management.
+.TP
+.B reader
+Every action that only reads.
+.TP
+.B publisher
+Send to a queue, publish to a topic, and resolve the two by name.
+.TP
+.B consumer
+Take messages off a queue and manage a topic subscription.
+.TP
+.B application
+What a euclid-deployed application is given: publish, consume, and read
+and write objects. Always granted with an explicit resource list.
+.PP
+There is deliberately no
+.I administrator
+role. Installation administration is membership of the
+.I administrator
+user group, not a grant \- roles are per account and an installation
+administrator is by definition not, and
+.I emm
+has to be reachable by something when no
+.I emm
+permission exists to grant. See
+.B ADMINISTRATOR PRIVILEGES
+in
+.BR euclid-cli-eam (1).
+.SH WHY THEY ARE NOT PAGED
+The built-in roles come first and ignore
+.B \-\-page\-size
+and
+.BR \-\-page\-index .
+They are computed rather than stored, so there is no page to put them on
+\-
+.I reader
+is "every action that reads" applied to the permission vocabulary on this
+build, not a row somebody wrote. A module that gains a
+.I list\-widgets
+action gains it in
+.I reader
+and
+.I operator
+at the same time, in every account, with nobody to remember.
+.PP
+For the same reason,
+.B total
+counts your account's own roles only. Use
+.B \-\-no\-builtin
+for a listing where paging and the count describe the same set.
+.PP
+.B \-\-prefix
+does apply to both.
+.SH OPTIONS
+.TP
+.BR \-x ", " \-\-prefix " " \fIPREFIX\fR
+Only roles whose name starts with this. Defaults to empty, which is all
+of them.
+.TP
+.BR \-s ", " \-\-page\-size " " \fIN\fR
+Maximum number of stored roles to return. Defaults to \fI10\fR.
+.TP
+.BR \-i ", " \-\-page\-index " " \fIN\fR
+Zero-based page index. Defaults to \fI0\fR.
+.TP
+.BR \-c ", " \-\-sort\-column " " \fIFIELD\fR
+Field to sort the stored roles by. Defaults to \fIname\fR.
+.TP
+.BR \-r ", " \-\-sort\-direction " " \fIasc\fR|\fIdesc\fR
+Sort direction. Defaults to \fIasc\fR.
+.TP
+.B \-\-no\-builtin
+Leave out the built-in roles.
+.SH WHO MAY RUN IT
+Installation administrators \- members of the
+.I administrator
+user group. See
+.B ADMINISTRATOR PRIVILEGES
+in
+.BR euclid-cli-eam (1).
+.SH EXIT STATUS
+.TP
+.B 0
+The roles were listed.
+.TP
+.B 1
+The request could not be sent, or the caller is not an administrator. If
+the failure was an expired or invalid session (\fIHTTP 401\fR), the
+stored credentials file is removed; run
+.B euclid-cli eam login
+again before retrying.
+.SH EXAMPLES
+.RS
+.nf
+# What this account can bind, built-ins included
+euclid-cli --endpoint http://localhost:5566 eam list-roles
+
+# Only the roles this account wrote itself
+euclid-cli --endpoint http://localhost:5566 eam list-roles --no-builtin
+
+# The service roles, newest page size
+euclid-cli --endpoint http://localhost:5566 eam list-roles \e
+    --prefix svc- --page-size 50
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-get-role (1),
+.BR euclid-cli-eam-create-role (1),
+.BR euclid-cli-eam-update-role (1),
+.BR euclid-cli-eam-delete-role (1),
+.BR euclid-cli-eam-grant-role (1),
+.BR euclid-cli-eam-list-permissions (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

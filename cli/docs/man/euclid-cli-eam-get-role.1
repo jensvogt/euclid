@@ -1,0 +1,86 @@
+.TH EUCLID-CLI-EAM-GET-ROLE 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eam-get-role \- show one role and what it grants
+.SH SYNOPSIS
+.B euclid-cli eam get-role
+.BR \-\-name | \-n
+.I NAME
+.SH DESCRIPTION
+Prints one role's JSON representation: its name, description, ERN, and
+the permissions it holds.
+.SH WHICH ROLE OF THAT NAME
+Your account's own role of that name, and the built-in one only if you
+have none \- resolved in that order.
+.PP
+That is the order a grant resolves in, which is why this command resolves
+the same way rather than reporting both. A grant names a role by name,
+and the question worth answering is what a grant of that name would
+actually use. Two answers would leave the reader to work that out.
+.PP
+.BR euclid-cli-eam-create-role (1)
+refuses to create a role whose name is a built-in one, so in practice the
+two cannot collide; this order is what makes that refusal necessary
+rather than the other way round.
+.SH READING A BUILT-IN ROLE
+The permissions of a built-in role are computed from the permission
+vocabulary rather than stored, so what this prints is current as of this
+build \-
+.I reader
+lists the read actions of every module there is now, including any added
+since the installation was deployed. That is the one thing a role of your
+own cannot do.
+.PP
+.I account\-administrator
+prints as
+.IR *:* ,
+which is every action of every bindable module and still not
+installation administration: it does not reach
+.I emm
+or
+.IR emd .
+See
+.BR euclid-cli-eam-list-permissions (1).
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+Role name. A built-in name also works. Required.
+.SH WHO MAY RUN IT
+Installation administrators \- members of the
+.I administrator
+user group. See
+.B ADMINISTRATOR PRIVILEGES
+in
+.BR euclid-cli-eam (1).
+.SH EXIT STATUS
+.TP
+.B 0
+The role was found; its JSON representation is printed.
+.TP
+.B 1
+No name given, no role of that name in your account and no built-in one
+either, or the caller is not an administrator. If the failure was an
+expired or invalid session (\fIHTTP 401\fR), the stored credentials file
+is removed; run
+.B euclid-cli eam login
+again before retrying.
+.SH EXAMPLES
+.RS
+.nf
+# What the built-in operator role actually covers
+euclid-cli --endpoint http://localhost:5566 eam get-role \e
+    --name operator
+
+# One of your own
+euclid-cli --endpoint http://localhost:5566 eam get-role \e
+    --name order-service
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-list-roles (1),
+.BR euclid-cli-eam-create-role (1),
+.BR euclid-cli-eam-update-role (1),
+.BR euclid-cli-eam-list-permissions (1),
+.BR euclid-cli-eam-grant-role (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

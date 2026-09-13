@@ -66,7 +66,7 @@ namespace Euclid::EAG {
         /**
          * @brief Handles one route-management action.
          */
-        response<string_body> Dispatch(const request<string_body> &req) override;
+        response<string_body> DispatchAction(const request<string_body> &req) override;
 
     private:
 

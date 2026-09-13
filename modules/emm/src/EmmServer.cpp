@@ -56,6 +56,11 @@ namespace Euclid::EMM {
                     // Roles and grants belong here for the same reason users do, and more urgently:
                     // an export that restored the users but not what they may do would bring back
                     // an installation nobody can work in.
+                    //
+                    // "eam_authorization_gap" deliberately does not: it is what shadow mode observed
+                    // on *this* installation, not configuration. Restoring one euclid's observations
+                    // into another would put somebody else's traffic in front of an operator about
+                    // to decide what to grant.
                     {"eam", {.topLevel = {"eam_user", "eam_usergroup", "eam_account", "eam_namespace", "eam_role", "eam_grant"}, .fullOnly = {}}},
                     {"emm", {.topLevel = {"emm_module"}, .fullOnly = {}}},
                     {"emo", {.topLevel = {"emo_data"}, .fullOnly = {}}},
@@ -809,7 +814,7 @@ namespace Euclid::EMM {
 
     EmmServer::EmmServer(std::string socketPath, const int threads) : HttpActionServer("EMM", std::move(socketPath), threads) {}
 
-    response<string_body> EmmServer::Dispatch(const request<string_body> &req) {
+    response<string_body> EmmServer::DispatchAction(const request<string_body> &req) {
         return dispatch(req);
     }
 

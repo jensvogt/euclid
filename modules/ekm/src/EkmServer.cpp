@@ -774,7 +774,7 @@ namespace Euclid::EKM {
         Core::Scheduler::instance().Cancel(_purgeKeysTaskId);
     }
 
-    response<string_body> EkmServer::Dispatch(const request<string_body> &req) {
+    response<string_body> EkmServer::DispatchAction(const request<string_body> &req) {
         return dispatch(req);
     }
 

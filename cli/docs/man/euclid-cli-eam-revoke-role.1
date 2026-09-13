@@ -1,0 +1,114 @@
+.TH EUCLID-CLI-EAM-REVOKE-ROLE 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eam-revoke-role \- remove one grant
+.SH SYNOPSIS
+.B euclid-cli eam revoke-role
+.BR \-\-grant\-id | \-g
+.I ID
+.SH DESCRIPTION
+Removes one grant, taking away whatever it gave.
+.SH BY ID, NOT BY ROLE AND PRINCIPAL
+The same role may be granted to the same principal more than once with
+different scope \-
+.I reader
+in
+.IR staging ,
+.I reader
+in
+.I production
+over two named topics \- and revoking has to say which. A grant's scope
+is fixed once written, so granting twice is the normal way to express two
+scopes rather than a mistake, and role-and-principal would not identify
+one of them.
+.PP
+.BR euclid-cli-eam-grant-role (1)
+prints the id when it creates the grant.
+.B euclid-cli eam list-grants --principal <ern>
+shows the ids of everything one principal holds, and
+.B --role <name>
+of everything that grants one role.
+.SH NARROWING A GRANT
+There is no way to edit one. To take one namespace away from a grant that
+names three, revoke it and grant the remaining two \- the grant gets a
+new id, and anything holding the old one should look it up again.
+.SH AN ID THAT NAMES NOTHING IS NOT AN ERROR
+Revoking a grant that has already been revoked succeeds. The call says
+what should be true afterwards \- that this grant does not exist \- and
+that is true either way, so a script that revokes a list can be re-run
+after failing halfway through.
+.PP
+The consequence to know about: a mistyped id also succeeds, and nothing
+was removed. Check with
+.BR euclid-cli-eam-list-grants (1)
+rather than with the exit status.
+.SH WHAT DOES NOT GO AWAY WITH IT
+The role. Revoking the last grant of a role leaves the role in place, to
+be granted again \-
+.BR euclid-cli-eam-delete-role (1)
+is what removes it, and it refuses while any grant still names it.
+.PP
+Group membership. A user who holds something through a group keeps it
+until that group's grant is revoked or the user leaves the group \-
+.BR euclid-cli-eam-user-group-remove-user (1).
+.BR euclid-cli-eam-check-permission (1)
+answers the combined question.
+.SH OPTIONS
+.TP
+.BR \-g ", " \-\-grant\-id " " \fIID\fR
+The grant's id, as
+.B grant-role
+and
+.B list-grants
+report it. Required.
+.SH WHO MAY RUN IT
+Installation administrators \- members of the
+.I administrator
+user group. See
+.B ADMINISTRATOR PRIVILEGES
+in
+.BR euclid-cli-eam (1).
+.SH EXIT STATUS
+.TP
+.B 0
+The grant does not exist any more \- whether this call removed it or it
+was already gone.
+.TP
+.B 1
+No id given, the request could not be sent, or the caller is not an
+administrator. If the failure was an expired or invalid session
+(\fIHTTP 401\fR), the stored credentials file is removed; run
+.B euclid-cli eam login
+again before retrying.
+.SH EXAMPLES
+Find it, then remove it:
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eam list-grants \e
+    --principal ern:eam:eu-central-1:000000000000:user:jdoe
+
+euclid-cli --endpoint http://localhost:5566 eam revoke-role \e
+    --grant-id 7c1f2f5e-3a21-4e6b-9a0c-5f2b9e1d4c33
+.fi
+.RE
+.PP
+Take one namespace away from a grant that covered two:
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eam revoke-role \e
+    --grant-id 7c1f2f5e-3a21-4e6b-9a0c-5f2b9e1d4c33
+
+euclid-cli --endpoint http://localhost:5566 eam grant-role \e
+    --role publisher \e
+    --principal ern:eam:eu-central-1:000000000000:user:jdoe \e
+    --namespace staging
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-grant-role (1),
+.BR euclid-cli-eam-list-grants (1),
+.BR euclid-cli-eam-check-permission (1),
+.BR euclid-cli-eam-delete-role (1),
+.BR euclid-cli-eam-user-group-remove-user (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>
