@@ -1241,6 +1241,7 @@ namespace Euclid::main {
 
         reconcileWorkerThreads(modules);
         reconcileRestarts(modules);
+        reconcileBackgroundWork(modules);
 
         // What the applications say about themselves. Nothing else can: a consumer application
         // receives no gateway request, so acquireInstance() never marks it busy and every pool of
@@ -1339,6 +1340,30 @@ namespace Euclid::main {
                     group.desiredCount = std::min(wanted, group.config.maxInstances);
                     log_info << "Application backlog, module: " << group.config.name << ", pending: " << pending
                              << ", desiredCount: " << group.desiredCount;
+                }
+            }
+        }
+    }
+
+    void ServiceController::reconcileBackgroundWork(const std::vector<Database::Entity::Module> &modules) {
+
+        // What a module says about itself, copied onto the pool so evaluateScaling() can read it
+        // without a database call in a loop that runs every second under the lock.
+        //
+        // It is the one thing the manager cannot observe. An --async purge is answered at once and
+        // carried on afterwards on a thread, so acquireInstance()/releaseInstance() put the
+        // instance back to idle while the work runs - and scale-down stopped exactly that
+        // instance, taking the removal with it.
+        std::lock_guard lock(_mutex);
+        for (const auto &module: modules) {
+            auto *group = getGroup(module.name);
+            if (!group) continue;
+
+            for (const auto &reported: module.instances) {
+                for (auto &svc: group->instances) {
+                    if (svc->instanceId != reported.instanceId) continue;
+                    svc->backgroundTasks = reported.backgroundTasks;
+                    break;
                 }
             }
         }
@@ -2170,6 +2195,13 @@ namespace Euclid::main {
                 if (idleCandidate->inFlightRequests > 0) {
                     log_debug << "Not scaling down " << group.config.name << " yet, requests in flight: "
                               << idleCandidate->inFlightRequests;
+                } else if (idleCandidate->backgroundTasks > 0) {
+                    // Idle by every signal the manager has of its own, and not idle: an --async
+                    // purge was answered long ago and is still running. Only the module can say
+                    // so - see ModuleInstance::backgroundTasks - and stopping it here is what
+                    // used to end the removal.
+                    log_debug << "Not scaling down " << group.config.name << " yet, background tasks: "
+                              << idleCandidate->backgroundTasks;
                 } else {
                     std::erase(group.instances, idleCandidate);
                     toStop.push_back(idleCandidate);

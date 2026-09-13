@@ -42,6 +42,25 @@ carries on unseen behind the abandoned request. With it the answer is
 carrying the object count at the time of asking, and a thread inside ESM
 does the work.
 .PP
+The removal works a page at a time \-
+.I euclid.modules.esm.purge\-page\-size
+objects, a thousand unless the installation says otherwise \- and
+repeats until there is nothing left to find, rather than building the
+whole object list in memory and removing exactly what was there when it
+started. On a large enough bucket that list was the allocation that
+ended the process and the removal with it.
+.PP
+The request is written down before the work starts and removed when it is
+done, so a removal survives the instance that accepted it: any ESM
+instance picks up one whose worker was stopped, and the
+.I "HTTP 202"
+carries the
+.I jobId
+that record is named by. See
+.B IT SURVIVES THE INSTANCE THAT ACCEPTED IT
+in
+.BR euclid-cli-esm-purge-bucket (1).
+.PP
 The bucket itself is deleted
 .I last,
 once its objects are gone, so it stays listed \- and still deletable \-

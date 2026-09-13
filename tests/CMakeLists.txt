@@ -199,6 +199,33 @@ target_link_libraries(${QUEUE_OWNERSHIP_BINARY} PRIVATE eucliddb Boost::unit_tes
 
 add_test(NAME ${QUEUE_OWNERSHIP_BINARY} COMMAND ${QUEUE_OWNERSHIP_BINARY})
 
+set(BUCKET_COUNTER_BINARY euclid-esm-bucket-counter-tests)
+
+add_executable(${BUCKET_COUNTER_BINARY} BucketCounterTest.cpp)
+set_target_properties(${BUCKET_COUNTER_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${BUCKET_COUNTER_BINARY} PRIVATE eucliddb Boost::unit_test_framework Boost::thread)
+
+add_test(NAME ${BUCKET_COUNTER_BINARY} COMMAND ${BUCKET_COUNTER_BINARY})
+
+set(PURGE_PAGING_BINARY euclid-esm-purge-paging-tests)
+
+add_executable(${PURGE_PAGING_BINARY} PurgePagingTest.cpp)
+set_target_properties(${PURGE_PAGING_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${PURGE_PAGING_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${PURGE_PAGING_BINARY} COMMAND ${PURGE_PAGING_BINARY})
+
+set(PURGE_JOB_BINARY euclid-esm-purge-job-tests)
+
+add_executable(${PURGE_JOB_BINARY} PurgeJobTest.cpp)
+set_target_properties(${PURGE_JOB_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${PURGE_JOB_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${PURGE_JOB_BINARY} COMMAND ${PURGE_JOB_BINARY})
+
 set(CERTIFICATE_BINARY euclid-certificate-utils-tests)
 
 add_executable(${CERTIFICATE_BINARY} CertificateUtilsTest.cpp)

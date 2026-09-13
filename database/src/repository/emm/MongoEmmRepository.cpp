@@ -110,6 +110,33 @@ namespace Euclid::Database {
         }
     }
 
+    void MongoEmmRepository::reportBackgroundTasks(const std::string &moduleName, const std::string &instanceId, const long tasks) {
+
+        try {
+            auto collection = Database::instance().collection(COLLECTION);
+
+            // The positional operator, so this touches that one field of that one array element
+            // and nothing else - the manager owns the rest of the record and writes it whole.
+            const auto filter = bsoncxx::builder::basic::make_document(
+                    bsoncxx::builder::basic::kvp("name", moduleName),
+                    bsoncxx::builder::basic::kvp("instances.instanceId", instanceId));
+
+            const auto update = bsoncxx::builder::basic::make_document(
+                    bsoncxx::builder::basic::kvp("$set", bsoncxx::builder::basic::make_document(
+                                                         bsoncxx::builder::basic::kvp("instances.$.backgroundTasks", static_cast<std::int64_t>(tasks)))));
+
+            // No upsert: a module whose record the manager has not written yet was not started by
+            // the manager, so there is no pool slot for this to belong to.
+            std::ignore = collection.update_one(filter.view(), update.view());
+
+        } catch (const std::exception &e) {
+            // Reporting is advisory - the work carries on either way, and the worst case is the
+            // autoscaler stopping an instance it would otherwise have spared.
+            log_warning << "Could not report background tasks, module: " << moduleName
+                        << ", instanceId: " << instanceId << ", error: " << e.what();
+        }
+    }
+
     void MongoEmmRepository::upsertInstance(const Entity::Module &module, const Entity::ModuleInstance &instance) {
 
         try {

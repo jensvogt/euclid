@@ -47,6 +47,7 @@
 #include <euclid/dto/esm/EnableEncryptionRequest.h>
 #include <euclid/dto/esm/GetBucketErnRequest.h>
 #include <euclid/dto/esm/GetBucketSizeRequest.h>
+#include <euclid/dto/esm/CountObjectsRequest.h>
 #include <euclid/dto/esm/GetObjectCountRequest.h>
 #include <euclid/dto/esm/ListBucketsRequest.h>
 #include <euclid/dto/esm/ListObjectAttributesRequest.h>
@@ -299,6 +300,15 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int getObjectCount(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Counts the objects in a bucket, optionally under a prefix
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int countObjects(const std::vector<std::string> &args) const;
 
         /**
          * @brief Deletes an object

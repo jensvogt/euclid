@@ -16,6 +16,7 @@
 // Euclid includes
 #include <euclid/database/entity/esm/Bucket.h>
 #include <euclid/database/entity/esm/Object.h>
+#include <euclid/database/entity/esm/PurgeJob.h>
 #include <euclid/database/entity/esm/Subscription.h>
 
 namespace Euclid::Database {
@@ -38,6 +39,95 @@ namespace Euclid::Database {
          * @return the persisted bucket entity.
          */
         virtual Entity::ESM::Bucket upsertBucket(Entity::ESM::Bucket &bucket) = 0;
+
+        /**
+         * @brief Moves a bucket's object count and byte total by the given amounts.
+         *
+         * @par
+         * The arithmetic happens in the database, which is the whole point. The alternative -
+         * read the bucket, subtract, write it back - loses one of two concurrent adjustments
+         * whenever they overlap, and two things make that easy to hit: purge, delete-objects and
+         * delete-bucket all run on a detached thread when asked with `--async`, and put-object
+         * adjusts the same two fields on every upload. A bucket being emptied while it is being
+         * written to is exactly the case this has to survive.
+         *
+         * @par
+         * It is also narrower than upsertBucket() in a way that matters beyond the counters:
+         * upsert writes the *whole* document from the caller's copy, so a stale copy silently
+         * reverts every other field - a tag added, encryption enabled - while it is adjusting a
+         * number.
+         *
+         * @par
+         * Neither counter is allowed below zero. With atomic arithmetic that can only happen if
+         * something was counted twice, which is a defect rather than a race, so it is clamped
+         * where it is found rather than hidden when read - the next adjustment then starts from a
+         * sane figure instead of compounding. `esm recount-buckets` restores the truth.
+         *
+         * @param bucketErn the bucket to adjust.
+         * @param sizeDelta bytes to add, negative to subtract.
+         * @param objectDelta objects to add, negative to subtract.
+         */
+        virtual void adjustBucketCounters(const std::string &bucketErn, long sizeDelta, long objectDelta) = 0;
+
+        // ── Background removals ──────────────────────────────────────────────
+        //
+        // An --async purge is answered before it is done and carried out on a thread, which nothing
+        // outside the process knows about: the autoscaler stops an instance it sees no requests on,
+        // and a crash or a restart takes the thread with it. Writing the request down is what makes
+        // "stopped halfway" recoverable rather than silent - see Entity::ESM::PurgeJob.
+
+        /**
+         * @brief Writes a job, or updates the one with the same jobId.
+         *
+         * @param job the job to store.
+         * @return the stored job.
+         */
+        virtual Entity::ESM::PurgeJob upsertPurgeJob(Entity::ESM::PurgeJob &job) = 0;
+
+        /**
+         * @brief Takes ownership of one job nobody is working on, if there is one.
+         *
+         * @par
+         * Atomic, because two instances sweeping at the same second would otherwise both take the
+         * same job and remove the same objects twice - harmless for the objects, which are already
+         * gone, and not harmless for the counters, which would be moved twice for one removal.
+         *
+         * @par
+         * A job counts as free when it has never been claimed, or when its claim has not been
+         * refreshed within staleAfter. The worker refreshes on every page, so that reads as "no
+         * page has finished recently" rather than "this has been running a while" - a large bucket
+         * is legitimately slow and must not be taken from a worker that is getting on with it.
+         *
+         * @param instanceId who is claiming it, for the log and so a worker can tell its own job.
+         * @param staleAfter how long without a heartbeat before a claim counts as abandoned.
+         * @return the claimed job, or nullopt when there is nothing free.
+         */
+        virtual std::optional<Entity::ESM::PurgeJob> claimPurgeJob(const std::string &instanceId, std::chrono::seconds staleAfter) = 0;
+
+        /**
+         * @brief Refreshes a claim and adds what the last page removed.
+         *
+         * @param jobId the job.
+         * @param removedObjects objects removed since the last call.
+         * @param removedSize bytes removed since the last call.
+         * @return false when the job is gone or was taken by somebody else, which is a worker's
+         * signal to stop rather than carry on removing objects nobody is accounting for.
+         */
+        virtual bool heartbeatPurgeJob(const std::string &jobId, const std::string &instanceId,
+                                       long removedObjects, long removedSize) = 0;
+
+        /**
+         * @brief Removes a finished job.
+         *
+         * @param jobId the job.
+         */
+        virtual void deletePurgeJob(const std::string &jobId) = 0;
+
+        /**
+         * @brief Every outstanding job, newest claim first.
+         */
+        [[nodiscard]]
+        virtual std::vector<Entity::ESM::PurgeJob> listPurgeJobs() const = 0;
 
         /**
          * @brief Removes a bucket by its name, within the account and namespace that owns it.

@@ -8,10 +8,16 @@
 #include "euclid/dto/esm/AddBucketTagRequest.h"
 #include "euclid/dto/esm/DeleteBucketTagRequest.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <thread>
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 namespace Euclid::ESM {
 
@@ -401,6 +407,11 @@ namespace Euclid::ESM {
                                         const std::optional<Database::Entity::ESM::Bucket> &bucket,
                                         const std::string &userId);
 
+    // One pass over what the bucket holds right now, for the callers that answer inside the
+    // request. Two things follow from that and are deliberate: the whole list is built before
+    // anything is removed, and anything written while the pass runs is not in it. Both are
+    // acceptable for a bucket small enough to empty inside a request, and are exactly why
+    // --async exists for one that is not - see removeBucketObjectsPaged().
     static RemovedObjects removeBucketObjects(const std::string &bucketErn, const std::string &prefix,
                                               const std::optional<Database::Entity::ESM::Bucket> &bucket,
                                               const std::string &userId) {
@@ -408,6 +419,65 @@ namespace Euclid::ESM {
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
         const auto objects = repo->listObjects(bucketErn, prefix, -1, -1, "", "asc", true);
         return removeObjects(objects, bucket, userId);
+    }
+
+    // How many objects one pass of the background removal holds in memory at a time.
+    //
+    // The whole bucket used to be listed in one call, which meant a million-object bucket built a
+    // million entities before deleting any of them - the allocation that ends the process, and
+    // with it the removal.
+    long PurgePageSize() {
+        constexpr long kDefaultPurgePageSize = 1000;
+        return std::max<long>(1, Core::Configuration::instance().getOr<long>("euclid.modules.esm.purge-page-size", kDefaultPurgePageSize));
+    }
+
+    // One page of a bucket's objects removed, repeatedly, until there are none left to find.
+    //
+    // Always asks for page *zero*. The objects are gone by the time the next page is asked for, so
+    // what was page one is now page zero - paging forward with an index would step over exactly as
+    // many objects as it removed and leave half the bucket behind.
+    //
+    // Looping rather than taking one snapshot is the other half of this. A single pass removes
+    // what existed when it started and nothing else, so a bucket still being written to - a
+    // transfer server delivering into it, say - is never emptied however long the pass runs, and
+    // the removal reports success with the bucket not empty. Looping means the work finishes when
+    // the bucket is empty rather than when the list taken at the start is exhausted.
+    //
+    // @param onProgress called after each page with what that page removed, so a caller can move
+    // the bucket's counters as the work happens instead of once at the end.
+    // @param shouldStop asked after each page; true ends the loop. This is how a worker that has
+    // lost its claim gets out rather than carrying on removing objects another worker is also
+    // removing and counting.
+    static RemovedObjects removeBucketObjectsPaged(const std::string &bucketErn, const std::string &prefix,
+                                                   const std::optional<Database::Entity::ESM::Bucket> &bucket,
+                                                   const std::string &userId,
+                                                   const std::function<void(const RemovedObjects &)> &onProgress,
+                                                   const std::function<bool()> &shouldStop = [] { return false; }) {
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        const auto pageSize = PurgePageSize();
+
+        RemovedObjects total;
+        while (true) {
+            const auto objects = repo->listObjects(bucketErn, prefix, pageSize, 0, "", "asc", true);
+            if (objects.empty()) break;
+
+            const auto removed = removeObjects(objects, bucket, userId);
+            total.size += removed.size;
+            total.count += removed.count;
+            onProgress(removed);
+            if (shouldStop()) break;
+
+            // A page that came back full and removed nothing would otherwise be asked for again
+            // for ever. It means something is refusing to delete - a permission, a broken row -
+            // and the honest thing is to stop and say so rather than spin.
+            if (removed.size == 0 && removed.count == 0) {
+                log_warning << "ESM background removal made no progress on a page of " << objects.size()
+                            << ", stopping, ern: " << bucketErn << ", prefix: " << prefix;
+                break;
+            }
+        }
+        return total;
     }
 
     // The removal itself, given the objects to remove. Split out so that deleting a bucket's worth
@@ -462,62 +532,164 @@ namespace Euclid::ESM {
         return removeObjects(objects, bucket, userId);
     }
 
-    // How many background removals are running, so the answer to an --async request can say
-    // whether it joined a queue and so a shutdown could be made to wait for them later.
-    static std::atomic backgroundRemovals{0};
+    // A touch is the same kind of work as a removal - answered at once, carried on afterwards,
+    // invisible to the manager - so the two are counted together and reported together.
+    static std::atomic<long> backgroundTouches{0};
 
-    // Runs removeBucketObjects() on a detached thread, optionally deleting the bucket afterwards.
+    // How many background removals are running.
     //
-    // A bucket with a million objects takes a million round trips to empty, which is minutes to
-    // hours - far longer than the gateway's backend timeout, let alone a client's patience. Doing
-    // it inline means the caller waits for all of it and then gets a timeout anyway, with the
-    // removal continuing invisibly behind the abandoned request. Handing it to a thread makes that
-    // honest: the request is answered at once, and the work is what it always was.
+    // Reported to the manager, which is the point: the autoscaler stops an instance that no request
+    // is waiting on, and an --async purge was answered seconds ago. Without this it stops exactly
+    // the instance doing the work. Counted rather than a flag because a purge finishing while
+    // another is still running must not report the instance idle.
+    static std::atomic<long> backgroundRemovals{0};
+
+    // This instance's name in the pool, handed in by the manager when it spawned the process.
     //
-    // The bucket document is deleted last, not first, so the operation is resumable: if the
-    // process is stopped or scaled down halfway, the bucket is still there and asking again picks
-    // up where this left off. The alternative - remove the bucket first - would leave objects
-    // nothing could ever reach, which is exactly the orphaning this cascade exists to prevent.
-    static void removeBucketObjectsInBackground(const std::string &bucketErn, const std::string &prefix,
-                                                const std::optional<Database::Entity::ESM::Bucket> &bucket,
-                                                const std::string &userId, const bool deleteBucket) {
+    // It is what a purge job is claimed under: "which worker holds this" has to survive the worker
+    // dying, and a pid does not - a restarted slot gets a new one. instanceId is stable across
+    // restarts of the same slot and is what emm_module.instances[] is keyed by, so a claim left
+    // behind by a dead worker is recognisable as one.
+    static std::string instanceName() {
+        static const std::string kName = [] {
+            if (const char *id = std::getenv("EUCLID_INSTANCE_ID"); id != nullptr && *id != '\0') return std::string(id);
+            // Started by hand rather than by the manager. Still has to be unique, or two such
+            // processes would each think the other's claim was their own.
+            return "esm-" + std::to_string(static_cast<long>(::getpid()));
+        }();
+        return kName;
+    }
+
+    // Tells the manager what this instance is doing that it cannot see. Called whenever the count
+    // moves, so a scale-down decision one second later reads a current figure.
+    static void reportBackgroundWork() {
+        try {
+            Database::RepositoryFactory::instance().emmRepository()->reportBackgroundTasks(
+                    "esm", instanceName(), backgroundRemovals.load() + backgroundTouches.load());
+        } catch (const std::exception &e) {
+            // Advisory: the work carries on either way, and the job document is what actually
+            // makes it survive.
+            log_debug << "ESM could not report background work: " << e.what();
+        }
+    }
+
+    // How long a claim survives without a page finishing before another instance may take the job.
+    //
+    // Long enough that a page of a slow bucket does not look like a death, short enough that an
+    // instance the autoscaler stopped is picked up while somebody is still waiting for the answer.
+    long PurgeClaimStaleSeconds() {
+        constexpr long kDefaultStaleSeconds = 60;
+        return std::max<long>(5, Core::Configuration::instance().getOr<long>("euclid.modules.esm.purge-claim-stale-seconds", kDefaultStaleSeconds));
+    }
+
+    // Carries out one claimed job, and removes it when there is nothing left to do.
+    //
+    // Runs on a detached thread. That is still the right shape - a purge takes minutes and cannot
+    // be answered inside a request - but it is no longer the only record that the work exists: the
+    // job document is, which is what makes an instance being stopped a pause rather than an end.
+    static void workPurgeJob(const Database::Entity::ESM::PurgeJob &job) {
 
         ++backgroundRemovals;
-        std::thread([bucketErn, prefix, bucket, userId, deleteBucket] {
+        reportBackgroundWork();
+        std::thread([job] {
+            const auto worker = instanceName();
             try {
-                log_info << "ESM background removal started, ern: " << bucketErn << (deleteBucket ? ", deleting the bucket afterwards" : "");
-                const auto removed = removeBucketObjects(bucketErn, prefix, bucket, userId);
+                log_info << "ESM background removal started, jobId: " << job.jobId << ", ern: " << job.bucketErn
+                         << ", prefix: " << job.prefix << (job.deleteBucket ? ", deleting the bucket afterwards" : "")
+                         << ", worker: " << worker;
 
                 const auto repo = Database::RepositoryFactory::instance().esmRepository();
-                if (deleteBucket) {
-                    repo->deleteBucketByErn(bucketErn);
+                const auto bucket = repo->findBucketByErn(job.bucketErn);
+
+                // A job for a bucket that is no longer there has nothing to do and nothing to
+                // resume - somebody deleted it another way. Dropped rather than retried for ever.
+                if (!bucket.has_value()) {
+                    log_info << "ESM background removal: bucket is gone, dropping job, jobId: " << job.jobId << ", ern: " << job.bucketErn;
+                    repo->deletePurgeJob(job.jobId);
+                    --backgroundRemovals;
+                    reportBackgroundWork();
+                    return;
+                }
+
+                bool lostClaim = false;
+
+                // Two things per page, and both matter. The bucket's counters move as the work
+                // happens, so get-bucket-size shows progress - which is what the man page tells an
+                // operator to watch. And the claim is refreshed, which is what tells another
+                // instance's sweep that this job is being got on with rather than abandoned.
+                const auto onProgress = [&](const RemovedObjects &page) {
+                    if (!job.deleteBucket) repo->adjustBucketCounters(job.bucketErn, -page.size, -page.count);
+                    if (!repo->heartbeatPurgeJob(job.jobId, worker, page.count, page.size)) lostClaim = true;
+                };
+
+                const auto removed = removeBucketObjectsPaged(job.bucketErn, job.prefix, bucket, job.userId, onProgress,
+                                                              [&lostClaim] { return lostClaim; });
+
+                // Somebody else took this job while this worker was stalled. Stopping here rather
+                // than finishing is the point: two workers removing and counting the same objects
+                // is worse than one of them stopping early, and the one that holds the claim will
+                // carry on.
+                if (lostClaim) {
+                    log_warning << "ESM background removal handed over, jobId: " << job.jobId << ", worker: " << worker
+                                << ", removed before handover: " << removed.count;
+                    --backgroundRemovals;
+                    reportBackgroundWork();
+                    return;
+                }
+
+                if (job.deleteBucket) {
+                    repo->deleteBucketByErn(job.bucketErn);
                     Database::EventBus::instance().Publish(
                             "esm.bucket.deleted",
-                            boost::json::value{{"ern", bucketErn},
-                                               {"name", bucket.has_value() ? bucket->name : std::string()},
-                                               {"accountId", bucket.has_value() ? bucket->accountId : std::string()},
-                                               {"region", bucket.has_value() ? bucket->region : std::string()}},
+                            boost::json::value{{"ern", job.bucketErn},
+                                               {"name", bucket->name},
+                                               {"accountId", bucket->accountId},
+                                               {"region", bucket->region}},
                             "esm");
-                } else if (bucket.has_value()) {
-                    // Re-read rather than adjusted from the copy this thread started with: minutes
-                    // have passed, and anything uploaded meanwhile is counted in the stored figure
-                    // but not in what was removed.
-                    if (auto fresh = repo->findBucketByErn(bucketErn)) {
-                        fresh->size = std::max<long>(0, fresh->size - removed.size);
-                        fresh->objects = std::max<long>(0, fresh->objects - removed.count);
-                        repo->upsertBucket(*fresh);
-                    }
                 }
-                log_info << "ESM background removal finished, ern: " << bucketErn << ", count: " << removed.count << ", size: " << removed.size;
+
+                // Last, so that a worker stopped at any point before this leaves a job for somebody
+                // to find. The job is the only thing that says the work was ever asked for.
+                repo->deletePurgeJob(job.jobId);
+                log_info << "ESM background removal finished, jobId: " << job.jobId << ", ern: " << job.bucketErn
+                         << ", count: " << removed.count << ", size: " << removed.size;
 
             } catch (const std::exception &e) {
                 // Nothing above this catch: an exception escaping a detached thread's entry
-                // function calls std::terminate() and takes the whole module down. The bucket is
-                // left as it is, which is what makes asking again the way to finish the job.
-                log_error << "ESM background removal failed, ern: " << bucketErn << ", error: " << e.what();
+                // function calls std::terminate() and takes the whole module down. The job is left
+                // where it is, claim and all, so the sweep picks it up once the claim goes stale.
+                log_error << "ESM background removal failed, jobId: " << job.jobId << ", ern: " << job.bucketErn
+                          << ", error: " << e.what();
             }
             --backgroundRemovals;
+            reportBackgroundWork();
         }).detach();
+    }
+
+    // Writes the request down, then starts working it.
+    //
+    // In that order, and the order is the whole point: between the two, the work exists as a
+    // document that any instance can pick up. Before this, the only record was a thread, so an
+    // instance stopped mid-purge - which the autoscaler does to anything it sees no requests on -
+    // took the removal with it and left nothing to say it had been asked for.
+    static std::string removeBucketObjectsInBackground(const std::string &bucketErn, const std::string &prefix,
+                                                       const std::optional<Database::Entity::ESM::Bucket> &bucket,
+                                                       const std::string &userId, const bool deleteBucket) {
+
+        Database::Entity::ESM::PurgeJob job;
+        job.jobId = Core::UuidUtils::CreateRandomUuid();
+        job.bucketErn = bucketErn;
+        job.prefix = prefix;
+        job.deleteBucket = deleteBucket;
+        job.userId = userId;
+        job.claimedBy = instanceName();
+        job.claimedAt = std::chrono::system_clock::now();
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        const auto stored = repo->upsertPurgeJob(job);
+
+        workPurgeJob(stored);
+        return stored.jobId;
     }
 
     // Re-announces every object under prefix, as though each had just been uploaded. Shared by
@@ -538,9 +710,6 @@ namespace Euclid::ESM {
         return static_cast<long>(objects.size());
     }
 
-    // How many background touches are running, for the same reasons as backgroundRemovals.
-    static std::atomic backgroundTouches{0};
-
     // Runs touchBucketObjects() on a detached thread.
     //
     // The same bargain removeBucketObjectsInBackground() makes, for the same reason: a bucket with
@@ -558,6 +727,7 @@ namespace Euclid::ESM {
                                                const std::string &userId) {
 
         ++backgroundTouches;
+        reportBackgroundWork();
         std::thread([bucketErn, prefix, bucket, userId] {
             try {
                 log_info << "ESM background touch started, ern: " << bucketErn << ", prefix: " << prefix;
@@ -570,6 +740,7 @@ namespace Euclid::ESM {
                 log_error << "ESM background touch failed, ern: " << bucketErn << ", error: " << e.what();
             }
             --backgroundTouches;
+            reportBackgroundWork();
         }).detach();
     }
 
@@ -586,15 +757,10 @@ namespace Euclid::ESM {
                 log_info << "ESM background delete started, ern: " << bucketErn << ", keys: " << keys.size();
                 const auto removed = removeObjectsByKey(bucketErn, keys, bucket, userId);
 
-                // Re-read rather than adjusted from the copy this thread started with: time has
-                // passed, and anything written meanwhile is in the stored figure but not in what
-                // was removed.
-                const auto repo = Database::RepositoryFactory::instance().esmRepository();
-                if (auto fresh = repo->findBucketByErn(bucketErn)) {
-                    fresh->size = std::max<long>(0, fresh->size - removed.size);
-                    fresh->objects = std::max<long>(0, fresh->objects - removed.count);
-                    repo->upsertBucket(*fresh);
-                }
+                // Adjusted in the database, for the same reason as the background removal above:
+                // time has passed and this thread is not the only writer.
+                Database::RepositoryFactory::instance().esmRepository()->adjustBucketCounters(
+                        bucketErn, -removed.size, -removed.count);
                 log_info << "ESM background delete finished, ern: " << bucketErn << ", count: " << removed.count << ", size: " << removed.size;
 
             } catch (const std::exception &e) {
@@ -851,10 +1017,11 @@ namespace Euclid::ESM {
         // and the bucket itself goes when that finishes - so it stays listed, and still deletable,
         // until it is genuinely gone.
         if (Core::GetBoolValue(jv, "async")) {
-            removeBucketObjectsInBackground(request.ern, "", bucket, auth.user->userId, true);
+            const auto jobId = removeBucketObjectsInBackground(request.ern, "", bucket, auth.user->userId, true);
             return JsonResponse(req, status::accepted, boost::json::serialize(boost::json::object{
                                         {"ern", request.ern},
                                         {"async", true},
+                                        {"jobId", jobId},
                                         {"objects", bucket.has_value() ? bucket->objects : 0}}));
         }
 
@@ -1226,13 +1393,9 @@ namespace Euclid::ESM {
 
         // A directory is not one of the bucket's objects as far as its counters are concerned -
         // it holds no bytes and is not something a client stored, so counting it would report a
-        // bucket as fuller than what a listing shows.
-        if (auto freshBucket = repo->findBucketByErn(bucketErn); freshBucket.has_value()) {
-            freshBucket->size += object.size;
-            if (!Database::Entity::ESM::IsDirectoryKey(key)) freshBucket->objects++;
-            freshBucket = repo->upsertBucket(*freshBucket);
-            log_debug << "Updated bucket, ern: " << freshBucket->ern << ", size: " << freshBucket->size << ", objects: " << freshBucket->objects;
-        }
+        // bucket as fuller than what a listing shows. Its size still counts, since the marker
+        // object is zero bytes and adding zero is what that comes to.
+        repo->adjustBucketCounters(bucketErn, object.size, Database::Entity::ESM::IsDirectoryKey(key) ? 0 : 1);
 
         // A re-upload to the same key replaces the DB row above; drop the now-unreferenced old file.
         if (existingObject && !existingObject->internalName.empty() && existingObject->internalName != internalName) {
@@ -1692,17 +1855,10 @@ namespace Euclid::ESM {
                 }
                 repo->upsertObject(object);
 
-                // Re-fetches the bucket rather than reusing the snapshot from before assembly
-                // started - post-processing can take a while for a large file, so that snapshot
-                // may be stale by now. Still starts from a real bucket (not a default-constructed
-                // one): upsertBucket() keys on ern, and upserting a blank one would create/
-                // accumulate into a separate phantom bucket instead of updating this one.
-                if (auto freshBucket = repo->findBucketByErn(bucketErn); freshBucket.has_value()) {
-                    freshBucket->size += object.size;
-                    if (!Database::Entity::ESM::IsDirectoryKey(key)) freshBucket->objects++;
-                    freshBucket = repo->upsertBucket(*freshBucket);
-                    log_debug << "Updated bucket, ern: " << freshBucket->ern << ", size: " << freshBucket->size << ", objects: " << freshBucket->objects;
-                }
+                // No snapshot to go stale: post-processing can take a while for a large file, and
+                // the counters are moved by this object's own contribution rather than written
+                // from a figure read before any of it happened.
+                repo->adjustBucketCounters(bucketErn, object.size, Database::Entity::ESM::IsDirectoryKey(key) ? 0 : 1);
 
                 // A re-upload to the same key replaces the DB row above; drop the now-unreferenced old file.
                 if (existingObject && !existingObject->internalName.empty() && existingObject->internalName != internalName) {
@@ -2097,6 +2253,46 @@ namespace Euclid::ESM {
         return JsonResponse(req, status::ok, response.toJson());
     }
 
+    response<string_body> EsmServer::handleCountObjects(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "count-objects");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ESM::CountObjectsRequest>(jv);
+        if (request.ern.empty()) {
+            return ErrorResponse(req, status::bad_request, "Bucket ERN missing");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+
+        // The bucket is looked up first so a mistyped name is a 404 rather than a count of zero,
+        // which reads as an empty bucket and is the one answer nobody can tell apart from a
+        // mistake.
+        const auto bucket = repo->findBucketByErn(request.ern);
+        if (!bucket.has_value()) {
+            return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.ern);
+        }
+
+        // Which bucket, now that it is known - the same check every other object action makes.
+        if (const auto denied = denyUngrantedBucket(req, auth, request.ern)) return *denied;
+
+        const auto count = repo->countObjects(request.ern, request.prefix, request.includeDirectories);
+        log_info << "ESM count objects, ern: " << request.ern << ", prefix: " << request.prefix << ", count: " << count;
+
+        Dto::ESM::CountObjectsResponse response;
+        response.ern = bucket->ern;
+        response.prefix = request.prefix;
+        response.includeDirectories = request.includeDirectories;
+        response.count = count;
+
+        return JsonResponse(req, status::ok, response.toJson());
+    }
+
     response<string_body> EsmServer::handleDeleteObject(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-object");
@@ -2123,13 +2319,10 @@ namespace Euclid::ESM {
             // is what a grant is written in terms of.
             if (const auto denied = denyUngrantedBucket(req, auth, object->bucketErn)) return *denied;
             bucket = repo->findBucketByErn(object->bucketErn);
-            if (bucket.has_value()) {
-                bucket->size = std::max<long>(0, bucket->size - object->size);
-                // Mirrors put-object: a directory was never counted, so removing one must not
-                // decrement anything either.
-                if (!Database::Entity::ESM::IsDirectoryKey(object->key)) bucket->objects = std::max<long>(0, bucket->objects - 1);
-                repo->upsertBucket(*bucket);
-            }
+            // Mirrors put-object: a directory was never counted, so removing one must not
+            // decrement anything either.
+            repo->adjustBucketCounters(object->bucketErn, -object->size,
+                                       Database::Entity::ESM::IsDirectoryKey(object->key) ? 0 : -1);
 
             const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
             std::error_code ec;
@@ -2205,9 +2398,7 @@ namespace Euclid::ESM {
             }
 
             const auto removed = removeObjectsByKey(bucketErn, keys, bucket, auth.user->userId);
-            bucket->size = std::max<long>(0, bucket->size - removed.size);
-            bucket->objects = std::max<long>(0, bucket->objects - removed.count);
-            bucket = repo->upsertBucket(*bucket);
+            repo->adjustBucketCounters(bucketErn, -removed.size, -removed.count);
 
             log_info << "ESM DeleteObjects, bucket: " << bucket->name << ", asked: " << keys.size() << ", deleted: " << removed.count;
             return JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
@@ -2219,18 +2410,17 @@ namespace Euclid::ESM {
         // No keys: everything under the prefix, and everything in the bucket when there is none.
         if (async) {
             const auto pending = repo->countObjects(bucketErn, prefix, false);
-            removeBucketObjectsInBackground(bucketErn, prefix, bucket, auth.user->userId, false);
+            const auto jobId = removeBucketObjectsInBackground(bucketErn, prefix, bucket, auth.user->userId, false);
             return JsonResponse(req, status::accepted, boost::json::serialize(boost::json::object{
                                         {"ern", bucketErn},
                                         {"prefix", prefix},
                                         {"async", true},
+                                        {"jobId", jobId},
                                         {"objects", pending}}));
         }
 
         const auto removed = removeBucketObjects(bucketErn, prefix, bucket, auth.user->userId);
-        bucket->size = std::max<long>(0, bucket->size - removed.size);
-        bucket->objects = std::max<long>(0, bucket->objects - removed.count);
-        bucket = repo->upsertBucket(*bucket);
+        repo->adjustBucketCounters(bucketErn, -removed.size, -removed.count);
 
         log_info << "ESM DeleteObjects, bucket: " << bucket->name << ", prefix: " << prefix << ", deleted: " << removed.count;
         return JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
@@ -2264,10 +2454,11 @@ namespace Euclid::ESM {
         }
         if (const auto denied = denyUngrantedBucket(req, auth, request.ern)) return *denied;
         if (Core::GetBoolValue(jv, "async")) {
-            removeBucketObjectsInBackground(request.ern, request.prefix, bucket, auth.user->userId, false);
+            const auto jobId = removeBucketObjectsInBackground(request.ern, request.prefix, bucket, auth.user->userId, false);
             return JsonResponse(req, status::accepted, boost::json::serialize(boost::json::object{
                                         {"ern", request.ern},
                                         {"async", true},
+                                        {"jobId", jobId},
                                         {"objects", bucket->objects}}));
         }
 
@@ -2279,10 +2470,8 @@ namespace Euclid::ESM {
         // Adjust counters by what was actually deleted rather than zeroing them out - a prefix-scoped
         // purge only removes some of the bucket's objects, so anything left outside the prefix must
         // still be reflected.
-        bucket->size = std::max<long>(0, bucket->size - purgedSize);
-        bucket->objects = std::max<long>(0, bucket->objects - purgedObjects);
-        bucket = repo->upsertBucket(bucket.value());
-        log_debug << "ESM bucket updated, ern: " << request.ern << ", count: " << bucket->objects << ", size: " << bucket->size;
+        repo->adjustBucketCounters(request.ern, -purgedSize, -purgedObjects);
+        log_debug << "ESM bucket updated, ern: " << request.ern << ", removed: " << purgedObjects << ", bytes: " << purgedSize;
 
         Dto::ESM::PurgeBucketResponse response;
         response.ern = request.ern;
@@ -2478,18 +2667,10 @@ namespace Euclid::ESM {
 
         // Directory markers are not counted anywhere, so they must not move counters either.
         if (!Database::Entity::ESM::IsDirectoryKey(targetKey)) {
-            if (auto bucket = repo->findBucketByErn(targetBucketErn); bucket.has_value()) {
-                bucket->size += stored.size;
-                bucket->objects++;
-                repo->upsertBucket(*bucket);
-            }
+            repo->adjustBucketCounters(targetBucketErn, stored.size, 1);
         }
         if (!keepSource && !Database::Entity::ESM::IsDirectoryKey(sourceKey)) {
-            if (auto bucket = repo->findBucketByErn(sourceBucketErn); bucket.has_value()) {
-                bucket->size = std::max<long>(0, bucket->size - stored.size);
-                bucket->objects = std::max<long>(0, bucket->objects - 1);
-                repo->upsertBucket(*bucket);
-            }
+            repo->adjustBucketCounters(sourceBucketErn, -stored.size, -1);
         }
 
         // A move is a creation and a deletion, told in that order: a listener that keeps an index
@@ -3111,6 +3292,7 @@ namespace Euclid::ESM {
             DownloadPart,
             CompleteDownload,
             GetObjectCount,
+            CountObjects,
             ListObjects,
             CopyObject,
             MoveObject,
@@ -3145,6 +3327,7 @@ namespace Euclid::ESM {
         if (action == "complete-download") return Command::CompleteDownload;
         if (action == "list-objects") return Command::ListObjects;
         if (action == "get-object-count") return Command::GetObjectCount;
+        if (action == "count-objects") return Command::CountObjects;
         if (action == "copy-object") return Command::CopyObject;
         if (action == "move-object") return Command::MoveObject;
         if (action == "rename-object") return Command::RenameObject;
@@ -3228,11 +3411,48 @@ namespace Euclid::ESM {
         });
     }
 
-    EsmServer::EsmServer(std::string socketPath, const int threads) : HttpActionServer("ESM", std::move(socketPath), threads) {
-        installErnResolver();
+    // Picks up a removal nobody is working on, if there is one.
+    //
+    // This is the half that makes an --async purge survive its instance. The worker thread is
+    // still what does the work; this is what notices that a worker stopped - because the job it
+    // claimed has had no page finish within the stale window - and starts another. One job per
+    // sweep on purpose: a pool that has just come back from a restart should work through what is
+    // outstanding rather than start all of it at once.
+    static void resumeAbandonedPurgeJob() {
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        const auto claimed = repo->claimPurgeJob(instanceName(), std::chrono::seconds(PurgeClaimStaleSeconds()));
+        if (!claimed.has_value()) return;
+
+        log_info << "ESM resuming an abandoned background removal, jobId: " << claimed->jobId
+                 << ", ern: " << claimed->bucketErn << ", removed so far: " << claimed->removedObjects;
+        workPurgeJob(*claimed);
     }
 
-    EsmServer::~EsmServer() = default;
+    EsmServer::EsmServer(std::string socketPath, const int threads) : HttpActionServer("ESM", std::move(socketPath), threads) {
+        installErnResolver();
+
+        // Runs in every instance: whichever is alive when a worker dies is the one that should
+        // carry on, and there is no leader here to elect. claimPurgeJob() is atomic, so several
+        // sweeping at once is a race that one of them wins rather than a problem.
+        const auto period = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.modules.esm.purge-sweep-period", 30));
+        _purgeSweepTaskId = Core::Scheduler::instance().SchedulePeriodic(
+                "esm-purge-jobs",
+                [] {
+                    try {
+                        resumeAbandonedPurgeJob();
+                    } catch (const std::exception &e) {
+                        // A sweep that throws must not take the scheduler thread with it - the next
+                        // one will find the same job still there.
+                        log_error << "ESM purge job sweep failed, error: " << e.what();
+                    }
+                },
+                std::chrono::duration_cast<std::chrono::milliseconds>(period));
+    }
+
+    EsmServer::~EsmServer() {
+        if (!_purgeSweepTaskId.empty()) std::ignore = Core::Scheduler::instance().Cancel(_purgeSweepTaskId);
+    }
 
     response<string_body> EsmServer::DispatchAction(const request<string_body> &req) {
 
@@ -3294,6 +3514,8 @@ namespace Euclid::ESM {
 
             case Command::GetObjectCount:
                 return handleGetObjectCount(req);
+            case Command::CountObjects:
+                return handleCountObjects(req);
 
             case Command::CopyObject:
                 return handleCopyObject(req);
