@@ -2,6 +2,9 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+// C++ includes
+#include <thread>
+
 // Euclid includes
 #include <EqsServer.h>
 
@@ -549,13 +552,43 @@ namespace Euclid::EQS {
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
 
         // Emptying a queue loses exactly as much as deleting it, so it is held to the same rule.
-        if (const auto existing = repo->findQueueByErn(request.ern); !isOwnInternalQueue(existing, auth)) {
+        const auto existing = repo->findQueueByErn(request.ern);
+        if (!isOwnInternalQueue(existing, auth)) {
             if (const auto denied = denyUngrantedQueue(req, auth, request.ern)) return *denied;
+        }
+
+        if (request.async) {
+            // Answered before the work is done, the same trade ESM's purge-bucket makes: a queue
+            // with a large backlog takes longer to empty than the gateway will wait, so doing it
+            // inline hands the caller a timeout while the purge runs on regardless. Detached
+            // rather than tracked because there is nothing to resume - a purge interrupted halfway
+            // has removed part of the queue, and asking again removes the rest.
+            const auto ern = request.ern;
+            std::thread([ern] {
+                try {
+                    log_info << "EQS background purge started, ern: " << ern;
+                    Database::RepositoryFactory::instance().eqsRepository()->purgeQueue(ern);
+                    log_info << "EQS background purge finished, ern: " << ern;
+                } catch (const std::exception &e) {
+                    log_error << "EQS background purge failed, ern: " << ern << ", error: " << e.what();
+                }
+            }).detach();
+
+            // What was there when the purge was accepted, which is the only count anybody can be
+            // given: by the time it finishes the number is zero, and by the time this is read
+            // something may already have sent more.
+            return EqsServer::JsonResponse(req, status::accepted,
+                                           boost::json::serialize(boost::json::object{
+                                                   {"ern", request.ern},
+                                                   {"async", true},
+                                                   {"messages", existing.has_value() ? existing->available : 0}}));
         }
 
         repo->purgeQueue(request.ern);
 
-        return EqsServer::JsonResponse(req, status::ok);
+        return EqsServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                               {"ern", request.ern},
+                                               {"async", false}}));
     }
 
     static response<string_body> handleRedriveDlq(const request<string_body> &req) {

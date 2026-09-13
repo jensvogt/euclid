@@ -232,6 +232,170 @@ namespace Euclid::Database {
         }
     }
 
+    void MongoEsmRepository::adjustBucketCounters(const std::string &bucketErn, const long sizeDelta, const long objectDelta) {
+
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "adjustBucketCounters");
+
+        if (sizeDelta == 0 && objectDelta == 0) return;
+
+        try {
+            auto bucketCollection = Database::instance().collection(BUCKET_COLLECTION);
+            const auto filter = make_document(kvp("ern", bucketErn));
+
+            // One round trip, and the database does the addition - so two adjustments that overlap
+            // both land instead of one overwriting the other.
+            bucketCollection.update_one(filter.view(),
+                                        make_document(kvp("$inc", make_document(
+                                                                  kvp("size", static_cast<int64_t>(sizeDelta)),
+                                                                  kvp("objects", static_cast<int64_t>(objectDelta)))))
+                                                .view());
+
+            // Only a subtraction can go below zero, so an upload pays for one round trip and not
+            // three. See IEsmRepository::adjustBucketCounters for why this clamps at all.
+            if (sizeDelta < 0) {
+                bucketCollection.update_one(
+                        make_document(kvp("ern", bucketErn), kvp("size", make_document(kvp("$lt", 0)))).view(),
+                        make_document(kvp("$set", make_document(kvp("size", static_cast<int64_t>(0))))).view());
+            }
+            if (objectDelta < 0) {
+                bucketCollection.update_one(
+                        make_document(kvp("ern", bucketErn), kvp("objects", make_document(kvp("$lt", 0)))).view(),
+                        make_document(kvp("$set", make_document(kvp("objects", static_cast<int64_t>(0))))).view());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Adjust bucket counters failed, ern: " << bucketErn << ", error: " << e.what();
+            throw;
+        }
+    }
+
+    // ── Background removals ──────────────────────────────────────────────────
+
+    Entity::ESM::PurgeJob MongoEsmRepository::upsertPurgeJob(Entity::ESM::PurgeJob &job) {
+
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "upsertPurgeJob");
+
+        try {
+            auto jobCollection = Database::instance().collection(PURGE_JOB_COLLECTION);
+
+            job.modified = std::chrono::system_clock::now();
+            const auto filter = make_document(kvp("jobId", job.jobId));
+            const auto update = make_document(kvp("$set", job.toDocument()));
+
+            mongocxx::options::find_one_and_update opts;
+            opts.upsert(true);
+            opts.return_document(mongocxx::options::return_document::k_after);
+
+            if (auto result = jobCollection.find_one_and_update(filter.view(), update.view(), opts)) {
+                return Entity::ESM::PurgeJob::fromDocument(result->view());
+            }
+            throw std::runtime_error("upsert returned no document, jobId: " + job.jobId);
+
+        } catch (const std::exception &e) {
+            log_error << "Upsert purge job failed, jobId: " << job.jobId << ", error: " << e.what();
+            throw;
+        }
+    }
+
+    std::optional<Entity::ESM::PurgeJob> MongoEsmRepository::claimPurgeJob(const std::string &instanceId, const std::chrono::seconds staleAfter) {
+
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "claimPurgeJob");
+
+        try {
+            auto jobCollection = Database::instance().collection(PURGE_JOB_COLLECTION);
+
+            const auto now = std::chrono::system_clock::now();
+            const auto cutoff = bsoncxx::types::b_date{std::chrono::duration_cast<std::chrono::milliseconds>((now - staleAfter).time_since_epoch())};
+
+            // Free means nobody holds it, or whoever held it has not finished a page within
+            // staleAfter - which is what a worker that was stopped mid-purge leaves behind.
+            // Matched and updated in one operation so two instances sweeping in the same second
+            // cannot both take it.
+            const auto filter = make_document(kvp("$or", bsoncxx::builder::basic::make_array(
+                                                                 make_document(kvp("claimedBy", "")),
+                                                                 make_document(kvp("claimedAt", make_document(kvp("$lt", cutoff)))))));
+
+            const auto update = make_document(kvp("$set", make_document(
+                                                                  kvp("claimedBy", instanceId),
+                                                                  kvp("claimedAt", bsoncxx::types::b_date{std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch())}),
+                                                                  kvp("modified", bsoncxx::types::b_date{std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch())}))));
+
+            mongocxx::options::find_one_and_update opts;
+            opts.return_document(mongocxx::options::return_document::k_after);
+
+            if (auto result = jobCollection.find_one_and_update(filter.view(), update.view(), opts)) {
+                return Entity::ESM::PurgeJob::fromDocument(result->view());
+            }
+            return std::nullopt;
+
+        } catch (const std::exception &e) {
+            log_error << "Claim purge job failed, instanceId: " << instanceId << ", error: " << e.what();
+            throw;
+        }
+    }
+
+    bool MongoEsmRepository::heartbeatPurgeJob(const std::string &jobId, const std::string &instanceId,
+                                               const long removedObjects, const long removedSize) {
+
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "heartbeatPurgeJob");
+
+        try {
+            auto jobCollection = Database::instance().collection(PURGE_JOB_COLLECTION);
+
+            const auto now = bsoncxx::types::b_date{std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())};
+
+            // The instanceId is part of the filter, not just the update: a worker whose claim was
+            // taken while it was slow must find out here and stop, rather than carry on removing
+            // objects that another worker is also removing and counting.
+            const auto filter = make_document(kvp("jobId", jobId), kvp("claimedBy", instanceId));
+            const auto update = make_document(
+                    kvp("$set", make_document(kvp("claimedAt", now), kvp("modified", now))),
+                    kvp("$inc", make_document(
+                                        kvp("removedObjects", static_cast<std::int64_t>(removedObjects)),
+                                        kvp("removedSize", static_cast<std::int64_t>(removedSize)))));
+
+            const auto result = jobCollection.update_one(filter.view(), update.view());
+            return result.has_value() && result->matched_count() > 0;
+
+        } catch (const std::exception &e) {
+            log_error << "Heartbeat purge job failed, jobId: " << jobId << ", error: " << e.what();
+            return false;
+        }
+    }
+
+    void MongoEsmRepository::deletePurgeJob(const std::string &jobId) {
+
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "deletePurgeJob");
+
+        try {
+            auto jobCollection = Database::instance().collection(PURGE_JOB_COLLECTION);
+            std::ignore = jobCollection.delete_one(make_document(kvp("jobId", jobId)).view());
+
+        } catch (const std::exception &e) {
+            log_error << "Delete purge job failed, jobId: " << jobId << ", error: " << e.what();
+            throw;
+        }
+    }
+
+    std::vector<Entity::ESM::PurgeJob> MongoEsmRepository::listPurgeJobs() const {
+
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "listPurgeJobs");
+
+        try {
+            auto jobCollection = Database::instance().collection(PURGE_JOB_COLLECTION);
+
+            std::vector<Entity::ESM::PurgeJob> jobs;
+            for (auto cursor = jobCollection.find({}); const auto &document: cursor) {
+                jobs.push_back(Entity::ESM::PurgeJob::fromDocument(document));
+            }
+            return jobs;
+
+        } catch (const std::exception &e) {
+            log_error << "List purge jobs failed, error: " << e.what();
+            throw;
+        }
+    }
+
     Entity::ESM::Bucket MongoEsmRepository::upsertBucket(Entity::ESM::Bucket &bucket) {
 
         try {

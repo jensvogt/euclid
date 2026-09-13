@@ -236,6 +236,19 @@ namespace Euclid::main {
         void reconcileWorkerThreads(const std::vector<Database::Entity::Module> &modules);
 
         /**
+         * @brief Copies each instance's self-reported background work onto the pool.
+         *
+         * @par
+         * Read from the module's own record rather than observed, because it cannot be observed: a
+         * module answering an `--async` request at once and carrying on afterwards looks idle to
+         * the request accounting from the moment it answers. evaluateScaling() reads what this
+         * copies and passes such an instance over.
+         *
+         * @param modules the module records already read by reconcileModuleSettings().
+         */
+        void reconcileBackgroundWork(const std::vector<Database::Entity::Module> &modules);
+
+        /**
          * @brief Queues the instances of any module somebody asked to restart through EMM.
          *
          * @par

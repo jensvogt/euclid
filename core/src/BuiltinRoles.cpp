@@ -39,10 +39,16 @@ namespace Euclid::Core {
 
         // Reads rather than changes anything. Prefix-matched on the action, because euclid names
         // its actions consistently enough for that to be the honest rule rather than a list that
-        // has to be maintained: list-queues, get-object, describe-table.
+        // has to be maintained: list-queues, get-object, describe-table, count-objects.
+        //
+        // `count-` is here because euclid names counting both ways: the cached figures are
+        // get-object-count and get-message-count, which the get- prefix already covers, and the
+        // one action that counts for real is count-objects. A reader that could list a bucket's
+        // objects but not be told how many there are would be a strange thing to have built.
         bool isRead(const std::string_view permission) {
             const auto action = actionOf(permission);
-            return action.starts_with("list-") || action.starts_with("get-") || action.starts_with("describe-");
+            return action.starts_with("list-") || action.starts_with("get-")
+                   || action.starts_with("describe-") || action.starts_with("count-");
         }
 
         // Removes something that does not come back. Deliberately not "everything that writes":

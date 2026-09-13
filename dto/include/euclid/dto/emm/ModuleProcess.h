@@ -131,6 +131,17 @@ namespace Euclid::Dto {
         int inFlightRequests{};
 
         /**
+         * @brief Work the module says it is doing that no request is waiting on.
+         *
+         * @par
+         * Copied from the instance's own record by reconcileModuleSettings(), because it is the one
+         * thing the manager has no way to observe: an --async purge is answered at once and carried
+         * on afterwards, so inFlightRequests is back to zero while the work runs. Scale-down reads
+         * this alongside inFlightRequests - see evaluateScaling().
+         */
+        long backgroundTasks{};
+
+        /**
          * @brief Time this instance's activeRequests last dropped to zero.
          *
          * Used by the autoscaler to determine how long an instance has been idle before

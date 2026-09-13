@@ -49,6 +49,20 @@ namespace Euclid::Database {
          */
         Entity::ESM::Bucket upsertBucket(Entity::ESM::Bucket &bucket) override;
 
+        void adjustBucketCounters(const std::string &bucketErn, long sizeDelta, long objectDelta) override;
+
+        Entity::ESM::PurgeJob upsertPurgeJob(Entity::ESM::PurgeJob &job) override;
+
+        std::optional<Entity::ESM::PurgeJob> claimPurgeJob(const std::string &instanceId, std::chrono::seconds staleAfter) override;
+
+        bool heartbeatPurgeJob(const std::string &jobId, const std::string &instanceId,
+                               long removedObjects, long removedSize) override;
+
+        void deletePurgeJob(const std::string &jobId) override;
+
+        [[nodiscard]]
+        std::vector<Entity::ESM::PurgeJob> listPurgeJobs() const override;
+
         /**
          * @brief Removes a bucket entity by name, within the account and namespace that owns it
          *
@@ -260,6 +274,11 @@ namespace Euclid::Database {
          * @brief Subscriptions collection name
          */
         static constexpr auto SUBSCRIPTION_COLLECTION = "esm_subscription";
+
+        /**
+         * @brief Outstanding background removals - see Entity::ESM::PurgeJob.
+         */
+        static constexpr auto PURGE_JOB_COLLECTION = "esm_purge_job";
 
         /**
          * @brief Creates the indexes required for efficient bucket lookup, if they do not already exist.
