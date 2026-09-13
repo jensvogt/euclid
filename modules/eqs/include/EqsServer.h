@@ -110,7 +110,7 @@ namespace Euclid::EQS {
          * @return HTTP response
          */
         [[nodiscard]]
-        response<string_body> Dispatch(const request<string_body> &req) override;
+        response<string_body> DispatchAction(const request<string_body> &req) override;
 
     private:
 

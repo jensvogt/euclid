@@ -1,0 +1,140 @@
+.TH EUCLID-CLI-EAM-CREATE-ROLE 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eam-create-role \- create a role: a named set of permissions
+.SH SYNOPSIS
+.B euclid-cli eam create-role
+.BR \-\-name | \-n
+.I NAME
+.BR \-\-permission | \-p
+.I PERMISSION
+.RI [ PERMISSION ...]
+[\fB\-\-description\fR|\fB\-d\fR \fITEXT\fR]
+.SH DESCRIPTION
+Creates a role in your own account. A role is a named set of permissions
+and nothing else \- it says what may be done, never by whom or where.
+Those two are said when the role is given to somebody, by
+.BR euclid-cli-eam-grant-role (1).
+.PP
+The separation is the point: a role is written once and granted many
+times, each time scoped differently. "What an order service may do" is
+one role; the twelve deployments of it are twelve grants.
+.SH BEFORE WRITING ONE
+Check whether one of the six built-in roles already says it \-
+.BR euclid-cli-eam-list-roles (1)
+shows them. They are maintained with the vocabulary, so a module that
+gains an action lands in
+.I reader
+and
+.I operator
+on the next build, with nobody to remember. A role of your own does not
+get that and is yours to keep current.
+.SH PERMISSIONS
+Each
+.B \-\-permission
+is one of three forms, and no others:
+.TP
+.I <module>:<action>
+One action, e.g.
+.IR ens:publish\-message .
+.TP
+.I <module>:*
+Every action of one module, e.g.
+.IR ens:* .
+Includes the ones that module gains later.
+.TP
+.I *:*
+Every action of every bindable module. The strongest thing a role can
+say \- and still not installation administration, since it does not
+reach
+.I emm
+or
+.IR emd .
+.PP
+Every one is checked against what the modules actually dispatch, so a
+role cannot be created holding a permission that grants nothing. A
+misspelling is refused here rather than discovered by somebody being
+turned away from something they were told they had. See
+.BR euclid-cli-eam-list-permissions (1)
+for the whole vocabulary.
+.PP
+A role must hold at least one permission. A role holding none grants
+nothing, which is a mistake rather than a configuration.
+.SH THE BUILT-IN NAMES ARE TAKEN
+.IR account\-administrator ,
+.IR operator ,
+.IR reader ,
+.IR publisher ,
+.I consumer
+and
+.I application
+cannot be redefined. A grant resolves your account's own roles before the
+built-in ones, so a stored role of that name would silently replace the
+built-in for your account alone \- and an installation where
+.I reader
+means something different in one account is one where nobody can read a
+grant and know what it does.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+Role name, unique within your account. Required.
+.TP
+.BR \-p ", " \-\-permission " " \fIPERMISSION\fR
+A permission the role grants. Repeat the option, or give several after
+one. Required, at least once.
+.TP
+.BR \-d ", " \-\-description " " \fITEXT\fR
+What the role is for. Defaults to an empty string.
+.SH WHO MAY RUN IT
+Installation administrators \- members of the
+.I administrator
+user group. See
+.B ADMINISTRATOR PRIVILEGES
+in
+.BR euclid-cli-eam (1).
+.SH EXIT STATUS
+.TP
+.B 0
+The role was created; its JSON representation is printed.
+.TP
+.B 1
+No name or no permission given, a permission no module answers, a name
+that is already one of your account's roles or one of the built-in ones,
+or the caller is not an administrator. If the failure was an expired or
+invalid session (\fIHTTP 401\fR), the stored credentials file is removed;
+run
+.B euclid-cli eam login
+again before retrying.
+.SH EXAMPLES
+.RS
+.nf
+# What an order service does, and no more
+euclid-cli --endpoint http://localhost:5566 eam create-role \e
+    --name order-service \e
+    --permission ens:publish-message \e
+    --permission eqs:receive-messages \e
+    --permission eqs:delete-message \e
+    --description "The order service's own rights"
+
+# Everything one module answers, including what it gains later
+euclid-cli --endpoint http://localhost:5566 eam create-role \e
+    --name storage-owner --permission 'esm:*'
+
+# Read-only reporting, narrower than the built-in reader
+euclid-cli --endpoint http://localhost:5566 eam create-role \e
+    --name reporting -p ens:list-topics -p ens:get-topic-metadata
+.fi
+.RE
+.PP
+Quote
+.I *
+so the shell does not expand it against the working directory.
+.SH SEE ALSO
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-list-permissions (1),
+.BR euclid-cli-eam-list-roles (1),
+.BR euclid-cli-eam-get-role (1),
+.BR euclid-cli-eam-update-role (1),
+.BR euclid-cli-eam-delete-role (1),
+.BR euclid-cli-eam-grant-role (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

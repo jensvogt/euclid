@@ -152,10 +152,14 @@ namespace Euclid::ESS {
     // nothing else. It matters more here than anywhere: elsewhere a grant bounds what can be
     // changed, and here it bounds what can be read.
     static std::optional<response<string_body> > denyUngrantedSecret(const request<string_body> &req, const AuthResult &auth, const std::string &secretErn) {
+
         if (!auth.user.has_value()) return std::nullopt;
-        if (EssServer::IsResourceAllowed(auth.user->userId, secretErn)) return std::nullopt;
-        log_warning << "ESS resource denied, userId: " << auth.user->userId << ", secretErn: " << secretErn;
-        return EssServer::ErrorResponse(req, status::forbidden, "Not authorized for this secret: " + secretErn);
+
+        if (auto refusal = EssServer::AuthorizeResource(req, secretErn)) {
+            log_warning << "ESS resource denied, userId: " << auth.user->userId << ", secretErn: " << secretErn;
+            return refusal;
+        }
+        return std::nullopt;
     }
 
     // ── Action handlers ──────────────────────────────────────────────────────
@@ -310,7 +314,7 @@ namespace Euclid::ESS {
         // A principal restricted to particular secrets sees those and no others. Filtered rather
         // than refused, so an application listing what it may read gets an answer instead of a 403.
         std::erase_if(secrets, [&](const auto &secret) {
-            return !EssServer::IsResourceAllowed(auth.user->userId, secret.ern);
+            return !EssServer::IsResourceAuthorized(req, secret.ern);
         });
 
         Dto::ESS::ListSecretsResponse response;
@@ -533,7 +537,7 @@ namespace Euclid::ESS {
 
     EssServer::EssServer(std::string socketPath, const int threads) : HttpActionServer("ESS", std::move(socketPath), threads) {}
 
-    response<string_body> EssServer::Dispatch(const request<string_body> &req) {
+    response<string_body> EssServer::DispatchAction(const request<string_body> &req) {
         return dispatch(req);
     }
 

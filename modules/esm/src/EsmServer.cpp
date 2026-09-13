@@ -144,10 +144,17 @@ namespace Euclid::ESM {
     // for principals deployed with a fixed set of buckets, where the point is that a compromised
     // application reaches those and nothing else.
     static std::optional<response<string_body> > denyUngrantedBucket(const request<string_body> &req, const AuthResult &auth, const std::string &bucketErn) {
+
         if (!auth.user.has_value()) return std::nullopt;
-        if (EsmServer::IsResourceAllowed(auth.user->userId, bucketErn)) return std::nullopt;
-        log_warning << "ESM resource denied, userId: " << auth.user->userId << ", bucketErn: " << bucketErn;
-        return EsmServer::ErrorResponse(req, status::forbidden, "Not authorized for this bucket: " + bucketErn);
+
+        // The role model's Grant::resources, which is the only thing that answers this now: the
+        // per-user resourceGrants list this used to read is gone.
+
+        if (auto refusal = EsmServer::AuthorizeResource(req, bucketErn)) {
+            log_warning << "ESM resource denied, userId: " << auth.user->userId << ", bucketErn: " << bucketErn;
+            return refusal;
+        }
+        return std::nullopt;
     }
 
     // The account a request is made in: the header, which authenticate() has already checked is
@@ -2328,7 +2335,7 @@ namespace Euclid::ESM {
             if (bucket->accountId != auth.user->accountId) {
                 return {.error = EsmServer::ErrorResponse(req, status::forbidden, "Object does not belong to the caller's account")};
             }
-            if (!EsmServer::IsResourceAllowed(auth.user->userId, object->bucketErn)) {
+            if (!EsmServer::IsResourceAuthorized(req, object->bucketErn)) {
                 return {.error = EsmServer::ErrorResponse(req, status::forbidden, "Not authorized for this bucket: " + object->bucketErn)};
             }
 
@@ -3227,7 +3234,7 @@ namespace Euclid::ESM {
 
     EsmServer::~EsmServer() = default;
 
-    response<string_body> EsmServer::Dispatch(const request<string_body> &req) {
+    response<string_body> EsmServer::DispatchAction(const request<string_body> &req) {
 
         const auto action = std::string(req["x-euclid-action"]);
         if (action.empty()) {

@@ -54,7 +54,6 @@ BOOST_TEST_GLOBAL_FIXTURE(JwtSecretFixture);
 
 BOOST_AUTO_TEST_CASE(NoLookupsWiredFallsBackToStaticConfig) {
     HttpActionServer::SetScopeLookup({});
-    HttpActionServer::SetGrantLookup({});
 
     const auto token = JwtUtils::CreateToken("alice", kJwtSecret);
     const auto req = buildRequest(token, "acct1", "dev");
@@ -66,7 +65,6 @@ BOOST_AUTO_TEST_CASE(NoLookupsWiredFallsBackToStaticConfig) {
 
 BOOST_AUTO_TEST_CASE(ScopeLookupWiredDeniesUnknownAccountOrNamespace) {
     HttpActionServer::SetScopeLookup([](const std::string &, const std::string &) { return false; });
-    HttpActionServer::SetGrantLookup({});
 
     const auto token = JwtUtils::CreateToken("alice", kJwtSecret);
     const auto req = buildRequest(token, "acct1", "dev");
@@ -82,48 +80,10 @@ BOOST_AUTO_TEST_CASE(ScopeLookupWiredDeniesUnknownAccountOrNamespace) {
     BOOST_TEST(*auth2.subject == "alice");
 }
 
-BOOST_AUTO_TEST_CASE(GrantLookupWiredDeniesWithoutMatchingGrant) {
-    HttpActionServer::SetScopeLookup([](const std::string &, const std::string &) { return true; });
-    HttpActionServer::SetGrantLookup([](const std::string &, const std::string &, const std::string &) { return false; });
-
-    const auto token = JwtUtils::CreateToken("alice", kJwtSecret);
-    const auto req = buildRequest(token, "acct1", "dev");
-
-    const auto auth = HttpActionServer::Authenticate(req);
-    BOOST_TEST(!auth.subject.has_value());
-    BOOST_TEST(!auth.denialReason.empty());
-
-    // A matching grant lets the same request through.
-    HttpActionServer::SetGrantLookup([](const std::string &userId, const std::string &accountId, const std::string &ns) {
-        return userId == "alice" && accountId == "acct1" && ns == "dev";
-    });
-    const auto auth2 = HttpActionServer::Authenticate(req);
-    BOOST_TEST_REQUIRE(auth2.subject.has_value());
-    BOOST_TEST(*auth2.subject == "alice");
-}
-
-BOOST_AUTO_TEST_CASE(RequestsWithNoAccountIdBypassGrantCheck) {
-    // Account-agnostic actions (e.g. login, get-metrics) carry no x-euclid-account-id and must
-    // stay reachable even when GrantLookup would otherwise deny everything.
-    HttpActionServer::SetScopeLookup({});
-    HttpActionServer::SetGrantLookup([](const std::string &, const std::string &, const std::string &) { return false; });
-
-    const auto token = JwtUtils::CreateToken("alice", kJwtSecret);
-    const auto req = buildRequest(token, "", "");
-
-    const auto auth = HttpActionServer::Authenticate(req);
-    BOOST_TEST_REQUIRE(auth.subject.has_value());
-    BOOST_TEST(*auth.subject == "alice");
-
-    HttpActionServer::SetScopeLookup({});
-    HttpActionServer::SetGrantLookup({});
-}
-
 BOOST_AUTO_TEST_CASE(Rfc9421SignedRequestAuthenticatesAsTheKeyOwner) {
     // The third way in, alongside a bearer token and a SigV4 signature: an RFC 9421 signature
     // carries no Authorization header at all, so Authenticate() has to notice it on its own.
     HttpActionServer::SetScopeLookup({});
-    HttpActionServer::SetGrantLookup({});
     HttpActionServer::SetAccessKeyLookup([](const std::string &accessKeyId) -> std::optional<HttpActionServer::AccessKeyRecord> {
         if (accessKeyId != "AKIAEXAMPLE") return std::nullopt;
         return HttpActionServer::AccessKeyRecord{.secretAccessKey = "topsecret", .userId = "alice"};
@@ -154,40 +114,12 @@ BOOST_AUTO_TEST_CASE(Rfc9421SignedRequestAuthenticatesAsTheKeyOwner) {
     HttpActionServer::SetAccessKeyLookup({});
 }
 
-BOOST_AUTO_TEST_CASE(ResourceGrantsNarrowACallerToNamedResources) {
-    // The check a handler makes once it knows which bucket or queue a request is about. Account
-    // and namespace scope are settled before a handler runs; this is the narrower question, and
-    // the one an application's principal is held to.
-    HttpActionServer::SetResourceLookup({});
-
-    // Nothing wired: every resource is allowed, which is how a module that has not been taught
-    // about this - and every deployment before it existed - keeps behaving.
-    BOOST_TEST(HttpActionServer::IsResourceAllowed("alice", "ern:esm:eu-central-1:000000000000::bucket:inbox"));
-
-    HttpActionServer::SetResourceLookup([](const std::string &userId, const std::string &resourceErn) {
-        if (userId == "alice") return true;// stands in for a user with no grants at all
-        return resourceErn == "ern:esm:eu-central-1:000000000000::bucket:inbox";
-    });
-
-    BOOST_TEST(HttpActionServer::IsResourceAllowed("app-inbox", "ern:esm:eu-central-1:000000000000::bucket:inbox"));
-    BOOST_TEST(!HttpActionServer::IsResourceAllowed("app-inbox", "ern:esm:eu-central-1:000000000000::bucket:payroll"));
-    BOOST_TEST(HttpActionServer::IsResourceAllowed("alice", "ern:esm:eu-central-1:000000000000::bucket:payroll"));
-
-    // An unnamed resource is not a denial: handlers that have not resolved one yet, and actions
-    // that are about no resource at all, must not be refused by this.
-    BOOST_TEST(HttpActionServer::IsResourceAllowed("app-inbox", ""));
-    BOOST_TEST(HttpActionServer::IsResourceAllowed("", "ern:esm:eu-central-1:000000000000::bucket:payroll"));
-
-    HttpActionServer::SetResourceLookup({});
-}
-
 BOOST_AUTO_TEST_CASE(ConfiguredRegionRequiresMatchingRegionHeader) {
     // The region check precedes everything else in CheckScope() and is not conditional on the
     // request naming an account, so any caller that omits x-euclid-region is denied outright once
     // euclid.region is set - which is what a module-to-module caller (e.g. a transfer server
     // reaching ESM) has to send along with its bearer token.
     HttpActionServer::SetScopeLookup({});
-    HttpActionServer::SetGrantLookup({});
     Configuration::instance().set<std::string>("euclid.region", "eu-central-1");
 
     const auto token = JwtUtils::CreateToken("alice", kJwtSecret);

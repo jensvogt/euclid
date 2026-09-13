@@ -42,7 +42,7 @@ namespace Euclid::Core {
                 "eag:list-routes",
                 "eag:update-route",
 
-                // eam - 39 actions
+                // eam - 37 actions
                 "eam:change-namespace",
                 "eam:check-permission",
                 "eam:create-access-key",
@@ -58,7 +58,6 @@ namespace Euclid::Core {
                 "eam:delete-user-group",
                 "eam:get-metrics",
                 "eam:get-role",
-                "eam:grant-namespace-access",
                 "eam:grant-role",
                 "eam:list-access-keys",
                 "eam:list-accounts",
@@ -73,7 +72,6 @@ namespace Euclid::Core {
                 "eam:oidc-callback",
                 "eam:oidc-login",
                 "eam:register",
-                "eam:revoke-namespace-access",
                 "eam:revoke-role",
                 "eam:saml-acs",
                 "eam:saml-authorize",

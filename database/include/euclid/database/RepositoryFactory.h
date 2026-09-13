@@ -14,9 +14,11 @@
 #include <memory>
 
 // Euclid includes
+#include <euclid/core/BuiltinRoles.h>
 #include <euclid/core/HttpActionServer.h>
 #include <euclid/core/TtlCache.h>
 #include <euclid/core/monitoring/MetricsPusher.h>
+#include <euclid/database/Authorization.h>
 #include <euclid/database/EventBus.h>
 #include <euclid/database/repository/eam/IEamRepository.h>
 #include <euclid/database/repository/ekv/IEkvRepository.h>
@@ -411,60 +413,14 @@ namespace Euclid::Database {
         });
     }
 
-    /**
-     * @brief Registers the per-user grant lookup Core::HttpActionServer::Authenticate() needs,
-     * backed by RepositoryFactory::eamRepository().
-     *
-     * core can't depend on database (database depends on core), so this is the glue that closes
-     * the loop, same pattern as WireAccessKeyLookup() - call once per process, after
-     * RepositoryFactory::initialize(), in every executable whose HttpActionServer-derived server
-     * needs to enforce that the authenticated user actually has a grant for the account/namespace
-     * it's requesting.
-     */
-    inline void WireGrantLookup() {
-        Core::HttpActionServer::SetGrantLookup([](const std::string &userId, const std::string &accountId, const std::string &ns) -> bool {
-            const auto user = UsersByUserId().get(userId, [](const std::string &id) {
-                return RepositoryFactory::instance().eamRepository()->findUserByUserId(id);
-            });
-            if (!user.has_value()) return false;
-            if (IsCachedEamAdmin(userId)) return true;// global admin bypass
-            for (const auto &grant: user->accountGrants) {
-                if (grant.accountId != accountId) continue;
-                if (grant.isAdmin || ns.empty()) return true;// account-scoped admin, or account-only request
-                if (std::ranges::contains(grant.namespaces, ns)) return true;
-            }
-            return false;
-        });
-    }
 
-    /**
-     * @brief Registers the per-resource lookup Core::HttpActionServer::IsResourceAllowed() uses,
-     * backed by RepositoryFactory::eamRepository().
-     *
-     * core can't depend on database (database depends on core), so this is the glue that closes
-     * the loop, same pattern as WireGrantLookup() - call once per process, after
-     * RepositoryFactory::initialize(), in every module that checks which bucket or queue a
-     * caller may act on.
-     */
-    inline void WireResourceLookup() {
-        Core::HttpActionServer::SetResourceLookup([](const std::string &userId, const std::string &resourceErn) -> bool {
-            const auto user = UsersByUserId().get(userId, [](const std::string &id) {
-                return RepositoryFactory::instance().eamRepository()->findUserByUserId(id);
-            });
-            if (!user.has_value()) return false;
-            // No list means no restriction: humans, and every user written before resource grants
-            // existed, are unaffected. A principal that names resources is held to exactly them.
-            if (user->resourceGrants.empty()) return true;
-            return std::ranges::contains(user->resourceGrants, resourceErn);
-        });
-    }
 
     /**
      * @brief Registers the worker-thread lookup Core::HttpActionServer::ConfiguredWorkerThreads()
      * consults, backed by RepositoryFactory::emmRepository().
      *
      * core can't depend on database (database depends on core), so this is the glue that closes
-     * the loop, same pattern as WireResourceLookup() - call once per process, after
+     * the loop - call once per process, after
      * RepositoryFactory::initialize() and before the module constructs its server, in every module
      * whose thread count "euclid-cli emm set-threads" should be able to change. Modules that never
      * call this keep reading euclid.json alone.
@@ -498,6 +454,137 @@ namespace Euclid::Database {
             }
             return sockets;
         });
+    }
+
+
+    /**
+     * @brief Every ERN a caller's grants can hang off: their own, and each group they belong to.
+     *
+     * @par
+     * Their rights are the union of all of them, so this is one list and one query rather than a
+     * loop of lookups. Groups are installation-wide and few, and the set is cached the way the
+     * administrator group already is.
+     */
+    inline std::vector<std::string> PrincipalsOf(const Entity::EAM::User &user) {
+
+        std::vector<std::string> principals{user.ern};
+
+        for (const auto repo = RepositoryFactory::instance().eamRepository();
+             const auto &group: repo->listUserGroups("", 0, 0, "name")) {
+            if (std::ranges::contains(group.userIds, user.userId)) principals.push_back(group.ern);
+        }
+        return principals;
+    }
+
+    /**
+     * @brief The principal euclid's own inter-module traffic acts as.
+     *
+     * @par
+     * EAP starting an application, ESM notifying an ENS topic, the gateway forwarding to a module:
+     * those authenticate as the module rather than as a user, and they cross accounts by design.
+     * Rather than exempting them from the gate they are named, so the internal path is one entry in
+     * a log and in check-permission's answer rather than an unexplained allow. Nothing can create,
+     * bind or revoke it - it is a constant, not a row.
+     */
+    inline constexpr auto kSystemPrincipal = "system";
+
+    /**
+     * @brief Registers the authorization lookup Core::HttpActionServer's gate consults.
+     *
+     * @par
+     * The glue that closes the loop core cannot close itself: roles, grants and users live here,
+     * and core depends on nothing of this. Call once per process, after initialize(), in every
+     * executable whose HttpActionServer-derived server should be gated.
+     *
+     * @par
+     * Answers only the module-and-action half of the question. The resource an action names lives
+     * in the request body and only the handler knows which field holds it - see
+     * docs/role-concept.md §4.1 for why enforcement is two-layer.
+     */
+    inline void WireAuthorizationLookup() {
+
+        Core::HttpActionServer::SetAuthorizationLookup(
+                [](const boost::beast::http::request<boost::beast::http::string_body> &req,
+                   const std::string &target, const std::string &action) -> Core::HttpActionServer::AuthorizationDecision {
+                    const auto auth = Core::HttpActionServer::Authenticate(req);
+
+                    // Not authenticated is not the gate's answer to give. The handler's own
+                    // authenticate() will say 401, which is the honest status - refusing here would
+                    // turn every unauthenticated request into a 403 about permissions it was never
+                    // going to be asked for.
+                    if (!auth.subject.has_value()) return {.allowed = true, .reason = "not authenticated; left to the handler"};
+
+                    if (*auth.subject == kSystemPrincipal) {
+                        return {.allowed = true, .reason = "euclid's own inter-module traffic"};
+                    }
+
+                    const auto user = UsersByUserId().get(*auth.subject, [](const std::string &id) {
+                        return RepositoryFactory::instance().eamRepository()->findUserByUserId(id);
+                    });
+                    if (!user.has_value()) return {.allowed = true, .reason = "unknown subject; left to the handler"};
+
+                    if (IsCachedEamAdmin(user->userId)) {
+                        return {.allowed = true, .reason = "member of the administrator user group"};
+                    }
+
+                    const auto repo = RepositoryFactory::instance().eamRepository();
+                    const auto result = Authorization::Allows(
+                            {.target = target,
+                             .action = action,
+                             .accountId = std::string(req["x-euclid-account-id"]),
+                             .nameSpace = std::string(req["x-euclid-namespace"]),
+                             .resourceErn = {}},
+                            repo->findGrantsByPrincipals(PrincipalsOf(*user)),
+                            [&repo](const std::string &accountId, const std::string &role) -> std::optional<std::vector<std::string>> {
+                                if (const auto stored = repo->findRoleByName(accountId, role)) return stored->permissions;
+                                if (Core::BuiltinRoles::Exists(role)) return Core::BuiltinRoles::PermissionsOf(role);
+                                return std::nullopt;
+                            });
+
+                    return {.allowed = result.allowed, .reason = result.reason};
+                });
+
+
+        // The resource half, asked by a handler once it has read which bucket or queue the request
+        // is about. Same grants, same roles - the only difference is that Grant::resources is now
+        // consulted, because there is finally something to match it against.
+        Core::HttpActionServer::SetResourceAuthorizationLookup(
+                [](const boost::beast::http::request<boost::beast::http::string_body> &req,
+                   const std::string &target, const std::string &action,
+                   const std::string &resourceErn) -> Core::HttpActionServer::AuthorizationDecision {
+                    const auto auth = Core::HttpActionServer::Authenticate(req);
+                    if (!auth.subject.has_value()) return {.allowed = true, .reason = "not authenticated; left to the handler"};
+
+                    if (*auth.subject == kSystemPrincipal) {
+                        return {.allowed = true, .reason = "euclid's own inter-module traffic"};
+                    }
+
+                    const auto user = UsersByUserId().get(*auth.subject, [](const std::string &id) {
+                        return RepositoryFactory::instance().eamRepository()->findUserByUserId(id);
+                    });
+                    if (!user.has_value()) return {.allowed = true, .reason = "unknown subject; left to the handler"};
+
+                    if (IsCachedEamAdmin(user->userId)) {
+                        return {.allowed = true, .reason = "member of the administrator user group"};
+                    }
+
+                    const auto repo = RepositoryFactory::instance().eamRepository();
+                    const auto result = Authorization::Allows(
+                            {.target = target,
+                             .action = action,
+                             .accountId = std::string(req["x-euclid-account-id"]),
+                             .nameSpace = std::string(req["x-euclid-namespace"]),
+                             .resourceErn = resourceErn},
+                            repo->findGrantsByPrincipals(PrincipalsOf(*user)),
+                            [&repo](const std::string &accountId, const std::string &role) -> std::optional<std::vector<std::string>> {
+                                if (const auto stored = repo->findRoleByName(accountId, role)) return stored->permissions;
+                                if (Core::BuiltinRoles::Exists(role)) return Core::BuiltinRoles::PermissionsOf(role);
+                                return std::nullopt;
+                            });
+
+                    return {.allowed = result.allowed, .reason = result.reason};
+                });
+
     }
 
 }// namespace Euclid::Database

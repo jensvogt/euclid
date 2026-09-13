@@ -348,12 +348,11 @@ namespace Euclid::CLI {
                                            {"delete-user", "Delete a user account"},
                                            {"delete-role", "Delete a role"},
                                            {"delete-user-group", "Delete an existing user group"},
-                                           {"grant-namespace-access", "Grant a user access to a namespace within an account"},
                                            {"get-role", "Show one role and what it grants"},
                                            {"grant-role", "Give a role to a user or user group"},
                                            {"list-access-keys", "List your access keys"},
                                            {"list-accounts", "List accounts"},
-                                           {"list-grants", "List grants, by principal or by role"},
+                                           {"list-grants", "List grants: by principal, by role, or a whole account"},
                                            {"list-permissions", "List every permission a role can hold"},
                                            {"list-namespaces", "List namespaces under an account"},
                                            {"list-roles", "List the roles this account can bind"},
@@ -361,7 +360,6 @@ namespace Euclid::CLI {
                                            {"list-users", "List user accounts"},
                                            {"login", "Authenticate and store a bearer token and SigV4 access key"},
                                            {"register", "Register a new user account"},
-                                           {"revoke-namespace-access", "Revoke a user's access to a namespace within an account"},
                                            {"revoke-role", "Remove one grant"},
                                            {"update-role", "Replace what a role grants"},
                                            {"user-group-add-user", "Add an user to an user group"},
@@ -451,12 +449,6 @@ namespace Euclid::CLI {
         }
         if (action == "delete-namespace") {
             return deleteNamespace(args);
-        }
-        if (action == "grant-namespace-access") {
-            return grantNamespaceAccess(args);
-        }
-        if (action == "revoke-namespace-access") {
-            return revokeNamespaceAccess(args);
         }
         if (action == "change-namespace") {
             return changeNamespace(args);
@@ -1535,90 +1527,6 @@ namespace Euclid::CLI {
         }
     }
 
-    int EamCli::grantNamespaceAccess(const std::vector<std::string> &args) const {
-        po::options_description desc("eam grant namespace access options");
-        desc.add_options()
-                ("user,u", po::value<std::string>()->required(), "user ERN")
-                ("account,a", po::value<std::string>()->required(), "account ID")
-                ("namespace,s", po::value<std::string>()->required(), "namespace name");
-
-        if (IsHelpRequest(args)) {
-            return PrintActionHelp("eam", "grant-namespace-access", "--user <ern> --account <accountId> --namespace <name>",
-                                   "Grants a user access to a namespace within an account. Requires "
-                                   "administrator privileges on that account.",
-                                   desc);
-        }
-
-        po::variables_map vm;
-        try {
-            po::store(po::command_line_parser(args).options(desc).run(), vm);
-            po::notify(vm);
-        } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
-            return 1;
-        }
-
-        Dto::EAM::GrantNamespaceAccessRequest request;
-        request.user = vm["user"].as<std::string>();
-        request.accountId = vm["account"].as<std::string>();
-        request.ns = vm["namespace"].as<std::string>();
-
-        try {
-            const HttpClient client(_endpoint, _authentication, _caCertPath);
-
-            if (const HttpResponse response = client.Post("eam", "grant-namespace-access", boost::json::value_from(request)); !response.IsSuccess()) {
-                reportFailure("grant-namespace-access", response);
-                return 1;
-            }
-            return 0;
-        } catch (const std::exception &ex) {
-            std::cerr << "error: " << ex.what() << std::endl;
-            return 1;
-        }
-    }
-
-    int EamCli::revokeNamespaceAccess(const std::vector<std::string> &args) const {
-        po::options_description desc("eam revoke namespace access options");
-        desc.add_options()
-                ("user,u", po::value<std::string>()->required(), "user ERN")
-                ("account,a", po::value<std::string>()->required(), "account ID")
-                ("namespace,s", po::value<std::string>()->required(), "namespace name");
-
-        if (IsHelpRequest(args)) {
-            return PrintActionHelp("eam", "revoke-namespace-access", "--user <ern> --account <accountId> --namespace <name>",
-                                   "Revokes a user's access to a namespace within an account. Requires "
-                                   "administrator privileges on that account.",
-                                   desc);
-        }
-
-        po::variables_map vm;
-        try {
-            po::store(po::command_line_parser(args).options(desc).run(), vm);
-            po::notify(vm);
-        } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
-            return 1;
-        }
-
-        Dto::EAM::RevokeNamespaceAccessRequest request;
-        request.user = vm["user"].as<std::string>();
-        request.accountId = vm["account"].as<std::string>();
-        request.ns = vm["namespace"].as<std::string>();
-
-        try {
-            const HttpClient client(_endpoint, _authentication, _caCertPath);
-
-            if (const HttpResponse response = client.Post("eam", "revoke-namespace-access", boost::json::value_from(request)); !response.IsSuccess()) {
-                reportFailure("revoke-namespace-access", response);
-                return 1;
-            }
-            return 0;
-        } catch (const std::exception &ex) {
-            std::cerr << "error: " << ex.what() << std::endl;
-            return 1;
-        }
-    }
-
     int EamCli::changeNamespace(const std::vector<std::string> &args) const {
         po::options_description desc("eam change namespace options");
         desc.add_options()
@@ -1915,7 +1823,9 @@ namespace Euclid::CLI {
                 ("namespace,e", po::value<std::vector<std::string>>()->multitoken()->default_value({"*"}, "*"),
                  "namespaces it applies in; * means every namespace of the account")
                 ("resource,u", po::value<std::vector<std::string>>()->multitoken()->default_value({"*"}, "*"),
-                 "ERN patterns it applies to, each exact or ending in *; * means every resource");
+                 "ERN patterns it applies to, each exact or ending in *; * means every resource")
+                ("account,a", po::value<std::string>()->default_value(""),
+                 "account to grant in; your own unless given, and naming another needs administrator rights on it");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eam", "grant-role", "--role <name> --principal <ern> [--namespace <name>...] [--resource <ern>...]",
@@ -1938,6 +1848,7 @@ namespace Euclid::CLI {
 
         Dto::EAM::GrantRoleRequest request;
         request.role = vm["role"].as<std::string>();
+        request.accountId = vm["account"].as<std::string>();
         request.principal = vm["principal"].as<std::string>();
         request.namespaces = vm["namespace"].as<std::vector<std::string>>();
         request.resources = vm["resource"].as<std::vector<std::string>>();
@@ -2005,12 +1916,15 @@ namespace Euclid::CLI {
         po::options_description desc("eam list-grants options");
         desc.add_options()
                 ("principal,p", po::value<std::string>()->default_value(""), "a user or user-group ERN: what may they do")
-                ("role,o", po::value<std::string>()->default_value(""), "a role name: who can do this");
+                ("role,o", po::value<std::string>()->default_value(""), "a role name: who can do this")
+                ("account,a", po::value<std::string>()->default_value(""),
+                 "account to look in; your own unless given, and naming another needs administrator rights on it");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eam", "list-grants", "--principal <ern> | --role <name>",
-                                   "Lists grants, either by principal or by role - the two questions this model exists to answer. "
-                                   "Give exactly one. Note that --principal shows that principal's own grants and not those "
+            return PrintActionHelp("eam", "list-grants", "[--principal <ern>] [--role <name>] [--account <id>]",
+                                   "Lists grants: by principal, by role, or - giving neither - everything granted in your "
+                                   "account, which is what an overview wants. Note that --principal shows that principal's "
+                                   "own grants and not those "
                                    "of the groups it belongs to, which is a different question; check-permission answers the "
                                    "combined one. Requires administrator privileges.",
                                    desc);
@@ -2028,6 +1942,7 @@ namespace Euclid::CLI {
         Dto::EAM::ListGrantsRequest request;
         request.principal = vm["principal"].as<std::string>();
         request.role = vm["role"].as<std::string>();
+        request.accountId = vm["account"].as<std::string>();
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
@@ -2124,5 +2039,6 @@ namespace Euclid::CLI {
             return 1;
         }
     }
+
 
 }

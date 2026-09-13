@@ -18,6 +18,7 @@
 #include <euclid/core/SamlProvider.h>
 #include <euclid/core/Version.h>
 #include <euclid/core/monitoring/MetricsPusher.h>
+#include <euclid/core/BuiltinRoles.h>
 #include <euclid/database/RepositoryFactory.h>
 #include <EamServer.h>
 
@@ -214,14 +215,27 @@ static void ensureDefaultObjects(const Euclid::Core::Configuration &cfg) {
                         << "', members: " << userGroup.userIds.size() << ")";
         }
 
-        // Grant the bootstrap admin an explicit record too - membership in the administrator
-        // group (granted above) already bypasses WireGrantLookup's per-user check globally, but
-        // this keeps accountGrants inspectable and consistent with how every other user's access
-        // is represented.
-        if (auto adminUser = repo->findUserByUserId(kDefaultAdminUserId); adminUser.has_value() && !accountId.empty()) {
-            if (!std::ranges::any_of(adminUser->accountGrants, [&](const auto &g) { return g.accountId == accountId; })) {
-                adminUser->accountGrants.push_back({.accountId = accountId, .namespaces = namespaces, .isAdmin = true, .granted = Euclid::Core::DateTimeUtils::ToISO8601(std::chrono::system_clock::now())});
-                repo->upsertUser(*adminUser);
+        // Give the bootstrap admin an explicit binding too. Membership in the administrator group
+        // (granted above) already bypasses the role gate entirely, so this changes nothing about
+        // what they may do - it is there so that "what is this user allowed" answers the same way
+        // for them as for everybody else, and so that an installation which later empties the
+        // administrator group has not silently emptied the account of administrators as well.
+        if (const auto adminUser = repo->findUserByUserId(kDefaultAdminUserId); adminUser.has_value() && !accountId.empty()) {
+
+            const auto role = std::string(Euclid::Core::BuiltinRoles::AccountAdministrator);
+            const auto existing = repo->findGrantsByPrincipals({adminUser->ern});
+
+            if (!std::ranges::any_of(existing, [&](const auto &g) { return g.role == role && g.accountId == accountId; })) {
+                Euclid::Database::Entity::EAM::Grant grant;
+                grant.role = role;
+                grant.principal = adminUser->ern;
+                grant.accountId = accountId;
+                grant.namespaces = {"*"};
+                grant.resources = {"*"};
+                grant.granted = std::chrono::system_clock::now();
+                grant.grantedBy = "euclid";
+                std::ignore = repo->addGrant(grant);
+                log_info << "Bootstrap administrator granted " << role << " in account " << accountId;
             }
         }
 
@@ -291,7 +305,8 @@ int main(const int argc, char *argv[]) {
     Euclid::Database::WireWorkerThreadsLookup();
     Euclid::Database::WireModuleSocketLookup();
     Euclid::Database::WireScopeLookup();
-    Euclid::Database::WireGrantLookup();
+    // Inert until euclid.authorization.mode says otherwise - see docs/role-concept.md §5.
+    Euclid::Database::WireAuthorizationLookup();
 
     // ── Ensure that some default objects exist ──────────
     ensureDefaultObjects(cfg);

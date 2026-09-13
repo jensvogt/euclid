@@ -142,12 +142,12 @@ int main(const int argc, char *argv[]) {
     Euclid::Database::WireWorkerThreadsLookup();
     Euclid::Database::WireModuleSocketLookup();
     Euclid::Database::WireScopeLookup();
-    Euclid::Database::WireGrantLookup();
+    // Inert until euclid.authorization.mode says otherwise - see docs/role-concept.md §5.
+    Euclid::Database::WireAuthorizationLookup();
 
     // The per-resource grants ESS leans on more than any other module: a principal deployed with
     // one secret named must reach that secret and no other, and until this is wired in no request
     // is refused on resource grounds at all.
-    Euclid::Database::WireResourceLookup();
 
     Euclid::Core::Monitoring::MetricsPusher metricsPusher("ess");
     try {

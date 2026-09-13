@@ -1,0 +1,116 @@
+.TH EUCLID-CLI-EAM-UPDATE-ROLE 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eam-update-role \- replace what a role grants
+.SH SYNOPSIS
+.B euclid-cli eam update-role
+.BR \-\-name | \-n
+.I NAME
+.BR \-\-permission | \-p
+.I PERMISSION
+.RI [ PERMISSION ...]
+[\fB\-\-description\fR|\fB\-d\fR \fITEXT\fR]
+.SH DESCRIPTION
+Replaces the permissions of one of your account's roles.
+.SH IT REPLACES, IT DOES NOT MERGE
+The role holds exactly the permissions given here afterwards. One left
+out is taken away.
+.PP
+That is the whole reason it works this way: there is no other way to
+narrow a role. A merging update could only ever add, and a role that can
+only grow is not something anybody can safely correct. So the call states
+the role's permissions in full, and the risk is the visible one \- that a
+list is written out incompletely \- rather than the invisible one, that a
+permission nobody meant to keep stays forever.
+.PP
+Run
+.BR euclid-cli-eam-get-role (1)
+first and edit what it prints.
+.SH WHEN IT TAKES EFFECT
+At once, for everyone. Every grant of the role \- every principal, in
+every namespace, in every account that binds it \- is affected by the
+same call, because a grant names the role rather than copying it. That is
+what makes a role worth having and what makes narrowing one worth
+checking first:
+.B euclid-cli eam list-grants --role <name>
+shows who is about to be affected.
+.PP
+The change is not retroactive to requests already answered, and there is
+no cache to wait out: a request authorized after this call uses the new
+permissions.
+.SH WHAT CANNOT BE CHANGED
+The six built-in roles. They are computed from the permission vocabulary
+rather than stored \- see
+.BR euclid-cli-eam-list-roles (1)
+\- so there is nothing to write to. To have
+.I operator
+with one permission removed, create a role of your own that says so.
+.PP
+The role's name is the key and so cannot be changed either. Create the
+new name, move the grants, delete the old one.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+Role name. Must be one of your account's own roles. Required.
+.TP
+.BR \-p ", " \-\-permission " " \fIPERMISSION\fR
+The role's permissions after this call \-
+.IR <module>:<action> ,
+.I <module>:*
+or
+.IR *:* .
+Repeat the option, or give several after one. Required, at least once: a
+role with no permissions grants nothing, which is
+.BR euclid-cli-eam-delete-role (1)'s
+job rather than this one's.
+.TP
+.BR \-d ", " \-\-description " " \fITEXT\fR
+What the role is for. Replaced like everything else, so leaving it out
+clears it.
+.SH WHO MAY RUN IT
+Installation administrators \- members of the
+.I administrator
+user group. See
+.B ADMINISTRATOR PRIVILEGES
+in
+.BR euclid-cli-eam (1).
+.SH EXIT STATUS
+.TP
+.B 0
+The role was updated; its JSON representation is printed.
+.TP
+.B 1
+No name or no permission given, a permission no module answers, no role
+of that name in your account, a built-in name, or the caller is not an
+administrator. If the failure was an expired or invalid session
+(\fIHTTP 401\fR), the stored credentials file is removed; run
+.B euclid-cli eam login
+again before retrying.
+.SH EXAMPLES
+.RS
+.nf
+# See what it holds now
+euclid-cli --endpoint http://localhost:5566 eam get-role \e
+    --name order-service
+
+# Who is about to be affected
+euclid-cli --endpoint http://localhost:5566 eam list-grants \e
+    --role order-service
+
+# Take away the ability to delete, keeping the rest
+euclid-cli --endpoint http://localhost:5566 eam update-role \e
+    --name order-service \e
+    --permission ens:publish-message \e
+    --permission eqs:receive-messages \e
+    --description "The order service's own rights"
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-create-role (1),
+.BR euclid-cli-eam-get-role (1),
+.BR euclid-cli-eam-list-roles (1),
+.BR euclid-cli-eam-list-grants (1),
+.BR euclid-cli-eam-delete-role (1),
+.BR euclid-cli-eam-list-permissions (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

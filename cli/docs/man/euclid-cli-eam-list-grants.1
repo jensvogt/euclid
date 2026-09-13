@@ -1,0 +1,127 @@
+.TH EUCLID-CLI-EAM-LIST-GRANTS 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eam-list-grants \- list grants: by principal, by role, or a whole account
+.SH SYNOPSIS
+.B euclid-cli eam list-grants
+[\fB\-\-principal\fR|\fB\-p\fR \fIERN\fR]
+[\fB\-\-role\fR|\fB\-o\fR \fINAME\fR]
+[\fB\-\-account\fR|\fB\-a\fR \fIID\fR]
+.SH DESCRIPTION
+Lists grants, and with them the
+.I grantId
+that
+.BR euclid-cli-eam-revoke-role (1)
+takes.
+.SH THE THREE QUESTIONS
+.TP
+.B \-\-principal
+"What may they do." Every grant held by one user or one user group.
+.TP
+.B \-\-role
+"Who can do this." Every grant of one role in the account \- which is
+what to check before
+.BR euclid-cli-eam-update-role (1)
+narrows a role or
+.BR euclid-cli-eam-delete-role (1)
+removes it.
+.TP
+.B neither
+"What is granted here at all." Every grant in the account. This is what
+an administration overview wants: a list of users and what each may do is
+otherwise one request per user.
+.PP
+Giving both
+.B \-\-principal
+and
+.B \-\-role
+is refused rather than intersected. They are different questions, and the
+answer to both at once is one grant or none \- not something worth a
+command.
+.SH WHAT \-\-PRINCIPAL DOES NOT INCLUDE
+That principal's
+.I own
+grants, and not those of the groups it belongs to.
+.PP
+So a user who can publish only because they are in a group that was
+granted
+.I publisher
+shows nothing here. That is a different question, and the one
+.BR euclid-cli-eam-check-permission (1)
+answers \- it counts every group the user is in, the way a real request
+does. Reading a user's rights off this command alone will understate
+them.
+.PP
+.B \-\-principal
+also reaches across accounts: it answers every grant that principal
+holds, in whichever account it was granted, so
+.B \-\-account
+does not narrow it. The other two forms are account-scoped.
+.SH OPTIONS
+.TP
+.BR \-p ", " \-\-principal " " \fIERN\fR
+A user ERN or a user-group ERN.
+.TP
+.BR \-o ", " \-\-role " " \fINAME\fR
+A role name. A built-in name also works.
+.TP
+.BR \-a ", " \-\-account " " \fIID\fR
+Account to look in. Your own unless given. Not applied together with
+.BR \-\-principal .
+.SH OUTPUT
+Each grant carries its
+.IR grantId ,
+the role, the principal, the account, the namespaces and resources it is
+scoped to, and when and by whom it was granted.
+.I total
+counts the grants returned.
+.SH WHO MAY RUN IT
+Installation administrators \- members of the
+.I administrator
+user group. See
+.B ADMINISTRATOR PRIVILEGES
+in
+.BR euclid-cli-eam (1).
+.SH EXIT STATUS
+.TP
+.B 0
+The grants were listed. An empty list is a successful answer.
+.TP
+.B 1
+Both
+.B \-\-principal
+and
+.B \-\-role
+were given, the request could not be sent, or the caller is not an
+administrator. If the failure was an expired or invalid session
+(\fIHTTP 401\fR), the stored credentials file is removed; run
+.B euclid-cli eam login
+again before retrying.
+.SH EXAMPLES
+.RS
+.nf
+# Everything granted in this account
+euclid-cli --endpoint http://localhost:5566 eam list-grants
+
+# What one user holds in their own right
+euclid-cli --endpoint http://localhost:5566 eam list-grants \e
+    --principal ern:eam:eu-central-1:000000000000:user:jdoe
+
+# Who would be affected by narrowing a role
+euclid-cli --endpoint http://localhost:5566 eam list-grants \e
+    --role order-service
+
+# In another account
+euclid-cli --endpoint http://localhost:5566 eam list-grants \e
+    --account 123456789012
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-grant-role (1),
+.BR euclid-cli-eam-revoke-role (1),
+.BR euclid-cli-eam-check-permission (1),
+.BR euclid-cli-eam-list-roles (1),
+.BR euclid-cli-eam-update-role (1),
+.BR euclid-cli-eam-delete-role (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

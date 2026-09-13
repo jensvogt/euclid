@@ -66,7 +66,7 @@ namespace Euclid::EMD {
          * @return HTTP response whose body is a BSON document of results
          */
         [[nodiscard]]
-        response<string_body> Dispatch(const request<string_body> &req) override;
+        response<string_body> DispatchAction(const request<string_body> &req) override;
 
     private:
 

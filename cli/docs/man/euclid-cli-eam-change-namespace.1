@@ -11,7 +11,7 @@ validates that
 .I NAME
 exists under the caller's account, and that the caller either is an
 account administrator or holds an explicit grant for it (see
-.BR euclid-cli-eam-grant-namespace-access (1));
+.BR euclid-cli-eam-grant-role (1));
 otherwise the request is rejected and nothing local is changed.
 .PP
 On success, the namespace is persisted to
@@ -59,7 +59,5 @@ token and access key.
 .SH SEE ALSO
 .BR euclid-cli-eam (1),
 .BR euclid-cli-eam-login (1),
-.BR euclid-cli-eam-grant-namespace-access (1),
-.BR euclid-cli-eam-revoke-namespace-access (1)
 .SH AUTHOR
 Jens Vogt <jens.vogt@opitz-consulting.com>

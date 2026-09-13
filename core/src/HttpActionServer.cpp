@@ -10,6 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/HttpActionServer.h>
+#include <euclid/core/Permissions.h>
+
+// C++ includes
+#include <algorithm>
+#include <ranges>
 
 #include <euclid/core/Configuration.h>
 #include <euclid/core/HttpSignature.h>
@@ -56,10 +61,6 @@ namespace Euclid::Core {
             return lookup;
         }
 
-        HttpActionServer::GrantLookup &grantLookup() {
-            static HttpActionServer::GrantLookup lookup;
-            return lookup;
-        }
 
         HttpActionServer::WorkerThreadsLookup &workerThreadsLookup() {
             static HttpActionServer::WorkerThreadsLookup lookup;
@@ -71,10 +72,6 @@ namespace Euclid::Core {
             return rewriter;
         }
 
-        HttpActionServer::ResourceLookup &resourceLookup() {
-            static HttpActionServer::ResourceLookup lookup;
-            return lookup;
-        }
 
         // Empty return means "in scope"; otherwise the message to send back as the 403 body.
         // subject is the already-verified caller (from the JWT/SigV4 check just above this call),
@@ -107,14 +104,11 @@ namespace Euclid::Core {
                 }
             }
 
-            // Per-user grant check - only enforced once GrantLookup is wired and the request
-            // actually names an account; account-agnostic actions (e.g. login, get-metrics)
-            // typically send no x-euclid-account-id and are exempt.
-            if (grantLookup() && !accountId.empty() && subject.has_value()) {
-                if (!grantLookup()(*subject, accountId, ns)) {
-                    return ns.empty() ? "Not authorized for this account" : "Not authorized for this account/namespace";
-                }
-            }
+            // What used to be a per-user grant check lived here, reading User::accountGrants. That
+            // field is gone: whether a caller may work in an account and namespace is now a
+            // property of the role bindings they hold, and Authorize() decides it for every request
+            // rather than this deciding it for the ones that happen to name an account. What is
+            // left here is deployment scope - whether this euclid serves that account at all.
 
             return {};
         }
@@ -209,7 +203,108 @@ namespace Euclid::Core {
         return static_cast<int>(threads);
     }
 
+
+    // ── The role gate ────────────────────────────────────────────────────────
+
+    namespace {
+
+        // Null until a process wires one. A module that never does is never refused anything,
+        // which is what keeps the gate additive until an installation turns it on.
+        HttpActionServer::AuthorizationLookup g_authorizationLookup;
+        HttpActionServer::ResourceAuthorizationLookup g_resourceAuthorizationLookup;
+
+    }// namespace
+
+    void HttpActionServer::SetAuthorizationLookup(AuthorizationLookup lookup) {
+        g_authorizationLookup = std::move(lookup);
+    }
+
+
+    void HttpActionServer::SetResourceAuthorizationLookup(ResourceAuthorizationLookup lookup) {
+        g_resourceAuthorizationLookup = std::move(lookup);
+    }
+
+    bool HttpActionServer::IsResourceAuthorized(const boost::beast::http::request<boost::beast::http::string_body> &req,
+                                                const std::string &resourceErn) {
+
+        if (!g_resourceAuthorizationLookup) return true;
+
+        return g_resourceAuthorizationLookup(req, std::string(req["x-euclid-target"]),
+                                             std::string(req["x-euclid-action"]), resourceErn)
+                .allowed;
+    }
+
+    std::optional<boost::beast::http::response<boost::beast::http::string_body>>
+    HttpActionServer::AuthorizeResource(const boost::beast::http::request<boost::beast::http::string_body> &req,
+                                        const std::string &resourceErn) {
+
+        // A process that registered no lookup is not refused anything, the same way the gate above
+        // treats one - a tool built on this class is not a module and has no grants to consult.
+        if (!g_resourceAuthorizationLookup) return std::nullopt;
+
+        const auto target = std::string(req["x-euclid-target"]);
+        const auto action = std::string(req["x-euclid-action"]);
+
+        const auto decision = g_resourceAuthorizationLookup(req, target, action, resourceErn);
+        if (decision.allowed) return std::nullopt;
+
+        log_info << "authorization: refused " << target << ":" << action << " on " << resourceErn
+                 << ", user: " << std::string(req["x-euclid-user-id"]) << ", reason: " << decision.reason;
+
+        return ErrorResponse(req, boost::beast::http::status::forbidden, decision.reason);
+    }
+
+
+    void HttpActionServer::RequireEnforcingAuthorization() {
+
+        const auto configured = Configuration::instance().getOr<std::string>("euclid.authorization.mode", "enforce");
+        if (configured == "enforce") return;
+
+        // "legacy" and "shadow" both meant "let the per-user grant lists decide". Those lists are
+        // gone, so honouring either would authorize nobody - every authenticated caller allowed
+        // everything, with nothing in any log to say so. Refusing to start is the loudest, earliest
+        // and least damaging way to say that the configuration is from before the roles release.
+        throw std::runtime_error("euclid.authorization.mode is '" + configured +
+                                 "', which no longer exists: the per-user accountGrants/resourceGrants it referred to "
+                                 "have been replaced by roles. Set it to 'enforce', or remove it. See "
+                                 "docs/role-concept.md.");
+    }
+
+    std::optional<boost::beast::http::response<boost::beast::http::string_body>>
+    HttpActionServer::Authorize(const boost::beast::http::request<boost::beast::http::string_body> &req) {
+
+        // A process that registered no lookup is never refused anything. Every module registers one
+        // at startup; a tool built on this class is not a module and has no grants to consult.
+        if (!g_authorizationLookup) return std::nullopt;
+
+        const auto target = std::string(req["x-euclid-target"]);
+        const auto action = std::string(req["x-euclid-action"]);
+
+        // emm and emd are not gated by roles because no role can name their actions - they gate
+        // themselves, by the administrator group and by being internal respectively. Sending them
+        // through here would refuse every one of their requests, since Permissions holds nothing
+        // for either.
+        if (std::ranges::contains(Permissions::UnbindableModules(), target)) return std::nullopt;
+
+        const auto decision = g_authorizationLookup(req, target, action);
+        if (decision.allowed) return std::nullopt;
+
+        log_info << "authorization: refused " << target << ":" << action
+                 << ", user: " << std::string(req["x-euclid-user-id"]) << ", reason: " << decision.reason;
+
+        return ErrorResponse(req, boost::beast::http::status::forbidden, decision.reason);
+    }
+
+    boost::beast::http::response<boost::beast::http::string_body>
+    HttpActionServer::Dispatch(const boost::beast::http::request<boost::beast::http::string_body> &req) {
+
+        if (auto refusal = Authorize(req)) return std::move(*refusal);
+        return DispatchAction(req);
+    }
+
     HttpActionServer::HttpActionServer(const std::string &serviceName, std::string socketPath, const int threads) : UnixSocketServer(serviceName, std::move(socketPath), threads) {
+        RequireEnforcingAuthorization();
+
         Monitoring::MonitoringCollector::instance().Start();
 
 #ifdef __linux__
@@ -274,13 +369,7 @@ namespace Euclid::Core {
         scopeLookup() = std::move(lookup);
     }
 
-    void HttpActionServer::SetGrantLookup(GrantLookup lookup) {
-        grantLookup() = std::move(lookup);
-    }
 
-    void HttpActionServer::SetResourceLookup(ResourceLookup lookup) {
-        resourceLookup() = std::move(lookup);
-    }
 
     void HttpActionServer::SetWorkerThreadsLookup(WorkerThreadsLookup lookup) {
         workerThreadsLookup() = std::move(lookup);
@@ -290,11 +379,6 @@ namespace Euclid::Core {
         requestRewriter() = std::move(rewriter);
     }
 
-    bool HttpActionServer::IsResourceAllowed(const std::string &userId, const std::string &resourceErn) {
-        if (!resourceLookup()) return true;
-        if (userId.empty() || resourceErn.empty()) return true;
-        return resourceLookup()(userId, resourceErn);
-    }
 
     HttpActionServer::AuthResult HttpActionServer::Authenticate(const http::request<http::string_body> &req) {
 

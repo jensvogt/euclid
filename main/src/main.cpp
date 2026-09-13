@@ -667,7 +667,8 @@ static int RunManager(const CliOptions &opts, [[maybe_unused]] const bool report
     if (const int error = initializeDatabase(cfg); error != 0) return error;
     Euclid::Database::WireAccessKeyLookup();
     Euclid::Database::WireScopeLookup();
-    Euclid::Database::WireGrantLookup();
+    // Inert until euclid.authorization.mode says otherwise - see docs/role-concept.md §5.
+    Euclid::Database::WireAuthorizationLookup();
     Euclid::Database::WireModuleSocketLookup();
 
     // Module records track this manager's own child processes, so anything left over from a

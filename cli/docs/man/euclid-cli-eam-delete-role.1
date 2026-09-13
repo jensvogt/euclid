@@ -1,0 +1,81 @@
+.TH EUCLID-CLI-EAM-DELETE-ROLE 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eam-delete-role \- delete one of your account's roles
+.SH SYNOPSIS
+.B euclid-cli eam delete-role
+.BR \-\-name | \-n
+.I NAME
+.SH DESCRIPTION
+Deletes a role from your account.
+.SH IT IS REFUSED WHILE ANYTHING STILL GRANTS IT
+A role that is still named by a grant cannot be deleted. Revoke those
+grants first;
+.B euclid-cli eam list-grants --role <name>
+lists them and
+.BR euclid-cli-eam-revoke-role (1)
+removes each one.
+.PP
+Refused rather than cascading, and deliberately. A grant names its role
+rather than copying it, so deleting the role out from under its grants
+would leave grants that quietly do nothing \- present in every listing,
+granting nothing, and failing only when somebody is turned away from
+something they were told they had. Taking somebody's access away is a
+decision worth making on purpose, one grant at a time.
+.PP
+The error says how many grants are in the way.
+.SH BUILT-IN ROLES CANNOT BE DELETED
+.IR account\-administrator ,
+.IR operator ,
+.IR reader ,
+.IR publisher ,
+.I consumer
+and
+.I application
+are computed rather than stored \- there is nothing to delete. See
+.BR euclid-cli-eam-list-roles (1).
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-name " " \fINAME\fR
+Role name. Must be one of your account's own roles. Required.
+.SH WHO MAY RUN IT
+Installation administrators \- members of the
+.I administrator
+user group. See
+.B ADMINISTRATOR PRIVILEGES
+in
+.BR euclid-cli-eam (1).
+.SH EXIT STATUS
+.TP
+.B 0
+The role was deleted.
+.TP
+.B 1
+No name given, no role of that name in your account, a built-in name, a
+grant still names it, or the caller is not an administrator. If the
+failure was an expired or invalid session (\fIHTTP 401\fR), the stored
+credentials file is removed; run
+.B euclid-cli eam login
+again before retrying.
+.SH EXAMPLES
+Retire a role, grants first:
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 eam list-grants \e
+    --role order-service
+
+euclid-cli --endpoint http://localhost:5566 eam revoke-role \e
+    --grant-id 7c1f2f5e-3a21-4e6b-9a0c-5f2b9e1d4c33
+
+euclid-cli --endpoint http://localhost:5566 eam delete-role \e
+    --name order-service
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-list-grants (1),
+.BR euclid-cli-eam-revoke-role (1),
+.BR euclid-cli-eam-list-roles (1),
+.BR euclid-cli-eam-create-role (1),
+.BR euclid-cli-eam-update-role (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

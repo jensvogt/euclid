@@ -38,7 +38,7 @@ namespace Euclid::Database::Entity::EAM {
         std::string name;
 
         /**
-         * @brief Euclid resource name, e.g. "ern:euclid:eam:eu-central-1:<accountId>:namespace:<name>"
+         * @brief Euclid resource name, e.g. "ern:eam:eu-central-1:<accountId>:namespace:<name>"
          * (see Core::createEamNamespaceErn()).
          */
         std::string ern;
