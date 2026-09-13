@@ -315,6 +315,19 @@ namespace Euclid::Database {
          * @param accountId the role's account.
          * @param role the role name.
          */
+        /**
+         * @brief Every grant in one account, whoever holds it and whichever role it names.
+         *
+         * @par
+         * What an administration view asks for: a list of users and what each may do is otherwise
+         * one query per user, which is the shape the per-user grant lists used to give away for
+         * free. Scoped to an account because a grant is.
+         *
+         * @param accountId the account.
+         */
+        [[nodiscard]]
+        virtual std::vector<Entity::EAM::Grant> findGrantsByAccount(const std::string &accountId) const = 0;
+
         [[nodiscard]]
         virtual std::vector<Entity::EAM::Grant> findGrantsByRole(const std::string &accountId, const std::string &role) const = 0;
 
@@ -335,6 +348,7 @@ namespace Euclid::Database {
          * @param principal user or user-group ERN.
          */
         virtual void deleteGrantsByPrincipal(const std::string &principal) const = 0;
+
 
         /**
          * @brief Inserts a new account or updates an existing one in the repository.

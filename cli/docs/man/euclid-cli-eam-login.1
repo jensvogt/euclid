@@ -77,7 +77,7 @@ kind of token and the same SigV4 access key. A user signing in this way for
 the first time is created automatically if the installation is configured
 for it (\fIoidc.jit\-provisioning\fR), with no grants - an administrator
 still decides what they may do (see
-.BR euclid-cli-eam-grant-namespace-access (1)).
+.BR euclid-cli-eam-grant-role (1)).
 .IP
 Cannot be combined with \fB\-\-user\fR, \fB\-\-password\fR or
 \fB\-\-saml\fR: the identity provider is what says who you are.
@@ -170,7 +170,7 @@ certificate to check it against.
 .BR \-n ", " \-\-namespace " " \fINAME\fR
 Namespace to make active for this session. Must exist, and the user must
 either be an account administrator or hold an explicit grant for it (see
-.BR euclid-cli-eam-grant-namespace-access (1)).
+.BR euclid-cli-eam-grant-role (1)).
 Optional; omitted means the session stays unscoped, same as before this
 option existed.
 .SH EXIT STATUS

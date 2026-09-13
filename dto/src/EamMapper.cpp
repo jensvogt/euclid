@@ -13,9 +13,6 @@ namespace Euclid::Dto::EAM {
         dto.email = entity.email;
         dto.accountId = entity.accountId;
         dto.region = entity.region;
-        for (const auto &grant: entity.accountGrants) {
-            dto.accountGrants.push_back({.accountId = grant.accountId, .namespaces = grant.namespaces, .isAdmin = grant.isAdmin, .granted = grant.granted});
-        }
         dto.created = entity.created;
         dto.modified = entity.modified;
         return dto;

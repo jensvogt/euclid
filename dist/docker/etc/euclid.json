@@ -15,6 +15,9 @@
     "database": {
       "backend": "emd"
     },
+    "authorization": {
+      "mode": "enforce"
+    },
     "gateway": {
       "http": {
         "host": "localhost",

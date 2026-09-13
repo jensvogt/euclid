@@ -653,7 +653,7 @@ namespace Euclid::EAG {
         if (_proxy) _proxy->stop();
     }
 
-    response<string_body> EagServer::Dispatch(const request<string_body> &req) {
+    response<string_body> EagServer::DispatchAction(const request<string_body> &req) {
         // Taken before the free dispatcher, because this is the one action that answers out of
         // this instance's own configuration rather than out of the route table.
         if (std::string(req["x-euclid-action"]) == "list-listeners") return handleListListeners(req);

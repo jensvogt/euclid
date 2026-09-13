@@ -487,7 +487,7 @@ namespace Euclid::Monitoring {
         recordSample("database-collections", "database", name, static_cast<double>(stats->collections), MetricType::GAUGE);
     }
 
-    response<string_body> EmoServer::Dispatch(const request<string_body> &req) {
+    response<string_body> EmoServer::DispatchAction(const request<string_body> &req) {
         return dispatch(req);
     }
 

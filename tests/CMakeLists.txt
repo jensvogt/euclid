@@ -385,3 +385,12 @@ set_target_properties(${ROLE_REPOSITORY_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES 
 target_link_libraries(${ROLE_REPOSITORY_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
 
 add_test(NAME ${ROLE_REPOSITORY_BINARY} COMMAND ${ROLE_REPOSITORY_BINARY})
+
+set(AUTHORIZATION_GATE_BINARY euclid-authorization-gate-tests)
+
+add_executable(${AUTHORIZATION_GATE_BINARY} AuthorizationGateTest.cpp)
+set_target_properties(${AUTHORIZATION_GATE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${AUTHORIZATION_GATE_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${AUTHORIZATION_GATE_BINARY} COMMAND ${AUTHORIZATION_GATE_BINARY})

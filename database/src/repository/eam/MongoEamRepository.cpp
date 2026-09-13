@@ -824,6 +824,23 @@ namespace Euclid::Database {
         return grants;
     }
 
+    std::vector<Entity::EAM::Grant> MongoEamRepository::findGrantsByAccount(const std::string &accountId) const {
+
+        std::vector<Entity::EAM::Grant> grants;
+        try {
+
+            auto grantCollection = Database::instance().collection(GRANT_COLLECTION);
+
+            for (auto cursor = grantCollection.find(make_document(kvp("accountId", accountId))); auto doc: cursor) {
+                grants.push_back(Entity::EAM::Grant::fromDocument(doc));
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Find grants by account failed, accountId: " << accountId << ", error: " << e.what();
+        }
+        return grants;
+    }
+
     std::vector<Entity::EAM::Grant> MongoEamRepository::findGrantsByRole(const std::string &accountId, const std::string &role) const {
 
         std::vector<Entity::EAM::Grant> grants;

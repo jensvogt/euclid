@@ -417,7 +417,7 @@ namespace Euclid::ETS {
 
     EtsServer::EtsServer(std::string socketPath, const int threads) : HttpActionServer("ETS", std::move(socketPath), threads) {}
 
-    response<string_body> EtsServer::Dispatch(const request<string_body> &req) {
+    response<string_body> EtsServer::DispatchAction(const request<string_body> &req) {
         return dispatch(req);
     }
 

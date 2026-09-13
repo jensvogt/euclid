@@ -28,6 +28,16 @@ namespace Euclid::Dto::EAM {
         std::string role;
 
         /**
+         * @brief Account to grant in. The caller's own when empty.
+         *
+         * @par
+         * An installation administrator, or an account-administrator of that account, may grant in
+         * one that is not their own - which is how an administrator manages an account they do not
+         * work in. Anybody else naming another account is refused.
+         */
+        std::string accountId;
+
+        /**
          * @brief Who gets it: a user ERN or a user-group ERN. One field for both, because the ERN says which.
          */
         std::string principal;
@@ -61,6 +71,7 @@ namespace Euclid::Dto::EAM {
         friend GrantRoleRequest tag_invoke(boost::json::value_to_tag<GrantRoleRequest>, boost::json::value const &v) {
             GrantRoleRequest r;
             r.role = Core::GetStringValue(v, "role");
+            r.accountId = Core::GetStringValue(v, "accountId");
             r.principal = Core::GetStringValue(v, "principal");
             r.namespaces = Core::GetStringArrayValue(v, "namespaces");
             r.resources = Core::GetStringArrayValue(v, "resources");
@@ -70,6 +81,7 @@ namespace Euclid::Dto::EAM {
         friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GrantRoleRequest const &obj) {
             jv = {
                     {"role", obj.role},
+                    {"accountId", obj.accountId},
                     {"principal", obj.principal},
                     {"namespaces", boost::json::value_from(obj.namespaces)},
                     {"resources", boost::json::value_from(obj.resources)},

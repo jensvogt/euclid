@@ -14,7 +14,6 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
-#include <euclid/dto/eam/model/AccountGrant.h>
 
 namespace Euclid::Dto {
 
@@ -49,11 +48,6 @@ namespace Euclid::Dto {
          */
         std::string region;
 
-        /**
-         * @brief Explicit per-(account, namespace) grants held by this user, in addition to
-         * accountId above (the user's home account)
-         */
-        std::vector<AccountGrant> accountGrants;
 
         /**
          * @brief Created timestamp
@@ -75,9 +69,6 @@ namespace Euclid::Dto {
             r.email = Core::GetStringValue(v, "email");
             r.accountId = Core::GetStringValue(v, "accountId");
             r.region = Core::GetStringValue(v, "region");
-            if (Core::AttributeExists(v, "accountGrants")) {
-                r.accountGrants = boost::json::value_to<std::vector<AccountGrant> >(v.at("accountGrants"));
-            }
             r.created = Core::GetDatetimeValue(v, "created");
             r.modified = Core::GetDatetimeValue(v, "modified");
             return r;
@@ -91,7 +82,6 @@ namespace Euclid::Dto {
                     {"email", obj.email},
                     {"accountId", obj.accountId},
                     {"region", obj.region},
-                    {"accountGrants", boost::json::value_from(obj.accountGrants)},
                     {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
             };

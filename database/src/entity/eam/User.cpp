@@ -47,29 +47,6 @@ namespace Euclid::Database::Entity::EAM {
             return session;
         }
 
-        bsoncxx::document::value accountGrantToDocument(const AccountGrant &grant) {
-            bsoncxx::builder::basic::array namespacesArray;
-            for (const auto &ns: grant.namespaces) namespacesArray.append(ns);
-
-            return bsoncxx::builder::basic::make_document(
-                    bsoncxx::builder::basic::kvp("accountId", grant.accountId),
-                    bsoncxx::builder::basic::kvp("namespaces", namespacesArray),
-                    bsoncxx::builder::basic::kvp("isAdmin", grant.isAdmin),
-                    bsoncxx::builder::basic::kvp("granted", grant.granted));
-        }
-
-        AccountGrant accountGrantFromDocument(const bsoncxx::document::view &document) {
-            AccountGrant grant;
-            for (const auto &field: document) {
-                if (const auto k = field.key(); k == "accountId") grant.accountId = std::string(field.get_string().value);
-                else if (k == "namespaces") {
-                    for (const auto &elem: field.get_array().value) grant.namespaces.emplace_back(elem.get_string().value);
-                } else if (k == "isAdmin") grant.isAdmin = field.get_bool().value;
-                else if (k == "granted") grant.granted = std::string(field.get_string().value);
-            }
-            return grant;
-        }
-
         bsoncxx::document::value seenAssertionToDocument(const SeenAssertion &seen) {
             return bsoncxx::builder::basic::make_document(
                     bsoncxx::builder::basic::kvp("assertionId", seen.assertionId),
@@ -95,14 +72,10 @@ namespace Euclid::Database::Entity::EAM {
         bsoncxx::builder::basic::array sessionsArray;
         for (const auto &session: sessions) sessionsArray.append(sessionToDocument(session));
 
-        bsoncxx::builder::basic::array resourceGrantsArray;
-        for (const auto &resourceErn: resourceGrants) resourceGrantsArray.append(resourceErn);
 
         bsoncxx::builder::basic::array seenAssertionsArray;
         for (const auto &seen: seenAssertions) seenAssertionsArray.append(seenAssertionToDocument(seen));
 
-        bsoncxx::builder::basic::array accountGrantsArray;
-        for (const auto &grant: accountGrants) accountGrantsArray.append(accountGrantToDocument(grant));
 
         return bsoncxx::builder::basic::make_document(
                 bsoncxx::builder::basic::kvp("userId", userId),
@@ -115,10 +88,8 @@ namespace Euclid::Database::Entity::EAM {
                 bsoncxx::builder::basic::kvp("federatedProvider", federatedProvider),
                 bsoncxx::builder::basic::kvp("federatedSubject", federatedSubject),
                 bsoncxx::builder::basic::kvp("seenAssertions", seenAssertionsArray),
-                bsoncxx::builder::basic::kvp("resourceGrants", resourceGrantsArray),
                 bsoncxx::builder::basic::kvp("accessKeys", accessKeysArray),
                 bsoncxx::builder::basic::kvp("sessions", sessionsArray),
-                bsoncxx::builder::basic::kvp("accountGrants", accountGrantsArray),
                 bsoncxx::builder::basic::kvp("created", bsoncxx::types::b_date(created)),
                 bsoncxx::builder::basic::kvp("modified", bsoncxx::types::b_date(modified))
                 );
@@ -141,15 +112,10 @@ namespace Euclid::Database::Entity::EAM {
             else if (key == "federatedSubject") user.federatedSubject = std::string(field.get_string().value);
             else if (key == "seenAssertions") {
                 for (const auto &elem: field.get_array().value) user.seenAssertions.push_back(seenAssertionFromDocument(elem.get_document().value));
-            }
-            else if (key == "resourceGrants") {
-                for (const auto &elem: field.get_array().value) user.resourceGrants.emplace_back(elem.get_string().value);
             } else if (key == "accessKeys") {
                 for (const auto &elem: field.get_array().value) user.accessKeys.push_back(accessKeyFromDocument(elem.get_document().value));
             } else if (key == "sessions") {
                 for (const auto &elem: field.get_array().value) user.sessions.push_back(sessionFromDocument(elem.get_document().value));
-            } else if (key == "accountGrants") {
-                for (const auto &elem: field.get_array().value) user.accountGrants.push_back(accountGrantFromDocument(elem.get_document().value));
             } else if (key == "created") user.created = std::chrono::system_clock::time_point{field.get_date().value};
             else if (key == "modified") user.modified = std::chrono::system_clock::time_point{field.get_date().value};
 

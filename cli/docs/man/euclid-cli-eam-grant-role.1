@@ -1,0 +1,178 @@
+.TH EUCLID-CLI-EAM-GRANT-ROLE 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eam-grant-role \- give a role to a user or a user group
+.SH SYNOPSIS
+.B euclid-cli eam grant-role
+.BR \-\-role | \-o
+.I NAME
+.BR \-\-principal | \-p
+.I ERN
+[\fB\-\-namespace\fR|\fB\-e\fR \fINAME\fR...]
+[\fB\-\-resource\fR|\fB\-u\fR \fIERN\fR...]
+[\fB\-\-account\fR|\fB\-a\fR \fIID\fR]
+.SH DESCRIPTION
+Gives a role to a user or a user group, scoped to namespaces and
+resources. The role says what may be done; this says by whom and where.
+.PP
+What a user may do is the union of every grant held by them and by every
+group they belong to. There are no deny rules and no role hierarchy: a
+grant only ever adds, and something nobody granted is refused. To take
+something away, revoke the grant that gave it \-
+.BR euclid-cli-eam-revoke-role (1).
+.SH THE PRINCIPAL
+One option for both users and groups, because the ERN already says which:
+.RS
+.nf
+ern:eam:eu-central-1:000000000000:user:jdoe
+ern:eam:eu-central-1:000000000000:userGroup:developers
+.fi
+.RE
+.PP
+Granting to a group is how a grant outlives the people it applies to: a
+user added to the group later holds it without anybody revisiting this
+command. Groups are flat \- a group is never a member of another \- so
+the set of grants a user holds is their own plus those of the groups
+they are directly in, and nothing deeper.
+.SH SCOPE
+.TP
+.B \-\-namespace
+The namespaces of the account it applies in. A single
+.I *
+means every namespace of that account, including ones created later.
+Repeat the option for several. A grant that applies in no namespace
+grants nothing, so an empty list is refused rather than stored as a
+silent no-op.
+.TP
+.B \-\-resource
+ERN patterns it applies to, for the actions that name a resource. A
+pattern is exact, or ends in
+.I *
+and matches by prefix \-
+.I "ern:ens:eu-central-1:000000000000:production:topic:order\-*"
+covers
+.IR order\-events .
+A trailing
+.I *
+is the only wildcard there is; one in the middle matches nothing. A
+single
+.I *
+means every resource.
+.PP
+Actions that name no resource \- listing, creating, metadata \- are not
+narrowed by
+.BR \-\-resource .
+The patterns apply to the actions that do.
+.PP
+Both default to
+.IR * .
+A grant that says neither applies account-wide, which is the reading that
+matches "I granted them this role" rather than the one where an
+unmentioned scope silently matches nothing.
+.SH SCOPE IS FIXED ONCE WRITTEN
+There is no way to widen or narrow a grant. Revoke it and grant again \-
+which is why
+.BR euclid-cli-eam-revoke-role (1)
+takes the grant's id, and why granting the same role to the same
+principal twice with different scope is a normal thing to do rather than
+a mistake.
+.PP
+It also means a grant naming several namespaces is all-or-nothing:
+removing one of them means revoking the grant and re-granting the rest.
+.SH BOTH HAVE TO EXIST
+The role and the principal are looked up before the grant is written. A
+grant naming either one that does not exist would be inert, and nobody
+would find out until somebody was refused something they were told they
+had.
+.PP
+A role name resolves to your account's own role first, then to a built-in
+one \- the same order
+.BR euclid-cli-eam-get-role (1)
+resolves in, and the order the grant itself will resolve in every time it
+is evaluated. The role is read at authorization time, not copied here, so
+a later
+.BR euclid-cli-eam-update-role (1)
+changes what this grant allows.
+.SH OPTIONS
+.TP
+.BR \-o ", " \-\-role " " \fINAME\fR
+Role name. A built-in name also works. Required.
+.TP
+.BR \-p ", " \-\-principal " " \fIERN\fR
+Who gets it: a user ERN or a user-group ERN. Required.
+.TP
+.BR \-e ", " \-\-namespace " " \fINAME\fR
+Namespaces it applies in. Defaults to \fI*\fR.
+.TP
+.BR \-u ", " \-\-resource " " \fIERN\fR
+ERN patterns it applies to. Defaults to \fI*\fR.
+.TP
+.BR \-a ", " \-\-account " " \fIID\fR
+Account to grant in. Your own unless given.
+.SH WHO MAY RUN IT
+Installation administrators \- members of the
+.I administrator
+user group. See
+.B ADMINISTRATOR PRIVILEGES
+in
+.BR euclid-cli-eam (1).
+.SH EXIT STATUS
+.TP
+.B 0
+The grant was created. Its JSON representation is printed, including the
+.I grantId
+that
+.BR euclid-cli-eam-revoke-role (1)
+takes \- the only handle there is on it, so keep it or look it up again
+with
+.BR euclid-cli-eam-list-grants (1).
+.TP
+.B 1
+No role or no principal given, no role of that name, no user or user
+group with that ERN, an empty namespace list, or the caller is not an
+administrator. If the failure was an expired or invalid session
+(\fIHTTP 401\fR), the stored credentials file is removed; run
+.B euclid-cli eam login
+again before retrying.
+.SH EXAMPLES
+.RS
+.nf
+# Let a group read everything in one namespace
+euclid-cli --endpoint http://localhost:5566 eam grant-role \e
+    --role reader \e
+    --principal ern:eam:eu-central-1:000000000000:userGroup:support \e
+    --namespace production
+
+# One service, one namespace, the topics it owns and no others
+euclid-cli --endpoint http://localhost:5566 eam grant-role \e
+    --role order-service \e
+    --principal ern:eam:eu-central-1:000000000000:user:svc-orders \e
+    --namespace production \e
+    --resource 'ern:ens:eu-central-1:000000000000:production:topic:order-*'
+
+# Account-wide: neither scope named
+euclid-cli --endpoint http://localhost:5566 eam grant-role \e
+    --role operator \e
+    --principal ern:eam:eu-central-1:000000000000:user:jdoe
+
+# Two namespaces in one grant - revoking either means revoking both
+euclid-cli --endpoint http://localhost:5566 eam grant-role \e
+    --role publisher \e
+    --principal ern:eam:eu-central-1:000000000000:user:jdoe \e
+    --namespace staging --namespace production
+.fi
+.RE
+.PP
+Quote patterns containing
+.I *
+so the shell does not expand them against the working directory.
+.SH SEE ALSO
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-revoke-role (1),
+.BR euclid-cli-eam-list-grants (1),
+.BR euclid-cli-eam-check-permission (1),
+.BR euclid-cli-eam-list-roles (1),
+.BR euclid-cli-eam-get-role (1),
+.BR euclid-cli-eam-create-role (1),
+.BR euclid-cli-eam-user-group-add-user (1)
+.SH AUTHOR
+Jens Vogt <jens.vogt@opitz-consulting.com>

@@ -725,10 +725,13 @@ namespace Euclid::main {
             const auto user = Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(application.userId);
             if (!user.has_value()) return {};
 
-            for (const auto &grant: user->accountGrants) {
+            // The principal's role grants, which is where "granted exactly one namespace" lives
+            // now. Same rule as before: one namespace leaves no room for doubt, several or none
+            // leaves this empty rather than guessing.
+            for (const auto repository = Database::RepositoryFactory::instance().eamRepository();
+                 const auto &grant: repository->findGrantsByPrincipals({user->ern})) {
                 if (grant.accountId != application.accountId) continue;
-                if (grant.namespaces.size() == 1) return grant.namespaces.front();
-                break;
+                if (grant.namespaces.size() == 1 && grant.namespaces.front() != "*") return grant.namespaces.front();
             }
             return {};
         }
