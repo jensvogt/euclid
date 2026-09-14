@@ -144,6 +144,7 @@
         "queue-count-period": 60,
         "bucket-count-period": 60,
         "topic-count-period": 60,
+        "module-instance-period": 15,
         "database-size-period": 300,
         "retention": {
           "raw": 7,
@@ -280,7 +281,8 @@
       }
     },
     "scaling": {
-      "scale-down-idle-seconds": 60
+      "scale-down-idle-seconds": 60,
+      "load-freshness-seconds": 45
     },
     "monitoring": {
       "cpu-usage-period": 60

@@ -72,6 +72,31 @@ namespace Euclid::Database {
         virtual void reportBackgroundTasks(const std::string &moduleName, const std::string &instanceId, long tasks) = 0;
 
         /**
+         * @brief Records how loaded an instance says it is.
+         *
+         * @par
+         * The autoscaler's input for an application, and the reason it is here rather than in the
+         * monitoring store: EMO accumulates samples and writes a row only when its averaging
+         * bucket closes, so a figure reported every fifteen seconds reached the manager up to
+         * `euclid.modules.emo.average-period` seconds later - five minutes, in the shipped
+         * configuration - and scaling was late by that much in both directions. Utilisation is a
+         * control signal; the monitoring store is built to aggregate for cheap retention, and
+         * making it serve both would cost twenty times the rows for every metric euclid keeps.
+         *
+         * @par
+         * A targeted update of three fields, like reportBackgroundTasks() beside it and for the
+         * same reason: the manager owns the rest of the record and writes it whole. A record that
+         * does not exist yet is not created - the manager makes it when it spawns the process.
+         *
+         * @param moduleName the application's pool name.
+         * @param instanceId the pool slot, as EUCLID_INSTANCE_ID gave it to the process.
+         * @param utilisation how busy, 0-100.
+         * @param backlog how much work is waiting that this instance has not started.
+         */
+        virtual void reportInstanceLoad(const std::string &moduleName, const std::string &instanceId,
+                                        double utilisation, long backlog) = 0;
+
+        /**
          * @brief Permanently removes one instance from a module's live instance pool.
          *
          * Only for instances that are truly gone (autoscaler scale-down, or given up on after

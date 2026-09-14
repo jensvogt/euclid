@@ -55,6 +55,11 @@ namespace Euclid::EAP {
             return fallback;
         }
 
+        double doubleField(const boost::json::object &obj, const std::string &key, const double fallback = 0.0) {
+            if (const auto *v = obj.if_contains(key); v && v->is_number()) return v->to_number<double>();
+            return fallback;
+        }
+
         // What an artifact lookup found: the object once ESM has finished with it, or the fact
         // that it is still being processed - two different answers that used to be indistinguish-
         // able, and the second one told a lie.
@@ -882,6 +887,87 @@ namespace Euclid::EAP {
     // Nothing is restarted and nothing is interrupted - which is the point, since the reason to
     // reach for this is usually that something is going wrong right now and the log either says
     // too little about it or so much that nothing else can be read.
+    // An instance saying how loaded it is, which is what the autoscaler grows and shrinks a pool on.
+    //
+    // @par Why this is not a metric
+    // It was one: the application pushed `application-utilisation` to EMO and the manager read it
+    // back. EMO accumulates samples in memory and writes a row only when its averaging bucket
+    // closes - every `euclid.modules.emo.average-period` seconds, five minutes as shipped - so a
+    // figure reported every fifteen seconds reached the autoscaler up to five minutes later, and
+    // scaling was late by that much in both directions.
+    //
+    // @par
+    // Utilisation is a control signal, not a measurement to graph. The monitoring store is built to
+    // aggregate for cheap retention, and shortening its bucket to serve a control loop would cost
+    // twenty times the rows for every metric euclid keeps in order to fix one. So this writes to
+    // the instance record the manager already reads on every reconcile, and the application goes on
+    // pushing the same numbers to EMO for the history and the dashboards.
+    //
+    // @par Who may report
+    // Only for itself. An application that could report another's load could make somebody else's
+    // pool grow to maxInstances or shrink to its floor. The pool is taken from the caller's own
+    // identity rather than from the body: an application deployed without a named user runs as
+    // "app-<runtimeName>", which says which pool it is; one deployed with a user of its own has to
+    // name the application, and that application has to be the one that runs as the caller.
+    static response<string_body> handleReportLoad(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "report-load");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EapServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+
+        const auto &obj = jv.as_object();
+        const auto instanceId = stringField(obj, "instanceId");
+        if (instanceId.empty()) {
+            // The manager hands every process EUCLID_INSTANCE_ID; a report that cannot say which
+            // slot it came from cannot be attributed to one, and attributing it to the wrong one
+            // would be worse than dropping it.
+            return EapServer::ErrorResponse(req, status::bad_request, "instanceId is required - see EUCLID_INSTANCE_ID");
+        }
+
+        const auto repository = Database::RepositoryFactory::instance().eapRepository();
+
+        std::string runtimeName;
+        if (const auto &caller = auth.user->userId; caller.starts_with("app-")) {
+            runtimeName = caller.substr(4);
+        } else {
+            const auto applicationId = stringField(obj, "applicationId");
+            if (applicationId.empty()) {
+                return EapServer::ErrorResponse(req, status::bad_request,
+                                                "applicationId is required when the caller is not an application's own principal");
+            }
+            const auto ns = std::string(req["x-euclid-namespace"]);
+            const auto application = repository->findApplicationByApplicationId(auth.user->accountId, ns, applicationId);
+            if (!application.has_value()) {
+                return EapServer::ErrorResponse(req, status::not_found, "Application not found, applicationId: " + applicationId);
+            }
+            if (application->userId != caller) {
+                return EapServer::ErrorResponse(req, status::forbidden, "Not the identity application '" + applicationId + "' runs as");
+            }
+            runtimeName = Database::Entity::EAP::RuntimeName(*application);
+        }
+
+        // That the pool exists is the manager's business, not this one's: an instance reporting
+        // while its record is being written is a race the update simply misses, and the next report
+        // fifteen seconds later lands.
+        const auto utilisation = std::clamp(doubleField(obj, "utilisation"), 0.0, 100.0);
+        const auto backlog = std::max<long>(0, longField(obj, "backlog"));
+
+        Database::RepositoryFactory::instance().emmRepository()->reportInstanceLoad(runtimeName, instanceId, utilisation, backlog);
+        log_debug << "EAP load reported, runtimeName: " << runtimeName << ", instanceId: " << instanceId
+                  << ", utilisation: " << utilisation << ", backlog: " << backlog;
+
+        boost::json::object answer;
+        answer["instanceId"] = instanceId;
+        answer["utilisation"] = utilisation;
+        answer["backlog"] = backlog;
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(answer));
+    }
+
     static response<string_body> handleSetLogLevel(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-log-level");
@@ -954,6 +1040,7 @@ namespace Euclid::EAP {
         if (action == "start-application") return handleSetState(req, ApplicationState::RUNNING);
         if (action == "stop-application") return handleSetState(req, ApplicationState::STOPPED);
         if (action == "set-log-level") return handleSetLogLevel(req);
+        if (action == "report-load") return handleReportLoad(req);
         if (action == "get-metrics") return EapServer::MetricsResponse(req);
 
         return EapServer::ErrorResponse(req, status::not_found, "Action not implemented: " + action);

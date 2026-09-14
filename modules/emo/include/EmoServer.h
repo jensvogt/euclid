@@ -99,6 +99,32 @@ namespace Euclid::Monitoring {
         static void collectCpuUsage();
 
         /**
+         * @brief Samples what each module's pool is doing: how many instances it runs, how loaded
+         * they say they are, and how much work is waiting.
+         *
+         * @par
+         * Read from the module records the manager keeps, so it covers every module and every
+         * application rather than only the ones that push metrics of their own. Recorded per
+         * module rather than per instance, deliberately: instances come and go as a pool scales, so
+         * a series per instance is a series that ends every time the thing it measures is replaced,
+         * and a graph of it is unreadable. Which instance was busy is a question for
+         * `emm list-modules`, which answers about now; this answers about the last fortnight.
+         *
+         * @par Averages and sums
+         * "module-utilisation" is the mean across the pool's reporting instances and
+         * "module-backlog" is the total across them, because that is what each one means - half a
+         * pool at 100% is a pool at 50%, while half a pool holding 500 messages each is 1000
+         * messages waiting. Both are computed here and recorded as one sample per module: EMO
+         * averages the samples sharing a label, so recording one per instance would silently turn
+         * the backlog into a mean.
+         *
+         * @par
+         * An application that reports nothing contributes an instance count and no load, rather
+         * than a load of zero - see Entity::ModuleInstance::utilisation.
+         */
+        static void collectModuleInstances();
+
+        /**
          * @brief Samples the machine's memory usage, labelled by host.
          *
          * @par
@@ -136,6 +162,8 @@ namespace Euclid::Monitoring {
         std::string _bucketCountsTaskId;
 
         std::string _topicCountsTaskId;
+
+        std::string _moduleInstancesTaskId;
     };
 
 }// namespace Euclid::Monitoring

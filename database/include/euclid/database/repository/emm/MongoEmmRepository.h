@@ -51,6 +51,9 @@ namespace Euclid::Database {
 
         void reportBackgroundTasks(const std::string &moduleName, const std::string &instanceId, long tasks) override;
 
+        void reportInstanceLoad(const std::string &moduleName, const std::string &instanceId,
+                                double utilisation, long backlog) override;
+
         /**
          * @brief Permanently removes one instance from a module's live instance pool. See IEmmRepository.
          */
