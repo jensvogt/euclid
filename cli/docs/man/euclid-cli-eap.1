@@ -80,6 +80,43 @@ being unreachable at the moment a change is requested does not lose it.
 Changing a definition restarts the application, since the artifact, the
 command, the environment and the credentials a process was handed are
 all decided when it starts.
+.SH SCALING
+An application is scaled on what it says about itself. It receives no
+gateway request, so there is no traffic for euclid to observe: the
+instance reports how busy it is and how much work is waiting, and the
+manager grows the pool while every instance is busy or the backlog is
+deep, and shrinks it once the pool has been quiet for
+.I euclid.scaling.scale\-down\-idle\-seconds
+\- sixty by default.
+.PP
+That report goes to
+.B eap report-load
+and lands on the instance's own record, which the manager reads on every
+reconcile. So the time between a load change and the pool changing is
+the application's reporting interval plus one reconcile \- about twenty
+seconds with euclid-spring, which reports every fifteen.
+.PP
+It used to go through the monitoring module as a metric, and that made
+scaling late by up to
+.I euclid.modules.emo.average\-period
+\- five minutes as shipped. EMO accumulates samples in memory and writes
+a row only when its averaging bucket closes, which is the right thing for
+a figure you want to graph and far too slow for one you want to act on.
+Both still happen: EMO keeps the history, and the autoscaler reads the
+instance record.
+.PP
+An instance that has not reported within
+.I euclid.scaling.load\-freshness\-seconds
+is treated as one nothing is known about rather than an idle one, so a
+crashed reporter is not the first instance stopped. A freshly started
+instance is given the same window to say something before it counts
+either way \- without that, every new instance reads as busy and the
+pool grows again on the next tick.
+.PP
+An application that reports nothing at all is never scaled on load. It
+still honours its instance floor and ceiling, and
+.BR euclid-cli-emm-set-instances (1)
+still moves them.
 .SH IDENTITY
 Every application runs as an Euclid identity, and signs the calls it
 makes back into Euclid with that identity's access key - so what an
@@ -274,6 +311,13 @@ definition. See
 .B set-log-level
 Turns an application's own logging up, down or off, while it runs. See
 .BR euclid-cli-eap-set-log-level (1).
+.TP
+.B report-load
+How busy an instance is and how much work is waiting, sent by the
+instance itself and read by the autoscaler \- see
+.BR SCALING
+above. There is no CLI command for it: it is a call an application makes
+about itself, several times a minute, and only for itself.
 .SH GLOBAL OPTIONS
 These options are given to
 .B euclid-cli

@@ -289,7 +289,8 @@
       }
     },
     "scaling": {
-      "scale-down-idle-seconds": 60
+      "scale-down-idle-seconds": 60,
+      "load-freshness-seconds": 45
     },
     "monitoring": {
       "cpu-usage-period": 60

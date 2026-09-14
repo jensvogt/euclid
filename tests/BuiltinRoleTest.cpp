@@ -262,6 +262,24 @@ BOOST_AUTO_TEST_CASE(ApplicationOwnsTheDeliveryQueueItConsumesThrough) {
     BOOST_TEST(grants(BuiltinRoles::Application, "esm:list-subscriptions"));
 }
 
+// An application serves no gateway request, so acquireInstance() never marks it busy and the only
+// thing the autoscaler can learn about it is what it says about itself. Saying it is a call like any
+// other, and a call the role does not hold is refused - so leaving this out does not degrade
+// scaling, it removes it: the report is answered 403, the manager sees nothing, and the pool stays
+// at one instance however much work is waiting. Which is exactly what happened.
+BOOST_AUTO_TEST_CASE(ApplicationMayReportItsOwnLoad) {
+
+    BOOST_TEST(grants(BuiltinRoles::Application, "eap:report-load"));
+
+    // And nothing else of EAP. An application deploys nothing, starts nothing and stops nothing -
+    // least of all itself.
+    BOOST_TEST(!grants(BuiltinRoles::Application, "eap:create-application"));
+    BOOST_TEST(!grants(BuiltinRoles::Application, "eap:delete-application"));
+    BOOST_TEST(!grants(BuiltinRoles::Application, "eap:stop-application"));
+    BOOST_TEST(!grants(BuiltinRoles::Application, "eap:redeploy-application"));
+    BOOST_TEST(!grants(BuiltinRoles::Application, "eap:set-log-level"));
+}
+
 // Owning a queue is not owning the thing it is fed from. An application may take down its own
 // delivery queue; it may not take down the topic other applications are also listening to, nor the
 // bucket whose events it subscribed to.

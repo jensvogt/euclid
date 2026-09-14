@@ -90,16 +90,64 @@ namespace Euclid::Database::Entity {
          * not served any faster by a second instance.
          *
          * @par Deliberately absent from toDocument()
-         * Read here and written nowhere in this file, which is not an oversight. The manager
-         * persists an instance with `$set: {"instances.$": <the whole subdocument>}`, so anything
-         * it does not know about is erased every time it touches the record - and it cannot know
-         * this, because the module is the only thing that can count its own threads. The module
-         * writes this one field on its own with a targeted update
-         * (Database::ReportBackgroundTasks()); everything else in this entity belongs to the
-         * manager. Adding it to toDocument() would hand ownership back and make the value flicker
-         * to zero on every state change.
+         * (The same is true of the three load fields below, for the same reason.)
+         *
+         * @par
+         * Read here and written nowhere in this file. The module writes it on its own with a
+         * targeted update - IEmmRepository::reportBackgroundTasks() - because the module is the
+         * only thing that can count its own threads, and everything else in this entity belongs to
+         * the manager.
+         *
+         * @par
+         * Being absent from toDocument() does not by itself protect it. The manager used to persist
+         * an instance with `$set: {"instances.$": <the whole subdocument>}`, which replaces the
+         * array element and so destroyed every field the replacement did not carry - this one
+         * included, on every state change. MongoEmmRepository::upsertInstance() now sets the fields
+         * the manager owns one at a time, which is what keeps the two writers out of each other's
+         * way. Adding this to toDocument() would hand ownership back.
          */
         long backgroundTasks{};
+
+        /**
+         * @brief How loaded this instance says it is, 0-100, or -1 when it has never said.
+         *
+         * @par Why this is not read from EMO
+         * It was. An application pushed `application-utilisation` as a metric and the manager read
+         * it back out of the monitoring store - which accumulates samples in memory and writes a
+         * row only when its averaging bucket closes, every `euclid.modules.emo.average-period`
+         * seconds. So a figure reported every fifteen seconds reached the autoscaler up to five
+         * minutes later, and scaling was late by that much in both directions.
+         *
+         * @par
+         * Utilisation is a control signal, not a measurement to graph. The monitoring store is
+         * built to aggregate for cheap retention, and shortening its bucket to serve a control
+         * loop would cost twenty times the rows for every metric euclid keeps, to fix one. So the
+         * signal comes here instead, on the record the manager already reads every reconcile, and
+         * EMO goes on doing what it is for - the application reports to both.
+         */
+        double utilisation = -1.0;
+
+        /**
+         * @brief How much work is waiting that this instance has not started, or -1 when unknown.
+         *
+         * @par
+         * The other half of the question. Utilisation alone cannot tell "working through a burst,
+         * nearly done" from "cannot keep up" - both read as busy - and only the instance knows how
+         * deep its own queues are, since a bucket listener's delivery queue is named after the run
+         * that created it.
+         */
+        long backlog = -1;
+
+        /**
+         * @brief When this instance last reported, or the epoch if it never has.
+         *
+         * @par
+         * Without it a dead reporter's last figure would stand for ever, and the autoscaler would
+         * hold a pool at whatever load the application had when it stopped talking. The reader
+         * treats anything older than a few reporting intervals as "not reporting" rather than as
+         * "idle" - see ServiceController::reconcileApplicationLoad().
+         */
+        std::chrono::system_clock::time_point loadReportedAt{};
 
         /**
          * @brief Time this instance entry was first persisted.

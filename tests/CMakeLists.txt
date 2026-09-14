@@ -235,6 +235,24 @@ target_link_libraries(${ENS_RESEND_BINARY} PRIVATE eucliddb Boost::unit_test_fra
 
 add_test(NAME ${ENS_RESEND_BINARY} COMMAND ${ENS_RESEND_BINARY})
 
+set(APPLICATION_LOAD_BINARY euclid-application-load-tests)
+
+add_executable(${APPLICATION_LOAD_BINARY} ApplicationLoadTest.cpp)
+set_target_properties(${APPLICATION_LOAD_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${APPLICATION_LOAD_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${APPLICATION_LOAD_BINARY} COMMAND ${APPLICATION_LOAD_BINARY})
+
+set(MODULE_DOCUMENT_BINARY euclid-module-document-tests)
+
+add_executable(${MODULE_DOCUMENT_BINARY} ModuleDocumentTest.cpp)
+set_target_properties(${MODULE_DOCUMENT_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${MODULE_DOCUMENT_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${MODULE_DOCUMENT_BINARY} COMMAND ${MODULE_DOCUMENT_BINARY})
+
 set(CERTIFICATE_BINARY euclid-certificate-utils-tests)
 
 add_executable(${CERTIFICATE_BINARY} CertificateUtilsTest.cpp)
