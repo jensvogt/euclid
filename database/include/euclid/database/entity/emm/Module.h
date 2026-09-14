@@ -362,4 +362,65 @@ namespace Euclid::Database::Entity {
         static Module fromDocument(const std::optional<bsoncxx::document::view> &doc);
     };
 
+    /**
+     * @brief What a module's pool is doing, summed up from its instances.
+     */
+    struct PoolLoad {
+
+        /**
+         * @brief Instances in state RUNNING.
+         */
+        long running{};
+
+        /**
+         * @brief How many of those have said how loaded they are.
+         */
+        long reporting{};
+
+        /**
+         * @brief Mean utilisation across the reporting instances, 0 when none has reported.
+         */
+        double utilisation{};
+
+        /**
+         * @brief Total work waiting across the reporting instances.
+         */
+        long backlog{};
+    };
+
+    /**
+     * @brief Summarises a pool for reporting.
+     *
+     * @par
+     * The mean for utilisation and the total for backlog, because that is what each one means: half
+     * a pool at 100% is a pool at 50%, while half a pool holding five hundred messages each is a
+     * thousand messages waiting. Averaging the second, or adding the first, answers a question
+     * nobody asked.
+     *
+     * @par
+     * An instance that has never reported is counted in `running` and left out of both figures.
+     * Treating it as zero would let a module that does not report at all read as an idle one.
+     *
+     * @param module the module record.
+     * @return the summary; `reporting == 0` means only `running` is meaningful.
+     */
+    inline PoolLoad SummarisePool(const Module &module) {
+
+        PoolLoad load;
+        double utilisationSum = 0.0;
+
+        for (const auto &instance: module.instances) {
+            if (instance.state != ModuleState::RUNNING) continue;
+            ++load.running;
+
+            if (instance.utilisation < 0) continue;
+            ++load.reporting;
+            utilisationSum += instance.utilisation;
+            if (instance.backlog > 0) load.backlog += instance.backlog;
+        }
+
+        if (load.reporting > 0) load.utilisation = utilisationSum / static_cast<double>(load.reporting);
+        return load;
+    }
+
 }// namespace Euclid::Database::Entity::Module

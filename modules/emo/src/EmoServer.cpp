@@ -56,6 +56,11 @@ namespace Euclid::Monitoring {
 
         constexpr auto kTopicCountPeriod = std::chrono::seconds(15);
 
+        // How often each pool's instance count and load is sampled. Shorter than EMO's averaging
+        // bucket on purpose: a ramp that happens inside one bucket should leave more than one
+        // sample in it, or the max the rollups keep is the only trace of it.
+        constexpr auto kModuleInstancePeriod = std::chrono::seconds(15);
+
         // Rollups run several times per target bucket rather than once, so the bucket currently in
         // progress is always readable, just incomplete. Cheap because each pass only reads the tier
         // above over a short window, and safe because rollups replace buckets instead of appending.
@@ -328,6 +333,14 @@ namespace Euclid::Monitoring {
                                                         [] { Database::RepositoryFactory::instance().ensRepository()->recountTopics(); },
                                                         std::chrono::duration_cast<std::chrono::milliseconds>(topicCountPeriod));
 
+        // What each pool is doing, sampled from the module records the manager keeps - so a graph
+        // can answer "when did parser-dev ramp, and what was it reacting to" rather than only
+        // `emm list-modules` answering "what is it doing now".
+        const auto moduleInstancePeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.modules.emo.module-instance-period", kModuleInstancePeriod.count()));
+        _moduleInstancesTaskId = scheduler.SchedulePeriodic("monitoring-module-instances",
+                                                            [] { collectModuleInstances(); },
+                                                            std::chrono::duration_cast<std::chrono::milliseconds>(moduleInstancePeriod));
+
 #ifdef __linux__
         // collectCpuUsage() reads /proc/stat, which only exists on Linux.
         const auto cpuUsagePeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.modules.emo.cpu-usage-period", kCpuUsagePeriod.count()));
@@ -354,8 +367,12 @@ namespace Euclid::Monitoring {
         scheduler.Cancel(_queueCountsTaskId);
         scheduler.Cancel(_bucketCountsTaskId);
         scheduler.Cancel(_topicCountsTaskId);
+        scheduler.Cancel(_moduleInstancesTaskId);
         scheduler.Cancel(_databaseSizeTaskId);
         scheduler.Cancel(_cpuUsageTaskId);
+        // Scheduled since it was added and never cancelled until now: a task that outlives the
+        // server it calls into fires into freed memory on the next tick.
+        scheduler.Cancel(_memoryUsageTaskId);
     }
 
     void EmoServer::flush() {
@@ -446,6 +463,27 @@ namespace Euclid::Monitoring {
         // can aggregate it at all.
         const auto usage = 100.0 * static_cast<double>(totalDelta - idleDelta) / static_cast<double>(totalDelta);
         recordSample("system-cpu-usage", "host", Core::SystemUtils::GetHostName(), usage, MetricType::GAUGE);
+    }
+
+    void EmoServer::collectModuleInstances() {
+
+        for (const auto &module: Database::RepositoryFactory::instance().emmRepository()->findAll()) {
+
+            // The mean-and-total rule lives with the entity so it can be tested - see
+            // Entity::SummarisePool().
+            const auto load = Database::Entity::SummarisePool(module);
+
+            // Recorded even at zero, and this is the one that has to be: a pool that has scaled to
+            // nothing is exactly what somebody reading the graph is looking for, and a series that
+            // simply stops saying anything is indistinguishable from a collector that died.
+            recordSample("module-instances", "module", module.name, static_cast<double>(load.running), MetricType::GAUGE);
+
+            // Nothing reported, so there is no load to record - as distinct from a load of zero.
+            if (load.reporting == 0) continue;
+
+            recordSample("module-utilisation", "module", module.name, load.utilisation, MetricType::GAUGE);
+            recordSample("module-backlog", "module", module.name, static_cast<double>(load.backlog), MetricType::GAUGE);
+        }
     }
 
     void EmoServer::collectMemoryUsage() {

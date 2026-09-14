@@ -8,6 +8,7 @@
 // C++ includes
 #include <chrono>
 #include <string>
+#include <utility>
 
 // Euclid includes
 #include <euclid/database/Database.h>
@@ -174,6 +175,105 @@ BOOST_AUTO_TEST_CASE(ReportingForAnInstanceThatIsNotThereDoesNothing) {
         if (found.name != kModule) continue;
         BOOST_TEST(found.instances.size() == 1U);
     }
+}
+
+// ── What EMO records about a pool ───────────────────────────────────────────
+//
+// The mean for utilisation and the total for backlog. Getting these the wrong way round is the
+// mistake euclid-spring's own comment warns about - it labels its metrics per instance precisely
+// because EMO averages samples sharing a label, which would turn a backlog into a mean.
+
+BOOST_AUTO_TEST_CASE(UtilisationIsTheMeanAndBacklogIsTheTotal) {
+
+    Module module = moduleOf();
+    for (const auto &[utilisation, backlog]: {std::pair{20.0, 100L}, std::pair{40.0, 200L}, std::pair{60.0, 300L}}) {
+        auto instance = instanceOf();
+        instance.instanceId = "inst-" + std::to_string(module.instances.size());
+        instance.utilisation = utilisation;
+        instance.backlog = backlog;
+        module.instances.push_back(instance);
+    }
+
+    const auto load = Euclid::Database::Entity::SummarisePool(module);
+
+    BOOST_TEST(load.running == 3L);
+    BOOST_TEST(load.reporting == 3L);
+
+    // Half a pool at 100% is a pool at 50%...
+    BOOST_TEST(load.utilisation == 40.0);
+    // ...but half a pool holding five hundred messages each is a thousand messages waiting.
+    BOOST_TEST(load.backlog == 600L);
+}
+
+BOOST_AUTO_TEST_CASE(AnInstanceThatHasNeverReportedIsCountedButNotAveragedIn) {
+
+    // Counting it as zero would let one silent instance halve the pool's reported load, and a
+    // module that does not report at all would read as permanently idle.
+    Module module = moduleOf();
+
+    auto reporting = instanceOf();
+    reporting.instanceId = "inst-reporting";
+    reporting.utilisation = 80.0;
+    reporting.backlog = 40;
+    module.instances.push_back(reporting);
+
+    auto silent = instanceOf();
+    silent.instanceId = "inst-silent";
+    module.instances.push_back(silent);
+
+    const auto load = Euclid::Database::Entity::SummarisePool(module);
+
+    BOOST_TEST(load.running == 2L);
+    BOOST_TEST(load.reporting == 1L);
+    BOOST_TEST(load.utilisation == 80.0);
+    BOOST_TEST(load.backlog == 40L);
+}
+
+BOOST_AUTO_TEST_CASE(OnlyRunningInstancesCount) {
+
+    Module module = moduleOf();
+
+    auto running = instanceOf();
+    running.instanceId = "inst-running";
+    running.utilisation = 50.0;
+    module.instances.push_back(running);
+
+    auto stopped = instanceOf();
+    stopped.instanceId = "inst-stopped";
+    stopped.state = ModuleState::STOPPED;
+    stopped.utilisation = 90.0;
+    module.instances.push_back(stopped);
+
+    const auto load = Euclid::Database::Entity::SummarisePool(module);
+
+    BOOST_TEST(load.running == 1L);
+    BOOST_TEST(load.utilisation == 50.0);
+}
+
+BOOST_AUTO_TEST_CASE(APoolThatReportsNothingStillHasACount) {
+
+    // "module-instances" is recorded whatever happens - a pool that has scaled to nothing is what
+    // somebody reading the graph is looking for, and a series that just stops saying anything
+    // cannot be told apart from a collector that died.
+    Module module = moduleOf();
+    auto instance = instanceOf();
+    instance.instanceId = "inst-silent";
+    module.instances.push_back(instance);
+
+    const auto load = Euclid::Database::Entity::SummarisePool(module);
+
+    BOOST_TEST(load.running == 1L);
+    BOOST_TEST(load.reporting == 0L);
+    BOOST_TEST(load.utilisation == 0.0);
+}
+
+BOOST_AUTO_TEST_CASE(AnEmptyPoolSummarisesToNothing) {
+
+    const auto load = Euclid::Database::Entity::SummarisePool(moduleOf());
+
+    BOOST_TEST(load.running == 0L);
+    BOOST_TEST(load.reporting == 0L);
+    BOOST_TEST(load.backlog == 0L);
 }
 
 BOOST_AUTO_TEST_CASE(SuccessiveReportsReplaceRatherThanAccumulate) {
