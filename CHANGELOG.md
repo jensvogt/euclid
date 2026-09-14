@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.15](https://github.com/jensvogt/euclid/compare/1.1.14...v1.1.15) (2026-09-14)
+
+
+### Bug Fixes
+
+* autoscale performance ([56f29a3](https://github.com/jensvogt/euclid/commit/56f29a30f0de7f0e3b4140ac678241a838c6a562))
+
 ## [1.1.14](https://github.com/jensvogt/euclid/compare/1.1.13...v1.1.14) (2026-09-14)
 
 
