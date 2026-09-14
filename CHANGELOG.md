@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.13](https://github.com/jensvogt/euclid/compare/1.1.12...v1.1.13) (2026-09-14)
+
+
+### Bug Fixes
+
+* cleanup of code. ([472034d](https://github.com/jensvogt/euclid/commit/472034d5f649ab0e276dd87686304118ab14fd64))
+
 ## [1.1.12](https://github.com/jensvogt/euclid/compare/1.1.11...v1.1.12) (2026-09-13)
 
 
