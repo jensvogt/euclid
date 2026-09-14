@@ -68,7 +68,7 @@ namespace Euclid::FTP {
      * acceptor on the port its ETS transfer server definition names, and serves the actual
      * FTP control protocol there, one thread per client connection (see FtpSession).
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class FtpServer final : public Core::HttpActionServer {
 

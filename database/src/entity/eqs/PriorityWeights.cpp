@@ -22,7 +22,14 @@ namespace Euclid::Database::Entity::EQS {
         auto &cfg = Core::Configuration::instance();
         PriorityWeights weights;
         weights.high = cfg.getOr<double>("euclid.modules.eqs.priority-weights.high", weights.high);
-        weights.middle = cfg.getOr<double>("euclid.modules.eqs.priority-weights.middle", weights.middle);
+
+        // The middle tier is MEDIUM now and this key is ".medium". An installation that set the old
+        // ".middle" keeps the weight it chose: a renamed key that silently reverts to the default
+        // is a tuning decision undone by an upgrade, and nothing would say so - the queue would
+        // simply start apportioning slots differently.
+        const auto legacyMedium = cfg.getOr<double>("euclid.modules.eqs.priority-weights.medium", weights.medium);
+        weights.medium = cfg.getOr<double>("euclid.modules.eqs.priority-weights.medium", legacyMedium);
+
         weights.low = cfg.getOr<double>("euclid.modules.eqs.priority-weights.low", weights.low);
         return weights;
     }
@@ -30,12 +37,12 @@ namespace Euclid::Database::Entity::EQS {
     std::map<MessagePriority, long> ComputeReceiveCounts(const long maxCount, const std::map<MessagePriority, long> &available, const PriorityWeights &weights) {
 
         // Highest priority first, so leftover slots spill downward before upward.
-        constexpr std::array<MessagePriority, 3> order{MessagePriority::HIGH, MessagePriority::MIDDLE, MessagePriority::LOW};
+        constexpr std::array<MessagePriority, 3> order{MessagePriority::HIGH, MessagePriority::MEDIUM, MessagePriority::LOW};
 
-        std::map<MessagePriority, long> take{{MessagePriority::HIGH, 0}, {MessagePriority::MIDDLE, 0}, {MessagePriority::LOW, 0}};
+        std::map<MessagePriority, long> take{{MessagePriority::HIGH, 0}, {MessagePriority::MEDIUM, 0}, {MessagePriority::LOW, 0}};
         if (maxCount <= 0) return take;
 
-        const std::array<double, 3> w{weights.high, weights.middle, weights.low};
+        const std::array<double, 3> w{weights.high, weights.medium, weights.low};
         const double totalWeight = w[0] + w[1] + w[2];
         if (totalWeight <= 0) return take;
 

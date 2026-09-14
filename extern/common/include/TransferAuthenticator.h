@@ -44,7 +44,7 @@ namespace Euclid::Transfer {
     /**
      * @brief Authenticates transfer server clients against EAM.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class TransferAuthenticator {
 

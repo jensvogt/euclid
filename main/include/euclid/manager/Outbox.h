@@ -42,7 +42,7 @@ namespace Euclid::main {
      * executor, never concurrently, which is also what lets Front() hand out a reference that
      * stays valid for the duration of an async_write.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class Outbox {
 

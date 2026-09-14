@@ -44,7 +44,7 @@ namespace Euclid::EAG {
      * moved to different ports without anything that calls it noticing, and its name never appears
      * in a URL.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class EagServer final : public Core::HttpActionServer {
 

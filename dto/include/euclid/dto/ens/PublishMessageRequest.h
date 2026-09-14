@@ -40,11 +40,11 @@ namespace Euclid::Dto::ENS {
          * A topic is not consumed from, so this says nothing about the topic itself. It is carried
          * so that the messages the SQS-type subscriptions turn this one into are worth what the
          * message that caused them was worth - without it, every hop through a topic silently
-         * resets a delivery to MIDDLE.
+         * resets a delivery to MEDIUM.
          *
-         * Defaults to MIDDLE, which is also how a request that omits it is read.
+         * Defaults to MEDIUM, which is also how a request that omits it is read.
          */
-        std::string priority = "MIDDLE";
+        std::string priority = "MEDIUM";
 
         /**
          * @brief Serializes this request to a JSON string
@@ -69,7 +69,7 @@ namespace Euclid::Dto::ENS {
             r.body = Core::GetStringValue(v, "body");
             r.attributes = Core::GetMapFromObject<std::string, COM::Variant>(v, "attributes");
             // Left at the default rather than overwritten with "" for a request that predates this
-            // field, so an older client keeps publishing at MIDDLE instead of at nothing.
+            // field, so an older client keeps publishing at MEDIUM instead of at nothing.
             if (const auto priority = Core::GetStringValue(v, "priority"); !priority.empty()) {
                 r.priority = priority;
             }

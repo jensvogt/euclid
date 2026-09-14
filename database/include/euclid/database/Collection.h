@@ -121,7 +121,7 @@ namespace Euclid::Database {
      * so the connection cannot be returned while a cursor is still reading - or by an in-memory
      * document store. Everything that differs between the two lives here.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class Collection {
 

@@ -106,7 +106,7 @@ namespace Euclid::Core {
      * for here: a real certificate is imported, and one that was never supplied is generated -
      * self-signed, valid, and honest about the fact that nobody has vouched for it.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class CertificateUtils {
 

@@ -53,7 +53,7 @@ namespace Euclid::ESS {
      * there is no code path here that writes a value in the clear: the key management module keeps
      * the key, this one keeps the ciphertext, and a copy of either alone is worth nothing.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class EssServer final : public Core::HttpActionServer {
 

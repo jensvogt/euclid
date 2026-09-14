@@ -43,7 +43,7 @@ namespace Euclid::Core {
      * installation administrator is by definition not - and because EMM has to be reachable by
      * something, and no emm permission exists to grant.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class BuiltinRoles {
 

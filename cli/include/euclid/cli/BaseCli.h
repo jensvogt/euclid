@@ -15,7 +15,7 @@ namespace Euclid::CLI {
     /**
      * @brief Convert a value/type to a Variant
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct BaseCli {
 

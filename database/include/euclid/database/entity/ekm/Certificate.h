@@ -40,7 +40,7 @@ namespace Euclid::Database::Entity::EKM {
      * The private key is stored with the certificate and never leaves the server - it is not part
      * of any DTO, the same way Key::keyMaterial is not.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct Certificate final : BaseEntity {
 

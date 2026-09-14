@@ -25,7 +25,7 @@ namespace Euclid::CLI {
     /**
      * @brief Processes commands for the "ets" (Euclid transfer server) module (e.g. "ets list-servers").
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class EtsCli final : BaseCli {
 

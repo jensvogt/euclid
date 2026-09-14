@@ -26,7 +26,7 @@ namespace Euclid::Database::Entity::EAP {
      * command or PATH resolves to. BINARY covers anything already executable, which is where
      * C++ and Rust applications land.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     enum class Runtime {
         JAVA,

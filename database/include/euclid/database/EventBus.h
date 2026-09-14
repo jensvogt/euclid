@@ -133,7 +133,7 @@ namespace Euclid::Database {
      * EventBus::instance().Publish("esm.bucket.deleted", boost::json::value{{"ern", ern}}, "esm");
      * @endcode
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class EventBus {
 

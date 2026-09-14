@@ -40,7 +40,7 @@ namespace Euclid::Database::Entity::ESM {
      * pages, not half of anything, so resuming is just carrying on, and the bucket document is
      * deleted last so there is still something to resume against.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct PurgeJob final : BaseEntity {
 

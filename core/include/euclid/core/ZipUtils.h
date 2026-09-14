@@ -24,7 +24,7 @@ namespace Euclid::Core {
      * Wraps libarchive's ZIP writer to compress either a single file or an entire directory tree
      * into a single .zip archive.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class ZipUtils {
 

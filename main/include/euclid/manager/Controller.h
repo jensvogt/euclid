@@ -47,7 +47,7 @@ namespace Euclid::main {
      * monitoring, and autoscaling (min/max instances, round-robin dispatch) of the
      * various module process pools within the system.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class ServiceController {
     public:

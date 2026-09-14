@@ -30,7 +30,7 @@ namespace Euclid::Core {
      * assertion is trusted because it is signed by a key euclid was told to expect, and there is
      * no other basis for trusting it.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct SamlConfiguration {
 
@@ -301,7 +301,7 @@ namespace Euclid::Core {
      * login produces. Requests go out over the HTTP-Redirect binding and assertions come back over
      * HTTP-POST, which is what every provider offers and what OneLogin's defaults use.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class SamlProvider {
 

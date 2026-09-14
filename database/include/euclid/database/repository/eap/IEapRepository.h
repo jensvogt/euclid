@@ -28,7 +28,7 @@ namespace Euclid::Database {
      * back - it is handed what it needs through its environment, so it needs no database access
      * of its own and can be written in any language.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class IEapRepository {
 

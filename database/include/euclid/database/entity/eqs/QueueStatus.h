@@ -28,7 +28,7 @@ namespace Euclid::Database::Entity::EQS {
      * values: draining, quarantined, read-only. Two names now, with the string stored rather than
      * an ordinal, is what makes a third one cost nothing later.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     enum class QueueStatus {
         AVAILABLE,

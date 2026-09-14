@@ -354,18 +354,18 @@ namespace Euclid::EQS {
         Database::Entity::EQS::MessagePriority priority = queue->priority;
         if (!request.priority.empty()) {
             // Refused rather than absorbed. A stored value that cannot be read falls back to
-            // MIDDLE, because a message nobody can parse is still a message somebody is waiting
-            // for - but a caller who wrote "low" and got MIDDLE was never told, and every send
+            // MEDIUM, because a message nobody can parse is still a message somebody is waiting
+            // for - but a caller who wrote "low" and got MEDIUM was never told, and every send
             // after it is wrong in the same invisible way.
             const auto requested = Database::Entity::EQS::TryMessagePriorityFromString(request.priority);
             if (!requested.has_value()) {
-                return EqsServer::ErrorResponse(req, status::bad_request, R"(priority must be "LOW", "MIDDLE" or "HIGH", not ")" + request.priority + R"(")");
+                return EqsServer::ErrorResponse(req, status::bad_request, R"(priority must be "LOW", "MEDIUM" or "HIGH", not ")" + request.priority + R"(")");
             }
             priority = *requested;
         }
 
-        // Said separately from the resolved value, because "the caller asked for MIDDLE" and "the
-        // caller asked for nothing and the queue is MIDDLE" are the same answer and quite
+        // Said separately from the resolved value, because "the caller asked for MEDIUM" and "the
+        // caller asked for nothing and the queue is MEDIUM" are the same answer and quite
         // different problems.
         log_debug << "EQS SendMessage priority, requested: " << (request.priority.empty() ? "(none)" : request.priority)
                   << ", queue default: " << Database::Entity::EQS::MessagePriorityToString(queue->priority)

@@ -23,7 +23,7 @@ namespace Euclid::Database::Entity::ETS {
      * (euclid-ftp or euclid-sftp) and which of the protocol-specific fields on that
      * definition are meaningful - the passive port range for FTP, the host key for SFTP.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     enum class TransferProtocol {
         FTP,

@@ -43,7 +43,7 @@ namespace Euclid::Core {
      * distribution story euclid does not have; the access key secret both sides already share is
      * exactly an HMAC key.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class HttpSignature {
 

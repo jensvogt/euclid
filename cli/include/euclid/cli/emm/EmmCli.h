@@ -26,7 +26,7 @@ namespace Euclid::CLI {
     /**
      * @brief Processes commands for the "emm" (Euclid module manager) module (e.g. "emm list-modules").
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class EmmCli final : BaseCli {
 

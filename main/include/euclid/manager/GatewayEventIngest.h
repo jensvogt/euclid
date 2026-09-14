@@ -24,7 +24,7 @@ namespace Euclid::main {
      * reachable from another local process over a filesystem-permissioned Unix socket, the same
      * trust boundary every other module-to-module call in this codebase already relies on.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class GatewayEventIngest final : public Core::UnixSocketServer {
     public:

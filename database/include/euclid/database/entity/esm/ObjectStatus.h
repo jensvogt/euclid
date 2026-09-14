@@ -22,7 +22,7 @@ namespace Euclid::Database::Entity::ESM {
      * parts received, complete-upload called) -> COMPLETED (post-processing - assembling the
      * final file, computing its MD5 sum, determining its content type - has finished).
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     enum class ObjectStatus {
         CREATED,

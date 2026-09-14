@@ -32,7 +32,7 @@ namespace Euclid::Database::Emd {
      * and "in memory in one process, shared by all of them" - the repositories, the collections
      * and the semantics above this line are identical either way.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class IDocumentStore {
 

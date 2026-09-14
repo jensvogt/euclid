@@ -54,7 +54,7 @@ namespace Euclid::EKV {
      * (see Database::Entity::EKV::Value), which is the part that a bucket of JSON files does not
      * give you for free.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class EkvServer final : public Core::HttpActionServer {
 
