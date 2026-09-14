@@ -92,9 +92,13 @@ namespace Euclid::Database {
          * @param instanceId the pool slot, as EUCLID_INSTANCE_ID gave it to the process.
          * @param utilisation how busy, 0-100.
          * @param backlog how much work is waiting that this instance has not started.
+         * @param activeHandlers how many pieces of work this instance has started and not finished,
+         *        written to ModuleInstance::backgroundTasks - see there for why an application's
+         *        load report is the second writer of that field, and the only one for a pool the
+         *        manager deploys.
          */
         virtual void reportInstanceLoad(const std::string &moduleName, const std::string &instanceId,
-                                        double utilisation, long backlog) = 0;
+                                        double utilisation, long backlog, long activeHandlers) = 0;
 
         /**
          * @brief Permanently removes one instance from a module's live instance pool.

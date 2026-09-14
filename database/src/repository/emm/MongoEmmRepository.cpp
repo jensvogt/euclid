@@ -151,7 +151,8 @@ namespace Euclid::Database {
     }
 
     void MongoEmmRepository::reportInstanceLoad(const std::string &moduleName, const std::string &instanceId,
-                                                const double utilisation, const long backlog) {
+                                                const double utilisation, const long backlog,
+                                                const long activeHandlers) {
 
         try {
             auto collection = Database::instance().collection(COLLECTION);
@@ -167,6 +168,11 @@ namespace Euclid::Database {
                     bsoncxx::builder::basic::kvp("$set", bsoncxx::builder::basic::make_document(
                                                          bsoncxx::builder::basic::kvp("instances.$.utilisation", utilisation),
                                                          bsoncxx::builder::basic::kvp("instances.$.backlog", static_cast<std::int64_t>(backlog)),
+                                                         // Work started and not finished, in the field scale-down already
+                                                         // passes over. An application cannot reach reportBackgroundTasks()
+                                                         // - it has no database - so its load report is how it says the same
+                                                         // thing, and for a deployed pool this is the only writer.
+                                                         bsoncxx::builder::basic::kvp("instances.$.backgroundTasks", static_cast<std::int64_t>(activeHandlers)),
                                                          bsoncxx::builder::basic::kvp("instances.$.loadReportedAt", bsoncxx::types::b_date{
                                                                                                                            std::chrono::duration_cast<std::chrono::milliseconds>(
                                                                                                                                    std::chrono::system_clock::now().time_since_epoch())}))));

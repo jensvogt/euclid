@@ -100,7 +100,7 @@ BOOST_AUTO_TEST_CASE(AReportLandsOnTheInstanceRecord) {
     // Truncated to the millisecond BSON stores, so a timestamp taken at microsecond precision an
     // instant earlier can compare as later.
     const auto before = std::chrono::floor<std::chrono::milliseconds>(std::chrono::system_clock::now());
-    repo.reportInstanceLoad(kModule, kInstance, 72.5, 140);
+    repo.reportInstanceLoad(kModule, kInstance, 72.5, 140, 0);
 
     const auto stored = reread(repo);
     BOOST_TEST(stored.utilisation == 72.5);
@@ -122,13 +122,34 @@ BOOST_AUTO_TEST_CASE(AReportTouchesNothingElseOnTheRecord) {
     auto instance = instanceOf();
     repo.upsertInstance(module, instance);
 
-    repo.reportInstanceLoad(kModule, kInstance, 40.0, 3);
+    repo.reportInstanceLoad(kModule, kInstance, 40.0, 3, 0);
 
     const auto stored = reread(repo);
     BOOST_TEST(stored.pid == 4242);
     BOOST_TEST(stored.httpPort == 18080);
     BOOST_TEST(stored.socketPath == "/var/run/euclid/billing.4242.sock");
     BOOST_TEST((stored.state == ModuleState::RUNNING));
+}
+
+BOOST_AUTO_TEST_CASE(AReportCarriesWhatTheInstanceHasStartedAndNotFinished) {
+
+    // The signal that keeps scale-down off an instance that is mid-flight. An application cannot
+    // call reportBackgroundTasks() - that writes to the database, which an application has no
+    // access to - so its load report is how it says the same thing, and for a deployed pool it is
+    // the only writer of the field.
+    auto repo = freshRepository();
+    auto module = moduleOf();
+    auto instance = instanceOf();
+    repo.upsertInstance(module, instance);
+
+    repo.reportInstanceLoad(kModule, kInstance, 60.0, 12, 3);
+
+    BOOST_TEST(reread(repo).backgroundTasks == 3L);
+
+    // A gauge like the two beside it: what it is doing now, not what it has ever done.
+    repo.reportInstanceLoad(kModule, kInstance, 0.0, 0, 0);
+
+    BOOST_TEST(reread(repo).backgroundTasks == 0L);
 }
 
 BOOST_AUTO_TEST_CASE(TheManagersOwnWriteDoesNotEraseAReport) {
@@ -144,7 +165,7 @@ BOOST_AUTO_TEST_CASE(TheManagersOwnWriteDoesNotEraseAReport) {
     auto module = moduleOf();
     auto instance = instanceOf();
     repo.upsertInstance(module, instance);
-    repo.reportInstanceLoad(kModule, kInstance, 88.0, 900);
+    repo.reportInstanceLoad(kModule, kInstance, 88.0, 900, 0);
 
     // Something the manager does routinely: the instance's pid changes on a restart.
     auto restarted = instanceOf(5555);
@@ -166,7 +187,7 @@ BOOST_AUTO_TEST_CASE(ReportingForAnInstanceThatIsNotThereDoesNothing) {
     auto instance = instanceOf();
     repo.upsertInstance(module, instance);
 
-    repo.reportInstanceLoad(kModule, "instance-does-not-exist", 50.0, 5);
+    repo.reportInstanceLoad(kModule, "instance-does-not-exist", 50.0, 5, 0);
 
     const auto stored = reread(repo);
     BOOST_TEST(stored.utilisation == -1.0);
@@ -285,8 +306,8 @@ BOOST_AUTO_TEST_CASE(SuccessiveReportsReplaceRatherThanAccumulate) {
     auto instance = instanceOf();
     repo.upsertInstance(module, instance);
 
-    repo.reportInstanceLoad(kModule, kInstance, 90.0, 500);
-    repo.reportInstanceLoad(kModule, kInstance, 5.0, 0);
+    repo.reportInstanceLoad(kModule, kInstance, 90.0, 500, 0);
+    repo.reportInstanceLoad(kModule, kInstance, 5.0, 0, 0);
 
     const auto stored = reread(repo);
     BOOST_TEST(stored.utilisation == 5.0);
