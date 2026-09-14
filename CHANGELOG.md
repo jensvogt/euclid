@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.14](https://github.com/jensvogt/euclid/compare/1.1.13...v1.1.14) (2026-09-14)
+
+
+### Bug Fixes
+
+* faster ramp up/down of EAP applications ([86dd82f](https://github.com/jensvogt/euclid/commit/86dd82f643251ef56ff7872d5d8d8fd2c168ee9c))
+* faster ramp up/down of EAP applications ([8afeccc](https://github.com/jensvogt/euclid/commit/8afecccde77eb579b05ce687f3cae5d230ebc3c0))
+
 ## [1.1.13](https://github.com/jensvogt/euclid/compare/1.1.12...v1.1.13) (2026-09-14)
 
 
