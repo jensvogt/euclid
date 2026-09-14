@@ -98,6 +98,14 @@ namespace Euclid::Database::Entity {
          * only thing that can count its own threads, and everything else in this entity belongs to
          * the manager.
          *
+         * @par Two writers, one per kind of pool
+         * A euclid module writes it through reportBackgroundTasks(); a deployed application writes
+         * it through its load report, IEmmRepository::reportInstanceLoad(), because an application
+         * has no database to reach. They never contend: an application pool's record is only ever
+         * reported for by the application, and a module's only by the module. What an application
+         * counts is handlers it has started and not finished - a bucket listener mid-message is
+         * work a second instance cannot take over, which is exactly what this field is for.
+         *
          * @par
          * Being absent from toDocument() does not by itself protect it. The manager used to persist
          * an instance with `$set: {"instances.$": <the whole subdocument>}`, which replaces the

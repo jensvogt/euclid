@@ -957,14 +957,20 @@ namespace Euclid::EAP {
         const auto utilisation = std::clamp(doubleField(obj, "utilisation"), 0.0, 100.0);
         const auto backlog = std::max<long>(0, longField(obj, "backlog"));
 
-        Database::RepositoryFactory::instance().emmRepository()->reportInstanceLoad(runtimeName, instanceId, utilisation, backlog);
+        // Work started and not finished. Absent from an older SDK's report, which is why it reads
+        // as zero rather than being required: a client that does not send it says nothing about
+        // what it is doing, and scale-down treats it as it did before this field existed.
+        const auto active = std::max<long>(0, longField(obj, "active"));
+
+        Database::RepositoryFactory::instance().emmRepository()->reportInstanceLoad(runtimeName, instanceId, utilisation, backlog, active);
         log_debug << "EAP load reported, runtimeName: " << runtimeName << ", instanceId: " << instanceId
-                  << ", utilisation: " << utilisation << ", backlog: " << backlog;
+                  << ", utilisation: " << utilisation << ", backlog: " << backlog << ", active: " << active;
 
         boost::json::object answer;
         answer["instanceId"] = instanceId;
         answer["utilisation"] = utilisation;
         answer["backlog"] = backlog;
+        answer["active"] = active;
         return EapServer::JsonResponse(req, status::ok, boost::json::serialize(answer));
     }
 
