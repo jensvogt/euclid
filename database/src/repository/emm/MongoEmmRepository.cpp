@@ -99,7 +99,20 @@ namespace Euclid::Database {
 
             std::vector<Entity::Module> modules;
             for (auto cursor = collection.find({}); const auto &doc: cursor) {
-                modules.push_back(Entity::Module::fromDocument(doc));
+
+                // Per document, not per listing. This answer drives every reconcile the manager
+                // makes - what to start, what to stop, what to scale - and it used to be all or
+                // nothing: one document that could not be read threw, the catch below answered
+                // with an empty vector, and the manager could not tell that apart from an
+                // installation with no modules at all.
+                try {
+                    modules.push_back(Entity::Module::fromDocument(doc));
+                } catch (const std::exception &e) {
+                    const auto name = doc["name"];
+                    log_error << "Skipping unreadable module document, name: "
+                              << (name && name.type() == bsoncxx::type::k_string ? std::string(name.get_string().value) : std::string("<unnamed>"))
+                              << ", error: " << e.what();
+                }
             }
             return modules;
 
@@ -133,6 +146,37 @@ namespace Euclid::Database {
             // Reporting is advisory - the work carries on either way, and the worst case is the
             // autoscaler stopping an instance it would otherwise have spared.
             log_warning << "Could not report background tasks, module: " << moduleName
+                        << ", instanceId: " << instanceId << ", error: " << e.what();
+        }
+    }
+
+    void MongoEmmRepository::reportInstanceLoad(const std::string &moduleName, const std::string &instanceId,
+                                                const double utilisation, const long backlog) {
+
+        try {
+            auto collection = Database::instance().collection(COLLECTION);
+
+            const auto filter = bsoncxx::builder::basic::make_document(
+                    bsoncxx::builder::basic::kvp("name", moduleName),
+                    bsoncxx::builder::basic::kvp("instances.instanceId", instanceId));
+
+            // The timestamp goes with the figures and is set here rather than by the caller: an
+            // instance with a skewed clock would otherwise report load that reads as stale, or as
+            // fresh for ever.
+            const auto update = bsoncxx::builder::basic::make_document(
+                    bsoncxx::builder::basic::kvp("$set", bsoncxx::builder::basic::make_document(
+                                                         bsoncxx::builder::basic::kvp("instances.$.utilisation", utilisation),
+                                                         bsoncxx::builder::basic::kvp("instances.$.backlog", static_cast<std::int64_t>(backlog)),
+                                                         bsoncxx::builder::basic::kvp("instances.$.loadReportedAt", bsoncxx::types::b_date{
+                                                                                                                           std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                                                                                                   std::chrono::system_clock::now().time_since_epoch())}))));
+
+            std::ignore = collection.update_one(filter.view(), update.view());
+
+        } catch (const std::exception &e) {
+            // Advisory: a report that cannot be written costs the autoscaler one sample, and the
+            // instance carries on doing the work either way.
+            log_warning << "Could not report instance load, module: " << moduleName
                         << ", instanceId: " << instanceId << ", error: " << e.what();
         }
     }
@@ -194,7 +238,25 @@ namespace Euclid::Database {
 
                 bsoncxx::builder::basic::document setDoc;
                 setDoc.append(bsoncxx::builder::concatenate(moduleFields.view()));
-                setDoc.append(bsoncxx::builder::basic::kvp("instances.$", instance.toDocument()));
+
+                // Field by field rather than `kvp("instances.$", instance.toDocument())`.
+                //
+                // That replaced the whole array element, which deletes every field the replacement
+                // does not carry - and two of them are not the manager's to carry. An instance
+                // reports its own background-task count and its own load, because they are the two
+                // things the manager cannot observe, and writing the subdocument whole erased both
+                // on the next state change. The instance wrote them again on its next tick, so the
+                // symptom was a figure that flickered to nothing rather than one that was never
+                // there, which is worse to find.
+                //
+                // Spelling out what the manager owns says where the line is, and the two writers
+                // stop overwriting each other.
+                // Held in a named value: toDocument() returns by value, and iterating a view into
+                // the temporary would be reading a document that has already been destroyed.
+                const auto instanceFields = instance.toDocument();
+                for (const auto &field: instanceFields.view()) {
+                    setDoc.append(bsoncxx::builder::basic::kvp("instances.$." + std::string(field.key()), field.get_value()));
+                }
 
                 const auto update = bsoncxx::builder::basic::make_document(
                         bsoncxx::builder::basic::kvp("$set", setDoc.extract()),

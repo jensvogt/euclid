@@ -66,6 +66,7 @@ Array of the module's current instances, each with
 (one of \fISTOPPED\fR, \fISTARTING\fR, \fIRUNNING\fR, \fISTOPPING\fR,
 \fICRASHED\fR, \fIPENDING_RESTART\fR, \fIRESTARTING\fR, \fIUNKNOWN\fR),
 .IR socketPath ", " httpPort ", " restartCount ", "
+.IR utilisation ", " backlog ", " loadReportedAt ", " backgroundTasks ", "
 and its own
 .IR created "/" modified
 timestamps.
@@ -77,6 +78,35 @@ instance is reachable where: several instances of one application run on
 the same host, so each is handed a port rather than binding one written
 into the application's configuration, and an API gateway in front of them
 has no other way to find its backends.
+.IP
+.IR utilisation ", " backlog " and " loadReportedAt
+are what the instance says about itself, and the whole of what the
+autoscaler acts on for an application: an application serves no gateway
+request, so there is no traffic for euclid to observe. They are written
+by
+.B eap report-load
+and by nothing else.
+.IP
+.I utilisation
+of
+.I \-1
+means the instance has never reported, which is a different thing from
+one reporting no load. An application that does not report, one built
+against an SDK too old to know how, or one whose reports are being
+refused all look like this \- and a pool of them is never scaled on
+load. If reports are expected and
+.I loadReportedAt
+stays empty, check that the caller holds
+.IR eap:report\-load ;
+the built-in
+.I application
+role does.
+.IP
+.I backgroundTasks
+is work the instance is doing that no request is waiting on \- an
+.B \-\-async
+purge, say. Scale-down passes over an instance reporting any, which is
+what keeps such work from being killed halfway.
 .RE
 .SH OPTIONS
 None.

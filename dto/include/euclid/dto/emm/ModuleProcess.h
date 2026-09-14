@@ -142,6 +142,22 @@ namespace Euclid::Dto {
         long backgroundTasks{};
 
         /**
+         * @brief What this instance last said about how loaded it is, 0-100, or -1 for never.
+         *
+         * @par
+         * Copied from the instance's own record by reconcileApplicationLoad(). An application
+         * receives no gateway request, so acquireInstance() never marks it busy and there is
+         * nothing else for the autoscaler to read.
+         */
+        double utilisation = -1.0;
+
+        /**
+         * @brief When it last said it. The epoch means never - see
+         * ServiceController::LoadFreshnessSeconds() for what that and a stale value each mean.
+         */
+        std::chrono::system_clock::time_point loadReportedAt{};
+
+        /**
          * @brief Time this instance's activeRequests last dropped to zero.
          *
          * Used by the autoscaler to determine how long an instance has been idle before
