@@ -40,7 +40,7 @@ namespace Euclid::Core {
      * That also means the two layouts can coexist indefinitely: nothing has to be moved for the
      * installation to keep working, and anything that is moved keeps working too.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class DirUtils {
 

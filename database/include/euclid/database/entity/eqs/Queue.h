@@ -70,7 +70,7 @@ namespace Euclid::Database::Entity::EQS {
     /**
      * @brief SQS queue entity
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct Queue final : BaseEntity {
 
@@ -185,7 +185,7 @@ namespace Euclid::Database::Entity::EQS {
         /**
          * @brief Default priority for messages
          */
-        MessagePriority priority = MessagePriority::MIDDLE;
+        MessagePriority priority = MessagePriority::MEDIUM;
 
         /**
          * @brief Whether this queue is euclid's own plumbing rather than a user's queue.

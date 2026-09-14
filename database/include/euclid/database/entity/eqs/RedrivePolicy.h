@@ -23,7 +23,7 @@ namespace Euclid::Database::Entity::EQS {
     /**
      * @brief SQS queue re-drive policy entity
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct RedrivePolicy {
 

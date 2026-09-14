@@ -82,7 +82,7 @@ namespace Euclid::SFTP {
      * transport and the SFTP packet coding; this module supplies authentication, the
      * per-user directory sandbox, and the filesystem operations.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class SftpServer final : public Core::HttpActionServer {
 

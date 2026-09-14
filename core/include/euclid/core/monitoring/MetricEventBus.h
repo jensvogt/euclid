@@ -22,7 +22,7 @@ namespace Euclid::Core::Monitoring {
      * each process's aggregated snapshot over its own Unix socket (see
      * Core::HttpActionServer::MetricsResponse()) rather than crossing process boundaries here.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class MetricEventBus {
 

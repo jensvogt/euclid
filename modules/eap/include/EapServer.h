@@ -37,7 +37,7 @@ namespace Euclid::EAP {
      * of this - which is what lets it be written in Java, Python, Node.js, Rust or C++. All it
      * has to do is listen on the socket path it is given in EUCLID_SOCKET.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class EapServer final : public Core::HttpActionServer {
 

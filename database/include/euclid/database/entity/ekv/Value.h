@@ -64,7 +64,7 @@ namespace Euclid::Database::Entity::EKV {
      * because the type mapping to BSON is what it is, and because an SDK that wants to write bytes
      * should not have to wait for a new storage format.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct Value {
 

@@ -50,7 +50,7 @@ namespace Euclid::Database::Emd {
      * store, which is the right trade for something that holds thousands of documents rather than
      * millions and is asked for them over a socket anyway.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class DocumentStore final : public IDocumentStore {
 

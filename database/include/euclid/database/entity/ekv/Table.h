@@ -69,7 +69,7 @@ namespace Euclid::Database::Entity::EKV {
      * does, and items sharing a partition key are ordered by their sort key - which is what makes
      * a range query over them possible, and the only reason a table would declare one.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct Table {
 

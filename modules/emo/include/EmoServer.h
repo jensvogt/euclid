@@ -30,7 +30,7 @@ namespace Euclid::Monitoring {
      * processes), aggregates the name/labelName/labelValue samples over a configured period, and
      * persists the result.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class EmoServer final : public Core::HttpActionServer {
     public:

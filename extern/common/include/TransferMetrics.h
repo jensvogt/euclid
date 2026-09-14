@@ -32,7 +32,7 @@ namespace Euclid::Transfer {
      * written handle), one sent file is one object fetched out of the bucket for a client (FTP
      * RETR, SFTP OPEN for reading). Sending the same file twice counts twice.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     namespace Metrics {
 

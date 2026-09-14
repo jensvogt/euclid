@@ -41,7 +41,7 @@ namespace Euclid::Database::Entity::ESS {
      * dates. Those are what a caller lists, searches and audits by, and they are chosen by whoever
      * created the secret rather than being the secret itself.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct Secret final : BaseEntity {
 

@@ -99,7 +99,7 @@ namespace Euclid::Database {
      * @par
      * See docs/role-concept.md §4.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class Authorization {
 

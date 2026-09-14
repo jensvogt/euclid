@@ -26,7 +26,7 @@ namespace Euclid::Core {
      * Adds the response-building and bearer-token authentication helpers shared by those
      * servers - Dispatch() is still left to subclasses to implement.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class HttpActionServer : public UnixSocketServer {
 

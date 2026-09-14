@@ -28,7 +28,7 @@ namespace Euclid::Database::Entity::EKV {
      * index is built on. The second copy is what makes a lookup a lookup rather than a scan, and
      * keeping the first is what makes an item come back as it was written.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct Item {
 

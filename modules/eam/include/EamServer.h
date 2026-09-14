@@ -63,7 +63,7 @@ namespace Euclid::EAM {
      *
      * Receives HTTP requests forwarded by the gateway and handles user login.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class EamServer final : public Core::HttpActionServer {
 

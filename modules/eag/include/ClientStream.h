@@ -40,7 +40,7 @@ namespace Euclid::EAG {
      * only for the one message type it reads and the one it writes. That is what keeps this a
      * variant with a handful of visits rather than a general-purpose stream wrapper.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class ClientStream {
 

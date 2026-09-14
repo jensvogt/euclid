@@ -31,7 +31,7 @@ namespace Euclid::Database::Entity::ESM {
      * to a target resource (targetErn) of the given protocol type. Only type "SQS" (an EQS queue
      * ERN as targetErn) is supported for now.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct Subscription final : BaseEntity {
 

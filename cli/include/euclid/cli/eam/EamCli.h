@@ -54,7 +54,7 @@ namespace Euclid::CLI {
     /**
      * @brief Processes commands for the "access" module (e.g. "access login --user <u> --password <p>").
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class EamCli final : BaseCli {
 

@@ -43,7 +43,7 @@ namespace Euclid::EES {
      * deleted when it is. An event nobody claims is expired by the bus after its retention
      * period, so an application that never returns cannot fill the database.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class EesServer final : public Core::HttpActionServer {
 

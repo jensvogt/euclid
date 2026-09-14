@@ -41,7 +41,7 @@ namespace Euclid::CLI {
     /**
      * @brief Result of an HTTP request: status code plus the parsed JSON response body.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct HttpResponse {
 
@@ -69,7 +69,7 @@ namespace Euclid::CLI {
      * whose *response* is a large binary payload rather than JSON, the same way PostBinary()'s
      * request is for "upload-part".
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct BinaryHttpResponse {
 
@@ -101,7 +101,7 @@ namespace Euclid::CLI {
      * PostBinary(), used by the one action (storage's "upload-part") that trades the JSON
      * convention for transfer speed.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class HttpClient {
 

@@ -17,7 +17,7 @@ namespace Euclid::Database::Entity::ENS {
     /**
      * @brief ENS topic attribute entity
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct TopicAttribute {
 

@@ -36,7 +36,7 @@ namespace Euclid::SFTP {
      * the request handling readable at the cost of one OS thread per connected client. The
      * same tradeoff the FTP module makes, for the same reason.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class SftpSession {
 

@@ -35,7 +35,7 @@ namespace Euclid::CLI {
     /**
      * @brief Processes commands for the ekm (Euclid Key Management) module (e.g. "ekm create-key --type aes256").
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class EkmCli final : BaseCli {
 

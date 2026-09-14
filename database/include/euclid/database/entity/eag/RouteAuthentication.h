@@ -26,7 +26,7 @@ namespace Euclid::Database::Entity::EAG {
      * operation only a euclid principal may perform. Deciding it per route is what lets one
      * application serve both.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     enum class RouteAuthentication {
 

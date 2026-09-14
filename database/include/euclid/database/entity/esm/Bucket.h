@@ -28,7 +28,7 @@ namespace Euclid::Database::Entity::ESM {
     /**
      * @brief Storage bucket entity
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct Bucket final : BaseEntity {
 

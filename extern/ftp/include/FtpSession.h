@@ -43,7 +43,7 @@ namespace Euclid::FTP {
      * "small" FTP server's command handling readable at the cost of one OS thread per
      * connected client.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class FtpSession {
 

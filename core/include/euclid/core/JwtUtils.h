@@ -18,7 +18,7 @@ namespace Euclid::Core {
     /**
      * @brief HS256 JWT creation and verification.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class JwtUtils {
     public:

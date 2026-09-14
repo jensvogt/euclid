@@ -19,7 +19,7 @@ namespace Euclid::Core {
      * Hashes are salted PBKDF2-HMAC-SHA256, encoded as
      * "pbkdf2-sha256$<iterations>$<salt-hex>$<hash-hex>".
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class PasswordUtils {
     public:

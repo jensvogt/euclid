@@ -18,7 +18,7 @@ namespace Euclid::Database::Entity::EQS {
     /**
      * @brief SQS message attribute entity
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     enum class MessageStatus {
         AVAILABLE,

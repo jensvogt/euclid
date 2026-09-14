@@ -39,9 +39,9 @@ namespace Euclid::Dto::EQS {
         std::string status;
 
         /**
-         * @brief Message priority, i.e. "LOW", "MIDDLE" or "HIGH". Defaults to "MIDDLE".
+         * @brief Message priority, i.e. "LOW", "MEDIUM" or "HIGH". Defaults to "MEDIUM".
          */
-        std::string priority = "MIDDLE";
+        std::string priority = "MEDIUM";
 
         /**
          * @brief Message body

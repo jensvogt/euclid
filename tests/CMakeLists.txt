@@ -226,6 +226,15 @@ target_link_libraries(${PURGE_JOB_BINARY} PRIVATE eucliddb Boost::unit_test_fram
 
 add_test(NAME ${PURGE_JOB_BINARY} COMMAND ${PURGE_JOB_BINARY})
 
+set(ENS_RESEND_BINARY euclid-ens-resend-tests)
+
+add_executable(${ENS_RESEND_BINARY} EnsResendTest.cpp)
+set_target_properties(${ENS_RESEND_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${ENS_RESEND_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${ENS_RESEND_BINARY} COMMAND ${ENS_RESEND_BINARY})
+
 set(CERTIFICATE_BINARY euclid-certificate-utils-tests)
 
 add_executable(${CERTIFICATE_BINARY} CertificateUtilsTest.cpp)

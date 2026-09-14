@@ -18,7 +18,7 @@ namespace Euclid::Database {
     /**
      * @brief Monitoring data MongoDB database.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class MongoEmoRepository final : public IEmoRepository {
 

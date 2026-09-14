@@ -56,7 +56,7 @@ namespace Euclid::EAG {
      * three seconds of staleness costs an unlucky request one retry; a database round trip in
      * front of every proxied call costs all of them.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class Backends {
 

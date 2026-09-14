@@ -23,7 +23,7 @@ namespace Euclid::Database {
      * process on a timer, so it has to cross a process boundary: whatever holds it has to be
      * shared between processes, whether that is MongoDB or the store EMD keeps.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class MongoEagRepository final : public IEagRepository {
 

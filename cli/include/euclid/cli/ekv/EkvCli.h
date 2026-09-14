@@ -37,7 +37,7 @@ namespace Euclid::CLI {
      * @brief Processes commands for the ekv (Euclid Key/Value store) module
      * (e.g. "ekv get-item --table suppliers --key '{\"supplierId\":\"4711\"}'").
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class EkvCli final : BaseCli {
 

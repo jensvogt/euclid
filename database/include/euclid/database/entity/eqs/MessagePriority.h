@@ -30,33 +30,41 @@ namespace Euclid::Database::Entity::EQS {
     /**
      * @brief SQS message priority
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     enum class MessagePriority {
         LOW,
-        MIDDLE,
+        MEDIUM,
         HIGH
     };
 
     static std::map<MessagePriority, std::string> MessagePriorityNames{
             {MessagePriority::LOW, "LOW"},
-            {MessagePriority::MIDDLE, "MIDDLE"},
+            {MessagePriority::MEDIUM, "MEDIUM"},
             {MessagePriority::HIGH, "HIGH"},
     };
+
+    /**
+     * @brief What the middle tier used to be called, still accepted when read.
+     *
+     * @par
+     * The name changed to MEDIUM; the value did not. Every message stored before that carries this
+     * string, and so does every request from a client built against an older SDK - euclid's SDKs
+     * are released separately and an installation is routinely a version ahead of them. Refusing it
+     * would turn a rename into an outage for those callers and would make a stored row unreadable.
+     *
+     * @par
+     * Read-only. Nothing writes it: MessagePriorityToString() answers MEDIUM for every message,
+     * including the ones stored as MIDDLE, so the old spelling leaves the installation as the rows
+     * carrying it are replaced.
+     */
+    constexpr auto kLegacyMediumName = "MIDDLE";
 
     [[maybe_unused]]
     static std::string MessagePriorityToString(const MessagePriority &priority) {
         return MessagePriorityNames[priority];
     }
 
-    /**
-     * @brief Parses a message priority from its string representation.
-     *
-     * Unrecognized or empty input (e.g. a message sent before this attribute existed, or a
-     * request that didn't set it) falls back to the documented default of MIDDLE, rather than an
-     * UNKNOWN state.
-     */
-    [[maybe_unused]]
     /**
      * @brief Reads a priority, or nothing if the string names none.
      *
@@ -66,7 +74,7 @@ namespace Euclid::Database::Entity::EQS {
      *
      * @par
      * Returning nothing rather than a default is what lets the two kinds of caller differ. A
-     * request carrying a typo should be told - silently sending at MIDDLE what somebody asked to
+     * request carrying a typo should be told - silently sending at MEDIUM what somebody asked to
      * send at LOW is a decision made on their behalf and never reported. A value read back from the
      * database should not fail at all, since a row that cannot be parsed is still a message
      * somebody is waiting for; MessagePriorityFromString() is that reading.
@@ -76,13 +84,17 @@ namespace Euclid::Database::Entity::EQS {
         auto upper = priority;
         std::ranges::transform(upper, upper.begin(), [](const unsigned char c) { return static_cast<char>(std::toupper(c)); });
 
+        // Before the table, so the old name resolves to the tier it always meant rather than
+        // falling through to "no such priority" - see kLegacyMediumName.
+        if (upper == kLegacyMediumName) return MessagePriority::MEDIUM;
+
         const auto it = std::ranges::find_if(MessagePriorityNames, [&upper](const auto &pair) { return pair.second == upper; });
         if (it == MessagePriorityNames.end()) return std::nullopt;
         return it->first;
     }
 
     /**
-     * @brief Reads a stored priority, defaulting to MIDDLE.
+     * @brief Reads a stored priority, defaulting to MEDIUM.
      *
      * @par
      * A value nobody can parse has to land somewhere sensible rather than at the bottom of the
@@ -91,7 +103,7 @@ namespace Euclid::Database::Entity::EQS {
      * and refuse instead.
      */
     static MessagePriority MessagePriorityFromString(const std::string &priority) {
-        return TryMessagePriorityFromString(priority).value_or(MessagePriority::MIDDLE);
+        return TryMessagePriorityFromString(priority).value_or(MessagePriority::MEDIUM);
     }
 
 }// namespace Euclid::Database::Entity::SQS

@@ -36,7 +36,7 @@ namespace Euclid::ETS {
      * back without asking anyone, and a definition can be edited while its server is up (the
      * change takes effect when the reconciler next restarts it).
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class EtsServer final : public Core::HttpActionServer {
 

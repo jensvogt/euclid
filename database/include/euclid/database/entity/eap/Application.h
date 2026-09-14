@@ -45,7 +45,7 @@ namespace Euclid::Database::Entity::EAP {
      * an FTP transfer server - and what lets a manager on a fresh host bring an application up
      * with nothing but the database and the object store.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct Application {
 

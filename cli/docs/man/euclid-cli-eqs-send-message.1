@@ -28,7 +28,7 @@ to a file containing the JSON.
 .PP
 .B \-\-priority
 defaults to
-.I MIDDLE
+.I MEDIUM
 and influences how the message is prioritized by
 .BR euclid-cli-eqs-receive-messages (1).
 .SH OPTIONS
@@ -47,7 +47,7 @@ Message attributes as a JSON object, given literally or as
 to a file to read it from. Optional.
 .TP
 .BR \-p ", " \-\-priority " " \fIPRIORITY\fR
-One of \fILOW\fR, \fIMIDDLE\fR, \fIHIGH\fR. Defaults to \fIMIDDLE\fR.
+One of \fILOW\fR, \fIMEDIUM\fR, \fIHIGH\fR. Defaults to \fIMEDIUM\fR.
 .PP
 The queue may be given by
 .B name
@@ -84,4 +84,4 @@ euclid-cli --endpoint http://localhost:5566 eqs send-message \e
 .BR euclid-cli-eqs-receive-messages (1),
 .BR euclid-cli-eqs-get-message-attribute (1)
 .SH AUTHOR
-Jens Vogt <jens.vogt@opitz-consulting.com>
+Jens Vogt <jensvogt47@gmail.com>

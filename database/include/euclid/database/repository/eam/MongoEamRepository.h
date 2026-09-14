@@ -31,7 +31,7 @@ namespace Euclid::Database {
     /**
      * @brief Access MongoDB database.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class MongoEamRepository final : public IEamRepository {
 
