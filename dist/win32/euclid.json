@@ -80,7 +80,7 @@
         "executable": "C:\\Program Files\\euclid\\bin\\euclid-eqs.exe",
         "priority-weights": {
           "high": 4,
-          "middle": 2,
+          "medium": 2,
           "low": 1
         },
         "minInstances": 1,

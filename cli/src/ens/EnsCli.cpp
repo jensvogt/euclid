@@ -138,6 +138,7 @@ namespace Euclid::CLI {
                                            {"set-message-attribute", "Sets the value of a message attribute"},
                                            {"set-topic-max-message-length", "Sets the largest message a topic accepts"},
                                            {"set-topic-retention", "Sets how long a topic keeps the messages published to it"},
+                                           {"resend-messages", "Hands what a topic still holds to its subscribers again"},
                                            {"start-topic", "Starts delivering to a topic's subscribers, handing over what it held"},
                                            {"stop-topic", "Stops delivering to a topic's subscribers; publishes are still stored"},
                                            {"set-topic-tag", "Sets the value of an existing topic tag"},
@@ -180,6 +181,9 @@ namespace Euclid::CLI {
         }
         if (action == "set-topic-max-message-length") {
             return setTopicMaxMessageLength(args);
+        }
+        if (action == "resend-messages") {
+            return resendMessages(args);
         }
         if (action == "start-topic") {
             return setTopicDelivering(args, true);
@@ -953,6 +957,57 @@ namespace Euclid::CLI {
             const HttpResponse response = client.Post("ens", "set-topic-max-message-length", boost::json::value_from(request));
             if (!response.IsSuccess()) {
                 std::cerr << "error: set-topic-max-message-length failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EnsCli::resendMessages(const std::vector<std::string> &args) const {
+
+        po::options_description desc("resend messages options");
+        desc.add_options()
+                ("topic,t", po::value<std::string>()->required(), "topic name; a full ERN also works and is what reaches another namespace")
+                ("message-id,m", po::value<std::string>()->default_value(""), "resend only this message, as list-messages reports its id");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ens", "resend-messages", "--topic <name|ern> [--message-id <id>]",
+                                   "Hands what the topic still holds to its subscribers again - oldest first, each with the "
+                                   "payload, attributes and priority it was published with. A topic keeps what was published "
+                                   "to it for its retention period, and once a subscriber has consumed the queue message that "
+                                   "record is the only copy left; this is the way back to it for a subscriber that was down, "
+                                   "that subscribed after the fact, or that acknowledged something it then failed to process. "
+                                   "Every subscriber receives them again, not just the one that missed them, so a resend on a "
+                                   "busy topic is worth narrowing with --message-id. Messages held because the topic was "
+                                   "stopped are not resent - they have never been delivered at all, and 'ens start-topic' is "
+                                   "what releases them - but they are counted, so a non-zero 'held' in the answer says to run "
+                                   "it.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        boost::json::object request{{"ern", vm["topic"].as<std::string>()}};
+        if (const auto messageId = vm["message-id"].as<std::string>(); !messageId.empty()) {
+            request["messageId"] = messageId;
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ens", "resend-messages", request);
+            if (!response.IsSuccess()) {
+                std::cerr << "error: resend-messages failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);

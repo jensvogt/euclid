@@ -43,7 +43,7 @@ namespace Euclid::EMD {
      * belongs in a directory only euclid can enter. Putting euclid's own authentication in front of
      * it would be circular anyway - the users to check against are in the store.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class EmdServer final : public Core::HttpActionServer {
 

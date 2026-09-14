@@ -81,7 +81,7 @@ namespace Euclid::main {
      * This class initializes the server, configures the necessary resources, and
      * prepares the environment for handling client gateway interactions.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class GatewayServer {
     public:

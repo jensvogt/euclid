@@ -25,7 +25,7 @@ namespace Euclid::CLI {
     /**
      * @brief Processes commands for the "eag" (Euclid API gateway) module (e.g. "eag list-routes").
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class EagCli final : BaseCli {
 

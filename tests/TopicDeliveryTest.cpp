@@ -44,7 +44,7 @@ namespace {
     }
 
     Euclid::Database::Entity::ENS::Message publish(MongoEnsRepository &repo, const std::string &ern,
-                                                   const std::string &messageId, const std::string &priority = "MIDDLE") {
+                                                   const std::string &messageId, const std::string &priority = "MEDIUM") {
         return repo.publishMessage(messageId, "ern:ens:eu-central-1:000000000000:message:" + messageId,
                                    ern, R"({"id":")" + messageId + R"("})", {}, priority);
     }

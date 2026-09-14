@@ -29,7 +29,7 @@ namespace Euclid::Database::Entity::ENS {
     /**
      * @brief ENS topic entity
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     /**
      * @brief How long a published message is kept when neither the topic nor the configuration

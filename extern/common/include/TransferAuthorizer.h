@@ -55,7 +55,7 @@ namespace Euclid::Transfer {
      * path: a path is confined to the user's home prefix already, and a per-path access model
      * would be a second one to reason about beside the home directory.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class TransferAuthorizer {
 

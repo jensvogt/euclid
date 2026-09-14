@@ -75,7 +75,7 @@ namespace Euclid::CLI {
     /**
      * @brief Processes commands for the "esm" module (e.g. "esm uploadFile --local ./file.txt --key file.txt").
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class EsmCli final : BaseCli {
 

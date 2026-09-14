@@ -13,9 +13,9 @@ to
 .B \-\-maxCount
 messages. The returned messages favor higher priority ones:
 .B \-\-maxCount
-slots are split across LOW/MIDDLE/HIGH priority proportionally to the
+slots are split across LOW/MEDIUM/HIGH priority proportionally to the
 server's configurable priority weights (4:2:1 by default), so most of a
-batch is HIGH priority, fewer MIDDLE, and fewer still LOW.
+batch is HIGH priority, fewer MEDIUM, and fewer still LOW.
 .PP
 Each received message becomes invisible to other receivers for its
 visibility timeout (set at queue creation, see
@@ -67,4 +67,4 @@ euclid-cli --endpoint http://localhost:5566 eqs receive-messages \e
 .BR euclid-cli-eqs-list-messages (1),
 .BR euclid-cli-eqs-set-message-visibility (1)
 .SH AUTHOR
-Jens Vogt <jens.vogt@opitz-consulting.com>
+Jens Vogt <jensvogt47@gmail.com>

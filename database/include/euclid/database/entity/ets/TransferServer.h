@@ -36,7 +36,7 @@ namespace Euclid::Database::Entity::ETS {
      * learn which port to listen on, which EAM users and groups may log in, and which bucket
      * its clients are really talking to.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct TransferServer {
 

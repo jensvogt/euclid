@@ -40,7 +40,7 @@ namespace Euclid::Database::Entity::EAM {
      * @par
      * See docs/role-concept.md §3.3.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct Grant {
 

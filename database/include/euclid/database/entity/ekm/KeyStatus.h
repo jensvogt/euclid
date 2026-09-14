@@ -25,7 +25,7 @@ namespace Euclid::Database::Entity::EKM {
      * (un-scheduling a deletion back to REVOKED) is deliberately not offered, to avoid a key that
      * still shows a deletionDate silently losing the status that explains it.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     enum class KeyStatus {
         AVAILABLE,

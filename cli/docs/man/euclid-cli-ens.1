@@ -115,6 +115,12 @@ Publishes a message, with optional attributes, to a topic. See
 Lists a topic's messages without changing their status. See
 .BR euclid-cli-ens-list-messages (1).
 .TP
+.B resend-messages
+Hands what a topic still holds to its subscribers again, for a subscriber
+that was down or subscribed after the fact. Every subscriber receives
+them. See
+.BR euclid-cli-ens-resend-messages (1).
+.TP
 .B get-message-count
 Returns a topic's message counters (available, send, resend). See
 .BR euclid-cli-ens-get-message-count (1).
@@ -355,6 +361,7 @@ euclid-cli --endpoint http://localhost:5566 ens delete-topic \e
 .BR euclid-cli-ens-get-topic-metadata (1),
 .BR euclid-cli-ens-publish-message (1),
 .BR euclid-cli-ens-list-messages (1),
+.BR euclid-cli-ens-resend-messages (1),
 .BR euclid-cli-ens-get-message-count (1),
 .BR euclid-cli-ens-get-message-attribute (1),
 .BR euclid-cli-ens-set-message-attribute (1),
@@ -372,4 +379,4 @@ euclid-cli --endpoint http://localhost:5566 ens delete-topic \e
 .BR euclid-cli-ens-purge-all-topic (1),
 .BR euclid-cli-ens-delete-topic (1)
 .SH AUTHOR
-Jens Vogt <jens.vogt@opitz-consulting.com>
+Jens Vogt <jensvogt47@gmail.com>

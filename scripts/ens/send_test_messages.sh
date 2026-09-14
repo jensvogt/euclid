@@ -13,7 +13,7 @@
 #   -q QUEUE_NAME   queue to send to; created if it doesn't exist yet (default: test-queue)
 #   -e ENDPOINT     euclid gateway endpoint (default: https://localhost:5566)
 #   -c CLI_PATH     path to the euclid-cli binary (default: euclid-cli, resolved via PATH)
-#   -r              assign priorities randomly instead of cycling LOW/MIDDLE/HIGH round-robin
+#   -r              assign priorities randomly instead of cycling LOW/MEDIUM/HIGH round-robin
 #
 # Requires: euclid-cli (built and on PATH, or pointed to via -c), jq, and a valid
 # euclid-cli login session (run "euclid-cli access login --user <user> --password <password>" first).

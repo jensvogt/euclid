@@ -31,7 +31,7 @@ namespace Euclid::EAG {
      * remembered for a short window, so a browser making a hundred calls hashes once and compares
      * ninety-nine times. What is remembered is the password's own hash, never the password.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class BasicAuthenticator {
 

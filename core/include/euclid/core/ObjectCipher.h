@@ -49,7 +49,7 @@ namespace Euclid::Core {
      * object is under is the caller's business to record and look up, and by the time the bytes
      * get here the decision has been made.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class ObjectCipher {
     public:
@@ -194,7 +194,7 @@ namespace Euclid::Core {
      * by finish(), which seeks back and fills in what was actually written. So the target has to
      * be a real file, which is what it always is here.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class ObjectEncryptor {
     public:

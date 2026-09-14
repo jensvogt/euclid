@@ -26,7 +26,7 @@ namespace Euclid::Database::Entity::EAP {
      * reason: the definition survives in the database, so a manager coming back up restarts
      * everything that should be running without EAP having to be reachable at that moment.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     enum class ApplicationState {
         RUNNING,

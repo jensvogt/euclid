@@ -151,6 +151,7 @@ namespace Euclid::Core {
                 "ens:publish-message",
                 "ens:purge-all-topics",
                 "ens:purge-topic",
+                "ens:resend-messages",
                 "ens:set-message-attribute",
                 "ens:set-topic-max-message-length",
                 "ens:set-topic-retention",

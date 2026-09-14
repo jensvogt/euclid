@@ -54,7 +54,7 @@ namespace Euclid::Dto::EQS {
         /**
          * @brief Default priority for new messages
          */
-        std::string priority = "MIDDLE";
+        std::string priority = "MEDIUM";
 
         /**
          * @brief Whether this queue is euclid's own plumbing rather than a user's queue.

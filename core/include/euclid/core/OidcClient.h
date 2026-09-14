@@ -30,7 +30,7 @@ namespace Euclid::Core {
      * provider publishes them for; they exist here as overrides for a deployment whose provider
      * cannot be reached for discovery, or which pins them deliberately.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct OidcConfiguration {
 
@@ -298,7 +298,7 @@ namespace Euclid::Core {
      * module's oidc-login). Nothing downstream of login learns that a login was federated - the
      * token, the access key and the grants are the same ones a password login produces.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class OidcClient {
 

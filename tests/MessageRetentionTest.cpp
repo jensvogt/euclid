@@ -53,7 +53,7 @@ namespace {
 
     Euclid::Database::Entity::EQS::Message send(MongoEqsRepository &repo, const std::string &ern, const std::string &messageId) {
         return repo.sendMessage(messageId, "ern:eqs:eu-central-1:000000000000:message:" + messageId,
-                                ern, "{}", {}, {}, MessagePriority::MIDDLE);
+                                ern, "{}", {}, {}, MessagePriority::MEDIUM);
     }
 
     // How far ahead of now the message expires, in seconds - the send stamps it from its own clock

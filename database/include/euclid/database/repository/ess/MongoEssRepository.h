@@ -21,7 +21,7 @@ namespace Euclid::Database {
     /**
      * @brief ESS MongoDB database.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class MongoEssRepository final : public IEssRepository {
 

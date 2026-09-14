@@ -685,7 +685,7 @@ namespace Euclid::Database {
     //     std::vector<Entity::EQS::Message> result;
     //     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(waitTime);
     //     const auto weights = Entity::EQS::LoadPriorityWeights();
-    //     static constexpr std::array priorityOrder{Entity::EQS::MessagePriority::HIGH, Entity::EQS::MessagePriority::MIDDLE, Entity::EQS::MessagePriority::LOW};
+    //     static constexpr std::array priorityOrder{Entity::EQS::MessagePriority::HIGH, Entity::EQS::MessagePriority::MEDIUM, Entity::EQS::MessagePriority::LOW};
     //
     //     try {
     //         long maxReceiveCount = 0;

@@ -71,7 +71,7 @@ namespace Euclid::Transfer {
      * directory is remembered by a zero-byte marker object whose key ends in "/". Without the
      * marker an empty directory could not exist at all, since nothing would carry its name.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class TransferStorage {
 

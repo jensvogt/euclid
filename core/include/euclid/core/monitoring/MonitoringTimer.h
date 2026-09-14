@@ -28,7 +28,7 @@ namespace Euclid::Core::Monitoring {
      * labelValue="send-message") and increments the paired counter "sqs-service-count" with the
      * same labels, however the method returns - including via an exception.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class MonitoringTimer {
 

@@ -143,7 +143,7 @@ namespace Euclid::CLI {
                 ("max-retries,m", po::value<long>()->default_value(3), "maximal number of retries")
                 ("max-length,l", po::value<long>()->default_value(1024 * 1024), "maximal message length")
                 ("dlq-name,d", po::value<std::string>(), "name of the dead letter queue")
-                ("priority,p", po::value<std::string>()->default_value("MIDDLE"), "default priority for messages")
+                ("priority,p", po::value<std::string>()->default_value("MEDIUM"), "default priority for messages")
                 ("delay,e", po::value<long>()->default_value(0), "message delay");
 
         if (IsHelpRequest(args)) {
@@ -536,14 +536,14 @@ namespace Euclid::CLI {
                 ("queue,q", po::value<std::string>()->required(), "queue resource name")
                 ("body,b", po::value<std::string>()->required(), "message body")
                 ("attributes,a", po::value<std::string>(), "message attributes")
-                ("priority,p", po::value<std::string>()->default_value("MIDDLE"), "message priority (LOW|MIDDLE|HIGH)");
+                ("priority,p", po::value<std::string>()->default_value("MEDIUM"), "message priority (LOW|MEDIUM|HIGH)");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "send-message", "--queue <name|ern> --body <body|file://path> [--attributes <json|file://path>] [--priority <LOW|MIDDLE|HIGH>]",
+            return PrintActionHelp("eqs", "send-message", "--queue <name|ern> --body <body|file://path> [--attributes <json|file://path>] [--priority <LOW|MEDIUM|HIGH>]",
                                    "Sends a message to an EQS queue. If --body starts with 'file://', the message "
                                    "body is read from the referenced file instead of being taken literally. The optional --attributes value sets the message "
                                    "attributes as a JSON object mapping attribute name to {\"type\": <int|long|double|float|bool|string|binary>, \"value\": <value>}, "
-                                   "given either literally or via 'file://path' to a file containing the JSON. --priority defaults to MIDDLE and influences how "
+                                   "given either literally or via 'file://path' to a file containing the JSON. --priority defaults to MEDIUM and influences how "
                                    "the message is prioritized by receive-messages.",
                                    desc);
         }
@@ -593,9 +593,9 @@ namespace Euclid::CLI {
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eqs", "receive-messages", "--queue <name|ern> [--maxCount <value>] [--waitTime <seconds>]",
                                    "Receive messages from an EQS queue. If messages are available return up to maxCount messages. "
-                                   "The returned messages favor higher priority ones: maxCount slots are split across LOW/MIDDLE/HIGH priority "
+                                   "The returned messages favor higher priority ones: maxCount slots are split across LOW/MEDIUM/HIGH priority "
                                    "proportionally to the server's configurable priority weights (4:2:1 by default), so most of a batch is "
-                                   "HIGH priority, fewer MIDDLE, and fewer still LOW.",
+                                   "HIGH priority, fewer MEDIUM, and fewer still LOW.",
                                    desc);
         }
 

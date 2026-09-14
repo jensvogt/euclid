@@ -29,7 +29,7 @@ namespace Euclid::Database::Entity::EKM {
     /**
      * @brief EKM key entity
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct Key final : BaseEntity {
 

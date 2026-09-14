@@ -28,7 +28,7 @@ namespace Euclid::Database {
      * Provides an abstraction for storing, retrieving, and managing
      * ENS-related data.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class IEnsRepository {
 
@@ -201,7 +201,7 @@ namespace Euclid::Database {
          * @param attributes message attributes.
          * @return the newly created message entity.
          */
-        virtual Entity::ENS::Message publishMessage(const std::string &messageId, const std::string &ern, const std::string &topicErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes, const std::string &priority = "MIDDLE") = 0;
+        virtual Entity::ENS::Message publishMessage(const std::string &messageId, const std::string &ern, const std::string &topicErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes, const std::string &priority = "MEDIUM") = 0;
 
         /**
          * @brief The messages stored while a topic was stopped, oldest first.

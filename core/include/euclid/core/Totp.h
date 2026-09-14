@@ -29,7 +29,7 @@ namespace Euclid::Core {
      * plainly: storing it beside the password turns two factors back into one. It belongs in a file
      * only the owner can read, or in an environment a scheduler supplies.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class Totp {
 

@@ -31,7 +31,7 @@ namespace Euclid::Database {
      *
      * Controls all the Euclid queueing modules.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class MongoEqsRepository final : public IEqsRepository {
 
@@ -163,7 +163,7 @@ namespace Euclid::Database {
          * @param queueErn queue ERN
          * @param body message body
          * @param attributes message attributes
-         * @param priority message priority; defaults to MIDDLE
+         * @param priority message priority; defaults to MEDIUM
          * @return the newly created message entity
          */
         Entity::EQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes, const std::map<std::string, Entity::COM::Variant> &systemAttributes, Entity::EQS::MessagePriority priority) override;

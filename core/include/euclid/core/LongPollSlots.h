@@ -38,7 +38,7 @@ namespace Euclid::Core {
      * and the client asks again. Subscribing, acknowledging and metrics therefore always find a
      * thread, however many clients are waiting.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class LongPollSlots {
     public:

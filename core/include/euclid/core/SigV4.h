@@ -29,7 +29,7 @@ namespace Euclid::Core {
      * signed set - a fixed, non-negotiable list rather than a client-chosen "SignedHeaders" list,
      * so a MITM can't downgrade which headers a signature actually covers.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class SigV4 {
     public:

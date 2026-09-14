@@ -22,7 +22,7 @@ namespace Euclid::Database {
      *
      * Controls all the Euclid topicing modules.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class MongoEnsRepository final : public IEnsRepository {
 

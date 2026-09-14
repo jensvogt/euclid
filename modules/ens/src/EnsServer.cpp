@@ -236,12 +236,12 @@ namespace Euclid::ENS {
     //
     // The priority is the publisher's and belongs to the queue messages this fans out to, not to
     // the topic message: a topic is not consumed from, so there is nothing for a priority to mean
-    // on it. It defaults to MIDDLE for the callers that have no priority to pass on - an ESM
+    // on it. It defaults to MEDIUM for the callers that have no priority to pass on - an ESM
     // object notification is not caused by a message and so inherits nothing.
     static Database::Entity::ENS::Message publishToTopic(const std::string &topicErn, const std::string &body,
                                                          const std::map<std::string, Dto::COM::Variant> &attributes,
                                                          const std::string &accountId,
-                                                         const std::string &priority = "MIDDLE",
+                                                         const std::string &priority = "MEDIUM",
                                                          const boost::json::object &systemAttributes = {}) {
 
         const std::string messageId = Core::UuidUtils::CreateRandomUuid();
@@ -324,7 +324,7 @@ namespace Euclid::ENS {
         // work much later, somewhere else.
         if (!request.priority.empty() && !Database::Entity::EQS::TryMessagePriorityFromString(request.priority).has_value()) {
             return EnsServer::ErrorResponse(req, status::bad_request,
-                                            R"(priority must be "LOW", "MIDDLE" or "HIGH", not ")" + request.priority + R"(")");
+                                            R"(priority must be "LOW", "MEDIUM" or "HIGH", not ")" + request.priority + R"(")");
         }
 
         const auto message = publishToTopic(request.ern, request.body, request.attributes, auth.user->accountId, request.priority);
@@ -362,7 +362,7 @@ namespace Euclid::ENS {
             }
         }
 
-        const auto message = publishToTopic(targetErn, body, {}, Core::accountIdFromErn(targetErn), "MIDDLE", systemAttributes);
+        const auto message = publishToTopic(targetErn, body, {}, Core::accountIdFromErn(targetErn), "MEDIUM", systemAttributes);
 
         log_info << "ENS created message from ESM object-published notification, source: " << envelope.sourceModule << ", targetErn: " << targetErn
                   << ", messageId: " << message.messageId;
@@ -777,6 +777,128 @@ namespace Euclid::ENS {
                                                {"released", released}}));
     }
 
+    // Hands one stored message to the topic's subscriptions again, exactly as the publish did.
+    //
+    // Shared by the whole-topic resend and the single-message one, so the two cannot drift about
+    // what a resent message looks like: same body, same attributes, same priority, same messageId.
+    // EQS mints a fresh id for the queue message it creates and only logs the source one, so a
+    // subscriber genuinely receives it again rather than the delivery being deduplicated away.
+    static void resendMessage(const std::string &topicErn, const Database::Entity::ENS::Message &message) {
+
+        boost::json::object attributesJson;
+        for (const auto &[key, variant]: message.attributes) {
+            attributesJson[key] = boost::json::value_from(Dto::ENS::EnsMapper::toDto(variant));
+        }
+        boost::json::object systemAttributes;
+        for (const auto &[key, variant]: message.systemAttributes) {
+            systemAttributes[key] = boost::json::value_from(Dto::ENS::EnsMapper::toDto(variant));
+        }
+
+        deliverToSubscriptions(topicErn, message.messageId, message.body, attributesJson, systemAttributes, message.priority);
+    }
+
+    // Delivers what a topic still holds to its subscriptions again.
+    //
+    // @par What it is for
+    // A topic keeps what was published to it for its retention period, and that record is the only
+    // copy once a queue message has been consumed. A subscriber that was down, that was subscribed
+    // after the fact, or that acknowledged something it then failed to process has no way back to
+    // those messages - the topic fanned them out once and moved on. This is that way back.
+    //
+    // @par Held messages are not resent
+    // A held message was published while the topic was stopped and has never been delivered at all;
+    // releasing it is start-topic's job, and it is start-topic that marks it delivered afterwards.
+    // Delivering one from here would hand it over without marking it, so the next start-topic would
+    // deliver it a second time. They are counted and reported instead, so an operator who sees a
+    // non-zero "held" knows to run start-topic.
+    static response<string_body> handleResendMessages(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "resend-messages");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto ern = Core::GetStringValue(jv, "ern");
+        if (ern.empty()) return EnsServer::ErrorResponse(req, status::bad_request, "ern is required");
+        const auto messageId = Core::GetStringValue(jv, "messageId");
+
+        const auto repo = Database::RepositoryFactory::instance().ensRepository();
+        const auto topic = repo->findTopicByErn(ern);
+        if (!topic.has_value()) {
+            return EnsServer::ErrorResponse(req, status::not_found, "Topic not found, ern: " + ern);
+        }
+
+        // A stopped topic is one somebody stopped delivering from. Resending into it would be the
+        // one way to get a message out of it while it is stopped, which would make stop-topic mean
+        // less than it says.
+        if (!topic->delivering) {
+            return EnsServer::ErrorResponse(req, status::conflict,
+                                            "Topic is stopped and delivers nothing - start it first, which also releases "
+                                            "whatever was published while it was stopped; see start-topic");
+        }
+
+        long resent = 0;
+        long held = 0;
+
+        if (!messageId.empty()) {
+
+            const auto message = repo->findMessageById(messageId);
+            if (!message.has_value()) {
+                return EnsServer::ErrorResponse(req, status::not_found, "Message not found, messageId: " + messageId);
+            }
+            // Checked rather than assumed: resending by id alone would let a caller fan a message
+            // out to the subscriptions of a topic it was never published to.
+            if (message->topicErn != ern) {
+                return EnsServer::ErrorResponse(req, status::bad_request,
+                                                "Message " + messageId + " belongs to another topic");
+            }
+            if (message->status == Database::Entity::ENS::kStatusHeld) {
+                ++held;
+            } else {
+                resendMessage(ern, *message);
+                ++resent;
+            }
+
+        } else {
+
+            // A page at a time and in publish order, the same shape start-topic uses: a topic that
+            // collected a fortnight of traffic does not have to fit in memory, and a subscriber
+            // receiving the backlog out of order would be worse than not receiving it.
+            //
+            // Paged by index rather than always page zero - unlike a purge, nothing is removed as
+            // this goes, so the page after the one just read really is the next one.
+            constexpr long kPage = 500;
+            for (long pageIndex = 0;; ++pageIndex) {
+
+                const auto messages = repo->listMessages(ern, kPage, pageIndex, "created", "asc");
+                if (messages.empty()) break;
+
+                for (const auto &message: messages) {
+                    if (message.status == Database::Entity::ENS::kStatusHeld) {
+                        ++held;
+                        continue;
+                    }
+                    resendMessage(ern, message);
+                    ++resent;
+                }
+
+                if (static_cast<long>(messages.size()) < kPage) break;
+            }
+        }
+
+        repo->recordResend(ern, resent);
+        log_info << "ENS resend-messages, ern: " << ern << ", resent: " << resent << ", held: " << held;
+
+        return EnsServer::JsonResponse(req, status::ok,
+                                       boost::json::serialize(boost::json::object{
+                                               {"ern", topic->ern},
+                                               {"resent", resent},
+                                               {"held", held}}));
+    }
+
     static response<string_body> handleStartTopic(const request<string_body> &req) {
         return setTopicDelivering(req, true);
     }
@@ -1002,6 +1124,7 @@ namespace Euclid::ENS {
             GetMessageMetadata,
             ListTopics,
             ListMessages,
+            ResendMessages,
             PublishMessage,
             ReceiveMessages,
             DeleteMessage,
@@ -1032,6 +1155,7 @@ namespace Euclid::ENS {
         if (action == "publish-message") return Command::PublishMessage;
         if (action == "delete-topic") return Command::DeleteTopic;
         if (action == "list-messages") return Command::ListMessages;
+        if (action == "resend-messages") return Command::ResendMessages;
         if (action == "get-message-count") return Command::GetMessageCount;
         if (action == "get-message-attribute") return Command::GetMessageAttribute;
         if (action == "set-message-attribute") return Command::SetMessageAttribute;
@@ -1073,6 +1197,9 @@ namespace Euclid::ENS {
 
             case Command::ListMessages:
                 return handleListMessages(req);
+
+            case Command::ResendMessages:
+                return handleResendMessages(req);
 
             case Command::PublishMessage:
                 return handlePublishMessage(req);

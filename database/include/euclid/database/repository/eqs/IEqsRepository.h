@@ -210,7 +210,7 @@ namespace Euclid::Database {
          * @param queueErn ERN of the queue the message is sent to.
          * @param body message body.
          * @param attributes message attributes.
-         * @param priority message priority; defaults to MIDDLE.
+         * @param priority message priority; defaults to MEDIUM.
          * @return the newly created message entity.
          */
         virtual Entity::EQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes, const std::map<std::string, Entity::COM::Variant> &systemAttributes, Entity::EQS::MessagePriority priority) = 0;
@@ -224,10 +224,10 @@ namespace Euclid::Database {
          * repeatedly (long polling) until either a message becomes available or waitTime seconds
          * have elapsed, whichever comes first.
          *
-         * The maxCount slots are apportioned across the three priority tiers (HIGH/MIDDLE/LOW)
+         * The maxCount slots are apportioned across the three priority tiers (HIGH/MEDIUM/LOW)
          * proportionally to the configurable weights returned by
          * Entity::EQS::LoadPriorityWeights() - see ComputeReceiveCounts() - so that with the
-         * default weights, most of a batch is HIGH priority, fewer are MIDDLE, and fewer still are
+         * default weights, most of a batch is HIGH priority, fewer are MEDIUM, and fewer still are
          * LOW, while still filling up to maxCount whenever enough messages of any priority exist.
          *
          * @param queueErn ERN of the queue to receive messages from.

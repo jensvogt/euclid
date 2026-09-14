@@ -50,7 +50,7 @@ namespace {
     }
 
     Euclid::Database::Entity::ENS::Message publish(MongoEnsRepository &repo, const std::string &ern, const std::string &messageId) {
-        return repo.publishMessage(messageId, "ern:ens:eu-central-1:000000000000:message:" + messageId, ern, "{}", {}, "MIDDLE");
+        return repo.publishMessage(messageId, "ern:ens:eu-central-1:000000000000:message:" + messageId, ern, "{}", {}, "MEDIUM");
     }
 
     // How far ahead of now the message expires, in seconds - the publish stamps it from its own

@@ -31,7 +31,7 @@ namespace Euclid::CLI {
     /**
      * @brief Processes commands for the ess (Euclid Secrets Store) module (e.g. "ess get-secret --name db-password").
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class EssCli final : BaseCli {
 
