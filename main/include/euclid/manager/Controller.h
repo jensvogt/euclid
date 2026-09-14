@@ -5,6 +5,7 @@
 #pragma once
 
 // C++ includes
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <map>
@@ -17,6 +18,7 @@
 #include <vector>
 
 // Euclid includes
+#include <euclid/core/Configuration.h>
 #include <euclid/database/entity/emm/Module.h>
 #include <euclid/dto/emm/ModuleProcess.h>
 
@@ -283,7 +285,22 @@ namespace Euclid::main {
          * reporter reads as no load at all, and the instance nothing is known about is the last
          * one that should be stopped.
          */
-        void reconcileApplicationLoad();
+        void reconcileApplicationLoad(const std::vector<Database::Entity::Module> &modules);
+
+        /**
+         * @brief The pre-2026-09-14 load path, for applications that do not report directly yet.
+         *
+         * @par
+         * euclid's SDKs are released separately from euclid, so an application built against a
+         * published euclid-jdk cannot call `eap report-load` however new the installation is.
+         * Reading only the direct path meant those applications reported nothing the autoscaler
+         * could see and their pools never grew - worse than the five-minute lag this has.
+         *
+         * @param poolNames only the pools that gave nothing on the direct path. A pool that reports
+         * directly never pays for the query.
+         */
+        void reconcileApplicationLoadFromMetrics(const std::vector<std::string> &poolNames);
+
 
         /**
          * @brief The order pools should be stopped in: ingress, then applications, then modules in
@@ -607,6 +624,23 @@ namespace Euclid::main {
          * @param group the group whose instances should be cycled.
          */
         static void queueRoll(ServiceGroup &group);
+        /**
+         * @brief Marks every instance that is not reporting as busy, except the newly started.
+         *
+         * @param group the pool.
+         * @param fresh the cutoff a report has to be newer than.
+         * @param now the tick's own clock reading.
+         */
+        void applyUnreportedAreBusy(ServiceGroup &group, std::chrono::system_clock::time_point fresh,
+                                    std::chrono::steady_clock::time_point now);
+
+        /**
+         * @brief Asks evaluateScaling() for another instance when work is piling up.
+         *
+         * @param group the pool.
+         * @param pending messages waiting across the pool's queues.
+         */
+        void applyBacklog(ServiceGroup &group, long pending);
 
 
         /**
@@ -633,19 +667,40 @@ namespace Euclid::main {
         static constexpr int kTransferReconcileTicks = 5;
 
         /**
-         * @brief How recent a load sample has to be to count, as a multiple of EMO's own period.
+         * @brief How recent an EMO load sample has to be to count, as a multiple of EMO's period.
          *
          * @par
-         * Not a fixed number of seconds, because what arrives is not a stream of samples: EMO
-         * accumulates them into buckets and writes each one only when it closes, stamped with the
-         * bucket's start. So the newest row available is routinely a whole period old, and a
-         * window shorter than that matches nothing however healthy the reporter is - which is
-         * exactly what a sixty-second window did.
-         *
-         * @par
-         * Two periods: one for the bucket that has closed, one for the bucket still filling.
+         * Only the fallback path uses this - see reconcileApplicationLoad(). Not a fixed number of
+         * seconds, because what arrives there is not a stream of samples: EMO accumulates them into
+         * buckets and writes each one only when it closes, stamped with the bucket's start. So the
+         * newest row available is routinely a whole period old, and a window shorter than that
+         * matches nothing however healthy the reporter is.
          */
         static constexpr int kLoadFreshnessPeriods = 2;
+
+        /**
+         * @brief How many load rows one fallback read takes. Two queries cover every instance of
+         * every application, so this only has to outnumber the samples one window can hold.
+         */
+        static constexpr long kLoadSampleLimit = 500;
+
+        /**
+         * @brief How old a load report may be and still count, in seconds.
+         *
+         * @par
+         * A plain number of seconds now, where it used to be a multiple of EMO's averaging period:
+         * the figure no longer travels through EMO's buckets, so there is no bucket to wait for.
+         * It is the application's own reporting interval with room for a slow one - euclid-spring
+         * reports every fifteen seconds.
+         *
+         * @par
+         * It does double duty. An instance that has not reported within it is one nothing is known
+         * about rather than an idle one, and a freshly started instance is given exactly this long
+         * to say something before it counts either way.
+         */
+        static long LoadFreshnessSeconds() {
+            return std::max<long>(5, Core::Configuration::instance().getOr<long>("euclid.scaling.load-freshness-seconds", 45));
+        }
 
         /**
          * @brief Peak utilisation, in percent, at which an instance counts as busy.
@@ -662,12 +717,6 @@ namespace Euclid::main {
          * @brief Messages waiting across an application's queues before another instance is asked for.
          */
         static constexpr long kBacklogScaleUpMessages = 100;
-
-        /**
-         * @brief How many load rows one reconcile reads. Two queries cover every instance of every
-         * application, so this only has to outnumber the samples one freshness window can hold.
-         */
-        static constexpr long kLoadSampleLimit = 500;
 
         /**
          * @brief Indicates whether the service is currently running.

@@ -90,6 +90,7 @@ namespace Euclid::Core {
                 "eap:get-metrics",
                 "eap:list-applications",
                 "eap:redeploy-application",
+                "eap:report-load",
                 "eap:set-log-level",
                 "eap:start-application",
                 "eap:stop-application",

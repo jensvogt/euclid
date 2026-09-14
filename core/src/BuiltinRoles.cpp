@@ -188,7 +188,14 @@ namespace Euclid::Core {
                                 "ens:list-subscriptions",
                                 "esm:subscribe",
                                 "esm:unsubscribe",
-                                "esm:list-subscriptions"});
+                                "esm:list-subscriptions",
+                                // Saying how loaded it is, which is the only way the autoscaler
+                                // learns anything about an application: it serves no gateway
+                                // request, so there is no traffic to observe. Without this the
+                                // report is refused, the manager sees nothing, and the pool never
+                                // grows however much work is waiting - which is what happened when
+                                // the action was added and this was not.
+                                "eap:report-load"});
 
                 built[std::string(BuiltinRoles::Transfer)] = transferPermissions();
 

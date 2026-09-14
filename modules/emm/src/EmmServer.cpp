@@ -178,6 +178,24 @@ namespace Euclid::EMM {
                         // to "where is this one actually serving", and nothing else exposes it.
                         {"httpPort", i.httpPort},
                         {"restartCount", i.restartCount},
+                        // The three an instance writes about itself, which the manager never
+                        // writes and cannot observe: how loaded it says it is, how much work is
+                        // waiting, and when it last said so. Reported because they are the whole
+                        // of what the autoscaler acts on for an application - without them here,
+                        // "why is the pool not growing" has no answer short of reading the
+                        // collection by hand.
+                        //
+                        // -1 for an instance that has never reported, which is a different thing
+                        // from one reporting no load: the first is a module that does not report,
+                        // an SDK too old to know how, or a call being refused.
+                        {"utilisation", i.utilisation},
+                        {"backlog", i.backlog},
+                        {"loadReportedAt", i.loadReportedAt.time_since_epoch().count() == 0
+                                                   ? std::string()
+                                                   : Core::DateTimeUtils::ToISO8601(i.loadReportedAt)},
+                        // Work the instance is doing that no request is waiting on - an --async
+                        // purge, say. Scale-down passes over an instance reporting any.
+                        {"backgroundTasks", i.backgroundTasks},
                         {"created", Core::DateTimeUtils::ToISO8601(i.created)},
                         {"modified", Core::DateTimeUtils::ToISO8601(i.modified)},
                 });

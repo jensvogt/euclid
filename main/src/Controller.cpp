@@ -1247,7 +1247,7 @@ namespace Euclid::main {
         // receives no gateway request, so acquireInstance() never marks it busy and every pool of
         // them looks permanently idle to evaluateScaling().
         try {
-            reconcileApplicationLoad();
+            reconcileApplicationLoad(modules);
         } catch (const std::exception &e) {
             log_error << "Application load reconcile failed, error: " << e.what();
         }
@@ -1257,13 +1257,93 @@ namespace Euclid::main {
         rollQueuedInstance();
     }
 
-    void ServiceController::reconcileApplicationLoad() {
+    void ServiceController::reconcileApplicationLoad(const std::vector<Database::Entity::Module> &modules) {
+
+        // An application receives no gateway request, so acquireInstance() never marks it busy and
+        // there is nothing to scale on but what the application says about itself. It can say it
+        // two ways, and this prefers the quick one.
+        //
+        // @par The direct road
+        // `eap report-load` writes onto the instance's own record - these very module documents -
+        // so it costs no query and is as fresh as the application's reporting interval. About
+        // twenty seconds from a load change to the pool changing.
+        //
+        // @par The old road, still here
+        // Pushing `application-utilisation` to EMO as a metric. EMO accumulates samples in memory
+        // and writes a row only when its averaging bucket closes - euclid.modules.emo.average-period,
+        // five minutes as shipped - so the figure arrives up to five minutes late. That is what
+        // made scaling slow, and it is why the direct road exists.
+        //
+        // @par Why both
+        // The SDKs are released separately from euclid, so an application built against a published
+        // euclid-jdk cannot report the new way however new the installation is. Reading only the
+        // new road means those applications report nothing the autoscaler can see and their pools
+        // never grow at all - which is worse than slow. So the fallback is per pool: a pool with no
+        // instance reporting directly is read from EMO exactly as it always was, and one that does
+        // report never pays for the query.
+        const auto now = std::chrono::steady_clock::now();
+        const auto fresh = std::chrono::system_clock::now() - std::chrono::seconds(LoadFreshnessSeconds());
+
+        std::vector<std::string> needFallback;
+        {
+            std::lock_guard lock(_mutex);
+            for (const auto &module: modules) {
+
+                auto *group = getGroup(module.name);
+                if (!group) continue;
+
+                bool reporting = false;
+                long pending = 0;
+
+                for (const auto &reported: module.instances) {
+
+                    auto found = std::ranges::find_if(group->instances, [&](const auto &svc) {
+                        return svc->instanceId == reported.instanceId;
+                    });
+                    if (found == group->instances.end()) continue;
+                    auto &svc = *found;
+                    if (svc->state != Database::Entity::ModuleState::RUNNING) continue;
+
+                    // Never reported, or stopped reporting.
+                    if (reported.utilisation < 0 || reported.loadReportedAt < fresh) continue;
+                    reporting = true;
+
+                    svc->utilisation = reported.utilisation;
+                    svc->loadReportedAt = reported.loadReportedAt;
+
+                    if (reported.utilisation >= kBusyUtilisationPercent) {
+                        svc->wasBusySinceLastCheck = true;
+                        group->lastActivityAt = now;
+                    }
+                    if (reported.backlog > 0) pending += reported.backlog;
+                }
+
+                if (!reporting) {
+                    // Nothing on the direct road. Either the application does not report at all, in
+                    // which case EMO has nothing either and the fallback finds nothing, or it is an
+                    // older build still pushing metrics - which is the case worth catching.
+                    needFallback.push_back(module.name);
+                    continue;
+                }
+
+                applyUnreportedAreBusy(*group, fresh, now);
+                applyBacklog(*group, pending);
+            }
+        }
+
+        if (!needFallback.empty()) reconcileApplicationLoadFromMetrics(needFallback);
+    }
+
+    // The pre-2026-09-14 path, kept for applications built against a published SDK that does not
+    // know `eap report-load` yet. Slow by construction - see reconcileApplicationLoad() - and only
+    // read for the pools that gave nothing better.
+    void ServiceController::reconcileApplicationLoadFromMetrics(const std::vector<std::string> &poolNames) {
 
         // Read once for every instance rather than once per instance: one query for each metric,
         // matched up by label below. A window rather than "the latest row" because EMO writes a
-        // bucket per period - anything older than this has stopped reporting.
-        // EMO's averaging period is what decides how old the newest row can be, so the window is
-        // read from the same setting rather than guessed at here.
+        // bucket per period - anything older than this has stopped reporting. EMO's averaging
+        // period is what decides how old the newest row can be, so the window is read from the same
+        // setting rather than guessed at here.
         const auto period = Core::Configuration::instance().getOr<long>("euclid.modules.emo.average-period", 300);
         const auto since = std::chrono::system_clock::now() - std::chrono::seconds(period * kLoadFreshnessPeriods);
         const auto repo = Database::RepositoryFactory::instance().emoRepository();
@@ -1287,17 +1367,19 @@ namespace Euclid::main {
         const auto backlog = latestByInstance("application-backlog");
         if (utilisation.empty() && backlog.empty()) return;
 
-        std::lock_guard lock(_mutex);
-        for (auto &group: _services | std::views::values) {
+        const auto now = std::chrono::steady_clock::now();
+        const auto fresh = std::chrono::system_clock::now() - std::chrono::seconds(LoadFreshnessSeconds());
 
-            // Only pools whose instances report. A module served through the gateway already has a
-            // truthful busy signal from acquireInstance(), and overwriting it from a metric that
-            // arrives seconds late would be worse than what it has.
+        std::lock_guard lock(_mutex);
+        for (const auto &name: poolNames) {
+
+            auto *group = getGroup(name);
+            if (!group) continue;
+
             bool reporting = false;
             long pending = 0;
-            const auto now = std::chrono::steady_clock::now();
 
-            for (auto &svc: group.instances) {
+            for (auto &svc: group->instances) {
                 if (svc->state != Database::Entity::ModuleState::RUNNING) continue;
 
                 const auto sample = utilisation.find(svc->instanceId);
@@ -1310,7 +1392,7 @@ namespace Euclid::main {
                 // though it never happened.
                 if (sample->second.maxValue >= kBusyUtilisationPercent) {
                     svc->wasBusySinceLastCheck = true;
-                    group.lastActivityAt = now;
+                    group->lastActivityAt = now;
                 }
 
                 if (const auto depth = backlog.find(svc->instanceId); depth != backlog.end()) {
@@ -1320,28 +1402,52 @@ namespace Euclid::main {
 
             if (!reporting) continue;
 
-            // An instance that has stopped reporting is not an idle instance - it is an instance
-            // nothing is known about, and a crashed reporter would otherwise read as 0% and be
-            // the first one stopped. Unknown counts as busy, so scale-down passes it over.
-            for (auto &svc: group.instances) {
+            // Same rule as the direct road, but keyed on whether EMO has a sample for the instance
+            // rather than on how fresh its own report is.
+            for (auto &svc: group->instances) {
                 if (svc->state != Database::Entity::ModuleState::RUNNING) continue;
-                if (!utilisation.contains(svc->instanceId)) svc->wasBusySinceLastCheck = true;
+                if (utilisation.contains(svc->instanceId)) continue;
+                if (std::chrono::duration_cast<std::chrono::seconds>(now - svc->startTime).count() < LoadFreshnessSeconds()) continue;
+                svc->wasBusySinceLastCheck = true;
             }
 
-            // Work waiting that nobody is getting to is the one signal utilisation cannot give:
-            // an instance is either busy or not, and "busy" says nothing about how much is left.
-            // Raising desiredCount is how evaluateScaling() is asked for more, and it is bounded
-            // there by maxInstances.
-            if (pending >= kBacklogScaleUpMessages) {
-                const auto running = std::ranges::count_if(group.instances, [](const auto &svc) {
-                    return svc->state == Database::Entity::ModuleState::RUNNING;
-                });
-                if (const auto wanted = static_cast<int>(running) + 1; wanted > group.desiredCount) {
-                    group.desiredCount = std::min(wanted, group.config.maxInstances);
-                    log_info << "Application backlog, module: " << group.config.name << ", pending: " << pending
-                             << ", desiredCount: " << group.desiredCount;
-                }
-            }
+            applyBacklog(*group, pending);
+        }
+    }
+
+    // An instance that has stopped reporting is not an idle instance - it is an instance nothing is
+    // known about, and a crashed reporter would otherwise read as 0% and be the first one stopped.
+    // Unknown counts as busy, so scale-down passes it over.
+    //
+    // With one exception, and it is the difference between a pool that ramps and one that runs
+    // away: an instance that has only just started has not had time to report, and counting it busy
+    // makes every scale-up look like continued saturation and spawn another. It is given one
+    // reporting window to say something before it counts either way.
+    void ServiceController::applyUnreportedAreBusy(ServiceGroup &group, const std::chrono::system_clock::time_point fresh,
+                                                   const std::chrono::steady_clock::time_point now) {
+
+        for (auto &svc: group.instances) {
+            if (svc->state != Database::Entity::ModuleState::RUNNING) continue;
+            if (svc->loadReportedAt >= fresh) continue;
+            if (std::chrono::duration_cast<std::chrono::seconds>(now - svc->startTime).count() < LoadFreshnessSeconds()) continue;
+            svc->wasBusySinceLastCheck = true;
+        }
+    }
+
+    // Work waiting that nobody is getting to is the one signal utilisation cannot give: an instance
+    // is either busy or not, and "busy" says nothing about how much is left. Raising desiredCount is
+    // how evaluateScaling() is asked for more, and it is bounded there by maxInstances.
+    void ServiceController::applyBacklog(ServiceGroup &group, const long pending) {
+
+        if (pending < kBacklogScaleUpMessages) return;
+
+        const auto running = std::ranges::count_if(group.instances, [](const auto &svc) {
+            return svc->state == Database::Entity::ModuleState::RUNNING;
+        });
+        if (const auto wanted = static_cast<int>(running) + 1; wanted > group.desiredCount) {
+            group.desiredCount = std::min(wanted, group.config.maxInstances);
+            log_info << "Application backlog, module: " << group.config.name << ", pending: " << pending
+                     << ", desiredCount: " << group.desiredCount;
         }
     }
 
