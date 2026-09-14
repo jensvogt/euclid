@@ -26,7 +26,7 @@ namespace Euclid::Database::Entity::EKV {
      * operator here is one the database can answer from the index, in order, which is the only
      * reason a sort key exists.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct SortCondition {
 

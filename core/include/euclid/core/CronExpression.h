@@ -36,7 +36,7 @@ namespace Euclid::Core {
      * @par
      * All calculations are done in UTC.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class CronExpression {
 

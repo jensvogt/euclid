@@ -42,9 +42,9 @@ namespace Euclid::Dto::EQS {
         std::map<std::string, COM::Variant> systemAttributes{};
 
         /**
-         * @brief Message priority, i.e. "LOW", "MIDDLE" or "HIGH". Defaults to "MIDDLE".
+         * @brief Message priority, i.e. "LOW", "MEDIUM" or "HIGH". Defaults to "MEDIUM".
          */
-        std::string priority{"MIDDLE"};
+        std::string priority{"MEDIUM"};
 
         /**
          * @brief Serializes this request to a JSON string
@@ -70,7 +70,7 @@ namespace Euclid::Dto::EQS {
             r.attributes = Core::GetMapFromObject<std::string, COM::Variant>(v, "attributes");
             r.systemAttributes = Core::GetMapFromObject<std::string, COM::Variant>(v, "systemAttributes");
             r.priority = Core::GetStringValue(v, "priority");
-            if (r.priority.empty()) r.priority = "MIDDLE";
+            if (r.priority.empty()) r.priority = "MEDIUM";
             return r;
         }
 

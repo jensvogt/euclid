@@ -50,7 +50,7 @@ namespace Euclid::CLI {
     /**
      * @brief Processes commands for the "ENS" module (e.g. "ens list-topics<p>").
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class EnsCli final : BaseCli {
 
@@ -250,6 +250,15 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int setTopicDelivering(const std::vector<std::string> &args, bool delivering) const;
+
+        /**
+         * @brief Hands a topic's stored messages to its subscribers again
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int resendMessages(const std::vector<std::string> &args) const;
 
         /**
          * @brief Subscribes a target resource (e.g. an EQS queue) to a topic.

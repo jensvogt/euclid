@@ -34,7 +34,7 @@ namespace Euclid::main {
      * deregistration call into every session's teardown path, and correct because Broadcast()
      * always visits the whole bucket anyway.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class GatewayWsRegistry {
     public:

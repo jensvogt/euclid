@@ -29,7 +29,7 @@ namespace Euclid::Database::Entity::EQS {
     /**
      * @brief EQS message entity
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct Message {
 
@@ -75,9 +75,9 @@ namespace Euclid::Database::Entity::EQS {
          * @brief Priority
          *
          * Used by receiveMessages() to favor higher priority messages over lower priority ones;
-         * see IEqsRepository::receiveMessages() for details. Defaults to MIDDLE.
+         * see IEqsRepository::receiveMessages() for details. Defaults to MEDIUM.
          */
-        MessagePriority priority = MessagePriority::MIDDLE;
+        MessagePriority priority = MessagePriority::MEDIUM;
 
         /**
          * @brief Last send datetime

@@ -30,7 +30,7 @@ namespace Euclid::Core {
      * framing logic itself stays unit-testable without a real connection (see
      * tests/GatewayWsFrameTest.cpp).
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class WsFrame {
     public:

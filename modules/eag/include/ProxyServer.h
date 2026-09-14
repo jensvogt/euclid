@@ -81,7 +81,7 @@ namespace Euclid::EAG {
      * names. The caller never learns which instance answered, and the application never learns it
      * was proxied: the path it receives is the path that was asked for.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class ProxyServer {
 

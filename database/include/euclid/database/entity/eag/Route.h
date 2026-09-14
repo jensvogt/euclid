@@ -40,7 +40,7 @@ namespace Euclid::Database::Entity::EAG {
      * gateway reads them from the module repository at the moment it needs one rather than
      * recording them here.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct Route {
 

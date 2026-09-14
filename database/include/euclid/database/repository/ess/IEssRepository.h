@@ -26,7 +26,7 @@ namespace Euclid::Database {
      * that returns every secret with its value, because nothing has a reason to ask for that and
      * an accidental listing is exactly how a secrets store stops being one.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class IEssRepository {
 

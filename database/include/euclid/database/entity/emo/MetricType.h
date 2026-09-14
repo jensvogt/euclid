@@ -26,7 +26,7 @@ namespace Euclid::Database::Entity::Monitoring {
      * what makes the rollup possible at all - without it a rollup reading a persisted value back
      * cannot tell whether summing or averaging is correct.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     enum class MetricType {
         GAUGE,

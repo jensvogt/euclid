@@ -44,7 +44,7 @@ namespace Euclid::Core {
     /**
      * @brief System utils for command line execution and other system routines.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class SystemUtils {
     public:

@@ -29,7 +29,7 @@ namespace Euclid::Database::Entity::ETS {
      * and its desired state live in the database, so a manager that comes back up brings every
      * RUNNING server back with it, without ETS having to be reachable at that moment.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     enum class TransferServerState {
         RUNNING,

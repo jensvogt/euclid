@@ -1,0 +1,109 @@
+.TH EUCLID-CLI-ENS-RESEND-MESSAGES 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ens-resend-messages \- hand a topic's stored messages to its subscribers again
+.SH SYNOPSIS
+.B euclid-cli ens resend-messages
+.BR \-\-topic | \-t
+.I NAME
+[\fB\-\-message\-id\fR|\fB\-m\fR \fIID\fR]
+.SH DESCRIPTION
+Delivers what a topic still holds to its subscriptions again, oldest
+first, each message with the payload, attributes and priority it was
+published with.
+.SH WHAT IT IS FOR
+A topic is not consumed the way a queue is. Publishing fans a message out
+to the subscriptions there and then, and what stays behind is the record
+of what was published \- kept for the topic's retention period, and once
+a subscriber has consumed the queue message it received, that record is
+the only copy left.
+.PP
+So there was no way back to it. A subscriber that was down while the
+topic was busy, one subscribed after the fact, or one that acknowledged a
+message and then failed to process it had lost those messages for good
+even though the topic still had them. This is the way back.
+.SH IT GOES TO EVERY SUBSCRIBER
+Not only the one that missed something. A resend is a publish of what was
+already published: every subscription on the topic receives every message
+it covers, again, and a subscriber that processed them the first time
+will see them a second.
+.PP
+Whether that matters is the subscriber's business \- a consumer that is
+idempotent does not care, and one that is not will double-process. On a
+busy topic, narrow it with
+.B \-\-message\-id
+rather than replaying a fortnight of traffic to everybody.
+.PP
+The messages keep their own ids, so a subscriber that records what it has
+seen can tell a resend from a new publish. The queue message each one
+becomes is new and has an id of its own, which is why a resend is
+delivered at all rather than being taken for a duplicate and dropped.
+.SH HELD MESSAGES ARE NOT RESENT
+A message published while the topic was stopped is
+.I held
+\- it has never been delivered at all, and
+.BR euclid-cli-ens-start-topic (1)
+is what releases it and marks it delivered afterwards. Handing one over
+from here would deliver it without marking it, and the next
+.B start-topic
+would deliver it a second time.
+.PP
+They are counted instead. A non-zero
+.I held
+in the answer means there is a backlog that
+.B start-topic
+should release.
+.PP
+A stopped topic is refused outright, for the same reason: it delivers
+nothing by somebody's decision, and this would be the one way around
+that.
+.SH OPTIONS
+.TP
+.BR \-t ", " \-\-topic " " \fINAME\fR
+Topic name. A full ERN also works, and is what reaches another namespace.
+Required.
+.TP
+.BR \-m ", " \-\-message\-id " " \fIID\fR
+Resend only this message, as
+.BR euclid-cli-ens-list-messages (1)
+reports its id. The message must belong to the named topic; one that
+belongs to another is refused rather than fanned out to subscriptions it
+was never published to.
+.SH EXIT STATUS
+.TP
+.B 0
+A summary
+.RI ( "{ern, resent, held}" )
+is printed as JSON.
+.I resent
+is how many went to the subscriptions;
+.I held
+how many were passed over as never having been delivered.
+.TP
+.B 1
+No topic of that name, the topic is stopped, no message of that id, that
+message belongs to another topic, or the caller was not granted the
+topic.
+.SH EXAMPLES
+.RS
+.nf
+# Everything the topic still holds
+euclid-cli ens resend-messages --topic orders
+
+# One message, which is what a busy topic usually wants
+euclid-cli ens resend-messages --topic orders \e
+    --message-id 7c1f2f5e-3a21-4e6b-9a0c-5f2b9e1d4c33
+
+# Find the one to resend first
+euclid-cli ens list-messages --topic orders
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ens (1),
+.BR euclid-cli-ens-list-messages (1),
+.BR euclid-cli-ens-start-topic (1),
+.BR euclid-cli-ens-stop-topic (1),
+.BR euclid-cli-ens-set-topic-retention (1),
+.BR euclid-cli-ens-publish-message (1),
+.BR euclid-cli-ens-list-subscriptions (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

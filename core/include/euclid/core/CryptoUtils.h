@@ -25,7 +25,7 @@ namespace Euclid::Core {
      * gone again once written, e.g. a multipart upload being assembled and encrypted in one pass,
      * where the plaintext the checksum has to describe exists only as it streams past.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class Md5Digest {
     public:
@@ -65,7 +65,7 @@ namespace Euclid::Core {
     /**
      * @brief Cryptographic hashing utilities.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class CryptoUtils {
     public:

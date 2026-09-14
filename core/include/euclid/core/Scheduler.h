@@ -47,7 +47,7 @@ namespace Euclid::Core {
      * scheduler.ScheduleCron("nightly-backup", [] { RunBackup(); }, "0 2 * * *");
      * @endcode
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class Scheduler {
 

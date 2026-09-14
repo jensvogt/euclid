@@ -41,7 +41,7 @@ namespace Euclid::Database::Entity::ENS {
     /**
      * @brief ENS message entity
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct Message final : BaseEntity {
 
@@ -128,7 +128,7 @@ namespace Euclid::Database::Entity::ENS {
          * delivered later, and a replay that dropped the priority would quietly turn urgent work
          * into ordinary work.
          */
-        std::string priority = "MIDDLE";
+        std::string priority = "MEDIUM";
 
         /**
          * @brief When this message stops being kept.

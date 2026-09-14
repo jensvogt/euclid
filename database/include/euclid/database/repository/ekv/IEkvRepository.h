@@ -23,7 +23,7 @@ namespace Euclid::Database {
     /**
      * @brief Interface for the key/value store's tables and items.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class IEkvRepository {
 

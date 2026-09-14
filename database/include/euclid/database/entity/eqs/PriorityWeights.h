@@ -19,14 +19,15 @@ namespace Euclid::Database::Entity::EQS {
     /**
      * @brief Relative weight of each priority tier when apportioning receiveMessages() slots.
      *
-     * Defaults to 4:2:1 for HIGH:MIDDLE:LOW, i.e. every step down in priority halves the share of
+     * Defaults to 4:2:1 for HIGH:MEDIUM:LOW, i.e. every step down in priority halves the share of
      * slots it gets - the discrete analogue of a logarithmic priority curve with only three tiers.
-     * Overridable per-deployment via euclid.modules.eqs.priority-weights.{high,middle,low} in the
-     * configuration file.
+     * Overridable per-deployment via euclid.modules.eqs.priority-weights.{high,medium,low} in the
+     * configuration file - and still via ".middle", which is what that key was called before the
+     * middle tier was renamed. See LoadPriorityWeights().
      */
     struct PriorityWeights {
         double high = 4.0;
-        double middle = 2.0;
+        double medium = 2.0;
         double low = 1.0;
     };
 

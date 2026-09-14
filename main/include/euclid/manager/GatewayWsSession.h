@@ -33,7 +33,7 @@ namespace Euclid::main {
      * @brief What GatewayWsRegistry needs from a websocket session to deliver a pushed event to
      * it, without needing to know whether the underlying connection is plain TCP or TLS.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class IWsSession {
     public:
@@ -106,7 +106,7 @@ namespace Euclid::main {
      * unrelated thread) goes through one PostFrame()-fed write queue, since Beast websocket
      * writes aren't safely concurrent.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class GatewayWsSession final : public IWsSession, public std::enable_shared_from_this<GatewayWsSession> {
     public:
@@ -174,7 +174,7 @@ namespace Euclid::main {
      * @brief TLS-terminated counterpart of GatewayWsSession - identical behavior/protocol, see
      * its doc comment; only the underlying stream type differs.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class GatewayWsTlsSession final : public IWsSession, public std::enable_shared_from_this<GatewayWsTlsSession> {
     public:

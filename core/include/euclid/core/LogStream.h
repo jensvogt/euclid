@@ -91,7 +91,7 @@ namespace Euclid::Core {
      * entirely, which is the only way to keep one talkative application from drowning out
      * everything euclid itself has to say - see SetChannelSeverity().
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class LogStream {
 

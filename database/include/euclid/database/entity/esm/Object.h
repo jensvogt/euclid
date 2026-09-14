@@ -34,7 +34,7 @@ namespace Euclid::Database::Entity::ESM {
      * internalName (a UUID); key is only ever resolved to that filename through this entity, so
      * the database is the sole source of truth for the key-to-file mapping.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct Object final : BaseEntity {
 

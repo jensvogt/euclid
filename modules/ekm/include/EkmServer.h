@@ -53,7 +53,7 @@ namespace Euclid::EKM {
      * Receives HTTP requests forwarded by the gateway and dispatches them
      * to per-action handler methods.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class EkmServer final : public Core::HttpActionServer {
     public:

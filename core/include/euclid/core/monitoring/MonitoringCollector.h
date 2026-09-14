@@ -20,7 +20,7 @@ namespace Euclid::Core::Monitoring {
      * resets it, ready for the next collection window - the monitoring module drives when that
      * happens, by polling Core::HttpActionServer::MetricsResponse() periodically.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class MonitoringCollector {
 

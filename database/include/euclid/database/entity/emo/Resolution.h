@@ -30,7 +30,7 @@ namespace Euclid::Database::Entity::Monitoring {
      * default), which is why the bucket width is not part of this enum. Use ResolutionBucket() for
      * the two derived tiers and the configured period for RAW.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     enum class Resolution {
         RAW,

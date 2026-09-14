@@ -589,7 +589,7 @@ jobs:
           --version "${{ env.SEMVER }}" \
           --architecture amd64 \
           --license "MPL-2.0" \
-          --maintainer "Jens Vogt <jens.vogt@opitz-consulting.com>" \
+          --maintainer "Jens Vogt <jensvogt47@gmail.com>" \
           --description "Euclid Cloud Services" \
           --category utils \
           --depends systemd \
@@ -885,7 +885,7 @@ jobs:
           --version "${{ env.SEMVER }}" \
           --architecture amd64 \
           --license "MPL-2.0" \
-          --maintainer "Jens Vogt <jens.vogt@opitz-consulting.com>" \
+          --maintainer "Jens Vogt <jensvogt47@gmail.com>" \
           --description "Euclid command line interface" \
           --url "https://github.com/jensvogt/euclid" \
           --category utils \

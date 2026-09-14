@@ -29,7 +29,7 @@ namespace Euclid::Core {
      * euclid user, provisioning one, issuing the session - should not be able to tell them apart,
      * or the two would drift into behaving differently for no reason anybody chose.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct FederatedIdentity {
 

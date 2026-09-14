@@ -24,7 +24,7 @@ namespace Euclid::Core {
      * Owns the accept loop, worker threads and socket lifecycle. Subclasses only need to
      * implement Dispatch() to turn a request into a response.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class UnixSocketServer {
 

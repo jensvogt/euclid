@@ -24,7 +24,7 @@ namespace Euclid::Transfer {
      * indirection is what lets the ETS module change a server's bucket, ports or permitted
      * users without the manager having to pass any of it on the command line.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class TransferContext {
 

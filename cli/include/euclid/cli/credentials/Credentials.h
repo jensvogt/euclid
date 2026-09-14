@@ -25,7 +25,7 @@ namespace Euclid::CLI {
      * "..."}) at $HOME/.euclid/credentials, so a user only has to log in once per machine and
      * every subsequent command automatically knows who/where it's acting as.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class Credentials {
 

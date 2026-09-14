@@ -23,7 +23,7 @@ namespace Euclid::Core::Monitoring {
      * socket whose process the autoscaler is in the middle of tearing down - the producer
      * simply stops pushing (its destructor cancels the scheduled task) when it shuts down.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class MetricsPusher {
 

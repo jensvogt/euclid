@@ -31,7 +31,7 @@ namespace Euclid::Core {
     /**
      * @brief Date time utilities.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class DateTimeUtils {
 

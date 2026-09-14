@@ -29,7 +29,7 @@ namespace Euclid::CLI {
      * a person can keep their password out of it, and a scheduled job can supply everything from
      * its environment.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     struct OneLoginConfiguration {
 
@@ -147,7 +147,7 @@ namespace Euclid::CLI {
      * request of euclid's, so it is unsolicited as far as the service provider is concerned, and
      * the installation has to allow those (saml.allow-idp-initiated).
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class OneLoginClient {
 

@@ -13,7 +13,7 @@
 #   -q QUEUE_NAME   queue to send to; created if it doesn't exist yet (default: test-queue)
 #   -e ENDPOINT     euclid gateway endpoint (default: https://localhost:5566)
 #   -c CLI_PATH     path to the euclid-cli binary (default: euclid-cli, resolved via PATH)
-#   -r              assign priorities randomly instead of cycling LOW/MIDDLE/HIGH round-robin
+#   -r              assign priorities randomly instead of cycling LOW/MEDIUM/HIGH round-robin
 #
 # Requires: euclid-cli (built and on PATH, or pointed to via -c), jq, and a valid
 # euclid-cli login session (run "euclid-cli access login --user <user> --password <password>" first).
@@ -34,7 +34,7 @@ Usage: send_test_messages.sh [-n COUNT] [-q QUEUE_NAME] [-e ENDPOINT] [-c CLI_PA
   -q QUEUE_NAME  queue to send to; created if it doesn't exist yet (default: test-queue)
   -e ENDPOINT    euclid gateway endpoint (default: https://localhost:5566)
   -c CLI_PATH    path to the euclid-cli binary (default: euclid-cli, resolved via PATH)
-  -r             assign priorities randomly instead of cycling LOW/MIDDLE/HIGH round-robin
+  -r             assign priorities randomly instead of cycling LOW/MEDIUM/HIGH round-robin
 
 Requires: euclid-cli (built and on PATH, or pointed to via -c), jq, and a valid
 euclid-cli login session (run "euclid-cli access login --user <user> --password <password>" first).
@@ -72,7 +72,7 @@ if [ -z "$ern" ]; then
 fi
 echo "Sending $COUNT messages to '$QUEUE_NAME' (ern: $ern)"
 
-priorities=(LOW MIDDLE HIGH)
+priorities=(LOW MEDIUM HIGH)
 counts_low=0
 counts_middle=0
 counts_high=0
@@ -88,10 +88,10 @@ for ((i = 1; i <= COUNT; i++)); do
 
     case "$priority" in
         LOW) counts_low=$((counts_low + 1)) ;;
-        MIDDLE) counts_middle=$((counts_middle + 1)) ;;
+        MEDIUM) counts_middle=$((counts_middle + 1)) ;;
         HIGH) counts_high=$((counts_high + 1)) ;;
     esac
     echo "  [$i/$COUNT] sent, priority: $priority"
 done
 
-echo "Done. Sent LOW=$counts_low MIDDLE=$counts_middle HIGH=$counts_high"
+echo "Done. Sent LOW=$counts_low MEDIUM=$counts_middle HIGH=$counts_high"

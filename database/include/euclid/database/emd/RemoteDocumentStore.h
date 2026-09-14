@@ -34,7 +34,7 @@ namespace Euclid::Database::Emd {
      * store is: the manager starts them in dependency order, but nothing guarantees the first
      * query waits for it.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class RemoteDocumentStore final : public IDocumentStore {
 

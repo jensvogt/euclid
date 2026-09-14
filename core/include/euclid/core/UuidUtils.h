@@ -21,7 +21,7 @@ namespace Euclid::Core {
     /**
      * @brief UUID utility class.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class UuidUtils {
     public:

@@ -31,7 +31,7 @@ namespace Euclid::Core {
      * waiting on the gateway. A push that fails costs latency and nothing else: a durable
      * subscriber still has the event waiting for it.
      *
-     * @author jens.vogt\@opitz-consulting.com
+     * @author jensvogt47\@gmail.com
      */
     class EventPusher {
     public:
