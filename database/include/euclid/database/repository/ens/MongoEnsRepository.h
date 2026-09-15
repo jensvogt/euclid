@@ -252,6 +252,9 @@ namespace Euclid::Database {
         [[nodiscard]]
         std::vector<Entity::ENS::Message> listMessages(const std::string &topicErn, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const override;
 
+        std::vector<Entity::ENS::Message> listMessagesAfter(const std::string &topicErn, long pageSize,
+                                                            const std::string &afterOid) const override;
+
         /**
          * @brief Check the existence of the module by name
          *
