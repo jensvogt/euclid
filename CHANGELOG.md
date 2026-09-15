@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.16](https://github.com/jensvogt/euclid/compare/1.1.15...v1.1.16) (2026-09-15)
+
+
+### Bug Fixes
+
+* ENS and protocolizing ([3ca1a2f](https://github.com/jensvogt/euclid/commit/3ca1a2f799bc49061576d233176c4d4894cca369))
+
 ## [1.1.15](https://github.com/jensvogt/euclid/compare/1.1.14...v1.1.15) (2026-09-14)
 
 
