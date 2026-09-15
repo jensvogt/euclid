@@ -72,6 +72,28 @@ namespace Euclid::Database {
         virtual void reportBackgroundTasks(const std::string &moduleName, const std::string &instanceId, long tasks) = 0;
 
         /**
+         * @brief Forgets what the process that used to hold this slot said about itself.
+         *
+         * @par
+         * Every self-reported field describes a running process, and `instanceId` is deliberately
+         * stable across restarts of the same slot - so a new process inherits the last thing its
+         * predecessor said. For `utilisation` and `backlog` that corrects itself, because
+         * `loadReportedAt` makes a stale figure recognisable. `backgroundTasks` has no such rule
+         * and no way to get one: the count lives in the process, and a process that dies never
+         * gets to count down.
+         *
+         * @par
+         * So a slot that was stopped mid-`--async` keeps a count of work that no longer exists,
+         * and `evaluateScaling()` never scales that instance down again - for the life of the
+         * installation. Called by the manager when it spawns into a slot, which is the one moment
+         * it is certain the figures belong to nobody.
+         *
+         * @param moduleName the module.
+         * @param instanceId the pool slot being reused.
+         */
+        virtual void clearInstanceReports(const std::string &moduleName, const std::string &instanceId) = 0;
+
+        /**
          * @brief Records how loaded an instance says it is.
          *
          * @par

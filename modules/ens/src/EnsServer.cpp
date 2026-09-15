@@ -2,8 +2,13 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+// C++ includes
+#include <chrono>
+#include <thread>
+
 // Euclid includes
 #include <EnsServer.h>
+#include <euclid/database/BackgroundWork.h>
 
 #include "euclid/core/HttpUtils.h"
 
@@ -797,6 +802,69 @@ namespace Euclid::ENS {
         deliverToSubscriptions(topicErn, message.messageId, message.body, attributesJson, systemAttributes, message.priority);
     }
 
+    // What one whole-topic resend came to.
+    struct ResendCounts {
+
+        // Messages handed to the subscriptions again.
+        long resent = 0;
+
+        // Messages passed over because they have never been delivered at all; see below.
+        long held = 0;
+    };
+
+    // Hands every message a topic still holds to its subscriptions, oldest first.
+    //
+    // Shared by the inline and the --async paths so the two cannot drift: an operator who adds
+    // --async because the topic got big must not get different behaviour along with it.
+    //
+    // A page at a time and in publish order, the same shape start-topic uses: a topic that
+    // collected a fortnight of traffic does not have to fit in memory, and a subscriber receiving
+    // the backlog out of order would be worse than not receiving it.
+    //
+    // Walked from where the last page stopped rather than by page number. Paging by index makes
+    // the database re-walk everything before the page it wants, so a whole-topic pass costs the
+    // square of the topic's size: on a topic of 2.6 million messages a page cost 2.5s early and
+    // 7.3s two million in, which is hours of paging for one resend and gets worse as the topic
+    // grows. This costs one index seek per page wherever it starts - see
+    // IEnsRepository::listMessagesAfter().
+    //
+    // Nothing is removed as this goes, unlike a purge, so the message after the last one handed
+    // over really is the next one.
+    static ResendCounts resendAllMessages(const std::string &ern) {
+
+        const auto repo = Database::RepositoryFactory::instance().ensRepository();
+
+        ResendCounts counts;
+        constexpr long kPage = 500;
+
+        std::string afterOid;
+
+        for (;;) {
+
+            const auto messages = repo->listMessagesAfter(ern, kPage, afterOid);
+            if (messages.empty()) break;
+
+            for (const auto &message: messages) {
+                if (message.status == Database::Entity::ENS::kStatusHeld) {
+                    ++counts.held;
+                    continue;
+                }
+                resendMessage(ern, message);
+                ++counts.resent;
+            }
+
+            // Held messages move the cursor too. They are passed over, not skipped: leaving one
+            // out of the position would start the next page on it again and never finish.
+            afterOid = messages.back().oid;
+
+            // A short page is the last one. Checked rather than relying on the next call coming
+            // back empty, which would cost one more query per resend for nothing.
+            if (static_cast<long>(messages.size()) < kPage) break;
+        }
+
+        return counts;
+    }
+
     // Delivers what a topic still holds to its subscriptions again.
     //
     // @par What it is for
@@ -840,6 +908,56 @@ namespace Euclid::ENS {
                                             "whatever was published while it was stopped; see start-topic");
         }
 
+        // Answered at once and carried on afterwards, for a topic holding more messages than a
+        // request can resend within the gateway's backend timeout. Inline, the caller waits for all
+        // of it, gets a timeout anyway, and the resending carries on invisibly behind the abandoned
+        // request; --async makes that honest.
+        //
+        // Not resumable, unlike a purge, and it does not need to be: a resend removes nothing, so a
+        // run that stops halfway has simply handed over fewer messages, and asking again hands over
+        // all of them - the ones already sent for a second time. That is the same replay this
+        // command always is, and why its subscribers have to be idempotent whether it finishes or
+        // not. What it does need is the background-work count, or the autoscaler stops the instance
+        // partway through for want of any request to see.
+        //
+        // Refused for a single message: one delivery is not worth a 202 the caller then has to
+        // chase, and silently ignoring the flag would be worse.
+        if (Core::GetBoolValue(jv, "async")) {
+
+            if (!messageId.empty()) {
+                return EnsServer::ErrorResponse(req, status::bad_request,
+                                                "async resends a whole topic; a single --message-id is one delivery and is done inline");
+            }
+
+            // Counted rather than listed, so the answer can say how much was started without
+            // paying for the listing twice - the thread does its own.
+            const auto pending = repo->countMessages(ern);
+
+            const auto work = Database::BackgroundWork::Begin("ens");
+            std::thread([ern, work] {
+                try {
+                    log_info << "ENS background resend started, ern: " << ern;
+                    const auto [resent, held] = resendAllMessages(ern);
+
+                    // Recorded here because the request that asked for this returned long ago:
+                    // the inline path's recordResend() never runs for an async resend.
+                    Database::RepositoryFactory::instance().ensRepository()->recordResend(ern, resent);
+                    log_info << "ENS background resend finished, ern: " << ern << ", resent: " << resent << ", held: " << held;
+
+                } catch (const std::exception &e) {
+                    // Nothing above this catch: an exception escaping a detached thread's entry
+                    // function calls std::terminate() and takes the whole module down.
+                    log_error << "ENS background resend failed, ern: " << ern << ", error: " << e.what();
+                }
+            }).detach();
+
+            return EnsServer::JsonResponse(req, status::accepted,
+                                           boost::json::serialize(boost::json::object{
+                                                   {"ern", topic->ern},
+                                                   {"async", true},
+                                                   {"messages", pending}}));
+        }
+
         long resent = 0;
         long held = 0;
 
@@ -864,29 +982,9 @@ namespace Euclid::ENS {
 
         } else {
 
-            // A page at a time and in publish order, the same shape start-topic uses: a topic that
-            // collected a fortnight of traffic does not have to fit in memory, and a subscriber
-            // receiving the backlog out of order would be worse than not receiving it.
-            //
-            // Paged by index rather than always page zero - unlike a purge, nothing is removed as
-            // this goes, so the page after the one just read really is the next one.
-            constexpr long kPage = 500;
-            for (long pageIndex = 0;; ++pageIndex) {
-
-                const auto messages = repo->listMessages(ern, kPage, pageIndex, "created", "asc");
-                if (messages.empty()) break;
-
-                for (const auto &message: messages) {
-                    if (message.status == Database::Entity::ENS::kStatusHeld) {
-                        ++held;
-                        continue;
-                    }
-                    resendMessage(ern, message);
-                    ++resent;
-                }
-
-                if (static_cast<long>(messages.size()) < kPage) break;
-            }
+            const auto counted = resendAllMessages(ern);
+            resent = counted.resent;
+            held = counted.held;
         }
 
         repo->recordResend(ern, resent);

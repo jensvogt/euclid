@@ -110,6 +110,17 @@ namespace Euclid::Database {
             // to the collection.
             messageCollection.create_index(make_document(kvp("topicErn", 1)));
 
+            // What a resend walks. Without it the database matches on topicErn and then sorts the
+            // matches, which for a topic holding millions costs more with every page - measured at
+            // 2.5s for an early page and 7.3s two million in. With it the walk is the index order,
+            // so a page costs the same wherever it starts.
+            //
+            // Ordered by _id and not by a timestamp, because Message::toDocument() does not write
+            // one: "created" is absent from every message ever stored, so sorting on it sorts on
+            // nothing. _id is the order there actually is - an ObjectId leads with its creation
+            // second, so ascending _id is insertion order, which for a topic is publish order.
+            messageCollection.create_index(make_document(kvp("topicErn", 1), kvp("_id", 1)));
+
             // Retention, enforced by the database. expireAfterSeconds is zero because the moment is
             // already in the document - the field is when the message expires, not when it was
             // published - which is the same shape eqs_message and ees_events use.
@@ -526,6 +537,40 @@ namespace Euclid::Database {
 
         } catch (const std::exception &e) {
             log_error << "List messages failed, topicErn: " << topicErn << ", error: " << e.what();
+        }
+        return messages;
+    }
+
+    std::vector<Entity::ENS::Message> MongoEnsRepository::listMessagesAfter(const std::string &topicErn, const long pageSize,
+                                                                           const std::string &afterOid) const {
+
+        std::vector<Entity::ENS::Message> messages;
+        try {
+            bsoncxx::builder::basic::document filter;
+            filter.append(kvp("topicErn", topicErn));
+
+            // Where the last page stopped, rather than how many to step over. skip() re-walks
+            // everything before the page it wants, so paging a whole topic costs the square of its
+            // size; this is one index seek per page however deep it is.
+            if (!afterOid.empty()) {
+                filter.append(kvp("_id", make_document(kvp("$gt", bsoncxx::oid{afterOid}))));
+            }
+
+            mongocxx::options::find opts;
+            opts.sort(make_document(kvp("_id", 1)));
+            if (pageSize > 0) opts.limit(pageSize);
+
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
+
+            for (auto cursor = messageCollection.find(filter.view(), opts); auto doc: cursor) {
+                Entity::ENS::Message message;
+                message.FromDocument(doc);
+                messages.push_back(std::move(message));
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "List messages after failed, topicErn: " << topicErn << ", after: " << afterOid
+                      << ", error: " << e.what();
         }
         return messages;
     }

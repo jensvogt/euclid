@@ -7,6 +7,7 @@
 
 // C++ includes
 #include <algorithm>
+#include <chrono>
 #include <map>
 #include <string>
 #include <vector>
@@ -62,6 +63,25 @@ namespace {
         std::vector<std::string> bodies;
         for (const auto &message: repo.listMessages(kTopicErn, 500, 0, "created", "asc")) {
             bodies.push_back(message.body);
+        }
+        return bodies;
+    }
+
+    // Exactly the walk resendAllMessages() performs: pages of pageSize, each starting after the
+    // last message of the one before.
+    std::vector<std::string> walkInPages(const MongoEnsRepository &repo, const long pageSize) {
+
+        std::vector<std::string> bodies;
+        std::string afterOid;
+
+        for (;;) {
+            const auto page = repo.listMessagesAfter(kTopicErn, pageSize, afterOid);
+            if (page.empty()) break;
+
+            for (const auto &message: page) bodies.push_back(message.body);
+
+            afterOid = page.back().oid;
+            if (static_cast<long>(page.size()) < pageSize) break;
         }
         return bodies;
     }
@@ -174,3 +194,101 @@ BOOST_AUTO_TEST_CASE(PagingWalksForwardBecauseNothingIsRemoved) {
     const bool anyDuplicates = std::ranges::adjacent_find(seen) != seen.end();
     BOOST_TEST(!anyDuplicates);
 }
+
+// ── Walking the topic without skip ──────────────────────────────────────────
+//
+// A resend hands over everything a topic holds, and it used to ask for page 0, page 1, page 2 and
+// so on. Paging by index makes the database re-walk everything before the page it wants, so a
+// whole-topic pass costs the square of the topic's size: measured on a 2.6-million-message topic
+// at 2.5s for an early page and 7.3s two million in - hours of paging for one resend, getting
+// worse as the topic grows. It now starts each page after the last message of the one before.
+//
+// What that has to preserve is everything below: every message, once each, in publish order,
+// however the page boundaries fall.
+
+BOOST_AUTO_TEST_CASE(TheWalkHandsOverEveryMessageExactlyOnce) {
+
+    auto repo = freshRepository();
+    std::ignore = topicOf(repo);
+
+    for (int i = 0; i < 25; ++i) {
+        std::ignore = publish(repo, "m-" + std::to_string(i), "body-" + std::to_string(i));
+    }
+
+    // A page size that divides the topic unevenly, because that is where an off-by-one in the
+    // cursor shows up rather than in the round case.
+    const auto walked = walkInPages(repo, 7);
+
+    BOOST_REQUIRE(walked.size() == 25U);
+    for (int i = 0; i < 25; ++i) {
+        BOOST_TEST(walked[static_cast<std::size_t>(i)] == "body-" + std::to_string(i));
+    }
+}
+
+BOOST_AUTO_TEST_CASE(TheWalkAgreesWithTheWholeTopicWhateverThePageSize) {
+
+    // The property: where the page boundaries fall must not change what comes out. A cursor that
+    // repeats the boundary message, or steps over it, only shows up at some sizes.
+    auto repo = freshRepository();
+    std::ignore = topicOf(repo);
+
+    for (int i = 0; i < 20; ++i) {
+        std::ignore = publish(repo, "m-" + std::to_string(i), "body-" + std::to_string(i));
+    }
+
+    const auto expected = bodiesInOrder(repo);
+    BOOST_REQUIRE(expected.size() == 20U);
+
+    for (const long pageSize: {1L, 2L, 3L, 19L, 20L, 21L, 500L}) {
+        BOOST_TEST_CONTEXT("page size " << pageSize) {
+            const bool same = walkInPages(repo, pageSize) == expected;
+            BOOST_TEST(same);
+        }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(MessagesPublishedInTheSameMomentAreAllHandedOver) {
+
+    // Why the cursor is _id and not a timestamp. These are published as fast as the loop runs, so
+    // they share a moment; a cursor on a timestamp would step over the rest of the moment the page
+    // ended in - silently, and only for topics busy enough to put two messages in the same tick.
+    // _id is unique, so there is no such moment to step over.
+    //
+    // ens_message has no "created" field at all, which is the other half of the same point: it is
+    // never written, so a walk ordered by it is ordered by nothing.
+    auto repo = freshRepository();
+    std::ignore = topicOf(repo);
+
+    for (int i = 0; i < 6; ++i) {
+        std::ignore = publish(repo, "same-" + std::to_string(i), "body-" + std::to_string(i));
+    }
+
+    // One per page, so every boundary falls inside the shared moment.
+    BOOST_TEST(walkInPages(repo, 1).size() == 6U);
+}
+
+BOOST_AUTO_TEST_CASE(AnEmptyTopicWalksToNothing) {
+
+    auto repo = freshRepository();
+    std::ignore = topicOf(repo);
+
+    BOOST_TEST(walkInPages(repo, 500).empty());
+}
+
+BOOST_AUTO_TEST_CASE(HeldMessagesStillMoveTheCursor) {
+
+    // Held messages are passed over, not skipped: they are counted and not resent, but they are
+    // still part of the order. Leaving one out of the cursor would start the next page on it
+    // again, and the walk would never finish.
+    auto repo = freshRepository();
+    std::ignore = topicOf(repo, false);
+
+    for (int i = 0; i < 5; ++i) {
+        std::ignore = publish(repo, "h-" + std::to_string(i), "body-" + std::to_string(i));
+    }
+
+    // Every message is HELD, so a walk that only advanced past resent ones would loop for ever.
+    const auto walked = walkInPages(repo, 2);
+    BOOST_TEST(walked.size() == 5U);
+}
+
