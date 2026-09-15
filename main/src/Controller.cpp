@@ -260,6 +260,15 @@ namespace Euclid::main {
         // same place.
         svc->config.environment["EUCLID_INSTANCE_ID"] = svc->instanceId;
 
+        // And forget what the last process in this slot said about itself, before the next one is
+        // in a position to say anything. instanceId is stable across restarts, so those figures
+        // are inherited otherwise - and backgroundTasks in particular can never correct itself:
+        // the count lives in the process, and a process that was stopped mid---async never counted
+        // down. An instance carrying a phantom count is one evaluateScaling() will not scale down
+        // again, for the life of the installation.
+        svc->backgroundTasks = 0;
+        Database::RepositoryFactory::instance().emmRepository()->clearInstanceReports(svc->config.name, svc->instanceId);
+
         // Only applications are given one - see allocateHttpPort(). An application binds it with
         // something like server.port=${EUCLID_HTTP_PORT:8080}, so the same artifact still runs
         // outside euclid on its own default.
@@ -340,6 +349,15 @@ namespace Euclid::main {
         // the config - each ModuleProcess holds one - so both spawn paths pick it up from the
         // same place.
         svc->config.environment["EUCLID_INSTANCE_ID"] = svc->instanceId;
+
+        // And forget what the last process in this slot said about itself, before the next one is
+        // in a position to say anything. instanceId is stable across restarts, so those figures
+        // are inherited otherwise - and backgroundTasks in particular can never correct itself:
+        // the count lives in the process, and a process that was stopped mid---async never counted
+        // down. An instance carrying a phantom count is one evaluateScaling() will not scale down
+        // again, for the life of the installation.
+        svc->backgroundTasks = 0;
+        Database::RepositoryFactory::instance().emmRepository()->clearInstanceReports(svc->config.name, svc->instanceId);
 
         // Only applications are given one - see allocateHttpPort(). An application binds it with
         // something like server.port=${EUCLID_HTTP_PORT:8080}, so the same artifact still runs

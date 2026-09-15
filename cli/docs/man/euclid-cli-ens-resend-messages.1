@@ -6,6 +6,7 @@ euclid-cli-ens-resend-messages \- hand a topic's stored messages to its subscrib
 .BR \-\-topic | \-t
 .I NAME
 [\fB\-\-message\-id\fR|\fB\-m\fR \fIID\fR]
+[\fB\-\-async\fR]
 .SH DESCRIPTION
 Delivers what a topic still holds to its subscriptions again, oldest
 first, each message with the payload, attributes and priority it was
@@ -56,6 +57,32 @@ should release.
 A stopped topic is refused outright, for the same reason: it delivers
 nothing by somebody's decision, and this would be the one way around
 that.
+.SH A LARGE TOPIC IS RESENT IN THE BACKGROUND
+A topic holding more messages than one request can hand over will outlast
+the gateway's backend timeout. Inline, the caller waits for all of it,
+gets a timeout anyway, and the resending carries on invisibly behind the
+abandoned request.
+.B \-\-async
+makes that honest: the request is answered at once with how many messages
+were found, and the resending is carried on afterwards.
+.PP
+The answer then says what was
+.I started
+rather than what was done, so
+.I resent
+and
+.I held
+are not in it. The module log carries the finished line, with both.
+.PP
+Nothing is resumable here, and nothing needs to be. A resend removes
+nothing, so a run cut short has simply handed over fewer messages, and
+asking again hands over all of them \- the ones already sent for a second
+time. That is the same replay this command always is, and why its
+subscribers have to be idempotent whether it finishes or not.
+.PP
+What it does do is tell the manager it is working, so the autoscaler
+leaves the instance alone until the resend is done rather than stopping
+it partway through for want of any request to see.
 .SH OPTIONS
 .TP
 .BR \-t ", " \-\-topic " " \fINAME\fR
@@ -68,6 +95,12 @@ Resend only this message, as
 reports its id. The message must belong to the named topic; one that
 belongs to another is refused rather than fanned out to subscriptions it
 was never published to.
+.TP
+.B \-\-async
+Return at once and resend in the background. Cannot be combined with
+.BR \-\-message\-id :
+that is a single delivery, and is always done inline rather than answered
+with a status the caller would then have to chase.
 .SH EXIT STATUS
 .TP
 .B 0
@@ -78,6 +111,14 @@ is printed as JSON.
 is how many went to the subscriptions;
 .I held
 how many were passed over as never having been delivered.
+.IP
+With
+.BR \-\-async ,
+the summary is
+.RI ( "{ern, async, messages}" )
+instead:
+.I messages
+is how many the topic held when the resend started.
 .TP
 .B 1
 No topic of that name, the topic is stopped, no message of that id, that
@@ -95,6 +136,9 @@ euclid-cli ens resend-messages --topic orders \e
 
 # Find the one to resend first
 euclid-cli ens list-messages --topic orders
+
+# A topic with a fortnight of traffic behind it
+euclid-cli ens resend-messages --topic orders --async
 .fi
 .RE
 .SH SEE ALSO

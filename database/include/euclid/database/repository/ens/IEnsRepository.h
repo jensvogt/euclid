@@ -317,6 +317,31 @@ namespace Euclid::Database {
         virtual std::vector<Entity::ENS::Message> listMessages(const std::string &topicErn, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const = 0;
 
         /**
+         * @brief One page of a topic's messages in publish order, starting after a known one.
+         *
+         * @par
+         * What a whole-topic pass uses instead of listMessages(). Paging by index makes the
+         * database re-walk everything before the page it wants, so walking a topic end to end
+         * costs the square of its size - measured on a topic of 2.6 million messages at 2.5s for
+         * an early page and 7.3s two million in, which is hours of paging for one resend. Starting
+         * after the last message of the previous page is one index seek, whatever the depth.
+         *
+         * @par
+         * Ordered by `_id`, not by a timestamp. Message::toDocument() writes no `created` field -
+         * no message ever stored has one - so ordering by it orders by nothing, which is what the
+         * old page-by-index walk was quietly doing. An ObjectId leads with its creation second, so
+         * ascending `_id` is insertion order, and for a topic that is publish order.
+         *
+         * @param topicErn the topic.
+         * @param pageSize how many to return.
+         * @param afterOid the oid of the last message of the previous page; empty starts at the
+         *        beginning.
+         * @return the next page, empty at the end.
+         */
+        virtual std::vector<Entity::ENS::Message> listMessagesAfter(const std::string &topicErn, long pageSize,
+                                                                    const std::string &afterOid) const = 0;
+
+        /**
          * @brief Checks if a message with the specified name exists in the repository.
          *
          * @param name The name of the message to check for existence.
