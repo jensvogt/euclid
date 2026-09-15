@@ -123,6 +123,34 @@ namespace Euclid::Database {
         }
     }
 
+    void MongoEmmRepository::clearInstanceReports(const std::string &moduleName, const std::string &instanceId) {
+
+        try {
+            auto collection = Database::instance().collection(COLLECTION);
+
+            const auto filter = bsoncxx::builder::basic::make_document(
+                    bsoncxx::builder::basic::kvp("name", moduleName),
+                    bsoncxx::builder::basic::kvp("instances.instanceId", instanceId));
+
+            // Back to what ModuleInstance's own defaults say, rather than removed: -1 is how
+            // "never reported" is spelt for the two load figures, and a missing field would read
+            // as zero - which for utilisation is a lie the autoscaler would act on.
+            const auto update = bsoncxx::builder::basic::make_document(
+                    bsoncxx::builder::basic::kvp("$set", bsoncxx::builder::basic::make_document(
+                                                         bsoncxx::builder::basic::kvp("instances.$.backgroundTasks", static_cast<std::int64_t>(0)),
+                                                         bsoncxx::builder::basic::kvp("instances.$.utilisation", -1.0),
+                                                         bsoncxx::builder::basic::kvp("instances.$.backlog", static_cast<std::int64_t>(-1)))));
+
+            std::ignore = collection.update_one(filter.view(), update.view());
+
+        } catch (const std::exception &e) {
+            // Not advisory in the way reporting is: leaving a stale count behind pins the instance
+            // in the pool for good, so this is worth a warning rather than a debug line.
+            log_warning << "Could not clear instance reports, module: " << moduleName
+                        << ", instanceId: " << instanceId << ", error: " << e.what();
+        }
+    }
+
     void MongoEmmRepository::reportBackgroundTasks(const std::string &moduleName, const std::string &instanceId, const long tasks) {
 
         try {

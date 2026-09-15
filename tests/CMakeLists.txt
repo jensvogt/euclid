@@ -226,6 +226,24 @@ target_link_libraries(${PURGE_JOB_BINARY} PRIVATE eucliddb Boost::unit_test_fram
 
 add_test(NAME ${PURGE_JOB_BINARY} COMMAND ${PURGE_JOB_BINARY})
 
+set(BACKGROUND_WORK_BINARY euclid-background-work-tests)
+
+add_executable(${BACKGROUND_WORK_BINARY} BackgroundWorkTest.cpp)
+set_target_properties(${BACKGROUND_WORK_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${BACKGROUND_WORK_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${BACKGROUND_WORK_BINARY} COMMAND ${BACKGROUND_WORK_BINARY})
+
+set(UPLOAD_STATUS_BINARY euclid-object-upload-status-tests)
+
+add_executable(${UPLOAD_STATUS_BINARY} ObjectUploadStatusTest.cpp)
+set_target_properties(${UPLOAD_STATUS_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${UPLOAD_STATUS_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${UPLOAD_STATUS_BINARY} COMMAND ${UPLOAD_STATUS_BINARY})
+
 set(ENS_RESEND_BINARY euclid-ens-resend-tests)
 
 add_executable(${ENS_RESEND_BINARY} EnsResendTest.cpp)

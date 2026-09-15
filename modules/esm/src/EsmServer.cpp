@@ -4,12 +4,12 @@
 
 // Euclid includes
 #include <EsmServer.h>
+#include <euclid/database/BackgroundWork.h>
 
 #include "euclid/dto/esm/AddBucketTagRequest.h"
 #include "euclid/dto/esm/DeleteBucketTagRequest.h"
 
 #include <algorithm>
-#include <atomic>
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
@@ -532,47 +532,6 @@ namespace Euclid::ESM {
         return removeObjects(objects, bucket, userId);
     }
 
-    // A touch is the same kind of work as a removal - answered at once, carried on afterwards,
-    // invisible to the manager - so the two are counted together and reported together.
-    static std::atomic<long> backgroundTouches{0};
-
-    // How many background removals are running.
-    //
-    // Reported to the manager, which is the point: the autoscaler stops an instance that no request
-    // is waiting on, and an --async purge was answered seconds ago. Without this it stops exactly
-    // the instance doing the work. Counted rather than a flag because a purge finishing while
-    // another is still running must not report the instance idle.
-    static std::atomic<long> backgroundRemovals{0};
-
-    // This instance's name in the pool, handed in by the manager when it spawned the process.
-    //
-    // It is what a purge job is claimed under: "which worker holds this" has to survive the worker
-    // dying, and a pid does not - a restarted slot gets a new one. instanceId is stable across
-    // restarts of the same slot and is what emm_module.instances[] is keyed by, so a claim left
-    // behind by a dead worker is recognisable as one.
-    static std::string instanceName() {
-        static const std::string kName = [] {
-            if (const char *id = std::getenv("EUCLID_INSTANCE_ID"); id != nullptr && *id != '\0') return std::string(id);
-            // Started by hand rather than by the manager. Still has to be unique, or two such
-            // processes would each think the other's claim was their own.
-            return "esm-" + std::to_string(static_cast<long>(::getpid()));
-        }();
-        return kName;
-    }
-
-    // Tells the manager what this instance is doing that it cannot see. Called whenever the count
-    // moves, so a scale-down decision one second later reads a current figure.
-    static void reportBackgroundWork() {
-        try {
-            Database::RepositoryFactory::instance().emmRepository()->reportBackgroundTasks(
-                    "esm", instanceName(), backgroundRemovals.load() + backgroundTouches.load());
-        } catch (const std::exception &e) {
-            // Advisory: the work carries on either way, and the job document is what actually
-            // makes it survive.
-            log_debug << "ESM could not report background work: " << e.what();
-        }
-    }
-
     // How long a claim survives without a page finishing before another instance may take the job.
     //
     // Long enough that a page of a slow bucket does not look like a death, short enough that an
@@ -589,10 +548,9 @@ namespace Euclid::ESM {
     // job document is, which is what makes an instance being stopped a pause rather than an end.
     static void workPurgeJob(const Database::Entity::ESM::PurgeJob &job) {
 
-        ++backgroundRemovals;
-        reportBackgroundWork();
-        std::thread([job] {
-            const auto worker = instanceName();
+        const auto work = Database::BackgroundWork::Begin("esm");
+        std::thread([job, work] {
+            const auto worker = Database::InstanceName();
             try {
                 log_info << "ESM background removal started, jobId: " << job.jobId << ", ern: " << job.bucketErn
                          << ", prefix: " << job.prefix << (job.deleteBucket ? ", deleting the bucket afterwards" : "")
@@ -606,8 +564,6 @@ namespace Euclid::ESM {
                 if (!bucket.has_value()) {
                     log_info << "ESM background removal: bucket is gone, dropping job, jobId: " << job.jobId << ", ern: " << job.bucketErn;
                     repo->deletePurgeJob(job.jobId);
-                    --backgroundRemovals;
-                    reportBackgroundWork();
                     return;
                 }
 
@@ -632,8 +588,6 @@ namespace Euclid::ESM {
                 if (lostClaim) {
                     log_warning << "ESM background removal handed over, jobId: " << job.jobId << ", worker: " << worker
                                 << ", removed before handover: " << removed.count;
-                    --backgroundRemovals;
-                    reportBackgroundWork();
                     return;
                 }
 
@@ -661,8 +615,6 @@ namespace Euclid::ESM {
                 log_error << "ESM background removal failed, jobId: " << job.jobId << ", ern: " << job.bucketErn
                           << ", error: " << e.what();
             }
-            --backgroundRemovals;
-            reportBackgroundWork();
         }).detach();
     }
 
@@ -682,7 +634,7 @@ namespace Euclid::ESM {
         job.prefix = prefix;
         job.deleteBucket = deleteBucket;
         job.userId = userId;
-        job.claimedBy = instanceName();
+        job.claimedBy = Database::InstanceName();
         job.claimedAt = std::chrono::system_clock::now();
 
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
@@ -726,9 +678,8 @@ namespace Euclid::ESM {
                                                const std::optional<Database::Entity::ESM::Bucket> &bucket,
                                                const std::string &userId) {
 
-        ++backgroundTouches;
-        reportBackgroundWork();
-        std::thread([bucketErn, prefix, bucket, userId] {
+        const auto work = Database::BackgroundWork::Begin("esm");
+        std::thread([bucketErn, prefix, bucket, userId, work] {
             try {
                 log_info << "ESM background touch started, ern: " << bucketErn << ", prefix: " << prefix;
                 const auto touched = touchBucketObjects(bucketErn, prefix, bucket, userId);
@@ -739,8 +690,6 @@ namespace Euclid::ESM {
                 // function calls std::terminate() and takes the whole module down.
                 log_error << "ESM background touch failed, ern: " << bucketErn << ", error: " << e.what();
             }
-            --backgroundTouches;
-            reportBackgroundWork();
         }).detach();
     }
 
@@ -751,8 +700,8 @@ namespace Euclid::ESM {
                                                const std::optional<Database::Entity::ESM::Bucket> &bucket,
                                                const std::string &userId) {
 
-        ++backgroundRemovals;
-        std::thread([bucketErn, keys, bucket, userId] {
+        const auto work = Database::BackgroundWork::Begin("esm");
+        std::thread([bucketErn, keys, bucket, userId, work] {
             try {
                 log_info << "ESM background delete started, ern: " << bucketErn << ", keys: " << keys.size();
                 const auto removed = removeObjectsByKey(bucketErn, keys, bucket, userId);
@@ -768,7 +717,6 @@ namespace Euclid::ESM {
                 // function calls std::terminate() and takes the whole module down.
                 log_error << "ESM background delete failed, ern: " << bucketErn << ", error: " << e.what();
             }
-            --backgroundRemovals;
         }).detach();
     }
 
@@ -1453,6 +1401,23 @@ namespace Euclid::ESM {
         // Starts from any existing object at this key (a re-upload) rather than a blank one, so
         // its internalName/ern/size - and thus the still-valid previous file on disk - survive
         // until complete-upload actually replaces them.
+        //
+        // A re-upload keeps the existing status, and that is the whole point of keeping the rest
+        // of the row: handleGetObject serves nothing that is not COMPLETED, so stamping CREATED
+        // over a finished object takes the previous version away from every reader the moment
+        // somebody starts writing the next one - the file is still on disk, still correct, still
+        // named by internalName, and answered with 409. Preserving internalName while resetting
+        // the status preserved it for nobody.
+        //
+        // An abandoned re-upload made that permanent: the splitter re-uploaded keys it had
+        // already published, was stopped mid-upload, and left 21 objects that had completed days
+        // earlier unreadable for good. Every one of them still carried its md5Sum and
+        // internalName, which is what proved they had been readable before the upload that
+        // blinded them.
+        //
+        // The upload's own progress is not lost by this - it lives in the upload directory, which
+        // is what upload-part and complete-upload actually work from. Only a first upload has no
+        // previous version to protect, and there CREATED is right: there is nothing to read yet.
         Database::Entity::ESM::Object object;
         const auto existing = repo->findObjectByBucketAndKey(request.bucketErn, request.key);
         if (existing.has_value()) {
@@ -1473,7 +1438,8 @@ namespace Euclid::ESM {
         object.region = auth.user->region;
         object.accountId = auth.user->accountId;
         object.nameSpace = std::string(req["x-euclid-namespace"]);
-        object.status = Database::Entity::ESM::ObjectStatus::CREATED;
+        object.status = Database::Entity::ESM::StatusForCreatedUpload(
+                existing.transform([](const auto &found) { return found.status; }));
         repo->upsertObject(object);
 
         const auto uploadId = Core::UuidUtils::CreateRandomUuid();
@@ -1551,6 +1517,10 @@ namespace Euclid::ESM {
         // Guarded on the current status so only the first of what can be thousands of parts on a
         // large upload triggers a write; every part still pays one indexed lookup, since the
         // bucketErn/key needed to find the object row live only in the upload's meta file.
+        //
+        // The guard also means a re-upload never moves: create-upload left the previous version
+        // COMPLETED so readers keep getting it, and that has to hold for the whole upload, not
+        // just until its first part lands.
         {
             std::ifstream metaFile(uploadDir / kUploadMetaFile);
             std::ostringstream buffer;
@@ -1943,7 +1913,7 @@ namespace Euclid::ESM {
         if (!object.has_value()) {
             return ErrorResponse(req, status::not_found, "Object not found, bucket: " + bucketErn + ", key: " + key);
         }
-        if (object->status != Database::Entity::ESM::ObjectStatus::COMPLETED) {
+        if (!Database::Entity::ESM::IsDownloadable(object->status)) {
             return ErrorResponse(req, status::conflict, "Object is not available for download, status: " + Database::Entity::ESM::ObjectStatusToString(object->status));
         }
         if (object->size >= maxInlineSize) {
@@ -2014,7 +1984,7 @@ namespace Euclid::ESM {
         if (!object.has_value()) {
             return ErrorResponse(req, status::not_found, "Object not found, bucket: " + request.bucketErn + ", key: " + request.key);
         }
-        if (object->status != Database::Entity::ESM::ObjectStatus::COMPLETED) {
+        if (!Database::Entity::ESM::IsDownloadable(object->status)) {
             return ErrorResponse(req, status::conflict, "Object is not available for download, status: " + Database::Entity::ESM::ObjectStatusToString(object->status));
         }
 
@@ -3421,7 +3391,7 @@ namespace Euclid::ESM {
     static void resumeAbandonedPurgeJob() {
 
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
-        const auto claimed = repo->claimPurgeJob(instanceName(), std::chrono::seconds(PurgeClaimStaleSeconds()));
+        const auto claimed = repo->claimPurgeJob(Database::InstanceName(), std::chrono::seconds(PurgeClaimStaleSeconds()));
         if (!claimed.has_value()) return;
 
         log_info << "ESM resuming an abandoned background removal, jobId: " << claimed->jobId

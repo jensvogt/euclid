@@ -69,10 +69,13 @@ namespace Euclid::CLI {
                 case 'M':
                 case 'g':
                 case 'G':
-                    multiplier = last == 'b' || last == 'B'   ? 1
-                                 : last == 'k' || last == 'K' ? 1024
-                                 : last == 'm' || last == 'M' ? 1024 * 1024
-                                                              : 1024 * 1024 * 1024;
+                    multiplier = last == 'b' || last == 'B'
+                                     ? 1
+                                     : last == 'k' || last == 'K'
+                                     ? 1024
+                                     : last == 'm' || last == 'M'
+                                     ? 1024 * 1024
+                                     : 1024 * 1024 * 1024;
                     digits = text.substr(0, text.size() - 1);
                     break;
                 default:
@@ -135,13 +138,13 @@ namespace Euclid::CLI {
                                            {"publish-message", "Publish a message to a topic"},
                                            {"purge-all-topic", "Purge all topics by deleting all messages"},
                                            {"purge-topic", "Purge a topic by deleting all messages"},
+                                           {"resend-messages", "Hands what a topic still holds to its subscribers again"},
                                            {"set-message-attribute", "Sets the value of a message attribute"},
                                            {"set-topic-max-message-length", "Sets the largest message a topic accepts"},
                                            {"set-topic-retention", "Sets how long a topic keeps the messages published to it"},
-                                           {"resend-messages", "Hands what a topic still holds to its subscribers again"},
+                                           {"set-topic-tag", "Sets the value of an existing topic tag"},
                                            {"start-topic", "Starts delivering to a topic's subscribers, handing over what it held"},
                                            {"stop-topic", "Stops delivering to a topic's subscribers; publishes are still stored"},
-                                           {"set-topic-tag", "Sets the value of an existing topic tag"},
                                            {"subscribe", "Subscribes a target resource (an EQS queue) to a topic"},
                                            {"unsubscribe", "Deletes a subscription"},
                                    });
@@ -887,8 +890,8 @@ namespace Euclid::CLI {
         long seconds = 0;
         if (const auto given = vm["retention-period"].as<std::string>(); !parseRetentionPeriod(given, seconds)) {
             std::cerr << "error: --retention-period has to be a number of seconds, a duration like 14d, 36h or 90m, "
-                         "or -1 ('forever') to keep messages indefinitely, and was '"
-                      << given << "'\n";
+                    "or -1 ('forever') to keep messages indefinitely, and was '"
+                    << given << "'\n";
             return 1;
         }
 
@@ -944,7 +947,7 @@ namespace Euclid::CLI {
         long bytes = 0;
         if (const auto given = vm["max-length"].as<std::string>(); !parseByteSize(given, bytes)) {
             std::cerr << "error: --max-length has to be a positive number of bytes or a size like 512k, 2M or 1G, and was '"
-                      << given << "'\n";
+                    << given << "'\n";
             return 1;
         }
 
@@ -972,10 +975,11 @@ namespace Euclid::CLI {
         po::options_description desc("resend messages options");
         desc.add_options()
                 ("topic,t", po::value<std::string>()->required(), "topic name; a full ERN also works and is what reaches another namespace")
-                ("message-id,m", po::value<std::string>()->default_value(""), "resend only this message, as list-messages reports its id");
+                ("message-id,m", po::value<std::string>()->default_value(""), "resend only this message, as list-messages reports its id")
+                ("async", po::bool_switch()->default_value(false), "return at once and resend in the background; for topics holding more messages than one request can hand over");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("ens", "resend-messages", "--topic <name|ern> [--message-id <id>]",
+            return PrintActionHelp("ens", "resend-messages", "--topic <name|ern> [--message-id <id>] [--async]",
                                    "Hands what the topic still holds to its subscribers again - oldest first, each with the "
                                    "payload, attributes and priority it was published with. A topic keeps what was published "
                                    "to it for its retention period, and once a subscriber has consumed the queue message that "
@@ -985,7 +989,11 @@ namespace Euclid::CLI {
                                    "busy topic is worth narrowing with --message-id. Messages held because the topic was "
                                    "stopped are not resent - they have never been delivered at all, and 'ens start-topic' is "
                                    "what releases them - but they are counted, so a non-zero 'held' in the answer says to run "
-                                   "it.",
+                                   "it. Give --async for a topic holding more messages than one request can hand over: the "
+                                   "request is answered at once with how many were found, and the resending carries on in the "
+                                   "background. The answer then says what was started rather than what was done, so 'resent' "
+                                   "and 'held' are not in it - watch the module log for the finished line. --async cannot be "
+                                   "combined with --message-id, which is one delivery and is always done inline.",
                                    desc);
         }
 
@@ -998,10 +1006,21 @@ namespace Euclid::CLI {
             return 1;
         }
 
+        const auto messageId = vm["message-id"].as<std::string>();
+        const auto async = vm["async"].as<bool>();
+
+        // Refused here as well as by the server, so the caller is told before a round trip rather
+        // than after one.
+        if (async && !messageId.empty()) {
+            std::cerr << "error: --async resends a whole topic; --message-id is one delivery and is always done inline" << std::endl;
+            return 1;
+        }
+
         boost::json::object request{{"ern", vm["topic"].as<std::string>()}};
-        if (const auto messageId = vm["message-id"].as<std::string>(); !messageId.empty()) {
+        if (!messageId.empty()) {
             request["messageId"] = messageId;
         }
+        if (async) request["async"] = true;
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
@@ -1028,19 +1047,19 @@ namespace Euclid::CLI {
 
         if (IsHelpRequest(args)) {
             return delivering
-                           ? PrintActionHelp("ens", action, "--topic <name|ern>",
-                                             "Starts delivering to a topic's subscribers again, and hands over what the topic "
-                                             "held while it was stopped - oldest first, with the payload, attributes and "
-                                             "priority each message was published with. Says how many that was. "
-                                             "A topic that was already delivering is left as it is and releases nothing.",
-                                             desc)
-                           : PrintActionHelp("ens", action, "--topic <name|ern>",
-                                             "Stops delivering to a topic's subscribers. Publishing carries on and the "
-                                             "messages are stored as usual - they are simply held rather than handed on, and "
-                                             "'ens start-topic' delivers them when the subscriber is ready for them. "
-                                             "A held message expires like any other, so a topic left stopped for longer than "
-                                             "its retention period loses what it was holding.",
-                                             desc);
+                       ? PrintActionHelp("ens", action, "--topic <name|ern>",
+                                         "Starts delivering to a topic's subscribers again, and hands over what the topic "
+                                         "held while it was stopped - oldest first, with the payload, attributes and "
+                                         "priority each message was published with. Says how many that was. "
+                                         "A topic that was already delivering is left as it is and releases nothing.",
+                                         desc)
+                       : PrintActionHelp("ens", action, "--topic <name|ern>",
+                                         "Stops delivering to a topic's subscribers. Publishing carries on and the "
+                                         "messages are stored as usual - they are simply held rather than handed on, and "
+                                         "'ens start-topic' delivers them when the subscriber is ready for them. "
+                                         "A held message expires like any other, so a topic left stopped for longer than "
+                                         "its retention period loses what it was holding.",
+                                         desc);
         }
 
         po::variables_map vm;
