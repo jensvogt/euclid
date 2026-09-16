@@ -1,5 +1,5 @@
 set(LIBRARY eucliddb)
-set(SOURCES src/Database.cpp src/Collection.cpp src/EventBus.cpp src/BackgroundWork.cpp src/entity/com/Variant.cpp src/entity/emm/Module.cpp src/entity/eqs/QueueAttribute.cpp
+set(SOURCES src/Database.cpp src/Collection.cpp src/EventBus.cpp src/BackgroundWork.cpp src/AuditWriter.cpp src/entity/ead/AuditEvent.cpp src/repository/ead/MongoEadRepository.cpp src/entity/com/Variant.cpp src/entity/emm/Module.cpp src/entity/eqs/QueueAttribute.cpp
         src/entity/eqs/RedrivePolicy.cpp src/entity/eqs/Queue.cpp src/entity/eqs/Message.cpp
         src/entity/eqs/PriorityWeights.cpp src/repository/emm/MongoEmmRepository.cpp src/entity/ens/Message.cpp
         src/repository/eqs/MongoEqsRepository.cpp src/entity/eam/User.cpp src/entity/eam/UserGroup.cpp

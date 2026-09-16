@@ -113,7 +113,7 @@ namespace Euclid::ENS {
         boost::json::value jv;
         if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
 
-        const auto request = Dto::ENS::DeleteTopicRequest::fromJson(req.body());
+        const auto request = boost::json::value_to<Dto::ENS::DeleteTopicRequest>(jv);
         log_info << "ENS DeleteTopic, ern: " << request.ern;
 
         Database::RepositoryFactory::instance().ensRepository()->deleteTopicByErn(request.ern);
@@ -430,9 +430,42 @@ namespace Euclid::ENS {
         log_info << "ENS PurgeTopic ern: " << request.ern;
 
         const auto repo = Database::RepositoryFactory::instance().ensRepository();
+
+        if (request.async) {
+            // Answered before the work is done, the same trade EQS's purge-queue and ESM's
+            // purge-bucket make: a topic holding a retention period's worth of messages takes
+            // longer to empty than the gateway will wait, so doing it inline hands the caller a
+            // timeout while the purge runs on regardless. Detached rather than tracked because
+            // there is nothing to resume - a purge interrupted halfway has removed part of the
+            // topic, and asking again removes the rest.
+            //
+            // Read before the thread starts, not inside it: by the time it runs the count is on
+            // its way to zero, and the number that means anything is the one from when the purge
+            // was accepted.
+            const auto existing = repo->findTopicByErn(request.ern);
+            const auto ern = request.ern;
+            std::thread([ern] {
+                try {
+                    log_info << "ENS background purge started, ern: " << ern;
+                    Database::RepositoryFactory::instance().ensRepository()->purgeTopic(ern);
+                    log_info << "ENS background purge finished, ern: " << ern;
+                } catch (const std::exception &e) {
+                    log_error << "ENS background purge failed, ern: " << ern << ", error: " << e.what();
+                }
+            }).detach();
+
+            return EnsServer::JsonResponse(req, status::accepted,
+                                           boost::json::serialize(boost::json::object{
+                                                   {"ern", request.ern},
+                                                   {"async", true},
+                                                   {"messages", existing.has_value() ? existing->available : 0}}));
+        }
+
         repo->purgeTopic(request.ern);
 
-        return EnsServer::JsonResponse(req, status::ok);
+        return EnsServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                               {"ern", request.ern},
+                                               {"async", false}}));
     }
 
     static response<string_body> handlePurgeAllTopics(const request<string_body> &req) {
@@ -1177,7 +1210,7 @@ namespace Euclid::ENS {
         boost::json::value jv;
         if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
 
-        const auto request = Dto::ENS::UnsubscribeRequest::fromJson(req.body());
+        const auto request = boost::json::value_to<Dto::ENS::UnsubscribeRequest>(jv);
         log_info << "ENS Unsubscribe, ern: " << request.ern;
 
         Database::RepositoryFactory::instance().ensRepository()->deleteSubscriptionByErn(request.ern);

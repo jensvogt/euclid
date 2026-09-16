@@ -1418,7 +1418,7 @@ namespace Euclid::CLI {
                                    "Give --async for a bucket large enough that emptying it takes minutes: the request is answered at once "
                                    "with HTTP 202 and the object count at the time of asking, and the objects are removed by a background "
                                    "thread inside ESM, instead of the call sitting there until the gateway times out while the removal "
-                                   "carries on unseen behind it. Watch the progress with \"esm get-bucket-size\".",
+                                   "carries on unseen behind it. Watch the progress with \"esm get-bucket-size\" or \"esm get-object-count\".",
                                    desc);
         }
 

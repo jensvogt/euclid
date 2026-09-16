@@ -146,6 +146,8 @@ int main(const int argc, char *argv[]) {
     Euclid::Database::WireScopeLookup();
     // Inert until euclid.authorization.mode says otherwise - see docs/role-concept.md §5.
     Euclid::Database::WireAuthorizationLookup();
+    // Every module records its own commands; see Core::HttpActionServer::Dispatch().
+    Euclid::Database::WireAuditSink();
 
     Euclid::Core::Monitoring::MetricsPusher metricsPusher("ens");
     try {

@@ -10,7 +10,7 @@
 #include <boost/program_options.hpp>
 
 // Euclid includes
-#include <EapServer.h>
+#include <EadServer.h>
 #include <euclid/core/Configuration.h>
 #include <euclid/core/HttpActionServer.h>
 #include <euclid/core/LogStream.h>
@@ -21,10 +21,10 @@
 #define DEFAULT_LOG_LEVEL          "info"
 #ifdef _WIN32
 #define DEFAULT_CONFIGURATION_FILE "C:\\Program Files\\euclid\\etc\\euclid.json"
-#define DEFAULT_SOCKET_PATH        "C:\\Program Files\\euclid\\data\\run\\euclid-eap.sock"
+#define DEFAULT_SOCKET_PATH        "C:\\Program Files\\euclid\\data\\run\\euclid-ead.sock"
 #else
 #define DEFAULT_CONFIGURATION_FILE "/usr/local/euclid/etc/euclid.json"
-#define DEFAULT_SOCKET_PATH        "/var/run/euclid-eap.sock"
+#define DEFAULT_SOCKET_PATH        "/var/run/euclid-ead.sock"
 #endif
 
 namespace po = boost::program_options;
@@ -56,7 +56,7 @@ static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
             ("console-log", po::value<bool>(&opts.consoleLog)->default_value(true)->implicit_value(true), "Enable console logging")
             ("file-log", po::value<bool>(&opts.fileLog)->default_value(false)->implicit_value(true), "Enable file logging");
 
-    po::options_description all("euclid-eap options");
+    po::options_description all("euclid-ead options");
     all.add(general).add(logging);
 
     try {
@@ -64,12 +64,12 @@ static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
         po::store(po::command_line_parser(argc, argv).options(all).run(), vm);
 
         if (vm.contains("help")) {
-            std::cout << "euclid-eap v" << APP_VERSION << " - Application control service process\n\n" << all << "\n";
+            std::cout << "euclid-ead v" << APP_VERSION << " - Audit service process\n\n" << all << "\n";
             return std::nullopt;
         }
 
         if (vm.contains("version")) {
-            std::cout << "euclid-eap version " << APP_VERSION << "\n";
+            std::cout << "euclid-ead version " << APP_VERSION << "\n";
             return std::nullopt;
         }
 
@@ -135,7 +135,7 @@ int main(const int argc, char *argv[]) {
     // The channel this process's own records carry, so a log gathered from several of
     // them still says which one each line came from - and so this module can be turned
     // down on its own through euclid.logging.channels.
-    Euclid::Core::LogStream::SetProcessChannel("eap");
+    Euclid::Core::LogStream::SetProcessChannel("ead");
     Euclid::Core::LogStream::ApplyConfiguration(cliOpts->logLevel);
 
     // ── Initialize Database ─────────────────────────────
@@ -146,13 +146,11 @@ int main(const int argc, char *argv[]) {
     Euclid::Database::WireScopeLookup();
     // Inert until euclid.authorization.mode says otherwise - see docs/role-concept.md §5.
     Euclid::Database::WireAuthorizationLookup();
-    // Every module records its own commands; see Core::HttpActionServer::Dispatch().
     Euclid::Database::WireAuditSink();
 
-    Euclid::Core::Monitoring::MetricsPusher metricsPusher("eap");
+    Euclid::Core::Monitoring::MetricsPusher metricsPusher("ead");
     try {
-        Euclid::EAP::EapServer server(cliOpts->socketPath,
-                                      Euclid::Core::HttpActionServer::ConfiguredWorkerThreads("eap", 2));
+        Euclid::EAD::EadServer server(cliOpts->socketPath, Euclid::Core::HttpActionServer::ConfiguredWorkerThreads("ead", 4));
         return server.RunUntilSignal();
     } catch (const std::exception &e) {
         log_error << "Failed to start application service: " << e.what();

@@ -1,0 +1,55 @@
+.TH EUCLID-CLI-EAD-COUNT-EVENTS 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ead-count-events \- count audit entries without listing them
+.SH SYNOPSIS
+.B euclid-cli ead count-events
+[\fB\-\-user\fR|\fB\-u\fR \fIID\fR]
+[\fB\-\-module\fR|\fB\-m\fR \fINAME\fR]
+[\fB\-\-command\fR|\fB\-c\fR \fINAME\fR]
+.SH DESCRIPTION
+Counts the audit entries a filter matches, within the caller's own
+account. The same filters
+.BR euclid-cli-ead-list-events (1)
+takes, and the same scope.
+.PP
+Worth having on its own because the answer to "how much is in here" is
+often the whole question \- how far back the trail goes, whether a
+retention change took effect, how busy one module has been \- and paging
+through a million entries to find out is not an answer.
+.SH OPTIONS
+.TP
+.BR \-u ", " \-\-user " " \fIID\fR
+Only this user.
+.TP
+.BR \-m ", " \-\-module " " \fINAME\fR
+Only this module.
+.TP
+.BR \-c ", " \-\-command " " \fINAME\fR
+Only this command.
+.SH EXIT STATUS
+.TP
+.B 0
+.RI ( "{count}" )
+is printed as JSON.
+.TP
+.B 1
+The caller was not authenticated, or does not hold
+.IR ead:count-events .
+.SH EXAMPLES
+.RS
+.nf
+# How much the trail holds
+euclid-cli ead count-events
+
+# How much of it is one person's
+euclid-cli ead count-events --user jvo
+
+# How often anybody has deleted a bucket
+euclid-cli ead count-events --module esm --command delete-bucket
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ead (1),
+.BR euclid-cli-ead-list-events (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

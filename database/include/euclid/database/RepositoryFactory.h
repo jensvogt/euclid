@@ -31,6 +31,8 @@
 #include <euclid/database/repository/emo/IEmoRepository.h>
 #include <euclid/database/repository/emo/MongoEmoRepository.h>
 #include <euclid/database/repository/ens/IEnsRepository.h>
+#include <euclid/database/AuditWriter.h>
+#include <euclid/database/repository/ead/MongoEadRepository.h>
 #include <euclid/database/repository/ens/MongoEnsRepository.h>
 #include <euclid/database/repository/eqs/IEqsRepository.h>
 #include <euclid/database/repository/eqs/MongoEqsRepository.h>
@@ -112,6 +114,7 @@ namespace Euclid::Database {
             std::ignore = emmRepository();
             std::ignore = eqsRepository();
             std::ignore = ensRepository();
+            std::ignore = eadRepository();
             std::ignore = eamRepository();
             std::ignore = emoRepository();
             std::ignore = esmRepository();
@@ -142,6 +145,12 @@ namespace Euclid::Database {
         [[nodiscard]]
         std::shared_ptr<IEnsRepository> ensRepository() const {
             static auto repo = createEnsRepository();
+            return repo;
+        }
+
+        [[nodiscard]]
+        std::shared_ptr<IEadRepository> eadRepository() const {
+            static auto repo = createEadRepository();
             return repo;
         }
 
@@ -219,6 +228,14 @@ namespace Euclid::Database {
             // store EMD holds - see Emd::DocumentStore. One implementation, so there is no
             // second one to keep in step.
             return std::make_shared<MongoEqsRepository>();
+        }
+
+        [[nodiscard]]
+        std::shared_ptr<IEadRepository> createEadRepository() const {
+            // MongoEadRepository whatever the backend, like the rest: it talks to
+            // Database::collection(), which is MongoDB, an in-process document store or the
+            // store EMD holds.
+            return std::make_shared<MongoEadRepository>();
         }
 
         [[nodiscard]]
@@ -413,7 +430,47 @@ namespace Euclid::Database {
         });
     }
 
+    /**
+     * @brief Registers where Core::HttpActionServer::Dispatch() writes the audit trail, backed by
+     * RepositoryFactory::eadRepository().
+     *
+     * core can't depend on database (database depends on core), so this is the glue that closes
+     * the loop, same pattern as WireAccessKeyLookup() - call once per process, after
+     * RepositoryFactory::initialize(), in every module whose commands should appear in the trail.
+     * A module that never calls this records nothing, which is what the manager and the tools
+     * built on HttpActionServer keep doing.
+     *
+     * @par
+     * Queued rather than written here: the sink is called on the request thread, and an insert
+     * there would put a database round trip on the critical path of every command euclid answers.
+     * See Database::AuditWriter.
+     *
+     * @par
+     * Redaction happens on this side of the boundary, so a module cannot record a raw body by
+     * forgetting to ask for it - there is no call that stores one.
+     */
+    inline void WireAuditSink() {
+        Core::HttpActionServer::SetAuditSink([](const Core::HttpActionServer::AuditRecord &record) {
+            Entity::EAD::AuditEvent event;
+            event.accountId = record.accountId;
+            event.nameSpace = record.nameSpace;
+            event.userId = record.userId;
+            event.moduleName = record.moduleName;
+            event.command = record.command;
+            event.parameters = Entity::EAD::Redact(record.parameters);
+            event.status = record.status;
+            event.created = std::chrono::system_clock::now();
 
+            // Zero means keep for ever, and then no expiresAt is written at all - a TTL index
+            // ignores a document that has no such field, so turning retention on later sweeps only
+            // what was written after it.
+            if (const auto days = Core::Configuration::instance().getOr<long>("euclid.modules.ead.retention", 365); days > 0) {
+                event.expiresAt = event.created + std::chrono::hours(24 * days);
+            }
+
+            AuditWriter::instance().Write(event);
+        });
+    }
 
     /**
      * @brief Registers the worker-thread lookup Core::HttpActionServer::ConfiguredWorkerThreads()
@@ -535,7 +592,7 @@ namespace Euclid::Database {
                              .nameSpace = std::string(req["x-euclid-namespace"]),
                              .resourceErn = {}},
                             repo->findGrantsByPrincipals(PrincipalsOf(*user)),
-                            [&repo](const std::string &accountId, const std::string &role) -> std::optional<std::vector<std::string>> {
+                            [&repo](const std::string &accountId, const std::string &role) -> std::optional<std::vector<std::string> > {
                                 if (const auto stored = repo->findRoleByName(accountId, role)) return stored->permissions;
                                 if (Core::BuiltinRoles::Exists(role)) return Core::BuiltinRoles::PermissionsOf(role);
                                 return std::nullopt;
@@ -576,7 +633,7 @@ namespace Euclid::Database {
                              .nameSpace = std::string(req["x-euclid-namespace"]),
                              .resourceErn = resourceErn},
                             repo->findGrantsByPrincipals(PrincipalsOf(*user)),
-                            [&repo](const std::string &accountId, const std::string &role) -> std::optional<std::vector<std::string>> {
+                            [&repo](const std::string &accountId, const std::string &role) -> std::optional<std::vector<std::string> > {
                                 if (const auto stored = repo->findRoleByName(accountId, role)) return stored->permissions;
                                 if (Core::BuiltinRoles::Exists(role)) return Core::BuiltinRoles::PermissionsOf(role);
                                 return std::nullopt;

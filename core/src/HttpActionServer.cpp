@@ -4,6 +4,7 @@
 
 // C++ includes
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <mutex>
 #include <optional>
@@ -211,6 +212,7 @@ namespace Euclid::Core {
         // Null until a process wires one. A module that never does is never refused anything,
         // which is what keeps the gate additive until an installation turns it on.
         HttpActionServer::AuthorizationLookup g_authorizationLookup;
+        HttpActionServer::AuditSink g_auditSink;
         HttpActionServer::ResourceAuthorizationLookup g_resourceAuthorizationLookup;
 
     }// namespace
@@ -234,7 +236,7 @@ namespace Euclid::Core {
                 .allowed;
     }
 
-    std::optional<boost::beast::http::response<boost::beast::http::string_body>>
+    std::optional<boost::beast::http::response<boost::beast::http::string_body> >
     HttpActionServer::AuthorizeResource(const boost::beast::http::request<boost::beast::http::string_body> &req,
                                         const std::string &resourceErn) {
 
@@ -270,7 +272,7 @@ namespace Euclid::Core {
                                  "docs/role-concept.md.");
     }
 
-    std::optional<boost::beast::http::response<boost::beast::http::string_body>>
+    std::optional<boost::beast::http::response<boost::beast::http::string_body> >
     HttpActionServer::Authorize(const boost::beast::http::request<boost::beast::http::string_body> &req) {
 
         // A process that registered no lookup is never refused anything. Every module registers one
@@ -295,11 +297,87 @@ namespace Euclid::Core {
         return ErrorResponse(req, boost::beast::http::status::forbidden, decision.reason);
     }
 
+    void HttpActionServer::SetAuditSink(AuditSink sink) {
+        g_auditSink = std::move(sink);
+    }
+
+    namespace {
+
+        // Modules that are machinery rather than anything anybody runs.
+        //
+        // EMO is the monitoring store. Every instance of every module pushes to it on a timer, and
+        // none of its actions read as reads - push-metrics writes, and "list" and "average" miss
+        // the list-/get- rule for want of a hyphen - so all of it would be kept. Measured on the
+        // development installation before this existed: 1,610 emo:list and 125 emo:push-metrics
+        // against a few hundred real commands, which is a trail made mostly of the machinery.
+        //
+        // EMD is the document store underneath every other module's every read and write,
+        // including the audit's own. Its main() does not wire the sink at all, so this is belt and
+        // braces - but the sink went into thirteen modules by copying one line, and that is exactly
+        // how emd would acquire it by accident.
+        //
+        // Excluded whatever the status, unlike everything else here. A refusal is normally the
+        // entry an audit exists for, but a metrics push that starts failing fails on a timer too:
+        // recording those would turn one broken pusher into a flood, and the module log is where
+        // that belongs.
+        constexpr std::array kMachineryModules{
+                std::string_view{"emo"},
+                std::string_view{"emd"},
+        };
+
+    }// namespace
+
+    bool HttpActionServer::ShouldAudit(const std::string_view target, const std::string_view action, const long status) {
+
+        if (std::ranges::contains(kMachineryModules, target)) return false;
+
+        if (const bool succeeded = status >= 200 && status < 300; !succeeded) return true;
+        if (!Permissions::IsRead(action)) return true;
+
+        return Configuration::instance().getOr<bool>("euclid.modules.ead.audit-reads", false);
+    }
+
+    void HttpActionServer::RecordAudit(const http::request<http::string_body> &req, const long status) {
+
+        if (!g_auditSink) return;
+
+        const auto target = std::string(req["x-euclid-target"]);
+        const auto action = std::string(req["x-euclid-action"]);
+        if (!ShouldAudit(target, action, status)) return;
+
+        try {
+            // Identity from the headers the gateway verified, never from the body: a record of who
+            // did something that the doer can write is not a record of anything.
+            g_auditSink(AuditRecord{
+                    .accountId = std::string(req["x-euclid-account-id"]),
+                    .nameSpace = std::string(req["x-euclid-namespace"]),
+                    .userId = std::string(req["x-euclid-user-id"]),
+                    .moduleName = target,
+                    .command = action,
+                    .parameters = req.body(),
+                    .status = status});
+
+        } catch (const std::exception &e) {
+            // Swallowed, and this is the point of the try: recording a command must never be a way
+            // to fail it. A trail that is missing an entry is a smaller problem than a request
+            // that failed because the trail could not be written.
+            log_warning << "Could not record audit event, action: " << action << ", error: " << e.what();
+        }
+    }
+
     boost::beast::http::response<boost::beast::http::string_body>
     HttpActionServer::Dispatch(const boost::beast::http::request<boost::beast::http::string_body> &req) {
 
-        if (auto refusal = Authorize(req)) return std::move(*refusal);
-        return DispatchAction(req);
+        if (auto refusal = Authorize(req)) {
+            // Recorded before it is returned, and recorded whatever the action was: a refusal is
+            // the entry an audit is kept for.
+            RecordAudit(req, refusal->result_int());
+            return std::move(*refusal);
+        }
+
+        auto response = DispatchAction(req);
+        RecordAudit(req, response.result_int());
+        return response;
     }
 
     HttpActionServer::HttpActionServer(const std::string &serviceName, std::string socketPath, const int threads) : UnixSocketServer(serviceName, std::move(socketPath), threads) {
@@ -368,7 +446,6 @@ namespace Euclid::Core {
     void HttpActionServer::SetScopeLookup(ScopeLookup lookup) {
         scopeLookup() = std::move(lookup);
     }
-
 
 
     void HttpActionServer::SetWorkerThreadsLookup(WorkerThreadsLookup lookup) {

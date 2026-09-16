@@ -536,7 +536,7 @@ namespace Euclid::ESM {
     //
     // Long enough that a page of a slow bucket does not look like a death, short enough that an
     // instance the autoscaler stopped is picked up while somebody is still waiting for the answer.
-    long PurgeClaimStaleSeconds() {
+    static long PurgeClaimStaleSeconds() {
         constexpr long kDefaultStaleSeconds = 60;
         return std::max<long>(5, Core::Configuration::instance().getOr<long>("euclid.modules.esm.purge-claim-stale-seconds", kDefaultStaleSeconds));
     }
@@ -550,7 +550,7 @@ namespace Euclid::ESM {
 
         const auto work = Database::BackgroundWork::Begin("esm");
         std::thread([job, work] {
-            const auto worker = Database::InstanceName();
+            const auto &worker = Database::InstanceName();
             try {
                 log_info << "ESM background removal started, jobId: " << job.jobId << ", ern: " << job.bucketErn
                          << ", prefix: " << job.prefix << (job.deleteBucket ? ", deleting the bucket afterwards" : "")
@@ -578,16 +578,14 @@ namespace Euclid::ESM {
                     if (!repo->heartbeatPurgeJob(job.jobId, worker, page.count, page.size)) lostClaim = true;
                 };
 
-                const auto removed = removeBucketObjectsPaged(job.bucketErn, job.prefix, bucket, job.userId, onProgress,
-                                                              [&lostClaim] { return lostClaim; });
+                const auto removed = removeBucketObjectsPaged(job.bucketErn, job.prefix, bucket, job.userId, onProgress, [&lostClaim] { return lostClaim; });
 
                 // Somebody else took this job while this worker was stalled. Stopping here rather
                 // than finishing is the point: two workers removing and counting the same objects
                 // is worse than one of them stopping early, and the one that holds the claim will
                 // carry on.
                 if (lostClaim) {
-                    log_warning << "ESM background removal handed over, jobId: " << job.jobId << ", worker: " << worker
-                                << ", removed before handover: " << removed.count;
+                    log_warning << "ESM background removal handed over, jobId: " << job.jobId << ", worker: " << worker << ", removed before handover: " << removed.count;
                     return;
                 }
 
@@ -605,15 +603,13 @@ namespace Euclid::ESM {
                 // Last, so that a worker stopped at any point before this leaves a job for somebody
                 // to find. The job is the only thing that says the work was ever asked for.
                 repo->deletePurgeJob(job.jobId);
-                log_info << "ESM background removal finished, jobId: " << job.jobId << ", ern: " << job.bucketErn
-                         << ", count: " << removed.count << ", size: " << removed.size;
+                log_info << "ESM background removal finished, jobId: " << job.jobId << ", ern: " << job.bucketErn << ", count: " << removed.count << ", size: " << removed.size;
 
             } catch (const std::exception &e) {
                 // Nothing above this catch: an exception escaping a detached thread's entry
                 // function calls std::terminate() and takes the whole module down. The job is left
                 // where it is, claim and all, so the sweep picks it up once the claim goes stale.
-                log_error << "ESM background removal failed, jobId: " << job.jobId << ", ern: " << job.bucketErn
-                          << ", error: " << e.what();
+                log_error << "ESM background removal failed, jobId: " << job.jobId << ", ern: " << job.bucketErn << ", error: " << e.what();
             }
         }).detach();
     }
@@ -625,7 +621,6 @@ namespace Euclid::ESM {
     // instance stopped mid-purge - which the autoscaler does to anything it sees no requests on -
     // took the removal with it and left nothing to say it had been asked for.
     static std::string removeBucketObjectsInBackground(const std::string &bucketErn, const std::string &prefix,
-                                                       const std::optional<Database::Entity::ESM::Bucket> &bucket,
                                                        const std::string &userId, const bool deleteBucket) {
 
         Database::Entity::ESM::PurgeJob job;
@@ -867,8 +862,7 @@ namespace Euclid::ESM {
         // own. An administrator may ask, because for them the installation itself is the subject;
         // the ask is silently dropped for everyone else rather than answered with a 403, since the
         // request is otherwise perfectly valid and the buckets they asked about are none of theirs.
-        const auto includeInternal = request.includeInternal
-                                     && Database::IsEamAdmin(*Database::RepositoryFactory::instance().eamRepository(), auth.user->userId);
+        const auto includeInternal = request.includeInternal && Database::IsEamAdmin(*Database::RepositoryFactory::instance().eamRepository(), auth.user->userId);
 
         const std::vector<Database::Entity::ESM::Bucket> buckets = repo->listBuckets(auth.user->accountId, ns, request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection, includeInternal);
         log_info << "ESM bucket list, count: " << buckets.size();
@@ -944,7 +938,7 @@ namespace Euclid::ESM {
         boost::json::value jv;
         if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
 
-        const auto request = Dto::ESM::DeleteBucketRequest::fromJson(req.body());
+        const auto request = boost::json::value_to<Dto::ESM::DeleteBucketRequest>(jv);
 
         // Checked here for the same reason purge-bucket checks it, and more so: this is the most
         // destructive thing a caller can ask ESM for, and it now takes the bucket's objects with
@@ -965,7 +959,7 @@ namespace Euclid::ESM {
         // and the bucket itself goes when that finishes - so it stays listed, and still deletable,
         // until it is genuinely gone.
         if (Core::GetBoolValue(jv, "async")) {
-            const auto jobId = removeBucketObjectsInBackground(request.ern, "", bucket, auth.user->userId, true);
+            const auto jobId = removeBucketObjectsInBackground(request.ern, "", auth.user->userId, true);
             return JsonResponse(req, status::accepted, boost::json::serialize(boost::json::object{
                                         {"ern", request.ern},
                                         {"async", true},
@@ -1172,9 +1166,7 @@ namespace Euclid::ESM {
         for (const auto servers = Database::RepositoryFactory::instance().etsRepository()->listAllServers("");
              const auto &server: servers) {
             if (server.bucketErn == request.ern) {
-                return ErrorResponse(req, status::conflict,
-                                     "Bucket is served by transfer server '" + server.serverId
-                                     + "'; stop it or point it at another bucket first");
+                return ErrorResponse(req, status::conflict, "Bucket is served by transfer server '" + server.serverId + "'; stop it or point it at another bucket first");
             }
         }
 
@@ -1196,8 +1188,7 @@ namespace Euclid::ESM {
         // simply stop delivering - silently, since nothing publishes under that ERN any more.
         const auto subscriptions = repo->repointSubscriptions(oldErn, newErn);
 
-        log_info << "ESM bucket renamed, from: " << oldName << ", to: " << request.newName
-                << ", objects: " << objects << ", subscriptions: " << subscriptions;
+        log_info << "ESM bucket renamed, from: " << oldName << ", to: " << request.newName << ", objects: " << objects << ", subscriptions: " << subscriptions;
 
         Database::EventBus::instance().Publish(
                 "esm.bucket.modified",
@@ -1281,8 +1272,7 @@ namespace Euclid::ESM {
                 // With the reason: a full disk, a directory the object storage has outgrown, a
                 // permission that changed under the module and no file descriptors left all arrive
                 // here as the same silent false, and they call for entirely different things.
-                log_error << "ESM could not write object, bucket: " << bucketErn << ", key: " << key
-                          << ", path: " << destPath.string() << ", error: " << std::strerror(errno);
+                log_error << "ESM could not write object, bucket: " << bucketErn << ", key: " << key << ", path: " << destPath.string() << ", error: " << std::strerror(errno);
                 return ErrorResponse(req, status::internal_server_error, "Could not write object");
             }
             // The bytes go to disk exactly once, already encrypted if the bucket says so: there is
@@ -1299,8 +1289,7 @@ namespace Euclid::ESM {
             // successful put, and the object would be recorded with a size the file does not have.
             dest.close();
             if (!dest.good()) {
-                log_error << "ESM could not write object, bucket: " << bucketErn << ", key: " << key
-                          << ", path: " << destPath.string() << ", error: " << std::strerror(errno);
+                log_error << "ESM could not write object, bucket: " << bucketErn << ", key: " << key << ", path: " << destPath.string() << ", error: " << std::strerror(errno);
                 discardPartialObject(destPath);
                 return ErrorResponse(req, status::internal_server_error, "Could not write object");
             }
@@ -1438,8 +1427,7 @@ namespace Euclid::ESM {
         object.region = auth.user->region;
         object.accountId = auth.user->accountId;
         object.nameSpace = std::string(req["x-euclid-namespace"]);
-        object.status = Database::Entity::ESM::StatusForCreatedUpload(
-                existing.transform([](const auto &found) { return found.status; }));
+        object.status = Database::Entity::ESM::StatusForCreatedUpload(existing.transform([](const auto &found) { return found.status; }));
         repo->upsertObject(object);
 
         const auto uploadId = Core::UuidUtils::CreateRandomUuid();
@@ -2150,7 +2138,7 @@ namespace Euclid::ESM {
         boost::json::value jv;
         if (const auto err = ParseJsonBody(req, jv)) return *err;
 
-        const auto request = Dto::ESM::CompleteDownloadRequest::fromJson(req.body());
+        const auto request = boost::json::value_to<Dto::ESM::CompleteDownloadRequest>(jv);
         log_info << "ESM CompleteDownload, id: " << request.downloadId;
 
         const auto downloadDir = downloadDirFor(request.downloadId);
@@ -2273,7 +2261,7 @@ namespace Euclid::ESM {
         boost::json::value jv;
         if (const auto err = ParseJsonBody(req, jv)) return *err;
 
-        const auto request = Dto::ESM::DeleteObjectRequest::fromJson(req.body());
+        const auto request = boost::json::value_to<Dto::ESM::DeleteObjectRequest>(jv);
         log_info << "Storage DeleteObject, ern: " << request.ern;
 
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
@@ -2380,7 +2368,7 @@ namespace Euclid::ESM {
         // No keys: everything under the prefix, and everything in the bucket when there is none.
         if (async) {
             const auto pending = repo->countObjects(bucketErn, prefix, false);
-            const auto jobId = removeBucketObjectsInBackground(bucketErn, prefix, bucket, auth.user->userId, false);
+            const auto jobId = removeBucketObjectsInBackground(bucketErn, prefix, auth.user->userId, false);
             return JsonResponse(req, status::accepted, boost::json::serialize(boost::json::object{
                                         {"ern", bucketErn},
                                         {"prefix", prefix},
@@ -2413,7 +2401,7 @@ namespace Euclid::ESM {
         boost::json::value jv;
         if (const auto err = ParseJsonBody(req, jv)) return *err;
 
-        const auto request = Dto::ESM::PurgeBucketRequest::fromJson(req.body());
+        const auto request = boost::json::value_to<Dto::ESM::PurgeBucketRequest>(jv);
         log_info << "ESM PurgeBucket, ern: " << request.ern;
 
         // Repository connection
@@ -2424,7 +2412,7 @@ namespace Euclid::ESM {
         }
         if (const auto denied = denyUngrantedBucket(req, auth, request.ern)) return *denied;
         if (Core::GetBoolValue(jv, "async")) {
-            const auto jobId = removeBucketObjectsInBackground(request.ern, request.prefix, bucket, auth.user->userId, false);
+            const auto jobId = removeBucketObjectsInBackground(request.ern, request.prefix, auth.user->userId, false);
             return JsonResponse(req, status::accepted, boost::json::serialize(boost::json::object{
                                         {"ern", request.ern},
                                         {"async", true},
@@ -3205,7 +3193,7 @@ namespace Euclid::ESM {
         boost::json::value jv;
         if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
 
-        const auto request = Dto::ESM::UnsubscribeRequest::fromJson(req.body());
+        const auto request = boost::json::value_to<Dto::ESM::UnsubscribeRequest>(jv);
         log_info << "ESM Unsubscribe, ern: " << request.ern;
 
         Database::RepositoryFactory::instance().esmRepository()->deleteSubscriptionByErn(request.ern);

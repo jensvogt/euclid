@@ -35,6 +35,12 @@ namespace Euclid::Core {
         // action the module actually dispatches - an entry here that no module answers grants
         // nothing, silently.
         static const std::vector<std::string> kAll = {
+                // ead - 4 actions
+                "ead:count-events",
+                "ead:get-metrics",
+                "ead:list-events",
+                "ead:purge-events",
+
                 // eag - 6 actions
                 "eag:create-route",
                 "eag:delete-route",
@@ -322,6 +328,17 @@ namespace Euclid::Core {
         // because "every module's publish-message" is not something anybody should be granted.
         const auto module = moduleOf(granted);
         return granted.size() == module.size() + 2 && granted.ends_with(":*") && module == moduleOf(required);
+    }
+
+    bool Permissions::IsRead(const std::string_view permission) {
+
+        // The action half of "<module>:<action>", or the whole thing when there is no colon - so
+        // this answers for a bare action as readily as for a permission.
+        const auto colon = permission.find(':');
+        const auto action = colon == std::string_view::npos ? permission : permission.substr(colon + 1);
+
+        return action.starts_with("list-") || action.starts_with("get-")
+               || action.starts_with("describe-") || action.starts_with("count-");
     }
 
 }// namespace Euclid::Core
