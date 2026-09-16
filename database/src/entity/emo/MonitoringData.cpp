@@ -12,10 +12,17 @@ namespace Euclid::Database::Entity::Monitoring {
 
     bsoncxx::document::value MonitoringData::toDocument() const {
 
+        bsoncxx::builder::basic::document labelDocument{};
+        for (const auto &[name, value]: labels) {
+            labelDocument.append(bsoncxx::builder::basic::kvp(name, value));
+        }
+
         return bsoncxx::builder::basic::make_document(
                 bsoncxx::builder::basic::kvp("name", name),
-                bsoncxx::builder::basic::kvp("labelName", labelName),
-                bsoncxx::builder::basic::kvp("labelValue", labelValue),
+                bsoncxx::builder::basic::kvp("labels", labelDocument.extract()),
+                // Denormalised deliberately, and the one field a query may not skip: it is what
+                // the unique index and the rollup's $merge identify a series by. See LabelKey().
+                bsoncxx::builder::basic::kvp("labelKey", labelKey()),
                 bsoncxx::builder::basic::kvp("value", value),
                 bsoncxx::builder::basic::kvp("minValue", minValue),
                 bsoncxx::builder::basic::kvp("maxValue", maxValue),
@@ -32,10 +39,20 @@ namespace Euclid::Database::Entity::Monitoring {
         if (!doc) return {};
 
         MonitoringData data;
+        std::string legacyName, legacyValue;
         for (const auto &field: *doc) {
             if (const auto key = field.key(); key == "name") data.name = std::string(field.get_string().value);
-            else if (key == "labelName") data.labelName = std::string(field.get_string().value);
-            else if (key == "labelValue") data.labelValue = std::string(field.get_string().value);
+            else if (key == "labels" && field.type() == bsoncxx::type::k_document) {
+                for (const auto &label: field.get_document().value) {
+                    if (label.type() == bsoncxx::type::k_string)
+                        data.labels[std::string(label.key())] = std::string(label.get_string().value);
+                }
+            }
+            // Rows written before the map. Read into it rather than migrated: a data point lives
+            // as long as its tier's retention and is then gone by itself, so the two shapes only
+            // have to coexist for that long.
+            else if (key == "labelName" && field.type() == bsoncxx::type::k_string) legacyName = std::string(field.get_string().value);
+            else if (key == "labelValue" && field.type() == bsoncxx::type::k_string) legacyValue = std::string(field.get_string().value);
             else if (key == "value") data.value = field.get_double().value;
             else if (key == "minValue") data.minValue = field.get_double().value;
             else if (key == "maxValue") data.maxValue = field.get_double().value;
@@ -45,6 +62,10 @@ namespace Euclid::Database::Entity::Monitoring {
             else if (key == "timestamp") data.timestamp = std::chrono::system_clock::time_point{field.get_date().value};
             else if (key == "expiresAt") data.expiresAt = std::chrono::system_clock::time_point{field.get_date().value};
             else if (key == "_id") data.oid = field.get_oid().value.to_string();
+        }
+
+        if (data.labels.empty() && !legacyName.empty()) {
+            data.labels[legacyName] = legacyValue;
         }
         return data;
     }
