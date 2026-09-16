@@ -15,6 +15,7 @@
 #include <bsoncxx/builder/basic/kvp.hpp>
 
 // Euclid includes
+#include <euclid/core/LogStream.h>
 #include <euclid/database/Collection.h>
 
 namespace Euclid::Database {
@@ -191,6 +192,20 @@ namespace Euclid::Database {
     void Collection::create_index(const bsoncxx::document::view_or_value keys) const {
         mongocxx::options::index options;
         create_index(keys, options);
+    }
+
+    void Collection::drop_index(const std::string &name) const {
+
+        if (!_collection.has_value()) return;
+
+        try {
+            _collection->indexes().drop_one(name);
+        } catch (const std::exception &e) {
+            // Not having the index is the ordinary case - every installation created after the
+            // change it belonged to, and every one that has already been through this once. Only
+            // worth a debug line, and never worth failing startup over.
+            log_debug << "Index not dropped, collection: " << _name << ", index: " << name << ", reason: " << e.what();
+        }
     }
 
     DocumentCursor Collection::aggregate(const mongocxx::pipeline &pipeline) const {

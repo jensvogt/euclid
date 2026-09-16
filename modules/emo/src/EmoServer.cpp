@@ -86,9 +86,18 @@ namespace Euclid::Monitoring {
             return previous;
         }
 
-        std::string accumulatorKey(const std::string &name, const std::string &labelName, const std::string &labelValue) {
-            return name + ":" + labelName + ":" + labelValue;
-        }
+        // What identifies a series while it is being accumulated. A struct rather than the packed
+        // "name:labelName:labelValue" string this used to be: flush() had to split that back apart
+        // to write a row, which was already delicate and is not possible at all once a label map
+        // with arbitrary values is in it.
+        struct SeriesKey {
+            std::string name;
+            std::map<std::string, std::string> labels;
+
+            bool operator<(const SeriesKey &other) const {
+                return std::tie(name, labels) < std::tie(other.name, other.labels);
+            }
+        };
 
         // Running aggregate of the samples taken for one "name:labelName:labelValue" key during the
         // current averaging period. Fed by handlePushMetrics() (one process pushes one batch per
@@ -108,18 +117,18 @@ namespace Euclid::Monitoring {
             return mutex;
         }
 
-        std::map<std::string, Accumulator> &accumulators() {
-            static std::map<std::string, Accumulator> accumulators;
+        std::map<SeriesKey, Accumulator> &accumulators() {
+            static std::map<SeriesKey, Accumulator> accumulators;
             return accumulators;
         }
 
         // Single entry point for every sample, whichever side it arrives from, so that all of them
         // land in the same bucket-aligned rows that the rollups can then aggregate.
-        void recordSample(const std::string &name, const std::string &labelName, const std::string &labelValue,
+        void recordSample(const std::string &name, const std::map<std::string, std::string> &labels,
                           const double value, const MetricType type) {
 
             std::lock_guard lock(accumulatorsMutex());
-            auto &acc = accumulators()[accumulatorKey(name, labelName, labelValue)];
+            auto &acc = accumulators()[SeriesKey{.name = name, .labels = labels}];
             if (acc.samples == 0) {
                 acc.minValue = value;
                 acc.maxValue = value;
@@ -130,6 +139,16 @@ namespace Euclid::Monitoring {
             acc.sum += value;
             acc.samples++;
             acc.type = type;
+        }
+
+        // The one-dimensional form, which is every metric euclid records about itself: a service
+        // time by method, an instance count by module. An empty label name records the series with
+        // no dimensions at all rather than one called "".
+        void recordSample(const std::string &name, const std::string &labelName, const std::string &labelValue,
+                          const double value, const MetricType type) {
+            std::map<std::string, std::string> labels;
+            if (!labelName.empty()) labels[labelName] = labelValue;
+            recordSample(name, labels, value, type);
         }
 
         std::chrono::seconds retentionOf(const Resolution resolution) {
@@ -170,6 +189,11 @@ namespace Euclid::Monitoring {
 
         const auto &obj = jv.as_object();
         if (const auto *v = obj.if_contains("name"); v && v->is_string()) query.name = v->as_string().c_str();
+        if (const auto *v = obj.if_contains("labels"); v && v->is_object()) {
+            for (const auto &label: v->as_object()) {
+                if (label.value().is_string()) query.labels[std::string(label.key())] = label.value().as_string().c_str();
+            }
+        }
         if (const auto *v = obj.if_contains("labelName"); v && v->is_string()) query.labelName = v->as_string().c_str();
         if (const auto *v = obj.if_contains("labelValue"); v && v->is_string()) query.labelValue = v->as_string().c_str();
         if (const auto *v = obj.if_contains("limit"); v && v->is_number()) query.limit = v->to_number<long>();
@@ -208,16 +232,32 @@ namespace Euclid::Monitoring {
             const auto &item = v.as_object();
 
             std::string name, labelName, labelValue;
+            std::map<std::string, std::string> labels;
             double value = 0;
             auto type = MetricType::GAUGE;
             if (const auto *p = item.if_contains("name"); p && p->is_string()) name = p->as_string().c_str();
             if (const auto *p = item.if_contains("labelName"); p && p->is_string()) labelName = p->as_string().c_str();
             if (const auto *p = item.if_contains("labelValue"); p && p->is_string()) labelValue = p->as_string().c_str();
+            // Dimensions as a map, which is how anything with more than one sends them - a
+            // Micrometer meter, a Prometheus series. Values are taken as strings whatever they
+            // arrived as, since that is what a dimension is; a number here would otherwise split
+            // one series into two on nothing but its JSON spelling.
+            if (const auto *p = item.if_contains("labels"); p && p->is_object()) {
+                for (const auto &label: p->as_object()) {
+                    if (label.value().is_string()) labels[std::string(label.key())] = label.value().as_string().c_str();
+                    else if (label.value().is_int64()) labels[std::string(label.key())] = std::to_string(label.value().as_int64());
+                    else if (label.value().is_double()) labels[std::string(label.key())] = std::to_string(label.value().as_double());
+                }
+            }
             if (const auto *p = item.if_contains("value"); p && p->is_number()) value = p->to_number<double>();
             if (const auto *p = item.if_contains("type"); p && p->is_string()) type = p->as_string() == "rate" ? MetricType::RATE : MetricType::GAUGE;
             if (name.empty()) continue;
 
-            recordSample(name, labelName, labelValue, value, type);
+            // Both spellings in one item is not a conflict to resolve: the pair is simply one more
+            // dimension, and a pusher that sends both means both.
+            if (!labelName.empty()) labels[labelName] = labelValue;
+
+            recordSample(name, labels, value, type);
         }
 
         return EmoServer::JsonResponse(req, status::ok);
@@ -242,10 +282,18 @@ namespace Euclid::Monitoring {
 
         boost::json::array items;
         for (const auto &row: rows) {
+            boost::json::object labels;
+            for (const auto &[label, value]: row.labels) labels[label] = value;
+
+            // The map, plus the first pair flattened out beside it. The flat pair is what every
+            // reader written before the map asks for - the RUI graphs a series per labelValue -
+            // and for the one-dimensional metrics euclid records about itself the two say exactly
+            // the same thing.
             items.push_back(boost::json::object{
                     {"name", row.name},
-                    {"labelName", row.labelName},
-                    {"labelValue", row.labelValue},
+                    {"labels", labels},
+                    {"labelName", row.labelName()},
+                    {"labelValue", row.labelValue()},
                     {"value", row.value},
                     {"minValue", row.minValue},
                     {"maxValue", row.maxValue},
@@ -377,7 +425,7 @@ namespace Euclid::Monitoring {
 
     void EmoServer::flush() {
 
-        std::map<std::string, Accumulator> snapshot;
+        std::map<SeriesKey, Accumulator> snapshot;
         {
             std::lock_guard lock(accumulatorsMutex());
             snapshot.swap(accumulators());
@@ -394,16 +442,9 @@ namespace Euclid::Monitoring {
         for (const auto &[key, acc]: snapshot) {
             if (acc.samples <= 0) continue;
 
-            // key is "name:labelName:labelValue" - names/labels are plain kebab-case strings, so
-            // splitting on the first two colons is unambiguous.
-            const auto firstColon = key.find(':');
-            const auto secondColon = key.find(':', firstColon + 1);
-            if (firstColon == std::string::npos || secondColon == std::string::npos) continue;
-
             Database::Entity::Monitoring::MonitoringData row;
-            row.name = key.substr(0, firstColon);
-            row.labelName = key.substr(firstColon + 1, secondColon - firstColon - 1);
-            row.labelValue = key.substr(secondColon + 1);
+            row.name = key.name;
+            row.labels = key.labels;
             // Rate metrics: sum of per-tick, per-instance occurrence counts = total over the
             // period. Gauge metrics: mean across every tick and instance sampled.
             row.value = acc.type == MetricType::RATE ? acc.sum : acc.sum / static_cast<double>(acc.samples);
@@ -416,8 +457,8 @@ namespace Euclid::Monitoring {
             row.expiresAt = expiresAt;
             repo->upsert(row);
 
-            log_debug << "Monitoring flushed, name: " << row.name << ", labelName: " << row.labelName
-                    << ", labelValue: " << row.labelValue << ", value: " << row.value;
+            log_debug << "Monitoring flushed, name: " << row.name << ", labels: " << row.labelKey()
+                    << ", value: " << row.value;
         }
     }
 
