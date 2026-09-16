@@ -194,6 +194,21 @@ namespace Euclid::Database {
         void create_index(bsoncxx::document::view_or_value keys) const;
 
         /**
+         * @brief Drops an index by name, and says nothing if there is none of that name.
+         *
+         * @par
+         * For an index a schema change has superseded. A stale unique index is not inert: it goes
+         * on enforcing uniqueness over fields the new documents no longer carry, and since a
+         * missing field indexes as null, every new document collides with the first one written.
+         * So a change of key has to remove the old key, not merely stop using it.
+         *
+         * @par
+         * A no-op on the in-memory backend, which keeps its indexes only for the life of the
+         * process and so has nothing stale to inherit.
+         */
+        void drop_index(const std::string &name) const;
+
+        /**
          * @brief Runs an aggregation pipeline.
          *
          * @par

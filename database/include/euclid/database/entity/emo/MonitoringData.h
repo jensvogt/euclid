@@ -10,6 +10,7 @@
 
 // C++ includes
 #include <chrono>
+#include <map>
 #include <optional>
 #include <string>
 
@@ -27,15 +28,28 @@ namespace Euclid::Database::Entity::Monitoring {
     /**
      * @brief One aggregated metric data point, written periodically by the monitoring module.
      *
-     * name/labelName/labelValue identify the metric series (e.g. name="sqs-service-time",
-     * labelName="method", labelValue="send-message"); value is the aggregate over the bucket
-     * starting at timestamp - see Core::Monitoring::MonitoringTimer/MetricEventBus for how a
-     * module records the samples this is aggregated from.
+     * name and labels identify the metric series (e.g. name="sqs-service-time",
+     * labels={"method": "send-message"}); value is the aggregate over the bucket starting at
+     * timestamp - see Core::Monitoring::MonitoringTimer/MetricEventBus for how a module records
+     * the samples this is aggregated from.
      *
-     * @par
-     * name/labelName/labelValue/resolution/timestamp together identify a bucket uniquely, and are
-     * the key every write upserts on. A data point therefore has no natural identity beyond its
-     * series and its bucket, which is what lets a rollup be recomputed safely.
+     * @par Why a map rather than the one label pair this used to carry
+     * euclid's own metrics are one-dimensional - a service time by method, an instance count by
+     * module - and a single labelName/labelValue said that perfectly well. Metrics pushed by an
+     * application are not: a Micrometer or Prometheus meter carries however many dimensions the
+     * application gave it ({"area": "heap", "id": "G1 Eden Space"}), and flattening those into one
+     * pair means either losing dimensions or inventing a composite value nothing can aggregate
+     * across. Rows written before this have no "labels" field and are read as a one-entry map, so
+     * nothing already stored is lost or has to be migrated.
+     *
+     * @par Identity
+     * name/labelKey/resolution/timestamp together identify a bucket uniquely, and are the key
+     * every write upserts on. labelKey is the canonical rendering of the map (see LabelKey), used
+     * rather than the map itself because BSON compares subdocuments field by field in stored
+     * order - two rows with the same labels written in a different order would be two series - and
+     * because $merge's "on" needs fields it can put a unique index on. A data point therefore has
+     * no natural identity beyond its series and its bucket, which is what lets a rollup be
+     * recomputed safely.
      */
     struct MonitoringData {
 
@@ -50,14 +64,49 @@ namespace Euclid::Database::Entity::Monitoring {
         std::string name;
 
         /**
-         * @brief Label name, e.g. "method". Empty for unlabeled metrics.
+         * @brief The series' dimensions, e.g. {"method": "send-message"}. Empty for an unlabeled
+         * metric. Ordered, because std::map is - which is what makes LabelKey() canonical.
          */
-        std::string labelName;
+        std::map<std::string, std::string> labels;
 
         /**
-         * @brief Label value, e.g. "send-message". Empty for unlabeled metrics.
+         * @brief The first label's name, or empty when there are none.
+         *
+         * For the readers that predate the map and only ever deal in one-dimensional series - a
+         * listing that shows "which method", a graph drawn per label value. A caller that cares
+         * about a specific dimension should read "labels" by name instead of trusting the order.
          */
-        std::string labelValue;
+        [[nodiscard]]
+        std::string labelName() const { return labels.empty() ? std::string{} : labels.begin()->first; }
+
+        /**
+         * @brief The first label's value, or empty when there are none. See labelName().
+         */
+        [[nodiscard]]
+        std::string labelValue() const { return labels.empty() ? std::string{} : labels.begin()->second; }
+
+        /**
+         * @brief The canonical rendering of a label map: "k1=v1;k2=v2", keys in order.
+         *
+         * Static and taking the map rather than reading the member, because both the writers and
+         * the queries need to produce it for labels they are holding but have no row for.
+         */
+        static std::string LabelKey(const std::map<std::string, std::string> &labels) {
+            std::string key;
+            for (const auto &[name, value]: labels) {
+                if (!key.empty()) key += ';';
+                key += name;
+                key += '=';
+                key += value;
+            }
+            return key;
+        }
+
+        /**
+         * @brief This row's label key.
+         */
+        [[nodiscard]]
+        std::string labelKey() const { return LabelKey(labels); }
 
         /**
          * @brief Aggregate over the bucket: the total for a RATE, the mean for a GAUGE.

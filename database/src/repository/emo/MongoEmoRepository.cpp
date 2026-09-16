@@ -36,14 +36,44 @@ namespace Euclid::Database {
             return resolution == Resolution::DAY ? "day" : "hour";
         }
 
+        // A literal for a pattern: a label value is somebody's string - a queue name, a URI, a
+        // JVM memory pool called "G1 Eden Space" - and every one of these characters means
+        // something else to a regular expression.
+        std::string quoteRegex(const std::string &value) {
+            static constexpr std::string_view special = R"(\^$.|?*+()[]{})";
+            std::string quoted;
+            quoted.reserve(value.size() * 2);
+            for (const char c: value) {
+                if (special.find(c) != std::string_view::npos) quoted += '\\';
+                quoted += c;
+            }
+            return quoted;
+        }
+
         // Equality filters plus the time range shared by list() and average().
         bsoncxx::builder::basic::document queryFilter(const MonitoringQuery &query) {
 
             bsoncxx::builder::basic::document filter{};
             filter.append(kvp("resolution", ResolutionToString(query.resolution)));
             if (!query.name.empty()) filter.append(kvp("name", query.name));
-            if (!query.labelName.empty()) filter.append(kvp("labelName", query.labelName));
-            if (!query.labelValue.empty()) filter.append(kvp("labelValue", query.labelValue));
+
+            // Every named dimension has to match, and a row may carry more than was asked for: a
+            // caller narrowing to {"area": "heap"} wants the heap series whatever else labels it.
+            for (const auto &[name, value]: query.labels) {
+                filter.append(kvp("labels." + name, value));
+            }
+            if (!query.labelName.empty() && !query.labelValue.empty()) {
+                filter.append(kvp("labels." + query.labelName, query.labelValue));
+            } else if (!query.labelName.empty()) {
+                filter.append(kvp("labels." + query.labelName, make_document(kvp("$exists", true))));
+            } else if (!query.labelValue.empty()) {
+                // A value with no dimension named: "whichever label carries this". Kept because it
+                // was always possible, and answered against labelKey rather than by unpacking the
+                // map, because "k1=v1;k2=v2" is a string both backends can match a pattern against
+                // - $expr and $objectToArray would work on MongoDB and throw on the in-memory one.
+                // Anchored on both sides so a value does not match a longer one it is a prefix of.
+                filter.append(kvp("labelKey", make_document(kvp("$regex", "(^|;)[^;=]*=" + quoteRegex(query.labelValue) + "($|;)"))));
+            }
 
             if (constexpr auto epoch = std::chrono::system_clock::time_point{}; query.from != epoch || query.to != epoch) {
                 bsoncxx::builder::basic::document range{};
@@ -88,13 +118,19 @@ namespace Euclid::Database {
         try {
             auto collection = Database::instance().collection(COLLECTION);
 
+            // The key this replaced, from before a series was identified by a label map. Dropped
+            // rather than left alone: it is unique over labelName/labelValue, fields a row written
+            // now does not carry at all, and a missing field indexes as null - so the second row
+            // of any bucket would collide with the first and be refused.
+            collection.drop_index("name_1_labelName_1_labelValue_1_resolution_1_timestamp_1");
+
             // Identity of a data point: one series, one resolution, one bucket. Unique because
             // both writers upsert on exactly these fields, and because rollup()'s $merge requires
             // a unique index on its "on" fields. Also covers list()'s equality filters plus its
             // timestamp sort, which MongoDB can walk backwards for the descending order.
             mongocxx::options::index bucketOptions;
             bucketOptions.unique(true);
-            collection.create_index(make_document(kvp("name", 1), kvp("labelName", 1), kvp("labelValue", 1),
+            collection.create_index(make_document(kvp("name", 1), kvp("labelKey", 1),
                                                   kvp("resolution", 1), kvp("timestamp", 1)),
                                     bucketOptions);
 
@@ -120,7 +156,7 @@ namespace Euclid::Database {
         try {
             auto collection = Database::instance().collection(COLLECTION);
 
-            const auto filter = make_document(kvp("name", data.name), kvp("labelName", data.labelName), kvp("labelValue", data.labelValue),
+            const auto filter = make_document(kvp("name", data.name), kvp("labelKey", data.labelKey()),
                                               kvp("resolution", ResolutionToString(data.resolution)), kvp("timestamp", toDate(data.timestamp)));
 
             mongocxx::options::replace options;
@@ -205,10 +241,15 @@ namespace Euclid::Database {
             pipeline.group(make_document(
                     kvp("_id", make_document(
                                 kvp("name", "$name"),
-                                kvp("labelName", "$labelName"),
-                                kvp("labelValue", "$labelValue"),
+                                // Grouped on the canonical key rather than the map: a $group _id is
+                                // compared as a BSON value, so two identical maps stored in a
+                                // different field order would roll up as two series.
+                                kvp("labelKey", "$labelKey"),
                                 kvp("type", "$type"),
                                 kvp("bucket", make_document(kvp("$dateTrunc", make_document(kvp("date", "$timestamp"), kvp("unit", dateTruncUnit(to)))))))),
+                    // The map itself is carried rather than grouped on: every row of a series has
+                    // the same one, so the first is the series'.
+                    kvp("labels", make_document(kvp("$first", "$labels"))),
                     kvp("total", make_document(kvp("$sum", "$value"))),
                     kvp("weighted", make_document(kvp("$sum", make_document(kvp("$multiply", make_array("$value", "$samples")))))),
                     kvp("samples", make_document(kvp("$sum", "$samples"))),
@@ -221,8 +262,8 @@ namespace Euclid::Database {
             pipeline.project(make_document(
                     kvp("_id", 0),
                     kvp("name", "$_id.name"),
-                    kvp("labelName", "$_id.labelName"),
-                    kvp("labelValue", "$_id.labelValue"),
+                    kvp("labelKey", "$_id.labelKey"),
+                    kvp("labels", "$labels"),
                     kvp("type", "$_id.type"),
                     kvp("resolution", ResolutionToString(to)),
                     kvp("timestamp", "$_id.bucket"),
@@ -244,7 +285,7 @@ namespace Euclid::Database {
             // bucket, converges on the same rows instead of duplicating them.
             pipeline.merge(make_document(
                     kvp("into", COLLECTION),
-                    kvp("on", make_array("name", "labelName", "labelValue", "resolution", "timestamp")),
+                    kvp("on", make_array("name", "labelKey", "resolution", "timestamp")),
                     kvp("whenMatched", "replace"),
                     kvp("whenNotMatched", "insert")));
 

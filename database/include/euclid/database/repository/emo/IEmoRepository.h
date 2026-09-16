@@ -10,6 +10,7 @@
 
 // C++ includes
 #include <chrono>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -30,6 +31,14 @@ namespace Euclid::Database {
          * @brief Filter by metric name; empty matches all names.
          */
         std::string name;
+
+        /**
+         * @brief Filter by dimensions; every entry given must match, and a row may carry more.
+         *
+         * The multi-dimensional form of labelName/labelValue below, which stay for the callers -
+         * and the wire format - that only ever narrow by one.
+         */
+        std::map<std::string, std::string> labels;
 
         /**
          * @brief Filter by label name; empty matches all label names.
