@@ -32,6 +32,7 @@
 #include <euclid/database/RepositoryFactory.h>
 #include <euclid/database/entity/ets/TransferServer.h>
 #include <euclid/dto/emm/EmmMapper.h>
+#include <euclid/manager/BacklogTarget.h>
 #include <euclid/manager/Controller.h>
 #include <euclid/manager/ControllerPlatform.h>
 #include <euclid/manager/StartOrder.h>
@@ -1312,6 +1313,7 @@ namespace Euclid::main {
 
                 bool reporting = false;
                 long pending = 0;
+                long reportingInstances = 0;
 
                 for (const auto &reported: module.instances) {
 
@@ -1333,6 +1335,7 @@ namespace Euclid::main {
                         svc->wasBusySinceLastCheck = true;
                         group->lastActivityAt = now;
                     }
+                    ++reportingInstances;
                     if (reported.backlog > 0) pending += reported.backlog;
                 }
 
@@ -1345,7 +1348,7 @@ namespace Euclid::main {
                 }
 
                 applyUnreportedAreBusy(*group, fresh, now);
-                applyBacklog(*group, pending, now);
+                applyBacklog(*group, pending, reportingInstances, now);
             }
         }
 
@@ -1376,7 +1379,12 @@ namespace Euclid::main {
             query.limit = kLoadSampleLimit;
             // list() returns most recent first, so the first row seen for a label is its latest.
             for (const auto &row: repo->list(query)) {
-                newest.try_emplace(row.labelValue, row);
+                // By the dimension this asked for by name rather than by whichever label happens
+                // to be first: a row pushed by an application carries as many as it likes, and
+                // "instance" is the only one that identifies the pool member here.
+                const auto instance = row.labels.find("instance");
+                if (instance == row.labels.end()) continue;
+                newest.try_emplace(instance->second, row);
             }
             return newest;
         };
@@ -1396,6 +1404,7 @@ namespace Euclid::main {
 
             bool reporting = false;
             long pending = 0;
+            long reportingInstances = 0;
 
             for (auto &svc: group->instances) {
                 if (svc->state != Database::Entity::ModuleState::RUNNING) continue;
@@ -1413,6 +1422,7 @@ namespace Euclid::main {
                     group->lastActivityAt = now;
                 }
 
+                ++reportingInstances;
                 if (const auto depth = backlog.find(svc->instanceId); depth != backlog.end()) {
                     pending += static_cast<long>(depth->second.maxValue);
                 }
@@ -1429,7 +1439,7 @@ namespace Euclid::main {
                 svc->wasBusySinceLastCheck = true;
             }
 
-            applyBacklog(*group, pending, now);
+            applyBacklog(*group, pending, reportingInstances, now);
         }
     }
 
@@ -1455,22 +1465,29 @@ namespace Euclid::main {
     // Work waiting that nobody is getting to is the one signal utilisation cannot give: an instance
     // is either busy or not, and "busy" says nothing about how much is left. Raising desiredCount is
     // how evaluateScaling() is asked for more, and it is bounded there by maxInstances.
-    void ServiceController::applyBacklog(ServiceGroup &group, const long pending, const std::chrono::steady_clock::time_point now) {
+    void ServiceController::applyBacklog(ServiceGroup &group, const long pending, const long reporting,
+                                        const std::chrono::steady_clock::time_point now) {
 
-        if (pending < kBacklogScaleUpMessages) return;
+        if (reporting <= 0 || pending <= 0) return;
 
-        // Before the early return below, and deliberately: a pool that already has as many
-        // instances as the backlog calls for is still working, and letting the idle timer run out
-        // underneath it is what made this oscillate. The figure that says "there is work here" has
-        // to keep the pool alive whether or not it also asks for more.
+        // Any work waiting at all means the pool is not idle, whatever its utilisation says, and
+        // this is before the threshold below on purpose: letting the idle timer run out from under
+        // a pool with a queue in front of it is what made this oscillate, stopping the instance
+        // doing the work about a minute after it finished starting.
         group.lastActivityAt = now;
 
-        const auto running = std::ranges::count_if(group.instances, [](const auto &svc) {
-            return svc->state == Database::Entity::ModuleState::RUNNING;
-        });
-        if (const auto wanted = static_cast<int>(running) + 1; wanted > group.desiredCount) {
+        // The mean, and a target rather than an increment - see InstancesForBacklog() for both,
+        // which is a header of its own so the arithmetic can be tested.
+        const auto wanted = InstancesForBacklog(pending, reporting, kBacklogScaleUpMessages);
+        if (wanted == 0) return;
+
+        // Only ever raises. Coming back down is the idle branch's decision, which weighs things
+        // this cannot see - requests in flight, background work an instance has not finished.
+        if (wanted > group.desiredCount) {
             group.desiredCount = std::min(wanted, group.config.maxInstances);
-            log_info << "Application backlog, module: " << group.config.name << ", pending: " << pending
+            log_info << "Application backlog, module: " << group.config.name
+                     << ", pending per instance: " << pending / reporting
+                     << " (" << pending << " reported across " << reporting << ")"
                      << ", desiredCount: " << group.desiredCount;
         }
     }

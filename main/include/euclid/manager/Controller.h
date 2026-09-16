@@ -648,11 +648,35 @@ namespace Euclid::main {
          * and never gets through the queue, because the instance doing the work is stopped before
          * it finishes any.
          *
+         * @par Per instance, not in total
+         * Every instance of a pool reports the depth of the queues *it* polls, and whether those
+         * are shared decides what the sum means. A @QueueListener or @TopicListener puts every
+         * instance on one queue, so all of them report the same number and adding them up
+         * multiplies one queue by the size of the pool - and the product grows every time this
+         * scales up, which is a signal that justifies itself. Observed: 563 messages stuck in one
+         * shared queue read as 9,008 across sixteen instances and pinned the pool at its ceiling.
+         * A @BucketListener gives each instance its own queue, where the sum is right.
+         *
+         * @par
+         * Neither the manager nor the application can tell those apart, so the mean is used: it is
+         * the true depth when the queue is shared, and that instance's own share when it is not.
+         * Either way the threshold reads as "messages waiting per instance", which is a figure
+         * somebody can reason about.
+         *
+         * @par A target, not an increment
+         * The pool size asked for is `ceil(mean / kBacklogScaleUpMessages)`, not "one more than we
+         * are running". The latter has no equilibrium: scaling up satisfies it and it asks again on
+         * the next tick, so any backlog above the threshold walks the pool to maxInstances however
+         * small it is. The mean does not fall as the pool grows when the queue is shared - every
+         * instance reports the same queue - so nothing else stops it.
+         *
          * @param group the pool.
-         * @param pending messages waiting across the pool's queues.
+         * @param pending messages waiting, summed over the instances that reported.
+         * @param reporting how many instances that sum came from.
          * @param now the tick's clock reading, so every pool in one pass shares it.
          */
-        void applyBacklog(ServiceGroup &group, long pending, std::chrono::steady_clock::time_point now);
+        void applyBacklog(ServiceGroup &group, long pending, long reporting,
+                          std::chrono::steady_clock::time_point now);
 
 
         /**
