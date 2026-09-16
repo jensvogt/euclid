@@ -5,6 +5,8 @@
 // C++ includes
 #include <algorithm>
 #include <array>
+#include <cctype>
+#include <string>
 #include <string_view>
 
 // Boost includes
