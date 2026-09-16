@@ -40,6 +40,13 @@ namespace {
         std::string logLevel;
         bool consoleLog{true};
         bool fileLog{false};
+
+        /**
+         * Whether the corresponding switch was actually given, as opposed to taking its default.
+         * Only an explicit switch may override the configuration file - see where these are read.
+         */
+        bool consoleLogGiven{};
+        bool fileLogGiven{};
     };
 }
 
@@ -78,6 +85,12 @@ static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
         }
 
         po::notify(vm);
+
+        // Recorded before vm goes out of scope: defaulted() is the only way to tell "the operator
+        // asked for this" from "nobody said anything and program_options filled in the default",
+        // and the difference decides whether euclid.json is honoured or overwritten.
+        opts.consoleLogGiven = !vm["console-log"].defaulted();
+        opts.fileLogGiven = !vm["file-log"].defaulted();
 
     } catch (const po::error &e) {
         std::cerr << "Command line error: " << e.what() << "\n";
@@ -260,8 +273,14 @@ int main(const int argc, char *argv[]) {
         }
     }
 
-    cfg.set<bool>("euclid.logging.console-active", cliOpts->consoleLog);
-    cfg.set<bool>("euclid.logging.file-active", cliOpts->fileLog);
+    // Only when the switch was actually given. Writing it unconditionally made the
+    // command line's own default overwrite euclid.json, so the setting there did
+    // nothing and there was no way to tell from the outside why.
+    if (cliOpts->consoleLogGiven) cfg.set<bool>("euclid.logging.console-active", cliOpts->consoleLog);
+    // Only when the switch was actually given. Writing it unconditionally made the
+    // command line's own default overwrite euclid.json, so the setting there did
+    // nothing and there was no way to tell from the outside why.
+    if (cliOpts->fileLogGiven) cfg.set<bool>("euclid.logging.file-active", cliOpts->fileLog);
 
     // ── Initialize logging ──────────────────────────────
     Euclid::Core::LogStream::Initialize();
