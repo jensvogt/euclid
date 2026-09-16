@@ -1,0 +1,104 @@
+.TH EUCLID-CLI-EAD-LIST-EVENTS 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ead-list-events \- show the audit trail, newest first
+.SH SYNOPSIS
+.B euclid-cli ead list-events
+[\fB\-\-user\fR|\fB\-u\fR \fIID\fR]
+[\fB\-\-module\fR|\fB\-m\fR \fINAME\fR]
+[\fB\-\-command\fR|\fB\-c\fR \fINAME\fR]
+[\fB\-\-page\-size\fR|\fB\-s\fR \fIN\fR]
+[\fB\-\-page\-index\fR|\fB\-i\fR \fIN\fR]
+.SH DESCRIPTION
+Shows what was run, by whom, in which account and namespace, with the
+parameters the command carried and the status it was answered with.
+.PP
+Newest first, because that is the question people ask of an audit \-
+"what just happened" \- and a trail paged oldest first would put the
+answer on the last page.
+.SH COLUMNS
+.TP
+.I accountId
+The account the command was run in.
+.TP
+.I namespace
+The namespace it was run in, empty for a command that names none.
+.TP
+.I userId
+Who ran it, taken from the identity the gateway verified and never from
+the request body. A record of who did something that the doer can write
+is not a record of anything.
+.TP
+.I module
+The module the command was addressed to, e.g.
+.IR esm .
+.TP
+.I command
+The command, e.g.
+.IR delete-bucket .
+.TP
+.I parameters
+What it was called with, with sensitive values replaced \- see
+.BR euclid-cli-ead (1).
+.TP
+.I status
+The HTTP status it was answered with.
+.I 403
+is a refusal, and is the entry the trail is kept for.
+.TP
+.I created
+When it happened.
+.SH FILTERS
+Each is optional and they combine. The account is not among them: every
+read is confined to the caller's own, whatever is asked for.
+.SH OPTIONS
+.TP
+.BR \-u ", " \-\-user " " \fIID\fR
+Only this user.
+.TP
+.BR \-m ", " \-\-module " " \fINAME\fR
+Only this module, e.g.
+.IR esm .
+.TP
+.BR \-c ", " \-\-command " " \fINAME\fR
+Only this command, e.g.
+.IR delete-bucket .
+.TP
+.BR \-s ", " \-\-page\-size " " \fIN\fR
+How many entries per page. Default 10.
+.TP
+.BR \-i ", " \-\-page\-index " " \fIN\fR
+Which page. Default 0.
+.SH EXIT STATUS
+.TP
+.B 0
+A page
+.RI ( "{events, total}" )
+is printed as JSON.
+.I total
+is how many the filter matches, not how many are on the page.
+.TP
+.B 1
+The caller was not authenticated, or does not hold
+.IR ead:list-events .
+.SH EXAMPLES
+.RS
+.nf
+# What has happened recently
+euclid-cli ead list-events
+
+# What one person did, fifty at a time
+euclid-cli ead list-events --user jvo --page-size 50
+
+# Every bucket deletion, whoever made it
+euclid-cli ead list-events --module esm --command delete-bucket
+
+# Second page of one module's entries
+euclid-cli ead list-events --module eqs --page-size 20 --page-index 1
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ead (1),
+.BR euclid-cli-ead-count-events (1),
+.BR euclid-cli-ead-purge-events (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

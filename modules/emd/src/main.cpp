@@ -87,6 +87,12 @@ static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
     return opts;
 }
 
+// Deliberately not audited. EMD is the document store every other module's every read and write
+// goes through, including the audit's own - so auditing it would record one entry per database
+// operation, write each of those entries through EMD, and audit that. The trail euclid keeps is of
+// commands people run, and EMD dispatches none: its actions are find-one, insert, update, the
+// machinery underneath the commands that are recorded.
+
 int main(const int argc, char *argv[]) {
 
     const auto cliOpts = parseCommandLine(argc, argv);

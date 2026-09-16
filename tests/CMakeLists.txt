@@ -226,6 +226,25 @@ target_link_libraries(${PURGE_JOB_BINARY} PRIVATE eucliddb Boost::unit_test_fram
 
 add_test(NAME ${PURGE_JOB_BINARY} COMMAND ${PURGE_JOB_BINARY})
 
+set(GATEWAY_MODULES_BINARY euclid-gateway-module-list-tests)
+
+add_executable(${GATEWAY_MODULES_BINARY} GatewayModuleListTest.cpp)
+set_target_properties(${GATEWAY_MODULES_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+target_compile_definitions(${GATEWAY_MODULES_BINARY} PRIVATE EUCLID_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+
+target_link_libraries(${GATEWAY_MODULES_BINARY} PRIVATE Boost::unit_test_framework)
+
+add_test(NAME ${GATEWAY_MODULES_BINARY} COMMAND ${GATEWAY_MODULES_BINARY})
+
+set(AUDIT_EVENT_BINARY euclid-audit-event-tests)
+
+add_executable(${AUDIT_EVENT_BINARY} AuditEventTest.cpp)
+set_target_properties(${AUDIT_EVENT_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${AUDIT_EVENT_BINARY} PRIVATE eucliddb euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${AUDIT_EVENT_BINARY} COMMAND ${AUDIT_EVENT_BINARY})
+
 set(BACKGROUND_WORK_BINARY euclid-background-work-tests)
 
 add_executable(${BACKGROUND_WORK_BINARY} BackgroundWorkTest.cpp)

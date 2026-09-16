@@ -121,6 +121,31 @@ namespace Euclid::Core {
          */
         [[nodiscard]]
         static bool Matches(std::string_view granted, std::string_view required);
+
+        /**
+         * @brief Whether an action only reads, judged from its name.
+         *
+         * @par
+         * Prefix-matched on the action half, because euclid names its actions consistently enough
+         * for that to be the honest rule rather than a list somebody has to maintain:
+         * list-queues, get-object, describe-table, count-objects.
+         *
+         * @par
+         * `count-` is here because euclid names counting both ways: the cached figures are
+         * get-object-count and get-message-count, which `get-` already covers, and the one action
+         * that counts for real is count-objects. A reader that could list a bucket's objects but
+         * not be told how many there are would be a strange thing to have built.
+         *
+         * @par
+         * Two things depend on this and must not disagree: the `reader` built-in role is every
+         * permission that satisfies it, and EAD records the actions that do not - so an action
+         * misjudged here is both grantable to a reader and invisible to the audit, which is the
+         * pair you least want to get wrong together.
+         *
+         * @param permission a full "<module>:<action>", or a bare action.
+         * @return true when it only reads.
+         */
+        static bool IsRead(std::string_view permission);
     };
 
 }// namespace Euclid::Core

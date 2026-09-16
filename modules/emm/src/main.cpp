@@ -144,6 +144,10 @@ int main(const int argc, char *argv[]) {
     Euclid::Database::WireScopeLookup();
     // Inert until euclid.authorization.mode says otherwise - see docs/role-concept.md §5.
     Euclid::Database::WireAuthorizationLookup();
+    // Audited like any other module, and deliberately so despite emm being unbindable: role
+    // binding is about who may call these, and the audit is about what was called. restart-module
+    // and stop-module are exactly the commands somebody reviewing an incident is looking for.
+    Euclid::Database::WireAuditSink();
 
     Euclid::Core::Monitoring::MetricsPusher metricsPusher("emm");
     try {

@@ -127,6 +127,120 @@ namespace Euclid::Core {
         static void SetRequestRewriter(RequestRewriter rewriter);
 
         /**
+         * @brief One command, as the audit trail records it.
+         *
+         * @par
+         * A plain struct rather than the database entity, because core cannot depend on database -
+         * the dependency runs the other way. The sink that is handed one of these turns it into a
+         * row; see Database::WireAuditSink().
+         */
+        struct AuditRecord {
+
+            /**
+             * @brief Account the command was run in.
+             */
+            std::string accountId;
+
+            /**
+             * @brief Namespace it was run in, empty for a command that names none.
+             */
+            std::string nameSpace;
+
+            /**
+             * @brief The verified caller, not what the body claimed.
+             */
+            std::string userId;
+
+            /**
+             * @brief Module the command was addressed to.
+             */
+            std::string moduleName;
+
+            /**
+             * @brief The command.
+             */
+            std::string command;
+
+            /**
+             * @brief The request body, for the sink to redact before it stores it.
+             */
+            std::string parameters;
+
+            /**
+             * @brief The HTTP status it was answered with.
+             */
+            long status{};
+        };
+
+        /**
+         * @brief Callback the audit trail is written through.
+         */
+        using AuditSink = std::function<void(const AuditRecord &)>;
+
+        /**
+         * @brief Registers where audited commands go.
+         *
+         * @par Why here rather than in each module
+         * Dispatch() is the one place every action of every module passes through, already holding
+         * the caller identity, the target, the action and the body. Auditing anywhere else means
+         * remembering it in forty handlers, and the ones nobody remembered would be the ones
+         * missing from the trail - which is the failure an audit cannot tolerate, because absence
+         * of a record reads as absence of the command.
+         *
+         * @par What is recorded
+         * Everything that changes something, and everything that was refused or failed whatever
+         * its kind. Successful reads are left out by default: on a working installation they are
+         * the overwhelming majority - a single parse run makes millions of esm:get-object calls -
+         * and a trail that large buries what it was kept for. `euclid.modules.ead.audit-reads`
+         * turns them on for an installation that wants them.
+         *
+         * @par
+         * Until this is called nothing is recorded, which is what a tool built on this class that
+         * is not a module keeps doing.
+         *
+         * @param sink invoked with each audited command; must not throw, and must not block.
+         */
+        static void SetAuditSink(AuditSink sink);
+
+        /**
+         * @brief Whether one answered command belongs in the audit trail.
+         *
+         * @par
+         * Public so it can be tested. The rule decides what an audit does and does not contain,
+         * which is not something to leave pinned only by the comment explaining it - an exclusion
+         * whose reasoning is tested but whose behaviour is not will pass while it is being
+         * silently reverted, which is how this came to be public.
+         *
+         * @par What is in
+         * Everything that changes something, and everything that was refused or failed whatever
+         * its kind - a refusal is the entry an audit exists for, and a 403 that is not recorded
+         * looks exactly like a command nobody attempted. Successful reads only when
+         * `euclid.modules.ead.audit-reads` asks for them.
+         *
+         * @par What is never in
+         * The machinery modules, whatever the action and whatever the status - see the
+         * implementation for which and why.
+         *
+         * @param target the module addressed, from x-euclid-target.
+         * @param action the command, from x-euclid-action.
+         * @param status the status it was answered with.
+         * @return true when it should be recorded.
+         */
+        static bool ShouldAudit(std::string_view target, std::string_view action, long status);
+
+    protected:
+
+        /**
+         * @brief Hands one answered command to the audit sink, if it is one worth recording.
+         *
+         * @param req the request as it arrived.
+         * @param status the status it was answered with.
+         */
+        static void RecordAudit(const boost::beast::http::request<boost::beast::http::string_body> &req, long status);
+
+    public:
+
+        /**
          * @brief Cancels the periodic CPU/memory usage collection task.
          */
         ~HttpActionServer() override;
@@ -211,8 +325,6 @@ namespace Euclid::Core {
         static void SetAuthorizationLookup(AuthorizationLookup lookup);
 
 
-
-
         /**
          * @brief The refusal this request earns from the role gate, or nothing to let it through.
          *
@@ -230,7 +342,7 @@ namespace Euclid::Core {
          * @return the 403 to send instead, or std::nullopt.
          */
         [[nodiscard]]
-        static std::optional<boost::beast::http::response<boost::beast::http::string_body>>
+        static std::optional<boost::beast::http::response<boost::beast::http::string_body> >
         Authorize(const boost::beast::http::request<boost::beast::http::string_body> &req);
 
 
@@ -269,7 +381,7 @@ namespace Euclid::Core {
          * @return the 403 to send instead, or std::nullopt.
          */
         [[nodiscard]]
-        static std::optional<boost::beast::http::response<boost::beast::http::string_body>>
+        static std::optional<boost::beast::http::response<boost::beast::http::string_body> >
         AuthorizeResource(const boost::beast::http::request<boost::beast::http::string_body> &req,
                           const std::string &resourceErn);
 
@@ -472,8 +584,6 @@ namespace Euclid::Core {
         [[nodiscard]]
         virtual boost::beast::http::response<boost::beast::http::string_body>
         DispatchAction(const boost::beast::http::request<boost::beast::http::string_body> &req) = 0;
-
-    private:
 
         /**
          * @brief The role gate, then the module's own handler.

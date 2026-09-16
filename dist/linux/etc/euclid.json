@@ -212,6 +212,21 @@
         "maxInstances": 2,
         "threads": 8
       },
+      "ead": {
+        "dependencies": [
+          "emd"
+        ],
+        "active": true,
+        "name": "ead",
+        "minInstances": 1,
+        "maxInstances": 2,
+        "threads": 4,
+        "retention": 365,
+        "audit-reads": false,
+        "queue-limit": 10000,
+        "socketPath": "/var/run/euclid/euclid-ead.sock",
+        "executable": "/usr/local/euclid/bin/euclid-ead"
+      },
       "eap": {
         "dependencies": [
           "emd"
