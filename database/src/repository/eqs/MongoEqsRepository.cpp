@@ -130,13 +130,13 @@ namespace Euclid::Database {
 
                 const auto it = counted.find(ern);
                 const Counts counts = it != counted.end() ? it->second : Counts{};
-                queueCollection.update_one(make_document(kvp("ern", ern)).view(),
-                                           make_document(kvp("$set", make_document(
-                                                                     kvp("available", static_cast<int64_t>(counts.available)),
-                                                                     kvp("delayed", static_cast<int64_t>(counts.delayed)),
-                                                                     kvp("invisible", static_cast<int64_t>(counts.invisible)),
-                                                                     kvp("size", static_cast<int64_t>(counts.size)))))
-                                           .view());
+                std::ignore = queueCollection.update_one(make_document(kvp("ern", ern)).view(),
+                                                         make_document(kvp("$set", make_document(
+                                                                                   kvp("available", static_cast<int64_t>(counts.available)),
+                                                                                   kvp("delayed", static_cast<int64_t>(counts.delayed)),
+                                                                                   kvp("invisible", static_cast<int64_t>(counts.invisible)),
+                                                                                   kvp("size", static_cast<int64_t>(counts.size)))))
+                                                         .view());
                 ++queues;
             }
 
@@ -654,9 +654,9 @@ namespace Euclid::Database {
             mongocxx::options::update opts;
             opts.upsert(true);
 
-            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
+            const auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
-            messageCollection.update_one(filter.view(), update.view(), opts);
+            std::ignore = messageCollection.update_one(filter.view(), update.view(), opts);
 
         } catch (const std::exception &e) {
             log_error << "Upsert message failed, error: " << e.what();
@@ -728,7 +728,7 @@ namespace Euclid::Database {
             doc.append(concatenate(message.ToDocument().view()));
             doc.append(kvp("created", stamp), kvp("modified", stamp));
 
-            messageCollection.insert_one(doc.view());
+            std::ignore = messageCollection.insert_one(doc.view());
             log_debug << "Message sent, ern: " << ern << ", messageId: " << message.messageId;
 
         } catch (const std::exception &e) {
@@ -819,7 +819,7 @@ namespace Euclid::Database {
                                                 kvp("modified", true))));
                             // One write, not three: the message's own queueErn is what moves it,
                             // and both queues' counters come from the next scan.
-                            messageCollection.update_one(make_document(kvp("messageId", message.messageId)).view(), moveUpdate.view());
+                            std::ignore = messageCollection.update_one(make_document(kvp("messageId", message.messageId)).view(), moveUpdate.view());
 
                             log_debug << "Message moved to dead letter queue, ern: " << queueErn << ", dlqErn: " << deadLetterQueueErn << ", messageId: " << message.messageId;
                             continue;
@@ -918,7 +918,7 @@ namespace Euclid::Database {
                                 kvp("invisible", static_cast<int64_t>(0)))),
                     kvp("$currentDate", make_document(
                                 kvp("modified", true))));
-            queueCollection.update_one(queueFilter.view(), update.view());
+            std::ignore = queueCollection.update_one(queueFilter.view(), update.view());
         } catch (const std::exception &e) {
             log_error << "Purge queue failed, ern: " << queueErn << ", error: " << e.what();
         }
@@ -966,7 +966,7 @@ namespace Euclid::Database {
                                 kvp("invisible", static_cast<int64_t>(0)))),
                     kvp("$currentDate", make_document(
                                 kvp("modified", true))));
-            queueCollection.update_many(queueFilter.view(), update.view());
+            std::ignore = queueCollection.update_many(queueFilter.view(), update.view());
         } catch (const std::exception &e) {
             log_error << "Purge all queues failed, region: " << region << ", accountId: " << accountId << ", error: " << e.what();
         }

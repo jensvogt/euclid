@@ -6,11 +6,11 @@
 #include <atomic>
 #include <cstdlib>
 #include <string>
-#include <unistd.h>
 #include <utility>
 
 // Euclid includes
 #include <euclid/core/LogStream.h>
+#include <euclid/core/SystemUtils.h>
 #include <euclid/database/BackgroundWork.h>
 #include <euclid/database/RepositoryFactory.h>
 
@@ -41,7 +41,9 @@ namespace Euclid::Database {
     const std::string &InstanceName() {
         static const std::string kName = [] {
             if (const char *id = std::getenv("EUCLID_INSTANCE_ID"); id != nullptr && *id != '\0') return std::string(id);
-            return "pid-" + std::to_string(static_cast<long>(::getpid()));
+            // Core::SystemUtils rather than getpid() directly: <unistd.h> does not exist on
+            // Windows, and eucliddb is built there.
+            return "pid-" + std::to_string(Core::SystemUtils::GetPid());
         }();
         return kName;
     }
