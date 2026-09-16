@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.18](https://github.com/jensvogt/euclid/compare/1.1.17...v1.1.18) (2026-09-16)
+
+
+### Bug Fixes
+
+* logging to file ([9acf0f8](https://github.com/jensvogt/euclid/commit/9acf0f83a8e67ead2dfd089f236135f956bece5d))
+* micrometer metrics in EMO ([5700e28](https://github.com/jensvogt/euclid/commit/5700e283fa042a641080d9a7df22c9d49af58029))
+
 ## [1.1.17](https://github.com/jensvogt/euclid/compare/v1.1.16...v1.1.17) (2026-09-16)
 
 
