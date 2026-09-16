@@ -63,8 +63,15 @@ namespace Euclid::main {
     //   1. x-euclid-target — the module name itself, e.g. "esm"
     //   2. Authorization   — SigV4 credential scope: "<key>/<date>/<region>/<svc>/aws4_request"
     static std::string detectEuclidService(const http::request<http::string_body> &req, const ServiceController &ctrl) {
+        // Every module that can be addressed through the gateway. Hand-maintained, and checked
+        // against modules/ by GatewayModuleListTest - a module missing from here is running,
+        // registered and reachable by nothing, answering every request with the 404 at the bottom
+        // of this function, which says nothing about why.
+        //
+        // emd is deliberately absent: it is the document store the other modules talk to over
+        // their own sockets, and nothing outside euclid has business addressing it.
         static const std::unordered_set<std::string> kModules{
-                "eam", "esm", "eqs", "ens", "emm", "emo", "ekm", "ess", "ets", "eap", "ees", "eag", "ekv"
+                "ead", "eam", "esm", "eqs", "ens", "emm", "emo", "ekm", "ess", "ets", "eap", "ees", "eag", "ekv"
         };
 
         if (const auto module = std::string(req["x-euclid-target"]); !module.empty()) {

@@ -1,0 +1,141 @@
+.TH EUCLID-CLI-EAD 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ead \- read the Euclid audit trail
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+[\fB\-\-loglevel\fR \fILEVEL\fR]
+.B ead
+.I action
+[\fIaction-options\fR...]
+.SH DESCRIPTION
+The
+.B ead
+module reads the audit trail: what was run, by whom, in which account and
+namespace, with the parameters the command carried and the status it was
+answered with.
+.SH IT DOES NOT WRITE THE TRAIL
+Every module records its own commands as it answers them, in the one
+place every action of every module passes through. EAD only reads.
+.PP
+That split is the point. An audit whose write path ran through a separate
+module would be missing entries exactly when that module was down or
+stopped \- which is both the likeliest moment for something worth
+auditing and the easiest thing for somebody to arrange. Stopping
+.B ead
+stops people reading the trail; it does not stop the trail.
+.SH WHAT IS IN IT
+Everything that changed something, and everything that was refused or
+failed whatever its kind.
+.PP
+The refusals are why this is an audit rather than a log of activity. A
+delete somebody was not allowed to make is a 403, and a 403 that is not
+recorded looks exactly like a delete nobody ever attempted.
+.PP
+The monitoring module is left out entirely, whatever the action and
+whatever the status. Every instance of every module pushes to
+.B emo
+on a timer, and none of its actions read as reads \- so without this the
+machinery would be most of the trail. The document store
+.B emd
+is out for the same reason, being underneath every read and write euclid
+makes. A metrics push that starts failing fails on a timer too, so these
+stay out even when they are refused; the module log is where that
+belongs.
+.PP
+Successful reads are left out by default. On a working installation they
+outnumber everything else by orders of magnitude \- one parse run is
+millions of
+.I esm:get-object
+calls \- and a trail that large buries what it was kept for. Set
+.I euclid.modules.ead.audit-reads
+to include them.
+.SH PARAMETERS ARE REDACTED
+A request body is where passwords, secrets, tokens and private keys
+travel, and an audit log is read widely and exported freely \- that is
+what it is for. So sensitive values are replaced with
+.I ***
+before the entry is ever written, on the writing side: there is no call
+that stores a raw body, and nothing to remember to switch on.
+.PP
+The field name is kept and only the value replaced, so the trail still
+says
+.I that
+a password was set, by whom and on which user, without saying what it was
+set to. That is the auditable fact; the value never was.
+.PP
+Matching is on substrings of field names, without regard to case, and it
+descends into nested objects and arrays. A body that is not JSON has no
+field structure to judge, so it is recorded as its size alone rather than
+guessed at.
+.SH RETENTION
+Each entry is written with an expiry taken from
+.IR euclid.modules.ead.retention ,
+in days, and the database removes it when it comes. Zero keeps entries
+for ever, and then no expiry is written at all \- so turning retention on
+later sweeps only what was written after it, never the existing trail.
+.PP
+.BR euclid-cli-ead-purge-events (1)
+is for the installation that changed its mind and needs a window gone
+now.
+.SH SCOPE
+Every read is confined to the caller's own account, whatever the filter
+asks for. An audit that let one account read another's trail would hand
+over the shape of somebody else's installation \- which buckets they
+keep, who works there, what they do \- through the one module built to be
+read by people looking for exactly that.
+.SH ACTIONS
+.TP
+.B list-events
+One page of the trail, newest first. See
+.BR euclid-cli-ead-list-events (1).
+.TP
+.B count-events
+How many entries a filter matches, without listing them. See
+.BR euclid-cli-ead-count-events (1).
+.TP
+.B purge-events
+Removes entries older than a given age. See
+.BR euclid-cli-ead-purge-events (1).
+.SH AUTHENTICATION
+All
+.B ead
+commands require the caller to be authenticated; run
+.B euclid-cli eam login
+first. Reading the trail needs
+.I ead:list-events
+and
+.IR ead:count-events ,
+which the built-in
+.I reader
+and
+.I operator
+roles hold. Purging needs
+.IR ead:purge-events ,
+which only
+.I account-administrator
+holds \- removing audit records is not an operator's job.
+.SH EXAMPLES
+.RS
+.nf
+# What has happened recently
+euclid-cli ead list-events
+
+# What one person did
+euclid-cli ead list-events --user jvo --page-size 50
+
+# Every bucket deletion, whoever made it
+euclid-cli ead list-events --module esm --command delete-bucket
+
+# How much the trail holds for one module
+euclid-cli ead count-events --module eqs
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli (1),
+.BR euclid-cli-ead-list-events (1),
+.BR euclid-cli-ead-count-events (1),
+.BR euclid-cli-ead-purge-events (1),
+.BR euclid-cli-eam (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>
