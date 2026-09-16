@@ -1,0 +1,59 @@
+.TH EUCLID-CLI-EAD-PURGE-EVENTS 1 "September 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ead-purge-events \- remove audit entries older than a given age
+.SH SYNOPSIS
+.B euclid-cli ead purge-events
+.BR \-\-older\-than\-days | \-d
+.I N
+.SH DESCRIPTION
+Removes audit entries older than the given age.
+.SH RETENTION IS NORMALLY NOT THIS
+Each entry is written with an expiry taken from
+.IR euclid.modules.ead.retention ,
+and the database removes it when it comes. Nothing has to be run for that
+to happen, and nothing has to be scheduled.
+.PP
+This command is for the installation that changed its mind: a retention
+that was shortened after years had already accumulated, or a window that
+has to be gone now rather than when its entries expire.
+.SH AN AGE IS REQUIRED
+.B \-\-older\-than\-days
+must be given and must be positive. A purge with no window would remove
+the whole trail, and that is not something to do by leaving an argument
+out.
+.SH IT IS ITSELF AUDITED
+The purge is recorded like any other command that changes something, so
+the trail says who pruned it and by how much. That entry is newer than
+anything the purge removed, so it survives its own command.
+.SH OPTIONS
+.TP
+.BR \-d ", " \-\-older\-than\-days " " \fIN\fR
+Remove entries created more than this many days ago. Required, and must
+be positive.
+.SH EXIT STATUS
+.TP
+.B 0
+.RI ( "{removed}" )
+is printed as JSON.
+.TP
+.B 1
+No age was given, the age was not positive, the caller was not
+authenticated, or the caller does not hold
+.IR ead:purge-events " - which only " account-administrator
+holds, since removing audit records is not an operator's job.
+.SH EXAMPLES
+.RS
+.nf
+# Keep the last ninety days
+euclid-cli ead purge-events --older-than-days 90
+
+# See what it would be working on first
+euclid-cli ead count-events
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ead (1),
+.BR euclid-cli-ead-count-events (1),
+.BR euclid-cli-ead-list-events (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

@@ -88,8 +88,7 @@ static int initializeDatabase(const Euclid::Core::Configuration &cfg) {
     try {
 
         // Choose backend from config
-        const auto backend = cfg.getOr<std::string>("euclid.database.backend", "mongodb");
-        if (backend == "memory") {
+        if (const auto backend = cfg.getOr<std::string>("euclid.database.backend", "mongodb"); backend == "memory") {
             log_debug << "Using in-memory database";
             Euclid::Database::RepositoryFactory::instance().initialize(Euclid::Database::BackendType::MEMORY);
         } else if (backend == "emd") {
@@ -144,6 +143,8 @@ int main(const int argc, char *argv[]) {
     Euclid::Database::WireScopeLookup();
     // Inert until euclid.authorization.mode says otherwise - see docs/role-concept.md §5.
     Euclid::Database::WireAuthorizationLookup();
+    // Every module records its own commands; see Core::HttpActionServer::Dispatch().
+    Euclid::Database::WireAuditSink();
 
     try {
         Euclid::Monitoring::EmoServer server(cliOpts->socketPath, Euclid::Core::HttpActionServer::ConfiguredWorkerThreads("emo", 2));

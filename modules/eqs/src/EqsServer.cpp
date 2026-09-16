@@ -192,7 +192,7 @@ namespace Euclid::EQS {
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
 
-        const auto request = Dto::EQS::DeleteQueueRequest::fromJson(req.body());
+        const auto request = boost::json::value_to<Dto::EQS::DeleteQueueRequest>(jv);
         log_info << "EQS DeleteQueue, ern: " << request.ern;
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
