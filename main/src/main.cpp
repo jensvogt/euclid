@@ -98,6 +98,14 @@ namespace {
         int httpPort{};
         bool consoleLog{};
         bool fileLog{};
+
+        /**
+         * Whether the corresponding switch was actually given, as opposed to taking its default.
+         * Only an explicit switch may override the configuration file - see where these are read.
+         */
+        bool consoleLogGiven{};
+        bool fileLogGiven{};
+        bool logDirGiven{};
         std::string logDir;
 #if defined(_WIN32)
         bool install{};
@@ -333,6 +341,13 @@ static std::optional<CliOptions> parseCommandLine(int argc, char *argv[]) {
 
         po::notify(vm);
 
+        // Recorded before vm goes out of scope: defaulted() is the only way to tell "the operator
+        // asked for this" from "nobody said anything and program_options filled in the default",
+        // and the difference decides whether euclid.json is honoured or overwritten.
+        opts.consoleLogGiven = !vm["console-log"].defaulted();
+        opts.fileLogGiven = !vm["file-log"].defaulted();
+        opts.logDirGiven = !vm["log-dir"].defaulted();
+
     } catch (const po::error &e) {
         std::cerr << "Command line error: " << e.what() << "\n";
         std::cerr << "Use --help for usage information.\n";
@@ -356,12 +371,23 @@ static void applyCliOverrides(const CliOptions &opts) {
         cfg.set<std::string>("euclid.logging.level", opts.logLevel);
     }
 
-    if (!opts.logDir.empty()) {
+    // Same rule as the two switches below, and it had the same fault: --log-dir carries a
+    // default, so opts.logDir is never empty and this always fired - writing "/var/log/euclid"
+    // over whatever euclid.json said. An installation that configured a directory had its log
+    // written somewhere else entirely, which is a hard thing to notice when you are looking for
+    // the log.
+    if (opts.logDirGiven) {
         cfg.set<std::string>("euclid.logging.dir", opts.logDir);
     }
 
-    cfg.set<bool>("euclid.logging.console-active", opts.consoleLog);
-    cfg.set<bool>("euclid.logging.file-active", opts.fileLog);
+    // Only when the switch was actually given. Writing it unconditionally made the
+    // command line's own default overwrite euclid.json, so the setting there did
+    // nothing and there was no way to tell from the outside why.
+    if (opts.consoleLogGiven) cfg.set<bool>("euclid.logging.console-active", opts.consoleLog);
+    // Only when the switch was actually given. Writing it unconditionally made the
+    // command line's own default overwrite euclid.json, so the setting there did
+    // nothing and there was no way to tell from the outside why.
+    if (opts.fileLogGiven) cfg.set<bool>("euclid.logging.file-active", opts.fileLog);
 }
 
 static void registerModules(Euclid::main::ServiceController &ctrl) {
