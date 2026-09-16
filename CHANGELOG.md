@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.17](https://github.com/jensvogt/euclid/compare/v1.1.16...v1.1.17) (2026-09-16)
+
+
+### Bug Fixes
+
+* AED auditing ([8f323b7](https://github.com/jensvogt/euclid/commit/8f323b747664af24872e8dab86c5b9a6d2c03804))
+* windows build ([aafc6e4](https://github.com/jensvogt/euclid/commit/aafc6e4685dc02ddef0d402bf3c7811f4209fe54))
+
 ## [1.1.16](https://github.com/jensvogt/euclid/compare/1.1.15...v1.1.16) (2026-09-15)
 
 
