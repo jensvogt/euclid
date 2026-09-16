@@ -3,6 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 // C++ includes
+#include <algorithm>
 #include <tuple>
 
 // MongoDB includes
