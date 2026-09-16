@@ -1345,7 +1345,7 @@ namespace Euclid::main {
                 }
 
                 applyUnreportedAreBusy(*group, fresh, now);
-                applyBacklog(*group, pending);
+                applyBacklog(*group, pending, now);
             }
         }
 
@@ -1429,7 +1429,7 @@ namespace Euclid::main {
                 svc->wasBusySinceLastCheck = true;
             }
 
-            applyBacklog(*group, pending);
+            applyBacklog(*group, pending, now);
         }
     }
 
@@ -1455,9 +1455,15 @@ namespace Euclid::main {
     // Work waiting that nobody is getting to is the one signal utilisation cannot give: an instance
     // is either busy or not, and "busy" says nothing about how much is left. Raising desiredCount is
     // how evaluateScaling() is asked for more, and it is bounded there by maxInstances.
-    void ServiceController::applyBacklog(ServiceGroup &group, const long pending) {
+    void ServiceController::applyBacklog(ServiceGroup &group, const long pending, const std::chrono::steady_clock::time_point now) {
 
         if (pending < kBacklogScaleUpMessages) return;
+
+        // Before the early return below, and deliberately: a pool that already has as many
+        // instances as the backlog calls for is still working, and letting the idle timer run out
+        // underneath it is what made this oscillate. The figure that says "there is work here" has
+        // to keep the pool alive whether or not it also asks for more.
+        group.lastActivityAt = now;
 
         const auto running = std::ranges::count_if(group.instances, [](const auto &svc) {
             return svc->state == Database::Entity::ModuleState::RUNNING;

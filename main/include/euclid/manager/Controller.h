@@ -637,10 +637,22 @@ namespace Euclid::main {
         /**
          * @brief Asks evaluateScaling() for another instance when work is piling up.
          *
+         * @par
+         * Work waiting counts as activity, which is why this touches `lastActivityAt`. An
+         * application answers no gateway request, so the only other thing that can mark its pool
+         * active is an instance reporting utilisation at or above kBusyUtilisationPercent - and a
+         * listener that spends its time waiting on storage and a database reports well under that
+         * while sitting on thousands of messages. Without this the pool reads as idle, scales back
+         * to minInstances, discards the desiredCount raised here, finds the same backlog a second
+         * later and raises it again: an oscillation that starts a JVM and kills it every minute
+         * and never gets through the queue, because the instance doing the work is stopped before
+         * it finishes any.
+         *
          * @param group the pool.
          * @param pending messages waiting across the pool's queues.
+         * @param now the tick's clock reading, so every pool in one pass shares it.
          */
-        void applyBacklog(ServiceGroup &group, long pending);
+        void applyBacklog(ServiceGroup &group, long pending, std::chrono::steady_clock::time_point now);
 
 
         /**
