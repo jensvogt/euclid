@@ -5,6 +5,7 @@
 #pragma once
 
 // C++ includes
+#include <chrono>
 #include <string>
 #include <vector>
 
