@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.19](https://github.com/jensvogt/euclid/compare/1.1.18...v1.1.19) (2026-09-17)
+
+
+### Bug Fixes
+
+* micrometer metrics in EMO ([cea6105](https://github.com/jensvogt/euclid/commit/cea6105f503cb02d169231cad2621d785667520f))
+
 ## [1.1.18](https://github.com/jensvogt/euclid/compare/1.1.17...v1.1.18) (2026-09-16)
 
 
