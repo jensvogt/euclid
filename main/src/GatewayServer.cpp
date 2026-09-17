@@ -54,6 +54,23 @@ namespace Euclid::main {
         return std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.gateway.http.backend-timeout-seconds", kDefaultBackendTimeoutSeconds));
     }
 
+    // How long an established connection may sit between requests before this end closes it. Also
+    // bounds the wait for the very first request, which is the same wait from here.
+    //
+    // Longer than it looks like it needs to be, and deliberately: a client that polls holds its
+    // connections open between refreshes, and if this expires near the moment it decides to reuse
+    // one, the request is written into a socket being torn down and dies with no answer. The client
+    // cannot avoid that - however recently it checked, this end may close between the check and the
+    // write - so the only thing that removes the race is for this to outlast the polling intervals
+    // in use by a wide margin. 30s did not: it is exactly the euclid-amo dashboard's default
+    // refresh, and the two collided on roughly every cycle.
+    //
+    // 75 seconds is nginx's default for the same knob, chosen for the same reason.
+    static std::chrono::seconds KeepAliveTimeout() {
+        constexpr long kDefaultKeepAliveSeconds = 75;
+        return std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.gateway.http.keep-alive-seconds", kDefaultKeepAliveSeconds));
+    }
+
     // ── Euclid service detection ────────────────────────────────────────────────
 
     // Returns the lowercase Euclid service name for a request, or empty string if
@@ -412,7 +429,7 @@ namespace Euclid::main {
         void doRead() {
             _parser.emplace();
             _parser->body_limit(MaxBodySize());
-            _stream.expires_after(std::chrono::seconds(30));
+            _stream.expires_after(KeepAliveTimeout());
             http::async_read(
                     _stream, _buf, *_parser,
                     [self = shared_from_this()](const beast::error_code &ec, std::size_t) {
@@ -526,7 +543,7 @@ namespace Euclid::main {
         void doRead() {
             _parser.emplace();
             _parser->body_limit(MaxBodySize());
-            beast::get_lowest_layer(_stream).expires_after(std::chrono::seconds(30));
+            beast::get_lowest_layer(_stream).expires_after(KeepAliveTimeout());
             http::async_read(
                     _stream, _buf, *_parser,
                     [self = shared_from_this()](const beast::error_code &ec, std::size_t) {
