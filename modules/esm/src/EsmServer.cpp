@@ -651,10 +651,23 @@ namespace Euclid::ESM {
         // including them would send subscribers events they have never seen for these keys.
         const auto objects = repo->listObjects(bucketErn, prefix, -1, -1, "", "asc", false);
 
+        long announced = 0;
         for (const auto &object: objects) {
+
+            // An object still being uploaded is excluded for exactly the reason a directory is: it
+            // has never been announced. Its created event is published when complete-upload
+            // finishes, so a touch is the only thing that would ever tell a subscriber about a key
+            // whose bytes are not there yet - and get-object then refuses it with 409, which
+            // reaches the subscriber as a handler failure on work it was never meant to be given.
+            //
+            // Observed: a touch of this kind over a bucket of 882,287 objects caught the five that
+            // happened to be mid-upload, and every listener that picked one up failed on it.
+            if (!Database::Entity::ESM::IsDownloadable(object.status)) continue;
+
             publishObjectEvent(kObjectCreated, object, bucket, userId);
+            ++announced;
         }
-        return static_cast<long>(objects.size());
+        return announced;
     }
 
     // Runs touchBucketObjects() on a detached thread.
