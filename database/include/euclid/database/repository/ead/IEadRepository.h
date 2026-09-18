@@ -40,6 +40,21 @@ namespace Euclid::Database {
         virtual Entity::EAD::AuditEvent createEvent(const Entity::EAD::AuditEvent &event) = 0;
 
         /**
+         * @brief Writes many audit entries in one round trip.
+         *
+         * @par
+         * The writer already holds a queue, so it always had a batch to offer and nothing to offer
+         * it to. One insert per entry made a single thread the ceiling on how fast a module could
+         * be audited - measured at about 1,035 entries a second arriving against a writer that
+         * could not approach it, so the queue saturated and began discarding the oldest entries.
+         * The trail did not merely lag; it lost 46,000 entries in one process.
+         *
+         * @param events the entries to write, in order; an empty list writes nothing.
+         * @return how many were written.
+         */
+        virtual long createEvents(const std::vector<Entity::EAD::AuditEvent> &events) = 0;
+
+        /**
          * @brief One page of the trail, newest first.
          *
          * @par

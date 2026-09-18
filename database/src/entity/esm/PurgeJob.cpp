@@ -26,6 +26,7 @@ namespace Euclid::Database::Entity::ESM {
                 bsoncxx::builder::basic::kvp("bucketErn", bucketErn),
                 bsoncxx::builder::basic::kvp("prefix", prefix),
                 bsoncxx::builder::basic::kvp("deleteBucket", deleteBucket),
+                bsoncxx::builder::basic::kvp("notify", notify),
                 bsoncxx::builder::basic::kvp("userId", userId),
                 bsoncxx::builder::basic::kvp("claimedBy", claimedBy),
                 bsoncxx::builder::basic::kvp("claimedAt", asDate(claimedAt)),
@@ -45,6 +46,9 @@ namespace Euclid::Database::Entity::ESM {
             else if (key == "bucketErn") job.bucketErn = std::string(field.get_string().value);
             else if (key == "prefix") job.prefix = std::string(field.get_string().value);
             else if (key == "deleteBucket") job.deleteBucket = field.get_bool().value;
+            // Absent reads as true: a job stored before this field existed announced every
+            // object, and reading it back as silent would drop notifications it promised.
+            else if (key == "notify") job.notify = field.get_bool().value;
             else if (key == "userId") job.userId = std::string(field.get_string().value);
             else if (key == "claimedBy") job.claimedBy = std::string(field.get_string().value);
             else if (key == "claimedAt") job.claimedAt = system_clock::time_point{field.get_date().value};

@@ -5,6 +5,7 @@
 // C++ includes
 #include <algorithm>
 #include <tuple>
+#include <vector>
 
 // Euclid includes
 #include <euclid/core/Configuration.h>
@@ -22,6 +23,11 @@ namespace Euclid::Database {
         long queueLimit() {
             return std::max<long>(100, Core::Configuration::instance().getOr<long>("euclid.modules.ead.queue-limit", 10000));
         }
+
+        // How many entries one insert carries. Large enough that the round trip is amortised to
+        // nothing, small enough to stay well inside any server's document-per-batch limit and to
+        // keep the queue's lock held only briefly while they are taken off it.
+        constexpr size_t kWriteBatch = 500;
 
     }// namespace
 
@@ -67,7 +73,7 @@ namespace Euclid::Database {
 
         for (;;) {
 
-            Entity::EAD::AuditEvent event;
+            std::vector<Entity::EAD::AuditEvent> batch;
             {
                 std::unique_lock lock(_mutex);
                 _wakeup.wait(lock, [this] { return _stopping || !_queued.empty(); });
@@ -76,19 +82,32 @@ namespace Euclid::Database {
                 // nothing about, so dropping them on shutdown would lose commands that ran.
                 if (_queued.empty()) return;
 
-                event = std::move(_queued.front());
-                _queued.pop_front();
+                // Everything waiting, up to a bound, rather than one entry.
+                //
+                // This is what the queue was for and what nothing used. One insert per entry made
+                // this thread the ceiling on how fast a module could be audited: entries arrived
+                // at about 1,035 a second against a writer nowhere near that, so Write() started
+                // discarding the oldest to make room - 46,000 of them in one process. The queue
+                // was not absorbing a burst, it was where the trail went to be lost.
+                //
+                // Bounded so that a process that has fallen a long way behind still writes
+                // something promptly, and so one insert cannot grow past what a server will take.
+                const auto take = std::min<size_t>(_queued.size(), kWriteBatch);
+                batch.reserve(take);
+                for (size_t i = 0; i < take; ++i) {
+                    batch.push_back(std::move(_queued.front()));
+                    _queued.pop_front();
+                }
             }
 
             try {
-                std::ignore = RepositoryFactory::instance().eadRepository()->createEvent(event);
+                std::ignore = RepositoryFactory::instance().eadRepository()->createEvents(batch);
 
             } catch (const std::exception &e) {
                 // Nothing above this catch: this is a thread's entry path, and an exception
                 // escaping it calls std::terminate() and takes the module down - to fail at
-                // writing a line nobody is waiting for.
-                log_error << "Audit write failed, module: " << event.moduleName
-                          << ", command: " << event.command << ", error: " << e.what();
+                // writing lines nobody is waiting for.
+                log_error << "Audit write failed, entries: " << batch.size() << ", error: " << e.what();
             }
         }
     }

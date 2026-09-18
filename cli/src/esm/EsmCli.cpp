@@ -1409,16 +1409,25 @@ namespace Euclid::CLI {
         desc.add_options()
                 ("bucket,b", po::value<std::string>()->required(), "bucket name; a full ERN also works and is what reaches another namespace")
                 ("prefix,p", po::value<std::string>(), "object key prefix")
-                ("async", po::bool_switch()->default_value(false), "return at once and remove the objects in the background; for buckets too large to empty within one request");
+                ("async", po::bool_switch()->default_value(false), "return at once and remove the objects in the background; for buckets too large to empty within one request")
+                ("no-notify", po::bool_switch()->default_value(false), "remove the objects without announcing any of them to the bucket's subscribers");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "purge-bucket", "--bucket <name|ern> [--prefix <value>] [--async]",
+            return PrintActionHelp("esm", "purge-bucket", "--bucket <name|ern> [--prefix <value>] [--async] [--no-notify]",
                                    "Removes all objects from a bucket identified by its Euclid resource name (ERN), leaving the (empty) "
                                    "bucket itself in place, optionally filtered by object key prefix. It returns the ERN and the number of remaining objects. "
                                    "Give --async for a bucket large enough that emptying it takes minutes: the request is answered at once "
                                    "with HTTP 202 and the object count at the time of asking, and the objects are removed by a background "
                                    "thread inside ESM, instead of the call sitting there until the gateway times out while the removal "
-                                   "carries on unseen behind it. Watch the progress with \"esm get-bucket-size\" or \"esm get-object-count\".",
+                                   "carries on unseen behind it. Watch the progress with \"esm get-bucket-size\" or \"esm get-object-count\". "
+                                   "Every removed object is announced to the bucket's subscribers as one esm.object.deleted event, because a "
+                                   "subscriber keeping an index of keys has to be told which ones went - \"the bucket was purged\" does not "
+                                   "say. Give --no-notify to remove them in silence. That is the right choice for clearing test data, where "
+                                   "nothing wants a million delete notifications and sending them is not free at either end: a purge of 1.3 "
+                                   "million objects fed a listener's queue at 1,600 a minute for hours and held an application pool at its "
+                                   "ceiling for the duration. It is the wrong choice anywhere a subscriber keeps its own record of what the "
+                                   "bucket holds, which goes quietly stale and stays that way - there is no later event to reconcile it, and "
+                                   "touch-object re-announces only what is still there, never what was removed.",
                                    desc);
         }
 
@@ -1442,6 +1451,9 @@ namespace Euclid::CLI {
         // describes the latter.
         auto body = boost::json::value_from(request);
         if (vm["async"].as<bool>()) body.as_object()["async"] = true;
+        // Only sent when asked for. The server reads an absent "notify" as true, so an older CLI
+        // and a newer one mean the same thing by the same request.
+        if (vm["no-notify"].as<bool>()) body.as_object()["notify"] = false;
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
