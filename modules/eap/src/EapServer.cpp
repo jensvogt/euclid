@@ -10,6 +10,10 @@
 #include <thread>
 #include <vector>
 
+// C++ includes
+#include <mutex>
+#include <set>
+
 // Euclid includes
 #include <EapServer.h>
 #include <euclid/core/CryptoUtils.h>
@@ -931,24 +935,41 @@ namespace Euclid::EAP {
 
         const auto repository = Database::RepositoryFactory::instance().eapRepository();
 
+        // Which pool this report belongs to, asked of the application record rather than guessed
+        // from the caller's name.
+        //
+        // It used to be guessed: a principal called "app-<x>" was taken to run a pool called "<x>".
+        // That holds only while an application's id and the identity it runs as agree, and nothing
+        // makes them. Observed: applicationId "parser-dev" running as "app-parser", so every report
+        // was written to a pool named "parser" - which does not exist. The update matched nothing,
+        // said nothing, and answered 200. Nine hundred reports in twenty minutes went nowhere, and
+        // the autoscaler drove the pool on five-minute-old EMO buckets for days without one line
+        // anywhere saying why.
+        const auto &caller = auth.user->userId;
+        const auto applicationId = stringField(obj, "applicationId");
+
         std::string runtimeName;
-        if (const auto &caller = auth.user->userId; caller.starts_with("app-")) {
-            runtimeName = caller.substr(4);
-        } else {
-            const auto applicationId = stringField(obj, "applicationId");
-            if (applicationId.empty()) {
-                return EapServer::ErrorResponse(req, status::bad_request,
-                                                "applicationId is required when the caller is not an application's own principal");
-            }
+        if (!applicationId.empty()) {
             const auto ns = std::string(req["x-euclid-namespace"]);
             const auto application = repository->findApplicationByApplicationId(auth.user->accountId, ns, applicationId);
             if (!application.has_value()) {
                 return EapServer::ErrorResponse(req, status::not_found, "Application not found, applicationId: " + applicationId);
             }
+            // Checked whoever the caller is: an application may report for itself and nothing else,
+            // or one could drive another's pool to its ceiling or its floor.
             if (application->userId != caller) {
                 return EapServer::ErrorResponse(req, status::forbidden, "Not the identity application '" + applicationId + "' runs as");
             }
             runtimeName = Database::Entity::EAP::RuntimeName(*application);
+
+        } else if (caller.starts_with("app-")) {
+            // No applicationId in the body, which is what an SDK older than the field sends. The
+            // old guess is all there is for those, and it is right whenever the two names agree.
+            runtimeName = caller.substr(4);
+
+        } else {
+            return EapServer::ErrorResponse(req, status::bad_request,
+                                            "applicationId is required when the caller is not an application's own principal");
         }
 
         // That the pool exists is the manager's business, not this one's: an instance reporting
@@ -962,7 +983,26 @@ namespace Euclid::EAP {
         // what it is doing, and scale-down treats it as it did before this field existed.
         const auto active = std::max<long>(0, longField(obj, "active"));
 
-        Database::RepositoryFactory::instance().emmRepository()->reportInstanceLoad(runtimeName, instanceId, utilisation, backlog, active);
+        const auto landed = Database::RepositoryFactory::instance().emmRepository()->reportInstanceLoad(
+                runtimeName, instanceId, utilisation, backlog, active);
+
+        // A report that matches no instance record is usually the race the comment above describes
+        // and corrects itself. One that never matches is a pool nobody is reporting to, and that is
+        // invisible from every other angle: the caller gets 200, the manager sees nothing, and the
+        // autoscaler quietly falls back to a slower signal. Said once per pool, so a race costs one
+        // line and a misconfiguration is not silent.
+        if (!landed) {
+            static std::mutex missesMutex;
+            static std::set<std::string> missed;
+            std::lock_guard lock(missesMutex);
+            if (missed.insert(runtimeName).second) {
+                log_warning << "EAP load report matched no instance, runtimeName: " << runtimeName
+                            << ", instanceId: " << instanceId
+                            << " - if this does not settle, no pool of that name is running and the "
+                               "autoscaler is not seeing this application";
+            }
+        }
+
         log_debug << "EAP load reported, runtimeName: " << runtimeName << ", instanceId: " << instanceId
                   << ", utilisation: " << utilisation << ", backlog: " << backlog << ", active: " << active;
 

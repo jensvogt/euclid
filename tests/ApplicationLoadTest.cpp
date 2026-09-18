@@ -297,6 +297,41 @@ BOOST_AUTO_TEST_CASE(AnEmptyPoolSummarisesToNothing) {
     BOOST_TEST(load.backlog == 0L);
 }
 
+BOOST_AUTO_TEST_CASE(AReportSaysWhetherItLanded) {
+
+    // A report written to a pool that does not exist used to be silent: the update matched nothing,
+    // the caller was answered 200, and the autoscaler simply never saw the application. It happened
+    // because EAP derived the pool from the caller's name - "app-parser" was taken to run a pool
+    // called "parser", while the pool was "parser-dev" - and nine hundred reports in twenty minutes
+    // went nowhere without one line anywhere saying so.
+    auto repo = freshRepository();
+    auto module = moduleOf();
+    auto instance = instanceOf();
+    repo.upsertInstance(module, instance);
+
+    BOOST_TEST(repo.reportInstanceLoad(kModule, kInstance, 50.0, 10, 1));
+}
+
+BOOST_AUTO_TEST_CASE(AReportForAPoolThatDoesNotExistSaysSo) {
+
+    auto repo = freshRepository();
+    repo.upsertInstance(moduleOf(), instanceOf());
+
+    // The name nobody runs.
+    BOOST_TEST(!repo.reportInstanceLoad("no-such-pool", kInstance, 50.0, 10, 1));
+}
+
+BOOST_AUTO_TEST_CASE(AReportForAnInstanceThePoolDoesNotHoldSaysSo) {
+
+    // The benign version of the same miss - an instance reporting while its record is still being
+    // written. Indistinguishable here from the misconfiguration above, which is why the caller
+    // warns once per pool rather than once per report.
+    auto repo = freshRepository();
+    repo.upsertInstance(moduleOf(), instanceOf());
+
+    BOOST_TEST(!repo.reportInstanceLoad(kModule, "instance-that-never-started", 50.0, 10, 1));
+}
+
 BOOST_AUTO_TEST_CASE(SuccessiveReportsReplaceRatherThanAccumulate) {
 
     // A gauge, not a counter: the newest figure is the whole answer, and the manager reads exactly

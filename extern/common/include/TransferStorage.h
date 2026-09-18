@@ -134,6 +134,129 @@ namespace Euclid::Transfer {
         bool Download(const std::string &key, const std::filesystem::path &spoolPath) const;
 
         /**
+         * @brief An object being written as its bytes arrive, rather than after they all have.
+         *
+         * @par What it is for
+         * A transfer used to be received into a spool file and stored afterwards, which put the
+         * whole ingest *after* the last byte. For a 12 GB delivery that is minutes of silence on a
+         * control connection the client is still watching: FileZilla gives up after twenty seconds
+         * of inactivity, aborts, and starts the 12 GB again. Sending each part as it arrives leaves
+         * only complete-upload between the last byte and the reply, and that returns as soon as ESM
+         * has taken responsibility.
+         *
+         * @par It also stops writing the file three times
+         * Spool, then parts, then the assembled object was three writes of every byte - about 37 GB
+         * written for a 12.4 GB file. Streaming removes the spool entirely.
+         *
+         * @par Small objects still go in one call
+         * Bytes are held until they pass the inline limit, and only then does this become a
+         * multipart upload. So a file that would have been one put-object still is - the common
+         * case for a transfer server is small files, and turning those into create/part/complete
+         * would be three round trips where there was one.
+         *
+         * @par Sequential only
+         * Bytes are appended in the order they are written. That suits FTP, where a STOR is a
+         * stream from beginning to end, and does not suit SFTP, where a client may write at any
+         * offset it likes - which is why that path still spools to a file and calls Upload().
+         */
+        class UploadStream {
+
+          public:
+
+            /**
+             * @brief Appends bytes, sending a part whenever enough have accumulated.
+             *
+             * @param data bytes to append.
+             * @param size how many.
+             * @return false once the upload has failed, so the caller can stop reading.
+             */
+            bool Write(const char *data, std::size_t size);
+
+            /**
+             * @brief Stores what has been written and returns whether the object is now in the
+             * bucket.
+             *
+             * @par
+             * Must be called. A stream destroyed without it leaves the parts staged in ESM and no
+             * object - see the destructor.
+             *
+             * @return true when the object was stored.
+             */
+            [[nodiscard]]
+            bool Finish();
+
+            /**
+             * @brief Warns if the stream was abandoned, which leaves staged parts behind.
+             *
+             * @par
+             * Nothing else can be done here: ESM has no action to abandon an upload, so the
+             * directory stays until something sweeps it. Saying so is what makes that traceable.
+             */
+            ~UploadStream();
+
+            /**
+             * @brief Moves the upload, leaving the source owning nothing.
+             *
+             * @par
+             * Written out rather than defaulted so the moved-from stream is marked finished: a
+             * defaulted move leaves its part count behind, and its destructor would then warn about
+             * parts that the moved-to stream is still perfectly well looking after.
+             */
+            UploadStream(UploadStream &&other) noexcept
+                : _storage(other._storage), _key(std::move(other._key)), _buffer(std::move(other._buffer)),
+                  _uploadId(std::move(other._uploadId)), _socket(std::move(other._socket)),
+                  _partNumber(other._partNumber), _total(other._total), _failed(other._failed),
+                  _finished(other._finished) {
+                other._finished = true;
+            }
+
+            UploadStream(const UploadStream &) = delete;
+            UploadStream &operator=(const UploadStream &) = delete;
+            UploadStream &operator=(UploadStream &&) = delete;
+
+          private:
+
+            friend class TransferStorage;
+
+            UploadStream(const TransferStorage &storage, std::string key);
+
+            /**
+             * @brief Turns the buffered bytes into a multipart upload, once they outgrow inline.
+             */
+            bool beginParts();
+
+            /**
+             * @brief Sends the first `size` buffered bytes as the next part.
+             */
+            bool sendPart(std::size_t size);
+
+            const TransferStorage *_storage;
+            std::string _key;
+            std::string _buffer;
+            std::string _uploadId;
+
+            /**
+             * @brief The ESM instance serving this upload, kept between calls - see
+             * Transfer::CallModuleSticky().
+             */
+            std::string _socket;
+
+            long _partNumber{};
+            long _total{};
+            bool _failed{};
+            bool _finished{};
+        };
+
+        /**
+         * @brief Starts writing an object as its bytes arrive.
+         *
+         * @param key object key.
+         * @return the stream to write into.
+         */
+        [[nodiscard]]
+        UploadStream BeginUpload(const std::string &key) const;
+
+        /**
          * @brief Uploads a local spool file as an object, replacing any object at that key.
          *
          * @par
@@ -268,15 +391,6 @@ namespace Euclid::Transfer {
         [[nodiscard]]
         std::string provenanceHeader() const;
 
-        /**
-         * @brief Uploads a spool file as a multipart upload, one part-sized chunk per request.
-         *
-         * @param key object key.
-         * @param spoolPath local file to read.
-         * @return true if every part went up and the upload was completed.
-         */
-        [[nodiscard]]
-        bool uploadInParts(const std::string &key, const std::filesystem::path &spoolPath) const;
 
         /**
          * @brief Downloads an object into a spool file, one part-sized chunk per request.
