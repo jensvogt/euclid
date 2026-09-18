@@ -117,4 +117,32 @@ BOOST_AUTO_TEST_CASE(OnlyCompletedIsDownloadable) {
     }
 }
 
+// ── What a re-announcement may announce ─────────────────────────────────────
+
+BOOST_AUTO_TEST_CASE(OnlyAnObjectThatCanBeFetchedIsWorthAnnouncing) {
+
+    // touch-object re-announces a bucket so a listener that missed the original events hears about
+    // them now. It used to announce every object, including ones still being uploaded - and since
+    // an upload's own created event does not fire until complete-upload, a touch was the only thing
+    // that ever told a subscriber about a key whose bytes were not there. The subscriber fetched
+    // it and got 409, which reaches it as a handler failure on work it should never have been given.
+    //
+    // The rule it needs is the same one get-object applies, which is why both ask IsDownloadable()
+    // rather than each spelling out a list of statuses.
+    for (const auto status: kAllStatuses) {
+        const bool announce = IsDownloadable(status);
+        const bool fetchable = IsDownloadable(status);
+        BOOST_TEST_CONTEXT("status " << ObjectStatusToString(status)) {
+            // Announcing exactly what can be fetched: never more, so no listener is handed a 409,
+            // and never less, so a completed object is not withheld from a re-announcement.
+            BOOST_TEST(announce == fetchable);
+        }
+    }
+
+    // Stated plainly for the two that matter, so a regression names itself.
+    BOOST_TEST(IsDownloadable(ObjectStatus::COMPLETED));
+    BOOST_TEST(!IsDownloadable(ObjectStatus::CREATED));
+    BOOST_TEST(!IsDownloadable(ObjectStatus::UPLOADING));
+}
+
 BOOST_AUTO_TEST_SUITE_END()
