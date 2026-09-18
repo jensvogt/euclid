@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.1.21](https://github.com/jensvogt/euclid/compare/1.1.20...v1.1.21) (2026-09-18)
+
+
+### Bug Fixes
+
+* audit log overflow ([cc47511](https://github.com/jensvogt/euclid/commit/cc4751136a41fe17129e947b77586c56405c3066))
+* FIx shared ESM notification queues ([c385c11](https://github.com/jensvogt/euclid/commit/c385c1184970b8b28ac9b66326224ff889bf6cd9))
+* make auto-scaler more robust ([513344a](https://github.com/jensvogt/euclid/commit/513344a4d5f3147a818c2375478b04ef62e8238e))
+
 ## [1.1.20](https://github.com/jensvogt/euclid/compare/1.1.19...v1.1.20) (2026-09-18)
 
 
