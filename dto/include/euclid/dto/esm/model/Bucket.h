@@ -38,9 +38,15 @@ namespace Euclid::Dto::ESM {
         long size{};
 
         /**
-         * @brief Number of objects
+         * @brief Number of objects, not counting directory markers - see @ref directories.
          */
         long objects{};
+
+        /**
+         * @brief Number of directory markers - zero-byte keys ending in "/", which a listing shows
+         * but which are not objects a client stored. See Entity::ESM::Bucket::directories.
+         */
+        long directories{};
 
         /**
          * @brief Queue tags
@@ -100,6 +106,7 @@ namespace Euclid::Dto::ESM {
             r.ern = Core::GetStringValue(v, "ern");
             r.size = Core::GetLongValue(v, "size");
             r.objects = Core::GetLongValue(v, "objects");
+            r.directories = Core::GetLongValue(v, "directories");
             r.tags = Core::GetMapFromObject<std::string, std::string>(v, "tags");
             r.encrypted = Core::GetBoolValue(v, "encrypted");
             r.encryptionKeyErn = Core::GetStringValue(v, "encryptionKeyErn");
@@ -116,6 +123,7 @@ namespace Euclid::Dto::ESM {
                     {"ern", obj.ern},
                     {"size", obj.size},
                     {"objects", obj.objects},
+                    {"directories", obj.directories},
                     {"tags", boost::json::value_from(obj.tags)},
                     {"encrypted", obj.encrypted},
                     {"encryptionKeyErn", obj.encryptionKeyErn},

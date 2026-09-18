@@ -263,6 +263,11 @@ namespace Euclid::ENS {
         // only through this function.
         recordMessages(kMessagesSent, kBytesSent, topicErn, 1, message.size);
 
+        // And on the topic itself. The line above only feeds EMO, which is a five-minute rolling
+        // window; "send" on the topic is the lifetime total the RUI shows beside "resend", and
+        // without this it stayed at 0 forever while resend counted into the millions.
+        repo->recordSend(topicErn, 1);
+
         // Held rather than handed on: the topic is stopped, and what was published while it was
         // stopped is delivered by start-topic instead - see handleStartTopic.
         if (message.status == Database::Entity::ENS::kStatusHeld) {

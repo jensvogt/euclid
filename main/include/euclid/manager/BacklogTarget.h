@@ -50,4 +50,52 @@ namespace Euclid::main {
         return 0;
     }
 
+    /**
+     * @brief Where the pool's target moves this tick.
+     *
+     * @par Up at once, down one at a time
+     * A backlog that has appeared is already costing latency, so the target jumps straight to what
+     * the backlog asks for. A backlog that has gone has cost nothing yet, and the instances still
+     * running are the reason it has gone - so the target gives them up one per tick, and any real
+     * work arriving in the meantime raises it again immediately. That asymmetry is what keeps a
+     * lull from emptying a pool that is about to be needed.
+     *
+     * @par Why the target has to come down at all
+     * It did not, and that was the fault. `applyBacklog()` only ever raised it, leaving the
+     * descent to evaluateScaling()'s idle branch - which resets the target to minInstances, but
+     * only runs once the whole group has been quiet for scale-down-idle-seconds. A pool with a
+     * queue in front of it is never quiet for a minute, so on an application the only path that
+     * lowered the target could not execute, and a target raised once during a genuine burst stayed
+     * raised for the life of the process. Observed: desiredCount pinned at 16 with a mean backlog
+     * of 0.38 messages per instance.
+     *
+     * @par What this does not do
+     * Lowering the target does not stop anything. It withdraws the standing instruction to keep
+     * that many instances running; whether a particular instance may be stopped is still
+     * evaluateScaling()'s decision, and still subject to its guards on requests in flight and
+     * unfinished background work.
+     *
+     * @param current the target now.
+     * @param wanted what the backlog asks for this tick, from InstancesForBacklog().
+     * @param minInstances the pool's floor.
+     * @param maxInstances the pool's ceiling.
+     * @return the target to use this tick.
+     */
+    constexpr int NextDesiredCount(const int current, const int wanted, const int minInstances, const int maxInstances) {
+
+        // A pool may never be asked for fewer than its floor, whatever the backlog says, and the
+        // floor wins over the ceiling if a configuration sets them crossed - minInstances is the
+        // promise, maxInstances only a limit on growth.
+        const int floor = minInstances;
+        const int ceiling = maxInstances < floor ? floor : maxInstances;
+
+        const int clamped = wanted < floor ? floor : (wanted > ceiling ? ceiling : wanted);
+        if (clamped >= current) return clamped;
+
+        // One step, and never past the target in a single tick: with current one above clamped the
+        // step lands exactly on it rather than below.
+        const int stepped = current - 1;
+        return stepped < clamped ? clamped : stepped;
+    }
+
 }// namespace Euclid::main

@@ -33,6 +33,7 @@
 #include <euclid/database/entity/ets/TransferServer.h>
 #include <euclid/dto/emm/EmmMapper.h>
 #include <euclid/manager/BacklogTarget.h>
+#include <euclid/manager/UtilisationSignals.h>
 #include <euclid/manager/Controller.h>
 #include <euclid/manager/ControllerPlatform.h>
 #include <euclid/manager/StartOrder.h>
@@ -1331,10 +1332,11 @@ namespace Euclid::main {
                     svc->utilisation = reported.utilisation;
                     svc->loadReportedAt = reported.loadReportedAt;
 
-                    if (reported.utilisation >= kBusyUtilisationPercent) {
-                        svc->wasBusySinceLastCheck = true;
-                        group->lastActivityAt = now;
-                    }
+                    // Two questions of one figure, and they need different bars - see
+                    // UtilisationSignals.h. Working keeps the idle timer from running; only
+                    // saturated asks for another instance.
+                    if (IsWorking(reported.utilisation)) group->lastActivityAt = now;
+                    if (IsSaturated(reported.utilisation)) svc->wasBusySinceLastCheck = true;
                     ++reportingInstances;
                     if (reported.backlog > 0) pending += reported.backlog;
                 }
@@ -1417,10 +1419,8 @@ namespace Euclid::main {
                 // for twenty seconds and then stops averages down to almost nothing over a
                 // five-minute bucket - which is exactly the load worth reacting to, reported as
                 // though it never happened.
-                if (sample->second.maxValue >= kBusyUtilisationPercent) {
-                    svc->wasBusySinceLastCheck = true;
-                    group->lastActivityAt = now;
-                }
+                if (IsWorking(sample->second.maxValue)) group->lastActivityAt = now;
+                if (IsSaturated(sample->second.maxValue)) svc->wasBusySinceLastCheck = true;
 
                 ++reportingInstances;
                 if (const auto depth = backlog.find(svc->instanceId); depth != backlog.end()) {
@@ -1468,28 +1468,31 @@ namespace Euclid::main {
     void ServiceController::applyBacklog(ServiceGroup &group, const long pending, const long reporting,
                                         const std::chrono::steady_clock::time_point now) {
 
-        if (reporting <= 0 || pending <= 0) return;
+        if (reporting <= 0) return;
 
         // Any work waiting at all means the pool is not idle, whatever its utilisation says, and
         // this is before the threshold below on purpose: letting the idle timer run out from under
         // a pool with a queue in front of it is what made this oscillate, stopping the instance
         // doing the work about a minute after it finished starting.
-        group.lastActivityAt = now;
+        if (pending > 0) group.lastActivityAt = now;
 
         // The mean, and a target rather than an increment - see InstancesForBacklog() for both,
         // which is a header of its own so the arithmetic can be tested.
         const auto wanted = InstancesForBacklog(pending, reporting, kBacklogScaleUpMessages);
-        if (wanted == 0) return;
 
-        // Only ever raises. Coming back down is the idle branch's decision, which weighs things
-        // this cannot see - requests in flight, background work an instance has not finished.
-        if (wanted > group.desiredCount) {
-            group.desiredCount = std::min(wanted, group.config.maxInstances);
-            log_info << "Application backlog, module: " << group.config.name
-                     << ", pending per instance: " << pending / reporting
-                     << " (" << pending << " reported across " << reporting << ")"
-                     << ", desiredCount: " << group.desiredCount;
-        }
+        // Both ways now: up to what the backlog asks for at once, down towards it one instance per
+        // tick. It used to only ever rise, on the reasoning that coming down belonged to the idle
+        // branch - but that branch cannot run on a pool with a queue in front of it, so on an
+        // application nothing lowered the target at all. See NextDesiredCount().
+        const auto previous = group.desiredCount;
+        group.desiredCount = NextDesiredCount(group.desiredCount, wanted, group.config.minInstances,
+                                              group.config.maxInstances);
+        if (group.desiredCount == previous) return;
+
+        log_info << "Application backlog, module: " << group.config.name
+                 << ", pending per instance: " << pending / reporting
+                 << " (" << pending << " reported across " << reporting << ")"
+                 << ", desiredCount: " << previous << " -> " << group.desiredCount;
     }
 
     void ServiceController::reconcileBackgroundWork(const std::vector<Database::Entity::Module> &modules) {
@@ -2326,8 +2329,19 @@ namespace Euclid::main {
                 svc->config = group.config;
                 group.instances.push_back(svc);
                 toSpawn.push_back(svc);
-            } else if (idleCandidate && running > group.config.minInstances &&
-                       std::chrono::duration_cast<std::chrono::seconds>(now - group.lastActivityAt).count() >= _scaleDownIdleSeconds) {
+                continue;
+            }
+
+            // Two reasons to give an instance back, and they are not the same question. The group
+            // has gone quiet, or the pool is simply larger than the backlog now asks for. Only the
+            // first was ever asked, and an application with a queue in front of it never goes
+            // quiet - so a pool that grew during a burst stayed grown. The second reads the target
+            // applyBacklog() maintains, which is why that had to start coming down.
+            const bool idleLongEnough =
+                    std::chrono::duration_cast<std::chrono::seconds>(now - group.lastActivityAt).count() >= _scaleDownIdleSeconds;
+            const bool overProvisioned = running > group.desiredCount;
+
+            if (idleCandidate && running > group.config.minInstances && (idleLongEnough || overProvisioned)) {
                 // Gated on the GROUP's last activity, not just this instance's: round-robin can
                 // leave one instance unpicked for a while even while its siblings stay busy, and
                 // per-instance idle time alone can't tell "nobody wants this instance" apart from
@@ -2355,8 +2369,10 @@ namespace Euclid::main {
                 }
                 // The group is genuinely idle now, so drop any earlier declared target back to the
                 // floor - otherwise a one-off high-concurrency declaration would keep forcing the
-                // pool back up forever even after that workload finished.
-                group.desiredCount = group.config.minInstances;
+                // pool back up forever even after that workload finished. Only on idleness: an
+                // over-provisioned pool is shrinking towards a target that is already correct, and
+                // slamming that target to the floor here would discard it and overshoot.
+                if (idleLongEnough) group.desiredCount = group.config.minInstances;
             }
         }
     }
