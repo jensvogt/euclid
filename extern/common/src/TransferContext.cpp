@@ -84,6 +84,28 @@ namespace Euclid::Transfer {
         }
     }
 
+    ModuleResponse CallModuleSticky(std::string &socketPath, const std::string &moduleName, const std::string &action,
+                                    const std::string &token,
+                                    const std::vector<std::pair<std::string, std::string> > &headers,
+                                    const std::string &body) {
+
+        const auto previous = socketPath;
+
+        // The rule itself is Detail::StickyCall(), which is where it can be tested. This supplies
+        // the two things it needs and that a test should not: a socket to call and a database to
+        // resolve against.
+        auto response = Detail::StickyCall(
+                socketPath,
+                [&](const std::string &candidate) { return CallModuleAt(candidate, action, token, headers, body); },
+                [&] { return ModuleSockets(moduleName); });
+
+        if (socketPath != previous && response.status != 0) {
+            log_info << "Instance of '" << moduleName << "' at " << previous
+                     << " stopped answering, carried on at " << socketPath;
+        }
+        return response;
+    }
+
     ModuleResponse CallModule(const std::string &moduleName, const std::string &action, const std::string &token,
                               const std::vector<std::pair<std::string, std::string> > &headers, const std::string &body) {
 

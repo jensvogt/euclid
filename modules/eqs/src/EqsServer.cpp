@@ -148,6 +148,12 @@ namespace Euclid::EQS {
             dlQueue.region = auth.user->region;
             dlQueue.owner = auth.user->userId;
             dlQueue.delay = request.delay;
+            // Hidden exactly as its source queue is. A dead letter queue is part of the plumbing
+            // the source queue already is - a listener's delivery queue and the place its failures
+            // go are one arrangement, not two - so offering one in list-queues while hiding the
+            // other shows half a mechanism and invites somebody to act on it. A caller that wants
+            // its queues visible gets a visible dead letter queue by the same token.
+            dlQueue.internal = request.internal;
             dlQueue.created = std::chrono::system_clock::now();
             dlQueue.modified = std::chrono::system_clock::now();
 
@@ -165,9 +171,8 @@ namespace Euclid::EQS {
         queue.region = auth.user->region;
         queue.owner = auth.user->userId;
         queue.deadLetterQueueErn = dlqSaved.ern;
-        // Kept out of list-queues and the queue count when asked for; see Queue::internal. A dead
-        // letter queue created alongside an internal queue inherits nothing here on purpose - it
-        // is named by the caller and is theirs to see.
+        // Kept out of list-queues and the queue count when asked for; see Queue::internal. The
+        // dead letter queue created above takes the same flag - see there.
         queue.internal = request.internal;
         queue.delay = request.delay;
         queue.created = std::chrono::system_clock::now();
