@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.20](https://github.com/jensvogt/euclid/compare/1.1.19...v1.1.20) (2026-09-18)
+
+
+### Bug Fixes
+
+* fix EAP ramp up ([af60f6d](https://github.com/jensvogt/euclid/commit/af60f6da9dca8dc7712dcdcccefe65231acb8e85))
+
 ## [1.1.19](https://github.com/jensvogt/euclid/compare/1.1.18...v1.1.19) (2026-09-17)
 
 
