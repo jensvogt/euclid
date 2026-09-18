@@ -562,31 +562,42 @@ namespace Euclid::FTP {
 
         const auto [virtualPath, physicalPath] = resolve(arg);
 
-        // In transfer mode the bytes land in a spool file first and are stored as an object once
-        // the client closes the data connection - the bucket takes whole objects, so there is
-        // nothing to store until the transfer is actually complete.
-        std::filesystem::path targetPath = physicalPath;
-        if (_storage) {
-            targetPath = spoolPath();
-        } else if (std::error_code fsEc; !std::filesystem::is_directory(physicalPath.parent_path(), fsEc)) {
-            sendReply(550, "Destination directory does not exist");
-            return;
-        }
-        const SpoolGuard guard{_storage.has_value() ? targetPath : std::filesystem::path{}};
+        // In transfer mode nothing touches the disk here: the bytes go straight into the object as
+        // they arrive. They used to land in a spool file that was then read back and uploaded,
+        // which wrote every byte an extra time and put the whole ingest after the last one.
+        std::ofstream out;
+        if (!_storage) {
+            if (std::error_code fsEc; !std::filesystem::is_directory(physicalPath.parent_path(), fsEc)) {
+                sendReply(550, "Destination directory does not exist");
+                return;
+            }
 
-        std::ofstream out(targetPath, std::ios::binary | std::ios::trunc);
-        if (!out.is_open()) {
-            sendReply(550, "Could not create file");
-            return;
+            out.open(physicalPath, std::ios::binary | std::ios::trunc);
+            if (!out.is_open()) {
+                sendReply(550, "Could not create file");
+                return;
+            }
         }
 
         sendReply(150, "Ok to send data");
         auto data = openDataConnection();
         if (!data) return;
 
+        // Stored as it arrives rather than after it has all arrived. The ingest used to begin once
+        // the last byte was in, which for a large delivery is minutes of silence on a control
+        // connection the client is still watching - FileZilla gives up after twenty seconds of
+        // inactivity, aborts, and starts the whole file again. Sending each part as it comes leaves
+        // only complete-upload between the last byte and the 226.
+        //
+        // It also stops writing the file three times: spool, then parts, then the assembled object
+        // was about 37 GB written for a 12.4 GB delivery. In transfer mode there is now no spool.
+        std::optional<Transfer::TransferStorage::UploadStream> upload;
+        if (_storage) upload.emplace(_storage->BeginUpload(keyOf(virtualPath)));
+
         std::array<char, 65536> buffer{};
         boost::system::error_code ec;
         long received = 0;
+        bool storeFailed = false;
         while (true) {
             const std::size_t n = data->read_some(asio::buffer(buffer), ec);
             if (ec == asio::error::eof) {
@@ -594,7 +605,17 @@ namespace Euclid::FTP {
                 break;
             }
             if (ec) break;
-            out.write(buffer.data(), static_cast<std::streamsize>(n));
+
+            if (upload) {
+                if (!upload->Write(buffer.data(), n)) {
+                    // Stop reading: the object cannot be stored, and draining twelve gigabytes into
+                    // nothing to be polite about it helps nobody.
+                    storeFailed = true;
+                    break;
+                }
+            } else {
+                out.write(buffer.data(), static_cast<std::streamsize>(n));
+            }
             received += static_cast<long>(n);
         }
 
@@ -613,7 +634,7 @@ namespace Euclid::FTP {
 
         // A failed store has to be reported as a failed transfer: the client has sent every byte
         // and would otherwise take a 226 as confirmation that the file is safely stored.
-        if (_storage && !_storage->Upload(keyOf(virtualPath), targetPath)) {
+        if (upload && (storeFailed || !upload->Finish())) {
             log_error << "FTP upload to bucket failed, key: " << keyOf(virtualPath);
             sendReply(552, "Could not store file");
             return;

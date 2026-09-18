@@ -226,6 +226,16 @@ target_link_libraries(${PURGE_JOB_BINARY} PRIVATE eucliddb Boost::unit_test_fram
 
 add_test(NAME ${PURGE_JOB_BINARY} COMMAND ${PURGE_JOB_BINARY})
 
+set(STICKY_CALL_BINARY euclid-sticky-call-tests)
+
+add_executable(${STICKY_CALL_BINARY} StickyCallTest.cpp)
+set_target_properties(${STICKY_CALL_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+target_include_directories(${STICKY_CALL_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/extern/common/include)
+
+target_link_libraries(${STICKY_CALL_BINARY} PRIVATE eucliddb euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${STICKY_CALL_BINARY} COMMAND ${STICKY_CALL_BINARY})
+
 set(BACKLOG_TARGET_BINARY euclid-backlog-target-tests)
 
 add_executable(${BACKLOG_TARGET_BINARY} BacklogTargetTest.cpp)

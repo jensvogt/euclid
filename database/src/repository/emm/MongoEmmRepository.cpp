@@ -178,7 +178,7 @@ namespace Euclid::Database {
         }
     }
 
-    void MongoEmmRepository::reportInstanceLoad(const std::string &moduleName, const std::string &instanceId,
+    bool MongoEmmRepository::reportInstanceLoad(const std::string &moduleName, const std::string &instanceId,
                                                 const double utilisation, const long backlog,
                                                 const long activeHandlers) {
 
@@ -205,13 +205,17 @@ namespace Euclid::Database {
                                                                                                                            std::chrono::duration_cast<std::chrono::milliseconds>(
                                                                                                                                    std::chrono::system_clock::now().time_since_epoch())}))));
 
-            std::ignore = collection.update_one(filter.view(), update.view());
+            // Whether it matched is the caller's business: a report written to a pool that does
+            // not exist is silent otherwise, and that silence hid a misdirected report for days.
+            const auto result = collection.update_one(filter.view(), update.view());
+            return result && result->matched_count() > 0;
 
         } catch (const std::exception &e) {
             // Advisory: a report that cannot be written costs the autoscaler one sample, and the
             // instance carries on doing the work either way.
             log_warning << "Could not report instance load, module: " << moduleName
                         << ", instanceId: " << instanceId << ", error: " << e.what();
+            return false;
         }
     }
 
