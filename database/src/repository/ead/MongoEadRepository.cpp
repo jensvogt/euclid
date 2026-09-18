@@ -3,6 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 // C++ includes
+#include <vector>
 #include <algorithm>
 #include <tuple>
 
@@ -58,6 +59,26 @@ namespace Euclid::Database {
 
         } catch (const std::exception &e) {
             log_error << "Ensure EAD indexes failed, error: " << e.what();
+        }
+    }
+
+    long MongoEadRepository::createEvents(const std::vector<Entity::EAD::AuditEvent> &events) {
+
+        if (events.empty()) return 0;
+
+        try {
+            std::vector<bsoncxx::document::value> documents;
+            documents.reserve(events.size());
+            for (const auto &event: events) documents.push_back(event.toDocument());
+
+            return Database::instance().collection(COLLECTION).insert_many(documents);
+
+        } catch (const std::exception &e) {
+            // Logged and swallowed, exactly as the single write below. A module that cannot write
+            // its trail must still answer its callers, and the batch is already off the queue -
+            // there is nobody left to tell.
+            log_error << "Create audit events failed, count: " << events.size() << ", error: " << e.what();
+            return 0;
         }
     }
 

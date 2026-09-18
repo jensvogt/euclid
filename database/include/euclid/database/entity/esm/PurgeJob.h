@@ -70,6 +70,18 @@ namespace Euclid::Database::Entity::ESM {
         bool deleteBucket{false};
 
         /**
+         * @brief Whether each removed object is announced to the bucket's subscribers.
+         *
+         * @par
+         * True is what a purge has always done and stays the default: a subscriber keeping an
+         * index of keys needs to know which ones went, and "the bucket was purged" does not say.
+         * It is a request-time choice rather than a running one, so it lives on the job - an async
+         * purge is picked up by whichever instance claims it, possibly after a restart, and the
+         * operator who asked for silence is long gone by then.
+         */
+        bool notify{true};
+
+        /**
          * @brief Who asked, carried because the delete events each removed object raises say so -
          * and the instance that resumes the job is not the one that was asked.
          */

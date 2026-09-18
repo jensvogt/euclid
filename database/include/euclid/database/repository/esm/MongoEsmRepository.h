@@ -218,6 +218,8 @@ namespace Euclid::Database {
          */
         void deleteObjectByErn(const std::string &ern) override;
 
+        long deleteObjectsByErns(const std::vector<std::string> &erns) override;
+
         std::optional<Entity::ESM::Bucket> renameBucket(const std::string &ern, const std::string &newName, const std::string &newErn) override;
 
         long repointSubscriptions(const std::string &oldSourceErn, const std::string &newSourceErn) override;

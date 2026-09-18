@@ -80,6 +80,30 @@ namespace Euclid::Database {
         return _store->InsertOne(_name, document.view());
     }
 
+    long Collection::insert_many(const std::vector<bsoncxx::document::value> &documents) const {
+
+        if (documents.empty()) return 0;
+
+        if (_collection.has_value()) {
+            std::vector<bsoncxx::document::view> views;
+            views.reserve(documents.size());
+            for (const auto &document: documents) views.push_back(document.view());
+
+            mongocxx::options::insert options;
+            options.ordered(false);
+
+            const auto result = _collection->insert_many(views, options);
+            return result ? static_cast<long>(result->inserted_count()) : 0;
+        }
+
+        // The in-memory store has no batch of its own, and does not need one: there is no round
+        // trip to save, so the loop here costs what the batch would.
+        for (const auto &document: documents) {
+            std::ignore = _store->InsertOne(_name, document.view());
+        }
+        return static_cast<long>(documents.size());
+    }
+
     std::optional<UpdateOutcome> Collection::update_one(const bsoncxx::document::view_or_value filter, const bsoncxx::document::view_or_value update,
                                                         const mongocxx::options::update &options) const {
 

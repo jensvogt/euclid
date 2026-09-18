@@ -325,13 +325,53 @@ namespace Euclid::Core {
                 std::string_view{"emd"},
         };
 
+        // Actions that carry data rather than decide anything, excluded by name.
+        //
+        // The machinery list above excludes whole modules; these are individual actions inside
+        // modules that are otherwise very much worth auditing. What they have in common is that
+        // they repeat per unit of data rather than per thing a person did, so one intelligible
+        // operation becomes thousands of entries and buries the operations either side of it.
+        //
+        // Measured on a development installation over twenty minutes: 205,631 upload-part,
+        // 101,736 receive-messages and 95,248 delete-message, against a few thousand entries for
+        // everything an operator would actually search for. The writer could not keep up and began
+        // discarding the oldest entries - 46,000 of them in one process - so the volume was not
+        // merely noisy, it was destroying the trail it was part of.
+        //
+        // Each one is already bracketed by something that IS recorded, which is what makes them
+        // safe to leave out rather than merely expensive to keep:
+        //
+        //   upload-part      - create-upload and complete-upload record the upload, with its key,
+        //                      its caller and its outcome. A 12 GB file is 1,479 parts; the parts
+        //                      are how the bytes arrived, not what was done.
+        //   receive-messages - a consumer polling its own queue, on a timer, forever. It is the
+        //                      absence of a poll that would be worth knowing about.
+        //   delete-message   - the other half of the same poll: a consumer acknowledging work it
+        //                      was given. send-message, which is somebody putting work in, stays.
+        //
+        // A failure still goes in the trail. These are dropped only when they succeeded, so a
+        // refused upload-part or a delete-message that 403s is recorded exactly as before - that
+        // is the case an audit exists for, and it does not come on a timer.
+        constexpr std::array kDataPlaneActions{
+                std::string_view{"upload-part"},
+                std::string_view{"receive-messages"},
+                std::string_view{"delete-message"},
+        };
+
     }// namespace
 
     bool HttpActionServer::ShouldAudit(const std::string_view target, const std::string_view action, const long status) {
 
         if (std::ranges::contains(kMachineryModules, target)) return false;
 
-        if (const bool succeeded = status >= 200 && status < 300; !succeeded) return true;
+        const bool succeeded = status >= 200 && status < 300;
+
+        // Only when it worked - see kDataPlaneActions. A part that was refused is exactly the kind
+        // of thing the trail is for, and unlike a successful one it does not arrive by the
+        // thousand.
+        if (succeeded && std::ranges::contains(kDataPlaneActions, action)) return false;
+
+        if (!succeeded) return true;
         if (!Permissions::IsRead(action)) return true;
 
         return Configuration::instance().getOr<bool>("euclid.modules.ead.audit-reads", false);
