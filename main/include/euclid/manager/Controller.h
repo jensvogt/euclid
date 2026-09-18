@@ -640,7 +640,7 @@ namespace Euclid::main {
          * @par
          * Work waiting counts as activity, which is why this touches `lastActivityAt`. An
          * application answers no gateway request, so the only other thing that can mark its pool
-         * active is an instance reporting utilisation at or above kBusyUtilisationPercent - and a
+         * active is an instance reporting utilisation at or above kWorkingUtilisationPercent - and a
          * listener that spends its time waiting on storage and a database reports well under that
          * while sitting on thousands of messages. Without this the pool reads as idle, scales back
          * to minInstances, discards the desiredCount raised here, finds the same backlog a second
@@ -737,17 +737,6 @@ namespace Euclid::main {
         static long LoadFreshnessSeconds() {
             return std::max<long>(5, Core::Configuration::instance().getOr<long>("euclid.scaling.load-freshness-seconds", 45));
         }
-
-        /**
-         * @brief Peak utilisation, in percent, at which an instance counts as busy.
-         *
-         * @par
-         * Low on purpose. This decides "was this instance doing anything", not "is it full" -
-         * evaluateScaling() asks for every instance to be busy before it grows a pool, so the
-         * threshold that matters for scaling up is that one, and setting this high would instead
-         * make a working instance eligible to be stopped.
-         */
-        static constexpr double kBusyUtilisationPercent = 5.0;
 
         /**
          * @brief Messages waiting across an application's queues before another instance is asked for.

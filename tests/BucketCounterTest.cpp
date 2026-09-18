@@ -83,6 +83,51 @@ BOOST_AUTO_TEST_CASE(ASubtractionMovesThemBack) {
     BOOST_TEST(after.objects == 2L);
 }
 
+BOOST_AUTO_TEST_CASE(DirectoriesAreCountedApartFromObjects) {
+
+    // The reported case: a transfer bucket showing "5 files, 0 B" that held one file and four
+    // directory markers. A marker is a zero-byte key ending in "/", stored so an empty directory
+    // stays in existence for an FTP client to change into - it is not something a client put in
+    // the bucket, and every path that reads the bucket already leaves it out.
+    auto repo = freshRepository();
+    std::ignore = bucketOf(repo, 0, 0);
+
+    repo.adjustBucketCounters(kErn, 0, 1);   // one file
+    repo.adjustBucketCounters(kErn, 0, 0, 1);// one directory
+
+    const auto after = reread(repo);
+    BOOST_TEST(after.objects == 1L);
+    BOOST_TEST(after.directories == 1L);
+}
+
+BOOST_AUTO_TEST_CASE(ADirectoryDoesNotMoveTheObjectCount) {
+
+    // The two must not leak into each other in either direction, which is the whole reason they
+    // are separate parameters rather than one flag deciding which to touch.
+    auto repo = freshRepository();
+    std::ignore = bucketOf(repo, 500, 3);
+
+    repo.adjustBucketCounters(kErn, 0, 0, 4);
+
+    const auto after = reread(repo);
+    BOOST_TEST(after.objects == 3L);
+    BOOST_TEST(after.size == 500L);
+    BOOST_TEST(after.directories == 4L);
+}
+
+BOOST_AUTO_TEST_CASE(TheDirectoryCountAlsoStopsAtZero) {
+
+    // Same reasoning as the other two: below zero is a defect rather than a race, clamped where it
+    // is found so the next adjustment starts from a sane figure.
+    auto repo = freshRepository();
+    std::ignore = bucketOf(repo, 0, 0);
+
+    repo.adjustBucketCounters(kErn, 0, 0, 2);
+    repo.adjustBucketCounters(kErn, 0, 0, -7);
+
+    BOOST_TEST(reread(repo).directories == 0L);
+}
+
 BOOST_AUTO_TEST_CASE(NeitherCounterGoesBelowZero) {
 
     // Only reachable if something was counted twice, which is a defect rather than a race now the

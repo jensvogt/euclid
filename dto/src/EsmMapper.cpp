@@ -38,6 +38,7 @@ namespace Euclid::Dto::ESM {
         dto.ern = entity.ern;
         dto.size = static_cast<long>(entity.size);
         dto.objects = static_cast<long>(entity.objects);
+        dto.directories = static_cast<long>(entity.directories);
         dto.tags = entity.tags;
         dto.encryptionKeyErn = entity.encryptionKeyErn;
         dto.encrypted = !entity.encryptionKeyErn.empty();

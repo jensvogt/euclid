@@ -49,7 +49,8 @@ namespace Euclid::Database {
          */
         Entity::ESM::Bucket upsertBucket(Entity::ESM::Bucket &bucket) override;
 
-        void adjustBucketCounters(const std::string &bucketErn, long sizeDelta, long objectDelta) override;
+        void adjustBucketCounters(const std::string &bucketErn, long sizeDelta, long objectDelta,
+                                  long directoryDelta = 0) override;
 
         Entity::ESM::PurgeJob upsertPurgeJob(Entity::ESM::PurgeJob &job) override;
 

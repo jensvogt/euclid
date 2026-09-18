@@ -94,9 +94,26 @@ namespace Euclid::Database::Entity::ESM {
         int64_t size{};
 
         /**
-         * @brief Number of objects
+         * @brief Number of objects, not counting directory markers - see @ref directories.
          */
         int64_t objects{};
+
+        /**
+         * @brief Number of directory markers.
+         *
+         * @par
+         * Kept apart from @ref objects because they answer different questions. A directory marker
+         * is a zero-byte object whose key ends in "/", stored so that an empty directory stays in
+         * existence for a transfer client to change into; it is not something a client put in the
+         * bucket, and every path that reads the bucket already leaves it out - a listing hides it,
+         * touch-object will not announce it, and the incremental counters never counted it.
+         *
+         * @par
+         * Counted rather than merely excluded, because a transfer bucket is mostly structure: the
+         * FTP landing area held one file and four directories, and reporting "1 object" alone
+         * makes four rows a listing does show look like nothing at all.
+         */
+        int64_t directories{};
 
         /**
          * @brief Creation date

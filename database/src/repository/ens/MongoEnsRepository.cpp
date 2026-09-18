@@ -652,6 +652,25 @@ namespace Euclid::Database {
         }
     }
 
+    void MongoEnsRepository::recordSend(const std::string &topicErn, const long count) {
+
+        if (count <= 0) return;
+
+        try {
+            const auto topicCollection = Database::instance().collection(TOPIC_COLLECTION);
+            const auto update = make_document(
+                    kvp("$inc", make_document(kvp("send", static_cast<int64_t>(count)))),
+                    kvp("$currentDate", make_document(kvp("modified", true))));
+
+            topicCollection.update_one(make_document(kvp("ern", topicErn)).view(), update.view());
+
+        } catch (const std::exception &e) {
+            // Logged, not thrown: a counter that could not be updated must not fail the publish
+            // that was counted. Same reasoning as recordResend below.
+            log_error << "Record send failed, topicErn: " << topicErn << ", error: " << e.what();
+        }
+    }
+
     void MongoEnsRepository::recordResend(const std::string &topicErn, const long count) {
 
         if (count <= 0) return;
