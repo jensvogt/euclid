@@ -232,11 +232,12 @@ namespace Euclid::Database {
         }
     }
 
-    void MongoEsmRepository::adjustBucketCounters(const std::string &bucketErn, const long sizeDelta, const long objectDelta) {
+    void MongoEsmRepository::adjustBucketCounters(const std::string &bucketErn, const long sizeDelta, const long objectDelta,
+                                                 const long directoryDelta) {
 
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "adjustBucketCounters");
 
-        if (sizeDelta == 0 && objectDelta == 0) return;
+        if (sizeDelta == 0 && objectDelta == 0 && directoryDelta == 0) return;
 
         try {
             auto bucketCollection = Database::instance().collection(BUCKET_COLLECTION);
@@ -247,7 +248,8 @@ namespace Euclid::Database {
             bucketCollection.update_one(filter.view(),
                                         make_document(kvp("$inc", make_document(
                                                                   kvp("size", static_cast<int64_t>(sizeDelta)),
-                                                                  kvp("objects", static_cast<int64_t>(objectDelta)))))
+                                                                  kvp("objects", static_cast<int64_t>(objectDelta)),
+                                                                  kvp("directories", static_cast<int64_t>(directoryDelta)))))
                                                 .view());
 
             // Only a subtraction can go below zero, so an upload pays for one round trip and not
@@ -261,6 +263,11 @@ namespace Euclid::Database {
                 bucketCollection.update_one(
                         make_document(kvp("ern", bucketErn), kvp("objects", make_document(kvp("$lt", 0)))).view(),
                         make_document(kvp("$set", make_document(kvp("objects", static_cast<int64_t>(0))))).view());
+            }
+            if (directoryDelta < 0) {
+                bucketCollection.update_one(
+                        make_document(kvp("ern", bucketErn), kvp("directories", make_document(kvp("$lt", 0)))).view(),
+                        make_document(kvp("$set", make_document(kvp("directories", static_cast<int64_t>(0))))).view());
             }
 
         } catch (const std::exception &e) {
@@ -861,8 +868,28 @@ namespace Euclid::Database {
             };
             std::unordered_map<std::string, Counts> counted;
 
-            for (const auto &group: objectCollection.group_count({}, {"bucketErn"}, "size")) {
+            // Filtered, and this is the whole point of the pass. It used to group the object
+            // collection with an EMPTY filter - every document, directory markers and in-flight
+            // uploads included - directly contradicting the paragraph above and the incremental
+            // path it claims to match. Since EMO runs this several times a minute, the wrong
+            // figure did not merely appear once: it was restored over the right one, so no
+            // correction to a bucket's counters could survive a minute. Seen as a transfer bucket
+            // reporting 5 objects for 1 file and 4 directory markers, permanently.
+            const auto completedFiles = make_document(
+                    kvp("status", std::string(Entity::ESM::ObjectStatusToString(Entity::ESM::ObjectStatus::COMPLETED))),
+                    kvp("directory", make_document(kvp("$ne", true))));
+
+            for (const auto &group: objectCollection.group_count(completedFiles.view(), {"bucketErn"}, "size")) {
                 counted[group.key[0]] = {.count = group.count, .size = group.sum};
+            }
+
+            // Directory markers, counted on their own so the two can be told apart rather than one
+            // hidden inside the other. Their size is deliberately not summed - a marker is zero
+            // bytes, and a bucket's size is the bytes a client would get back out of it.
+            const auto directories = make_document(kvp("directory", true));
+            std::unordered_map<std::string, long> countedDirectories;
+            for (const auto &group: objectCollection.group_count(directories.view(), {"bucketErn"})) {
+                countedDirectories[group.key[0]] = group.count;
             }
 
             // Every bucket is written, including the ones the grouping did not mention: a bucket
@@ -876,9 +903,12 @@ namespace Euclid::Database {
 
                 const auto it = counted.find(ern);
                 const Counts counts = it != counted.end() ? it->second : Counts{};
+                const auto dir = countedDirectories.find(ern);
+                const long directoryCount = dir != countedDirectories.end() ? dir->second : 0;
                 bucketCollection.update_one(make_document(kvp("ern", ern)).view(),
                                             make_document(kvp("$set", make_document(
                                                                       kvp("objects", static_cast<int64_t>(counts.count)),
+                                                                      kvp("directories", static_cast<int64_t>(directoryCount)),
                                                                       kvp("size", static_cast<int64_t>(counts.size)))))
                                             .view());
                 ++buckets;

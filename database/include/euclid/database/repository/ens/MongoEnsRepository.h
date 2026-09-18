@@ -179,6 +179,8 @@ namespace Euclid::Database {
 
         void markMessageDelivered(const std::string &messageId) override;
 
+        void recordSend(const std::string &topicErn, long count) override;
+
         void recordResend(const std::string &topicErn, long count) override;
 
         /**

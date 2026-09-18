@@ -236,6 +236,24 @@ namespace Euclid::Database {
         virtual void markMessageDelivered(const std::string &messageId) = 0;
 
         /**
+         * @brief Adds to a topic's lifetime count of messages published into it.
+         *
+         * @par
+         * The counterpart of recordResend(), and for a long time the half that was missing: the
+         * field existed, every layer carried it and the RUI had a column for it, but nothing ever
+         * incremented it - so it read 0 on every topic in the installation while the resend beside
+         * it climbed into the millions, which reads as though the two had been swapped.
+         *
+         * @par
+         * A targeted increment for the same reason as recordResend(): a resend arriving at the
+         * same moment touches the same document, and a read-modify-write would drop one of them.
+         *
+         * @param topicErn topic to count against.
+         * @param count how many were published.
+         */
+        virtual void recordSend(const std::string &topicErn, long count) = 0;
+
+        /**
          * @brief Adds to a topic's count of messages delivered a second time round.
          *
          * @par

@@ -394,6 +394,9 @@ namespace Euclid::ESM {
     struct RemovedObjects {
         long size = 0;
         long count = 0;
+        // Directory markers, kept apart for the same reason the bucket keeps them apart: they are
+        // not objects, and a removal has to take each key out of whichever counter it went into.
+        long directories = 0;
     };
 
     // Removes every object of a bucket under a prefix: its file, its row, and one delete event
@@ -498,7 +501,13 @@ namespace Euclid::ESM {
                 log_warning << "Could not remove object file, internalName: " << object.internalName << ", error: " << ec.message();
             repo->deleteObjectByErn(object.ern);
             removed.size += object.size;
-            if (!Database::Entity::ESM::IsDirectoryKey(object.key)) removed.count++;
+            // Split the same way put-object adds them, so a purge that clears a transfer bucket's
+            // scaffolding takes the directory counter down with it instead of leaving it standing.
+            if (Database::Entity::ESM::IsDirectoryKey(object.key)) {
+                removed.directories++;
+            } else {
+                removed.count++;
+            }
 
             // One event per object, the same as if each had been deleted on its own. A bulk delete
             // is the cheapest way to make a listener's view of a bucket wrong, and "the bucket is
@@ -574,7 +583,7 @@ namespace Euclid::ESM {
                 // operator to watch. And the claim is refreshed, which is what tells another
                 // instance's sweep that this job is being got on with rather than abandoned.
                 const auto onProgress = [&](const RemovedObjects &page) {
-                    if (!job.deleteBucket) repo->adjustBucketCounters(job.bucketErn, -page.size, -page.count);
+                    if (!job.deleteBucket) repo->adjustBucketCounters(job.bucketErn, -page.size, -page.count, -page.directories);
                     if (!repo->heartbeatPurgeJob(job.jobId, worker, page.count, page.size)) lostClaim = true;
                 };
 
@@ -717,7 +726,7 @@ namespace Euclid::ESM {
                 // Adjusted in the database, for the same reason as the background removal above:
                 // time has passed and this thread is not the only writer.
                 Database::RepositoryFactory::instance().esmRepository()->adjustBucketCounters(
-                        bucketErn, -removed.size, -removed.count);
+                        bucketErn, -removed.size, -removed.count, -removed.directories);
                 log_info << "ESM background delete finished, ern: " << bucketErn << ", count: " << removed.count << ", size: " << removed.size;
 
             } catch (const std::exception &e) {
@@ -1342,10 +1351,19 @@ namespace Euclid::ESM {
         repo->upsertObject(object);
 
         // A directory is not one of the bucket's objects as far as its counters are concerned -
-        // it holds no bytes and is not something a client stored, so counting it would report a
-        // bucket as fuller than what a listing shows. Its size still counts, since the marker
-        // object is zero bytes and adding zero is what that comes to.
-        repo->adjustBucketCounters(bucketErn, object.size, Database::Entity::ESM::IsDirectoryKey(key) ? 0 : 1);
+        // it holds no bytes and is not something a client stored, so counting it as one would
+        // report a bucket as fuller than what a listing shows. It gets its own counter instead.
+        //
+        // Counted only when the key is new. Writing over an existing key replaces one object with
+        // another; it does not add one, and the bytes that arrive replace the bytes that were
+        // there rather than piling on top of them. Both were added unconditionally, so every
+        // re-upload left a phantom object and a second copy of its size behind - measured by
+        // uploading 6 bytes and then 12 to one key, which read as 2 objects of 18 bytes.
+        const bool isDirectory = Database::Entity::ESM::IsDirectoryKey(key);
+        const long previousSize = existingObject ? existingObject->size : 0;
+        repo->adjustBucketCounters(bucketErn, object.size - previousSize,
+                                   isDirectory || existingObject ? 0 : 1,
+                                   isDirectory && !existingObject ? 1 : 0);
 
         // A re-upload to the same key replaces the DB row above; drop the now-unreferenced old file.
         if (existingObject && !existingObject->internalName.empty() && existingObject->internalName != internalName) {
@@ -1829,7 +1847,15 @@ namespace Euclid::ESM {
                 // No snapshot to go stale: post-processing can take a while for a large file, and
                 // the counters are moved by this object's own contribution rather than written
                 // from a figure read before any of it happened.
-                repo->adjustBucketCounters(bucketErn, object.size, Database::Entity::ESM::IsDirectoryKey(key) ? 0 : 1);
+                //
+                // New keys only, and the delta against what was there - a multipart re-upload
+                // replaces an object rather than adding one, and this is the path a 12 GB file
+                // takes, so counting it twice was worth two of it.
+                const bool isDirectory = Database::Entity::ESM::IsDirectoryKey(key);
+                const long previousSize = existingObject ? existingObject->size : 0;
+                repo->adjustBucketCounters(bucketErn, object.size - previousSize,
+                                           isDirectory || existingObject ? 0 : 1,
+                                           isDirectory && !existingObject ? 1 : 0);
 
                 // A re-upload to the same key replaces the DB row above; drop the now-unreferenced old file.
                 if (existingObject && !existingObject->internalName.empty() && existingObject->internalName != internalName) {
@@ -2290,10 +2316,11 @@ namespace Euclid::ESM {
             // is what a grant is written in terms of.
             if (const auto denied = denyUngrantedBucket(req, auth, object->bucketErn)) return *denied;
             bucket = repo->findBucketByErn(object->bucketErn);
-            // Mirrors put-object: a directory was never counted, so removing one must not
-            // decrement anything either.
-            repo->adjustBucketCounters(object->bucketErn, -object->size,
-                                       Database::Entity::ESM::IsDirectoryKey(object->key) ? 0 : -1);
+            // Mirrors put-object: whichever counter the key was added to is the one it comes
+            // back out of.
+            const bool wasDirectory = Database::Entity::ESM::IsDirectoryKey(object->key);
+            repo->adjustBucketCounters(object->bucketErn, -object->size, wasDirectory ? 0 : -1,
+                                       wasDirectory ? -1 : 0);
 
             const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
             std::error_code ec;
@@ -2369,7 +2396,7 @@ namespace Euclid::ESM {
             }
 
             const auto removed = removeObjectsByKey(bucketErn, keys, bucket, auth.user->userId);
-            repo->adjustBucketCounters(bucketErn, -removed.size, -removed.count);
+            repo->adjustBucketCounters(bucketErn, -removed.size, -removed.count, -removed.directories);
 
             log_info << "ESM DeleteObjects, bucket: " << bucket->name << ", asked: " << keys.size() << ", deleted: " << removed.count;
             return JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
@@ -2391,7 +2418,7 @@ namespace Euclid::ESM {
         }
 
         const auto removed = removeBucketObjects(bucketErn, prefix, bucket, auth.user->userId);
-        repo->adjustBucketCounters(bucketErn, -removed.size, -removed.count);
+        repo->adjustBucketCounters(bucketErn, -removed.size, -removed.count, -removed.directories);
 
         log_info << "ESM DeleteObjects, bucket: " << bucket->name << ", prefix: " << prefix << ", deleted: " << removed.count;
         return JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
@@ -2441,7 +2468,7 @@ namespace Euclid::ESM {
         // Adjust counters by what was actually deleted rather than zeroing them out - a prefix-scoped
         // purge only removes some of the bucket's objects, so anything left outside the prefix must
         // still be reflected.
-        repo->adjustBucketCounters(request.ern, -purgedSize, -purgedObjects);
+        repo->adjustBucketCounters(request.ern, -purgedSize, -purgedObjects, -removed.directories);
         log_debug << "ESM bucket updated, ern: " << request.ern << ", removed: " << purgedObjects << ", bytes: " << purgedSize;
 
         Dto::ESM::PurgeBucketResponse response;
@@ -2636,12 +2663,20 @@ namespace Euclid::ESM {
                 log_warning << "Could not remove superseded object file, internalName: " << supersededFile << ", error: " << oldEc.message();
         }
 
-        // Directory markers are not counted anywhere, so they must not move counters either.
-        if (!Database::Entity::ESM::IsDirectoryKey(targetKey)) {
+        // Each key moves the counter it belongs to, and a marker moves the directory one rather
+        // than nothing - the two ends of a move can be different kinds only if the caller renamed
+        // a file into a directory key, which is why they are decided separately.
+        if (Database::Entity::ESM::IsDirectoryKey(targetKey)) {
+            repo->adjustBucketCounters(targetBucketErn, 0, 0, 1);
+        } else {
             repo->adjustBucketCounters(targetBucketErn, stored.size, 1);
         }
-        if (!keepSource && !Database::Entity::ESM::IsDirectoryKey(sourceKey)) {
-            repo->adjustBucketCounters(sourceBucketErn, -stored.size, -1);
+        if (!keepSource) {
+            if (Database::Entity::ESM::IsDirectoryKey(sourceKey)) {
+                repo->adjustBucketCounters(sourceBucketErn, 0, 0, -1);
+            } else {
+                repo->adjustBucketCounters(sourceBucketErn, -stored.size, -1);
+            }
         }
 
         // A move is a creation and a deletion, told in that order: a listener that keeps an index
