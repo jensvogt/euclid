@@ -119,7 +119,7 @@ namespace Euclid::Database {
          *        load report is the second writer of that field, and the only one for a pool the
          *        manager deploys.
          */
-        virtual void reportInstanceLoad(const std::string &moduleName, const std::string &instanceId,
+        virtual bool reportInstanceLoad(const std::string &moduleName, const std::string &instanceId,
                                         double utilisation, long backlog, long activeHandlers) = 0;
 
         /**

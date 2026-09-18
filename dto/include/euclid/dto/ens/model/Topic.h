@@ -53,6 +53,24 @@ namespace Euclid::Dto::ENS {
         long maxMessageLength = 1024 * 1024;
 
         /**
+         * @brief How many messages have ever been published to this topic.
+         *
+         * A lifetime total rather than a current figure: unlike "messages", it does not fall when
+         * the topic is purged or when retention removes what it was holding, which is what makes it
+         * the one to read when asking whether a publisher is working at all.
+         */
+        long send = 0;
+
+        /**
+         * @brief How many messages have ever been handed to the subscriptions again.
+         *
+         * Incremented by resend-messages, and a lifetime total for the same reason as "send". A
+         * topic with a resend count well above zero is one somebody has had to replay, which is
+         * worth seeing next to what it has delivered.
+         */
+        long resend = 0;
+
+        /**
          * @brief Whether the topic is delivering: RUNNING, or STOPPED while it holds what is
          * published to it - see euclid-cli-ens-stop-topic(1).
          */
@@ -100,6 +118,8 @@ namespace Euclid::Dto::ENS {
             r.size = Core::GetLongValue(v, "size", 0);
             r.messages = Core::GetLongValue(v, "messages", 0);
             r.maxMessageLength = Core::GetLongValue(v, "maxMessageLength", 1024 * 1024);
+            r.send = Core::GetLongValue(v, "send", 0);
+            r.resend = Core::GetLongValue(v, "resend", 0);
             r.status = Core::GetStringValue(v, "status");
             r.retentionPeriod = Core::GetLongValue(v, "retentionPeriod", 0);
             r.created = Core::GetDatetimeValue(v, "created");
@@ -116,6 +136,8 @@ namespace Euclid::Dto::ENS {
                     {"size", obj.size},
                     {"messages", obj.messages},
                     {"maxMessageLength", obj.maxMessageLength},
+                    {"send", obj.send},
+                    {"resend", obj.resend},
                     {"status", obj.status},
                     {"retentionPeriod", obj.retentionPeriod},
                     {"created", Core::DateTimeUtils::ToISO8601(obj.created)},

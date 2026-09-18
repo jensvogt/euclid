@@ -253,132 +253,171 @@ namespace Euclid::Transfer {
         return out.good();
     }
 
-    bool TransferStorage::Upload(const std::string &key, const std::filesystem::path &spoolPath) const {
+    TransferStorage::UploadStream TransferStorage::BeginUpload(const std::string &key) const {
+        return UploadStream{*this, stripLeadingSlash(key)};
+    }
 
-        std::error_code sizeEc;
-        const auto size = std::filesystem::file_size(spoolPath, sizeEc);
-        if (sizeEc) {
-            log_error << "Transfer storage could not size spool file: " << spoolPath.string() << ", error: " << sizeEc.message();
+    TransferStorage::UploadStream::UploadStream(const TransferStorage &storage, std::string key)
+        : _storage(&storage), _key(std::move(key)) {}
+
+    TransferStorage::UploadStream::~UploadStream() {
+        if (!_finished && !_failed && _partNumber > 0) {
+            // ESM has no action to abandon an upload, so the staged parts stay where they are.
+            // Nothing to do but say so, loudly enough to be found next to the directory it names.
+            log_warning << "Transfer storage upload abandoned without finishing, key: " << _key
+                        << ", uploadId: " << _uploadId << ", parts staged: " << _partNumber;
+        }
+    }
+
+    bool TransferStorage::UploadStream::beginParts() {
+
+        const auto created = CallModuleSticky(_socket, "esm", "create-upload", _storage->_token,
+                                              _storage->scopedHeaders({}),
+                                              boost::json::serialize(boost::json::object{
+                                                      {"bucketErn", _storage->_bucketErn}, {"key", _key}}));
+        if (!created.ok()) {
+            log_warning << "Transfer storage could not start multipart upload, key: " << _key
+                        << ", status: " << created.status;
             return false;
         }
-        if (static_cast<long>(size) > InlineMaxSize()) {
-            return uploadInParts(key, spoolPath);
-        }
 
-        std::string data;
-        if (!readFile(spoolPath, data)) {
-            log_error << "Transfer storage could not read spool file: " << spoolPath.string();
+        try {
+            _uploadId = std::string(boost::json::parse(created.body).at("uploadId").as_string());
+        } catch (const std::exception &e) {
+            log_error << "Transfer storage could not read upload id, key: " << _key << ", error: " << e.what();
             return false;
         }
-
-        auto headers = scopedHeaders({{"x-euclid-bucket-ern", _bucketErn},
-                                      {"x-euclid-key", stripLeadingSlash(key)}});
-        if (auto provenance = provenanceHeader(); !provenance.empty()) {
-            headers.emplace_back("x-euclid-attributes", std::move(provenance));
-        }
-
-        const auto response = CallModule("esm", "put-object", _token, headers, data);
-        if (!response.ok()) {
-            log_warning << "Transfer storage upload failed, key: " << key << ", status: " << response.status;
-            return false;
-        }
-
-        log_info << "Transfer storage stored object, key: " << key << ", size: " << data.size();
         return true;
     }
 
-    bool TransferStorage::uploadInParts(const std::string &key, const std::filesystem::path &spoolPath) const {
+    bool TransferStorage::UploadStream::sendPart(const std::size_t size) {
 
-        // Pinned to one instance for the whole upload: ESM stages the parts in a directory named
-        // after the upload ID, and only the instance that created it is guaranteed to be able to
-        // assemble them.
-        const auto sockets = ModuleSockets("esm");
-        if (sockets.empty()) {
-            log_warning << "No running instance of module 'esm' to upload key: " << key;
+        if (_uploadId.empty() && !beginParts()) return false;
+
+        // Parts are numbered from one, matching what download-part expects on the way back. A part
+        // is a numbered file in the upload's directory, so one retried against another instance
+        // overwrites rather than duplicates - which is what makes CallModuleSticky() safe here.
+        ++_partNumber;
+        const auto response = CallModuleSticky(_socket, "esm", "upload-part", _storage->_token,
+                                               _storage->scopedHeaders({{"x-euclid-upload-id", _uploadId},
+                                                                        {"x-euclid-part-number", std::to_string(_partNumber)}}),
+                                               _buffer.substr(0, size));
+        if (!response.ok()) {
+            log_warning << "Transfer storage upload part failed, key: " << _key << ", part: " << _partNumber
+                        << ", status: " << response.status;
             return false;
         }
 
-        const auto cleanKey = stripLeadingSlash(key);
-        const auto created = CallModuleAt(sockets.front(), "create-upload", _token, scopedHeaders({}),
-                                          boost::json::serialize(boost::json::object{{"bucketErn", _bucketErn}, {"key", cleanKey}}));
-        if (!created.ok()) {
-            log_warning << "Transfer storage could not start multipart upload, key: " << key << ", status: " << created.status;
+        _buffer.erase(0, size);
+        _total += static_cast<long>(size);
+        return true;
+    }
+
+    bool TransferStorage::UploadStream::Write(const char *data, const std::size_t size) {
+
+        if (_failed) return false;
+        _buffer.append(data, size);
+
+        // Held whole until it outgrows the inline limit, so anything that would have been one
+        // put-object still is. Past it, this is a multipart upload from here on.
+        if (_uploadId.empty() && static_cast<long>(_buffer.size()) <= InlineMaxSize()) return true;
+
+        const auto partSize = static_cast<std::size_t>(PartSize());
+        while (_buffer.size() >= partSize) {
+            if (!sendPart(partSize)) {
+                _failed = true;
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool TransferStorage::UploadStream::Finish() {
+
+        if (_failed) return false;
+        _finished = true;
+
+        auto headers = _storage->scopedHeaders({});
+        if (auto provenance = _storage->provenanceHeader(); !provenance.empty()) {
+            headers.emplace_back("x-euclid-attributes", std::move(provenance));
+        }
+
+        // Never grew past the inline limit, so it goes up the way it always did: one call, one
+        // object, no parts to assemble.
+        if (_uploadId.empty()) {
+            auto inlineHeaders = _storage->scopedHeaders({{"x-euclid-bucket-ern", _storage->_bucketErn},
+                                                          {"x-euclid-key", _key}});
+            if (auto provenance = _storage->provenanceHeader(); !provenance.empty()) {
+                inlineHeaders.emplace_back("x-euclid-attributes", std::move(provenance));
+            }
+
+            const auto response = CallModule("esm", "put-object", _storage->_token, inlineHeaders, _buffer);
+            if (!response.ok()) {
+                log_warning << "Transfer storage upload failed, key: " << _key << ", status: " << response.status;
+                return false;
+            }
+            log_info << "Transfer storage stored object, key: " << _key << ", size: " << _buffer.size();
+            return true;
+        }
+
+        // Whatever is left over is the last, short part.
+        if (!_buffer.empty() && !sendPart(_buffer.size())) {
+            _failed = true;
             return false;
         }
 
-        std::string uploadId;
-        try {
-            uploadId = std::string(boost::json::parse(created.body).at("uploadId").as_string());
-        } catch (const std::exception &e) {
-            log_error << "Transfer storage could not read upload id, key: " << key << ", error: " << e.what();
+        // Returns as soon as ESM has taken responsibility for the parts; assembling and hashing
+        // them happens in the background there, so the object reaches COMPLETED shortly after this
+        // call, not during it - which is what lets the caller answer its client straight away.
+        const auto completed = CallModuleSticky(_socket, "esm", "complete-upload", _storage->_token, headers,
+                                                boost::json::serialize(boost::json::object{{"uploadId", _uploadId}}));
+        if (!completed.ok()) {
+            log_warning << "Transfer storage could not complete multipart upload, key: " << _key
+                        << ", status: " << completed.status;
             return false;
         }
 
+        log_info << "Transfer storage stored object in parts, key: " << _key << ", size: " << _total
+                 << ", parts: " << _partNumber;
+        return true;
+    }
+
+    bool TransferStorage::Upload(const std::string &key, const std::filesystem::path &spoolPath) const {
+
+        // The spooled form, for callers that already have the whole file - SFTP, whose clients may
+        // write at any offset and so cannot be streamed. Reading it back through the same stream is
+        // what keeps one ingest path rather than two that drift.
         std::ifstream in(spoolPath, std::ios::binary);
         if (!in) {
             log_error << "Transfer storage could not read spool file: " << spoolPath.string();
             return false;
         }
 
-        const auto partSize = static_cast<std::size_t>(PartSize());
-        std::string part(partSize, '\0');
-        long partNumber = 0;
-        long total = 0;
-
+        auto stream = BeginUpload(key);
+        std::string chunk(static_cast<std::size_t>(PartSize()), '\0');
         while (in) {
-            in.read(part.data(), static_cast<std::streamsize>(partSize));
+            in.read(chunk.data(), static_cast<std::streamsize>(chunk.size()));
             const auto read = in.gcount();
             if (read <= 0) break;
-
-            // Parts are numbered from one, matching what download-part expects on the way back.
-            ++partNumber;
-            const auto response = CallModuleAt(sockets.front(), "upload-part", _token,
-                                               scopedHeaders({{"x-euclid-upload-id", uploadId},
-                                                              {"x-euclid-part-number", std::to_string(partNumber)}}),
-                                               part.substr(0, static_cast<std::size_t>(read)));
-            if (!response.ok()) {
-                log_warning << "Transfer storage upload part failed, key: " << key << ", part: " << partNumber << ", status: " << response.status;
-                return false;
-            }
-            total += static_cast<long>(read);
+            if (!stream.Write(chunk.data(), static_cast<std::size_t>(read))) return false;
         }
-
-        if (partNumber == 0) {
-            log_error << "Transfer storage read no data from spool file: " << spoolPath.string();
-            return false;
-        }
-
-        auto headers = scopedHeaders({});
-        if (auto provenance = provenanceHeader(); !provenance.empty()) {
-            headers.emplace_back("x-euclid-attributes", std::move(provenance));
-        }
-
-        // Returns as soon as ESM has taken responsibility for the parts; assembling and hashing
-        // them happens in the background there, so the object reaches COMPLETED shortly after
-        // this call, not during it.
-        const auto completed = CallModuleAt(sockets.front(), "complete-upload", _token, headers,
-                                            boost::json::serialize(boost::json::object{{"uploadId", uploadId}}));
-        if (!completed.ok()) {
-            log_warning << "Transfer storage could not complete multipart upload, key: " << key << ", status: " << completed.status;
-            return false;
-        }
-
-        log_info << "Transfer storage stored object in parts, key: " << key << ", size: " << total << ", parts: " << partNumber;
-        return true;
+        return stream.Finish();
     }
 
     bool TransferStorage::downloadInParts(const std::string &key, const std::filesystem::path &spoolPath) const {
 
-        // Same instance for the whole download, for the same reason as an upload: the meta file
-        // recording which object is being read lives next to the instance that created it.
+        // Same arrangement as an upload, and for the same reason: the meta file recording which
+        // object is being read is under the shared data directory, so a download carries on
+        // against another instance rather than ending when one goes away.
         const auto sockets = ModuleSockets("esm");
         if (sockets.empty()) {
             log_warning << "No running instance of module 'esm' to download key: " << key;
             return false;
         }
+        std::string socket = sockets.front();
 
         const auto cleanKey = stripLeadingSlash(key);
-        const auto created = CallModuleAt(sockets.front(), "create-download", _token, scopedHeaders({}),
+        const auto created = CallModuleSticky(socket, "esm", "create-download", _token, scopedHeaders({}),
                                           boost::json::serialize(boost::json::object{{"bucketErn", _bucketErn}, {"key", cleanKey}}));
         if (!created.ok()) {
             log_warning << "Transfer storage could not start multipart download, key: " << key << ", status: " << created.status;
@@ -405,11 +444,11 @@ namespace Euclid::Transfer {
         const auto partSize = PartSize();
         const auto parts = size > 0 ? (size + partSize - 1) / partSize : 0;
         for (long partNumber = 1; partNumber <= parts; ++partNumber) {
-            const auto response = CallModuleAt(sockets.front(), "download-part", _token,
-                                               scopedHeaders({{"x-euclid-download-id", downloadId},
-                                                              {"x-euclid-part-number", std::to_string(partNumber)},
-                                                              {"x-euclid-part-size", std::to_string(partSize)}}),
-                                               "");
+            const auto response = CallModuleSticky(socket, "esm", "download-part", _token,
+                                                   scopedHeaders({{"x-euclid-download-id", downloadId},
+                                                                  {"x-euclid-part-number", std::to_string(partNumber)},
+                                                                  {"x-euclid-part-size", std::to_string(partSize)}}),
+                                                   "");
             if (!response.ok()) {
                 log_warning << "Transfer storage download part failed, key: " << key << ", part: " << partNumber << ", status: " << response.status;
                 return false;
@@ -425,7 +464,7 @@ namespace Euclid::Transfer {
         // Best effort: the parts are already on disk here, and ESM discards a download's scratch
         // state on its own schedule, so a failure to tell it we are done is not worth failing the
         // transfer the client is waiting on.
-        std::ignore = CallModuleAt(sockets.front(), "complete-download", _token, scopedHeaders({}),
+        std::ignore = CallModuleSticky(socket, "esm", "complete-download", _token, scopedHeaders({}),
                                    boost::json::serialize(boost::json::object{{"downloadId", downloadId}}));
 
         log_info << "Transfer storage read object in parts, key: " << key << ", size: " << size << ", parts: " << parts;

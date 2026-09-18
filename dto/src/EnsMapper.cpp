@@ -43,6 +43,9 @@ namespace Euclid::Dto::ENS {
         dto.size = entity.size;
         dto.messages = entity.available;
         dto.maxMessageLength = entity.maxMessageLength;
+        // Lifetime totals, which recountTopics() deliberately leaves alone - see IEnsRepository.
+        dto.send = entity.send;
+        dto.resend = entity.resend;
         dto.status = entity.status();
         dto.retentionPeriod = entity.retentionPeriod;
         dto.created = entity.created;
@@ -67,6 +70,8 @@ namespace Euclid::Dto::ENS {
         entity.size = dto.size;
         entity.available = dto.messages;
         entity.maxMessageLength = dto.maxMessageLength;
+        entity.send = dto.send;
+        entity.resend = dto.resend;
 
         // Anything but the stopped word means running, including an empty one: a DTO that came
         // from a caller who has never heard of this must not read as a stopped topic.
