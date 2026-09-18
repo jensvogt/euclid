@@ -206,6 +206,50 @@ BOOST_AUTO_TEST_CASE(TheDocumentStoreIsNeverRecorded) {
     BOOST_TEST(!Server::ShouldAudit("emd", "find-one", 200));
 }
 
+BOOST_AUTO_TEST_CASE(TheDataPlaneActionsAreNotRecordedWhenTheySucceed) {
+
+    // Not whole modules this time - ESM and EQS are very much worth auditing - but three actions
+    // inside them that repeat per unit of data rather than per thing a person did. Measured over
+    // twenty minutes: 205,631 upload-part, 101,736 receive-messages and 95,248 delete-message,
+    // against a few thousand entries for everything an operator would search for. The writer could
+    // not keep up and began discarding the oldest entries - 46,000 in one process - so this volume
+    // was not merely noisy, it was destroying the trail it was part of.
+    for (const auto *action: {"upload-part", "receive-messages", "delete-message"}) {
+        BOOST_TEST_CONTEXT("action " << action) {
+            BOOST_TEST(!Server::ShouldAudit("esm", action, 200));
+            BOOST_TEST(!Server::ShouldAudit("eqs", action, 201));
+        }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(ADataPlaneActionThatFailedIsStillRecorded) {
+
+    // The difference from the machinery exclusion above, and the whole reason these are filtered
+    // on success rather than outright. A refused upload-part is exactly what an audit is for, and
+    // unlike a successful one it does not arrive by the thousand.
+    for (const long status: {400L, 403L, 404L, 500L}) {
+        BOOST_TEST_CONTEXT("status " << status) {
+            BOOST_TEST(Server::ShouldAudit("esm", "upload-part", status));
+            BOOST_TEST(Server::ShouldAudit("eqs", "receive-messages", status));
+            BOOST_TEST(Server::ShouldAudit("eqs", "delete-message", status));
+        }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(WhatBracketsAnUploadIsStillRecorded) {
+
+    // upload-part is safe to leave out only because these two are not: they carry the key, the
+    // caller and the outcome, which is what somebody looks for. A 12 GB file is 1,479 parts, and
+    // the parts are how the bytes arrived rather than what was done.
+    BOOST_TEST(Server::ShouldAudit("esm", "create-upload", 200));
+    BOOST_TEST(Server::ShouldAudit("esm", "complete-upload", 200));
+
+    // And on the queue side: a consumer acknowledging work it was given is dropped, somebody
+    // putting work in is not.
+    BOOST_TEST(Server::ShouldAudit("eqs", "send-message", 200));
+    BOOST_TEST(Server::ShouldAudit("esm", "delete-object", 200));
+}
+
 // ── What is recorded ────────────────────────────────────────────────────────
 
 BOOST_AUTO_TEST_CASE(AnythingThatChangesSomethingIsRecorded) {
