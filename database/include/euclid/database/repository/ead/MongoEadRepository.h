@@ -33,6 +33,8 @@ namespace Euclid::Database {
 
         Entity::EAD::AuditEvent createEvent(const Entity::EAD::AuditEvent &event) override;
 
+        long createEvents(const std::vector<Entity::EAD::AuditEvent> &events) override;
+
         [[nodiscard]]
         std::vector<Entity::EAD::AuditEvent> listEvents(const std::string &accountId, const std::string &userId,
                                                         const std::string &moduleName, const std::string &command,

@@ -7,6 +7,7 @@ euclid-cli-esm-purge-bucket \- remove all objects from a bucket
 .I ERN
 [\fB\-\-prefix\fR|\fB\-p\fR \fIPREFIX\fR]
 [\fB\-\-async\fR]
+[\fB\-\-no\-notify\fR]
 .SH DESCRIPTION
 Removes objects from a bucket identified by its Euclid resource name
 (ERN), leaving the bucket itself in place; see
@@ -26,14 +27,41 @@ Euclid resource name of the bucket to purge. Required.
 Only remove objects whose key starts with this prefix. Optional; if
 omitted, every object in the bucket is removed.
 .TP
+.B \-\-no\-notify
+Remove the objects without announcing any of them.
+.PP
+Every removed object is normally published as one
+.I esm.object.deleted
+event to each of the bucket's subscribers. That is one event per object
+and not one per purge, deliberately: a subscriber keeping its own index
+of what the bucket holds has to be told which keys went, and "the bucket
+was purged" does not say.
+.PP
+It is also not free at either end. A purge of 1.3 million objects fed a
+listener's queue at roughly 1,600 messages a minute for hours, and the
+backlog held that application's pool at its ceiling for the duration \-
+so the cheap half of the work was the deleting and the expensive half
+was telling everyone about it.
+.PP
+Use this when clearing test data, or any bucket whose subscribers do not
+care what was in it. Do not use it where a subscriber keeps a record of
+the bucket's contents: that record goes stale silently and stays stale.
+There is no later event that reconciles it, and
+.BR euclid-cli-esm-touch-object (1)
+re\-announces only what is still in the bucket, never what was removed.
+.PP
+The choice is recorded on the job, so an
+.B \-\-async
+purge picked up by another instance, or after a restart, stays silent.
+.TP
 .B \-\-async
 Answer at once and remove the objects in the background, for a bucket
 large enough that emptying it takes minutes.
 .PP
-Without it the whole purge happens inside the request: with a million
-objects that is a million round trips, far longer than the gateway's
-backend timeout, so the call fails with a timeout while the purge
-carries on unseen behind the abandoned request. With it the answer is
+Without it the whole purge happens inside the request: far longer than
+the gateway's backend timeout on a large bucket, so the call fails with
+a timeout while the purge carries on unseen behind the abandoned
+request. With it the answer is
 .I "HTTP 202"
 carrying the object count at the time of asking, and a thread inside ESM
 does the work.

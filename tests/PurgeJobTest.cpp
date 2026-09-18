@@ -186,3 +186,57 @@ BOOST_AUTO_TEST_CASE(SeveralJobsAreHandedOutOneEach) {
     BOOST_TEST(first->jobId != second->jobId);
     BOOST_TEST(!third.has_value());
 }
+
+// ── The choice not to announce outlives the process that made it ────────────
+
+BOOST_AUTO_TEST_CASE(AJobAnnouncesItsRemovalsByDefault) {
+
+    // What a purge has always done, and what a job written before the field existed has to keep
+    // doing: a subscriber keeping an index of keys needs to be told which ones went.
+    auto repo = freshRepository();
+    const auto stored = jobOf(repo, "job-notify-default");
+
+    BOOST_TEST(stored.notify);
+}
+
+BOOST_AUTO_TEST_CASE(ASilentJobIsStillSilentWhenAnotherWorkerPicksItUp) {
+
+    // The reason this lives on the job rather than in the handler. An --async purge is answered at
+    // once and worked by whichever instance claims it - possibly a different one, possibly after a
+    // restart - and by then the operator who asked for silence is long gone. A flag held only in
+    // the calling thread would turn into a million notifications the moment the job changed hands.
+    auto repo = freshRepository();
+
+    PurgeJob job;
+    job.jobId = "job-quiet";
+    job.bucketErn = kBucket;
+    job.userId = "jvo";
+    job.notify = false;
+    std::ignore = repo.upsertPurgeJob(job);
+
+    abandon(repo, "job-quiet");
+    const auto taken = repo.claimPurgeJob("another-instance", kStale);
+
+    BOOST_REQUIRE(taken.has_value());
+    BOOST_TEST(taken->jobId == "job-quiet");
+    BOOST_TEST(!taken->notify);
+}
+
+BOOST_AUTO_TEST_CASE(SilenceIsPerJobAndDoesNotLeakToTheNextOne) {
+
+    auto repo = freshRepository();
+
+    PurgeJob quiet;
+    quiet.jobId = "job-quiet";
+    quiet.bucketErn = kBucket;
+    quiet.userId = "jvo";
+    quiet.notify = false;
+    std::ignore = repo.upsertPurgeJob(quiet);
+
+    const auto loud = jobOf(repo, "job-loud");
+
+    BOOST_TEST(loud.notify);
+    for (const auto &job: repo.listPurgeJobs()) {
+        if (job.jobId == "job-quiet") BOOST_TEST(!job.notify);
+    }
+}

@@ -204,6 +204,120 @@ namespace Euclid::Database {
         else _subscriberCache.erase(eventType);
     }
 
+    void EventBus::PublishBatch(const std::string &eventType,
+                                const std::vector<std::pair<boost::json::value, Delivery> > &batch,
+                                const std::string &sourceModule) {
+
+        if (batch.empty()) return;
+
+        ensureIndexes();
+
+        try {
+            // Resolved once for the whole batch. Every event in it carries the same type, and the
+            // subscriber list is a property of the type - asking per event was a round trip for an
+            // answer that could not have changed between two of them.
+            std::set<std::string> targets;
+            std::set<std::string> externalTargets;
+            std::set<std::string> liveTargets;
+
+            const auto accountOf = [](const boost::json::value &payload) -> const boost::json::value * {
+                if (!payload.is_object()) return nullptr;
+                return payload.as_object().if_contains("accountId");
+            };
+
+            for (const auto subscribers = subscribersOf(eventType); const auto &record: *subscribers) {
+                if (!record.external) {
+                    targets.insert(record.target);
+                    continue;
+                }
+                // Filters and account scoping are per payload, so an external subscriber is kept
+                // only if at least one event in the batch is for it - and each envelope below is
+                // written only for the events that actually matched.
+                externalTargets.insert(record.target);
+            }
+
+            if (targets.empty() && externalTargets.empty()) {
+                log_debug << "EventBus publish batch, no subscribers, eventType: " << eventType;
+                return;
+            }
+
+            const auto subscribers = subscribersOf(eventType);
+            const auto now = std::chrono::system_clock::now();
+
+            std::vector<bsoncxx::document::value> documents;
+            documents.reserve(batch.size() * (targets.size() + externalTargets.size()));
+
+            for (const auto &[payload, delivery]: batch) {
+
+                const auto payloadJson = boost::json::serialize(payload);
+                const auto &payloadObject = payload.is_object() ? payload.as_object() : boost::json::object{};
+
+                for (const auto &target: targets) {
+                    documents.push_back(make_document(
+                            kvp("eventId", Core::UuidUtils::CreateRandomUuid()),
+                            kvp("eventType", eventType),
+                            kvp("sourceModule", sourceModule),
+                            kvp("targetModule", target),
+                            kvp("targetErn", delivery.targetErn),
+                            kvp("sourceErn", delivery.sourceErn),
+                            kvp("messageId", delivery.messageId),
+                            kvp("payload", payloadJson),
+                            kvp("status", kPending),
+                            kvp("claimedBy", ""),
+                            kvp("attempts", static_cast<int64_t>(0)),
+                            kvp("visibleAt", bsoncxx::types::b_date{now}),
+                            kvp("createdAt", bsoncxx::types::b_date{now}),
+                            kvp("expiresAt", bsoncxx::types::b_date{now + std::chrono::seconds(kModuleRetentionSeconds)})));
+                }
+
+                for (const auto &record: *subscribers) {
+                    if (!record.external || record.mode == DeliveryMode::Live) continue;
+
+                    bool matches = true;
+                    for (const auto &[key, expected]: record.filter) {
+                        const auto *actual = payloadObject.if_contains(key);
+                        if (actual == nullptr || *actual != expected) {
+                            matches = false;
+                            break;
+                        }
+                    }
+                    if (!matches) continue;
+                    if (const auto *eventAccount = accountOf(payload);
+                        eventAccount != nullptr && eventAccount->is_string() && !record.accountId.empty()
+                        && record.accountId != std::string(eventAccount->as_string().c_str())) {
+                        continue;
+                    }
+
+                    documents.push_back(make_document(
+                            kvp("eventId", Core::UuidUtils::CreateRandomUuid()),
+                            kvp("eventType", eventType),
+                            kvp("sourceModule", sourceModule),
+                            kvp("targetModule", record.target),
+                            kvp("payload", payloadJson),
+                            kvp("status", kPending),
+                            kvp("claimedBy", ""),
+                            kvp("attempts", static_cast<int64_t>(0)),
+                            kvp("visibleAt", bsoncxx::types::b_date{now}),
+                            kvp("createdAt", bsoncxx::types::b_date{now}),
+                            kvp("expiresAt", bsoncxx::types::b_date{now + std::chrono::seconds(kExternalRetentionSeconds)})));
+                }
+            }
+
+            const auto inserted = Database::instance().collection(EVENT_COLLECTION).insert_many(documents);
+
+            // Live subscribers are deliberately not served here. A push is per event and goes over
+            // a connection rather than into the store, so there is no round trip to batch away -
+            // and a batch is by definition a bulk operation, where a consumer that wanted every
+            // event pushed live would be the wrong consumer for it. Durable delivery is unaffected:
+            // a live subscriber that also stores gets its envelope above.
+            log_info << "EventBus published batch, eventType: " << eventType << ", events: " << batch.size()
+                     << ", envelopes: " << inserted;
+
+        } catch (const std::exception &e) {
+            log_error << "EventBus publish batch failed, eventType: " << eventType << ", error: " << e.what();
+        }
+    }
+
     void EventBus::Publish(const std::string &eventType, const boost::json::value &payload, const std::string &sourceModule,
                            const Delivery &delivery) {
 
@@ -271,7 +385,10 @@ namespace Euclid::Database {
                         kvp("claimedBy", ""),
                         kvp("attempts", static_cast<int64_t>(0)),
                         kvp("visibleAt", bsoncxx::types::b_date{now}),
-                        kvp("createdAt", bsoncxx::types::b_date{now}));
+                        kvp("createdAt", bsoncxx::types::b_date{now}),
+                        // The backstop. Acking is still what normally removes one of these; this
+                        // is what removes the ones nobody ever takes - see kModuleRetentionSeconds.
+                        kvp("expiresAt", bsoncxx::types::b_date{now + std::chrono::seconds(kModuleRetentionSeconds)}));
                 eventCollection.insert_one(doc.view());
             }
 
@@ -778,29 +895,81 @@ namespace Euclid::Database {
 
     void EventBus::pollOnce(const std::string &moduleType) {
 
+        // A batch, claimed and settled together.
+        //
+        // This used to be a loop of find_one_and_update, and a delete_one after each handler - two
+        // synchronous round trips per event. On a loaded installation a round trip is about 13.6
+        // ms, so the consumer drained at roughly 37 events a second no matter what was waiting for
+        // it, and kBatchSize=10 capped each wake-up below even that. Measured against it: an ESM
+        // purge publishing one delivery per removed object filled the collection at about 1,600 a
+        // minute faster than this could empty it, and the remainder had to be deleted by hand.
+        //
+        // Now it is about five round trips for the whole batch however large the batch is. The
+        // producer side of the same path was batched first; this is the half that makes that
+        // worth doing rather than merely moving the pile.
+
         try {
             auto eventCollection = Database::instance().collection(EVENT_COLLECTION);
+            const auto now = std::chrono::system_clock::now();
 
-            for (int claimed = 0; claimed < kBatchSize; ++claimed) {
+            // ── 1. what is waiting ──────────────────────────────────────────
+            mongocxx::options::find findOpts;
+            // By value, not .view(). view_or_value takes ownership of a value and merely borrows a
+            // view - so a view of a temporary leaves findOpts pointing at freed memory the moment
+            // this statement ends, and the crash lands later, inside find(). ClaimEvents() above
+            // passes the document itself for the same reason.
+            findOpts.sort(make_document(kvp("createdAt", 1)));
+            findOpts.limit(kBatchSize);
 
-                const auto now = std::chrono::system_clock::now();
-                const auto filter = make_document(kvp("targetModule", moduleType), kvp("status", kPending));
-                const auto update = make_document(
-                        kvp("$set", make_document(
-                                    kvp("status", kClaimed),
-                                    kvp("claimedBy", _instanceId),
-                                    kvp("visibleAt", bsoncxx::types::b_date{now + kVisibilityTimeout}))),
-                        kvp("$inc", make_document(kvp("attempts", static_cast<int64_t>(1)))));
+            bsoncxx::builder::basic::array candidateIds;
+            long candidates = 0;
+            for (const auto filter = make_document(kvp("targetModule", moduleType), kvp("status", kPending));
+                 const auto &doc: eventCollection.find(filter.view(), findOpts)) {
+                candidateIds.append(doc["_id"].get_oid());
+                ++candidates;
+            }
+            if (candidates == 0) return;
 
-                const auto sort = make_document(kvp("createdAt", 1));
-                mongocxx::options::find_one_and_update opts;
-                opts.sort(sort.view());
-                opts.return_document(mongocxx::options::return_document::k_after);
+            // ── 2. claim them ───────────────────────────────────────────────
+            // A token per batch rather than the instance id alone. Two instances of a module poll
+            // the same events, and "claimedBy me" cannot tell this batch from one of mine that
+            // timed out and was reaped back to PENDING in between - the token can, so what is read
+            // back in step 3 is exactly what this pass won and nothing else.
+            const auto claimToken = Core::UuidUtils::CreateRandomUuid();
+            const auto claimed = make_document(
+                    kvp("_id", make_document(kvp("$in", candidateIds))),
+                    kvp("status", kPending));
+            const auto claim = make_document(
+                    kvp("$set", make_document(
+                                kvp("status", kClaimed),
+                                kvp("claimedBy", _instanceId),
+                                kvp("claimToken", claimToken),
+                                kvp("visibleAt", bsoncxx::types::b_date{now + kVisibilityTimeout}))),
+                    kvp("$inc", make_document(kvp("attempts", static_cast<int64_t>(1)))));
 
-                const auto result = eventCollection.find_one_and_update(filter.view(), update.view(), opts);
-                if (!result) break;// nothing PENDING left this tick
+            const auto claimResult = eventCollection.update_many(claimed.view(), claim.view());
+            if (!claimResult || claimResult->modified_count() == 0) return;// every one lost to a sibling
 
-                const auto view = result->view();
+            // ── 3. read back exactly what was won ───────────────────────────
+            // Filtered on _id as well as the token so it is served by the _id index rather than
+            // needing one of its own.
+            const auto mine = make_document(
+                    kvp("_id", make_document(kvp("$in", candidateIds))),
+                    kvp("claimToken", claimToken));
+
+            std::vector<bsoncxx::document::value> batch;
+            batch.reserve(static_cast<size_t>(claimResult->modified_count()));
+            for (const auto &doc: eventCollection.find(mine.view())) batch.emplace_back(doc);
+
+            // ── 4. hand each one to its handler ─────────────────────────────
+            bsoncxx::builder::basic::array acked;
+            bsoncxx::builder::basic::array requeue;
+            long ackedCount = 0;
+            long requeueCount = 0;
+
+            for (const auto &document: batch) {
+                const auto view = document.view();
+
                 EventEnvelope envelope;
                 envelope.eventId = std::string(view["eventId"].get_string().value);
                 envelope.eventType = std::string(view["eventType"].get_string().value);
@@ -852,14 +1021,31 @@ namespace Euclid::Database {
                 }
 
                 if (ok) {
-                    eventCollection.delete_one(make_document(kvp("_id", view["_id"].get_oid())).view());
+                    acked.append(view["_id"].get_oid());
+                    ++ackedCount;
                 } else if (envelope.attempts >= kMaxAttempts) {
+                    // Per document, and left that way: a delivery that has failed five times is
+                    // rare enough that batching its move would be complexity bought with nothing.
                     moveToDlq(view, "max attempts exceeded");
                 } else {
-                    eventCollection.update_one(
-                            make_document(kvp("_id", view["_id"].get_oid())).view(),
-                            make_document(kvp("$set", make_document(kvp("status", kPending), kvp("visibleAt", bsoncxx::types::b_date{now})))).view());
+                    requeue.append(view["_id"].get_oid());
+                    ++requeueCount;
                 }
+            }
+
+            // ── 5. settle the batch ─────────────────────────────────────────
+            // Two statements rather than one per event. A handler that took a while ran between
+            // the claim and here, which is exactly what the visibility timeout is for: if this
+            // process dies in between, reap() puts the whole batch back.
+            if (ackedCount > 0) {
+                eventCollection.delete_many(make_document(kvp("_id", make_document(kvp("$in", acked)))).view());
+            }
+            if (requeueCount > 0) {
+                eventCollection.update_many(
+                        make_document(kvp("_id", make_document(kvp("$in", requeue)))).view(),
+                        make_document(kvp("$set", make_document(
+                                                  kvp("status", kPending),
+                                                  kvp("visibleAt", bsoncxx::types::b_date{std::chrono::system_clock::now()})))).view());
             }
 
         } catch (const std::exception &e) {

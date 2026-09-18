@@ -145,6 +145,20 @@ namespace Euclid::Database {
 
         std::optional<bsoncxx::oid> insert_one(bsoncxx::document::view_or_value document) const;
 
+        /**
+         * @brief Inserts many documents in a single round trip.
+         *
+         * @par
+         * For the callers that already hold a batch. Each insert_one is a synchronous round trip -
+         * about 13.6 ms on a loaded installation - so 1,000 event envelopes measured 13,621 ms one
+         * at a time against 29 ms together. Unordered: one rejected document must not stop the
+         * rest, since these are independent envelopes rather than steps of one operation.
+         *
+         * @param documents the documents to insert; an empty list inserts nothing.
+         * @return how many were inserted.
+         */
+        long insert_many(const std::vector<bsoncxx::document::value> &documents) const;
+
         std::optional<UpdateOutcome> update_one(bsoncxx::document::view_or_value filter, bsoncxx::document::view_or_value update,
                                                 const mongocxx::options::update &options = {}) const;
 

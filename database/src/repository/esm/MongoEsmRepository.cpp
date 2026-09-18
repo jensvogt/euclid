@@ -684,6 +684,37 @@ namespace Euclid::Database {
         }
     }
 
+    long MongoEsmRepository::deleteObjectsByErns(const std::vector<std::string> &erns) {
+
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "deleteObjectsByErns");
+
+        if (erns.empty()) return 0;
+
+        try {
+            auto objectCollection = Database::instance().collection(OBJECT_COLLECTION);
+
+            bsoncxx::builder::basic::array wanted;
+            for (const auto &ern: erns) wanted.append(ern);
+
+            // One statement for the whole page, served by the unique index on "ern" exactly as a
+            // single-ERN delete is - $in over an indexed field is a series of index lookups inside
+            // the server rather than a collection scan, so the saving is the round trips and
+            // nothing is paid back in query cost.
+            const auto result = objectCollection.delete_many(
+                    make_document(kvp("ern", make_document(kvp("$in", wanted)))));
+            const long deleted = result ? static_cast<long>(result->deleted_count()) : 0;
+
+            log_debug << "Objects deleted, asked: " << erns.size() << ", deleted: " << deleted;
+            return deleted;
+
+        } catch (const std::exception &e) {
+            // Swallowed like its single-object counterpart above. A page that will not delete is
+            // reported by the caller's own no-progress guard, which stops rather than spinning.
+            log_error << "Delete objects failed, count: " << erns.size() << ", error: " << e.what();
+            return 0;
+        }
+    }
+
     std::optional<Entity::ESM::Bucket> MongoEsmRepository::renameBucket(const std::string &ern, const std::string &newName,
                                                                         const std::string &newErn) {
 

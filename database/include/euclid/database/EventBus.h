@@ -14,6 +14,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 // Boost includes
@@ -179,6 +180,24 @@ namespace Euclid::Database {
         void Start(const std::string &moduleType, std::chrono::milliseconds pollInterval = std::chrono::seconds(30));
 
         /**
+         * @brief Claims and delivers one batch of a module's pending events, then returns.
+         *
+         * @par
+         * What Start()'s change stream and safety-net poll both call. Public so that it can be
+         * driven from a test: the alternative is to Start() a scheduler and wait, which pins
+         * timing rather than behaviour, and this is the path that decides whether an event is
+         * delivered once, delivered twice, or quietly lost. It had no coverage at all while it was
+         * private.
+         *
+         * @par
+         * One batch, not a drain - it claims up to kBatchSize and settles them. Call it again
+         * while it reports work, which is what a poll loop does.
+         *
+         * @param moduleType the module whose events to deliver.
+         */
+        void pollOnce(const std::string &moduleType);
+
+        /**
          * @brief Publishes an event, fanning it out to every module type currently subscribed to
          * eventType (one delivery per subscribing module type, regardless of how many instances
          * of that module type are running). A no-op if nobody is subscribed. Requires
@@ -214,6 +233,30 @@ namespace Euclid::Database {
 
         void Publish(const std::string &eventType, const boost::json::value &payload, const std::string &sourceModule,
                      const Delivery &delivery = {});
+
+        /**
+         * @brief One event each for many payloads, written in a single round trip.
+         *
+         * @par
+         * Same envelopes as Publish(), same subscribers, same order - the difference is entirely
+         * in how they reach the store. A purge publishes one esm.object.deleted per object because
+         * a subscriber keeping an index of keys has to be told which ones went, and doing that an
+         * insert at a time made the announcing cost more than the deleting: 1,000 envelopes
+         * measured 13,621 ms one at a time against 29 ms together, and the subscriber list was
+         * queried once per event for an answer that does not change within a page.
+         *
+         * @par
+         * Nothing here is atomic and it does not pretend to be. The insert is unordered, so one
+         * rejected envelope does not stop the others - which is the same guarantee a caller had
+         * when it wrote them in a loop.
+         *
+         * @param eventType the type every event in the batch carries.
+         * @param batch the payload and delivery for each event, in order.
+         * @param sourceModule the module publishing them.
+         */
+        void PublishBatch(const std::string &eventType,
+                          const std::vector<std::pair<boost::json::value, Delivery> > &batch,
+                          const std::string &sourceModule);
 
         // ── External subscribers ─────────────────────────────────────────────
         //
@@ -473,8 +516,6 @@ namespace Euclid::Database {
 
         void flushNotifications();
 
-        void pollOnce(const std::string &moduleType);
-
         void watchLoop(const std::string &moduleType);
 
         static void reap();
@@ -501,8 +542,30 @@ namespace Euclid::Database {
          */
         static constexpr auto kExternalRetentionSeconds = 7 * 24 * 3600;
 
+        /**
+         * @brief How long an undelivered module envelope is kept before the TTL index removes it.
+         *
+         * @par
+         * A module envelope is removed when its target module claims and acks it, and for a long
+         * time that was the *only* thing that removed one - external envelopes carried an
+         * expiresAt and these did not, so a backlog a consumer could not drain stayed until
+         * somebody deleted it by hand. That happened: an ESM purge published one delivery per
+         * removed object faster than EQS could claim them, and the remainder sat in the collection
+         * indefinitely.
+         *
+         * @par
+         * Much longer than the external retention on purpose. A module that is merely behind must
+         * be given room to catch up - this is a backstop against envelopes nobody will ever take,
+         * not a delivery deadline.
+         */
+        static constexpr auto kModuleRetentionSeconds = 30 * 24 * 3600;
+
         static constexpr int kMaxAttempts = 5;
-        static constexpr int kBatchSize = 10;
+        // Claimed and settled in bulk - see pollOnce() - so a batch costs about five round trips
+        // whatever its size, where it used to cost two per event. Ten was the right number when
+        // each one was a separate find_one_and_update and a separate delete; it is far too small
+        // now, and it was the ceiling on how fast a consumer could ever drain a backlog.
+        static constexpr int kBatchSize = 200;
         static constexpr auto kVisibilityTimeout = std::chrono::seconds(30);
         static constexpr auto kWatchReconnectDelay = std::chrono::seconds(2);
 
