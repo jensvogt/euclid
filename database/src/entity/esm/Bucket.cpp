@@ -43,7 +43,8 @@ namespace Euclid::Database::Entity::ESM {
                 bsoncxx::builder::basic::kvp("internal", internal),
                 bsoncxx::builder::basic::kvp("tags", tagsDoc),
                 bsoncxx::builder::basic::kvp("size", static_cast<int64_t>(size)),
-                bsoncxx::builder::basic::kvp("objects", static_cast<int64_t>(objects)));
+                bsoncxx::builder::basic::kvp("objects", static_cast<int64_t>(objects)),
+                bsoncxx::builder::basic::kvp("directories", static_cast<int64_t>(directories)));
     }
 
     Bucket Bucket::fromDocument(const std::optional<bsoncxx::document::view> &document) {
@@ -62,6 +63,7 @@ namespace Euclid::Database::Entity::ESM {
             else if (key == "internal") bucket.internal = field.get_bool().value;
             else if (key == "size") bucket.size = getBsonInt(field);
             else if (key == "objects") bucket.objects = getBsonInt(field);
+            else if (key == "directories") bucket.directories = getBsonInt(field);
             else if (key == "created") bucket.created = system_clock::time_point{field.get_date().value};
             else if (key == "modified") bucket.modified = system_clock::time_point{field.get_date().value};
             else if (key == "tags") {

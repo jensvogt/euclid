@@ -173,6 +173,59 @@ BOOST_AUTO_TEST_CASE(TheResendCounterIsALifetimeTotal) {
     BOOST_TEST(found->resend == 5L);
 }
 
+BOOST_AUTO_TEST_CASE(TheSendCounterIsALifetimeTotalToo) {
+
+    // The half that was missing. "send" existed on the entity, in the DTO, in the mapper and as a
+    // column in the RUI, and nothing anywhere incremented it - so every topic in the installation
+    // read send=0 while the resend beside it climbed. Observed on protokollierung-topic:
+    // send 0, resend 2,157,000, over 1.4 million messages published.
+    auto repo = freshRepository();
+    auto topic = topicOf(repo);
+    BOOST_TEST(topic.send == 0L);
+
+    repo.recordSend(kTopicErn, 1);
+    repo.recordSend(kTopicErn, 1);
+    repo.recordSend(kTopicErn, 1);
+
+    const auto found = repo.findTopicByErn(kTopicErn);
+    BOOST_REQUIRE(found.has_value());
+    BOOST_TEST(found->send == 3L);
+}
+
+BOOST_AUTO_TEST_CASE(SendAndResendCountSeparately) {
+
+    // The question this was reported as: "is there a swap?". There is not, and this is what says
+    // so - each counter moves on its own and neither touches the other. A publish is not a resend
+    // however many times the topic is replayed afterwards.
+    auto repo = freshRepository();
+    std::ignore = topicOf(repo);
+
+    repo.recordSend(kTopicErn, 10);
+    repo.recordResend(kTopicErn, 4);
+
+    const auto found = repo.findTopicByErn(kTopicErn);
+    BOOST_REQUIRE(found.has_value());
+    BOOST_TEST(found->send == 10L);
+    BOOST_TEST(found->resend == 4L);
+}
+
+BOOST_AUTO_TEST_CASE(NeitherCounterMovesOnNothing) {
+
+    // Guarded at the repository rather than the call site, so a publish loop that found no work
+    // and a resend that released nothing both leave the totals where they were.
+    auto repo = freshRepository();
+    std::ignore = topicOf(repo);
+
+    repo.recordSend(kTopicErn, 0);
+    repo.recordResend(kTopicErn, 0);
+    repo.recordSend(kTopicErn, -5);
+
+    const auto found = repo.findTopicByErn(kTopicErn);
+    BOOST_REQUIRE(found.has_value());
+    BOOST_TEST(found->send == 0L);
+    BOOST_TEST(found->resend == 0L);
+}
+
 BOOST_AUTO_TEST_CASE(PagingWalksForwardBecauseNothingIsRemoved) {
 
     // Unlike a purge, which always asks for page zero because it deletes as it goes, a resend

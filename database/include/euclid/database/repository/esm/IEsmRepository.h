@@ -65,9 +65,12 @@ namespace Euclid::Database {
          *
          * @param bucketErn the bucket to adjust.
          * @param sizeDelta bytes to add, negative to subtract.
-         * @param objectDelta objects to add, negative to subtract.
+         * @param objectDelta objects to add, negative to subtract; directory markers are not
+         * objects and belong in directoryDelta instead.
+         * @param directoryDelta directory markers to add, negative to subtract.
          */
-        virtual void adjustBucketCounters(const std::string &bucketErn, long sizeDelta, long objectDelta) = 0;
+        virtual void adjustBucketCounters(const std::string &bucketErn, long sizeDelta, long objectDelta,
+                                          long directoryDelta = 0) = 0;
 
         // ── Background removals ──────────────────────────────────────────────
         //
