@@ -160,6 +160,31 @@ namespace Euclid::Database {
          */
         virtual bool setApplicationLogLevel(const std::string &accountId, const std::string &nameSpace,
                                             const std::string &applicationId, const std::string &logLevel) = 0;
+
+        /**
+         * @brief Stamps an application's modification date, so the manager starts its instances
+         * again.
+         *
+         * @par
+         * The whole of what a restart is. The manager records the revision each instance was
+         * started with - the modification date as it stood then - and on every reconcile stops a
+         * pool whose application has been modified since, then starts it back up from the current
+         * definition. That is how a redeploy takes effect, and it is the same mechanism here with
+         * nothing to pick up: the definition is untouched, so what comes back is what was running.
+         *
+         * @par
+         * Only that one field, and written by the server rather than sent by it, for the reason
+         * setApplicationLogLevel() gives: upsertApplication() writes the whole document from the
+         * caller's copy, so restarting through it would also revert anything changed since that
+         * copy was read.
+         *
+         * @param accountId account the application belongs to
+         * @param nameSpace namespace within accountId
+         * @param applicationId application to restart
+         * @return true if an application of that name was stamped
+         */
+        virtual bool touchApplication(const std::string &accountId, const std::string &nameSpace,
+                                      const std::string &applicationId) = 0;
     };
 
 }// namespace Euclid::Database

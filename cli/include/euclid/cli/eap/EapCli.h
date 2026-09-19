@@ -125,6 +125,15 @@ namespace Euclid::CLI {
         int setState(const std::vector<std::string> &args, bool start) const;
 
         /**
+         * @brief Asks the manager to start an application's instances again.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int restartApplication(const std::vector<std::string> &args) const;
+
+        /**
          * @brief Sets the level an application's own output is logged at.
          *
          * @param args command line arguments
