@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.25](https://github.com/jensvogt/euclid/compare/1.1.24...v1.1.25) (2026-09-19)
+
+
+### Bug Fixes
+
+* add EAM grants paging ([50243cb](https://github.com/jensvogt/euclid/commit/50243cbdeb9056495d9177faef2e8615fedaaf69))
+
 ## [1.1.24](https://github.com/jensvogt/euclid/compare/v1.1.23...v1.1.24) (2026-09-19)
 
 
