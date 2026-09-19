@@ -89,7 +89,7 @@ namespace Euclid::Core {
                 "eam:user-group-add-user",
                 "eam:user-group-remove-user",
 
-                // eap - 10 actions
+                // eap - 11 actions
                 "eap:create-application",
                 "eap:delete-application",
                 "eap:get-application",
@@ -97,6 +97,7 @@ namespace Euclid::Core {
                 "eap:list-applications",
                 "eap:redeploy-application",
                 "eap:report-load",
+                "eap:restart-application",
                 "eap:set-log-level",
                 "eap:start-application",
                 "eap:stop-application",

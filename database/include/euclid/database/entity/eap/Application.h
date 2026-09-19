@@ -334,4 +334,19 @@ namespace Euclid::Database::Entity::EAP {
     std::string RedeployRefusal(const std::string &deployedVersion, const std::string &deployedMd5Sum,
                                 const std::string &version, const std::string &md5Sum);
 
+    /**
+     * @brief Why this application cannot be restarted, or empty if it can.
+     *
+     * @par
+     * A restart stops the instances that are running and lets the manager start them again. An
+     * application nobody asked to run has none, and the only way to honour a restart would be to
+     * start it - undoing what stop-application asked for. That is refused here rather than
+     * silently doing nothing, because "restarted" and "still stopped" are answers somebody acts
+     * on differently. EMM refuses a stopped module for the same reason.
+     *
+     * @param application the application to restart
+     * @return the reason to refuse, phrased for whoever is restarting, or empty to go ahead
+     */
+    std::string RestartRefusal(const Application &application);
+
 }// namespace Euclid::Database::Entity::EAP

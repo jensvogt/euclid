@@ -308,6 +308,11 @@ Marks an application as one that should not be running, keeping its
 definition. See
 .BR euclid-cli-eap-stop-application (1).
 .TP
+.B restart-application
+Asks for a running application's instances to be started again, without
+changing anything about it. See
+.BR euclid-cli-eap-restart-application (1).
+.TP
 .B set-log-level
 Turns an application's own logging up, down or off, while it runs. See
 .BR euclid-cli-eap-set-log-level (1).
@@ -427,6 +432,7 @@ euclid-cli eap update-application --application-id inbox --artifact inbox.jar
 .BR euclid-cli-eap-get-application (1),
 .BR euclid-cli-eap-delete-application (1),
 .BR euclid-cli-eap-start-application (1),
-.BR euclid-cli-eap-stop-application (1)
+.BR euclid-cli-eap-stop-application (1),
+.BR euclid-cli-eap-restart-application (1)
 .SH AUTHOR
 Jens Vogt <jensvogt47@gmail.com>
