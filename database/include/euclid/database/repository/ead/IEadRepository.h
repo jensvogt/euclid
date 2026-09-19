@@ -75,9 +75,18 @@ namespace Euclid::Database {
 
         /**
          * @brief How many the same filter matches.
+         *
+         * @par
+         * Exact, and on a trail of any age that means reading an index entry per matching event -
+         * an installation that audits every call accumulates tens of millions of them, and the
+         * answer is one number. Worth it when somebody asked for the number; not worth it to put a
+         * total beside a page of fifty, which is what `limit` is for.
+         *
+         * @param limit stop counting here and answer with the limit; zero or less counts them all.
          */
         virtual long countEvents(const std::string &accountId, const std::string &userId,
-                                 const std::string &moduleName, const std::string &command) const = 0;
+                                 const std::string &moduleName, const std::string &command,
+                                 long limit = 0) const = 0;
 
         /**
          * @brief Removes everything older than a moment, and says how much went.

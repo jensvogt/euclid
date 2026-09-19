@@ -103,19 +103,31 @@ namespace Euclid::CLI {
 
     EmmCli::EmmCli(std::string endpoint, Credentials::Entry authentication, const bool pretty, std::string caCertPath) : _endpoint(std::move(endpoint)), _authentication(std::move(authentication)), _pretty(pretty), _caCertPath(std::move(caCertPath)) {}
 
+    /**
+     * @brief Every action this module takes, with the one-line summary each is listed by.
+     *
+     * @par
+     * A table rather than an initialiser inside the help branch, because two things read
+     * it now: "help", and tab completion. An action listed in one and not the other is an
+     * action somebody cannot find.
+     */
+    const std::vector<std::pair<std::string, std::string> > &EmmCli::Actions() {
+        static const std::vector<std::pair<std::string, std::string> > kActions = {
+                {"export", "Exports a module's MongoDB collections to a JSON file"},
+                {"import", "Imports a JSON file written by \"emm export\" back into MongoDB"},
+                {"list-modules", "List modules known to the manager"},
+                {"restart-module", "Restarts a module's instances, one at a time"},
+                {"set-instances", "Sets a module's minimum and maximum instance count"},
+                {"set-threads", "Sets the number of worker threads a module's processes run"},
+                {"set-log-level", "Turns a module's own logging down or off"},
+                {"stop-module", "Stops a module and keeps it stopped"},
+                {"start-module", "Lets a stopped module run again"},
+        };
+        return kActions;
+    }
     int EmmCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
-            return PrintModuleHelp("emm", {
-                                           {"export", "Exports a module's MongoDB collections to a JSON file"},
-                                           {"import", "Imports a JSON file written by \"emm export\" back into MongoDB"},
-                                           {"list-modules", "List modules known to the manager"},
-                                           {"restart-module", "Restarts a module's instances, one at a time"},
-                                           {"set-instances", "Sets a module's minimum and maximum instance count"},
-                                           {"set-threads", "Sets the number of worker threads a module's processes run"},
-                                           {"set-log-level", "Turns a module's own logging down or off"},
-                                           {"stop-module", "Stops a module and keeps it stopped"},
-                                           {"start-module", "Lets a stopped module run again"},
-                                   });
+            return PrintModuleHelp("emm", Actions());
         }
 
         // Every emm action is administrator-only. Checked here (once, ahead of dispatch) rather

@@ -25,20 +25,32 @@ namespace Euclid::CLI {
     EkvCli::EkvCli(std::string endpoint, Credentials::Entry authentication, const bool pretty, std::string caCertPath)
         : _endpoint(std::move(endpoint)), _authentication(std::move(authentication)), _pretty(pretty), _caCertPath(std::move(caCertPath)) {}
 
+    /**
+     * @brief Every action this module takes, with the one-line summary each is listed by.
+     *
+     * @par
+     * A table rather than an initialiser inside the help branch, because two things read
+     * it now: "help", and tab completion. An action listed in one and not the other is an
+     * action somebody cannot find.
+     */
+    const std::vector<std::pair<std::string, std::string> > &EkvCli::Actions() {
+        static const std::vector<std::pair<std::string, std::string> > kActions = {
+                {"create-table", "Create a table and say what its items are keyed on"},
+                {"delete-item", "Remove one item by its key"},
+                {"delete-table", "Delete a table and everything in it"},
+                {"describe-table", "Show a table's key and how many items it holds"},
+                {"get-item", "Read one item by its key"},
+                {"list-tables", "List the account's tables"},
+                {"put-item", "Write an item, replacing whatever was under its key"},
+                {"query", "Read one partition's items, in sort-key order"},
+                {"scan", "Read a table's items, a page at a time"},
+        };
+        return kActions;
+    }
     int EkvCli::process(const std::string &action, const std::vector<std::string> &args) const {
 
         if (action == "help" || action == "--help" || action == "-h") {
-            return PrintModuleHelp("ekv", {
-                                           {"create-table", "Create a table and say what its items are keyed on"},
-                                           {"delete-item", "Remove one item by its key"},
-                                           {"delete-table", "Delete a table and everything in it"},
-                                           {"describe-table", "Show a table's key and how many items it holds"},
-                                           {"get-item", "Read one item by its key"},
-                                           {"list-tables", "List the account's tables"},
-                                           {"put-item", "Write an item, replacing whatever was under its key"},
-                                           {"query", "Read one partition's items, in sort-key order"},
-                                           {"scan", "Read a table's items, a page at a time"},
-                                   });
+            return PrintModuleHelp("ekv", Actions());
         }
 
         if (action == "create-table") return createTable(args);

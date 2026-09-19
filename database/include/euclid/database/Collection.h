@@ -193,6 +193,27 @@ namespace Euclid::Database {
         std::int64_t count_documents(bsoncxx::document::view_or_value filter) const;
 
         /**
+         * @brief Counts matching documents, stopping once `limit` of them have been found.
+         *
+         * @par
+         * For the counts whose answer stops mattering above a known number - "are there at least
+         * ten of these?" - where counting the rest is an index scan over everything that matches.
+         * A queue half a million messages deep answers such a question in ten index entries
+         * instead of half a million.
+         *
+         * @par
+         * The limit is a real early exit against a server. The in-memory store counts as it always
+         * did and the answer is capped afterwards: it holds what a test puts in it, so there is
+         * nothing there to save.
+         *
+         * @param filter what to match
+         * @param limit largest answer worth having; zero or less means no limit
+         * @return the number of matches, never more than `limit`
+         */
+        [[nodiscard]]
+        std::int64_t count_documents(bsoncxx::document::view_or_value filter, long limit) const;
+
+        /**
          * @brief Creates an index.
          *
          * @par

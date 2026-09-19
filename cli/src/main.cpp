@@ -3,6 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 // C++ includes
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -14,6 +15,7 @@
 
 // Euclid includes
 #include <euclid/cli/credentials/Credentials.h>
+#include <euclid/cli/help/CliCompletion.h>
 #include <euclid/cli/eam/EamCli.h>
 #include <euclid/cli/eag/EagCli.h>
 #include <euclid/cli/ead/EadCli.h>
@@ -41,7 +43,141 @@
 
 namespace po = boost::program_options;
 
+
+namespace {
+
+    /**
+     * @brief Every module, as the modules themselves and the usage text list them.
+     */
+    const std::vector<std::pair<std::string, std::string> > &Modules() {
+        static const std::vector<std::pair<std::string, std::string> > kModules = {
+                {"eam", "Euclid access management (user, user groups, accounts, namespaces)"},
+                {"eqs", "Euclid queueing system (queues, messages)"},
+                {"esm", "Euclid storage module (buckets, objects)"},
+                {"ees", "Euclid event service (subscribe to what other modules publish)"},
+                {"ead", "Euclid audit (what was run, by whom, in which account)"},
+                {"ens", "Euclid notifications system (pub/sub topics, messages)"},
+                {"ekm", "Euclid key management (cryptographic keys, encryption, decryption)"},
+                {"ess", "Euclid secrets store (passwords, connection details, encrypted under an EKM key)"},
+                {"emm", "Euclid module management (start, stop, restart, auto-scaler)"},
+                {"ets", "Euclid transfer server (FTP/SFTP endpoints onto ESM buckets)"},
+                {"ekv", "Euclid key/value store (tables, items)"},
+                {"eap", "Euclid applications (Java, Python, Node.js, Rust or C++ processes euclid runs and scales)"},
+                {"eag", "Euclid API gateway (publishes paths and proxies them to EAP application instances)"},
+        };
+        return kModules;
+    }
+
+    /**
+     * @brief The actions of one module, or nothing for a word that is not a module.
+     */
+    std::vector<std::string> ActionsOf(const std::string &module) {
+        const std::vector<std::pair<std::string, std::string> > *actions = nullptr;
+        if (module == "eam") actions = &Euclid::CLI::EamCli::Actions();
+        if (module == "eqs") actions = &Euclid::CLI::EqsCli::Actions();
+        if (module == "ens") actions = &Euclid::CLI::EnsCli::Actions();
+        if (module == "esm") actions = &Euclid::CLI::EsmCli::Actions();
+        if (module == "emm") actions = &Euclid::CLI::EmmCli::Actions();
+        if (module == "eap") actions = &Euclid::CLI::EapCli::Actions();
+        if (module == "ets") actions = &Euclid::CLI::EtsCli::Actions();
+        if (module == "ead") actions = &Euclid::CLI::EadCli::Actions();
+        if (module == "ees") actions = &Euclid::CLI::EesCli::Actions();
+        if (module == "ekv") actions = &Euclid::CLI::EkvCli::Actions();
+        if (module == "eag") actions = &Euclid::CLI::EagCli::Actions();
+        if (module == "ekm") actions = &Euclid::CLI::EkmCli::Actions();
+        if (module == "ess") actions = &Euclid::CLI::EssCli::Actions();
+        if (!actions) return {};
+
+        std::vector<std::string> names;
+        names.reserve(actions->size());
+        for (const auto &[name, summary]: *actions) names.push_back(name);
+        return names;
+    }
+
+    /**
+     * @brief The option names of one action, by asking the action itself.
+     *
+     * @par
+     * The action builds its own options and hands them to PrintActionHelp(), which fills the sink
+     * instead of printing when one is set. Nothing is parsed, nothing is authenticated and nothing
+     * is sent, because the completion token short-circuits the action before any of that - see
+     * Completion::kOptionsToken.
+     */
+    std::vector<std::string> OptionsOf(const std::string &module, const std::string &action) {
+        std::vector<std::string> options;
+        Euclid::CLI::Completion::SetOptionSink(&options);
+        const std::vector<std::string> args{Euclid::CLI::Completion::kOptionsToken};
+
+        // Constructed with no endpoint and no credentials on purpose: an action that reached a
+        // server from here would be a bug, and this way it cannot.
+        if (module == "eam") std::ignore = Euclid::CLI::EamCli("").process(action, args);
+        if (module == "eqs") std::ignore = Euclid::CLI::EqsCli("").process(action, args);
+        if (module == "ens") std::ignore = Euclid::CLI::EnsCli("").process(action, args);
+        if (module == "esm") std::ignore = Euclid::CLI::EsmCli("").process(action, args);
+        if (module == "emm") std::ignore = Euclid::CLI::EmmCli("").process(action, args);
+        if (module == "eap") std::ignore = Euclid::CLI::EapCli("").process(action, args);
+        if (module == "ets") std::ignore = Euclid::CLI::EtsCli("").process(action, args);
+        if (module == "ead") std::ignore = Euclid::CLI::EadCli("").process(action, args);
+        if (module == "ees") std::ignore = Euclid::CLI::EesCli("").process(action, args);
+        if (module == "ekv") std::ignore = Euclid::CLI::EkvCli("").process(action, args);
+        if (module == "eag") std::ignore = Euclid::CLI::EagCli("").process(action, args);
+        if (module == "ekm") std::ignore = Euclid::CLI::EkmCli("").process(action, args);
+        if (module == "ess") std::ignore = Euclid::CLI::EssCli("").process(action, args);
+
+        Euclid::CLI::Completion::SetOptionSink(nullptr);
+        return options;
+    }
+
+    /**
+     * @brief Answers one completion request and exits.
+     *
+     * @par
+     * Reads the line from COMP_LINE/COMP_POINT, which is what `complete -C` puts in the
+     * environment, and falls back to the words bash passes as arguments. Prints one candidate per
+     * line and nothing else - never a diagnostic, never a non-zero status: whatever goes to stdout
+     * here is what the shell offers the person typing.
+     */
+    int Complete(const int argc, char *argv[]) {
+
+        const char *line = std::getenv("COMP_LINE");
+        const char *point = std::getenv("COMP_POINT");
+
+        Euclid::CLI::Completion::Request request;
+        if (line != nullptr) {
+            const std::size_t cursor = point != nullptr ? std::strtoul(point, nullptr, 10) : std::string(line).size();
+            request = Euclid::CLI::Completion::Split(line, cursor);
+        } else {
+            // Without the environment there is still enough: bash passes the command, the word
+            // being completed and the one before it.
+            for (int i = 3; i < argc; ++i) request.words.emplace_back(argv[i]);
+            if (request.words.empty()) request.words.emplace_back();
+        }
+
+        static const std::vector<std::string> kGlobalOptions{
+                "--help", "--version", "--pretty", "--endpoint", "--ca-cert", "--config", "--signature", "--loglevel"};
+
+        std::vector<std::string> names;
+        names.reserve(Modules().size());
+        for (const auto &[name, summary]: Modules()) names.push_back(name);
+
+        for (const auto &candidate: Euclid::CLI::Completion::Candidates(request, names, ActionsOf, OptionsOf, kGlobalOptions)) {
+            std::cout << candidate << "\n";
+        }
+        return 0;
+    }
+
+}// namespace
+
 int main(const int argc, char *argv[]) {
+
+    // Before the option parser, the config file and the credentials: a completion request is
+    // answered from tables held in this binary and must not be able to fail, print a diagnostic
+    // or touch a network. Hidden from help on purpose - it is the interface between this binary
+    // and the shell rather than something anybody types. See dist/*/etc/euclid-cli.bash.
+    if (argc > 1 && std::string(argv[1]) == "__complete") {
+        return Complete(argc, argv);
+    }
+
     po::options_description desc("euclid-cli options", 160);
     desc.add_options()
             ("help,h", "print this help message and exit")

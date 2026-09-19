@@ -368,16 +368,62 @@ namespace Euclid::Database {
         virtual long resetExpiredMessages() = 0;
 
         /**
-         * @brief Recounts every queue's messages and stores the result on the queues.
+         * @brief Adds to a queue's counters, leaving every other field alone.
          *
          * @par
          * The counters a queue reports - available, delayed, invisible and the byte total - are
-         * measured periodically rather than maintained per message. Incrementing them on every
-         * send, receive and delete made each of those write to the queue document, so every
-         * producer and consumer of a queue serialised on one row; and a process that died between
-         * writing a message and counting it left the counters permanently wrong, with nothing able
-         * to correct them. They are approximate in the sense SQS means it: right as of the last
-         * pass, and self-correcting on the next.
+         * maintained here, by the operations that change them, so they are right as each one
+         * happens rather than as of the last scan. One `$inc`, so two adjustments that overlap
+         * both land instead of one overwriting the other, and nothing else on the document is
+         * touched - a stale copy cannot revert a setting somebody changed meanwhile.
+         *
+         * @par
+         * This is the whole seam. Every send, receive, delete, reset and redrive goes through it,
+         * so what a queue reports can only drift by what happens behind the application's back -
+         * which is the TTL index removing expired messages, and a process dying between writing a
+         * message and adjusting for it. @ref recountQueues corrects both.
+         *
+         * @par
+         * Counted per call rather than per message where a call handles several: a receive that
+         * claims ten messages adjusts once. Writes to one queue's row are also coalesced over a
+         * short interval by the implementation - that row is the one thing every producer and
+         * consumer of a queue shares, and writing it once per message is what made this
+         * unaffordable the first time round.
+         *
+         * @param queueErn queue to adjust
+         * @param availableDelta change to the number of receivable messages
+         * @param invisibleDelta change to the number of claimed messages
+         * @param delayedDelta change to the number of messages not yet receivable
+         * @param sizeDelta change to the stored byte total
+         */
+        virtual void adjustQueueCounters(const std::string &queueErn, long availableDelta, long invisibleDelta,
+                                         long delayedDelta, long sizeDelta) = 0;
+
+        /**
+         * @brief Writes out any counter adjustments this process is still holding.
+         *
+         * @par
+         * Adjustments are coalesced, so the last few of them are in memory rather than in the
+         * database at any moment. Called before a process stops, and by anything that has to read
+         * its own writes - a test, or a handler answering with the counters it just changed.
+         */
+        virtual void flushQueueCounters() = 0;
+
+        /**
+         * @brief Recounts every queue's messages and stores the result on the queues.
+         *
+         * @par
+         * The safety net under @ref adjustQueueCounters, not the source of the numbers. Two things
+         * change a queue's contents without an adjustment to go with them: the TTL index removing
+         * messages the moment they expire, which no application code sees; and a process dying
+         * between writing a message and accounting for it. Both leave the counters wrong in a way
+         * only a count from truth can put right, which is what this is.
+         *
+         * @par
+         * It reads every message in the installation, so it is not free and gets less free as the
+         * queues fill - `euclid.modules.emo.queue-count-period` decides how often that is paid.
+         * Since the counters are maintained as they change, this can run rarely: it is correcting
+         * expiry and crashes, not counting the traffic.
          *
          * @par
          * Called by EMO, which runs as a single instance and already owns the installation's

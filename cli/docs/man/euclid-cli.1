@@ -162,6 +162,23 @@ euclid-cli esm put-object --help the same thing
 .RE
 .PP
 Help never requires a session, so it works before logging in.
+.SH COMPLETION
+Modules, actions and option names complete on TAB once the completion
+file is sourced:
+.PP
+.RS
+.nf
+source /usr/local/euclid/etc/euclid-cli.bash
+.fi
+.RE
+.PP
+The candidates come from the binary rather than from the completion
+file, so they are whatever this build actually supports and cannot
+drift as commands are added. Like help, completion needs no session and
+contacts no server \- it answers from tables held in the binary.
+.PP
+Values are not completed, only names; the shell falls back to file names
+where a value is expected, which is what the options taking a path want.
 .SH AUTHENTICATION
 .BR euclid-cli-eam-login (1)
 authenticates against the access module and writes the session to
@@ -228,6 +245,10 @@ and read by every other command.
 .I /usr/local/euclid/etc/euclid.json
 Default configuration file; see
 .BR CONFIGURATION .
+.TP
+.I /usr/local/euclid/etc/euclid-cli.bash
+Bash completion; see
+.BR COMPLETION .
 .TP
 .I /usr/local/euclid/etc/euclid_cert.crt
 Default additional CA certificate; see
