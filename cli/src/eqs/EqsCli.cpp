@@ -50,6 +50,8 @@ namespace Euclid::CLI {
                 {"get-message-attribute", "Return a message attribute by name"},
                 {"get-message-count", "Returns the message counters"},
                 {"get-message-metadata", "Return the metadata for a message"},
+                {"get-queue", "Show one queue's definition and counters"},
+                {"get-message", "Show one message, by its id"},
                 {"get-queue-ern", "Resolve a queue's ERN by name"},
                 {"get-queue-metadata", "Return the metadata for a queue"},
                 {"list-messages", "List a queue's messages without receiving them"},
@@ -68,6 +70,98 @@ namespace Euclid::CLI {
         };
         return kActions;
     }
+    int EqsCli::getMessage(const std::vector<std::string> &args) const {
+        po::options_description desc("get message options");
+        desc.add_options()
+                ("message-id,m", po::value<std::string>()->required(), "id of the message");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eqs", "get-message", "--message-id <id>",
+                                   "Shows one message as JSON: its body, its attributes, which queue it belongs to, its "
+                                   "status and the timestamps that go with it.\n\n"
+                                   "The same description \"list-messages\" gives of each of its own, for one message.\n\n"
+                                   "By message id, not by receipt handle: a receipt handle belongs to one delivery and is void "
+                                   "once that delivery's claim has expired, while the id names the message for as long as it "
+                                   "exists - and asking about a message is something one does after the fact.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EQS::GetMessageRequest request;
+        request.messageId = vm["message-id"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eqs", "get-message", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: get-message failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EqsCli::getQueue(const std::vector<std::string> &args) const {
+        po::options_description desc("get queue options");
+        desc.add_options()
+                ("queue,q", po::value<std::string>()->required(), "queue name; a full ERN also works and is what reaches another namespace");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eqs", "get-queue", "--queue <name|ern>",
+                                   "Shows one queue as JSON: its ERN, owner, visibility, delay and retention, its dead letter queue, its tags, and how many messages are available, delayed and in flight.\n\n"
+                                   "The same description \"list-queues\" gives of each of its own, for one queue asked for by "
+                                   "name - so what a listing shows and what this shows cannot drift apart.\n\n"
+                                   "A name is resolved in the session's own account and namespace; an ERN names one queue in "
+                                   "the installation and is what reaches another namespace's.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        // Sent as whichever of the two it is: the server resolves a name against the caller's own
+        // account and namespace, and a name put in the ERN field would simply not be found.
+        const auto queue = vm["queue"].as<std::string>();
+        Dto::EQS::GetQueueRequest request;
+        if (queue.starts_with("ern:")) {
+            request.ern = queue;
+        } else {
+            request.name = queue;
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eqs", "get-queue", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: get-queue failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
     int EqsCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
             return PrintModuleHelp("eqs", Actions());
@@ -81,6 +175,8 @@ namespace Euclid::CLI {
         if (action == "list-messages") {
             return listMessages(args);
         }
+        if (action == "get-queue") return getQueue(args);
+        if (action == "get-message") return getMessage(args);
         if (action == "get-queue-ern") {
             return getQueueErn(args);
         }
