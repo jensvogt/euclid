@@ -219,9 +219,9 @@ namespace Euclid::EKV {
         return EkvServer::JsonResponse(req, status::created, describe(stored, 0).toJson());
     }
 
-    static response<string_body> handleDescribeTable(const request<string_body> &req) {
+    static response<string_body> handleGetTable(const request<string_body> &req) {
 
-        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "describe-table");
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-table");
 
         const auto auth = authenticate(req);
         if (!auth.user.has_value()) return unauthorized(req, auth);
@@ -229,7 +229,7 @@ namespace Euclid::EKV {
         boost::json::value jv;
         if (const auto err = EkvServer::ParseJsonBody(req, jv)) return *err;
 
-        const auto request = boost::json::value_to<Dto::EKV::DescribeTableRequest>(jv);
+        const auto request = boost::json::value_to<Dto::EKV::GetTableRequest>(jv);
 
         std::optional<response<string_body> > refusal;
         const auto table = tableFor(req, auth, request.name, refusal);
@@ -506,7 +506,7 @@ namespace Euclid::EKV {
         enum class Action {
             Unknown,
             CreateTable,
-            DescribeTable,
+            GetTable,
             ListTables,
             DeleteTable,
             PutItem,
@@ -520,7 +520,7 @@ namespace Euclid::EKV {
 
     static Action actionFromString(const std::string &action) {
         if (action == "create-table") return Action::CreateTable;
-        if (action == "describe-table") return Action::DescribeTable;
+        if (action == "get-table") return Action::GetTable;
         if (action == "list-tables") return Action::ListTables;
         if (action == "delete-table") return Action::DeleteTable;
         if (action == "put-item") return Action::PutItem;
@@ -545,8 +545,8 @@ namespace Euclid::EKV {
             case Action::CreateTable:
                 return handleCreateTable(req);
 
-            case Action::DescribeTable:
-                return handleDescribeTable(req);
+            case Action::GetTable:
+                return handleGetTable(req);
 
             case Action::ListTables:
                 return handleListTables(req);

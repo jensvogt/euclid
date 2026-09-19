@@ -38,7 +38,7 @@ namespace Euclid::CLI {
                 {"create-table", "Create a table and say what its items are keyed on"},
                 {"delete-item", "Remove one item by its key"},
                 {"delete-table", "Delete a table and everything in it"},
-                {"describe-table", "Show a table's key and how many items it holds"},
+                {"get-table", "Show a table's key and how many items it holds"},
                 {"get-item", "Read one item by its key"},
                 {"list-tables", "List the account's tables"},
                 {"put-item", "Write an item, replacing whatever was under its key"},
@@ -54,7 +54,7 @@ namespace Euclid::CLI {
         }
 
         if (action == "create-table") return createTable(args);
-        if (action == "describe-table") return describeTable(args);
+        if (action == "get-table") return getTable(args);
         if (action == "list-tables") return listTables(args);
         if (action == "delete-table") return deleteTable(args);
         if (action == "put-item") return putItem(args);
@@ -156,13 +156,13 @@ namespace Euclid::CLI {
         }
     }
 
-    int EkvCli::describeTable(const std::vector<std::string> &args) const {
+    int EkvCli::getTable(const std::vector<std::string> &args) const {
 
-        po::options_description desc("ekv describe-table options");
+        po::options_description desc("ekv get-table options");
         desc.add_options()("name,n", po::value<std::string>()->required(), "table name");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("ekv", "describe-table", "--name <table>",
+            return PrintActionHelp("ekv", "get-table", "--name <table>",
                                    "Shows what a table is keyed on and how many items it holds. The count is counted "
                                    "when asked rather than kept, so it is always right and costs a query.",
                                    desc);
@@ -177,14 +177,14 @@ namespace Euclid::CLI {
             return 1;
         }
 
-        Dto::EKV::DescribeTableRequest request;
+        Dto::EKV::GetTableRequest request;
         request.name = vm["name"].as<std::string>();
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("ekv", "describe-table", boost::json::value_from(request));
+            const HttpResponse response = client.Post("ekv", "get-table", boost::json::value_from(request));
             if (!response.IsSuccess()) {
-                reportFailure("describe-table", response);
+                reportFailure("get-table", response);
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);

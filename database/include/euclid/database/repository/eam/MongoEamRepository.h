@@ -245,10 +245,13 @@ namespace Euclid::Database {
         std::vector<Entity::EAM::Grant> findGrantsByPrincipals(const std::vector<std::string> &principals) const override;
 
         [[nodiscard]]
-        std::vector<Entity::EAM::Grant> findGrantsByAccount(const std::string &accountId) const override;
+        std::vector<Entity::EAM::Grant> findGrantsByRole(const std::string &accountId, const std::string &role) const override;
 
         [[nodiscard]]
-        std::vector<Entity::EAM::Grant> findGrantsByRole(const std::string &accountId, const std::string &role) const override;
+        std::vector<Entity::EAM::Grant> listGrants(const std::string &principal, const std::string &role, const std::string &accountId, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const override;
+
+        [[nodiscard]]
+        long countGrants(const std::string &principal, const std::string &role, const std::string &accountId) const override;
 
         void deleteGrant(const std::string &oid) const override;
 
