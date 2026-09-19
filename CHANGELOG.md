@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.24](https://github.com/jensvogt/euclid/compare/v1.1.23...v1.1.24) (2026-09-19)
+
+
+### Bug Fixes
+
+* add get-details for ENS, EQS and ESM ([0935864](https://github.com/jensvogt/euclid/commit/0935864472dc4ad819f37a768d4d6b552ec2e527))
+
 ## [1.1.23](https://github.com/jensvogt/euclid/compare/1.1.22...v1.1.23) (2026-09-19)
 
 
