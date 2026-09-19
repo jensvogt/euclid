@@ -824,23 +824,6 @@ namespace Euclid::Database {
         return grants;
     }
 
-    std::vector<Entity::EAM::Grant> MongoEamRepository::findGrantsByAccount(const std::string &accountId) const {
-
-        std::vector<Entity::EAM::Grant> grants;
-        try {
-
-            auto grantCollection = Database::instance().collection(GRANT_COLLECTION);
-
-            for (auto cursor = grantCollection.find(make_document(kvp("accountId", accountId))); auto doc: cursor) {
-                grants.push_back(Entity::EAM::Grant::fromDocument(doc));
-            }
-
-        } catch (const std::exception &e) {
-            log_error << "Find grants by account failed, accountId: " << accountId << ", error: " << e.what();
-        }
-        return grants;
-    }
-
     std::vector<Entity::EAM::Grant> MongoEamRepository::findGrantsByRole(const std::string &accountId, const std::string &role) const {
 
         std::vector<Entity::EAM::Grant> grants;
@@ -856,6 +839,63 @@ namespace Euclid::Database {
             log_error << "Find grants by role failed, accountId: " << accountId << ", role: " << role << ", error: " << e.what();
         }
         return grants;
+    }
+
+    namespace {
+
+        // The filter behind both listGrants() and countGrants(), so that a page and the total it
+        // is reported with cannot describe different sets. Which of the three it builds is decided
+        // by which argument is non-empty - and a principal query is deliberately not account
+        // scoped, because a principal ERN names one holder wherever their grants apply, which is
+        // the question "what may they do" as it was asked before paging existed.
+        bsoncxx::document::value grantFilter(const std::string &principal, const std::string &role, const std::string &accountId) {
+            if (!principal.empty()) return make_document(kvp("principal", principal));
+            if (!role.empty()) return make_document(kvp("accountId", accountId), kvp("role", role));
+            return make_document(kvp("accountId", accountId));
+        }
+
+    }// namespace
+
+    std::vector<Entity::EAM::Grant> MongoEamRepository::listGrants(const std::string &principal, const std::string &role, const std::string &accountId, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection) const {
+
+        std::vector<Entity::EAM::Grant> grants;
+        try {
+
+            const auto filter = grantFilter(principal, role, accountId);
+
+            mongocxx::options::find opts;
+            if (!sortColumn.empty()) {
+                opts.sort(make_document(kvp(sortColumn, sortDirection == "asc" ? 1 : -1)));
+            }
+            if (pageSize > 0) {
+                opts.limit(pageSize);
+                opts.skip(std::max<long>(pageIndex, 0) * pageSize);
+            }
+
+            auto grantCollection = Database::instance().collection(GRANT_COLLECTION);
+
+            for (auto cursor = grantCollection.find(filter.view(), opts); auto doc: cursor) {
+                grants.push_back(Entity::EAM::Grant::fromDocument(doc));
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "List grants failed, accountId: " << accountId << ", error: " << e.what();
+        }
+        return grants;
+    }
+
+    long MongoEamRepository::countGrants(const std::string &principal, const std::string &role, const std::string &accountId) const {
+
+        try {
+            const auto filter = grantFilter(principal, role, accountId);
+
+            auto grantCollection = Database::instance().collection(GRANT_COLLECTION);
+
+            return static_cast<long>(grantCollection.count_documents(filter.view()));
+        } catch (const std::exception &e) {
+            log_error << "Count grants failed, accountId: " << accountId << ", error: " << e.what();
+        }
+        return -1;
     }
 
     void MongoEamRepository::deleteGrant(const std::string &oid) const {

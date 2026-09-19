@@ -49,7 +49,7 @@ namespace Euclid::Core {
                 "eag:list-routes",
                 "eag:update-route",
 
-                // eam - 37 actions
+                // eam - 40 actions
                 "eam:change-namespace",
                 "eam:check-permission",
                 "eam:create-access-key",
@@ -63,8 +63,11 @@ namespace Euclid::Core {
                 "eam:delete-role",
                 "eam:delete-user",
                 "eam:delete-user-group",
+                "eam:get-account",
                 "eam:get-metrics",
                 "eam:get-role",
+                "eam:get-user",
+                "eam:get-user-group",
                 "eam:grant-role",
                 "eam:list-access-keys",
                 "eam:list-accounts",
@@ -111,7 +114,7 @@ namespace Euclid::Core {
                 "ees:subscribe-events",
                 "ees:unsubscribe-events",
 
-                // ekm - 14 actions
+                // ekm - 15 actions
                 "ekm:add-key-tag",
                 "ekm:create-certificate",
                 "ekm:create-key",
@@ -121,6 +124,7 @@ namespace Euclid::Core {
                 "ekm:delete-key-tag",
                 "ekm:encrypt",
                 "ekm:get-certificate",
+                "ekm:get-key",
                 "ekm:import-certificate",
                 "ekm:list-certificates",
                 "ekm:list-keys",
@@ -131,9 +135,9 @@ namespace Euclid::Core {
                 "ekv:create-table",
                 "ekv:delete-item",
                 "ekv:delete-table",
-                "ekv:describe-table",
                 "ekv:get-item",
                 "ekv:get-metrics",
+                "ekv:get-table",
                 "ekv:list-tables",
                 "ekv:put-item",
                 "ekv:query",

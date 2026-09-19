@@ -23,6 +23,8 @@
 #include <euclid/database/entity/ekm/Certificate.h>
 #include <euclid/database/entity/ekm/Key.h>
 #include <euclid/dto/BaseDto.h>
+#include <euclid/dto/ekm/GetKeyRequest.h>
+#include <euclid/dto/ekm/GetKeyResponse.h>
 #include <euclid/dto/ekm/AddKeyTagRequest.h>
 #include <euclid/dto/ekm/CertificateNameRequest.h>
 #include <euclid/dto/ekm/CertificateResponse.h>
