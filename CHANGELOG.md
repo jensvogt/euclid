@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.22](https://github.com/jensvogt/euclid/compare/1.1.21...v1.1.22) (2026-09-19)
+
+
+### Bug Fixes
+
+* concurrency issues ([9e71f85](https://github.com/jensvogt/euclid/commit/9e71f8560c6be51ca42d79f8a187bfa933aef106))
+
 ## [1.1.21](https://github.com/jensvogt/euclid/compare/1.1.20...v1.1.21) (2026-09-18)
 
 
