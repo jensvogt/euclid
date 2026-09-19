@@ -312,24 +312,52 @@ namespace Euclid::Database {
          * @brief Every grant of one role, for answering "who can do this" and for refusing to
          * delete a role that is still in use.
          *
+         * @par
+         * Unpaged, because its callers ask whether the set is empty rather than what is in it. A
+         * listing wants listGrants().
+         *
          * @param accountId the role's account.
          * @param role the role name.
          */
-        /**
-         * @brief Every grant in one account, whoever holds it and whichever role it names.
-         *
-         * @par
-         * What an administration view asks for: a list of users and what each may do is otherwise
-         * one query per user, which is the shape the per-user grant lists used to give away for
-         * free. Scoped to an account because a grant is.
-         *
-         * @param accountId the account.
-         */
-        [[nodiscard]]
-        virtual std::vector<Entity::EAM::Grant> findGrantsByAccount(const std::string &accountId) const = 0;
-
         [[nodiscard]]
         virtual std::vector<Entity::EAM::Grant> findGrantsByRole(const std::string &accountId, const std::string &role) const = 0;
+
+        /**
+         * @brief One page of grants, filtered the three ways a listing asks for them.
+         *
+         * @par
+         * Which filter applies is decided by which argument is non-empty, and the three are the
+         * three questions: a principal asks "what may they do" and is not account-scoped, because
+         * a principal ERN names one holder wherever their grants happen to apply; a role asks "who
+         * can do this" within an account; neither asks "what is granted here at all" and is the
+         * administration view - a list of users and what each may do, which is otherwise one query
+         * per user.
+         *
+         * @par
+         * That third case is the one worth paging: an account's grants are one row per principal
+         * per role. Pair this with countGrants() under the same three arguments, which is what
+         * makes a page and its total describe the same set.
+         *
+         * @param principal a user or user-group ERN, or empty.
+         * @param role a role name, or empty.
+         * @param accountId the account the role and the whole-account cases are scoped to.
+         * @param pageSize how many to return; 0 or less is no limit.
+         * @param pageIndex zero-based page, applied when pageSize is set.
+         * @param sortColumn field to order by; unordered when empty.
+         * @param sortDirection "asc" or "desc".
+         */
+        [[nodiscard]]
+        virtual std::vector<Entity::EAM::Grant> listGrants(const std::string &principal, const std::string &role, const std::string &accountId, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc") const = 0;
+
+        /**
+         * @brief How many grants listGrants() has to give under the same filter, ignoring paging.
+         *
+         * @param principal a user or user-group ERN, or empty.
+         * @param role a role name, or empty.
+         * @param accountId the account the role and the whole-account cases are scoped to.
+         */
+        [[nodiscard]]
+        virtual long countGrants(const std::string &principal, const std::string &role, const std::string &accountId) const = 0;
 
         /**
          * @brief Removes one grant by its id.

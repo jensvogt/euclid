@@ -355,7 +355,10 @@ namespace Euclid::CLI {
                 {"delete-user", "Delete a user account"},
                 {"delete-role", "Delete a role"},
                 {"delete-user-group", "Delete an existing user group"},
+                {"get-account", "Show one account"},
                 {"get-role", "Show one role and what it grants"},
+                {"get-user", "Show one user"},
+                {"get-user-group", "Show one user group and who is in it"},
                 {"grant-role", "Give a role to a user or user group"},
                 {"list-access-keys", "List your access keys"},
                 {"list-accounts", "List accounts"},
@@ -408,6 +411,12 @@ namespace Euclid::CLI {
         if (action == "get-role") {
             return getRole(args);
         }
+        if (action == "get-user") {
+            return getUser(args);
+        }
+        if (action == "get-user-group") {
+            return getUserGroup(args);
+        }
         if (action == "list-roles") {
             return listRoles(args);
         }
@@ -446,6 +455,9 @@ namespace Euclid::CLI {
         }
         if (action == "create-account") {
             return createAccount(args);
+        }
+        if (action == "get-account") {
+            return getAccount(args);
         }
         if (action == "list-accounts") {
             return listAccounts(args);
@@ -1312,6 +1324,57 @@ namespace Euclid::CLI {
         }
     }
 
+    int EamCli::getAccount(const std::vector<std::string> &args) const {
+        po::options_description desc("eam get-account options");
+        desc.add_options()
+                ("account,a", po::value<std::string>()->required(), "account ID; a full ERN also works");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "get-account", "--account <accountId|ern>",
+                                   "Shows one account as JSON: its ID, name, ERN, description and when it was created "
+                                   "and last changed.\n\n"
+                                   "The same description \"list-accounts\" gives of each of its own, for one account.\n\n"
+                                   "An account is named by its ID rather than by its name - the ID is what an ERN's "
+                                   "fourth field carries and what every resource is scoped by, while the name is "
+                                   "descriptive and addresses nothing. An ERN is accepted too. Requires administrator "
+                                   "privileges.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        const auto account = vm["account"].as<std::string>();
+        Dto::EAM::GetAccountRequest request;
+        if (account.starts_with("ern:")) {
+            request.ern = account;
+        } else {
+            request.accountId = account;
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eam", "get-account", boost::json::value_from(request));
+
+            if (!response.IsSuccess()) {
+                reportFailure("get-account", response);
+                return 1;
+            }
+
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
     int EamCli::listAccounts(const std::vector<std::string> &args) const {
         po::options_description desc("eam list accounts");
         desc.add_options()
@@ -1731,6 +1794,101 @@ namespace Euclid::CLI {
         }
     }
 
+    int EamCli::getUser(const std::vector<std::string> &args) const {
+        po::options_description desc("eam get-user options");
+        desc.add_options()
+                ("user-id,u", po::value<std::string>()->required(), "id of the user");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "get-user", "--user-id <id>",
+                                   "Shows one user as JSON: the account and region they belong to, whether they may log in, "
+                                   "their access keys and when they were created.\n\n"
+                                   "The same description \"list-users\" gives of each of its own, for one user - so what a "
+                                   "listing shows and what this shows cannot drift apart.\n\n"
+                                   "By user id, which is what everything else names a user with: a grant's principal, an "
+                                   "application's technical identity, the userId the audit trail records. Requires "
+                                   "administrator privileges.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EAM::GetUserRequest request;
+        request.userId = vm["user-id"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eam", "get-user", boost::json::value_from(request));
+
+            if (!response.IsSuccess()) {
+                reportFailure("get-user", response);
+                return 1;
+            }
+
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::getUserGroup(const std::vector<std::string> &args) const {
+        po::options_description desc("eam get-user-group options");
+        desc.add_options()
+                ("group,g", po::value<std::string>()->required(), "group name; a full ERN also works");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "get-user-group", "--group <name|ern>",
+                                   "Shows one user group as JSON: its ERN, who is in it and when it was created.\n\n"
+                                   "The same description \"list-user-groups\" gives of each of its own, for one group.\n\n"
+                                   "Groups are installation-wide rather than scoped to an account, so a name identifies one "
+                                   "on its own; an ERN is accepted because that is what a grant's principal carries. Requires "
+                                   "administrator privileges.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        const auto group = vm["group"].as<std::string>();
+        Dto::EAM::GetUserGroupRequest request;
+        if (group.starts_with("ern:")) {
+            request.ern = group;
+        } else {
+            request.name = group;
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eam", "get-user-group", boost::json::value_from(request));
+
+            if (!response.IsSuccess()) {
+                reportFailure("get-user-group", response);
+                return 1;
+            }
+
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
     int EamCli::listRoles(const std::vector<std::string> &args) const {
         po::options_description desc("eam list-roles options");
         desc.add_options()
@@ -1930,15 +2088,24 @@ namespace Euclid::CLI {
                 ("principal,p", po::value<std::string>()->default_value(""), "a user or user-group ERN: what may they do")
                 ("role,o", po::value<std::string>()->default_value(""), "a role name: who can do this")
                 ("account,a", po::value<std::string>()->default_value(""),
-                 "account to look in; your own unless given, and naming another needs administrator rights on it");
+                 "account to look in; your own unless given, and naming another needs administrator rights on it")
+                ("page-size,s", po::value<long>()->default_value(0), "how many to return; 0 is all of them")
+                ("page-index,i", po::value<long>()->default_value(0), "zero-based page, applied when --page-size is set")
+                ("sort-column,c", po::value<std::string>()->default_value("principal"), "sort column: principal, role, accountId or created")
+                ("sort-direction,d", po::value<std::string>()->default_value("asc"), "sort direction (asc|desc)");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eam", "list-grants", "[--principal <ern>] [--role <name>] [--account <id>]",
+            return PrintActionHelp("eam", "list-grants",
+                                   "[--principal <ern>] [--role <name>] [--account <id>] [--page-size <n>] [--page-index <n>] [--sort-column <column>] [--sort-direction <direction>]",
                                    "Lists grants: by principal, by role, or - giving neither - everything granted in your "
                                    "account, which is what an overview wants. Note that --principal shows that principal's "
                                    "own grants and not those "
                                    "of the groups it belongs to, which is a different question; check-permission answers the "
-                                   "combined one. Requires administrator privileges.",
+                                   "combined one. Requires administrator privileges.\n\n"
+                                   "Paged with --page-size, which defaults to 0 and returns everything. \"total\" is always "
+                                   "how many grants match, not how many this page holds, so it is what says whether there "
+                                   "is another page. The whole-account listing is the one that grows: it is one row per "
+                                   "principal per role.",
                                    desc);
         }
 
@@ -1955,6 +2122,10 @@ namespace Euclid::CLI {
         request.principal = vm["principal"].as<std::string>();
         request.role = vm["role"].as<std::string>();
         request.accountId = vm["account"].as<std::string>();
+        request.pageSize = vm["page-size"].as<long>();
+        request.pageIndex = vm["page-index"].as<long>();
+        request.sortColumn = vm["sort-column"].as<std::string>();
+        request.sortDirection = vm["sort-direction"].as<std::string>();
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);

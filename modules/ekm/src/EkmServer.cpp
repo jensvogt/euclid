@@ -385,6 +385,44 @@ namespace Euclid::EKM {
         return EkmServer::JsonResponse(req, status::ok);
     }
 
+    // The key's description, never its material. Asking about a key is an ordinary thing to do -
+    // which bucket is encrypted under what, whether a key has been revoked - and none of it
+    // requires the bytes, which is why they have no way out of this module at all.
+    static response<string_body> handleGetKey(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-key");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EkmServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EKM::GetKeyRequest>(jv);
+        if (request.ern.empty() && request.name.empty()) {
+            return EkmServer::ErrorResponse(req, status::bad_request, "Either ern or name is required");
+        }
+
+        // A name is resolved against the caller's own account and namespace, the pair create-key
+        // built the ERN from; an ERN names one key in the installation and is taken as given.
+        const auto ns = std::string(req["x-euclid-namespace"]);
+        const auto repo = Database::RepositoryFactory::instance().ekmRepository();
+        const auto key = request.ern.empty() ? repo->findKeyByName(auth.user->accountId, ns, request.name)
+                                             : repo->findKeyByErn(request.ern);
+        if (!key.has_value()) {
+            return EkmServer::ErrorResponse(req, status::not_found,
+                                            request.ern.empty() ? "Key not found, name: " + request.name
+                                                                : "Key not found, ern: " + request.ern);
+        }
+
+        log_debug << "EKM get key, ern: " << key->ern;
+
+        Dto::EKM::GetKeyResponse response;
+        response.key = Dto::EKM::EkmMapper::toDto(*key);
+
+        return EkmServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
     static response<string_body> handleListKeys(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-keys");
@@ -666,6 +704,7 @@ namespace Euclid::EKM {
         enum class Command {
             Unknown,
             CreateKey,
+            GetKey,
             ListKeys,
             Encrypt,
             Decrypt,
@@ -684,6 +723,7 @@ namespace Euclid::EKM {
 
     static Command commandFromString(const std::string &action) {
         if (action == "create-key") return Command::CreateKey;
+        if (action == "get-key") return Command::GetKey;
         if (action == "list-keys") return Command::ListKeys;
         if (action == "encrypt") return Command::Encrypt;
         if (action == "decrypt") return Command::Decrypt;
@@ -712,6 +752,9 @@ namespace Euclid::EKM {
 
             case Command::CreateKey:
                 return handleCreateKey(req);
+
+            case Command::GetKey:
+                return handleGetKey(req);
 
             case Command::ListKeys:
                 return handleListKeys(req);

@@ -22,6 +22,7 @@
 #include <euclid/cli/help/CliHelp.h>
 #include <euclid/cli/http/HttpClient.h>
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/ekm/GetKeyRequest.h>
 #include <euclid/dto/ekm/CertificateNameRequest.h>
 #include <euclid/dto/ekm/CreateCertificateRequest.h>
 #include <euclid/dto/ekm/CreateKeyRequest.h>
@@ -81,6 +82,14 @@ namespace Euclid::CLI {
         [[nodiscard]]
         int createKey(const std::vector<std::string> &args) const;
 
+        /**
+         * @brief Shows one key's description, never its material.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int getKey(const std::vector<std::string> &args) const;
         /**
          * @brief List all available keys
          *

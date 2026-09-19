@@ -139,7 +139,7 @@ BOOST_AUTO_TEST_CASE(ReaderOnlyReads) {
 
     BOOST_TEST(grants(BuiltinRoles::Reader, "eqs:list-queues"));
     BOOST_TEST(grants(BuiltinRoles::Reader, "ens:get-topic-metadata"));
-    BOOST_TEST(grants(BuiltinRoles::Reader, "ekv:describe-table"));
+    BOOST_TEST(grants(BuiltinRoles::Reader, "ekv:get-table"));
 
     BOOST_TEST(!grants(BuiltinRoles::Reader, "ens:publish-message"));
     BOOST_TEST(!grants(BuiltinRoles::Reader, "eqs:send-message"));

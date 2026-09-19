@@ -36,6 +36,7 @@ namespace Euclid::CLI {
                 {"get-certificate", "Show one certificate, without its private key"},
                 {"import-certificate", "Store a certificate and its private key"},
                 {"list-certificates", "List stored certificates"},
+                {"get-key", "Show one key's description"},
                 {"list-keys", "List existing keys"},
                 {"revoke-key", "Revoke a key (blocks encryption, decryption still works)"},
                 {"set-key-description", "Change what a key says it is for"},
@@ -48,6 +49,9 @@ namespace Euclid::CLI {
         }
         if (action == "create-key") {
             return createKey(args);
+        }
+        if (action == "get-key") {
+            return getKey(args);
         }
         if (action == "list-keys") {
             return listKeys(args);
@@ -122,6 +126,56 @@ namespace Euclid::CLI {
             const HttpResponse response = client.Post("ekm", "create-key", boost::json::value_from(request));
             if (!response.IsSuccess()) {
                 std::cerr << "error: create-key failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EkmCli::getKey(const std::vector<std::string> &args) const {
+        po::options_description desc("ekm get-key options");
+        desc.add_options()
+                ("key,k", po::value<std::string>()->required(), "key name; a full ERN also works and is what reaches another namespace");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ekm", "get-key", "--key <name|ern>",
+                                   "Shows one key's description as JSON: its ERN, the account and namespace it belongs to, its "
+                                   "algorithm and state, its description and tags, and when it was created.\n\n"
+                                   "The same description \"list-keys\" gives of each of its own, for one key - so what a "
+                                   "listing shows and what this shows cannot drift apart.\n\n"
+                                   "Never the key material. That has no way out of the key management module at all, which is "
+                                   "the point of having one: \"encrypt\" and \"decrypt\" are how the key is used.\n\n"
+                                   "A name is resolved in the session's own account and namespace; an ERN names one key in the "
+                                   "installation and is what an encrypted bucket or secret carries.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        const auto key = vm["key"].as<std::string>();
+        Dto::EKM::GetKeyRequest request;
+        if (key.starts_with("ern:")) {
+            request.ern = key;
+        } else {
+            request.name = key;
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ekm", "get-key", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: get-key failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);

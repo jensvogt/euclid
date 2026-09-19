@@ -128,7 +128,14 @@ namespace Euclid::Core {
          * @par
          * Prefix-matched on the action half, because euclid names its actions consistently enough
          * for that to be the honest rule rather than a list somebody has to maintain:
-         * list-queues, get-object, describe-table, count-objects.
+         * list-queues, get-object, get-table, count-objects.
+         *
+         * @par
+         * "describe-" is still matched although no action carries it any more - ekv's
+         * describe-table became get-table, for consistency with every other module's way of
+         * asking for one of something. The prefix stays because it is a word a reader
+         * reaches for, and an action that used it would be a read whether or not anyone
+         * remembered to add it here.
          *
          * @par
          * `count-` is here because euclid names counting both ways: the cached figures are

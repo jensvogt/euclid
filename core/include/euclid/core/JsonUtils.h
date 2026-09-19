@@ -54,8 +54,10 @@ namespace Euclid::Core {
         }
     }// namespace detail
 
-    inline std::string GetStringValue(const boost::json::value &value, const std::string &name) {
-        return detail::ValueOr<std::string>(value, name, {}, [](const boost::json::value &v) { return std::string(v.as_string()); });
+    // The default is for a field whose absence means something other than "empty" - a sort column
+    // that has to be some column, say. Left as the empty string, which is what most callers want.
+    inline std::string GetStringValue(const boost::json::value &value, const std::string &name, std::string defaultValue = {}) {
+        return detail::ValueOr<std::string>(value, name, std::move(defaultValue), [](const boost::json::value &v) { return std::string(v.as_string()); });
     }
 
     inline long GetLongValue(const boost::json::value &value, const std::string &name, const long defaultValue = 0) {

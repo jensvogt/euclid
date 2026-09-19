@@ -47,6 +47,32 @@ namespace Euclid::Dto::EAM {
         std::string accountId;
 
         /**
+         * @brief How many grants to return. 0 or less is no limit, which is what a caller that
+         * predates paging sends by sending nothing.
+         */
+        long pageSize{};
+
+        /**
+         * @brief Zero-based page, applied when pageSize is set.
+         */
+        long pageIndex{};
+
+        /**
+         * @brief Field to order by: principal, role, accountId or created.
+         *
+         * @par
+         * Ordering matters more here than it does for a listing that is usually short: paging an
+         * unordered collection can show the same grant on two pages and never show another, so
+         * this defaults to a field rather than to none.
+         */
+        std::string sortColumn{"principal"};
+
+        /**
+         * @brief "asc" or "desc".
+         */
+        std::string sortDirection{"asc"};
+
+        /**
          * @brief Serializes this to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -67,6 +93,12 @@ namespace Euclid::Dto::EAM {
             r.principal = Core::GetStringValue(v, "principal");
             r.role = Core::GetStringValue(v, "role");
             r.accountId = Core::GetStringValue(v, "accountId");
+            r.pageSize = Core::GetLongValue(v, "pageSize");
+            r.pageIndex = Core::GetLongValue(v, "pageIndex");
+            // Defaulted rather than left empty: a caller that predates paging sends neither, and
+            // an ordered answer is what makes its pages add up if it later starts asking for them.
+            r.sortColumn = Core::GetStringValue(v, "sortColumn", "principal");
+            r.sortDirection = Core::GetStringValue(v, "sortDirection", "asc");
             return r;
         }
 
@@ -75,6 +107,10 @@ namespace Euclid::Dto::EAM {
                     {"principal", obj.principal},
                     {"role", obj.role},
                     {"accountId", obj.accountId},
+                    {"pageSize", obj.pageSize},
+                    {"pageIndex", obj.pageIndex},
+                    {"sortColumn", obj.sortColumn},
+                    {"sortDirection", obj.sortDirection},
             };
         }
     };
