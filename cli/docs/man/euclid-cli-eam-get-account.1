@@ -1,0 +1,67 @@
+.TH EUCLID-CLI-EAM-GET-ACCOUNT 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eam-get-account \- show one account's definition
+.SH SYNOPSIS
+.B euclid-cli eam get-account
+.BR \-\-account | \-a
+.I ACCOUNT_ID\fR|\fIERN
+.SH DESCRIPTION
+Prints one account as JSON: its account ID, its human-readable name, its
+ERN, its description, and when it was created and last changed.
+.PP
+This is the same description
+.BR euclid-cli-eam-list-accounts (1)
+gives of each of its own, for a single account asked for by ID. They share
+one representation on purpose, so that a field added to a listing is in
+this too rather than the two drifting apart.
+.PP
+The caller must be authenticated as a global administrator (see
+.BR euclid-cli-eam-login (1)),
+as for every other way of reading who exists.
+.SH OPTIONS
+.TP
+.BR \-a ", " \-\-account " " \fIACCOUNT_ID\fR|\fIERN\fR
+The account. Required. An account is named by its ID rather than by its
+name: the ID is what an ERN's fourth field carries and what every resource
+in the installation is scoped by, while the name is descriptive and
+addresses nothing. A full ERN is accepted too and names the same account;
+see
+.B NAMES AND ERNS
+in
+.BR euclid-cli-eam (1).
+.SH EXIT STATUS
+.TP
+.B 0
+The account is printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, no such account
+exists, or the caller is not an authenticated global administrator. If the
+failure was an expired or invalid session (\fIHTTP 401\fR), the stored
+credentials file is removed; run
+.B euclid-cli eam login
+again before retrying.
+.SH EXAMPLES
+.PP
+By account ID:
+.RS
+.nf
+euclid-cli eam get-account --account 000000000000
+.fi
+.RE
+.PP
+By ERN, which names the same account:
+.RS
+.nf
+euclid-cli eam get-account \\
+    --account ern:eam:eu-central-1:000000000000::account:000000000000
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-eam-list-accounts (1),
+.BR euclid-cli-eam-create-account (1),
+.BR euclid-cli-eam-delete-account (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

@@ -6,6 +6,10 @@ euclid-cli-eam-list-grants \- list grants: by principal, by role, or a whole acc
 [\fB\-\-principal\fR|\fB\-p\fR \fIERN\fR]
 [\fB\-\-role\fR|\fB\-o\fR \fINAME\fR]
 [\fB\-\-account\fR|\fB\-a\fR \fIID\fR]
+[\fB\-\-page\-size\fR|\fB\-s\fR \fIN\fR]
+[\fB\-\-page\-index\fR|\fB\-i\fR \fIN\fR]
+[\fB\-\-sort\-column\fR|\fB\-c\fR \fICOLUMN\fR]
+[\fB\-\-sort\-direction\fR|\fB\-d\fR \fIDIRECTION\fR]
 .SH DESCRIPTION
 Lists grants, and with them the
 .I grantId
@@ -67,13 +71,41 @@ A role name. A built-in name also works.
 .BR \-a ", " \-\-account " " \fIID\fR
 Account to look in. Your own unless given. Not applied together with
 .BR \-\-principal .
+.TP
+.BR \-s ", " \-\-page\-size " " \fIN\fR
+How many grants to return. \fI0\fR, the default, returns all of them.
+.TP
+.BR \-i ", " \-\-page\-index " " \fIN\fR
+Zero-based page, applied when \fB\-\-page\-size\fR is set. Defaults to
+\fI0\fR.
+.TP
+.BR \-c ", " \-\-sort\-column " " \fICOLUMN\fR
+Field to order by: \fIprincipal\fR (default), \fIrole\fR, \fIaccountId\fR
+or \fIcreated\fR.
+.TP
+.BR \-d ", " \-\-sort\-direction " " \fIDIRECTION\fR
+\fIasc\fR (default) or \fIdesc\fR.
+.SH PAGING
+The whole-account listing is the one that grows: it is one row per
+principal per role, so an account with many users and several roles each
+has more grants than is useful to read at once.
+.PP
+.I total
+is how many grants match the filter, not how many this page holds \- so it
+is what says whether there is another page, and it does not change as you
+page through them.
+.PP
+Results are ordered by
+.B \-\-sort\-column
+whether or not you page. That is deliberate: paging an unordered
+collection can show the same grant on two pages and never show another.
 .SH OUTPUT
 Each grant carries its
 .IR grantId ,
 the role, the principal, the account, the namespaces and resources it is
 scoped to, and when and by whom it was granted.
 .I total
-counts the grants returned.
+counts every grant matching the filter, across all pages.
 .SH WHO MAY RUN IT
 Installation administrators \- members of the
 .I administrator
@@ -113,6 +145,14 @@ euclid-cli --endpoint http://localhost:5566 eam list-grants \e
 # In another account
 euclid-cli --endpoint http://localhost:5566 eam list-grants \e
     --account 123456789012
+
+# The first fifty, newest first
+euclid-cli --endpoint http://localhost:5566 eam list-grants \e
+    --page-size 50 --sort-column created --sort-direction desc
+
+# The second page of fifty
+euclid-cli --endpoint http://localhost:5566 eam list-grants \e
+    --page-size 50 --page-index 1
 .fi
 .RE
 .SH SEE ALSO

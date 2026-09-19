@@ -30,6 +30,10 @@
 #include <euclid/dto/eam/CheckPermissionResponse.h>
 #include <euclid/dto/eam/CreateRoleRequest.h>
 #include <euclid/dto/eam/DeleteRoleRequest.h>
+#include <euclid/dto/eam/GetUserGroupRequest.h>
+#include <euclid/dto/eam/GetUserGroupResponse.h>
+#include <euclid/dto/eam/GetUserRequest.h>
+#include <euclid/dto/eam/GetUserResponse.h>
 #include <euclid/dto/eam/GetRoleRequest.h>
 #include <euclid/dto/eam/GrantRoleRequest.h>
 #include <euclid/dto/eam/GrantRoleResponse.h>

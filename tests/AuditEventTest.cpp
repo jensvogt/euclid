@@ -145,7 +145,7 @@ BOOST_AUTO_TEST_CASE(TheReadRuleIsTheOneTheReaderRoleUses) {
     // EAD records the actions this does not match; the `reader` built-in role is every permission
     // it does. One rule, because an action misjudged here is both grantable to a reader and
     // invisible to the audit - the pair you least want to get wrong together.
-    for (const auto *action: {"list-queues", "get-object", "describe-table", "count-objects"}) {
+    for (const auto *action: {"list-queues", "get-object", "get-table", "count-objects"}) {
         BOOST_TEST_CONTEXT(action) { BOOST_TEST(Permissions::IsRead(action)); }
     }
 

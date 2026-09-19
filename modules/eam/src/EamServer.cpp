@@ -22,6 +22,8 @@
 #include <euclid/dto/eam/DeleteAccountRequest.h>
 #include <euclid/dto/eam/DeleteNamespaceRequest.h>
 #include <euclid/dto/eam/DeleteUserGroupRequest.h>
+#include <euclid/dto/eam/GetAccountRequest.h>
+#include <euclid/dto/eam/GetAccountResponse.h>
 #include <euclid/dto/eam/ListAccountsRequest.h>
 #include <euclid/dto/eam/ListAccountsResponse.h>
 #include <euclid/dto/eam/ListNamespacesRequest.h>
@@ -821,6 +823,76 @@ namespace Euclid::EAM {
 
     // Lists users. Requires the caller to be an authenticated administrator - unlike
     // handleRegister() there's no bootstrap exception, since an empty store has nothing to list.
+    // Reads one user. Administrator-only, like every other way of looking at who exists: a user
+    // list is the shape of an organisation, and an ordinary user has no business reading it.
+    static response<string_body> handleGetUser(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-user");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+        if (!isAdmin(*auth.user)) {
+            return EamServer::ErrorResponse(req, status::forbidden, "Administrator privileges required");
+        }
+
+        boost::json::value jv;
+        if (const auto err = EamServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EAM::GetUserRequest>(jv);
+        if (request.userId.empty()) {
+            return EamServer::ErrorResponse(req, status::bad_request, "userId is required");
+        }
+
+        const auto user = Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(request.userId);
+        if (!user.has_value()) {
+            return EamServer::ErrorResponse(req, status::not_found, "User not found, userId: " + request.userId);
+        }
+
+        log_debug << "Access GetUser, userId: " << request.userId;
+
+        Dto::EAM::GetUserResponse response;
+        response.user = Dto::EAM::EamMapper::toDto(*user);
+
+        return EamServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    // Reads one user group, by name or by ERN - the two things that name one. Groups are
+    // installation-wide, so a name is unambiguous on its own.
+    static response<string_body> handleGetUserGroup(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-user-group");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+        if (!isAdmin(*auth.user)) {
+            return EamServer::ErrorResponse(req, status::forbidden, "Administrator privileges required");
+        }
+
+        boost::json::value jv;
+        if (const auto err = EamServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EAM::GetUserGroupRequest>(jv);
+        if (request.ern.empty() && request.name.empty()) {
+            return EamServer::ErrorResponse(req, status::bad_request, "Either ern or name is required");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().eamRepository();
+        const auto group = request.ern.empty() ? repo->findUserGroupByName(request.name)
+                                               : repo->findUserGroupByErn(request.ern);
+        if (!group.has_value()) {
+            return EamServer::ErrorResponse(req, status::not_found,
+                                            request.ern.empty() ? "User group not found, name: " + request.name
+                                                                : "User group not found, ern: " + request.ern);
+        }
+
+        log_debug << "Access GetUserGroup, name: " << group->name;
+
+        Dto::EAM::GetUserGroupResponse response;
+        response.userGroup = Dto::EAM::EamMapper::toDto(*group);
+
+        return EamServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
     static response<string_body> handleListUsers(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-users");
@@ -1216,6 +1288,43 @@ namespace Euclid::EAM {
         response.accounts = Dto::EAM::EamMapper::toDto(accounts);
         response.total = repo->countAccounts();
         return EamServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::value_from(response)));
+    }
+
+    // Reads one account, by account ID or by ERN - the two things that name one. Administrator-only,
+    // like the listing it answers a single row of.
+    static response<string_body> handleGetAccount(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-account");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+        if (!isAdmin(*auth.user)) {
+            return EamServer::ErrorResponse(req, status::forbidden, "Administrator privileges required");
+        }
+
+        boost::json::value jv;
+        if (const auto err = EamServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EAM::GetAccountRequest>(jv);
+        if (request.accountId.empty() && request.ern.empty()) {
+            return EamServer::ErrorResponse(req, status::bad_request, "Either accountId or ern is required");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().eamRepository();
+        const auto account = request.accountId.empty() ? repo->findAccountByErn(request.ern)
+                                                       : repo->findAccountByAccountId(request.accountId);
+        if (!account.has_value()) {
+            return EamServer::ErrorResponse(req, status::not_found,
+                                            request.accountId.empty() ? "Account not found, ern: " + request.ern
+                                                                      : "Account not found, accountId: " + request.accountId);
+        }
+
+        log_debug << "Access GetAccount, accountId: " << account->accountId;
+
+        Dto::EAM::GetAccountResponse response;
+        response.account = Dto::EAM::EamMapper::toDto(*account);
+
+        return EamServer::JsonResponse(req, status::ok, response.toJson());
     }
 
     static response<string_body> handleDeleteAccount(const request<string_body> &req) {
@@ -1838,13 +1947,17 @@ namespace Euclid::EAM {
         Dto::EAM::ListGrantsResponse response;
         // Neither is a third question - "what is granted here at all" - and the one an
         // administration view asks: a list of users and what each may do is otherwise one request
-        // per user, which is what the per-user grant lists used to give away for free.
-        const auto grants = !request.principal.empty() ? repo->findGrantsByPrincipals({request.principal})
-                            : !request.role.empty()    ? repo->findGrantsByRole(accountId, request.role)
-                                                       : repo->findGrantsByAccount(accountId);
+        // per user, which is what the per-user grant lists used to give away for free. That is
+        // also the case worth paging: one row per principal per role adds up in a large account.
+        const auto grants = repo->listGrants(request.principal, request.role, accountId,
+                                             request.pageSize, request.pageIndex,
+                                             request.sortColumn, request.sortDirection);
 
         for (const auto &grant: grants) response.grants.push_back(toGrantDto(grant));
-        response.total = static_cast<long>(response.grants.size());
+
+        // The whole set under the same filter, not the page: a total that counted the page would
+        // say nothing a caller cannot already see, and would say "10" forever while paging.
+        response.total = repo->countGrants(request.principal, request.role, accountId);
 
         return EamServer::JsonResponse(req, status::ok, response.toJson());
     }
@@ -1935,6 +2048,8 @@ namespace Euclid::EAM {
             SamlAcs,
             SamlMetadata,
             Register,
+            GetUser,
+            GetUserGroup,
             ListUsers,
             DeleteUser,
             CreateAccessKey,
@@ -1946,6 +2061,7 @@ namespace Euclid::EAM {
             UserGroupRemoveUser,
             DeleteUserGroup,
             CreateAccount,
+            GetAccount,
             ListAccounts,
             DeleteAccount,
             CreateNamespace,
@@ -1977,6 +2093,8 @@ namespace Euclid::EAM {
         if (action == "saml-acs") return Action::SamlAcs;
         if (action == "saml-metadata") return Action::SamlMetadata;
         if (action == "register") return Action::Register;
+        if (action == "get-user") return Action::GetUser;
+        if (action == "get-user-group") return Action::GetUserGroup;
         if (action == "list-users") return Action::ListUsers;
         if (action == "delete-user") return Action::DeleteUser;
         if (action == "create-access-key") return Action::CreateAccessKey;
@@ -1988,6 +2106,7 @@ namespace Euclid::EAM {
         if (action == "user-group-remove-user") return Action::UserGroupRemoveUser;
         if (action == "delete-user-group") return Action::DeleteUserGroup;
         if (action == "create-account") return Action::CreateAccount;
+        if (action == "get-account") return Action::GetAccount;
         if (action == "list-accounts") return Action::ListAccounts;
         if (action == "delete-account") return Action::DeleteAccount;
         if (action == "create-namespace") return Action::CreateNamespace;
@@ -2060,6 +2179,12 @@ namespace Euclid::EAM {
             case Action::CreateUserGroup:
                 return handleCreateUserGroup(req);
 
+            case Action::GetUser:
+                return handleGetUser(req);
+
+            case Action::GetUserGroup:
+                return handleGetUserGroup(req);
+
             case Action::ListUserGroups:
                 return handleListUserGroups(req);
 
@@ -2074,6 +2199,9 @@ namespace Euclid::EAM {
 
             case Action::CreateAccount:
                 return handleCreateAccount(req);
+
+            case Action::GetAccount:
+                return handleGetAccount(req);
 
             case Action::ListAccounts:
                 return handleListAccounts(req);

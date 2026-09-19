@@ -19,6 +19,9 @@
 #include <euclid/cli/credentials/Credentials.h>
 #include <euclid/cli/help/CliHelp.h>
 #include <euclid/cli/http/HttpClient.h>
+#include <euclid/dto/eam/GetAccountRequest.h>
+#include <euclid/dto/eam/GetUserGroupRequest.h>
+#include <euclid/dto/eam/GetUserRequest.h>
 #include <euclid/dto/eam/CreateAccessKeyResponse.h>
 #include <euclid/dto/eam/ChangeNamespaceRequest.h>
 #include <euclid/dto/eam/CreateAccountRequest.h>
@@ -235,6 +238,23 @@ namespace Euclid::CLI {
         int updateRole(const std::vector<std::string> &args) const;
 
         /**
+         * @brief Shows one user.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int getUser(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Shows one user group and who is in it.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int getUserGroup(const std::vector<std::string> &args) const;
+        /**
          * @brief Shows one role and what it grants
          */
         [[nodiscard]]
@@ -299,6 +319,15 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int createAccount(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Shows one account
+         *
+         * @param args action arguments
+         * @return
+         */
+        [[nodiscard]]
+        int getAccount(const std::vector<std::string> &args) const;
 
         /**
          * @brief Lists accounts

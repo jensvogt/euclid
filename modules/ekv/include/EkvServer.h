@@ -26,7 +26,7 @@
 #include <euclid/dto/ekv/CreateTableRequest.h>
 #include <euclid/dto/ekv/DeleteItemRequest.h>
 #include <euclid/dto/ekv/DeleteTableRequest.h>
-#include <euclid/dto/ekv/DescribeTableRequest.h>
+#include <euclid/dto/ekv/GetTableRequest.h>
 #include <euclid/dto/ekv/GetItemRequest.h>
 #include <euclid/dto/ekv/ListTablesRequest.h>
 #include <euclid/dto/ekv/PutItemRequest.h>

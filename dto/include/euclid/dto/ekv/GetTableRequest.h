@@ -24,7 +24,7 @@ namespace Euclid::Dto::EKV {
     /**
      * @brief Asks what a table looks like.
      */
-    struct DescribeTableRequest : BaseDto {
+    struct GetTableRequest : BaseDto {
 
         /**
          * @brief Table to describe.
@@ -40,14 +40,14 @@ namespace Euclid::Dto::EKV {
 
     private:
 
-        friend DescribeTableRequest tag_invoke(boost::json::value_to_tag<DescribeTableRequest>, boost::json::value const &v) {
-            DescribeTableRequest r;
+        friend GetTableRequest tag_invoke(boost::json::value_to_tag<GetTableRequest>, boost::json::value const &v) {
+            GetTableRequest r;
             static_cast<BaseDto &>(r) = GetMetadata(v);
             r.name = Core::GetStringValue(v, "name");
             return r;
         }
 
-        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, DescribeTableRequest const &obj) {
+        friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetTableRequest const &obj) {
             jv = {
                     {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
                     {"name", obj.name},

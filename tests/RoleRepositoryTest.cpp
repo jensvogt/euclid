@@ -243,6 +243,88 @@ BOOST_AUTO_TEST_CASE(GrantsOfARoleAreFoundForWhoCanDoThis) {
     BOOST_TEST(repo.findGrantsByRole(kOtherAccount, "publisher").empty());
 }
 
+// ── Listing grants ──────────────────────────────────────────────────────────
+
+// The three questions one method answers, chosen by which argument is filled in - and the one that
+// is deliberately not account-scoped, because a principal ERN names one holder wherever their
+// grants apply.
+BOOST_AUTO_TEST_CASE(ListingGrantsFiltersByPrincipalByRoleOrByAccount) {
+
+    auto repo = freshRepository();
+    auto mine = grantOf("publisher", kUser);
+    auto theirs = grantOf("publisher", kGroup);
+    auto other = grantOf("consumer", kUser);
+    auto elsewhere = grantOf("publisher", kUser, kOtherAccount);
+    for (auto *grant: {&mine, &theirs, &other, &elsewhere}) std::ignore = repo.addGrant(*grant);
+
+    BOOST_TEST(repo.listGrants(kUser, "", kAccount, 0, 0, "role").size() == 3U);
+    BOOST_TEST(repo.listGrants("", "publisher", kAccount, 0, 0, "role").size() == 2U);
+    BOOST_TEST(repo.listGrants("", "", kAccount, 0, 0, "role").size() == 3U);
+    BOOST_TEST(repo.listGrants("", "", kOtherAccount, 0, 0, "role").size() == 1U);
+}
+
+// A page and the total it is reported with have to describe the same set, or the total says
+// nothing about whether there is another page.
+BOOST_AUTO_TEST_CASE(CountingGrantsIgnoresPagingAndMatchesTheFilter) {
+
+    auto repo = freshRepository();
+    for (int i = 0; i < 5; ++i) {
+        auto grant = grantOf("publisher", kUser, kAccount, {"namespace-" + std::to_string(i)});
+        std::ignore = repo.addGrant(grant);
+    }
+    auto consumer = grantOf("consumer", kGroup);
+    std::ignore = repo.addGrant(consumer);
+
+    BOOST_TEST(repo.listGrants("", "", kAccount, 2, 0, "principal").size() == 2U);
+    BOOST_TEST(repo.countGrants("", "", kAccount) == 6L);
+    BOOST_TEST(repo.countGrants("", "publisher", kAccount) == 5L);
+    BOOST_TEST(repo.countGrants(kGroup, "", kAccount) == 1L);
+}
+
+// Paging an unordered collection can show the same row on two pages and never show another, so
+// the pages have to partition the set.
+BOOST_AUTO_TEST_CASE(PagesOfGrantsDoNotOverlapOrLoseAny) {
+
+    auto repo = freshRepository();
+    for (int i = 0; i < 5; ++i) {
+        auto grant = grantOf("role-" + std::to_string(i), kUser);
+        std::ignore = repo.addGrant(grant);
+    }
+
+    std::vector<std::string> seen;
+    for (long page = 0; page < 3; ++page) {
+        for (const auto &grant: repo.listGrants("", "", kAccount, 2, page, "role")) seen.push_back(grant.role);
+    }
+
+    BOOST_REQUIRE(seen.size() == 5U);
+    BOOST_TEST(std::ranges::is_sorted(seen));
+    BOOST_TEST((std::ranges::adjacent_find(seen) == seen.end()));
+}
+
+// What a caller that predates paging sends, and what it has always got back.
+BOOST_AUTO_TEST_CASE(APageSizeOfZeroIsEveryGrant) {
+
+    auto repo = freshRepository();
+    for (int i = 0; i < 5; ++i) {
+        auto grant = grantOf("role-" + std::to_string(i), kUser);
+        std::ignore = repo.addGrant(grant);
+    }
+
+    BOOST_TEST(repo.listGrants("", "", kAccount, 0, 0, "role").size() == 5U);
+}
+
+BOOST_AUTO_TEST_CASE(GrantsCanBeSortedInEitherDirection) {
+
+    auto repo = freshRepository();
+    auto first = grantOf("aardvark", kUser);
+    auto last = grantOf("zebra", kUser);
+    std::ignore = repo.addGrant(first);
+    std::ignore = repo.addGrant(last);
+
+    BOOST_TEST(repo.listGrants("", "", kAccount, 0, 0, "role", "asc").front().role == "aardvark");
+    BOOST_TEST(repo.listGrants("", "", kAccount, 0, 0, "role", "desc").front().role == "zebra");
+}
+
 BOOST_AUTO_TEST_CASE(AGrantIsRevokedByItsOwnId) {
 
     auto repo = freshRepository();
