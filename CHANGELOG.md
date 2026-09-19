@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.23](https://github.com/jensvogt/euclid/compare/1.1.22...v1.1.23) (2026-09-19)
+
+
+### Bug Fixes
+
+* auto completion of commands ([86c8971](https://github.com/jensvogt/euclid/commit/86c89712d56d752f85920a27e38b77b1bb69fc85))
+
 ## [1.1.22](https://github.com/jensvogt/euclid/compare/1.1.21...v1.1.22) (2026-09-19)
 
 
