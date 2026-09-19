@@ -125,12 +125,13 @@ namespace Euclid::Database {
     }
 
     long MongoEadRepository::countEvents(const std::string &accountId, const std::string &userId,
-                                         const std::string &moduleName, const std::string &command) const {
+                                         const std::string &moduleName, const std::string &command,
+                                         const long limit) const {
 
         try {
             auto collection = Database::instance().collection(COLLECTION);
             const auto filter = filterOf(accountId, userId, moduleName, command);
-            return static_cast<long>(collection.count_documents(filter.view()));
+            return static_cast<long>(collection.count_documents(filter.view(), limit));
 
         } catch (const std::exception &e) {
             log_error << "Count audit events failed, error: " << e.what();

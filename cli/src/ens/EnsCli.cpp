@@ -121,33 +121,45 @@ namespace Euclid::CLI {
 
     EnsCli::EnsCli(std::string endpoint, Credentials::Entry authentication, const bool pretty, std::string caCertPath) : _endpoint(std::move(endpoint)), _authentication(std::move(authentication)), _pretty(pretty), _caCertPath(std::move(caCertPath)) {}
 
+    /**
+     * @brief Every action this module takes, with the one-line summary each is listed by.
+     *
+     * @par
+     * A table rather than an initialiser inside the help branch, because two things read
+     * it now: "help", and tab completion. An action listed in one and not the other is an
+     * action somebody cannot find.
+     */
+    const std::vector<std::pair<std::string, std::string> > &EnsCli::Actions() {
+        static const std::vector<std::pair<std::string, std::string> > kActions = {
+                {"add-topic-tag", "Adds a tag to a topic"},
+                {"create-topic", "Create a new topic"},
+                {"delete-topic", "Delete an existing topic"},
+                {"delete-topic-tag", "Deletes a tag from a topic"},
+                {"get-message-attribute", "Returns a message attribute"},
+                {"get-message-count", "Returns the number of messages in a topic"},
+                {"get-topic-ern", "Returns the ERN for a topic"},
+                {"get-topic-metadata", "Returns the metadata of a topics"},
+                {"list-messages", "List available messages"},
+                {"list-subscriptions", "Lists the subscriptions of a topic"},
+                {"list-topics", "List all available topics"},
+                {"publish-message", "Publish a message to a topic"},
+                {"purge-all-topic", "Purge all topics by deleting all messages"},
+                {"purge-topic", "Purge a topic by deleting all messages"},
+                {"resend-messages", "Hands what a topic still holds to its subscribers again"},
+                {"set-message-attribute", "Sets the value of a message attribute"},
+                {"set-topic-max-message-length", "Sets the largest message a topic accepts"},
+                {"set-topic-retention", "Sets how long a topic keeps the messages published to it"},
+                {"set-topic-tag", "Sets the value of an existing topic tag"},
+                {"start-topic", "Starts delivering to a topic's subscribers, handing over what it held"},
+                {"stop-topic", "Stops delivering to a topic's subscribers; publishes are still stored"},
+                {"subscribe", "Subscribes a target resource (an EQS queue) to a topic"},
+                {"unsubscribe", "Deletes a subscription"},
+        };
+        return kActions;
+    }
     int EnsCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
-            return PrintModuleHelp("ens", {
-                                           {"add-topic-tag", "Adds a tag to a topic"},
-                                           {"create-topic", "Create a new topic"},
-                                           {"delete-topic", "Delete an existing topic"},
-                                           {"delete-topic-tag", "Deletes a tag from a topic"},
-                                           {"get-message-attribute", "Returns a message attribute"},
-                                           {"get-message-count", "Returns the number of messages in a topic"},
-                                           {"get-topic-ern", "Returns the ERN for a topic"},
-                                           {"get-topic-metadata", "Returns the metadata of a topics"},
-                                           {"list-messages", "List available messages"},
-                                           {"list-subscriptions", "Lists the subscriptions of a topic"},
-                                           {"list-topics", "List all available topics"},
-                                           {"publish-message", "Publish a message to a topic"},
-                                           {"purge-all-topic", "Purge all topics by deleting all messages"},
-                                           {"purge-topic", "Purge a topic by deleting all messages"},
-                                           {"resend-messages", "Hands what a topic still holds to its subscribers again"},
-                                           {"set-message-attribute", "Sets the value of a message attribute"},
-                                           {"set-topic-max-message-length", "Sets the largest message a topic accepts"},
-                                           {"set-topic-retention", "Sets how long a topic keeps the messages published to it"},
-                                           {"set-topic-tag", "Sets the value of an existing topic tag"},
-                                           {"start-topic", "Starts delivering to a topic's subscribers, handing over what it held"},
-                                           {"stop-topic", "Stops delivering to a topic's subscribers; publishes are still stored"},
-                                           {"subscribe", "Subscribes a target resource (an EQS queue) to a topic"},
-                                           {"unsubscribe", "Deletes a subscription"},
-                                   });
+            return PrintModuleHelp("ens", Actions());
         }
         if (action == "create-topic") {
             return createTopic(args);

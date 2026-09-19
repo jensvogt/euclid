@@ -204,6 +204,18 @@ namespace Euclid::Database {
         return _store->CountDocuments(_name, filter.view());
     }
 
+    std::int64_t Collection::count_documents(const bsoncxx::document::view_or_value filter, const long limit) const {
+
+        if (limit <= 0) return count_documents(filter);
+
+        if (_collection.has_value()) {
+            mongocxx::options::count options;
+            options.limit(limit);
+            return _collection->count_documents(filter.view(), options);
+        }
+        return std::min(_store->CountDocuments(_name, filter.view()), limit);
+    }
+
     void Collection::create_index(const bsoncxx::document::view_or_value keys, mongocxx::options::index &options) const {
 
         if (_collection.has_value()) {

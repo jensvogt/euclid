@@ -11,15 +11,27 @@ namespace Euclid::CLI {
     EssCli::EssCli(std::string endpoint, Credentials::Entry authentication, const bool pretty, std::string caCertPath)
         : _endpoint(std::move(endpoint)), _authentication(std::move(authentication)), _pretty(pretty), _caCertPath(std::move(caCertPath)) {}
 
+    /**
+     * @brief Every action this module takes, with the one-line summary each is listed by.
+     *
+     * @par
+     * A table rather than an initialiser inside the help branch, because two things read
+     * it now: "help", and tab completion. An action listed in one and not the other is an
+     * action somebody cannot find.
+     */
+    const std::vector<std::pair<std::string, std::string> > &EssCli::Actions() {
+        static const std::vector<std::pair<std::string, std::string> > kActions = {
+                {"create-secret", "Store a new secret"},
+                {"delete-secret", "Delete a secret"},
+                {"get-secret", "Read a secret's value"},
+                {"list-secrets", "List stored secrets, without their values"},
+                {"update-secret", "Rotate a secret, or change its description or key"},
+        };
+        return kActions;
+    }
     int EssCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
-            return PrintModuleHelp("ess", {
-                                           {"create-secret", "Store a new secret"},
-                                           {"delete-secret", "Delete a secret"},
-                                           {"get-secret", "Read a secret's value"},
-                                           {"list-secrets", "List stored secrets, without their values"},
-                                           {"update-secret", "Rotate a secret, or change its description or key"},
-                                   });
+            return PrintModuleHelp("ess", Actions());
         }
         if (action == "create-secret") {
             return createSecret(args);

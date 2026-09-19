@@ -50,20 +50,32 @@ namespace Euclid::CLI {
 
     EapCli::EapCli(std::string endpoint, Credentials::Entry authentication, const bool pretty, std::string caCertPath) : _endpoint(std::move(endpoint)), _authentication(std::move(authentication)), _pretty(pretty), _caCertPath(std::move(caCertPath)) {}
 
+    /**
+     * @brief Every action this module takes, with the one-line summary each is listed by.
+     *
+     * @par
+     * A table rather than an initialiser inside the help branch, because two things read
+     * it now: "help", and tab completion. An action listed in one and not the other is an
+     * action somebody cannot find.
+     */
+    const std::vector<std::pair<std::string, std::string> > &EapCli::Actions() {
+        static const std::vector<std::pair<std::string, std::string> > kActions = {
+                {"create-application", "Define a new application from an artifact in an ESM bucket"},
+                {"delete-application", "Delete an application definition"},
+                {"list-applications", "List the defined applications and how many instances are running"},
+                {"get-application", "Show one application's definition"},
+                {"redeploy-application", "Deploy a new build of an application from a local file"},
+                {"restart-application", "Ask the manager to start an application's instances again"},
+                {"start-application", "Ask the manager to start an application"},
+                {"stop-application", "Ask the manager to stop an application"},
+                {"set-log-level", "Turn an application's own logging up, down or off"},
+                {"update-application", "Change an existing application's definition"},
+        };
+        return kActions;
+    }
     int EapCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
-            return PrintModuleHelp("eap", {
-                                           {"create-application", "Define a new application from an artifact in an ESM bucket"},
-                                           {"delete-application", "Delete an application definition"},
-                                           {"list-applications", "List the defined applications and how many instances are running"},
-                                           {"get-application", "Show one application's definition"},
-                                           {"redeploy-application", "Deploy a new build of an application from a local file"},
-                                           {"restart-application", "Ask the manager to start an application's instances again"},
-                                           {"start-application", "Ask the manager to start an application"},
-                                           {"stop-application", "Ask the manager to stop an application"},
-                                           {"set-log-level", "Turn an application's own logging up, down or off"},
-                                           {"update-application", "Change an existing application's definition"},
-                                   });
+            return PrintModuleHelp("eap", Actions());
         }
 
         // Every eap action decides which code euclid executes and under whose identity, so all of

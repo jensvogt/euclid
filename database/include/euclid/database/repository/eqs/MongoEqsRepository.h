@@ -297,6 +297,28 @@ namespace Euclid::Database {
          */
         void recountQueues() override;
 
+        /**
+         * @brief Adds to a queue's counters with one `$inc`, coalesced over a short interval.
+         *
+         * @par
+         * The adjustment is added to what this process is already holding for that queue and
+         * written out once the oldest pending adjustment is older than kCounterFlushInterval.
+         * Every producer and consumer of a queue shares its one row, so writing that row per
+         * message is what made maintaining these counters unaffordable before: it turns a queue
+         * into a serialisation point, and the database spends its time on write conflicts. Held
+         * for a quarter of a second, a thousand messages cost one write instead of a thousand.
+         *
+         * @par
+         * What this costs is that the last fraction of a second of traffic is in memory rather
+         * than in the database, and a process killed in that window takes its pending adjustment
+         * with it. That is the same drift the TTL index causes, and the same thing corrects it -
+         * see recountQueues().
+         */
+        void adjustQueueCounters(const std::string &queueErn, long availableDelta, long invisibleDelta,
+                                 long delayedDelta, long sizeDelta) override;
+
+        void flushQueueCounters() override;
+
     private:
 
         static constexpr auto DATABASE_NAME = "euclid";
@@ -353,6 +375,48 @@ namespace Euclid::Database {
 
         static inline std::mutex _queueConfigMutex;
         static inline std::unordered_map<std::string, QueueConfig> _queueConfigs;
+
+        /**
+         * @brief Counter adjustments made but not yet written, for one queue.
+         */
+        struct PendingCounters {
+            long available{};
+            long invisible{};
+            long delayed{};
+            long size{};
+            std::chrono::steady_clock::time_point since;
+        };
+
+        /**
+         * @brief Takes a deleted message out of whichever counter was holding it.
+         *
+         * @param message the message as it was when it was removed, which is what its status is
+         * read from
+         */
+        void adjustForDeleted(const Entity::EQS::Message &message);
+
+        /**
+         * @brief Writes out every pending adjustment whose wait is over, and any at all when
+         * `force` is set.
+         *
+         * @par
+         * Walks the whole pending set rather than only the queue just adjusted: a queue that has
+         * gone quiet would otherwise hold its last adjustment until something else touched it,
+         * and "the queue that just drained" is exactly the one somebody is looking at.
+         */
+        static void flushPendingCounters(bool force);
+
+        /**
+         * @brief Writes one queue's accumulated deltas.
+         */
+        static void writeCounters(const std::string &queueErn, const PendingCounters &pending);
+
+        // Long enough that a busy queue's row is written a handful of times a second instead of
+        // thousands, short enough that nobody watching a queue drain notices the lag.
+        static constexpr auto kCounterFlushInterval = std::chrono::milliseconds(250);
+
+        static inline std::mutex _pendingCountersMutex;
+        static inline std::unordered_map<std::string, PendingCounters> _pendingCounters;
 
     };
 

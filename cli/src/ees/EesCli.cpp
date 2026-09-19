@@ -33,15 +33,27 @@ namespace Euclid::CLI {
 
     EesCli::EesCli(std::string endpoint, Credentials::Entry authentication, const bool pretty, std::string caCertPath) : _endpoint(std::move(endpoint)), _authentication(std::move(authentication)), _pretty(pretty), _caCertPath(std::move(caCertPath)) {}
 
+    /**
+     * @brief Every action this module takes, with the one-line summary each is listed by.
+     *
+     * @par
+     * A table rather than an initialiser inside the help branch, because two things read
+     * it now: "help", and tab completion. An action listed in one and not the other is an
+     * action somebody cannot find.
+     */
+    const std::vector<std::pair<std::string, std::string> > &EesCli::Actions() {
+        static const std::vector<std::pair<std::string, std::string> > kActions = {
+                {"ack-events", "Acknowledge claimed events, deleting them"},
+                {"list-subscriptions", "Show a subscriber's subscriptions and backlog"},
+                {"subscribe-events", "Subscribe a name to one or more event types"},
+                {"receive-events", "Claim a subscriber's waiting events"},
+                {"unsubscribe-events", "Remove a subscription and the events waiting for it"},
+        };
+        return kActions;
+    }
     int EesCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
-            return PrintModuleHelp("ees", {
-                                           {"ack-events", "Acknowledge claimed events, deleting them"},
-                                           {"list-subscriptions", "Show a subscriber's subscriptions and backlog"},
-                                           {"subscribe-events", "Subscribe a name to one or more event types"},
-                                           {"receive-events", "Claim a subscriber's waiting events"},
-                                           {"unsubscribe-events", "Remove a subscription and the events waiting for it"},
-                                   });
+            return PrintModuleHelp("ees", Actions());
         }
 
         // Authenticated, but deliberately not administrator-only, unlike ets or eap: a subscriber

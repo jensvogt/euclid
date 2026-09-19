@@ -199,6 +199,25 @@ target_link_libraries(${QUEUE_OWNERSHIP_BINARY} PRIVATE eucliddb Boost::unit_tes
 
 add_test(NAME ${QUEUE_OWNERSHIP_BINARY} COMMAND ${QUEUE_OWNERSHIP_BINARY})
 
+set(CLI_COMPLETION_BINARY euclid-cli-completion-tests)
+
+add_executable(${CLI_COMPLETION_BINARY} CliCompletionTest.cpp ../cli/src/help/CliCompletion.cpp)
+set_target_properties(${CLI_COMPLETION_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+target_include_directories(${CLI_COMPLETION_BINARY} PRIVATE ../cli/include)
+
+target_link_libraries(${CLI_COMPLETION_BINARY} PRIVATE Boost::unit_test_framework)
+
+add_test(NAME ${CLI_COMPLETION_BINARY} COMMAND ${CLI_COMPLETION_BINARY})
+
+set(QUEUE_COUNTER_BINARY euclid-eqs-queue-counter-tests)
+
+add_executable(${QUEUE_COUNTER_BINARY} QueueCounterTest.cpp)
+set_target_properties(${QUEUE_COUNTER_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${QUEUE_COUNTER_BINARY} PRIVATE eucliddb Boost::unit_test_framework Boost::thread)
+
+add_test(NAME ${QUEUE_COUNTER_BINARY} COMMAND ${QUEUE_COUNTER_BINARY})
+
 set(BUCKET_COUNTER_BINARY euclid-esm-bucket-counter-tests)
 
 add_executable(${BUCKET_COUNTER_BINARY} BucketCounterTest.cpp)

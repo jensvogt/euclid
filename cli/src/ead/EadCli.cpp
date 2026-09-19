@@ -11,13 +11,25 @@ namespace Euclid::CLI {
 
     EadCli::EadCli(std::string endpoint, Credentials::Entry authentication, const bool pretty, std::string caCertPath) : _endpoint(std::move(endpoint)), _authentication(std::move(authentication)), _pretty(pretty), _caCertPath(std::move(caCertPath)) {}
 
+    /**
+     * @brief Every action this module takes, with the one-line summary each is listed by.
+     *
+     * @par
+     * A table rather than an initialiser inside the help branch, because two things read
+     * it now: "help", and tab completion. An action listed in one and not the other is an
+     * action somebody cannot find.
+     */
+    const std::vector<std::pair<std::string, std::string> > &EadCli::Actions() {
+        static const std::vector<std::pair<std::string, std::string> > kActions = {
+                {"count-events", "Count audit entries matching a filter"},
+                {"list-events", "Show the audit trail, newest first"},
+                {"purge-events", "Remove audit entries older than a given age"},
+        };
+        return kActions;
+    }
     int EadCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
-            return PrintModuleHelp("ead", {
-                                           {"count-events", "Count audit entries matching a filter"},
-                                           {"list-events", "Show the audit trail, newest first"},
-                                           {"purge-events", "Remove audit entries older than a given age"},
-                                   });
+            return PrintModuleHelp("ead", Actions());
         }
 
         if (!IsHelpRequest(args) && _authentication.token.empty()) {
