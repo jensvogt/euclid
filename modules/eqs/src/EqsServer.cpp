@@ -251,6 +251,79 @@ namespace Euclid::EQS {
         return EqsServer::JsonResponse(req, status::ok, response.toJson());
     }
 
+    static response<string_body> handleGetQueue(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-queue");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EQS::GetQueueRequest>(jv);
+        if (request.ern.empty() && request.name.empty()) {
+            return EqsServer::ErrorResponse(req, status::bad_request, "Either ern or name is required");
+        }
+
+        // A name is resolved against the caller's own account and namespace, the pair create-queue
+        // built the ERN from, so it means "my queue of that name"; an ERN names one queue in the
+        // installation and is taken as given.
+        const auto ns = std::string(req["x-euclid-namespace"]);
+        const auto repo = Database::RepositoryFactory::instance().eqsRepository();
+        const auto queue = request.ern.empty()
+                                   ? repo->findQueueByName(auth.user->accountId, ns, request.name)
+                                   : repo->findQueueByErn(request.ern);
+
+        if (!queue.has_value()) {
+            return EqsServer::ErrorResponse(req, status::not_found,
+                                            request.ern.empty() ? "Queue not found, name: " + request.name
+                                                                : "Queue not found, ern: " + request.ern);
+        }
+
+        if (const auto denied = denyUngrantedQueue(req, auth, queue->ern)) return *denied;
+
+        log_debug << "EQS get queue, ern: " << queue->ern;
+
+        Dto::EQS::GetQueueResponse response;
+        response.queue = Dto::EQS::EqsMapper::toDto(*queue);
+
+        return EqsServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    static response<string_body> handleGetMessage(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-message");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EQS::GetMessageRequest>(jv);
+        if (request.messageId.empty()) {
+            return EqsServer::ErrorResponse(req, status::bad_request, "messageId is required");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().eqsRepository();
+        const auto message = repo->findMessageByName(request.messageId);
+        if (!message.has_value()) {
+            return EqsServer::ErrorResponse(req, status::not_found, "Message not found, messageId: " + request.messageId);
+        }
+
+        // Guarded by the queue the message is in rather than by the message: a message is not a
+        // resource anybody is granted, and reading one is reading from its queue.
+        if (const auto denied = denyUngrantedQueue(req, auth, message->queueErn)) return *denied;
+
+        log_debug << "EQS get message, messageId: " << request.messageId;
+
+        Dto::EQS::GetMessageResponse response;
+        response.message = Dto::EQS::EqsMapper::toDto(*message);
+
+        return EqsServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
     static response<string_body> handleListQueues(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-queues");
@@ -1140,6 +1213,8 @@ namespace Euclid::EQS {
             Unknown,
             CreateQueue,
             DeleteQueue,
+            GetQueue,
+            GetMessage,
             GetQueueErn,
             GetMessageCount,
             GetQueueMetadata,
@@ -1172,6 +1247,8 @@ namespace Euclid::EQS {
     static Command commandFromString(const std::string &action) {
         if (action == "create-queue") return Command::CreateQueue;
         if (action == "delete-queue") return Command::DeleteQueue;
+        if (action == "get-queue") return Command::GetQueue;
+        if (action == "get-message") return Command::GetMessage;
         if (action == "get-queue-ern") return Command::GetQueueErn;
         if (action == "list-queues") return Command::ListQueues;
         if (action == "list-messages") return Command::ListMessages;
@@ -1220,6 +1297,12 @@ namespace Euclid::EQS {
 
             case Command::DeleteQueue:
                 return handleDeleteQueue(req);
+
+            case Command::GetQueue:
+                return handleGetQueue(req);
+
+            case Command::GetMessage:
+                return handleGetMessage(req);
 
             case Command::GetQueueErn:
                 return handleGetQueueErn(req);

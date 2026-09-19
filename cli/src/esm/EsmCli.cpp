@@ -87,6 +87,7 @@ namespace Euclid::CLI {
                 {"download-file", "Download an object from a bucket to a local file"},
                 {"download-bucket", "Download a bucket's objects to a local directory"},
                 {"enable-encryption", "Encrypt the objects written to a bucket from now on"},
+                {"get-bucket", "Show one bucket's definition"},
                 {"get-bucket-ern", "Resolve a bucket's ERN by name"},
                 {"get-bucket-size", "Returns the bucket size in bytes"},
                 {"get-object-count", "Return a bucket's stored object count, without counting"},
@@ -140,6 +141,7 @@ namespace Euclid::CLI {
         if (action == "list-buckets") {
             return listBuckets(args);
         }
+        if (action == "get-bucket") return getBucket(args);
         if (action == "get-bucket-ern") {
             return getBucketErn(args);
         }
@@ -386,6 +388,58 @@ namespace Euclid::CLI {
             const HttpResponse response = client.Post("esm", "get-bucket-ern", boost::json::value_from(request));
             if (!response.IsSuccess()) {
                 std::cerr << "error: get-bucket-ern failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EsmCli::getBucket(const std::vector<std::string> &args) const {
+        po::options_description desc("get bucket options");
+        desc.add_options()
+                ("bucket,b", po::value<std::string>()->required(), "bucket name; a full ERN also works and is what reaches another namespace");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", "get-bucket", "--bucket <name|ern>",
+                                   "Shows one bucket as JSON: its ERN, the account and namespace it belongs to, its size "
+                                   "and object count, whether it is encrypted, its tags and when it was created.\n\n"
+                                   "The same description \"list-buckets\" gives of each of its own, for one bucket asked "
+                                   "for by name - so what a listing shows and what this shows cannot drift apart.\n\n"
+                                   "A name is resolved in the session's own account and namespace, which is where "
+                                   "\"create-bucket\" would have put it; an ERN names one bucket in the installation and "
+                                   "is what reaches another namespace's.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        // Sent as whichever of the two it is, rather than always as an ERN: the server resolves a
+        // name against the caller's own account and namespace, and a name put in the ERN field
+        // would simply not be found.
+        const auto bucket = vm["bucket"].as<std::string>();
+        Dto::ESM::GetBucketRequest request;
+        if (bucket.starts_with("ern:")) {
+            request.ern = bucket;
+        } else {
+            request.name = bucket;
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("esm", "get-bucket", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: get-bucket failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);

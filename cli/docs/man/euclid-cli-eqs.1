@@ -34,6 +34,15 @@ timeout, retry limit, message size limit and delivery delay. See
 Lists queues, optionally filtered by name prefix, paged and sorted. See
 .BR euclid-cli-eqs-list-queues (1).
 .TP
+.B get-queue
+Shows one queue's definition and counters, as a listing describes each
+of its own. See
+.BR euclid-cli-eqs-get-queue (1).
+.TP
+.B get-message
+Shows one message, by its id. See
+.BR euclid-cli-eqs-get-message (1).
+.TP
 .B get-queue-ern
 Resolves a queue's Euclid resource name (ERN) by its name. See
 .BR euclid-cli-eqs-get-queue-ern (1).
@@ -278,6 +287,8 @@ euclid-cli --endpoint http://localhost:5566 eqs delete-queue \e
 .BR euclid-cli-eam-login (1),
 .BR euclid-cli-eqs-create-queue (1),
 .BR euclid-cli-eqs-list-queues (1),
+.BR euclid-cli-eqs-get-queue (1),
+.BR euclid-cli-eqs-get-message (1),
 .BR euclid-cli-eqs-get-queue-ern (1),
 .BR euclid-cli-eqs-get-queue-metadata (1),
 .BR euclid-cli-eqs-delete-queue (1),
