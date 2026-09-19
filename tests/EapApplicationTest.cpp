@@ -5,6 +5,10 @@
 #define BOOST_TEST_MODULE EapApplicationTest
 #include <boost/test/unit_test.hpp>
 
+// C++ includes
+#include <chrono>
+#include <thread>
+
 // Euclid includes
 #include <euclid/database/entity/eam/User.h>
 #include <euclid/database/entity/eap/Application.h>
@@ -15,6 +19,7 @@ using Euclid::Database::MongoEapRepository;
 using Euclid::Database::Entity::EAP::Application;
 using Euclid::Database::Entity::EAP::ApplicationState;
 using Euclid::Database::Entity::EAP::RedeployRefusal;
+using Euclid::Database::Entity::EAP::RestartRefusal;
 using Euclid::Database::Entity::EAP::Runtime;
 using Euclid::Database::Entity::EAP::RuntimeCommandPrefix;
 using Euclid::Database::Entity::GenerateRuntimeName;
@@ -249,6 +254,46 @@ BOOST_AUTO_TEST_CASE(ALogLevelIsNotAChangeOfDefinition) {
     BOOST_TEST(!repository.setApplicationLogLevel("000000000000", "production", "orders", "debug"));
 }
 
+BOOST_AUTO_TEST_CASE(ARestartIsAChangeOfRevision) {
+    Euclid::Database::Database::instance().initializeMemory();
+    MongoEapRepository repository;
+
+    auto application = demoApplication();
+    const auto stored = repository.upsertApplication(application);
+
+    // The revision the manager compares is the modification date as it stood when an instance was
+    // started, and BSON keeps it to the millisecond - so two stamps have to be a millisecond apart
+    // to be different ones. Nothing restarts an application twice within a millisecond; the test
+    // does, and would otherwise be measuring the clock rather than the write.
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+
+    BOOST_TEST_REQUIRE(repository.touchApplication("000000000000", "development", "orders"));
+    const auto restarted = repository.findApplicationByApplicationId("000000000000", "development", "orders");
+    BOOST_TEST_REQUIRE(restarted.has_value());
+
+    // The whole of what a restart is: the manager stops and starts a pool whose application was
+    // modified since it started it, so moving this date is the request.
+    BOOST_TEST((restarted->modified > stored.modified));
+
+    // And nothing else moves with it. What comes back has to be what was running - the same
+    // artifact, the same scaling, the same log level - or a restart would be a deployment.
+    BOOST_TEST((restarted->desiredState == ApplicationState::RUNNING));
+    BOOST_TEST(restarted->artifactKey == stored.artifactKey);
+    BOOST_TEST(restarted->md5Sum == stored.md5Sum);
+    BOOST_TEST(restarted->version == stored.version);
+    BOOST_TEST(restarted->minInstances == stored.minInstances);
+    BOOST_TEST(restarted->maxInstances == stored.maxInstances);
+    BOOST_TEST(restarted->logLevel == stored.logLevel);
+    BOOST_TEST(restarted->runtimeName == stored.runtimeName);
+    BOOST_TEST((restarted->created == stored.created));
+
+    // An application nobody has defined is reported rather than silently accepted - including one
+    // that exists, but not in the namespace or the account the caller named.
+    BOOST_TEST(!repository.touchApplication("000000000000", "development", "nothing-of-that-name"));
+    BOOST_TEST(!repository.touchApplication("000000000000", "production", "orders"));
+    BOOST_TEST(!repository.touchApplication("999999999999", "development", "orders"));
+}
+
 BOOST_AUTO_TEST_CASE(TechnicalPrincipalIsAnIdentityThatCannotLogIn) {
     // The identity an application runs as: created by EAP alongside the application, no password,
     // no way in through eam login, one access key to sign its calls with. The flag is what the
@@ -347,4 +392,23 @@ BOOST_AUTO_TEST_CASE(ARedeployHasToBeANewBuild) {
 
     // The reason is what an operator is shown, so it has to name what is actually wrong.
     BOOST_TEST(RedeployRefusal(deployedVersion, deployedMd5, "1.5.0", deployedMd5).find("byte for byte") != std::string::npos);
+}
+
+BOOST_AUTO_TEST_CASE(OnlyARunningApplicationCanBeRestarted) {
+    auto application = demoApplication();
+
+    // Restarting what should be running is the whole use: the instances go and come back.
+    application.desiredState = ApplicationState::RUNNING;
+    BOOST_TEST(RestartRefusal(application).empty());
+
+    // Stopped, there is nothing to restart, and the only way to honour the request would be to
+    // start it - which is precisely what somebody asked not to happen. Refused, rather than
+    // quietly doing nothing: "restarted" and "still stopped" are acted on differently.
+    application.desiredState = ApplicationState::STOPPED;
+    BOOST_TEST(!RestartRefusal(application).empty());
+
+    // The reason is what an operator is shown, so it names the application and what to do instead.
+    const auto refusal = RestartRefusal(application);
+    BOOST_TEST(refusal.find("orders") != std::string::npos);
+    BOOST_TEST(refusal.find("start-application") != std::string::npos);
 }

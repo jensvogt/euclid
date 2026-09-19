@@ -141,6 +141,18 @@ namespace Euclid::Database {
         bool setApplicationLogLevel(const std::string &accountId, const std::string &nameSpace,
                                     const std::string &applicationId, const std::string &logLevel) override;
 
+        /**
+         * @brief Stamps the modification date, and nothing else - which the manager reads as a
+         * definition change and answers by starting the instances again.
+         *
+         * @param accountId account the application belongs to
+         * @param nameSpace namespace within accountId
+         * @param applicationId application to restart
+         * @return true if an application of that name was stamped
+         */
+        bool touchApplication(const std::string &accountId, const std::string &nameSpace,
+                              const std::string &applicationId) override;
+
     private:
 
         /**
