@@ -332,39 +332,51 @@ namespace Euclid::CLI {
 
     EamCli::EamCli(std::string endpoint, Credentials::Entry authentication, const bool pretty, std::string caCertPath) : _endpoint(std::move(endpoint)), _authentication(std::move(authentication)), _pretty(pretty), _caCertPath(std::move(caCertPath)) {}
 
+    /**
+     * @brief Every action this module takes, with the one-line summary each is listed by.
+     *
+     * @par
+     * A table rather than an initialiser inside the help branch, because two things read
+     * it now: "help", and tab completion. An action listed in one and not the other is an
+     * action somebody cannot find.
+     */
+    const std::vector<std::pair<std::string, std::string> > &EamCli::Actions() {
+        static const std::vector<std::pair<std::string, std::string> > kActions = {
+                {"change-namespace", "Switch the active namespace for this session"},
+                {"create-access-key", "Create a SigV4 access key and store it locally"},
+                {"create-account", "Create a new account"},
+                {"create-namespace", "Create a new namespace under an account"},
+                {"check-permission", "Asks whether a user may do something, and why"},
+                {"create-role", "Create a role: a named set of permissions"},
+                {"create-user-group", "Create a new user group"},
+                {"delete-access-key", "Delete one of your access keys"},
+                {"delete-account", "Delete an existing account"},
+                {"delete-namespace", "Delete an existing namespace"},
+                {"delete-user", "Delete a user account"},
+                {"delete-role", "Delete a role"},
+                {"delete-user-group", "Delete an existing user group"},
+                {"get-role", "Show one role and what it grants"},
+                {"grant-role", "Give a role to a user or user group"},
+                {"list-access-keys", "List your access keys"},
+                {"list-accounts", "List accounts"},
+                {"list-grants", "List grants: by principal, by role, or a whole account"},
+                {"list-permissions", "List every permission a role can hold"},
+                {"list-namespaces", "List namespaces under an account"},
+                {"list-roles", "List the roles this account can bind"},
+                {"list-user-groups", "List user groups"},
+                {"list-users", "List user accounts"},
+                {"login", "Authenticate and store a bearer token and SigV4 access key"},
+                {"register", "Register a new user account"},
+                {"revoke-role", "Remove one grant"},
+                {"update-role", "Replace what a role grants"},
+                {"user-group-add-user", "Add an user to an user group"},
+                {"user-group-remove-user", "Removes an user to an user group"},
+        };
+        return kActions;
+    }
     int EamCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
-            return PrintModuleHelp("eam", {
-                                           {"change-namespace", "Switch the active namespace for this session"},
-                                           {"create-access-key", "Create a SigV4 access key and store it locally"},
-                                           {"create-account", "Create a new account"},
-                                           {"create-namespace", "Create a new namespace under an account"},
-                                           {"check-permission", "Asks whether a user may do something, and why"},
-                                           {"create-role", "Create a role: a named set of permissions"},
-                                           {"create-user-group", "Create a new user group"},
-                                           {"delete-access-key", "Delete one of your access keys"},
-                                           {"delete-account", "Delete an existing account"},
-                                           {"delete-namespace", "Delete an existing namespace"},
-                                           {"delete-user", "Delete a user account"},
-                                           {"delete-role", "Delete a role"},
-                                           {"delete-user-group", "Delete an existing user group"},
-                                           {"get-role", "Show one role and what it grants"},
-                                           {"grant-role", "Give a role to a user or user group"},
-                                           {"list-access-keys", "List your access keys"},
-                                           {"list-accounts", "List accounts"},
-                                           {"list-grants", "List grants: by principal, by role, or a whole account"},
-                                           {"list-permissions", "List every permission a role can hold"},
-                                           {"list-namespaces", "List namespaces under an account"},
-                                           {"list-roles", "List the roles this account can bind"},
-                                           {"list-user-groups", "List user groups"},
-                                           {"list-users", "List user accounts"},
-                                           {"login", "Authenticate and store a bearer token and SigV4 access key"},
-                                           {"register", "Register a new user account"},
-                                           {"revoke-role", "Remove one grant"},
-                                           {"update-role", "Replace what a role grants"},
-                                           {"user-group-add-user", "Add an user to an user group"},
-                                           {"user-group-remove-user", "Removes an user to an user group"},
-                                   });
+            return PrintModuleHelp("eam", Actions());
         }
         if (action == "login") {
             return login(args);

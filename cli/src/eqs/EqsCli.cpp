@@ -32,33 +32,45 @@ namespace Euclid::CLI {
 
     EqsCli::EqsCli(std::string endpoint, Credentials::Entry authentication, const bool pretty, std::string caCertPath) : _endpoint(std::move(endpoint)), _authentication(std::move(authentication)), _pretty(pretty), _caCertPath(std::move(caCertPath)) {}
 
+    /**
+     * @brief Every action this module takes, with the one-line summary each is listed by.
+     *
+     * @par
+     * A table rather than an initialiser inside the help branch, because two things read
+     * it now: "help", and tab completion. An action listed in one and not the other is an
+     * action somebody cannot find.
+     */
+    const std::vector<std::pair<std::string, std::string> > &EqsCli::Actions() {
+        static const std::vector<std::pair<std::string, std::string> > kActions = {
+                {"add-queue-tag", "Adds a tag to queue"},
+                {"create-queue", "Create a new queue"},
+                {"delete-message", "Deletes a single message, by receipt handle or message ID"},
+                {"delete-queue", "Delete a queue"},
+                {"delete-queue-tag", "Deletes a tag from the queue"},
+                {"get-message-attribute", "Return a message attribute by name"},
+                {"get-message-count", "Returns the message counters"},
+                {"get-message-metadata", "Return the metadata for a message"},
+                {"get-queue-ern", "Resolve a queue's ERN by name"},
+                {"get-queue-metadata", "Return the metadata for a queue"},
+                {"list-messages", "List a queue's messages without receiving them"},
+                {"list-queues", "List queues"},
+                {"purge-all-queues", "Delete all messages from every queue in a region/account"},
+                {"purge-queue", "Delete all messages from a queue"},
+                {"redrive-dlq", "Move messages from a dead letter queue back into the queue they failed in"},
+                {"receive-messages", "Receive messages from a queue"},
+                {"send-message", "Send a message to a queue"},
+                {"set-message-attribute", "Sets the value of a message attribute"},
+                {"set-message-visibility", "Sets the visibility timeout of a single message"},
+                {"set-queue-tag", "Sets the value of an existing queue tag"},
+                {"set-queue-visibility", "Sets a queue's default visibility timeout"},
+                {"start-queue", "Lets a stopped queue be received from again"},
+                {"stop-queue", "Stops receiving from a queue; sending is unaffected"},
+        };
+        return kActions;
+    }
     int EqsCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
-            return PrintModuleHelp("eqs", {
-                                           {"add-queue-tag", "Adds a tag to queue"},
-                                           {"create-queue", "Create a new queue"},
-                                           {"delete-message", "Deletes a single message, by receipt handle or message ID"},
-                                           {"delete-queue", "Delete a queue"},
-                                           {"delete-queue-tag", "Deletes a tag from the queue"},
-                                           {"get-message-attribute", "Return a message attribute by name"},
-                                           {"get-message-count", "Returns the message counters"},
-                                           {"get-message-metadata", "Return the metadata for a message"},
-                                           {"get-queue-ern", "Resolve a queue's ERN by name"},
-                                           {"get-queue-metadata", "Return the metadata for a queue"},
-                                           {"list-messages", "List a queue's messages without receiving them"},
-                                           {"list-queues", "List queues"},
-                                           {"purge-all-queues", "Delete all messages from every queue in a region/account"},
-                                           {"purge-queue", "Delete all messages from a queue"},
-                                           {"redrive-dlq", "Move messages from a dead letter queue back into the queue they failed in"},
-                                           {"receive-messages", "Receive messages from a queue"},
-                                           {"send-message", "Send a message to a queue"},
-                                           {"set-message-attribute", "Sets the value of a message attribute"},
-                                           {"set-message-visibility", "Sets the visibility timeout of a single message"},
-                                           {"set-queue-tag", "Sets the value of an existing queue tag"},
-                                           {"set-queue-visibility", "Sets a queue's default visibility timeout"},
-                                           {"start-queue", "Lets a stopped queue be received from again"},
-                                           {"stop-queue", "Stops receiving from a queue; sending is unaffected"},
-                                   });
+            return PrintModuleHelp("eqs", Actions());
         }
         if (action == "create-queue") {
             return createQueue(args);

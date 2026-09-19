@@ -379,6 +379,57 @@ namespace Euclid::Database {
     }
 
     /**
+     * @brief The grants a principal holds, remembered on the same terms as the user documents.
+     *
+     * @par
+     * Keyed by user id rather than by the principal list it is really a function of: the
+     * principals are derived from the user document, which is itself what this is looked up
+     * alongside, so the two expire together.
+     *
+     * @par
+     * This is the read the authorization gate makes on every request that is not an
+     * administrator's, and grants change when somebody is given a permission - the same "almost
+     * never" that justifies caching the user. Measured on a development installation under load:
+     * 33,000 reads of the grant collection in twenty seconds, for an answer that had not changed
+     * in days.
+     */
+    inline Core::TtlCache<std::string, std::vector<Entity::EAM::Grant> > &GrantsByUserId() {
+        static Core::TtlCache<std::string, std::vector<Entity::EAM::Grant> > cache(AuthCacheTtl());
+        return cache;
+    }
+
+    /**
+     * @brief A role's permissions, remembered on the same terms as the grants that name it.
+     *
+     * @par
+     * Keyed by account and role name together, because a role is defined within an account and two
+     * accounts may each have one called "operator".
+     */
+    inline Core::TtlCache<std::string, std::vector<std::string> > &RolePermissions() {
+        static Core::TtlCache<std::string, std::vector<std::string> > cache(AuthCacheTtl());
+        return cache;
+    }
+
+    /**
+     * @brief Whether an account and namespace exist, remembered on the same terms.
+     *
+     * @par
+     * Asked once per request by the scope check in Authenticate(), which is two reads - the
+     * account, then the namespace within it - of documents created when an installation is set up
+     * and essentially never touched again. Under load those two were the most-read collections in
+     * the database, at around 3,500 reads a second each.
+     *
+     * @par
+     * A negative answer is cached like any other, so an account or namespace created a moment ago
+     * is refused for up to the TTL. That is the same trade the rest of these make, in the direction
+     * that fails safe.
+     */
+    inline Core::TtlCache<std::string, bool> &KnownScopes() {
+        static Core::TtlCache<std::string, bool> cache(AuthCacheTtl());
+        return cache;
+    }
+
+    /**
      * @brief IsEamAdmin() against the cached administrator group.
      */
     inline bool IsCachedEamAdmin(const std::string &userId) {
@@ -424,9 +475,13 @@ namespace Euclid::Database {
      */
     inline void WireScopeLookup() {
         Core::HttpActionServer::SetScopeLookup([](const std::string &accountId, const std::string &ns) -> bool {
-            const auto repo = RepositoryFactory::instance().eamRepository();
-            if (!repo->accountExists(accountId)) return false;
-            return ns.empty() || repo->namespaceExists(accountId, ns);
+            // One cached answer for the pair rather than two reads per request - see KnownScopes().
+            const auto known = KnownScopes().get(accountId + "\x1f" + ns, [&accountId, &ns](const std::string &) {
+                const auto repo = RepositoryFactory::instance().eamRepository();
+                if (!repo->accountExists(accountId)) return std::optional{false};
+                return std::optional{ns.empty() || repo->namespaceExists(accountId, ns)};
+            });
+            return known.value_or(false);
         });
     }
 
@@ -534,6 +589,29 @@ namespace Euclid::Database {
     }
 
     /**
+     * @brief The grants of a user, from the cache when they are still fresh.
+     */
+    inline std::vector<Entity::EAM::Grant> CachedGrantsOf(const Entity::EAM::User &user) {
+        const auto grants = GrantsByUserId().get(user.userId, [&user](const std::string &) {
+            return std::optional{RepositoryFactory::instance().eamRepository()->findGrantsByPrincipals(PrincipalsOf(user))};
+        });
+        return grants.value_or(std::vector<Entity::EAM::Grant>{});
+    }
+
+    /**
+     * @brief The permissions of a role, from the cache when they are still fresh, falling back to
+     * the built-in roles for the names nobody has defined.
+     */
+    inline std::optional<std::vector<std::string> > CachedRolePermissions(const std::string &accountId, const std::string &role) {
+        return RolePermissions().get(accountId + "\x1f" + role, [&accountId, &role](const std::string &) -> std::optional<std::vector<std::string> > {
+            if (const auto stored = RepositoryFactory::instance().eamRepository()->findRoleByName(accountId, role)) return stored->permissions;
+            if (Core::BuiltinRoles::Exists(role)) return Core::BuiltinRoles::PermissionsOf(role);
+            return std::nullopt;
+        });
+    }
+
+
+    /**
      * @brief The principal euclid's own inter-module traffic acts as.
      *
      * @par
@@ -584,19 +662,14 @@ namespace Euclid::Database {
                         return {.allowed = true, .reason = "member of the administrator user group"};
                     }
 
-                    const auto repo = RepositoryFactory::instance().eamRepository();
                     const auto result = Authorization::Allows(
                             {.target = target,
                              .action = action,
                              .accountId = std::string(req["x-euclid-account-id"]),
                              .nameSpace = std::string(req["x-euclid-namespace"]),
                              .resourceErn = {}},
-                            repo->findGrantsByPrincipals(PrincipalsOf(*user)),
-                            [&repo](const std::string &accountId, const std::string &role) -> std::optional<std::vector<std::string> > {
-                                if (const auto stored = repo->findRoleByName(accountId, role)) return stored->permissions;
-                                if (Core::BuiltinRoles::Exists(role)) return Core::BuiltinRoles::PermissionsOf(role);
-                                return std::nullopt;
-                            });
+                            CachedGrantsOf(*user),
+                            [](const std::string &accountId, const std::string &role) { return CachedRolePermissions(accountId, role); });
 
                     return {.allowed = result.allowed, .reason = result.reason};
                 });
@@ -625,19 +698,14 @@ namespace Euclid::Database {
                         return {.allowed = true, .reason = "member of the administrator user group"};
                     }
 
-                    const auto repo = RepositoryFactory::instance().eamRepository();
                     const auto result = Authorization::Allows(
                             {.target = target,
                              .action = action,
                              .accountId = std::string(req["x-euclid-account-id"]),
                              .nameSpace = std::string(req["x-euclid-namespace"]),
                              .resourceErn = resourceErn},
-                            repo->findGrantsByPrincipals(PrincipalsOf(*user)),
-                            [&repo](const std::string &accountId, const std::string &role) -> std::optional<std::vector<std::string> > {
-                                if (const auto stored = repo->findRoleByName(accountId, role)) return stored->permissions;
-                                if (Core::BuiltinRoles::Exists(role)) return Core::BuiltinRoles::PermissionsOf(role);
-                                return std::nullopt;
-                            });
+                            CachedGrantsOf(*user),
+                            [](const std::string &accountId, const std::string &role) { return CachedRolePermissions(accountId, role); });
 
                     return {.allowed = result.allowed, .reason = result.reason};
                 });

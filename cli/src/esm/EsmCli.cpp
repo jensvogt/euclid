@@ -63,43 +63,55 @@ namespace Euclid::CLI {
 
     EsmCli::EsmCli(std::string endpoint, Credentials::Entry authentication, const bool pretty, std::string caCertPath) : _endpoint(std::move(endpoint)), _authentication(std::move(authentication)), _pretty(pretty), _caCertPath(std::move(caCertPath)) {}
 
+    /**
+     * @brief Every action this module takes, with the one-line summary each is listed by.
+     *
+     * @par
+     * A table rather than an initialiser inside the help branch, because two things read
+     * it now: "help", and tab completion. An action listed in one and not the other is an
+     * action somebody cannot find.
+     */
+    const std::vector<std::pair<std::string, std::string> > &EsmCli::Actions() {
+        static const std::vector<std::pair<std::string, std::string> > kActions = {
+                {"add-bucket-tag", "Adds a tag to a bucket"},
+                {"add-object-attribute", "Adds an attribute to an object"},
+                {"copy-object", "Copies an object to another key or bucket"},
+                {"count-objects", "Count a bucket's objects, optionally under a prefix"},
+                {"create-bucket", "Create a new bucket"},
+                {"delete-objects", "Delete several objects from a bucket, by key or by prefix"},
+                {"delete-bucket", "Delete a bucket"},
+                {"delete-bucket-tag", "Deletes a tag from a bucket"},
+                {"delete-object", "Deletes an object by ERN"},
+                {"delete-object-attribute", "Deletes an attribute from an object"},
+                {"disable-encryption", "Stop encrypting the objects written to a bucket from now on"},
+                {"download-file", "Download an object from a bucket to a local file"},
+                {"download-bucket", "Download a bucket's objects to a local directory"},
+                {"enable-encryption", "Encrypt the objects written to a bucket from now on"},
+                {"get-bucket-ern", "Resolve a bucket's ERN by name"},
+                {"get-bucket-size", "Returns the bucket size in bytes"},
+                {"get-object-count", "Return a bucket's stored object count, without counting"},
+                {"list-buckets", "List buckets"},
+                {"list-objects", "List objects"},
+                {"list-object-attributes", "Lists the attributes of an object"},
+                {"list-subscriptions", "Lists the subscriptions of a bucket"},
+                {"move-object", "Moves an object to another key or bucket"},
+                {"purge-bucket", "Removes all objects from a bucket"},
+                {"rename-bucket", "Give a bucket another name"},
+                {"rename-object", "Renames an object within its bucket"},
+                {"set-bucket-internal", "Hide a bucket from listings, or stop hiding it"},
+                {"set-bucket-tag", "Sets the value of an existing bucket tag"},
+                {"set-object-attribute", "Sets the value of an existing object attribute"},
+                {"subscribe", "Subscribes a target resource (an EQS queue or an ENS topic) to a bucket's object-created events"},
+                {"touch-object", "Re-send notifications for objects already in a bucket"},
+                {"unsubscribe", "Deletes a subscription"},
+                {"upload-file", "Upload a local file to a bucket"},
+                {"upload-directory", "Upload every file in a local directory to a bucket"},
+        };
+        return kActions;
+    }
     int EsmCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
-            return PrintModuleHelp("esm", {
-                                           {"add-bucket-tag", "Adds a tag to a bucket"},
-                                           {"add-object-attribute", "Adds an attribute to an object"},
-                                           {"copy-object", "Copies an object to another key or bucket"},
-                                           {"count-objects", "Count a bucket's objects, optionally under a prefix"},
-                                           {"create-bucket", "Create a new bucket"},
-                                           {"delete-objects", "Delete several objects from a bucket, by key or by prefix"},
-                                           {"delete-bucket", "Delete a bucket"},
-                                           {"delete-bucket-tag", "Deletes a tag from a bucket"},
-                                           {"delete-object", "Deletes an object by ERN"},
-                                           {"delete-object-attribute", "Deletes an attribute from an object"},
-                                           {"disable-encryption", "Stop encrypting the objects written to a bucket from now on"},
-                                           {"download-file", "Download an object from a bucket to a local file"},
-                                           {"download-bucket", "Download a bucket's objects to a local directory"},
-                                           {"enable-encryption", "Encrypt the objects written to a bucket from now on"},
-                                           {"get-bucket-ern", "Resolve a bucket's ERN by name"},
-                                           {"get-bucket-size", "Returns the bucket size in bytes"},
-                                           {"get-object-count", "Return a bucket's stored object count, without counting"},
-                                           {"list-buckets", "List buckets"},
-                                           {"list-objects", "List objects"},
-                                           {"list-object-attributes", "Lists the attributes of an object"},
-                                           {"list-subscriptions", "Lists the subscriptions of a bucket"},
-                                           {"move-object", "Moves an object to another key or bucket"},
-                                           {"purge-bucket", "Removes all objects from a bucket"},
-                                           {"rename-bucket", "Give a bucket another name"},
-                                           {"rename-object", "Renames an object within its bucket"},
-                                           {"set-bucket-internal", "Hide a bucket from listings, or stop hiding it"},
-                                           {"set-bucket-tag", "Sets the value of an existing bucket tag"},
-                                           {"set-object-attribute", "Sets the value of an existing object attribute"},
-                                           {"subscribe", "Subscribes a target resource (an EQS queue or an ENS topic) to a bucket's object-created events"},
-                                           {"touch-object", "Re-send notifications for objects already in a bucket"},
-                                           {"unsubscribe", "Deletes a subscription"},
-                                           {"upload-file", "Upload a local file to a bucket"},
-                                           {"upload-directory", "Upload every file in a local directory to a bucket"},
-                                   });
+            return PrintModuleHelp("esm", Actions());
         }
         if (action == "delete-objects") {
             return deleteObjects(args);

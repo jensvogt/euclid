@@ -20,6 +20,16 @@ namespace Euclid::EAD {
         constexpr auto kServiceTimer = "ead-service-time";
         constexpr auto kServiceCounter = "ead-service-count";
 
+        /**
+         * @brief How far "list-events" counts before it answers with the ceiling instead.
+         *
+         * @par
+         * Big enough that anything a person actually pages through is still counted exactly -
+         * fifty to a page is two thousand pages - and small enough that the count costs the same
+         * on a trail of a million events as on one of a hundred million.
+         */
+        constexpr long kListTotalLimit = 100000;
+
         struct AuthResult {
             std::optional<Database::Entity::EAM::User> user;
             bool tokenExpired{false};
@@ -99,10 +109,20 @@ namespace Euclid::EAD {
             events.push_back(toJson(event));
         }
 
+        // Counted only as far as a page of results can need it. An exact total means reading an
+        // index entry per matching event, and on a trail of tens of millions that is seconds of
+        // database time spent beside a page of fifty - paid again on every page somebody turns.
+        //
+        // "totalExact" is what makes the capped answer honest rather than wrong: false means there
+        // are at least this many, which is what a pager needs to know there is a next page. Ask
+        // "count-events" for the real number.
+        const auto total = repo->countEvents(accountId, userId, moduleName, command, kListTotalLimit);
+
         return EadServer::JsonResponse(req, status::ok,
                                        boost::json::serialize(boost::json::object{
                                                {"events", events},
-                                               {"total", repo->countEvents(accountId, userId, moduleName, command)}}));
+                                               {"total", total},
+                                               {"totalExact", total < kListTotalLimit}}));
     }
 
     static response<string_body> handleCountEvents(const request<string_body> &req) {
