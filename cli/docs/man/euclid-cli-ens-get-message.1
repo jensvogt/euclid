@@ -1,0 +1,50 @@
+.TH EUCLID-CLI-ENS-GET-MESSAGE 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ens-get-message \- show one message, by its id
+.SH SYNOPSIS
+.B euclid-cli ens get-message
+.BR \-\-message\-id | \-m
+.I ID
+.SH DESCRIPTION
+Prints one message as JSON: its body, its attributes, which topic
+it belongs to, its status and the timestamps that go with it.
+.PP
+By message id, not by receipt handle. A receipt handle belongs to one
+delivery and is void once that delivery's claim has expired, while the
+id names the message for as long as it exists \- and asking about a
+message is something one does after the fact, which is exactly when a
+receipt handle is no longer any use.
+.PP
+This is the same description
+.BR euclid-cli-ens-list-messages (1)
+gives of each of its own, for a single message. They share one
+representation on purpose, so that a field added to a listing is in this
+too rather than the two drifting apart.
+.SH OPTIONS
+.TP
+.BR \-m ", " \-\-message\-id " " \fIID\fR
+The message id, as
+.BR euclid-cli-ens-publish-message (1)
+returned it and
+.BR euclid-cli-ens-list-messages (1)
+shows it. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The message is printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or no such
+message exists.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli ens get-message --message-id 7f0c8a1e-2b44-4a0f-9d61-1c2f3e4a5b60
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ens (1),
+.BR euclid-cli-ens-list-messages (1),
+.BR euclid-cli-ens-get-topic (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

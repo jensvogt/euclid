@@ -1045,6 +1045,50 @@ namespace Euclid::ESM {
         return JsonResponse(req, status::ok, response.toJson());
     }
 
+    response<string_body> EsmServer::handleGetBucket(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-bucket");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ESM::GetBucketRequest>(jv);
+        if (request.ern.empty() && request.name.empty()) {
+            return ErrorResponse(req, status::bad_request, "Either ern or name is required");
+        }
+
+        // A name is resolved in the caller's own account and namespace - the pair create-bucket
+        // built the ERN from - so it means "my bucket of that name" and cannot reach another
+        // account's bucket called the same thing. An ERN names one bucket in the installation and
+        // is taken as given.
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        const auto ns = std::string(req["x-euclid-namespace"]);
+        const auto bucket = request.ern.empty()
+                                    ? repo->findBucketByName(auth.user->accountId, ns, request.name)
+                                    : repo->findBucketByErn(request.ern);
+
+        if (!bucket.has_value()) {
+            return ErrorResponse(req, status::not_found,
+                                 request.ern.empty() ? "Bucket not found, name: " + request.name
+                                                     : "Bucket not found, ern: " + request.ern);
+        }
+
+        // Held to the same grants as anything else that names a bucket: a principal whose grants
+        // name particular buckets is not told about the ones it was not given, and one that names
+        // no resources at all is unrestricted, as everywhere else.
+        if (const auto denied = denyUngrantedBucket(req, auth, bucket->ern)) return *denied;
+
+        log_debug << "ESM get bucket, ern: " << bucket->ern;
+
+        Dto::ESM::GetBucketResponse response;
+        response.bucket = Dto::ESM::EsmMapper::toDto(*bucket);
+
+        return JsonResponse(req, status::ok, response.toJson());
+    }
+
     response<string_body> EsmServer::handleGetBucketErn(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-bucket-ern");
@@ -3436,6 +3480,7 @@ namespace Euclid::ESM {
             SetBucketInternal,
             TouchObject,
             ListBuckets,
+            GetBucket,
             GetBucketErn,
             GetBucketSize,
             AddBucketTag,
@@ -3475,6 +3520,7 @@ namespace Euclid::ESM {
         if (action == "create-bucket") return Command::CreateBucket;
         if (action == "delete-bucket") return Command::DeleteBucket;
         if (action == "list-buckets") return Command::ListBuckets;
+        if (action == "get-bucket") return Command::GetBucket;
         if (action == "get-bucket-ern") return Command::GetBucketErn;
         if (action == "get-bucket-size") return Command::GetBucketSize;
         if (action == "put-object") return Command::PutObject;
@@ -3638,6 +3684,9 @@ namespace Euclid::ESM {
 
             case Command::ListBuckets:
                 return handleListBuckets(req);
+
+            case Command::GetBucket:
+                return handleGetBucket(req);
 
             case Command::GetBucketErn:
                 return handleGetBucketErn(req);

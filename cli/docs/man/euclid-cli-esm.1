@@ -105,6 +105,11 @@ Creates a new storage bucket. See
 Lists buckets, optionally filtered by name prefix, paged and sorted. See
 .BR euclid-cli-esm-list-buckets (1).
 .TP
+.B get-bucket
+Shows one bucket's definition, as a listing describes each of its own.
+See
+.BR euclid-cli-esm-get-bucket (1).
+.TP
 .B get-bucket-ern
 Resolves a bucket's Euclid resource name (ERN) by its name. See
 .BR euclid-cli-esm-get-bucket-ern (1).
@@ -442,6 +447,7 @@ euclid-cli --endpoint http://localhost:5566 esm unsubscribe \e
 .BR euclid-cli-eam-login (1),
 .BR euclid-cli-esm-create-bucket (1),
 .BR euclid-cli-esm-list-buckets (1),
+.BR euclid-cli-esm-get-bucket (1),
 .BR euclid-cli-esm-get-bucket-ern (1),
 .BR euclid-cli-esm-get-bucket-size (1),
 .BR euclid-cli-esm-delete-bucket (1),

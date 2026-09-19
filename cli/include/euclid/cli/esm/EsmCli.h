@@ -47,6 +47,7 @@
 #include <euclid/dto/esm/DisableEncryptionRequest.h>
 #include <euclid/dto/esm/EnableEncryptionRequest.h>
 #include <euclid/dto/esm/GetBucketErnRequest.h>
+#include <euclid/dto/esm/GetBucketRequest.h>
 #include <euclid/dto/esm/GetBucketSizeRequest.h>
 #include <euclid/dto/esm/CountObjectsRequest.h>
 #include <euclid/dto/esm/GetObjectCountRequest.h>
@@ -229,6 +230,14 @@ namespace Euclid::CLI {
         [[nodiscard]]
         int getBucketErn(const std::vector<std::string> &args) const;
 
+        /**
+         * @brief Shows one bucket, as list-buckets describes each of its own.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int getBucket(const std::vector<std::string> &args) const;
         /**
          * @brief Return the bucket size
          *

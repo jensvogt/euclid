@@ -1,0 +1,50 @@
+.TH EUCLID-CLI-EQS-GET-QUEUE 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eqs-get-queue \- show one queue's definition and counters
+.SH SYNOPSIS
+.B euclid-cli eqs get-queue
+.BR \-\-queue | \-q
+.I NAME\fR|\fIERN
+.SH DESCRIPTION
+Prints one queue as JSON: its ERN, owner, visibility timeout, delay and retention period, its dead letter queue and retry limit, its tags, and how many messages are available, delayed and in flight.
+.PP
+A name is resolved in your session's account and namespace, so it means
+your queue of that name and cannot reach another account's queue
+called the same thing. A full ERN names one queue in the
+installation and is what reaches another namespace's.
+.PP
+This is the same description
+.BR euclid-cli-eqs-list-queues (1)
+gives of each of its own, for a single queue. They share one
+representation on purpose, so that a field added to a listing is in this
+too rather than the two drifting apart.
+.SH OPTIONS
+.TP
+.BR \-q ", " \-\-queue " " \fINAME\fR|\fIERN\fR
+The queue. Required. A name is resolved in your session's account and
+namespace; a full ERN reaches any namespace you are granted. See
+.B NAMES AND ERNS
+in
+.BR euclid-cli-eqs (1).
+.SH EXIT STATUS
+.TP
+.B 0
+The queue is printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or no such
+queue exists.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli eqs get-queue --queue orders
+euclid-cli eqs get-queue --queue ern:eqs:eu-central-1:000000000000:development:queue:orders
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eqs (1),
+.BR euclid-cli-eqs-list-queues (1),
+.BR euclid-cli-eqs-get-queue-ern (1),
+.BR euclid-cli-eqs-get-message (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

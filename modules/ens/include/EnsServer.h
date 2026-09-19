@@ -40,6 +40,10 @@
 #include <euclid/dto/ens/GetMessageAttributeResponse.h>
 #include <euclid/dto/ens/GetMessageCountRequest.h>
 #include <euclid/dto/ens/GetMessageCountResponse.h>
+#include <euclid/dto/ens/GetMessageRequest.h>
+#include <euclid/dto/ens/GetMessageResponse.h>
+#include <euclid/dto/ens/GetTopicRequest.h>
+#include <euclid/dto/ens/GetTopicResponse.h>
 #include <euclid/dto/ens/GetTopicErnRequest.h>
 #include <euclid/dto/ens/GetTopicErnResponse.h>
 #include <euclid/dto/ens/GetTopicMetadataRequest.h>

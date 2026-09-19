@@ -53,6 +53,8 @@
 #include <euclid/dto/esm/DisableEncryptionResponse.h>
 #include <euclid/dto/esm/EnableEncryptionRequest.h>
 #include <euclid/dto/esm/EnableEncryptionResponse.h>
+#include <euclid/dto/esm/GetBucketRequest.h>
+#include <euclid/dto/esm/GetBucketResponse.h>
 #include <euclid/dto/esm/GetBucketErnRequest.h>
 #include <euclid/dto/esm/GetBucketErnResponse.h>
 #include <euclid/dto/esm/GetBucketSizeRequest.h>
@@ -151,6 +153,15 @@ namespace Euclid::ESM {
 
         [[nodiscard]]
         static response<string_body> handleGetBucketErn(const request<string_body> &req);
+
+        /**
+         * @brief Answers with one bucket, named by its ERN or by its name.
+         *
+         * @param req HTTP request
+         * @return HTTP response carrying the bucket as list-buckets describes each of its own
+         */
+        [[nodiscard]]
+        static response<string_body> handleGetBucket(const request<string_body> &req);
 
         [[nodiscard]]
         static response<string_body> handleGetBucketSize(const request<string_body> &req);

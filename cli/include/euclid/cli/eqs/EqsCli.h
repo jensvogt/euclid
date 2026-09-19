@@ -22,6 +22,8 @@
 #include <euclid/cli/help/CliHelp.h>
 #include <euclid/cli/http/HttpClient.h>
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/eqs/GetMessageRequest.h>
+#include <euclid/dto/eqs/GetQueueRequest.h>
 #include <euclid/dto/eqs/AddQueueTagRequest.h>
 #include <euclid/dto/eqs/CreateQueueRequest.h>
 #include <euclid/dto/eqs/CreateQueueResponse.h>
@@ -95,6 +97,22 @@ namespace Euclid::CLI {
         [[nodiscard]]
         int createQueue(const std::vector<std::string> &args) const;
 
+        /**
+         * @brief Show one queue's definition and counters.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int getQueue(const std::vector<std::string> &args) const;
+        /**
+         * @brief Show one message, by its id.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int getMessage(const std::vector<std::string> &args) const;
         /**
          * @brief Return the queue ERN
          *
