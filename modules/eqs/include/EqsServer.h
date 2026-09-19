@@ -39,6 +39,10 @@
 #include <euclid/dto/eqs/GetMessageCountResponse.h>
 #include <euclid/dto/eqs/GetMessageMetadataRequest.h>
 #include <euclid/dto/eqs/GetMessageMetadataResponse.h>
+#include <euclid/dto/eqs/GetMessageRequest.h>
+#include <euclid/dto/eqs/GetMessageResponse.h>
+#include <euclid/dto/eqs/GetQueueRequest.h>
+#include <euclid/dto/eqs/GetQueueResponse.h>
 #include <euclid/dto/eqs/GetQueueErnRequest.h>
 #include <euclid/dto/eqs/GetQueueErnResponse.h>
 #include <euclid/dto/eqs/GetQueueMetadataRequest.h>

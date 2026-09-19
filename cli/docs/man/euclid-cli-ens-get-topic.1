@@ -1,0 +1,46 @@
+.TH EUCLID-CLI-ENS-GET-TOPIC 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ens-get-topic \- show one topic's definition and counters
+.SH SYNOPSIS
+.B euclid-cli ens get-topic
+.BR \-\-topic | \-t
+.I NAME\fR|\fIERN
+.SH DESCRIPTION
+Prints one topic as JSON: its ERN, owner, retention period, its tags, how many messages it holds and how many have been published and resent through it.
+.PP
+A name is resolved in your session's account and namespace, so it means
+your topic of that name and cannot reach another account's topic
+called the same thing. A full ERN names one topic in the
+installation and is what reaches another namespace's.
+.PP
+This is the same description
+.BR euclid-cli-ens-list-topics (1)
+gives of each of its own, for a single topic. They share one
+representation on purpose, so that a field added to a listing is in this
+too rather than the two drifting apart.
+.SH OPTIONS
+.TP
+.BR \-t ", " \-\-topic " " \fINAME\fR|\fIERN\fR
+The topic. Required. A name is resolved in your session's account and
+namespace; a full ERN reaches any namespace you are granted.
+.SH EXIT STATUS
+.TP
+.B 0
+The topic is printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the server could not be reached, or no such
+topic exists.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli ens get-topic --topic protokollierung-topic
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ens (1),
+.BR euclid-cli-ens-list-topics (1),
+.BR euclid-cli-ens-get-topic-ern (1),
+.BR euclid-cli-ens-get-message (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

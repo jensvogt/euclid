@@ -153,6 +153,72 @@ namespace Euclid::ENS {
         return EnsServer::JsonResponse(req, status::ok, response.toJson());
     }
 
+    static response<string_body> handleGetTopic(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-topic");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ENS::GetTopicRequest>(jv);
+        if (request.ern.empty() && request.name.empty()) {
+            return EnsServer::ErrorResponse(req, status::bad_request, "Either ern or name is required");
+        }
+
+        // A name is resolved against the caller's own account and namespace, the pair create-topic
+        // built the ERN from, so it means "my topic of that name"; an ERN names one topic in the
+        // installation and is taken as given.
+        const auto ns = std::string(req["x-euclid-namespace"]);
+        const auto repo = Database::RepositoryFactory::instance().ensRepository();
+        const auto topic = request.ern.empty()
+                                   ? repo->findTopicByName(auth.user->accountId, ns, request.name)
+                                   : repo->findTopicByErn(request.ern);
+
+        if (!topic.has_value()) {
+            return EnsServer::ErrorResponse(req, status::not_found,
+                                            request.ern.empty() ? "Topic not found, name: " + request.name
+                                                                : "Topic not found, ern: " + request.ern);
+        }
+
+        log_debug << "ENS get topic, ern: " << topic->ern;
+
+        Dto::ENS::GetTopicResponse response;
+        response.topic = Dto::ENS::EnsMapper::toDto(*topic);
+
+        return EnsServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    static response<string_body> handleGetMessage(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-message");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ENS::GetMessageRequest>(jv);
+        if (request.messageId.empty()) {
+            return EnsServer::ErrorResponse(req, status::bad_request, "messageId is required");
+        }
+
+        const auto message = Database::RepositoryFactory::instance().ensRepository()->findMessageById(request.messageId);
+        if (!message.has_value()) {
+            return EnsServer::ErrorResponse(req, status::not_found, "Message not found, messageId: " + request.messageId);
+        }
+
+        log_debug << "ENS get message, messageId: " << request.messageId;
+
+        Dto::ENS::GetMessageResponse response;
+        response.message = Dto::ENS::EnsMapper::toDto(*message);
+
+        return EnsServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
     static response<string_body> handleListTopics(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-topics");
@@ -1252,6 +1318,8 @@ namespace Euclid::ENS {
             Unknown,
             CreateTopic,
             DeleteTopic,
+            GetTopic,
+            GetMessage,
             GetTopicErn,
             GetMessageCount,
             GetQueueMetadata,
@@ -1284,6 +1352,8 @@ namespace Euclid::ENS {
 
     static Command commandFromString(const std::string &action) {
         if (action == "create-topic") return Command::CreateTopic;
+        if (action == "get-topic") return Command::GetTopic;
+        if (action == "get-message") return Command::GetMessage;
         if (action == "get-topic-ern") return Command::GetTopicErn;
         if (action == "list-topics") return Command::ListTopics;
         if (action == "purge-topic") return Command::PurgeTopic;
@@ -1324,6 +1394,12 @@ namespace Euclid::ENS {
 
             case Command::DeleteTopic:
                 return handleDeleteTopic(req);
+
+            case Command::GetTopic:
+                return handleGetTopic(req);
+
+            case Command::GetMessage:
+                return handleGetMessage(req);
 
             case Command::GetTopicErn:
                 return handleGetTopicErn(req);

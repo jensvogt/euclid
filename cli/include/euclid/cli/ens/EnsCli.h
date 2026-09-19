@@ -24,6 +24,8 @@
 #include <euclid/cli/http/HttpClient.h>
 #include <euclid/core/JsonUtils.h>
 #include <euclid/dto/com/Variant.h>
+#include <euclid/dto/ens/GetMessageRequest.h>
+#include <euclid/dto/ens/GetTopicRequest.h>
 #include <euclid/dto/ens/AddTopicTagRequest.h>
 #include <euclid/dto/ens/CreateTopicRequest.h>
 #include <euclid/dto/ens/CreateTopicResponse.h>
@@ -105,6 +107,22 @@ namespace Euclid::CLI {
         [[nodiscard]]
         int listTopics(const std::vector<std::string> &args) const;
 
+        /**
+         * @brief Show one topic's definition and counters.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int getTopic(const std::vector<std::string> &args) const;
+        /**
+         * @brief Show one message, by its id.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int getMessage(const std::vector<std::string> &args) const;
         /**
          * @brief Return the topic ERN
          *

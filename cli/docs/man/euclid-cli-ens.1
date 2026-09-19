@@ -98,6 +98,15 @@ Creates a new topic with a given name and maximum message length. See
 Lists topics, optionally filtered by name prefix, paged and sorted. See
 .BR euclid-cli-ens-list-topics (1).
 .TP
+.B get-topic
+Shows one topic's definition and counters, as a listing describes each
+of its own. See
+.BR euclid-cli-ens-get-topic (1).
+.TP
+.B get-message
+Shows one message, by its id. See
+.BR euclid-cli-ens-get-message (1).
+.TP
 .B get-topic-ern
 Resolves a topic's Euclid resource name (ERN) by its name. See
 .BR euclid-cli-ens-get-topic-ern (1).
@@ -357,6 +366,8 @@ euclid-cli --endpoint http://localhost:5566 ens delete-topic \e
 .BR euclid-cli-eam-login (1),
 .BR euclid-cli-ens-create-topic (1),
 .BR euclid-cli-ens-list-topics (1),
+.BR euclid-cli-ens-get-topic (1),
+.BR euclid-cli-ens-get-message (1),
 .BR euclid-cli-ens-get-topic-ern (1),
 .BR euclid-cli-ens-get-topic-metadata (1),
 .BR euclid-cli-ens-publish-message (1),

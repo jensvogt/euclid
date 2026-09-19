@@ -144,13 +144,15 @@ namespace Euclid::Core {
                 "emo:list",
                 "emo:push-metrics",
 
-                // ens - 22 actions
+                // ens - 24 actions
                 "ens:add-topic-tag",
                 "ens:create-topic",
                 "ens:delete-topic",
                 "ens:delete-topic-tag",
+                "ens:get-message",
                 "ens:get-message-attribute",
                 "ens:get-message-count",
+                "ens:get-topic",
                 "ens:get-topic-ern",
                 "ens:get-topic-metadata",
                 "ens:list-messages",
@@ -169,18 +171,20 @@ namespace Euclid::Core {
                 "ens:subscribe",
                 "ens:unsubscribe",
 
-                // eqs - 29 actions
+                // eqs - 31 actions
                 "eqs:add-metadata",
                 "eqs:add-queue-tag",
                 "eqs:create-queue",
                 "eqs:delete-message",
                 "eqs:delete-queue",
                 "eqs:delete-queue-tag",
+                "eqs:get-message",
                 "eqs:get-message-attribute",
                 "eqs:get-message-count",
                 "eqs:get-message-metadata",
                 "eqs:get-metadata",
                 "eqs:get-metrics",
+                "eqs:get-queue",
                 "eqs:get-queue-ern",
                 "eqs:get-queue-metadata",
                 "eqs:list-messages",
@@ -200,7 +204,7 @@ namespace Euclid::Core {
                 "eqs:start-queue",
                 "eqs:stop-queue",
 
-                // esm - 37 actions
+                // esm - 38 actions
                 "esm:add-bucket-tag",
                 "esm:add-object-attribute",
                 "esm:complete-download",
@@ -218,6 +222,7 @@ namespace Euclid::Core {
                 "esm:disable-encryption",
                 "esm:download-part",
                 "esm:enable-encryption",
+                "esm:get-bucket",
                 "esm:get-bucket-ern",
                 "esm:get-bucket-size",
                 "esm:get-metrics",

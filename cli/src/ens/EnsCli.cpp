@@ -137,6 +137,8 @@ namespace Euclid::CLI {
                 {"delete-topic-tag", "Deletes a tag from a topic"},
                 {"get-message-attribute", "Returns a message attribute"},
                 {"get-message-count", "Returns the number of messages in a topic"},
+                {"get-topic", "Show one topic's definition and counters"},
+                {"get-message", "Show one message, by its id"},
                 {"get-topic-ern", "Returns the ERN for a topic"},
                 {"get-topic-metadata", "Returns the metadata of a topics"},
                 {"list-messages", "List available messages"},
@@ -157,6 +159,98 @@ namespace Euclid::CLI {
         };
         return kActions;
     }
+    int EnsCli::getMessage(const std::vector<std::string> &args) const {
+        po::options_description desc("get message options");
+        desc.add_options()
+                ("message-id,m", po::value<std::string>()->required(), "id of the message");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ens", "get-message", "--message-id <id>",
+                                   "Shows one message as JSON: its body, its attributes, which topic it belongs to, its "
+                                   "status and the timestamps that go with it.\n\n"
+                                   "The same description \"list-messages\" gives of each of its own, for one message.\n\n"
+                                   "By message id, not by receipt handle: a receipt handle belongs to one delivery and is void "
+                                   "once that delivery's claim has expired, while the id names the message for as long as it "
+                                   "exists - and asking about a message is something one does after the fact.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ENS::GetMessageRequest request;
+        request.messageId = vm["message-id"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ens", "get-message", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: get-message failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EnsCli::getTopic(const std::vector<std::string> &args) const {
+        po::options_description desc("get topic options");
+        desc.add_options()
+                ("topic,t", po::value<std::string>()->required(), "topic name; a full ERN also works and is what reaches another namespace");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ens", "get-topic", "--topic <name|ern>",
+                                   "Shows one topic as JSON: its ERN, owner, retention, its tags, how many messages it holds and how many have been published through it.\n\n"
+                                   "The same description \"list-topics\" gives of each of its own, for one topic asked for by "
+                                   "name - so what a listing shows and what this shows cannot drift apart.\n\n"
+                                   "A name is resolved in the session's own account and namespace; an ERN names one topic in "
+                                   "the installation and is what reaches another namespace's.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        // Sent as whichever of the two it is: the server resolves a name against the caller's own
+        // account and namespace, and a name put in the ERN field would simply not be found.
+        const auto topic = vm["topic"].as<std::string>();
+        Dto::ENS::GetTopicRequest request;
+        if (topic.starts_with("ern:")) {
+            request.ern = topic;
+        } else {
+            request.name = topic;
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ens", "get-topic", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: get-topic failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
     int EnsCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
             return PrintModuleHelp("ens", Actions());
@@ -167,6 +261,8 @@ namespace Euclid::CLI {
         if (action == "list-topics") {
             return listTopics(args);
         }
+        if (action == "get-topic") return getTopic(args);
+        if (action == "get-message") return getMessage(args);
         if (action == "get-topic-ern") {
             return getTopicErn(args);
         }
