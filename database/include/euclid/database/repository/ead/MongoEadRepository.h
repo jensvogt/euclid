@@ -42,7 +42,8 @@ namespace Euclid::Database {
 
         [[nodiscard]]
         long countEvents(const std::string &accountId, const std::string &userId,
-                         const std::string &moduleName, const std::string &command) const override;
+                         const std::string &moduleName, const std::string &command,
+                         long limit = 0) const override;
 
         long purgeEvents(const std::chrono::system_clock::time_point &before) override;
 

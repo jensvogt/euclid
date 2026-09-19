@@ -88,6 +88,112 @@ namespace Euclid::Database {
         return config;
     }
 
+    void MongoEqsRepository::adjustForDeleted(const Entity::EQS::Message &message) {
+
+        // Which counter a message was being held in is decided by its status, so a delete has to
+        // take it out of that one: subtracting from "available" whatever the status was would
+        // leave a queue reporting messages it no longer has as receivable, and the claimed ones
+        // as still claimed.
+        switch (message.status) {
+            case Entity::EQS::MessageStatus::INVISIBLE:
+                adjustQueueCounters(message.queueErn, 0, -1, 0, -message.size);
+                break;
+            case Entity::EQS::MessageStatus::DELAYED:
+                adjustQueueCounters(message.queueErn, 0, 0, -1, -message.size);
+                break;
+            default:
+                adjustQueueCounters(message.queueErn, -1, 0, 0, -message.size);
+                break;
+        }
+    }
+
+    void MongoEqsRepository::adjustQueueCounters(const std::string &queueErn, const long availableDelta, const long invisibleDelta,
+                                                 const long delayedDelta, const long sizeDelta) {
+
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "adjustQueueCounters");
+
+        if (availableDelta == 0 && invisibleDelta == 0 && delayedDelta == 0 && sizeDelta == 0) return;
+
+        {
+            std::lock_guard lock(_pendingCountersMutex);
+            auto &pending = _pendingCounters[queueErn];
+            if (pending.available == 0 && pending.invisible == 0 && pending.delayed == 0 && pending.size == 0) {
+                pending.since = std::chrono::steady_clock::now();
+            }
+            pending.available += availableDelta;
+            pending.invisible += invisibleDelta;
+            pending.delayed += delayedDelta;
+            pending.size += sizeDelta;
+        }
+
+        flushPendingCounters(false);
+    }
+
+    void MongoEqsRepository::flushQueueCounters() {
+        flushPendingCounters(true);
+    }
+
+    void MongoEqsRepository::flushPendingCounters(const bool force) {
+
+        std::vector<std::pair<std::string, PendingCounters>> due;
+        {
+            std::lock_guard lock(_pendingCountersMutex);
+            const auto now = std::chrono::steady_clock::now();
+            for (auto it = _pendingCounters.begin(); it != _pendingCounters.end();) {
+                if (force || now - it->second.since >= kCounterFlushInterval) {
+                    due.emplace_back(it->first, it->second);
+                    it = _pendingCounters.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        }
+
+        // Written outside the lock: these are round trips to the database, and holding the lock
+        // across them would serialise every producer in this process on the thing that exists to
+        // keep them off one another.
+        for (const auto &[queueErn, pending]: due) {
+            writeCounters(queueErn, pending);
+        }
+    }
+
+    void MongoEqsRepository::writeCounters(const std::string &queueErn, const PendingCounters &pending) {
+
+        try {
+            auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
+            const auto filter = make_document(kvp("ern", queueErn));
+
+            // One round trip, and the database does the addition - so two instances adjusting the
+            // same queue both land instead of one overwriting the other.
+            std::ignore = queueCollection.update_one(filter.view(),
+                                                     make_document(kvp("$inc", make_document(
+                                                                               kvp("available", static_cast<int64_t>(pending.available)),
+                                                                               kvp("invisible", static_cast<int64_t>(pending.invisible)),
+                                                                               kvp("delayed", static_cast<int64_t>(pending.delayed)),
+                                                                               kvp("size", static_cast<int64_t>(pending.size)))),
+                                                                   kvp("$currentDate", make_document(kvp("modified", true))))
+                                                             .view());
+
+            // Only a subtraction can go below zero, so a send pays for one round trip and not
+            // five. With atomic arithmetic a negative can only mean something was counted twice,
+            // which is a defect - clamping where it is found keeps the next adjustment from
+            // compounding it, and recountQueues() puts the true number back on its next pass.
+            const auto clamp = [&](const std::string &field, const long delta) {
+                if (delta >= 0) return;
+                std::ignore = queueCollection.update_one(
+                        make_document(kvp("ern", queueErn), kvp(field, make_document(kvp("$lt", 0)))).view(),
+                        make_document(kvp("$set", make_document(kvp(field, static_cast<int64_t>(0))))).view());
+            };
+            clamp("available", pending.available);
+            clamp("invisible", pending.invisible);
+            clamp("delayed", pending.delayed);
+            clamp("size", pending.size);
+
+        } catch (const std::exception &e) {
+            log_error << "Adjust queue counters failed, ern: " << queueErn << ", error: " << e.what();
+        }
+    }
+
     void MongoEqsRepository::recountQueues() {
 
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "recount-queues");
@@ -252,8 +358,24 @@ namespace Euclid::Database {
                                 kvp("receiptHandle", ""))),
                     kvp("$currentDate", make_document(kvp("modified", true))));
 
+            // What is about to move, measured before it moves: update_many does not hand back the
+            // documents it changed, and the bytes have to come off one queue and on to the other.
+            // Affordable here in a way it would not be on the message path - a redrive is asked
+            // for by a person, once, after something went wrong.
+            long movedBytes = 0;
+            for (const auto &group: messageCollection.group_count(filter.view(), {"queueErn"}, "size")) {
+                movedBytes += group.sum;
+            }
+
             const auto result = messageCollection.update_many(filter.view(), update.view());
             const auto moved = result ? static_cast<long>(result->modified_count()) : 0;
+
+            // A message sitting in a dead letter queue is AVAILABLE there - that is what the move
+            // into it set - so that is the counter it leaves, and the one it arrives in.
+            if (moved > 0) {
+                adjustQueueCounters(deadLetterQueueErn, -moved, 0, 0, -movedBytes);
+                adjustQueueCounters(targetQueueErn, moved, 0, 0, movedBytes);
+            }
 
             log_info << "Messages redriven, dlqErn: " << deadLetterQueueErn << ", targetErn: " << targetQueueErn << ", count: " << moved;
             return moved;
@@ -687,11 +809,9 @@ namespace Euclid::Database {
 
             // The queue's own row is read once per queue rather than once per message: the four
             // fields a send needs cannot change after the queue is created (see queueConfig()).
-            // What is left here are the two writes that genuinely differ per message.
-            // The queue's counters are not written here any more - they are recounted on a timer
-            // (see recountQueues()). What is left is the insert, so a send is one round trip
-            // rather than three, and the queue document is no longer written by every producer at
-            // once.
+            // What is left here are the two writes that genuinely differ per message - the insert,
+            // and a counter adjustment that is coalesced rather than written per send, so the
+            // queue's row is still not the thing every producer waits on.
             if (const auto queue = queueConfig(queueErn)) {
                 message.visibilityTimeout = queue->visibility;
                 if (queue->delay > 0) {
@@ -729,6 +849,12 @@ namespace Euclid::Database {
             doc.append(kvp("created", stamp), kvp("modified", stamp));
 
             std::ignore = messageCollection.insert_one(doc.view());
+
+            // After the insert, so a counted message is always a stored one: the other order can
+            // count a message that then fails to store, and nothing would ever take it back.
+            const auto delayed = message.status == Entity::EQS::MessageStatus::DELAYED;
+            adjustQueueCounters(queueErn, delayed ? 0 : 1, 0, delayed ? 1 : 0, message.size);
+
             log_debug << "Message sent, ern: " << ern << ", messageId: " << message.messageId;
 
         } catch (const std::exception &e) {
@@ -744,27 +870,57 @@ namespace Euclid::Database {
         const auto weights = Entity::EQS::LoadPriorityWeights();
         static constexpr std::array priorityOrder{Entity::EQS::MessagePriority::HIGH, Entity::EQS::MessagePriority::MEDIUM, Entity::EQS::MessagePriority::LOW};
 
-        try {
-            long maxReceiveCount = 0;
-            std::string deadLetterQueueErn;
-            if (const auto queue = queueConfig(queueErn)) {
-                maxReceiveCount = queue->maxReceiveCount;
-                deadLetterQueueErn = queue->deadLetterQueueErn;
-            }
+        long maxReceiveCount = 0;
+        std::string deadLetterQueueErn;
+        if (const auto queue = queueConfig(queueErn)) {
+            maxReceiveCount = queue->maxReceiveCount;
+            deadLetterQueueErn = queue->deadLetterQueueErn;
+        }
 
+        // What this call has done to the two queues' counters, applied once on the way out rather
+        // than per message: a receive of ten claims is one adjustment, and a poll that claims
+        // nothing is none at all. Declared outside the try so that the failure path can settle
+        // what was already claimed - those messages are written whether or not the rest succeeded.
+        long claimedCount = 0;
+        long movedToDlq = 0;
+        long movedBytes = 0;
+        const auto settleCounters = [&] {
+            // A claimed message left "available" and became "invisible"; one that went on to the
+            // dead letter queue left this queue altogether, so it is invisible here for no time at
+            // all and its bytes go with it.
+            adjustQueueCounters(queueErn, -claimedCount, claimedCount - movedToDlq, 0, -movedBytes);
+            if (movedToDlq > 0) {
+                adjustQueueCounters(deadLetterQueueErn, movedToDlq, 0, 0, movedBytes);
+            }
+            claimedCount = 0;
+            movedToDlq = 0;
+            movedBytes = 0;
+        };
+
+        try {
             while (true) {
                 // Acquire a pool entry for this polling attempt only, so the connection is
                 // not held checked-out for the whole long-poll wait/sleep below.
                 auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
                 auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
+                // Counted only as far as it can matter. ComputeReceiveCounts() uses these numbers
+                // for one thing - std::min(target, available), where target never exceeds
+                // maxCount - so a tier holding maxCount messages and a tier holding half a million
+                // produce the same answer, and counting the difference is work thrown away.
+                //
+                // Without the limit this is an index scan over every available message of that
+                // priority, three times per poll attempt, per poller: on a queue half a million
+                // deep with a pool of consumers long-polling it, that one line is the busiest
+                // thing in the database.
                 std::map<Entity::EQS::MessagePriority, long> availableCounts;
                 for (const auto priority: priorityOrder) {
                     Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "receiveMessages.priorityCount");
                     availableCounts[priority] = messageCollection.count_documents(make_document(
-                            kvp("queueErn", queueErn),
-                            kvp("status", MessageStatusToString(Entity::EQS::MessageStatus::AVAILABLE)),
-                            kvp("priority", Entity::EQS::MessagePriorityToString(priority))));
+                                                                                          kvp("queueErn", queueErn),
+                                                                                          kvp("status", MessageStatusToString(Entity::EQS::MessageStatus::AVAILABLE)),
+                                                                                          kvp("priority", Entity::EQS::MessagePriorityToString(priority))),
+                                                                                  maxCount);
                 }
                 const auto takeCounts = Entity::EQS::ComputeReceiveCounts(maxCount, availableCounts, weights);
 
@@ -800,6 +956,7 @@ namespace Euclid::Database {
 
                         Entity::EQS::Message message;
                         message.FromDocument(claimed->view());
+                        ++claimedCount;
 
                         // Move to dead letter queue if existing
                         if (!deadLetterQueueErn.empty() && message.receivedCount > maxReceiveCount) {
@@ -817,9 +974,12 @@ namespace Euclid::Database {
                                                 kvp("receiptHandle", ""))),
                                     kvp("$currentDate", make_document(
                                                 kvp("modified", true))));
-                            // One write, not three: the message's own queueErn is what moves it,
-                            // and both queues' counters come from the next scan.
+                            // One write for the move: the message's own queueErn is what moves it.
+                            // Both queues' counters are adjusted for it on the way out of this
+                            // call, together with everything else it did.
                             std::ignore = messageCollection.update_one(make_document(kvp("messageId", message.messageId)).view(), moveUpdate.view());
+                            ++movedToDlq;
+                            movedBytes += message.size;
 
                             log_debug << "Message moved to dead letter queue, ern: " << queueErn << ", dlqErn: " << deadLetterQueueErn << ", messageId: " << message.messageId;
                             continue;
@@ -830,21 +990,25 @@ namespace Euclid::Database {
                     }
                 }
 
-                // Update queue counters
                 if (!result.empty()) {
-                    // The messages' own status is what moved; the queue's counters follow from a
-                    // scan rather than from a write here.
+                    settleCounters();
                     log_debug << "Messages received, ern: " << queueErn << ", count: " << result.size();
                     return result;
                 }
 
                 if (waitTime <= 0 || std::chrono::steady_clock::now() >= deadline) {
+                    // Nothing to hand back, but a poll that dead-lettered everything it claimed
+                    // still moved messages between two queues and has to say so.
+                    settleCounters();
                     return result;
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
         } catch (const std::exception &e) {
             log_error << "Receive messages failed, ern: " << queueErn << ", error: " << e.what();
+            // Whatever was claimed before the failure has already been written to the messages, so
+            // the counters have to follow it rather than be abandoned with the exception.
+            settleCounters();
         }
         return result;
     }
@@ -867,10 +1031,10 @@ namespace Euclid::Database {
             const auto deleted = messageCollection.find_one_and_delete(filter.view());
             if (deleted) {
                 message.FromDocument(deleted->view());
+                adjustForDeleted(message);
                 log_debug << "Message deleted, messageId: " << message.messageId;
             }
 
-            // No counter write to follow it: the delete is the operation.
         } catch (const std::exception &e) {
             log_error << "Delete message failed, error: " << e.what();
         }
@@ -886,9 +1050,12 @@ namespace Euclid::Database {
             auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
             auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
-            // One round trip, and no counter write to follow it - the same shape as
-            // deleteMessage(), for the same reasons.
+            // One round trip - the same shape as deleteMessage(), for the same reasons, and the
+            // document it hands back is what says which counter the message was being held in.
             if (const auto deleted = messageCollection.find_one_and_delete(filter.view())) {
+                Entity::EQS::Message message;
+                message.FromDocument(deleted->view());
+                adjustForDeleted(message);
                 log_debug << "Message deleted, messageId: " << messageId;
             }
         } catch (const std::exception &e) {
@@ -898,6 +1065,11 @@ namespace Euclid::Database {
 
     void MongoEqsRepository::purgeQueue(const std::string &queueErn) {
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "purgeQueue");
+
+        // Before the counters are zeroed, not after: an adjustment still waiting in this process
+        // describes messages this purge is about to delete, and landing after the zero would have
+        // an emptied queue reporting a handful of messages it no longer has.
+        flushPendingCounters(true);
 
         try {
             const auto filter = make_document(
@@ -926,6 +1098,9 @@ namespace Euclid::Database {
 
     void MongoEqsRepository::purgeAllQueues(const std::string &region, const std::string &accountId, const std::string &nameSpace) {
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "purgeAllQueues");
+
+        // See purgeQueue(): pending adjustments go out before the counters are zeroed.
+        flushPendingCounters(true);
 
         try {
             auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
@@ -1003,11 +1178,25 @@ namespace Euclid::Database {
     void MongoEqsRepository::clearMessages() {
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "clearMessages");
 
+        // See purgeQueue(): what is still pending describes messages about to be deleted.
+        flushPendingCounters(true);
+
         try {
             auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
+            auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
 
             const auto result = messageCollection.delete_many({});
             log_debug << "All messages deleted, count: " << result->deleted_count();
+
+            // The queues outlive their messages here, so their counters have to be brought with
+            // them - otherwise every queue in the installation keeps reporting what it held.
+            std::ignore = queueCollection.update_many({},
+                                                      make_document(kvp("$set", make_document(
+                                                                                kvp("size", static_cast<int64_t>(0)),
+                                                                                kvp("available", static_cast<int64_t>(0)),
+                                                                                kvp("delayed", static_cast<int64_t>(0)),
+                                                                                kvp("invisible", static_cast<int64_t>(0)))))
+                                                              .view());
         } catch (const std::exception &e) {
             log_error << "Delete all messages failed, error: " << e.what();
         }
@@ -1075,9 +1264,14 @@ namespace Euclid::Database {
                 log_debug << "Message delay expired, messageId: " << message.messageId << ", queueErn: " << message.queueErn;
             }
 
-            // The per-queue tallies above are only logged now: a message that became visible
-            // again changed its own status, and the queue's counters follow from the next scan
-            // rather than from a write per queue here.
+            // One adjustment per queue rather than per message: a sweep that made a thousand
+            // messages visible again across two queues writes two rows.
+            for (const auto &[queueErn, count]: resetCountByQueue) {
+                adjustQueueCounters(queueErn, count, -count, 0, 0);
+            }
+            for (const auto &[queueErn, count]: delayedResetCountByQueue) {
+                adjustQueueCounters(queueErn, count, 0, -count, 0);
+            }
 
             if (resetCount > 0)
                 log_debug << "Reset expired messages, count: " << resetCount;

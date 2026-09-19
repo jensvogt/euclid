@@ -7,6 +7,7 @@
 // C++ includes
 #include <iostream>
 #include <string>
+#include <utility>
 #include <vector>
 
 // Boost includes
@@ -41,6 +42,13 @@ namespace Euclid::CLI {
          * system trust store, e.g. for self-signed development certificates
          */
         explicit EadCli(std::string endpoint, Credentials::Entry authentication = {}, bool pretty = true, std::string caCertPath = {});
+
+        /**
+         * @brief Every action this module takes, with the one-line summary each is listed by.
+         *
+         * @return the actions, in the order "help" lists them
+         */
+        static const std::vector<std::pair<std::string, std::string> > &Actions();
 
         /**
          * @brief Dispatches to the handler for the given action. Returns the process exit code.

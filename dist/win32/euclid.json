@@ -115,9 +115,9 @@
         "rollup-hour-period": 600,
         "rollup-day-period": 3600,
         "cpu-usage-period": 60,
-        "queue-count-period": 60,
-        "bucket-count-period": 60,
-        "topic-count-period": 60,
+        "queue-count-period": 3600,
+        "bucket-count-period": 3600,
+        "topic-count-period": 3600,
         "module-instance-period": 15,
         "database-size-period": 300,
         "retention": {

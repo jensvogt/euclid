@@ -17,22 +17,34 @@ namespace Euclid::CLI {
 
     EkmCli::EkmCli(std::string endpoint, Credentials::Entry authentication, const bool pretty, std::string caCertPath) : _endpoint(std::move(endpoint)), _authentication(std::move(authentication)), _pretty(pretty), _caCertPath(std::move(caCertPath)) {}
 
+    /**
+     * @brief Every action this module takes, with the one-line summary each is listed by.
+     *
+     * @par
+     * A table rather than an initialiser inside the help branch, because two things read
+     * it now: "help", and tab completion. An action listed in one and not the other is an
+     * action somebody cannot find.
+     */
+    const std::vector<std::pair<std::string, std::string> > &EkmCli::Actions() {
+        static const std::vector<std::pair<std::string, std::string> > kActions = {
+                {"create-certificate", "Generate and store a self-signed certificate"},
+                {"create-key", "Create a new key"},
+                {"decrypt", "Decrypt a file or stdin with a key"},
+                {"delete-certificate", "Delete a certificate"},
+                {"delete-key", "Schedule a key for deletion"},
+                {"encrypt", "Encrypt a file or stdin with a key"},
+                {"get-certificate", "Show one certificate, without its private key"},
+                {"import-certificate", "Store a certificate and its private key"},
+                {"list-certificates", "List stored certificates"},
+                {"list-keys", "List existing keys"},
+                {"revoke-key", "Revoke a key (blocks encryption, decryption still works)"},
+                {"set-key-description", "Change what a key says it is for"},
+        };
+        return kActions;
+    }
     int EkmCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
-            return PrintModuleHelp("ekm", {
-                                           {"create-certificate", "Generate and store a self-signed certificate"},
-                                           {"create-key", "Create a new key"},
-                                           {"decrypt", "Decrypt a file or stdin with a key"},
-                                           {"delete-certificate", "Delete a certificate"},
-                                           {"delete-key", "Schedule a key for deletion"},
-                                           {"encrypt", "Encrypt a file or stdin with a key"},
-                                           {"get-certificate", "Show one certificate, without its private key"},
-                                           {"import-certificate", "Store a certificate and its private key"},
-                                           {"list-certificates", "List stored certificates"},
-                                           {"list-keys", "List existing keys"},
-                                           {"revoke-key", "Revoke a key (blocks encryption, decryption still works)"},
-                                           {"set-key-description", "Change what a key says it is for"},
-                                   });
+            return PrintModuleHelp("ekm", Actions());
         }
         if (action == "create-key") {
             return createKey(args);

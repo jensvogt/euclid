@@ -71,16 +71,28 @@ namespace Euclid::CLI {
 
     EagCli::EagCli(std::string endpoint, Credentials::Entry authentication, const bool pretty, std::string caCertPath) : _endpoint(std::move(endpoint)), _authentication(std::move(authentication)), _pretty(pretty), _caCertPath(std::move(caCertPath)) {}
 
+    /**
+     * @brief Every action this module takes, with the one-line summary each is listed by.
+     *
+     * @par
+     * A table rather than an initialiser inside the help branch, because two things read
+     * it now: "help", and tab completion. An action listed in one and not the other is an
+     * action somebody cannot find.
+     */
+    const std::vector<std::pair<std::string, std::string> > &EagCli::Actions() {
+        static const std::vector<std::pair<std::string, std::string> > kActions = {
+                {"create-route", "Publish a path through the gateway, pointing it at an application"},
+                {"delete-route", "Remove a route, taking its path out of service"},
+                {"get-route", "Show one route's definition"},
+                {"list-listeners", "List the ports the gateway answers on and what each speaks"},
+                {"list-routes", "List the configured routes"},
+                {"update-route", "Change an existing route's path, application or authentication"},
+        };
+        return kActions;
+    }
     int EagCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
-            return PrintModuleHelp("eag", {
-                                           {"create-route", "Publish a path through the gateway, pointing it at an application"},
-                                           {"delete-route", "Remove a route, taking its path out of service"},
-                                           {"get-route", "Show one route's definition"},
-                                           {"list-listeners", "List the ports the gateway answers on and what each speaks"},
-                                           {"list-routes", "List the configured routes"},
-                                           {"update-route", "Change an existing route's path, application or authentication"},
-                                   });
+            return PrintModuleHelp("eag", Actions());
         }
 
         // Administrator-only, for the same reason ets is: a route decides what the installation

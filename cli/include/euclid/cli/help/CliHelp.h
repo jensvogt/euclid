@@ -14,18 +14,28 @@
 // Boost includes
 #include <boost/program_options.hpp>
 
+// Euclid includes
+#include <euclid/cli/help/CliCompletion.h>
+
 namespace Euclid::CLI {
 
     /**
      * @brief Checks whether the action arguments are asking for help rather than
      * providing real option values, e.g. "euclid-cli access login help".
      *
+     * @par
+     * Tab completion asks the same question in the same place. An action answers it before it
+     * parses its arguments, authenticates or calls anything, which is what lets a keystroke ask
+     * every action what options it takes without a round trip or a credential - see
+     * Completion::kOptionsToken.
+     *
      * @param args action arguments
-     * @return true if the first argument is "help", "--help" or "-h"
+     * @return true if the first argument is "help", "--help", "-h" or the completion token
      */
     [[nodiscard]]
     inline bool IsHelpRequest(const std::vector<std::string> &args) {
-        return !args.empty() && (args.front() == "help" || args.front() == "--help" || args.front() == "-h");
+        return !args.empty() && (args.front() == "help" || args.front() == "--help" || args.front() == "-h"
+                                 || args.front() == Completion::kOptionsToken);
     }
 
     /**
@@ -68,6 +78,17 @@ namespace Euclid::CLI {
      * @return 0, so callers can `return PrintActionHelp(...);`
      */
     inline int PrintActionHelp(const std::string &module, const std::string &action, const std::string &synopsis, const std::string &description, const boost::program_options::options_description &options) {
+
+        // Completing rather than explaining. Every action funnels through here with the options it
+        // just built, so this one branch gives tab completion every option of every action without
+        // any of them knowing it exists.
+        if (auto *sink = Completion::OptionSink()) {
+            for (const auto &option: options.options()) {
+                sink->push_back("--" + option->long_name());
+            }
+            return 0;
+        }
+
         std::cout << "NAME\n"
                 << "    " << module << " " << action << "\n\n"
                 << "SYNOPSIS\n"

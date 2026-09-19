@@ -45,16 +45,23 @@ namespace Euclid::Monitoring {
         // Slower than the rest: these move at the pace a database grows, and dbStats is a
         // round trip per tick that tells you nothing new a second later.
         constexpr auto kDatabaseSizePeriod = std::chrono::seconds(300);
-        // How stale a queue's message counts may get. Short enough that a queue draining is
-        // visibly draining, long enough that the scan is rare next to the traffic it replaces
-        // (one grouped scan against a write per message on the queue document).
-        constexpr auto kQueueCountPeriod = std::chrono::seconds(15);
-        // How stale a queue's message counts may get. Short enough that a queue draining is
-        // visibly draining, long enough that the scan is rare next to the traffic it replaces
-        // (one grouped scan against a write per message on the queue document).
-        constexpr auto kBucketCountPeriod = std::chrono::seconds(15);
-
-        constexpr auto kTopicCountPeriod = std::chrono::seconds(15);
+        // How long the counters may carry the drift that nothing else can correct.
+        //
+        // These three are no longer what produces the numbers - queues, buckets and topics all
+        // maintain their counters as the messages and objects move, so what a queue reports is
+        // right as each send and receive happens rather than as of the last pass here. What is
+        // left for a scan to find is what happens where no application code runs: the TTL index
+        // removing an expired message the moment it expires, and a process dying between writing
+        // something and accounting for it.
+        //
+        // That is worth correcting hourly, not every fifteen seconds. Each pass reads every
+        // message and every object in the installation and gets more expensive as they fill - on
+        // an installation holding four million published messages it was the most expensive thing
+        // in the database, and it was running four times a minute to correct a drift that mostly
+        // was not there.
+        constexpr auto kQueueCountPeriod = std::chrono::seconds(3600);
+        constexpr auto kBucketCountPeriod = std::chrono::seconds(3600);
+        constexpr auto kTopicCountPeriod = std::chrono::seconds(3600);
 
         // How often each pool's instance count and load is sampled. Shorter than EMO's averaging
         // bucket on purpose: a ramp that happens inside one bucket should leave more than one

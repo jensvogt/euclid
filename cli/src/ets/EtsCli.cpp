@@ -33,17 +33,29 @@ namespace Euclid::CLI {
 
     EtsCli::EtsCli(std::string endpoint, Credentials::Entry authentication, const bool pretty, std::string caCertPath) : _endpoint(std::move(endpoint)), _authentication(std::move(authentication)), _pretty(pretty), _caCertPath(std::move(caCertPath)) {}
 
+    /**
+     * @brief Every action this module takes, with the one-line summary each is listed by.
+     *
+     * @par
+     * A table rather than an initialiser inside the help branch, because two things read
+     * it now: "help", and tab completion. An action listed in one and not the other is an
+     * action somebody cannot find.
+     */
+    const std::vector<std::pair<std::string, std::string> > &EtsCli::Actions() {
+        static const std::vector<std::pair<std::string, std::string> > kActions = {
+                {"create-server", "Define a new FTP or SFTP transfer server for an ESM bucket"},
+                {"delete-server", "Delete a transfer server definition"},
+                {"get-server", "Show one transfer server's definition"},
+                {"list-servers", "List the defined transfer servers and their state"},
+                {"start-server", "Ask the manager to start a transfer server"},
+                {"stop-server", "Ask the manager to stop a transfer server"},
+                {"update-server", "Change an existing transfer server's settings"},
+        };
+        return kActions;
+    }
     int EtsCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
-            return PrintModuleHelp("ets", {
-                                           {"create-server", "Define a new FTP or SFTP transfer server for an ESM bucket"},
-                                           {"delete-server", "Delete a transfer server definition"},
-                                           {"get-server", "Show one transfer server's definition"},
-                                           {"list-servers", "List the defined transfer servers and their state"},
-                                           {"start-server", "Ask the manager to start a transfer server"},
-                                           {"stop-server", "Ask the manager to stop a transfer server"},
-                                           {"update-server", "Change an existing transfer server's settings"},
-                                   });
+            return PrintModuleHelp("ets", Actions());
         }
 
         // Every ets action is administrator-only, since each one changes (or reveals) which
