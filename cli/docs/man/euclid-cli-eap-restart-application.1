@@ -1,0 +1,70 @@
+.TH EUCLID-CLI-EAP-RESTART-APPLICATION 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eap-restart-application \- start an application's instances again
+.SH SYNOPSIS
+.B euclid-cli eap restart-application
+.BR \-\-application\-id | \-n
+.I NAME
+.SH DESCRIPTION
+Records that this application's instances should be started again, and
+returns immediately. The Euclid manager stops the whole pool on its next
+reconcile, a few seconds later, and starts it straight back up from the
+current definition \- the same thing it does after a redeploy, with
+nothing new to pick up.
+.PP
+The desired state is never changed: as far as the manager is concerned
+the application should be running throughout. So nothing is left stopped
+if this command, or the connection carrying it, does not survive the
+restart \- unlike stopping and starting it by hand, where an application
+whose
+.BR euclid-cli-eap-start-application (1)
+never arrives stays down. An application that is already stopped is
+refused rather than started.
+.PP
+Nothing about the application changes. The artifact, the environment and
+the credentials all come back as they were, which is what makes this the
+command for an instance that has to do its startup again \- a listener
+that must subscribe afresh, a file read once at boot \- rather than a way
+to deploy anything. Use
+.BR euclid-cli-eap-redeploy-application (1)
+for a new build.
+.PP
+The whole pool goes down and comes back together. That is the difference
+from
+.BR euclid-cli-emm-restart-module (1),
+which cycles a module's instances one per reconcile tick so that the pool
+keeps serving and no two instances are ever down at once. Applications
+are modules to the manager, so that command works on one too; this is the
+one to use when every instance has to have been through a restart before
+anything else happens.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-application\-id " " \fINAME\fR
+Name of the application. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The restart was recorded. The application id and the number of instances
+the manager is about to cycle are printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the caller is not an authenticated
+administrator, no application of that name exists, or the application is
+stopped.
+.SH EXAMPLES
+.PP
+Restart an application, then watch the pool come back:
+.RS
+.nf
+euclid-cli eap restart-application --application-id inbox
+euclid-cli eap get-application --application-id inbox
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eap (1),
+.BR euclid-cli-eap-start-application (1),
+.BR euclid-cli-eap-stop-application (1),
+.BR euclid-cli-eap-redeploy-application (1),
+.BR euclid-cli-emm-restart-module (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

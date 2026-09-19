@@ -884,6 +884,57 @@ namespace Euclid::EAP {
         return EapServer::JsonResponse(req, status::ok, boost::json::serialize(toJson(stored)));
     }
 
+    // Starts an application's instances again without changing what it is or whether it should be
+    // running.
+    //
+    // Like everything else here it only writes something down. The manager already stops and
+    // restarts a pool whose definition changed since its instances were started - that is how a
+    // redeploy takes effect - so stamping the modification date is a restart, and one the
+    // reconciler carries out on its next pass rather than something a client has to sequence.
+    //
+    // Which is why this is not "stop-application, wait, start-application": that leaves the
+    // application stopped for as long as the caller takes to come back, and stopped for good if it
+    // never does. Here the desired state is never anything but RUNNING, so there is no state to be
+    // stranded in.
+    static response<string_body> handleRestartApplication(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "restart-application");
+
+        AuthResult auth;
+        if (const auto denied = requireAdmin(req, auth)) return *denied;
+
+        boost::json::value jv;
+        if (const auto err = EapServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+
+        const auto applicationId = stringField(jv.as_object(), "applicationId");
+        const auto ns = std::string(req["x-euclid-namespace"]);
+        const auto repo = Database::RepositoryFactory::instance().eapRepository();
+        const auto application = repo->findApplicationByApplicationId(auth.user->accountId, ns, applicationId);
+        if (!application.has_value()) {
+            return EapServer::ErrorResponse(req, status::not_found, "Application not found: " + applicationId);
+        }
+
+        if (const auto refused = Database::Entity::EAP::RestartRefusal(*application); !refused.empty()) {
+            return EapServer::ErrorResponse(req, status::bad_request, "Refusing to restart '" + applicationId + "': " + refused);
+        }
+
+        if (!repo->touchApplication(auth.user->accountId, ns, applicationId)) {
+            return EapServer::ErrorResponse(req, status::internal_server_error, "Could not request a restart: " + applicationId);
+        }
+
+        // What the manager will stop and start again on its next pass. Nothing has happened yet
+        // when this is answered, so it is what is running now rather than what came back.
+        const auto instances = static_cast<long>(applicationEndpoints(Database::Entity::EAP::RuntimeName(*application)).size());
+
+        log_info << "EAP restart application, applicationId: " << applicationId << ", instances: " << instances;
+
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"applicationId", applicationId},
+                                                                {"restarting", true},
+                                                                {"instances", instances}}));
+    }
+
     // Records the level an application's own output is logged at. Like start-application and
     // stop-application, this only writes down an intention: the manager reads the applications it
     // runs on every reconcile and applies the level to that application's log channel.
@@ -1085,6 +1136,7 @@ namespace Euclid::EAP {
         if (action == "delete-application") return handleDeleteApplication(req);
         if (action == "start-application") return handleSetState(req, ApplicationState::RUNNING);
         if (action == "stop-application") return handleSetState(req, ApplicationState::STOPPED);
+        if (action == "restart-application") return handleRestartApplication(req);
         if (action == "set-log-level") return handleSetLogLevel(req);
         if (action == "report-load") return handleReportLoad(req);
         if (action == "get-metrics") return EapServer::MetricsResponse(req);

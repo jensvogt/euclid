@@ -152,4 +152,17 @@ namespace Euclid::Database::Entity::EAP {
         return {};
     }
 
+    std::string RestartRefusal(const Application &application) {
+
+        // The desired state, not the instance count: a pool that should be running and happens to
+        // have nothing up this second - the manager is between ticks, or every instance just
+        // died - is exactly the case a restart is reached for, and refusing it there would refuse
+        // it when it is needed most.
+        if (application.desiredState != ApplicationState::RUNNING) {
+            return application.applicationId + " is stopped - use \"eap start-application\" to bring it back";
+        }
+
+        return {};
+    }
+
 }// namespace Euclid::Database::Entity::EAP

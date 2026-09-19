@@ -58,6 +58,7 @@ namespace Euclid::CLI {
                                            {"list-applications", "List the defined applications and how many instances are running"},
                                            {"get-application", "Show one application's definition"},
                                            {"redeploy-application", "Deploy a new build of an application from a local file"},
+                                           {"restart-application", "Ask the manager to start an application's instances again"},
                                            {"start-application", "Ask the manager to start an application"},
                                            {"stop-application", "Ask the manager to stop an application"},
                                            {"set-log-level", "Turn an application's own logging up, down or off"},
@@ -89,6 +90,7 @@ namespace Euclid::CLI {
         if (action == "delete-application") return deleteApplication(args);
         if (action == "start-application") return setState(args, true);
         if (action == "stop-application") return setState(args, false);
+        if (action == "restart-application") return restartApplication(args);
         if (action == "set-log-level") return setLogLevel(args);
 
         std::cerr << "error: unknown eap action '" << action << "'\n";
@@ -515,6 +517,55 @@ namespace Euclid::CLI {
             const HttpResponse response = client.Post("eap", action, boost::json::object{{"applicationId", vm["application-id"].as<std::string>()}});
             if (!response.IsSuccess()) {
                 std::cerr << "error: " << action << " failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EapCli::restartApplication(const std::vector<std::string> &args) const {
+
+        po::options_description desc("restart an application");
+        desc.add_options()
+                ("application-id,n", po::value<std::string>()->required(), "name of the application");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eap", "restart-application", "--application-id <name>",
+                                   "Records that this application's instances should be started again. The manager's reconciler "
+                                   "stops the whole pool on its next pass and starts it straight back up from the current "
+                                   "definition - the same thing it does after a redeploy, with nothing new to pick up.\n\n"
+                                   "The application keeps running as far as its desired state is concerned, so nothing is left "
+                                   "stopped if this command, or the connection carrying it, does not survive the restart. An "
+                                   "application that is stopped is refused rather than started: use \"eap start-application\".\n\n"
+                                   "Reach for this when an instance has to re-do what it does at startup - a listener that has to "
+                                   "subscribe again, a cache read once - rather than to deploy anything: the artifact, the "
+                                   "environment and the credentials all come back as they were. Use \"eap redeploy-application\" "
+                                   "for a new build.\n\n"
+                                   "The whole pool goes down and comes back, which is what makes it a restart rather than "
+                                   "\"emm restart-module\" - that cycles a module's instances one per reconcile tick, so it keeps "
+                                   "serving throughout and no two instances are down together.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eap", "restart-application",
+                                                      boost::json::object{{"applicationId", vm["application-id"].as<std::string>()}});
+            if (!response.IsSuccess()) {
+                std::cerr << "error: restart-application failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);

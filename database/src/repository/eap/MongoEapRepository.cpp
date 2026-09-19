@@ -245,4 +245,27 @@ namespace Euclid::Database {
         return false;
     }
 
+    bool MongoEapRepository::touchApplication(const std::string &accountId, const std::string &nameSpace,
+                                              const std::string &applicationId) {
+
+        try {
+            auto collection = Database::instance().collection(COLLECTION);
+
+            // $currentDate rather than a time read here: the manager compares this against the
+            // revision it started an instance with, so the two have to be stamped by the same
+            // clock as every other write to this document - the database's.
+            //
+            // One field, for the reason setApplicationLogLevel() gives above: upsertApplication()
+            // would write the whole document from a copy read moments ago, so a restart would
+            // quietly revert anything changed in between.
+            const auto result = collection.update_one(applicationFilter(accountId, nameSpace, applicationId).view(),
+                                                      make_document(kvp("$currentDate", make_document(kvp("modified", true)))).view());
+            return result && result->matched_count() > 0;
+
+        } catch (const std::exception &e) {
+            log_error << "Touch application failed, applicationId: " << applicationId << ", error: " << e.what();
+        }
+        return false;
+    }
+
 }// namespace Euclid::Database
