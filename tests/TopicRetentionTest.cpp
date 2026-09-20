@@ -71,8 +71,8 @@ namespace {
 
     // Puts the setting back, so the order the tests run in cannot change what they mean.
     struct ConfiguredRetention {
-        explicit ConfiguredRetention(const int seconds) {
-            Euclid::Core::Configuration::instance().set("euclid.modules.ens.retention-period", seconds);
+        explicit ConfiguredRetention(const int period) {
+            Euclid::Core::Configuration::instance().set("euclid.modules.ens.retention-period", period);
         }
         ~ConfiguredRetention() {
             Euclid::Core::Configuration::instance().set("euclid.modules.ens.retention-period",

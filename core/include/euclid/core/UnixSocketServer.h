@@ -41,6 +41,22 @@ namespace Euclid::Core {
 
         virtual ~UnixSocketServer() = default;
 
+        /**
+         * @brief Brings a requested worker-thread count into the range a server can actually run.
+         *
+         * @par
+         * Every thread count on this side of the installation comes from configuration, and the
+         * number ends up sizing a std::vector. A negative one is not a small number there, it is a
+         * very large unsigned one, and the allocation throws out of start() as "Failed to start" -
+         * which says nothing about the typo that caused it. One is the floor because a server with
+         * no thread answers nothing; the ceiling is there because a misconfigured count is a typo
+         * away from more OS threads than will be created.
+         *
+         * @param requested Configured count, trusted for nothing
+         * @return the count clamped to [1, 256]
+         */
+        static int ClampWorkerThreads(long requested);
+
         UnixSocketServer(const UnixSocketServer &) = delete;
         UnixSocketServer &operator=(const UnixSocketServer &) = delete;
 

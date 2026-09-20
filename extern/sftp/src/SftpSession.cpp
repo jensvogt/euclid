@@ -918,7 +918,7 @@ namespace Euclid::SFTP {
         return false;
     }
 
-    std::filesystem::path SftpSession::spoolPathFor(const std::string &key) const {
+    std::filesystem::path SftpSession::spoolPathFor([[maybe_unused]] const std::string &key) const {
         // A UUID rather than the key: two sessions may hold the same object open at once, and a
         // key contains slashes that would otherwise have to be flattened into a filename.
         return _config.rootDir / ("spool-" + Core::UuidUtils::CreateRandomUuid());

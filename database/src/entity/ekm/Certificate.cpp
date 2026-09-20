@@ -20,7 +20,7 @@ namespace Euclid::Database::Entity::EKM {
         }
 
         bsoncxx::builder::basic::array altNameArray;
-        for (const auto &name: subjectAltNames) altNameArray.append(name);
+        for (const auto &altName: subjectAltNames) altNameArray.append(altName);
 
         return bsoncxx::builder::basic::make_document(
                 bsoncxx::builder::basic::kvp("region", region),

@@ -77,7 +77,7 @@ namespace Euclid::Core {
         // Empty return means "in scope"; otherwise the message to send back as the 403 body.
         // subject is the already-verified caller (from the JWT/SigV4 check just above this call),
         // used for the per-user grant check once GrantLookup is wired.
-        std::string CheckScope(const http::request<http::string_body> &req, const std::optional<std::string> &subject) {
+        std::string CheckScope(const http::request<http::string_body> &req, [[maybe_unused]] const std::optional<std::string> &subject) {
 
             const auto region = std::string(req["x-euclid-region"]);
             if (const auto configuredRegion = Configuration::instance().getOr<std::string>("euclid.region", ""); !configuredRegion.empty() && configuredRegion != region) {
@@ -192,16 +192,14 @@ namespace Euclid::Core {
         }
         if (configured < 0) configured = Configuration::instance().getOr<long>("euclid.modules." + module + ".threads", fallback);
 
-        // Clamped rather than trusted. One is the floor because a module with no thread answers
-        // nothing; the ceiling is there because this is a typo away from a number of OS threads
-        // that will not be created - and a module that fails to start is a worse answer to a
-        // misconfigured thread count than one that runs with a sane one and says so.
-        constexpr long kMaxWorkerThreads = 256;
-        const auto threads = std::clamp(configured, 1L, kMaxWorkerThreads);
+        // Clamped rather than trusted, by the same rule every server on this side uses - a module
+        // that fails to start is a worse answer to a misconfigured thread count than one that runs
+        // with a sane one and says so.
+        const auto threads = UnixSocketServer::ClampWorkerThreads(configured);
         if (threads != configured) {
             log_warning << "Module " << module << " asked for " << configured << " worker threads, using " << threads;
         }
-        return static_cast<int>(threads);
+        return threads;
     }
 
 

@@ -92,8 +92,9 @@ namespace Euclid::EAG {
                              const bool euclidGatewayTls, const std::string &euclidGatewayCert)
         : _listeners(std::move(listeners)), _threads(std::max(1, threads)), _refreshInterval(std::max(1L, refreshSeconds)),
           _basicAuth(basicAuthCacheSeconds), _euclidGatewayPort(euclidGatewayPort),
-          _euclidGatewayTls(euclidGatewayTls), _euclidGatewayCtx(asio::ssl::context::tlsv12_client),
-          _region(Core::Configuration::instance().getOr<std::string>("euclid.region", "")) {
+          _euclidGatewayTls(euclidGatewayTls),
+          _region(Core::Configuration::instance().getOr<std::string>("euclid.region", "")),
+          _euclidGatewayCtx(asio::ssl::context::tlsv12_client) {
 
         if (_euclidGatewayTls) {
             _euclidGatewayCtx.set_default_verify_paths();

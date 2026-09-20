@@ -3,6 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 #define BOOST_TEST_MODULE SamlTest
+#include <algorithm>
 #include <boost/test/unit_test.hpp>
 
 // C++ includes
@@ -168,7 +169,7 @@ namespace {
         xmlChar *dumped = nullptr;
         int size = 0;
         xmlDocDumpMemory(document, &dumped, &size);
-        std::string result(reinterpret_cast<const char *>(dumped), size);
+        std::string result(reinterpret_cast<const char *>(dumped), static_cast<std::size_t>(std::max(size, 0)));
         xmlFree(dumped);
         xmlFreeDoc(document);
         return result;

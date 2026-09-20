@@ -192,16 +192,6 @@ namespace Euclid::Core {
         static bool HasEnvironmentVariable(const std::string &name);
 
         /**
-         * @brief Run command in a shell
-         *
-         * @param shellcmd command
-         * @param args vector of string arguments
-         * @param output output stream
-         * @param error error stream
-         */
-        static void RunShellCommand(const std::string &shellcmd, const std::vector<std::string> &args, std::string &output, std::string &error);
-
-        /**
          * @brief Return the next free port number
          *
          * @return next free port number
