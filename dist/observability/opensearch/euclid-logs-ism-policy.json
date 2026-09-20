@@ -1,0 +1,32 @@
+{
+  "policy": {
+    "policy_id": "euclid-logs",
+    "description": "Rolls euclid's log indexes over by size or age and removes them when they are old enough to be nobody's business. Without this an index grows until the cluster fills, and the first anybody hears of it is writes failing.",
+    "default_state": "hot",
+    "ism_template": [
+      { "index_patterns": ["euclid-logs-*"],     "priority": 100 },
+      { "index_patterns": ["euclid-app-logs-*"], "priority": 100 }
+    ],
+    "states": [
+      {
+        "name": "hot",
+        "actions": [
+          {
+            "rollover": {
+              "min_primary_shard_size": "20gb",
+              "min_index_age": "1d"
+            }
+          }
+        ],
+        "transitions": [
+          { "state_name": "delete", "conditions": { "min_index_age": "30d" } }
+        ]
+      },
+      {
+        "name": "delete",
+        "actions": [{ "delete": {} }],
+        "transitions": []
+      }
+    ]
+  }
+}

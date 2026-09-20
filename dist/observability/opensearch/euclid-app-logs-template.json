@@ -1,0 +1,66 @@
+{
+  "index_patterns": ["euclid-app-logs-*"],
+  "priority": 100,
+  "template": {
+    "settings": {
+      "index.number_of_shards": 1,
+      "index.number_of_replicas": 1,
+      "index.refresh_interval": "5s",
+      "index.opendistro.index_state_management.rollover_alias": "euclid-app-logs",
+
+      "index.mapping.total_fields.limit": 2000,
+      "index.mapping.ignore_malformed": true
+    },
+    "mappings": {
+      "dynamic": true,
+
+      "dynamic_templates": [
+        {
+          "message_like_as_text": {
+            "match": "message",
+            "mapping": { "type": "text" }
+          }
+        },
+        {
+          "stack_traces_as_text": {
+            "match": "stack_trace",
+            "mapping": { "type": "text" }
+          }
+        },
+        {
+          "everything_else_as_keyword": {
+            "match_mapping_type": "string",
+            "mapping": { "type": "keyword", "ignore_above": 1024 }
+          }
+        }
+      ],
+
+      "properties": {
+        "@timestamp": { "type": "date" },
+
+        "message":    { "type": "text" },
+        "stack_trace":{ "type": "text" },
+
+        "log":        { "properties": { "level": { "type": "keyword" } } },
+
+        "channel":    { "type": "keyword" },
+        "namespace":  { "type": "keyword" },
+        "region":     { "type": "keyword" },
+
+        "application":{ "properties": { "id":   { "type": "keyword" } } },
+        "account":    { "properties": { "id":   { "type": "keyword" } } },
+        "service":    { "properties": { "name": { "type": "keyword" } } },
+        "host":       { "properties": { "name": { "type": "keyword" } } },
+        "process":    { "properties": { "pid":  { "type": "long"    } } },
+
+        "logger_name": { "type": "keyword" },
+        "thread_name": { "type": "keyword" }
+      }
+    }
+  },
+  "_meta": {
+    "description": "Logs of the applications EAP runs, as the manager read them back. See dist/observability/README.md.",
+    "dynamic": "Applications invent their own fields and euclid does not know them in advance, so the mapping is dynamic - but strings map to keyword rather than text, because a thousand analysed fields nobody searches is how a mapping explodes. message and stack_trace are the exceptions worth analysing.",
+    "collisions": "An application that logs a scalar field named \"log\" conflicts with the log.level object above and OpenSearch rejects that document. Only that document: the rest of the bulk is indexed, and Fluent Bit records the rejection."
+  }
+}

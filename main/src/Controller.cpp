@@ -83,6 +83,54 @@ namespace Euclid::main {
         return std::string(config.application ? Core::LogStream::kApplicationChannel : Core::LogStream::kModuleChannel) + "." + config.name;
     }
 
+    // What euclid knows about the process a line came from and the line itself does not say. One
+    // index holds every namespace of an installation, so this is what tells development's output
+    // from production's - an applicationId does not, being unique only within (account,
+    // namespace). Empty for a euclid module, which belongs to no namespace in particular.
+    static std::string outputFields(const Dto::ModuleConfig &config) {
+        if (!config.application) return {};
+
+        boost::json::object fields{{"service.name", config.name}, {"application.id", config.name}};
+        if (!config.nameSpace.empty()) fields["namespace"] = config.nameSpace;
+        if (!config.accountId.empty()) fields["account.id"] = config.accountId;
+        return boost::json::serialize(fields);
+    }
+
+    // The severity a line is recorded at. An application that logs JSON has already said what its
+    // record means, and taking its word for it is what makes a channel level worth setting: until
+    // this existed every line from a program's stdout was "info" whatever it actually was, so
+    // turning a noisy application down to "error" silenced its errors along with everything else.
+    //
+    // The pipe is still the fallback, and still the answer for a program that logs plain text.
+    static boost::log::trivial::severity_level severityOf(const std::string &line, const bool isError) {
+
+        const auto fallback = isError ? boost::log::trivial::error : boost::log::trivial::info;
+
+        // Cheap enough to be worth doing before parsing: almost every line from a program that
+        // does not log JSON fails this, and parsing each of those would be the cost of the
+        // feature for everybody who does not use it.
+        if (line.size() < 2 || line.front() != '{') return fallback;
+
+        boost::system::error_code ec;
+        const auto parsed = boost::json::parse(line, ec);
+        if (ec || !parsed.is_object()) return fallback;
+
+        const auto *level = parsed.as_object().if_contains("level");
+        if (level == nullptr || !level->is_string()) return fallback;
+
+        auto name = std::string(level->as_string());
+        std::ranges::transform(name, name.begin(), [](const unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+        // Logback's names, and the two SLF4J spells differently from Boost.Log.
+        if (name == "trace") return boost::log::trivial::trace;
+        if (name == "debug") return boost::log::trivial::debug;
+        if (name == "info") return boost::log::trivial::info;
+        if (name == "warn" || name == "warning") return boost::log::trivial::warning;
+        if (name == "error" || name == "severe") return boost::log::trivial::error;
+        if (name == "fatal") return boost::log::trivial::fatal;
+        return fallback;
+    }
+
     // Reads lines from fd until EOF, re-emitting each on the channel of the process it came from -
     // "app.<name>" for an application, "module.<name>" for a euclid module. That channel is what
     // makes this output something an operator can turn down or off on its own
@@ -92,12 +140,16 @@ namespace Euclid::main {
     // channel left at "error" still shows what went wrong.
     //
     // Runs on a detached background thread; closes fd when done.
-    static void drainPipe(const int fd, const bool isError, const std::string channel) {
+    static void drainPipe(const int fd, const bool isError, const std::string channel, const std::string fields) {
         std::string line;
         char ch;
-        const auto severity = isError ? boost::log::trivial::error : boost::log::trivial::info;
         auto emit = [&](const std::string &raw) {
-            Core::LogStream::LogVerbatim(channel, severity, sanitizeForLog(raw));
+            // Sanitised first, and the severity read from what the program actually wrote: a
+            // control character in a line is not allowed to become a terminal escape in the
+            // journal, and a JSON line's own level is better than a guess from which pipe it
+            // came down.
+            const auto sanitized = sanitizeForLog(raw);
+            Core::LogStream::LogVerbatim(channel, severityOf(sanitized, isError), sanitized, fields);
         };
 #if defined(_WIN32)
         while (Platform::PipeRead(fd, &ch, 1) == 1) {
@@ -311,8 +363,9 @@ namespace Euclid::main {
         svc->lastIdleAt = std::chrono::steady_clock::now();
 
         const auto channel = outputChannel(svc->config);
-        std::thread(drainPipe, outFd, false, channel).detach();
-        std::thread(drainPipe, errFd, true, channel).detach();
+        const auto fields = outputFields(svc->config);
+        std::thread(drainPipe, outFd, false, channel, fields).detach();
+        std::thread(drainPipe, errFd, true, channel, fields).detach();
 
         const bool liveness = svc->config.readiness == Dto::ModuleConfig::ReadinessCheck::Liveness;
         if (liveness
@@ -434,8 +487,9 @@ namespace Euclid::main {
         svc->lastIdleAt = std::chrono::steady_clock::now();
 
         const auto channel = outputChannel(svc->config);
-        std::thread(drainPipe, outPipe[0], false, channel).detach();
-        std::thread(drainPipe, errPipe[0], true, channel).detach();
+        const auto fields = outputFields(svc->config);
+        std::thread(drainPipe, outPipe[0], false, channel, fields).detach();
+        std::thread(drainPipe, errPipe[0], true, channel, fields).detach();
 
         // An application is judged by whether it is still running, a module by whether it has
         // created its socket - see ModuleConfig::ReadinessCheck for why the two differ.
@@ -1057,6 +1111,8 @@ namespace Euclid::main {
                 // heard of the convention - see ModuleConfig::ReadinessCheck.
                 config.readiness = Dto::ModuleConfig::ReadinessCheck::Liveness;
                 config.application = true;
+                config.nameSpace = application.nameSpace;
+                config.accountId = application.accountId;
                 config.minInstances = static_cast<int>(application.minInstances);
                 config.maxInstances = static_cast<int>(application.maxInstances);
 

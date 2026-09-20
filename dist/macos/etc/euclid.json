@@ -312,7 +312,12 @@
     },
     "logging": {
       "file-active": false,
-      "console-active": true,
+      "format": "text",
+        "console-format": "",
+        "file-format": "",
+        "console-level": "",
+        "file-level": "",
+        "console-active": true,
       "level": "warning",
       "dir": "/usr/local/euclid/log",
       "prefix": "euclid",
