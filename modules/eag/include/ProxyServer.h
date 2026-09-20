@@ -28,6 +28,7 @@
 #include <BasicAuthenticator.h>
 #include <Backends.h>
 #include <ClientStream.h>
+#include <ModuleCall.h>
 #include <RouteTable.h>
 
 namespace Euclid::EAG {
@@ -187,12 +188,124 @@ namespace Euclid::EAG {
         void serve(boost::asio::ip::tcp::socket socket, std::size_t index);
 
         /**
-         * @brief Matches one request to a route, authenticates it if the route says so, and
-         * forwards it to one of the application's instances.
+         * @brief Decides what to do with a request whose headers have arrived and whose body has
+         * not.
+         *
+         * @par
+         * The body is read here and not before, because how it should be read is a property of
+         * the route: a proxied request is buffered whole so it can be forwarded and so an RFC 9421
+         * signature over it can be checked, and an upload is streamed straight through because the
+         * whole point of it is that it never fits anywhere. Matching first is what lets the two be
+         * different, and is also what puts the route's own size limit in front of the bytes rather
+         * than behind them.
+         */
+        void dispatch(const std::string &nameSpace,
+                      const std::shared_ptr<ClientStream> &stream,
+                      const std::shared_ptr<boost::beast::flat_buffer> &buffer,
+                      const std::shared_ptr<ClientStream::HeaderReader> &header);
+
+        /**
+         * @brief Authenticates a matched request if its route says so, and forwards it to one of
+         * the application's instances.
          */
         void route(const std::string &nameSpace,
                    const std::shared_ptr<ClientStream> &stream,
-                   const std::shared_ptr<boost::beast::http::request<boost::beast::http::string_body> > &request);
+                   const std::shared_ptr<boost::beast::http::request<boost::beast::http::string_body> > &request,
+                   const Database::Entity::EAG::Route &match);
+
+        /**
+         * @brief Reads an upload's body a part at a time, writing it into the route's bucket.
+         *
+         * @par
+         * Never holds more than one part: the buffer is reused, and each part goes to ESM before
+         * the next is read. That is what makes the size of what can be uploaded a question about
+         * the bucket rather than about the gateway's memory.
+         */
+        void serveUpload(const std::shared_ptr<ClientStream> &stream,
+                         const std::shared_ptr<boost::beast::flat_buffer> &buffer,
+                         const std::shared_ptr<ClientStream::HeaderReader> &header,
+                         const Database::Entity::EAG::Route &match);
+
+        /**
+         * @brief Who an upload is, and what it may call ESM with.
+         */
+        struct UploadAuth {
+
+            bool allowed{false};
+
+            /**
+             * @brief Why not, for the caller. Deliberately vague about which check failed.
+             */
+            std::string reason;
+
+            std::string userId;
+            ModuleCredential credential;
+
+            /**
+             * @brief The Content-Digest the caller's signature covers, when they signed.
+             *
+             * @par
+             * Empty for a caller holding a token, who signed nothing and whose body is therefore
+             * bound by nothing but the transport. Set for an RFC 9421 caller, and then compared
+             * against what actually arrived before the upload is completed.
+             */
+            std::string signedDigest;
+        };
+
+        /**
+         * @brief Authenticates an upload from its headers alone, and works out what the calls it
+         * makes to ESM will be authenticated with.
+         *
+         * @par
+         * Separate from the check route() makes for a proxied request, because the body is not
+         * here: HttpActionServer::Authenticate() verifies an RFC 9421 signature against the body
+         * it covers, which for an upload would mean holding all of it. This uses
+         * HttpSignature::VerifyWithoutBody() and defers that one comparison - see step 2 of the
+         * upload design.
+         */
+        [[nodiscard]]
+        UploadAuth authenticateUpload(const boost::beast::http::request<boost::beast::http::empty_body> &headers,
+                                      const Database::Entity::EAG::Route &match);
+
+        /**
+         * @brief One upload in progress. Defined in ProxyServer.cpp - nothing outside it needs to
+         * know what reading a body a part at a time requires.
+         */
+        struct Upload;
+
+        /**
+         * @brief Reads the next part of an upload and arms itself again, until the body is done.
+         *
+         * @par
+         * A member rather than a lambda holding itself, which is the other way to write a loop
+         * that continues from its own completion handler: that one has to keep a std::function
+         * alive inside the state the function captures, and the cycle it makes has to be broken by
+         * hand on every exit path. This has no cycle to forget about.
+         */
+        void readUploadPart(const std::shared_ptr<Upload> &upload);
+
+        /**
+         * @brief Throws away an upload that will not be completed.
+         *
+         * @par
+         * Called on every path out of an upload that is not a success: a part ESM refused, a body
+         * that did not match the digest it was signed with, a complete-upload that failed. Without
+         * it each of those leaves staged parts under an id nothing will ever finish.
+         */
+        void abandonUpload(const std::shared_ptr<Upload> &upload);
+
+        /**
+         * @brief Sends one part to ESM, and answers the caller if it was refused.
+         *
+         * @return true to carry on reading, false when the upload has been answered and is over.
+         */
+        [[nodiscard]]
+        bool sendUploadPart(const std::shared_ptr<Upload> &upload, std::size_t size);
+
+        /**
+         * @brief Holds the body to the digest that was signed, completes the upload and answers.
+         */
+        void finishUpload(const std::shared_ptr<Upload> &upload);
 
         /**
          * @brief Forwards one request to a backend port and returns whatever comes back.

@@ -30,6 +30,9 @@ namespace Euclid::EAG {
     using Database::Entity::EAG::RouteAuthentication;
     using Database::Entity::EAG::RouteAuthenticationFromString;
     using Database::Entity::EAG::RouteAuthenticationToString;
+    using Database::Entity::EAG::RouteType;
+    using Database::Entity::EAG::RouteTypeFromString;
+    using Database::Entity::EAG::RouteTypeToString;
 
     namespace {
 
@@ -46,6 +49,17 @@ namespace Euclid::EAG {
             const auto *value = obj.if_contains(key);
             return value && value->is_string() ? std::string(value->as_string()) : fallback;
         }
+
+        long longField(const boost::json::object &obj, const std::string &key, const long fallback = 0) {
+            const auto *value = obj.if_contains(key);
+            return value && value->is_int64() ? value->as_int64() : fallback;
+        }
+
+        // Bytes per part an upload route streams to ESM, and the size under which a body is stored
+        // with one put-object instead. The same 5 MB the CLI's upload-file uses by default, for the
+        // same reason: small enough that a failed part is cheap to lose, large enough that a big
+        // object is not thousands of round trips.
+        constexpr long kDefaultPartSize = 5L * 1024 * 1024;
 
         // The euclid modules a route may name. Kept as a list so a typo is refused at configuration
         // time: a route naming "emm " or "eeam" would otherwise be accepted, published, and answer
@@ -142,6 +156,14 @@ namespace Euclid::EAG {
                     {"region", route.region},
                     {"namespace", route.nameSpace},
                     {"path", route.path},
+                    {"type", RouteTypeToString(route.type)},
+                    {"upload", boost::json::object{
+                                       {"bucket", route.upload.bucket},
+                                       {"keyPrefix", route.upload.keyPrefix},
+                                       {"maxBytes", route.upload.maxBytes},
+                                       {"partSize", route.upload.partSize},
+                                       {"contentTypes", boost::json::array(route.upload.contentTypes.begin(),
+                                                                          route.upload.contentTypes.end())}}},
                     {"applicationId", route.applicationId},
                     {"moduleTarget", route.moduleTarget},
                     {"moduleAction", route.moduleAction},
@@ -199,20 +221,42 @@ namespace Euclid::EAG {
         const auto moduleAction = stringField(obj, "moduleAction");
         if (routeId.empty()) return EagServer::ErrorResponse(req, status::bad_request, "routeId is required");
 
-        // One or the other, never both and never neither: a route goes to an application euclid
-        // runs, or to euclid itself, and those are reached in entirely different ways.
-        if (applicationId.empty() == moduleTarget.empty()) {
-            return EagServer::ErrorResponse(req, status::bad_request,
-                                            "Name either an application or a euclid module, not both and not neither");
+        const auto type = RouteTypeFromString(stringField(obj, "type", "PROXY"));
+        if (!type.has_value()) {
+            return EagServer::ErrorResponse(req, status::bad_request, R"(type must be "PROXY" or "UPLOAD")");
         }
-        if (!moduleTarget.empty()) {
-            if (!kModuleTargets.contains(moduleTarget)) {
-                return EagServer::ErrorResponse(req, status::bad_request, "Not a euclid module: " + moduleTarget);
+
+        const auto bucket = stringField(obj, "bucket");
+        if (*type == RouteType::UPLOAD) {
+            // An upload route is the endpoint rather than a way to one, so naming a backend is not
+            // a harmless extra - it says the author expected the request to be forwarded, and it
+            // will not be.
+            if (!applicationId.empty() || !moduleTarget.empty()) {
+                return EagServer::ErrorResponse(req, status::bad_request,
+                                                "An upload route names a bucket, not an application or a euclid module");
             }
-            // Without an action the gateway has nothing to dispatch on and would answer 400 for
-            // every request the route ever carries.
-            if (moduleAction.empty()) {
-                return EagServer::ErrorResponse(req, status::bad_request, "moduleAction is required when a module is named");
+            if (bucket.empty()) {
+                return EagServer::ErrorResponse(req, status::bad_request, "bucket is required for an upload route");
+            }
+        } else {
+            // One or the other, never both and never neither: a route goes to an application euclid
+            // runs, or to euclid itself, and those are reached in entirely different ways.
+            if (applicationId.empty() == moduleTarget.empty()) {
+                return EagServer::ErrorResponse(req, status::bad_request,
+                                                "Name either an application or a euclid module, not both and not neither");
+            }
+            if (!bucket.empty()) {
+                return EagServer::ErrorResponse(req, status::bad_request, "bucket is only meaningful on an upload route");
+            }
+            if (!moduleTarget.empty()) {
+                if (!kModuleTargets.contains(moduleTarget)) {
+                    return EagServer::ErrorResponse(req, status::bad_request, "Not a euclid module: " + moduleTarget);
+                }
+                // Without an action the gateway has nothing to dispatch on and would answer 400 for
+                // every request the route ever carries.
+                if (moduleAction.empty()) {
+                    return EagServer::ErrorResponse(req, status::bad_request, "moduleAction is required when a module is named");
+                }
             }
         }
 
@@ -253,14 +297,41 @@ namespace Euclid::EAG {
             return EagServer::ErrorResponse(req, status::not_found, "Application not found, applicationId: " + applicationId);
         }
 
+        // Same argument as the application check above: a route to a bucket that is not there
+        // accepts a whole upload before discovering it has nowhere to put it, and the caller has
+        // by then spent however long it takes to send one.
+        if (!bucket.empty()
+            && !Database::RepositoryFactory::instance().esmRepository()->findBucketByErn(bucket).has_value()) {
+            return EagServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + bucket);
+        }
+
         Route route;
         route.routeId = routeId;
         route.path = path;
+        route.type = *type;
         route.applicationId = applicationId;
         route.moduleTarget = moduleTarget;
         route.moduleAction = moduleAction;
         route.methods = *methods;
         route.accountId = auth.user->accountId;
+
+        if (*type == RouteType::UPLOAD) {
+            route.upload.bucket = bucket;
+            route.upload.keyPrefix = stringField(obj, "keyPrefix");
+            route.upload.maxBytes = longField(obj, "maxBytes");
+            route.upload.partSize = longField(obj, "partSize", kDefaultPartSize);
+            if (const auto *contentTypes = obj.if_contains("contentTypes"); contentTypes && contentTypes->is_array()) {
+                for (const auto &contentType: contentTypes->as_array()) {
+                    if (contentType.is_string()) route.upload.contentTypes.emplace_back(contentType.as_string());
+                }
+            }
+            if (route.upload.partSize <= 0) {
+                return EagServer::ErrorResponse(req, status::bad_request, "partSize must be greater than zero");
+            }
+            if (route.upload.maxBytes < 0) {
+                return EagServer::ErrorResponse(req, status::bad_request, "maxBytes cannot be negative");
+            }
+        }
 
         // The scope requests carried by this route act in, which the gateway puts on each one
         // before it goes anywhere. Defaulted to whoever is creating the route, because that is
@@ -275,6 +346,14 @@ namespace Euclid::EAG {
             return EagServer::ErrorResponse(req, status::bad_request, R"(authentication must be "NONE" or "EUCLID")");
         }
         route.authentication = *authentication;
+
+        // An upload route with no authentication is a public write endpoint into somebody's
+        // bucket, which is not a thing to be able to configure by leaving a field out. Refused
+        // rather than defaulted, so the author says which credential they meant.
+        if (route.type == RouteType::UPLOAD && route.authentication == RouteAuthentication::NONE) {
+            return EagServer::ErrorResponse(req, status::bad_request,
+                                            R"(An upload route must set authentication to "EUCLID" or "BASIC")");
+        }
         if (const auto *active = obj.if_contains("active"); active && active->is_bool()) route.active = active->as_bool();
 
         // A route that was not stored must not come back looking as though it was - the caller
@@ -365,6 +444,54 @@ namespace Euclid::EAG {
                 return EagServer::ErrorResponse(req, status::bad_request, R"(authentication must be "NONE" or "EUCLID")");
             }
             route->authentication = *authentication;
+        }
+        if (obj.contains("type")) {
+            const auto type = RouteTypeFromString(stringField(obj, "type"));
+            if (!type.has_value()) {
+                return EagServer::ErrorResponse(req, status::bad_request, R"(type must be "PROXY" or "UPLOAD")");
+            }
+            route->type = *type;
+        }
+        if (obj.contains("bucket")) {
+            const auto bucket = stringField(obj, "bucket");
+            if (!bucket.empty() && !Database::RepositoryFactory::instance().esmRepository()->findBucketByErn(bucket).has_value()) {
+                return EagServer::ErrorResponse(req, status::not_found, "Bucket not found, ern: " + bucket);
+            }
+            route->upload.bucket = bucket;
+        }
+        if (obj.contains("keyPrefix")) route->upload.keyPrefix = stringField(obj, "keyPrefix");
+        if (obj.contains("maxBytes")) route->upload.maxBytes = longField(obj, "maxBytes");
+        if (obj.contains("partSize")) route->upload.partSize = longField(obj, "partSize", kDefaultPartSize);
+        if (const auto *contentTypes = obj.if_contains("contentTypes"); contentTypes && contentTypes->is_array()) {
+            route->upload.contentTypes.clear();
+            for (const auto &contentType: contentTypes->as_array()) {
+                if (contentType.is_string()) route->upload.contentTypes.emplace_back(contentType.as_string());
+            }
+        }
+
+        // Checked after everything has been applied rather than beside each field, because what
+        // makes a route coherent is the combination: naming a bucket and naming an application are
+        // each fine on their own and contradictory together, and an update that changes one of
+        // them has to be judged against the route it produces, not the one it started from.
+        if (route->type == RouteType::UPLOAD) {
+            if (!route->applicationId.empty() || !route->moduleTarget.empty()) {
+                return EagServer::ErrorResponse(req, status::bad_request,
+                                                "An upload route names a bucket, not an application or a euclid module");
+            }
+            if (route->upload.bucket.empty()) {
+                return EagServer::ErrorResponse(req, status::bad_request, "bucket is required for an upload route");
+            }
+            if (route->authentication == RouteAuthentication::NONE) {
+                return EagServer::ErrorResponse(req, status::bad_request,
+                                                R"(An upload route must set authentication to "EUCLID" or "BASIC")");
+            }
+            if (route->upload.partSize <= 0) route->upload.partSize = kDefaultPartSize;
+            if (route->upload.maxBytes < 0) {
+                return EagServer::ErrorResponse(req, status::bad_request, "maxBytes cannot be negative");
+            }
+        } else if (route->applicationId.empty() && route->moduleTarget.empty()) {
+            return EagServer::ErrorResponse(req, status::bad_request,
+                                            "Name either an application or a euclid module, not both and not neither");
         }
         if (const auto *active = obj.if_contains("active"); active && active->is_bool()) route->active = active->as_bool();
 

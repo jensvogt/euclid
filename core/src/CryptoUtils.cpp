@@ -77,6 +77,32 @@ namespace Euclid::Core {
         return toHex(digest, digestLength);
     }
 
+    struct Sha256Digest::Context {
+        EVP_MD_CTX *ctx;
+    };
+
+    Sha256Digest::Sha256Digest() : _context(new Context{EVP_MD_CTX_new()}, [](Context *context) {
+        EVP_MD_CTX_free(context->ctx);
+        delete context;
+    }) {
+        if (_context->ctx == nullptr) throw std::runtime_error("Failed to create digest context");
+        EVP_DigestInit_ex(_context->ctx, EVP_sha256(), nullptr);
+    }
+
+    void Sha256Digest::update(const std::string_view data) const {
+        if (data.empty()) return;
+        EVP_DigestUpdate(_context->ctx, data.data(), data.size());
+    }
+
+    std::string Sha256Digest::raw() const {
+
+        unsigned char digest[EVP_MAX_MD_SIZE];
+        unsigned int digestLength = 0;
+        EVP_DigestFinal_ex(_context->ctx, digest, &digestLength);
+
+        return {reinterpret_cast<const char *>(digest), digestLength};
+    }
+
     std::string CryptoUtils::md5Sum(const std::string &str) {
 
         unsigned char digest[EVP_MAX_MD_SIZE];

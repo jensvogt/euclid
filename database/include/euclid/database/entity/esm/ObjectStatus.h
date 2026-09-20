@@ -91,4 +91,32 @@ namespace Euclid::Database::Entity::ESM {
         return existing.value_or(ObjectStatus::CREATED);
     }
 
+    /**
+     * @brief Whether abandoning an upload should take the object row at its key with it.
+     *
+     * @par
+     * The mirror of StatusForCreatedUpload(), and wrong in the same direction if it is wrong: that
+     * one decides what a row becomes when an upload starts, and this decides whether the row
+     * survives when the upload gives up. A first upload seeded a row for bytes that never arrived,
+     * and leaving it behind describes an object nobody can read and nothing will ever write. A
+     * re-upload did not seed anything - the row is the previous version, still published, still
+     * named by an internalName that points at a real file - and deleting it would do by hand
+     * exactly the damage StatusForCreatedUpload() exists to prevent.
+     *
+     * @par
+     * The status is consulted as well as the flag, so that a row which has somehow reached
+     * COMPLETED is never removed whatever the upload thought it was doing. Readable objects are
+     * not collateral.
+     *
+     * @param replaces whether create-upload found an object already at this key.
+     * @param current the row's status now, or nothing if there is no row.
+     * @return true to delete the row along with the upload's staged parts.
+     */
+    [[maybe_unused]]
+    static bool RemoveObjectOnAbandonedUpload(const bool replaces, const std::optional<ObjectStatus> &current) {
+        if (replaces) return false;
+        if (!current.has_value()) return false;
+        return *current != ObjectStatus::COMPLETED;
+    }
+
 }// namespace Euclid::Database::Entity::ESM

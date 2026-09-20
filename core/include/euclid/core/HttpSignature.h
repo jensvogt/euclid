@@ -170,6 +170,16 @@ namespace Euclid::Core {
          */
         struct VerifyResult {
             std::string accessKeyId;
+
+            /**
+             * @brief The Content-Digest the signature covers.
+             *
+             * @par
+             * Only of interest after VerifyWithoutBody(), which leaves the body unchecked: this is
+             * what the caller compares its own digest against once the body has finished
+             * arriving. After Verify() it has already been checked and says nothing new.
+             */
+            std::string contentDigest;
         };
 
         /**
@@ -205,6 +215,59 @@ namespace Euclid::Core {
         static std::optional<VerifyResult> Verify(const boost::beast::http::request<boost::beast::http::string_body> &req,
                                                   const std::function<std::optional<std::string>(const std::string &)> &lookupSecret,
                                                   std::chrono::seconds maxSkew = std::chrono::minutes(15));
+
+        /**
+         * @brief Verifies everything except that the body matches the digest it signed.
+         *
+         * @par
+         * For a request whose body has not arrived yet - an upload streamed through the gateway,
+         * where holding it to compare against a digest is the one thing the streaming exists to
+         * avoid. Every other check is the same and is made here: the caller is authenticated, the
+         * covered component list is the fixed one, the timestamp is fresh, and the signature is
+         * over a base that includes Content-Digest. What is left undone is comparing that digest
+         * to the bytes.
+         *
+         * @par
+         * Which makes the guarantee this gives stronger than it first looks, not weaker: the
+         * caller has committed to a specific body before a single byte of it has been read, so a
+         * body that turns out not to match was never the signed one and the upload can be thrown
+         * away. What it does not give is any assurance at all until the caller compares
+         * VerifyResult::contentDigest against what actually arrived - a caller that forgets to has
+         * accepted an unauthenticated body, which is why the digest is returned rather than
+         * silently dropped.
+         *
+         * @param req          the request, headers received and body not yet read.
+         * @param lookupSecret resolves an access key ID to its secret, or std::nullopt if unknown.
+         * @param maxSkew      how far "created" may sit from now, in either direction.
+         * @return the access key ID and the signed Content-Digest, or std::nullopt on any failure.
+         */
+        [[nodiscard]]
+        static std::optional<VerifyResult> VerifyWithoutBody(const boost::beast::http::request<boost::beast::http::string_body> &req,
+                                                             const std::function<std::optional<std::string>(const std::string &)> &lookupSecret,
+                                                             std::chrono::seconds maxSkew = std::chrono::minutes(15));
+
+        /**
+         * @brief Whether a digest computed over a received body is the one that was signed.
+         *
+         * @par
+         * The comparison VerifyWithoutBody() left to the caller, kept here so it is made in
+         * constant time and against the same rendering - a caller writing "signed == computed"
+         * would be right about the bytes and wrong about both.
+         *
+         * @param signedDigest the Content-Digest from VerifyResult.
+         * @param body         the body as it arrived, for callers that have it whole.
+         */
+        [[nodiscard]]
+        static bool BodyMatchesDigest(const std::string &signedDigest, const std::string &body);
+
+        /**
+         * @brief The same, for a body that was hashed as it streamed past.
+         *
+         * @param signedDigest the Content-Digest from VerifyResult.
+         * @param rawSha256    the finished digest, as Core::Sha256Digest::raw() returns it.
+         */
+        [[nodiscard]]
+        static bool DigestMatches(const std::string &signedDigest, const std::string &rawSha256);
     };
 
 }// namespace Euclid::Core

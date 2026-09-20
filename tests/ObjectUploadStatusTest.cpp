@@ -146,3 +146,34 @@ BOOST_AUTO_TEST_CASE(OnlyAnObjectThatCanBeFetchedIsWorthAnnouncing) {
 }
 
 BOOST_AUTO_TEST_SUITE_END()
+
+// ── Giving up on an upload ──────────────────────────────────────────────────
+
+// The mirror of the rule above, and wrong in the same direction if it is wrong: that one decides
+// what a row becomes when an upload starts, this one whether the row survives when it gives up.
+
+BOOST_AUTO_TEST_CASE(AFirstUploadsRowGoesWithTheUploadThatSeededIt) {
+    // Nothing was at this key before, so the row describes bytes that never arrived. Leaving it
+    // behind is an object nobody can read and nothing will ever write.
+    BOOST_TEST(RemoveObjectOnAbandonedUpload(false, ObjectStatus::CREATED));
+    BOOST_TEST(RemoveObjectOnAbandonedUpload(false, ObjectStatus::UPLOADING));
+}
+
+BOOST_AUTO_TEST_CASE(ARepublishedObjectSurvivesAnAbandonedReUpload) {
+    // The row is the previous version - still published, still readable, still named by an
+    // internalName that points at a real file. Deleting it here would do by hand exactly the
+    // damage the 21 blinded objects suffered by accident.
+    BOOST_TEST(!RemoveObjectOnAbandonedUpload(true, ObjectStatus::COMPLETED));
+    BOOST_TEST(!RemoveObjectOnAbandonedUpload(true, ObjectStatus::UPLOADING));
+    BOOST_TEST(!RemoveObjectOnAbandonedUpload(true, ObjectStatus::CREATED));
+}
+
+// Readable objects are not collateral, whatever the upload thought it was doing.
+BOOST_AUTO_TEST_CASE(ACompletedObjectIsNeverRemoved) {
+    BOOST_TEST(!RemoveObjectOnAbandonedUpload(false, ObjectStatus::COMPLETED));
+}
+
+BOOST_AUTO_TEST_CASE(NoRowMeansNothingToRemove) {
+    BOOST_TEST(!RemoveObjectOnAbandonedUpload(false, std::nullopt));
+    BOOST_TEST(!RemoveObjectOnAbandonedUpload(true, std::nullopt));
+}

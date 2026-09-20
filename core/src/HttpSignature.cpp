@@ -211,42 +211,80 @@ namespace Euclid::Core {
         return !req["Signature-Input"].empty() && !req["Signature"].empty();
     }
 
+    namespace {
+
+        // Everything both entry points check. The body is the only difference between them, and
+        // it is deliberately not touched here: Verify() compares it afterwards, and
+        // VerifyWithoutBody() hands the digest back for its caller to compare once the body has
+        // arrived. Keeping the shared half in one place is what stops the two drifting into
+        // disagreeing about anything else.
+        std::optional<HttpSignature::VerifyResult> verifySignature(
+                const http::request<http::string_body> &req,
+                const std::function<std::optional<std::string>(const std::string &)> &lookupSecret,
+                const std::chrono::seconds maxSkew) {
+
+            const auto parsed = HttpSignature::ParseSignatureInput(std::string(req["Signature-Input"]));
+            if (!parsed.has_value()) return std::nullopt;
+
+            // Fixed policy, not client-negotiated - see the class comment for why the covered set
+            // can't be whatever the signer felt like covering.
+            if (parsed->components != HttpSignature::CoveredComponents()) return std::nullopt;
+            if (parsed->algorithm != HttpSignature::Algorithm) return std::nullopt;
+            if (parsed->keyId.empty()) return std::nullopt;
+
+            const auto now = nowSeconds();
+            if (parsed->created == 0) return std::nullopt;
+            if (const auto skew = now - parsed->created; skew > maxSkew.count() || skew < -maxSkew.count()) return std::nullopt;
+            if (parsed->expires != 0 && parsed->expires < now) return std::nullopt;
+
+            // Required whether or not the body is here to check against it: a request that covers
+            // no digest is one whose body is not covered by the signature at all, and accepting it
+            // would let anybody swap the body of a request they captured.
+            const auto digest = std::string(req["Content-Digest"]);
+            if (digest.empty()) return std::nullopt;
+
+            const auto secret = lookupSecret(parsed->keyId);
+            if (!secret.has_value()) return std::nullopt;
+
+            const auto base = HttpSignature::BuildSignatureBase(req, parsed->components, parsed->parameters);
+            if (!base.has_value()) return std::nullopt;
+
+            const auto expected = CryptoUtils::hmacSha256({secret->begin(), secret->end()}, *base);
+            const auto expectedHeader = parsed->label + "=:" + CryptoUtils::Base64Encode({expected.begin(), expected.end()}) + ":";
+
+            if (!constantTimeEquals(trim(std::string(req["Signature"])), expectedHeader)) return std::nullopt;
+
+            return HttpSignature::VerifyResult{.accessKeyId = parsed->keyId, .contentDigest = digest};
+        }
+
+    }// namespace
+
     std::optional<HttpSignature::VerifyResult> HttpSignature::Verify(const http::request<http::string_body> &req,
                                                                      const std::function<std::optional<std::string>(const std::string &)> &lookupSecret,
                                                                      const std::chrono::seconds maxSkew) {
 
-        const auto parsed = ParseSignatureInput(std::string(req["Signature-Input"]));
-        if (!parsed.has_value()) return std::nullopt;
-
-        // Fixed policy, not client-negotiated - see the class comment for why the covered set
-        // can't be whatever the signer felt like covering.
-        if (parsed->components != CoveredComponents()) return std::nullopt;
-        if (parsed->algorithm != Algorithm) return std::nullopt;
-        if (parsed->keyId.empty()) return std::nullopt;
-
-        const auto now = nowSeconds();
-        if (parsed->created == 0) return std::nullopt;
-        if (const auto skew = now - parsed->created; skew > maxSkew.count() || skew < -maxSkew.count()) return std::nullopt;
-        if (parsed->expires != 0 && parsed->expires < now) return std::nullopt;
+        auto verified = verifySignature(req, lookupSecret, maxSkew);
+        if (!verified.has_value()) return std::nullopt;
 
         // The body is covered only through this header, so it has to be checked against the body
         // actually received before the signature over it means anything.
-        const auto digest = req["Content-Digest"];
-        if (digest.empty()) return std::nullopt;
-        if (!constantTimeEquals(std::string(digest), ContentDigest(req.body()))) return std::nullopt;
+        if (!constantTimeEquals(verified->contentDigest, ContentDigest(req.body()))) return std::nullopt;
 
-        const auto secret = lookupSecret(parsed->keyId);
-        if (!secret.has_value()) return std::nullopt;
+        return verified;
+    }
 
-        const auto base = BuildSignatureBase(req, parsed->components, parsed->parameters);
-        if (!base.has_value()) return std::nullopt;
+    std::optional<HttpSignature::VerifyResult> HttpSignature::VerifyWithoutBody(const http::request<http::string_body> &req,
+                                                                                const std::function<std::optional<std::string>(const std::string &)> &lookupSecret,
+                                                                                const std::chrono::seconds maxSkew) {
+        return verifySignature(req, lookupSecret, maxSkew);
+    }
 
-        const auto expected = CryptoUtils::hmacSha256({secret->begin(), secret->end()}, *base);
-        const auto expectedHeader = parsed->label + "=:" + CryptoUtils::Base64Encode({expected.begin(), expected.end()}) + ":";
+    bool HttpSignature::BodyMatchesDigest(const std::string &signedDigest, const std::string &body) {
+        return constantTimeEquals(signedDigest, ContentDigest(body));
+    }
 
-        if (!constantTimeEquals(trim(std::string(req["Signature"])), expectedHeader)) return std::nullopt;
-
-        return VerifyResult{.accessKeyId = parsed->keyId};
+    bool HttpSignature::DigestMatches(const std::string &signedDigest, const std::string &rawSha256) {
+        return constantTimeEquals(signedDigest, "sha-256=:" + CryptoUtils::Base64Encode(rawSha256) + ":");
     }
 
 }// namespace Euclid::Core
