@@ -17,8 +17,23 @@ namespace Euclid::Database::Entity::EAG {
         bsoncxx::builder::basic::array methodArray;
         for (const auto &method: methods) methodArray.append(method);
 
+        bsoncxx::builder::basic::array contentTypeArray;
+        for (const auto &contentType: upload.contentTypes) contentTypeArray.append(contentType);
+
+        // Written for every route, not only for uploads: a stored document whose shape depends on
+        // a field's value is one a reader has to branch on, and the cost of five empty fields on a
+        // proxy route is nothing next to that.
+        auto uploadDocument = bsoncxx::builder::basic::make_document(
+                bsoncxx::builder::basic::kvp("bucket", upload.bucket),
+                bsoncxx::builder::basic::kvp("keyPrefix", upload.keyPrefix),
+                bsoncxx::builder::basic::kvp("maxBytes", upload.maxBytes),
+                bsoncxx::builder::basic::kvp("partSize", upload.partSize),
+                bsoncxx::builder::basic::kvp("contentTypes", contentTypeArray));
+
         return bsoncxx::builder::basic::make_document(
                 bsoncxx::builder::basic::kvp("routeId", routeId),
+                bsoncxx::builder::basic::kvp("type", RouteTypeToString(type)),
+                bsoncxx::builder::basic::kvp("upload", uploadDocument),
                 bsoncxx::builder::basic::kvp("ern", ern),
                 bsoncxx::builder::basic::kvp("accountId", accountId),
                 bsoncxx::builder::basic::kvp("region", region),
@@ -51,6 +66,25 @@ namespace Euclid::Database::Entity::EAG {
             else if (key == "methods") {
                 for (const auto &method: field.get_array().value) {
                     route.methods.emplace_back(method.get_string().value);
+                }
+            }
+            else if (key == "type") {
+                // A stored value nobody can parse falls back to PROXY - see RouteTypeFromString.
+                // That fails safe: such a route names no application and no module, so it finds no
+                // backend and answers 503 rather than becoming an upload endpoint by accident.
+                route.type = RouteTypeFromString(std::string(field.get_string().value)).value_or(RouteType::PROXY);
+            }
+            else if (key == "upload") {
+                for (const auto &uploadField: field.get_document().value) {
+                    if (const auto uploadKey = uploadField.key(); uploadKey == "bucket") route.upload.bucket = std::string(uploadField.get_string().value);
+                    else if (uploadKey == "keyPrefix") route.upload.keyPrefix = std::string(uploadField.get_string().value);
+                    else if (uploadKey == "maxBytes") route.upload.maxBytes = uploadField.get_int64().value;
+                    else if (uploadKey == "partSize") route.upload.partSize = uploadField.get_int64().value;
+                    else if (uploadKey == "contentTypes") {
+                        for (const auto &contentType: uploadField.get_array().value) {
+                            route.upload.contentTypes.emplace_back(contentType.get_string().value);
+                        }
+                    }
                 }
             }
             else if (key == "authentication") {

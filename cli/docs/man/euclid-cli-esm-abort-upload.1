@@ -1,0 +1,79 @@
+.TH EUCLID-CLI-ESM-ABORT-UPLOAD 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-abort-upload \- throw away a multipart upload that will not be finished
+.SH SYNOPSIS
+.B euclid-cli esm abort-upload
+.BR \-\-upload\-id | \-u
+.I ID
+.SH DESCRIPTION
+Discards a multipart upload: the parts staged on disk under
+.IR ID ,
+and \- for a first upload \- the object row
+.BR euclid-cli-esm-upload-file (1)
+seeded for bytes that never arrived.
+.PP
+This is the counterpart
+.I complete-upload
+has always needed. An upload that stops halfway leaves scratch storage under
+an id nothing will ever complete, and nothing else can tell the difference
+between an upload that was abandoned and one that is still being sent.
+.SH WHAT SURVIVES
+A
+.I re-upload
+\- an upload to a key that already holds an object \- leaves that object
+exactly as it is. The row is the previous version: still published, still
+readable, and not this upload's to delete. Only a first upload's row is
+removed, because it describes an object whose bytes never arrived.
+.PP
+The answer says which happened in
+.IR objectRemoved .
+The distinction matters: "the upload is gone" and "the object is gone" are
+different outcomes, and a caller cleaning up after a failure needs to know
+which one they got.
+.SH WHEN YOU NEED IT
+.BR euclid-cli-esm-upload-file (1)
+does not need this \- it completes or it fails within one command. What needs
+it is an upload nothing is driving any more:
+.TP
+.B a client that went away
+A machine rebooted, a process killed, a network that dropped mid-upload.
+.TP
+.B a gateway upload that was refused
+An upload route abandons its upload when a part is refused, when
+.I complete-upload
+fails, or when the body does not match the
+.I Content-Digest
+that was signed. It calls this action itself; the id is in its log if the
+call did not get through.
+.SH OPTIONS
+.TP
+.BR \-u ", " \-\-upload\-id " " \fIID\fR
+The upload to discard, as
+.I create-upload
+returned it. Required.
+.SH OUTPUT
+The upload's id, the bucket and key it was being written to, how many staged
+parts were thrown away, and whether the object row went with it.
+.SH EXIT STATUS
+.TP
+.B 0
+The upload was discarded.
+.TP
+.B 1
+Missing arguments, the server could not be reached, the caller's grants do
+not cover the bucket, or there is no such upload. An upload that has already
+completed answers \fIHTTP 404\fR, because there is no longer any such upload.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli esm abort-upload \e
+    --upload-id 3f2a9c14-7b60-4c1e-9a0d-2f5e8b7c1d04
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-upload-file (1),
+.BR euclid-cli-esm-delete-object (1),
+.BR euclid-cli-eag-create-route (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

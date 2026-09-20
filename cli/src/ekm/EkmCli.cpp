@@ -34,15 +34,16 @@ namespace Euclid::CLI {
                 {"delete-key", "Schedule a key for deletion"},
                 {"encrypt", "Encrypt a file or stdin with a key"},
                 {"get-certificate", "Show one certificate, without its private key"},
+                {"get-key", "Show one key's description"},
                 {"import-certificate", "Store a certificate and its private key"},
                 {"list-certificates", "List stored certificates"},
-                {"get-key", "Show one key's description"},
                 {"list-keys", "List existing keys"},
                 {"revoke-key", "Revoke a key (blocks encryption, decryption still works)"},
                 {"set-key-description", "Change what a key says it is for"},
         };
         return kActions;
     }
+
     int EkmCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
             return PrintModuleHelp("ekm", Actions());

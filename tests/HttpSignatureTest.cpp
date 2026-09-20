@@ -101,6 +101,88 @@ BOOST_AUTO_TEST_CASE(AStrippedDigestFails) {
     BOOST_TEST(!HttpSignature::Verify(req, keyStore()).has_value());
 }
 
+// ── Verifying before the body has arrived ───────────────────────────────────
+
+// An upload is streamed, so the one thing Verify() needs - the whole body, to hash - is the one
+// thing the gateway deliberately never has. VerifyWithoutBody() makes every other check and hands
+// back the digest the caller committed to, which is what the body is compared against later.
+BOOST_AUTO_TEST_CASE(ASignatureVerifiesBeforeItsBodyIsRead) {
+    auto req = buildRequest();
+    HttpSignature::Sign(req, kAccessKeyId, kSecret);
+
+    const auto signedDigest = std::string(req["Content-Digest"]);
+    const auto body = req.body();
+
+    // The request as the gateway holds it when the headers are in and the body is not.
+    req.body().clear();
+
+    const auto verified = HttpSignature::VerifyWithoutBody(req, keyStore());
+    BOOST_REQUIRE(verified.has_value());
+    BOOST_TEST(verified->accessKeyId == kAccessKeyId);
+    BOOST_TEST(verified->contentDigest == signedDigest);
+
+    // ...and the body, once it has all gone past, is the one that was signed.
+    BOOST_TEST(HttpSignature::BodyMatchesDigest(verified->contentDigest, body));
+}
+
+// The whole point of returning the digest: a body that is not the signed one is caught, however
+// long after the headers were accepted it finishes arriving.
+BOOST_AUTO_TEST_CASE(ABodyThatIsNotTheSignedOneIsCaughtAfterwards) {
+    auto req = buildRequest();
+    HttpSignature::Sign(req, kAccessKeyId, kSecret);
+
+    const auto verified = HttpSignature::VerifyWithoutBody(req, keyStore());
+    BOOST_REQUIRE(verified.has_value());
+
+    BOOST_TEST(!HttpSignature::BodyMatchesDigest(verified->contentDigest, R"({"bucketErn":"ern:esm:someone-elses-bucket"})"));
+}
+
+// A request covering no digest has a body the signature says nothing about, so it is refused here
+// as it is by Verify() - otherwise a captured request could be replayed with any body at all.
+BOOST_AUTO_TEST_CASE(VerifyWithoutBodyStillRequiresADigest) {
+    auto req = buildRequest();
+    HttpSignature::Sign(req, kAccessKeyId, kSecret);
+    req.erase("Content-Digest");
+
+    BOOST_TEST(!HttpSignature::VerifyWithoutBody(req, keyStore()).has_value());
+}
+
+BOOST_AUTO_TEST_CASE(VerifyWithoutBodyMakesEveryOtherCheckVerifyMakes) {
+    auto req = buildRequest();
+    HttpSignature::Sign(req, kAccessKeyId, kSecret);
+    req.body().clear();
+
+    BOOST_TEST(!HttpSignature::VerifyWithoutBody(req, keyStore(kAccessKeyId, "not-the-secret")).has_value());
+    BOOST_TEST(!HttpSignature::VerifyWithoutBody(req, keyStore("AKIAUNKNOWN", kSecret)).has_value());
+
+    // A covered header changed after signing.
+    auto tampered = buildRequest();
+    HttpSignature::Sign(tampered, kAccessKeyId, kSecret);
+    tampered.set("x-euclid-action", "delete-bucket");
+    tampered.body().clear();
+    BOOST_TEST(!HttpSignature::VerifyWithoutBody(tampered, keyStore()).has_value());
+}
+
+// The streamed form has to agree with the one-shot form, or a body hashed on its way past would
+// be judged against a digest rendered differently from the one it is compared to.
+BOOST_AUTO_TEST_CASE(AStreamedDigestMatchesTheOneShotOne) {
+    const std::string body = R"({"bucketErn":"ern:esm:x"})";
+
+    Euclid::Core::Sha256Digest streamed;
+    for (std::size_t i = 0; i < body.size(); i += 4) {
+        streamed.update(std::string_view(body).substr(i, 4));
+    }
+
+    BOOST_TEST(HttpSignature::DigestMatches(HttpSignature::ContentDigest(body), streamed.raw()));
+}
+
+BOOST_AUTO_TEST_CASE(AStreamedDigestOfTheWrongBytesDoesNotMatch) {
+    Euclid::Core::Sha256Digest streamed;
+    streamed.update("not what was signed");
+
+    BOOST_TEST(!HttpSignature::DigestMatches(HttpSignature::ContentDigest(R"({"bucketErn":"ern:esm:x"})"), streamed.raw()));
+}
+
 BOOST_AUTO_TEST_CASE(TheWrongKeyFails) {
     auto req = buildRequest();
     HttpSignature::Sign(req, kAccessKeyId, kSecret);

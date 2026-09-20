@@ -208,7 +208,8 @@ namespace Euclid::Core {
                 "eqs:start-queue",
                 "eqs:stop-queue",
 
-                // esm - 38 actions
+                // esm - 39 actions
+                "esm:abort-upload",
                 "esm:add-bucket-tag",
                 "esm:add-object-attribute",
                 "esm:complete-download",
