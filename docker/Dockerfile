@@ -17,8 +17,19 @@ ENV ACLOCAL_PATH=/usr/share/aclocal
 ENV VCPKG_DEFAULT_BINARY_CACHE=/vcpkg-cache
 RUN mkdir -p /usr/share/aclocal && mkdir -p /vcpkg-cache
 
+# This clone has to contain the commit euclid's vcpkg.json names as its baseline: vcpkg resolves
+# every port version by running `git show <baseline>:versions/baseline.json` inside it. Left on
+# master and unpinned, the layer is cached from whenever it was first built and never refreshed -
+# the instruction text does not change, so Docker never re-runs it - and the first baseline bump
+# afterwards fails the build with "path 'versions/baseline.json' exists on disk, but not in
+# <commit>". The clone was simply older than the manifest.
+#
+# Pinning it puts the commit in the layer's cache key, so moving the baseline rebuilds the clone.
+# Keep this equal to "builtin-baseline" in vcpkg.json; the build stage below checks that it is and
+# recovers if it is not.
+ARG VCPKG_BASELINE=319504a5326aa870edde46438c5455fa76305a56
 WORKDIR /usr/local/vcpkg
-RUN git clone https://github.com/microsoft/vcpkg.git .
+RUN git clone https://github.com/microsoft/vcpkg.git . && git checkout "$VCPKG_BASELINE"
 RUN ./bootstrap-vcpkg.sh
 
 WORKDIR /usr/src
@@ -26,6 +37,12 @@ ARG BUILD_VERSION
 RUN git clone https://github.com/jensvogt/euclid.git
 RUN --mount=type=cache,target=/vcpkg-cache \
     cd /usr/src/euclid && \
+    BASELINE="$(sed -n 's/.*"builtin-baseline"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{40\}\)".*/\1/p' vcpkg.json)" && \
+    if [ -n "$BASELINE" ] && ! git -C "$VCPKG_ROOT" cat-file -e "$BASELINE^{commit}" 2>/dev/null; then \
+        echo "vcpkg clone predates the manifest baseline $BASELINE - fetching" && \
+        git -C "$VCPKG_ROOT" fetch --quiet origin && \
+        git -C "$VCPKG_ROOT" checkout --quiet "$BASELINE"; \
+    fi && \
     mkdir build && \
     cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake \
     -DCMAKE_BUILD_TYPE=Release -Wno-dev && \
