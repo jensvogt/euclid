@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.27](https://github.com/jensvogt/euclid/compare/v1.1.26...v1.1.27) (2026-09-20)
+
+
+### Bug Fixes
+
+* socker build ([9c01fb9](https://github.com/jensvogt/euclid/commit/9c01fb9ab6a0fb46e5c32e55176046d67ee5d574))
+
 ## [1.1.26](https://github.com/jensvogt/euclid/compare/1.1.25...v1.1.26) (2026-09-20)
 
 
