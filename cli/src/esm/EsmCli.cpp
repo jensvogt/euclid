@@ -73,6 +73,7 @@ namespace Euclid::CLI {
      */
     const std::vector<std::pair<std::string, std::string> > &EsmCli::Actions() {
         static const std::vector<std::pair<std::string, std::string> > kActions = {
+                {"abort-upload", "Throw away a multipart upload that will not be finished"},
                 {"add-bucket-tag", "Adds a tag to a bucket"},
                 {"add-object-attribute", "Adds an attribute to an object"},
                 {"copy-object", "Copies an object to another key or bucket"},
@@ -147,6 +148,9 @@ namespace Euclid::CLI {
         }
         if (action == "get-bucket-size") {
             return getBucketSize(args);
+        }
+        if (action == "abort-upload") {
+            return abortUpload(args);
         }
         if (action == "upload-file") {
             return uploadFile(args);
@@ -916,6 +920,59 @@ namespace Euclid::CLI {
 
         Core::WriteJson(std::cout, result, _pretty);
         return 0;
+    }
+
+    int EsmCli::abortUpload(const std::vector<std::string> &args) const {
+        po::options_description desc("abort upload options");
+        desc.add_options()
+                ("upload-id,u", po::value<std::string>()->required(), "the upload to discard, as create-upload returned it");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", "abort-upload", "--upload-id <id>",
+                                   "Throws away a multipart upload that will not be finished: its staged parts, and - for a "
+                                   "first upload - the object row that was seeded for bytes which never arrived. "
+                                   "\n\n"
+                                   "A re-upload's object row is left exactly as it is. That row is the previous version of "
+                                   "the object: still published, still readable, and not this upload's to delete. The answer "
+                                   "says which happened in \"objectRemoved\", because \"the upload is gone\" and \"the object "
+                                   "is gone\" are different outcomes and a caller cleaning up after a failure needs to know "
+                                   "which one they got. "
+                                   "\n\n"
+                                   "upload-file does not need this: it completes or it fails within one command. What needs it "
+                                   "is an upload nothing is driving any more - one whose client was killed, or one the API "
+                                   "gateway abandoned because the body did not match the digest that was signed. An upload "
+                                   "that has already completed answers 404, because there is no longer any such upload.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ESM::AbortUploadRequest request;
+        request.uploadId = vm["upload-id"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("esm", "abort-upload", boost::json::value_from(request));
+
+            if (!response.IsSuccess()) {
+                std::cerr << "error: abort-upload failed (HTTP " << response.statusCode << "): "
+                          << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
     }
 
     int EsmCli::uploadDirectory(const std::vector<std::string> &args) const {

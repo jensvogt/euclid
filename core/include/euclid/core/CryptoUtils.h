@@ -63,6 +63,54 @@ namespace Euclid::Core {
     };
 
     /**
+     * @brief A SHA-256 digest computed over data that is never all in memory at once.
+     *
+     * @par
+     * What Md5Digest is for checksums, this is for the one digest a signature covers.
+     * CryptoUtils::sha256Raw() needs the whole input at once, which a streamed upload never is -
+     * the point of streaming it is that no single buffer ever holds it. This keeps the hash state
+     * between chunks, so an RFC 9421 Content-Digest can be computed while the bytes are on their
+     * way into ESM and compared against the signed one when the last chunk has gone.
+     *
+     * @author jensvogt47\@gmail.com
+     */
+    class Sha256Digest {
+    public:
+
+        /**
+         * @brief Starts a new, empty digest.
+         */
+        Sha256Digest();
+
+        /**
+         * @brief Adds the next piece of data to the digest.
+         *
+         * @param data bytes to hash; may be empty.
+         */
+        void update(std::string_view data) const;
+
+        /**
+         * @brief Finalizes the digest and returns it as raw bytes.
+         *
+         * @par
+         * Finalizing consumes the underlying context - call this once, after the last update().
+         * Raw rather than hex because what reads it is Content-Digest, which carries base64 over
+         * these bytes; hex would have to be decoded again to get here.
+         *
+         * @return SHA-256 of everything passed to update(), as 32 raw bytes.
+         */
+        [[nodiscard]]
+        std::string raw() const;
+
+    private:
+
+        // EVP_MD_CTX, kept behind an incomplete type for the same reason Md5Digest does.
+        struct Context;
+
+        std::shared_ptr<Context> _context;
+    };
+
+    /**
      * @brief Cryptographic hashing utilities.
      *
      * @author jensvogt47\@gmail.com
@@ -207,6 +255,7 @@ namespace Euclid::Core {
          * @return the 32-byte digest, as raw bytes.
          */
         static std::string sha256Raw(const std::string &str);
+
 
         /**
          * @brief Computes an HMAC-SHA256 over data, keyed with key.

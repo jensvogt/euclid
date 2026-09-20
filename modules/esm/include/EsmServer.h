@@ -37,6 +37,8 @@
 #include <euclid/database/entity/esm/Subscription.h>
 #include <euclid/dto/BaseDto.h>
 #include <euclid/dto/esm/CompleteDownloadRequest.h>
+#include <euclid/dto/esm/AbortUploadRequest.h>
+#include <euclid/dto/esm/AbortUploadResponse.h>
 #include <euclid/dto/esm/CompleteUploadRequest.h>
 #include <euclid/dto/esm/CompleteUploadResponse.h>
 #include <euclid/dto/esm/CopyObjectRequest.h>
@@ -237,6 +239,9 @@ namespace Euclid::ESM {
 
         [[nodiscard]]
         static response<string_body> handleCompleteUpload(const request<string_body> &req);
+
+        [[nodiscard]]
+        static response<string_body> handleAbortUpload(const request<string_body> &req);
 
         [[nodiscard]]
         static response<string_body> handleGetObject(const request<string_body> &req);

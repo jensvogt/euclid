@@ -462,6 +462,23 @@ namespace Euclid::Core {
         static void SetAccessKeyLookup(AccessKeyLookup lookup);
 
         /**
+         * @brief Resolves an access key ID through the registered lookup.
+         *
+         * @par
+         * What Authenticate() does internally, for the one caller that has to verify a signature
+         * itself rather than letting Authenticate() do it: the API gateway, whose upload routes
+         * check the signature before the body has arrived and so cannot use a verifier that
+         * compares the body to the digest. It resolves nothing a process that has called
+         * SetAccessKeyLookup() could not already resolve by asking Authenticate() to verify
+         * something.
+         *
+         * @param accessKeyId the key to resolve.
+         * @return its secret and owner, or std::nullopt if unknown or no lookup is registered.
+         */
+        [[nodiscard]]
+        static std::optional<AccessKeyRecord> LookupAccessKey(const std::string &accessKeyId);
+
+        /**
          * @brief Callback CheckScope (inside Authenticate()) uses to verify an account/namespace
          * exists, once account/namespace management has a database behind it.
          *

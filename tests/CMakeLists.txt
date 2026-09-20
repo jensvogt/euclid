@@ -135,6 +135,52 @@ target_link_libraries(${ROUTE_MATCH_BINARY} PRIVATE eucliddb Boost::unit_test_fr
 
 add_test(NAME ${ROUTE_MATCH_BINARY} COMMAND ${ROUTE_MATCH_BINARY})
 
+# ---------------------------------------------------------------------------------------------
+# EAG route type
+# ---------------------------------------------------------------------------------------------
+set(ROUTE_TYPE_BINARY euclid-eag-route-type-tests)
+
+add_executable(${ROUTE_TYPE_BINARY} RouteTypeTest.cpp)
+set_target_properties(${ROUTE_TYPE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${ROUTE_TYPE_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${ROUTE_TYPE_BINARY} COMMAND ${ROUTE_TYPE_BINARY})
+
+# ---------------------------------------------------------------------------------------------
+# EAG upload key
+# ---------------------------------------------------------------------------------------------
+set(UPLOAD_TARGET_BINARY euclid-eag-upload-target-tests)
+
+add_executable(${UPLOAD_TARGET_BINARY} UploadTargetTest.cpp ${CMAKE_SOURCE_DIR}/modules/eag/src/UploadTarget.cpp)
+set_target_properties(${UPLOAD_TARGET_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${UPLOAD_TARGET_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/eag/include)
+target_link_libraries(${UPLOAD_TARGET_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${UPLOAD_TARGET_BINARY} COMMAND ${UPLOAD_TARGET_BINARY})
+
+# ---------------------------------------------------------------------------------------------
+# EAG upload streaming
+# ---------------------------------------------------------------------------------------------
+set(UPLOAD_STREAM_BINARY euclid-eag-upload-stream-tests)
+
+add_executable(${UPLOAD_STREAM_BINARY} UploadStreamTest.cpp
+        ${CMAKE_SOURCE_DIR}/modules/eag/src/ProxyServer.cpp
+        ${CMAKE_SOURCE_DIR}/modules/eag/src/ClientStream.cpp
+        ${CMAKE_SOURCE_DIR}/modules/eag/src/RouteTable.cpp
+        ${CMAKE_SOURCE_DIR}/modules/eag/src/Backends.cpp
+        ${CMAKE_SOURCE_DIR}/modules/eag/src/BasicAuthenticator.cpp
+        ${CMAKE_SOURCE_DIR}/modules/eag/src/ListenerCertificate.cpp
+        ${CMAKE_SOURCE_DIR}/modules/eag/src/ModuleCall.cpp
+        ${CMAKE_SOURCE_DIR}/modules/eag/src/UploadTarget.cpp)
+set_target_properties(${UPLOAD_STREAM_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${UPLOAD_STREAM_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/eag/include)
+target_link_libraries(${UPLOAD_STREAM_BINARY} PRIVATE eucliddb euclidcore Boost::unit_test_framework OpenSSL::SSL OpenSSL::Crypto)
+
+add_test(NAME ${UPLOAD_STREAM_BINARY} COMMAND ${UPLOAD_STREAM_BINARY})
+
 set(START_ORDER_BINARY euclid-module-start-order-tests)
 
 add_executable(${START_ORDER_BINARY} ModuleStartOrderTest.cpp)
