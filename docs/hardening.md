@@ -39,7 +39,7 @@ The first run produced 309 warnings. Suppressing that one class removed 198; cha
 `static` definitions at namespace scope in `MessagePriority.h` to `inline` removed 56 more — a
 `static` function in a header gives every translation unit its own copy and warns in each one that
 does not call it. **55 remained**, and they were the ones worth triaging. All 55 have since been
-worked through. **The build is warning-free**, which is what makes the table below history rather
+worked through. **euclid's own sources build warning-free**, which is what makes the table below history rather
 than a to-do list:
 
 | | was | now | |
@@ -283,7 +283,14 @@ slow for every pull request it is a reasonable candidate for a nightly schedule 
 
 ## 6. Not done
 
-- **`-Werror` is still not set.** It is now possible — the build is warning-free — where before it
+- **Release builds carry 162 warnings from Boost's headers**, none from euclid. All of them are
+  `-Wnull-dereference` inside `boost/asio` and `boost/beast`, and they appear only in an optimized
+  build: GCC raises that one from the optimizer once the header has been inlined into a euclid
+  translation unit, and by then the `-isystem` marking that would have suppressed it is gone. So
+  `-isystem` is not the fix, and there is no version of this that is euclid's bug to fix. It
+  matters only as the reason `-Werror` cannot simply be turned on for Release — see below.
+- **`-Werror` is still not set.** It is now possible for euclid's own sources — they are
+  warning-free in both configurations — where before it
   would have failed on 55 findings. Worth doing only with a decision about non-GCC builds: a
   different compiler or a newer GCC finds warnings this one does not, and `-Werror` turns each of
   those into a build that does not compile rather than a build that complains. The middle option

@@ -198,7 +198,14 @@
         "executable": "/usr/local/euclid/bin/euclid-emm",
         "minInstances": 1,
         "maxInstances": 1,
-        "threads": 2
+        "threads": 2,
+        "backup": {
+          "enabled": true,
+          "schedule": "0 1 * * *",
+          "directory": "/usr/local/euclid/data/backup",
+          "keep": 7,
+          "passphrase": ""
+        }
       },
       "ees": {
         "dependencies": [
@@ -313,11 +320,11 @@
     "logging": {
       "file-active": false,
       "format": "text",
-        "console-format": "",
-        "file-format": "",
-        "console-level": "",
-        "file-level": "",
-        "console-active": true,
+      "console-format": "",
+      "file-format": "",
+      "console-level": "",
+      "file-level": "",
+      "console-active": true,
       "level": "warning",
       "dir": "/usr/local/euclid/log",
       "prefix": "euclid",

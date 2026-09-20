@@ -102,7 +102,10 @@ namespace Euclid::Core {
     // ISO 8601 with milliseconds and a Z, which is what every collector and OpenSearch itself
     // read as a date without being told a format.
     std::string isoTimestamp(const boost::log::record_view &rec) {
-        const auto *stamp = boost::log::extract<boost::posix_time::ptime>("TimeStamp", rec).get_ptr();
+        // "UtcTimeStamp", not "TimeStamp": the latter is local time - see LogStream::Init(). The
+        // fallback is UTC for the same reason, so a record that somehow arrives without the
+        // attribute is still an instant and not a wall clock reading.
+        const auto *stamp = boost::log::extract<boost::posix_time::ptime>("UtcTimeStamp", rec).get_ptr();
         const auto when = stamp != nullptr ? *stamp : boost::posix_time::microsec_clock::universal_time();
         return boost::posix_time::to_iso_extended_string(when).substr(0, 23) + "Z";
     }
@@ -323,6 +326,21 @@ namespace Euclid::Core {
 #endif
 
         boost::log::add_common_attributes();
+
+        // add_common_attributes() registers "TimeStamp" from a *local* time generator, which is
+        // the right thing for the text formatter - a console or a log file is read by somebody
+        // sitting in this timezone. It is the wrong thing for "@timestamp", which is an instant
+        // rather than a wall clock reading and has to be UTC. Writing the local ptime and
+        // suffixing "Z" told OpenSearch 22:00 UTC when it was 20:00 UTC, and Kibana then rendered
+        // that in the browser's timezone and added the offset a second time - two hours out in
+        // summer, one in winter, and no drift at all for anyone browsing from UTC, which is what
+        // makes it easy to miss.
+        //
+        // A second attribute rather than a conversion at format time: the two formatters want two
+        // different clocks, and deriving one from the other means subtracting an offset that is
+        // itself only correct until the next DST transition.
+        boost::log::core::get()->add_global_attribute("UtcTimeStamp", boost::log::attributes::utc_clock());
+
         _consoleSink = boost::log::add_console_log(std::cout);
 
         // No ANSI color codes: under systemd (or any other non-interactive launcher), stdout is

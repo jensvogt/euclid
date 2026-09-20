@@ -38,7 +38,10 @@ namespace Euclid::EMM {
          */
         explicit EmmServer(std::string socketPath, int threads = 2);
 
-        ~EmmServer() override = default;
+        /**
+         * @brief Cancels the nightly backup so the scheduler does not fire into a destroyed server.
+         */
+        ~EmmServer() override;
 
     protected:
 
@@ -50,6 +53,14 @@ namespace Euclid::EMM {
          */
         [[nodiscard]]
         response<string_body> DispatchAction(const request<string_body> &req) override;
+
+    private:
+
+        /**
+         * @brief Scheduler id of the nightly backup, empty when it is disabled or unschedulable.
+         */
+        std::string _backupTaskId;
+
     };
 
 }// namespace Euclid::EMM
