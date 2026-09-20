@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.28](https://github.com/jensvogt/euclid/compare/v1.1.27...v1.1.28) (2026-09-20)
+
+
+### Bug Fixes
+
+* macOS build ([7a94a69](https://github.com/jensvogt/euclid/commit/7a94a694155a12ad76698976697a440997ad5b60))
+
 ## [1.1.27](https://github.com/jensvogt/euclid/compare/v1.1.26...v1.1.27) (2026-09-20)
 
 
