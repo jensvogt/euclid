@@ -6,6 +6,9 @@
 #include <boost/test/unit_test.hpp>
 
 // C++ includes
+#include <cstdlib>
+#include <ctime>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -130,6 +133,60 @@ BOOST_FIXTURE_TEST_SUITE(JsonLogFormatTest, Fixture)
         BOOST_REQUIRE(stamp.size() == 24U);
         BOOST_TEST(stamp[10] == 'T');
         BOOST_TEST(stamp.back() == 'Z');
+    }
+
+    // The test above checks that the timestamp *claims* UTC. It does not check that it is UTC, and
+    // for a long time it was not: Boost's add_common_attributes() registers "TimeStamp" from a
+    // local time generator, that ptime went out with a "Z" on the end, and OpenSearch was told
+    // 22:00 UTC when it was 20:00 UTC. Kibana then rendered the instant in the browser's timezone
+    // and added the offset a second time, so every record read two hours into the future.
+    //
+    // The zone is forced rather than inherited, because a machine sitting in UTC cannot tell the
+    // two apart - which is the other half of why this went unnoticed.
+    BOOST_AUTO_TEST_CASE(TheTimestampIsActuallyUtcAndNotLocalTimeWearingAZ) {
+
+        struct ForcedZone {
+            explicit ForcedZone(const char *zone) : _had(std::getenv("TZ") != nullptr) {
+                if (_had) _saved = std::getenv("TZ");
+                setenv("TZ", zone, 1);
+                tzset();
+            }
+            ~ForcedZone() {
+                if (_had) setenv("TZ", _saved.c_str(), 1);
+                else unsetenv("TZ");
+                tzset();
+            }
+            bool _had;
+            std::string _saved;
+        };
+
+        // A zone that is never UTC, in either half of the year: +2 in summer, +1 in winter. A test
+        // that passed only outside daylight saving would be worse than none.
+        const ForcedZone zone("Europe/Berlin");
+        BOOST_TEST_REQUIRE(std::string(std::getenv("TZ")) == "Europe/Berlin");
+
+        const auto before = std::time(nullptr);
+        std::string stamp;
+        {
+            const CapturedLog captured;
+            log_info << "what time is it";
+            stamp = textOf(captured.lastObject(), "@timestamp");
+        }
+        BOOST_TEST_REQUIRE(stamp.size() == 24U);
+
+        // Read back as UTC, which is what the trailing "Z" promises.
+        std::tm parsed{};
+        std::istringstream in(stamp.substr(0, 19));
+        in >> std::get_time(&parsed, "%Y-%m-%dT%H:%M:%S");
+        BOOST_TEST_REQUIRE(!in.fail());
+        const auto reported = timegm(&parsed);
+
+        // Generous, because the point is not clock precision: a record stamped with Berlin local
+        // time is 3600 or 7200 seconds out, and nothing here runs for a minute.
+        const auto drift = std::abs(static_cast<long>(reported - before));
+        BOOST_TEST_CONTEXT("@timestamp=" << stamp << " drift=" << drift << "s") {
+            BOOST_TEST(drift < 60);
+        }
     }
 
     // A quote or a newline in a message must not end the object early, or the collector reads one

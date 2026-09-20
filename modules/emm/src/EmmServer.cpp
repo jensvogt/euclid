@@ -4,17 +4,21 @@
 
 // C++ includes
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <ranges>
 #include <unordered_set>
 
 // Euclid includes
+#include <euclid/core/Scheduler.h>
+#include <euclid/core/ZipUtils.h>
 #include <euclid/core/CryptoUtils.h>
 #include <euclid/core/DateTimeUtils.h>
 #include <euclid/core/JsonUtils.h>
 #include <euclid/database/Database.h>
 #include <EmmServer.h>
+#include <Backup.h>
 #include <ExportImport.h>
-
-#include <ranges>
 
 namespace Euclid::EMM {
 
@@ -113,6 +117,68 @@ namespace Euclid::EMM {
             }
             return {Core::CryptoUtils::Base64Encode(salt),
                     Core::CryptoUtils::DeriveKeyPbkdf2(passphrase, salt, kKdfIterations, kKeyLength)};
+        }
+
+        // The document an export answers with, built away from the request that asked for it so
+        // that the nightly backup produces byte-for-byte the same thing a caller would get - a
+        // backup written by a second implementation is a backup nobody has tested the import of.
+        //
+        // Validation stays with the handler: this trusts that the module names exist and that a
+        // passphrase is present if one is required, because the backup checks both differently
+        // (it has no client to answer with a 400).
+        //
+        // @throws std::runtime_error if a key cannot be derived from the passphrase and salt.
+        boost::json::object buildExport(const std::vector<std::string> &modules, const bool full,
+                                        const std::string &passphrase, const std::string &salt) {
+
+            const auto &specs = moduleExportSpecs();
+
+            boost::json::object collections;
+            for (const auto &module: modules) {
+                const auto &spec = specs.at(module);
+                for (const auto &collectionName: spec.topLevel) {
+                    collections[collectionName] = ExportCollection(Database::Database::instance().collection(collectionName));
+                }
+                if (full) {
+                    for (const auto &collectionName: spec.fullOnly) {
+                        collections[collectionName] = ExportCollection(Database::Database::instance().collection(collectionName));
+                    }
+                }
+            }
+
+            boost::json::array modulesJson(modules.begin(), modules.end());
+            const auto exportedAt = Core::DateTimeUtils::ToISO8601(std::chrono::system_clock::now());
+
+            if (!passphrase.empty()) {
+                auto [saltBase64, key] = archiveKey(passphrase, salt);
+
+                // What is sealed is the same object an unencrypted export answers with, so opening
+                // a frame yields a file the plain import path already understands.
+                const auto payload = boost::json::serialize(boost::json::object{{"collections", std::move(collections)}});
+                const auto sealed = Core::CryptoUtils::AesGcmEncrypt(key, payload);
+
+                // The envelope around it stays readable: which modules, when, and how to derive the
+                // key. Enough to tell what a file is, and to ask for the right passphrase, without
+                // giving away a byte of what it holds.
+                return boost::json::object{
+                        {"encrypted", true},
+                        {"modules", std::move(modulesJson)},
+                        {"full", full},
+                        {"exportedAt", exportedAt},
+                        {"kdf", kKdfName},
+                        {"iterations", kKdfIterations},
+                        {"salt", saltBase64},
+                        {"cipher", kCipherName},
+                        {"data", Core::CryptoUtils::Base64Encode(sealed)},
+                };
+            }
+
+            return boost::json::object{
+                    {"modules", std::move(modulesJson)},
+                    {"full", full},
+                    {"exportedAt", exportedAt},
+                    {"collections", std::move(collections)},
+            };
         }
 
         // Collection name -> owning module, derived from moduleExportSpecs() (the single source of
@@ -293,58 +359,11 @@ namespace Euclid::EMM {
             }
         }
 
-        boost::json::object collections;
-        for (const auto &module: modules) {
-            const auto &spec = specs.at(module);
-            for (const auto &collectionName: spec.topLevel) {
-                collections[collectionName] = ExportCollection(Database::Database::instance().collection(collectionName));
-            }
-            if (full) {
-                for (const auto &collectionName: spec.fullOnly) {
-                    collections[collectionName] = ExportCollection(Database::Database::instance().collection(collectionName));
-                }
-            }
+        try {
+            return EmmServer::JsonResponse(req, status::ok, boost::json::serialize(buildExport(modules, full, passphrase, salt)));
+        } catch (const std::exception &e) {
+            return EmmServer::ErrorResponse(req, status::bad_request, std::string("cannot derive a key: ") + e.what());
         }
-
-        boost::json::array modulesJson(modules.begin(), modules.end());
-        const auto exportedAt = Core::DateTimeUtils::ToISO8601(std::chrono::system_clock::now());
-
-        if (!passphrase.empty()) {
-            std::string saltBase64;
-            std::string key;
-            try {
-                std::tie(saltBase64, key) = archiveKey(passphrase, salt);
-            } catch (const std::exception &e) {
-                return EmmServer::ErrorResponse(req, status::bad_request, std::string("cannot derive a key: ") + e.what());
-            }
-
-            // What is sealed is the same object an unencrypted export answers with, so opening a
-            // frame yields a file the plain import path already understands.
-            const auto payload = boost::json::serialize(boost::json::object{{"collections", std::move(collections)}});
-            const auto sealed = Core::CryptoUtils::AesGcmEncrypt(key, payload);
-
-            // The envelope around it stays readable: which modules, when, and how to derive the
-            // key. Enough to tell what a file is, and to ask for the right passphrase, without
-            // giving away a byte of what it holds.
-            return EmmServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
-                                                   {"encrypted", true},
-                                                   {"modules", std::move(modulesJson)},
-                                                   {"full", full},
-                                                   {"exportedAt", exportedAt},
-                                                   {"kdf", kKdfName},
-                                                   {"iterations", kKdfIterations},
-                                                   {"salt", saltBase64},
-                                                   {"cipher", kCipherName},
-                                                   {"data", Core::CryptoUtils::Base64Encode(sealed)},
-                                           }));
-        }
-
-        return EmmServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
-                                               {"modules", std::move(modulesJson)},
-                                               {"full", full},
-                                               {"exportedAt", exportedAt},
-                                               {"collections", std::move(collections)},
-                                       }));
     }
 
     static response<string_body> handleImport(const request<string_body> &req) {
@@ -830,7 +849,181 @@ namespace Euclid::EMM {
 
     // ── EmmServer ────────────────────────────────────────────────────────────
 
-    EmmServer::EmmServer(std::string socketPath, const int threads) : HttpActionServer("EMM", std::move(socketPath), threads) {}
+    namespace {
+
+        // ── Nightly backup ───────────────────────────────────────────────────
+
+        constexpr auto kBackupTaskName = "emm-backup";
+
+        // 01:00 UTC, and the UTC matters: CronExpression computes in UTC (gmtime_r), not in the
+        // host's timezone the way Unix cron does. On a machine in Europe/Berlin this fires at 03:00
+        // in summer and 02:00 in winter, so an expression written to mean "one in the morning here"
+        // will not mean that, and will move by an hour twice a year.
+        //
+        // Left in UTC rather than corrected here: every other scheduled task in euclid reads its
+        // expression the same way, and one module quietly using a different basis is worse than a
+        // documented one. Anybody wanting a particular local hour should set
+        // euclid.modules.emm.backup.schedule accordingly, and remember it drifts with DST.
+        constexpr auto kDefaultBackupSchedule = "0 1 * * *";
+        // Only reached when the configuration file says nothing, which the shipped ones all do -
+        // see "backup" under euclid.modules.emm. Kept per-platform anyway, because a default that
+        // is only right on Linux is a Windows installation writing to a path that cannot exist.
+#ifdef _WIN32
+        constexpr auto kDefaultBackupDirectory = R"(C:\Program Files\euclid\data\backup)";
+#else
+        constexpr auto kDefaultBackupDirectory = "/usr/local/euclid/data/backup";
+#endif
+        constexpr long kDefaultBackupKeep = 7;
+
+        // Which modules a backup covers, and whether its key material comes with it.
+        //
+        // Everything, when a passphrase is configured. Without one, everything except ekm: an ekm
+        // export carries key material base64-encoded rather than encrypted (see handleExport), so
+        // writing one unencrypted every night would leave the installation's keys lying in a file
+        // on the same host as the data they protect. Refusing to back ekm up is the lesser harm,
+        // and it is said out loud rather than left to be discovered at restore time.
+        std::vector<std::string> backupModules(const bool haveKey) {
+            std::vector<std::string> modules;
+            for (const auto &name: moduleExportSpecs() | std::views::keys) {
+                if (!haveKey && name == "ekm") continue;
+                modules.emplace_back(name);
+            }
+            std::ranges::sort(modules);
+            return modules;
+        }
+
+        // Keeps the newest `keep` archives and removes the rest.
+        //
+        // A backup that runs every night and is never pruned fills the disk it is protecting, and
+        // does it silently - which is the failure mode where the backup itself takes the
+        // installation down. Named by timestamp, so lexicographic order is chronological.
+        void pruneBackups(const std::filesystem::path &directory, const long keep) {
+
+            if (keep <= 0) return;
+
+            std::vector<std::string> names;
+            std::error_code ec;
+            for (const auto &entry: std::filesystem::directory_iterator(directory, ec)) {
+                if (!entry.is_regular_file(ec)) continue;
+                names.push_back(entry.path().filename().string());
+            }
+            if (ec) return;
+
+            for (const auto &name: BackupsToRemove(std::move(names), keep)) {
+                const auto path = directory / name;
+                std::error_code removeEc;
+                std::filesystem::remove(path, removeEc);
+                if (removeEc) {
+                    log_warning << "EMM backup could not remove an old archive, path: " << path.string()
+                                << ", error: " << removeEc.message();
+                } else {
+                    log_info << "EMM backup removed an old archive, path: " << path.string();
+                }
+            }
+        }
+
+        // One backup: export everything, write it, zip it, prune what it replaced.
+        //
+        // Runs on the scheduler's own thread, so nothing here may throw - an exception escaping a
+        // scheduled task takes the thread and every other task with it.
+        void runBackup() {
+
+            try {
+                const auto &configuration = Core::Configuration::instance();
+                const auto directory = std::filesystem::path(
+                        configuration.getOr<std::string>("euclid.modules.emm.backup.directory", kDefaultBackupDirectory));
+                const auto passphrase = configuration.getOr<std::string>("euclid.modules.emm.backup.passphrase", "");
+                const auto keep = configuration.getOr<long>("euclid.modules.emm.backup.keep", kDefaultBackupKeep);
+
+                std::error_code ec;
+                std::filesystem::create_directories(directory, ec);
+                if (ec) {
+                    log_error << "EMM backup could not create its directory, path: " << directory.string()
+                              << ", error: " << ec.message();
+                    return;
+                }
+
+                const auto modules = backupModules(!passphrase.empty());
+                const auto started = std::chrono::steady_clock::now();
+                const auto document = buildExport(modules, true, passphrase, "");
+
+                // Written next to the archive rather than in /tmp, so a backup never half-succeeds
+                // because two filesystems disagree about space - and named .tmp so a reader can
+                // tell an archive being built from one that is finished.
+                const auto stamp = Core::DateTimeUtils::ToISO8601(std::chrono::system_clock::now()).substr(0, 19);
+                auto safeStamp = stamp;
+                std::ranges::replace(safeStamp, ':', '-');
+                const auto archive = directory / (kBackupPrefix + safeStamp + kBackupSuffix);
+                const auto payload = directory / (kBackupPrefix + safeStamp + ".json");
+
+                {
+                    std::ofstream out(payload, std::ios::binary | std::ios::trunc);
+                    if (!out) {
+                        log_error << "EMM backup could not write its export, path: " << payload.string();
+                        return;
+                    }
+                    out << boost::json::serialize(document);
+                }
+
+                Core::ZipUtils::Zip(payload.string(), archive.string());
+                std::filesystem::remove(payload, ec);
+
+                const auto size = std::filesystem::file_size(archive, ec);
+                const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - started);
+                log_info << "EMM backup written, path: " << archive.string()
+                         << ", modules: " << modules.size()
+                         << ", encrypted: " << (passphrase.empty() ? "no" : "yes")
+                         << ", bytes: " << (ec ? 0 : size)
+                         << ", duration: " << elapsed.count() << "ms";
+
+                pruneBackups(directory, keep);
+
+            } catch (const std::exception &e) {
+                // Caught rather than allowed out: this runs on a scheduler thread shared with every
+                // other periodic task in this process.
+                log_error << "EMM backup failed, error: " << e.what();
+            } catch (...) {
+                log_error << "EMM backup failed with an unknown error";
+            }
+        }
+
+    }// namespace
+
+    EmmServer::EmmServer(std::string socketPath, const int threads) : HttpActionServer("EMM", std::move(socketPath), threads) {
+
+        const auto &configuration = Core::Configuration::instance();
+        if (!configuration.getOr<bool>("euclid.modules.emm.backup.enabled", true)) {
+            log_info << "EMM backup is disabled";
+            return;
+        }
+
+        const auto schedule = configuration.getOr<std::string>("euclid.modules.emm.backup.schedule", kDefaultBackupSchedule);
+        if (configuration.getOr<std::string>("euclid.modules.emm.backup.passphrase", "").empty()) {
+            // Said once at start-up rather than nightly, and said plainly: a restore from these
+            // archives will not bring the key store back, and anything ESS encrypted under one of
+            // its keys stays unreadable.
+            log_warning << "EMM backup has no passphrase configured (euclid.modules.emm.backup.passphrase), "
+                        << "so ekm is excluded: its export carries key material in the clear. "
+                        << "A restore from these archives will not recover encryption keys.";
+        }
+
+        auto &scheduler = Core::Scheduler::instance();
+        scheduler.Start();
+        try {
+            _backupTaskId = scheduler.ScheduleCron(kBackupTaskName, runBackup, schedule);
+            log_info << "EMM backup scheduled, cron: '" << schedule << "' (UTC), directory: " << configuration.getOr<std::string>("euclid.modules.emm.backup.directory", kDefaultBackupDirectory) << ", keep: " << configuration.getOr<long>("euclid.modules.emm.backup.keep", kDefaultBackupKeep);
+        } catch (const std::exception &e) {
+            // A cron expression nobody can parse is a backup that silently never runs, which is
+            // the one way a backup fails that you only find out about when you need it.
+            log_error << "EMM backup not scheduled - cannot parse euclid.modules.emm.backup.schedule '"
+                      << schedule << "': " << e.what();
+        }
+    }
+
+    EmmServer::~EmmServer() {
+        if (!_backupTaskId.empty()) std::ignore = Core::Scheduler::instance().Cancel(_backupTaskId);
+    }
 
     response<string_body> EmmServer::DispatchAction(const request<string_body> &req) {
         return dispatch(req);
