@@ -1,0 +1,43 @@
+{
+  "index_patterns": ["euclid-logs-*"],
+  "priority": 100,
+  "template": {
+    "settings": {
+      "index.number_of_shards": 1,
+      "index.number_of_replicas": 1,
+      "index.refresh_interval": "5s",
+      "index.opendistro.index_state_management.rollover_alias": "euclid-logs"
+    },
+    "mappings": {
+      "_source": { "enabled": true },
+      "properties": {
+        "@timestamp": { "type": "date" },
+
+        "message":    { "type": "text" },
+
+        "log": {
+          "properties": {
+            "level":  { "type": "keyword" },
+            "origin": {
+              "properties": {
+                "function": { "type": "keyword" },
+                "line":     { "type": "long" }
+              }
+            }
+          }
+        },
+
+        "channel":  { "type": "keyword" },
+        "region":   { "type": "keyword" },
+
+        "service":  { "properties": { "name": { "type": "keyword" } } },
+        "host":     { "properties": { "name": { "type": "keyword" } } },
+        "process":  { "properties": { "pid":  { "type": "long"    } } }
+      }
+    }
+  },
+  "_meta": {
+    "description": "euclid's own log records. Written by Core::LogStream's JSON formatter when euclid.logging.format is \"json\"; see dist/observability/README.md.",
+    "fields": "Every field here is one the formatter always writes. The dotted keys euclid emits - log.level, host.name - are expanded into these objects by OpenSearch on index, which is why Fluent Bit's Replace_Dots must be Off."
+  }
+}

@@ -6,6 +6,9 @@
 #include <euclid/core/LogStream.h>
 #include <euclid/core/Configuration.h>
 
+// Boost includes
+#include <boost/json.hpp>
+
 // C++ includes
 #include <utility>
 //#include <awsmock/core/logging/LoggingServer.h>
@@ -74,6 +77,110 @@ namespace Euclid::Core {
         return std::optional{severity};
     }
 
+    // Extra fields the manager attaches to a line it read back from a child, carried as one
+    // pre-serialised JSON object rather than as an attribute apiece: the set differs between an
+    // application and a module, and a formatter that had to know which fields might exist would
+    // have to be changed every time one was added.
+    constexpr auto kFieldsAttribute = "Fields";
+
+    // Whatever identifies this process in a log aggregated from many of them. Read once, because
+    // neither changes while it runs.
+    const std::string &hostName() {
+        static const std::string host = [] {
+            char buffer[256] = {};
+            if (gethostname(buffer, sizeof(buffer) - 1) != 0) return std::string{};
+            return std::string(buffer);
+        }();
+        return host;
+    }
+
+    const std::string &regionName() {
+        static const std::string region = Configuration::instance().getOr<std::string>("euclid.region", "");
+        return region;
+    }
+
+    // ISO 8601 with milliseconds and a Z, which is what every collector and OpenSearch itself
+    // read as a date without being told a format.
+    std::string isoTimestamp(const boost::log::record_view &rec) {
+        const auto *stamp = boost::log::extract<boost::posix_time::ptime>("TimeStamp", rec).get_ptr();
+        const auto when = stamp != nullptr ? *stamp : boost::posix_time::microsec_clock::universal_time();
+        return boost::posix_time::to_iso_extended_string(when).substr(0, 23) + "Z";
+    }
+
+    // One JSON object per line, which is what a collector tailing this file expects: it reads a
+    // line, parses it, and ships the fields as they are. Nothing here is formatted for a person -
+    // the text formatter above is still what a console gets.
+    //
+    // An application's own line is spliced in rather than wrapped. A program logging JSON has
+    // already decided what its record means, and putting that inside a "message" string would
+    // leave every field it carries unqueryable - the whole reason for asking applications to log
+    // JSON in the first place. euclid's own fields are written after it and therefore win on the
+    // few names that can collide, because "which channel did this come from" is a question about
+    // euclid rather than about the application.
+    static void JsonLogFormatter(boost::log::record_view const &rec, boost::log::formatting_ostream &strm) {
+
+        boost::json::object out;
+
+        const auto message = rec[boost::log::expressions::smessage].get();
+        const auto verbatim = boost::log::extract<bool>(kVerbatimAttribute, rec).get_ptr() != nullptr;
+
+        auto spliced = false;
+        if (verbatim) {
+            boost::system::error_code ec;
+            if (const auto parsed = boost::json::parse(message, ec); !ec && parsed.is_object()) {
+                out = parsed.as_object();
+
+                // Logback's JSON encoder calls it "level"; ECS and everything reading this call it
+                // "log.level". Renamed rather than duplicated, so one query finds every record
+                // whatever wrote it.
+                if (const auto *level = out.if_contains("level"); level != nullptr && level->is_string()) {
+                    out["log.level"] = *level;
+                    out.erase("level");
+                }
+                spliced = true;
+            }
+        }
+
+        if (!spliced) {
+            out["message"] = std::string(message);
+        }
+        if (!out.contains("@timestamp")) out["@timestamp"] = isoTimestamp(rec);
+        if (!out.contains("log.level")) {
+            std::ostringstream level;
+            level << rec[boost::log::trivial::severity];
+            out["log.level"] = level.str();
+        }
+
+        const auto channelName = boost::log::extract<std::string>("Channel", rec);
+        out["channel"] = channelName ? channelName.get() : std::string{};
+        out["host.name"] = hostName();
+        out["process.pid"] = static_cast<std::int64_t>(getpid());
+        if (!regionName().empty()) out["region"] = regionName();
+
+        // Where in euclid it was written. Meaningless for a line read back from somebody else's
+        // program, which is why it is only added for euclid's own records.
+        if (!verbatim) {
+            if (const auto function = boost::log::extract<std::string>("Function", rec)) {
+                out["log.origin.function"] = processFuncName(function->c_str());
+            }
+            if (const auto line = boost::log::extract<int>("Line", rec)) {
+                out["log.origin.line"] = static_cast<std::int64_t>(line.get());
+            }
+            out["service.name"] = LogStream::ProcessChannel();
+        }
+
+        // The manager's own additions - applicationId, namespace, account - last, so that an
+        // application cannot overwrite them by logging a field of the same name.
+        if (const auto fields = boost::log::extract<std::string>(kFieldsAttribute, rec)) {
+            boost::system::error_code ec;
+            if (const auto parsed = boost::json::parse(fields.get(), ec); !ec && parsed.is_object()) {
+                for (const auto &field: parsed.as_object()) out[field.key()] = field.value();
+            }
+        }
+
+        strm << boost::json::serialize(out);
+    }
+
     static void LogFormatter(boost::log::record_view const &rec, boost::log::formatting_ostream &strm) {
 
         // Output euclid read back from a process it started, already formatted by whatever wrote
@@ -96,6 +203,59 @@ namespace Euclid::Core {
 
         // Finally, put the record message to the stream
         strm << rec[boost::log::expressions::smessage];
+    }
+
+    // Which formatter one sink gets: its own euclid.logging.<sink>-format, or euclid.logging.format
+    // when it has none of its own.
+    //
+    // Per sink rather than per process, because the two outputs are read by different things. A
+    // console is read by a person, who wants a line they can scan; a file that a collector tails
+    // is read by a machine, which wants one JSON object and no decoration. Insisting both be the
+    // same only ever means one of them is in the wrong shape for whoever is reading it.
+    //
+    // The records themselves do not differ - both formatters describe the same record, with the
+    // JSON one carrying the fields the text one leaves implicit.
+    static auto FormatterFor(const std::string &key) {
+
+        auto format = Configuration::instance().getOr<std::string>(key, "");
+        if (format.empty()) {
+            format = Configuration::instance().getOr<std::string>("euclid.logging.format", "text");
+        }
+        if (format == "json") return &JsonLogFormatter;
+        if (format != "text" && !format.empty()) {
+            log_warning << "Not a log format, using text: " << key << " = " << format;
+        }
+        return &LogFormatter;
+    }
+
+    // A threshold for one sink, on top of what the core's channel filter already allows.
+    //
+    // Absent means no filter at all, which is what every sink had until this existed and what the
+    // comment in Initialize() is about: the console used to carry a *hardcoded* filter at "info"
+    // that silently discarded everything euclid.logging.level: debug asked for. A threshold
+    // somebody wrote down is a different thing from one nobody knew was there - but it is still
+    // only ever a restriction, so the floor stays euclid.logging.level and a sink cannot ask for
+    // more than the core produces.
+    template<class Sink>
+    void ApplySinkLevel(const boost::shared_ptr<Sink> &sink, const std::string &key) {
+
+        if (!sink) return;
+
+        const auto configured = Configuration::instance().getOr<std::string>(key, "");
+        if (configured.empty()) return;
+
+        const auto level = ParseLevel(configured);
+        if (!level.has_value()) {
+            log_warning << "Not a log level, ignored: " << key << " = " << configured;
+            return;
+        }
+        if (!level->has_value()) {
+            // "off" - the sink is configured and writes nothing, which is how one output is
+            // silenced without silencing the other.
+            sink->set_filter([](const boost::log::attribute_value_set &) { return false; });
+            return;
+        }
+        sink->set_filter(boost::log::trivial::severity >= **level);
     }
 
     std::optional<boost::log::trivial::severity_level> LogStream::SeverityFor(const std::string &channel) {
@@ -164,13 +324,18 @@ namespace Euclid::Core {
         // journal. journalctl -o cat prints the MESSAGE field completely unescaped, so viewing
         // that history later dumps raw escape sequences straight at whatever terminal is reading
         // it, which can hang or crash a terminal emulator.
-        _consoleSink->set_formatter(&LogFormatter);
+        _consoleSink->set_formatter(FormatterFor("euclid.logging.console-format"));
         _consoleSink->locked_backend()->auto_flush(true);
 
         // One filter, on the core, so a channel's level is the only thing that decides whether a
         // record is written. The console sink used to carry a second one fixed at "info", which
         // quietly discarded everything euclid.logging.level: debug asked for.
         boost::log::core::get()->set_filter(&ChannelFilter);
+
+        // Each sink may then narrow it further. A console at "warning" over a file at "info" is
+        // the ordinary arrangement once the file is being shipped somewhere searchable: what a
+        // person watching a terminal wants to see is not what is worth keeping.
+        ApplySinkLevel(_consoleSink, "euclid.logging.console-level");
 
         if (!Configuration::instance().getOr<bool>("euclid.logging.console-active", true)) {
             RemoveConsoleLogs();
@@ -267,9 +432,11 @@ namespace Euclid::Core {
         _channelLevels = std::make_shared<const ChannelLevels>(std::move(levels));
     }
 
-    void LogStream::LogVerbatim(const std::string &channel, const boost::log::trivial::severity_level severity, const std::string &message) {
+    void LogStream::LogVerbatim(const std::string &channel, const boost::log::trivial::severity_level severity,
+                                const std::string &message, const std::string &fields) {
         BOOST_LOG_CHANNEL_SEV(my_logger::get(), channel, severity)
-                << boost::log::add_value(kVerbatimAttribute, true) << message;
+                << boost::log::add_value(kVerbatimAttribute, true)
+                << boost::log::add_value(kFieldsAttribute, fields) << message;
     }
 
     std::string LogStream::GetSeverity() {
@@ -294,13 +461,13 @@ namespace Euclid::Core {
 #ifdef _WIN32
         _fileSink = add_file_log(
                 boost::log::keywords::file_name = dir + "\\" + prefix + ".log ", boost::log::keywords::rotation_size = size,
-                boost::log::keywords::target_file_name = dir + "\\" + prefix + "_ % N.log ", boost::log::keywords::format = &LogFormatter);
+                boost::log::keywords::target_file_name = dir + "\\" + prefix + "_ % N.log ", boost::log::keywords::format = FormatterFor("euclid.logging.file-format"));
 #else
         _fileSink = add_file_log(
                 boost::log::keywords::file_name = dir + "/" + prefix + ".log",
                 boost::log::keywords::rotation_size = size,
                 boost::log::keywords::target_file_name = dir + "/" + prefix + "_%N.log",
-                boost::log::keywords::format = &LogFormatter);
+                boost::log::keywords::format = FormatterFor("euclid.logging.file-format"));
 #endif
 
         // No filter of its own: the core's channel-aware filter has already decided what gets
@@ -311,6 +478,8 @@ namespace Euclid::Core {
                 boost::log::keywords::max_files = count));
 
         _fileSink->locked_backend()->scan_for_files();
+
+        ApplySinkLevel(_fileSink, "euclid.logging.file-level");
 
         log_info << "Start logging to file, dir: " << dir << ", prefix: " << prefix << " size: " << size << " count: " << count;
     }
@@ -347,6 +516,13 @@ namespace Euclid::Core {
     //     const boost::shared_ptr<boost::log::core> core = boost::log::core::get();
     //     core->remove_sink(webSocketSink);
     // }
+
+    void LogStream::RemoveFile() {
+        if (!_fileSink) return;
+        _fileSink->flush();
+        boost::log::core::get()->remove_sink(_fileSink);
+        _fileSink.reset();
+    }
 
     void LogStream::RemoveConsoleLogs() {
         boost::log::core::get()->remove_sink(_consoleSink);

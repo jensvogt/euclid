@@ -239,8 +239,17 @@ namespace Euclid::Core {
          * @param channel channel to log on, e.g. "app.parser".
          * @param severity severity to record it at.
          * @param message the line, verbatim.
+         * @param fields a JSON object of extra fields to record alongside it, or empty.
+         *
+         * @par
+         * The fields are for what the caller knows about the process the line came from and the
+         * line itself does not say - an applicationId, a namespace. They are written only by the
+         * JSON formatter, because a person reading a console does not want them and a collector
+         * cannot do without them. Written after everything else, so a program that logs a field
+         * of the same name cannot claim to be in another namespace than the one it is in.
          */
-        static void LogVerbatim(const std::string &channel, boost::log::trivial::severity_level severity, const std::string &message);
+        static void LogVerbatim(const std::string &channel, boost::log::trivial::severity_level severity,
+                                const std::string &message, const std::string &fields = {});
 
         /**
          * @brief Add a file logging sink
@@ -274,6 +283,16 @@ namespace Euclid::Core {
          * @brief Remove web socket sink
          */
         static void RemoveWebSocketSink();
+
+        /**
+         * @brief Stops writing to the log file, flushing what is already buffered.
+         *
+         * @par
+         * The counterpart of AddFile(). Nothing in a running installation calls it - a process
+         * logs to its file until it exits - but a second AddFile() without it leaves two sinks
+         * writing the same records to the same place, which is a thing worth being able to undo.
+         */
+        static void RemoveFile();
 
         /**
          * Removes the console log sink
