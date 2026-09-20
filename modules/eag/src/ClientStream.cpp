@@ -49,11 +49,29 @@ namespace Euclid::EAG {
         asio::post(plain.get_executor(), [done = std::move(done)] { done({}); });
     }
 
-    void ClientStream::AsyncRead(beast::flat_buffer &buffer, http::request<http::string_body> &request,
+    void ClientStream::AsyncReadHeader(beast::flat_buffer &buffer, HeaderReader &reader,
+                                       std::function<void(beast::error_code)> done) {
+        std::visit([&buffer, &reader, done = std::move(done)](auto &stream) mutable {
+            http::async_read_header(stream, buffer, reader,
+                                    [done = std::move(done)](const beast::error_code &ec, std::size_t) { done(ec); });
+        },
+                   _stream);
+    }
+
+    void ClientStream::AsyncRead(beast::flat_buffer &buffer, BodyReader &reader,
                                  std::function<void(beast::error_code)> done) {
-        std::visit([&buffer, &request, done = std::move(done)](auto &stream) mutable {
-            http::async_read(stream, buffer, request,
+        std::visit([&buffer, &reader, done = std::move(done)](auto &stream) mutable {
+            http::async_read(stream, buffer, reader,
                              [done = std::move(done)](const beast::error_code &ec, std::size_t) { done(ec); });
+        },
+                   _stream);
+    }
+
+    void ClientStream::AsyncReadSome(beast::flat_buffer &buffer, StreamReader &reader,
+                                     std::function<void(beast::error_code)> done) {
+        std::visit([&buffer, &reader, done = std::move(done)](auto &stream) mutable {
+            http::async_read_some(stream, buffer, reader,
+                                  [done = std::move(done)](const beast::error_code &ec, std::size_t) { done(ec); });
         },
                    _stream);
     }

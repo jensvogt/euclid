@@ -1772,6 +1772,99 @@ namespace Euclid::ESM {
     // bucket's storage storage, then discards the upload's scratch storage. Internal to the
     // create-upload/upload-part/complete-upload workflow; called by the CLI's "upload-file" action
     // once all parts have been uploaded.
+    // Throws away a multipart upload that will not be finished: the staged parts, and - for a
+    // first upload - the object row create-upload seeded for bytes that never arrived. The
+    // counterpart complete-upload has always needed, and without which an interrupted upload left
+    // scratch storage under an id nothing would ever complete.
+    response<string_body> EsmServer::handleAbortUpload(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "abort-upload");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ESM::AbortUploadRequest>(jv);
+        if (request.uploadId.empty()) {
+            return ErrorResponse(req, status::bad_request, "uploadId is required");
+        }
+
+        const auto uploadDir = uploadDirFor(request.uploadId);
+        const auto metaPath = uploadDir / kUploadMetaFile;
+        if (!std::filesystem::exists(metaPath)) {
+            // Also what a completed upload answers, since complete-upload takes the directory with
+            // it - and "there is no such upload" is the truth in both cases.
+            return ErrorResponse(req, status::not_found, "Upload not found, id: " + request.uploadId);
+        }
+
+        boost::json::value meta;
+        {
+            std::ifstream metaFile(metaPath);
+            std::ostringstream buffer;
+            buffer << metaFile.rdbuf();
+            meta = boost::json::parse(buffer.str());
+        }
+        const auto bucketErn = std::string(meta.at("bucketErn").as_string());
+        const auto key = std::string(meta.at("key").as_string());
+        const auto *replacesValue = meta.is_object() ? meta.as_object().if_contains("replaces") : nullptr;
+        const auto replaces = replacesValue != nullptr && replacesValue->is_bool() && replacesValue->as_bool();
+
+        // The same grant complete-upload needs. Discarding somebody else's upload is not a
+        // read-only mistake: for a first upload it deletes the row they were writing.
+        if (const auto denied = denyUngrantedBucket(req, auth, bucketErn)) return *denied;
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+
+        // A first upload's row describes an object whose bytes never arrived, so it goes with the
+        // upload. A re-upload's row is the previous version - still published, still readable,
+        // still named by an internalName that points at a file on disk - and deleting it would do
+        // exactly the damage create-upload goes to such lengths to avoid. See the comment there
+        // about the 21 objects an abandoned re-upload once blinded for good.
+        auto objectRemoved = false;
+        {
+            const auto object = repo->findObjectByBucketAndKey(bucketErn, key);
+            if (Database::Entity::ESM::RemoveObjectOnAbandonedUpload(
+                        replaces, object.transform([](const auto &found) { return found.status; }))) {
+                repo->deleteObjectByErn(object->ern);
+                objectRemoved = true;
+            }
+        }
+
+        // Counted before the directory goes, for the answer. Nothing else depends on it, so a
+        // directory that cannot be read is reported as zero parts rather than failing the abort.
+        long parts = 0;
+        std::error_code countError;
+        for (const auto &entry: std::filesystem::directory_iterator(uploadDir, countError)) {
+            if (entry.path().filename() != kUploadMetaFile) ++parts;
+        }
+
+        std::error_code removeError;
+        std::filesystem::remove_all(uploadDir, removeError);
+        if (removeError) {
+            // The row is already gone at this point, so saying the abort failed would be worse
+            // than saying it worked: a caller who retried would get a 404 and be none the wiser
+            // about the directory that is actually still there.
+            log_error << "ESM could not remove upload storage, id: " << request.uploadId
+                      << ", path: " << uploadDir.string() << ", error: " << removeError.message();
+        }
+
+        log_info << "ESM upload aborted, id: " << request.uploadId << ", key: " << key
+                 << ", parts: " << parts << ", object removed: " << (objectRemoved ? "yes" : "no");
+
+        // No counter adjustment: an upload that never completed was never counted. Only
+        // complete-upload and put-object call adjustBucketCounters(), and neither ran.
+        Dto::ESM::AbortUploadResponse response;
+        response.uploadId = request.uploadId;
+        response.bucketErn = bucketErn;
+        response.key = key;
+        response.parts = parts;
+        response.objectRemoved = objectRemoved;
+
+        return JsonResponse(req, status::ok, response.toJson());
+    }
+
     response<string_body> EsmServer::handleCompleteUpload(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "complete-upload");
@@ -3492,6 +3585,7 @@ namespace Euclid::ESM {
             CreateUpload,
             UploadPart,
             CompleteUpload,
+            AbortUpload,
             GetObject,
             CreateDownload,
             DownloadPart,
@@ -3527,6 +3621,7 @@ namespace Euclid::ESM {
         if (action == "create-upload") return Command::CreateUpload;
         if (action == "upload-part") return Command::UploadPart;
         if (action == "complete-upload") return Command::CompleteUpload;
+        if (action == "abort-upload") return Command::AbortUpload;
         if (action == "get-object") return Command::GetObject;
         if (action == "create-download") return Command::CreateDownload;
         if (action == "download-part") return Command::DownloadPart;
@@ -3705,6 +3800,9 @@ namespace Euclid::ESM {
 
             case Command::CompleteUpload:
                 return handleCompleteUpload(req);
+
+            case Command::AbortUpload:
+                return handleAbortUpload(req);
 
             case Command::GetObject:
                 return handleGetObject(req);

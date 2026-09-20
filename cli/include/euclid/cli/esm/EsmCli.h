@@ -34,6 +34,7 @@
 #include <euclid/dto/eqs/DeleteQueueTagRequest.h>
 #include <euclid/dto/esm/AddBucketTagRequest.h>
 #include <euclid/dto/esm/CompleteDownloadRequest.h>
+#include <euclid/dto/esm/AbortUploadRequest.h>
 #include <euclid/dto/esm/CompleteUploadRequest.h>
 #include <euclid/dto/esm/CopyObjectRequest.h>
 #include <euclid/dto/esm/CreateBucketRequest.h>
@@ -257,6 +258,21 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int uploadFile(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Throws away a multipart upload that will not be finished.
+         *
+         * @par
+         * The one upload action other than upload-file a person has any reason to run, and it
+         * exists because upload-file cannot always do it for them: an upload interrupted by a
+         * machine going away leaves parts staged under an id nothing will ever complete, and the
+         * id is in the log rather than in anybody's hand.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int abortUpload(const std::vector<std::string> &args) const;
 
         /**
          * @brief Uploads every file in a local directory to a bucket, one object per file. Each

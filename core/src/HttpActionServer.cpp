@@ -479,6 +479,10 @@ namespace Euclid::Core {
         return true;
     }
 
+    std::optional<HttpActionServer::AccessKeyRecord> HttpActionServer::LookupAccessKey(const std::string &accessKeyId) {
+        return accessKeyLookup() ? accessKeyLookup()(accessKeyId) : std::nullopt;
+    }
+
     void HttpActionServer::SetAccessKeyLookup(AccessKeyLookup lookup) {
         accessKeyLookup() = std::move(lookup);
     }

@@ -61,6 +61,23 @@ namespace Euclid::CLI {
             return methods;
         }
 
+        // The same for content types, which unlike methods are lower-cased: "application/JSON" and
+        // "application/json" are one type, and a header is matched against these as it arrives.
+        boost::json::array SplitContentTypes(const std::string &value) {
+            boost::json::array contentTypes;
+            std::stringstream ss(value);
+            for (std::string part; std::getline(ss, part, ',');) {
+                const auto first = part.find_first_not_of(" \t");
+                const auto last = part.find_last_not_of(" \t");
+                if (first == std::string::npos) continue;
+
+                auto contentType = part.substr(first, last - first + 1);
+                std::ranges::transform(contentType, contentType.begin(), [](const unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                contentTypes.push_back(boost::json::string(contentType));
+            }
+            return contentTypes;
+        }
+
         bool ValidAuthentication(const std::string &authentication, const std::string &action) {
             if (authentication == "none" || authentication == "euclid" || authentication == "basic") return true;
             std::cerr << "error: " << action << " failed: --authentication must be \"none\", \"euclid\" or \"basic\"\n";
@@ -126,9 +143,15 @@ namespace Euclid::CLI {
         desc.add_options()
                 ("route-id,r", po::value<std::string>()->required(), "name for the route, unique within the installation")
                 ("path,p", po::value<std::string>()->required(), "path prefix to publish, e.g. /resource")
+                ("type,t", po::value<std::string>()->default_value("proxy"), "proxy (forward the request to an application or module) or upload (write the body into a bucket)")
                 ("application,a", po::value<std::string>(), "application the requests are sent to")
                 ("module,M", po::value<std::string>(), "euclid module the requests are sent to instead of an application, e.g. eam")
                 ("action", po::value<std::string>(), "the one action the module answers for on this route, e.g. login")
+                ("bucket,b", po::value<std::string>(), "upload routes only: ERN of the bucket bodies are written to")
+                ("key-prefix,k", po::value<std::string>(), "upload routes only: prefix every key is confined to")
+                ("max-bytes,x", po::value<long>(), "upload routes only: largest body accepted, in bytes; 0 for no limit")
+                ("part-size,s", po::value<long>(), "upload routes only: bytes per part streamed to ESM; defaults to 5 MB")
+                ("content-types,c", po::value<std::string>(), "upload routes only: comma-separated content types accepted; omit for any")
                 ("methods,m", po::value<std::string>(), "comma-separated HTTP methods this route answers for, e.g. GET,POST; omit for all of them")
                 ("region,R", po::value<std::string>(), "region requests on this route act in; defaults to your own")
                 ("namespace,N", po::value<std::string>(), "namespace requests on this route act in; defaults to the one you are working in")
@@ -137,9 +160,11 @@ namespace Euclid::CLI {
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eag", "create-route",
-                                   "--route-id <id> --path <prefix> (--application <name> | --module <name> --action <name>) "
+                                   "--route-id <id> --path <prefix> "
+                                   "(--application <name> | --module <name> --action <name> | --type upload --bucket <ern>) "
                                    "[--methods <list>] [--region <name>] [--namespace <name>] "
-                                   "[--authentication none|euclid|basic] [--inactive]",
+                                   "[--authentication none|euclid|basic] [--key-prefix <prefix>] [--max-bytes <n>] "
+                                   "[--part-size <n>] [--content-types <list>] [--inactive]",
                                    "Publishes a path prefix on the gateway's port and sends everything beneath it to "
                                    "an application, one instance at a time in turn. The path is forwarded unchanged, "
                                    "so a route on /resource reaches the application as "
@@ -179,7 +204,19 @@ namespace Euclid::CLI {
                                    "WWW-Authenticate so a browser prompts for a username and password; that is the one "
                                    "to reach for when the caller is a person at a browser or a script with nothing but "
                                    "curl. With none it forwards everything, which is what a route behind an external "
-                                   "gateway or an application doing its own authentication wants.",
+                                   "gateway or an application doing its own authentication wants. "
+                                   "\n\n"
+                                   "--type upload makes the gateway the endpoint rather than a way to one: the body is "
+                                   "streamed into the bucket named by --bucket, under the key given by the rest of the "
+                                   "path, and nothing is forwarded. Such a route takes no --application and no "
+                                   "--module, and must set --authentication, since without one it would be a public "
+                                   "write endpoint into the bucket. "
+                                   "--key-prefix confines every key it writes, the way a transfer server's home "
+                                   "directory does - without it anybody who may upload at all may overwrite anything "
+                                   "the bucket holds. --max-bytes caps one body and --content-types restricts what is "
+                                   "accepted, both refused before the body is read rather than after. --part-size is "
+                                   "how much is held in memory at a time on the way to ESM, and the size under which "
+                                   "an object is stored in one piece instead of as a multipart upload.",
                                    desc);
         }
 
@@ -197,29 +234,76 @@ namespace Euclid::CLI {
         if (!ValidPath(path, "create-route")) return 1;
         if (!ValidAuthentication(authentication, "create-route")) return 1;
 
-        const auto hasApplication = vm.contains("application");
-        const auto hasModule = vm.contains("module");
-        if (hasApplication == hasModule) {
-            std::cerr << "error: create-route failed: name either --application or --module, not both and not neither\n";
-            return 1;
-        }
-        if (hasModule && !vm.contains("action")) {
-            std::cerr << "error: create-route failed: --module also needs --action\n";
+        auto type = vm["type"].as<std::string>();
+        std::ranges::transform(type, type.begin(), [](const unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (type != "proxy" && type != "upload") {
+            std::cerr << "error: create-route failed: --type must be proxy or upload\n";
             return 1;
         }
 
-        const boost::json::object request{
+        const auto hasApplication = vm.contains("application");
+        const auto hasModule = vm.contains("module");
+        if (type == "upload") {
+            // Said here rather than letting the server say it, because the difference between the
+            // two kinds of route is exactly what a caller writing their first upload route is
+            // liable to get wrong, and a message naming the flag they used is more use than one
+            // naming the field it became.
+            if (hasApplication || hasModule) {
+                std::cerr << "error: create-route failed: an upload route takes --bucket, not --application or --module\n";
+                return 1;
+            }
+            if (!vm.contains("bucket")) {
+                std::cerr << "error: create-route failed: an upload route needs --bucket\n";
+                return 1;
+            }
+            if (authentication == "none") {
+                std::cerr << "error: create-route failed: an upload route needs --authentication euclid or basic;"
+                             " without one it is a public write endpoint into the bucket\n";
+                return 1;
+            }
+        } else {
+            if (hasApplication == hasModule) {
+                std::cerr << "error: create-route failed: name either --application or --module, not both and not neither\n";
+                return 1;
+            }
+            if (hasModule && !vm.contains("action")) {
+                std::cerr << "error: create-route failed: --module also needs --action\n";
+                return 1;
+            }
+            if (vm.contains("bucket")) {
+                std::cerr << "error: create-route failed: --bucket is only meaningful with --type upload\n";
+                return 1;
+            }
+        }
+
+        boost::json::object request{
                 {"routeId", vm["route-id"].as<std::string>()},
                 {"path", path},
+                {"type", type},
                 {"applicationId", hasApplication ? vm["application"].as<std::string>() : std::string()},
                 {"moduleTarget", hasModule ? vm["module"].as<std::string>() : std::string()},
                 {"moduleAction", vm.contains("action") ? vm["action"].as<std::string>() : std::string()},
-                {"region", vm.contains("region") ? vm["region"].as<std::string>() : std::string()},
-                {"namespace", vm.contains("namespace") ? vm["namespace"].as<std::string>() : std::string()},
+                // region and namespace are added below, and only when they were named - see there.
                 {"methods", vm.contains("methods") ? SplitMethods(vm["methods"].as<std::string>()) : boost::json::array{}},
                 {"authentication", authentication},
                 {"active", !vm["inactive"].as<bool>()}
         };
+        // Sent only when the caller named them. An empty string is not the same as saying nothing:
+        // the server falls back to the request's own x-euclid-namespace when the field is absent,
+        // and a present-but-empty one wins over that fallback - which put every route created
+        // without --namespace into namespace "", where get-route and list-routes (both scoped to
+        // the caller's namespace) could no longer see it. The route was served, because a listener
+        // carries the routes of no namespace whatever it is bound to, and was unmanageable.
+        if (vm.contains("region")) request["region"] = vm["region"].as<std::string>();
+        if (vm.contains("namespace")) request["namespace"] = vm["namespace"].as<std::string>();
+
+        if (type == "upload") {
+            request["bucket"] = vm["bucket"].as<std::string>();
+            if (vm.contains("key-prefix")) request["keyPrefix"] = vm["key-prefix"].as<std::string>();
+            if (vm.contains("max-bytes")) request["maxBytes"] = vm["max-bytes"].as<long>();
+            if (vm.contains("part-size")) request["partSize"] = vm["part-size"].as<long>();
+            if (vm.contains("content-types")) request["contentTypes"] = SplitContentTypes(vm["content-types"].as<std::string>());
+        }
 
         return Send(_endpoint, _authentication, _caCertPath, _pretty, "create-route", request);
     }
@@ -229,9 +313,15 @@ namespace Euclid::CLI {
         desc.add_options()
                 ("route-id,r", po::value<std::string>()->required(), "route to change")
                 ("path,p", po::value<std::string>(), "new path prefix")
+                ("type,t", po::value<std::string>(), "proxy or upload")
                 ("application,a", po::value<std::string>(), "application the requests are sent to")
                 ("module,M", po::value<std::string>(), "euclid module the requests are sent to instead of an application")
                 ("action", po::value<std::string>(), "the action the module answers for on this route")
+                ("bucket,b", po::value<std::string>(), "upload routes only: ERN of the bucket bodies are written to")
+                ("key-prefix,k", po::value<std::string>(), "upload routes only: prefix every key is confined to")
+                ("max-bytes,x", po::value<long>(), "upload routes only: largest body accepted, in bytes; 0 for no limit")
+                ("part-size,s", po::value<long>(), "upload routes only: bytes per part streamed to ESM")
+                ("content-types,c", po::value<std::string>(), "upload routes only: comma-separated content types accepted; an empty string for any")
                 ("methods,m", po::value<std::string>(), "comma-separated HTTP methods, or an empty string for all of them")
                 ("region,R", po::value<std::string>(), "region requests on this route act in")
                 ("namespace,N", po::value<std::string>(), "namespace requests on this route act in")
@@ -250,7 +340,13 @@ namespace Euclid::CLI {
                                    "puts the route back to answering for every method. "
                                    "--active false is the way to take a path out of service without losing its "
                                    "definition: the gateway stops carrying it and answers 404, and --active true puts "
-                                   "it back exactly as it was.",
+                                   "it back exactly as it was. "
+                                   "\n\n"
+                                   "The upload settings - --bucket, --key-prefix, --max-bytes, --part-size and "
+                                   "--content-types - apply to a route of --type upload. What makes a route coherent "
+                                   "is the combination, so the result is checked as a whole rather than field by "
+                                   "field: an upload route still has to name a bucket and no application, and still "
+                                   "has to require authentication, however few of those this one command changed.",
                                    desc);
         }
 
@@ -270,9 +366,23 @@ namespace Euclid::CLI {
             if (!ValidPath(path, "update-route")) return 1;
             request["path"] = path;
         }
+        if (vm.contains("type")) {
+            auto type = vm["type"].as<std::string>();
+            std::ranges::transform(type, type.begin(), [](const unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            if (type != "proxy" && type != "upload") {
+                std::cerr << "error: update-route failed: --type must be proxy or upload\n";
+                return 1;
+            }
+            request["type"] = type;
+        }
         if (vm.contains("application")) request["applicationId"] = vm["application"].as<std::string>();
         if (vm.contains("module")) request["moduleTarget"] = vm["module"].as<std::string>();
         if (vm.contains("action")) request["moduleAction"] = vm["action"].as<std::string>();
+        if (vm.contains("bucket")) request["bucket"] = vm["bucket"].as<std::string>();
+        if (vm.contains("key-prefix")) request["keyPrefix"] = vm["key-prefix"].as<std::string>();
+        if (vm.contains("max-bytes")) request["maxBytes"] = vm["max-bytes"].as<long>();
+        if (vm.contains("part-size")) request["partSize"] = vm["part-size"].as<long>();
+        if (vm.contains("content-types")) request["contentTypes"] = SplitContentTypes(vm["content-types"].as<std::string>());
         if (vm.contains("region")) request["region"] = vm["region"].as<std::string>();
         if (vm.contains("namespace")) request["namespace"] = vm["namespace"].as<std::string>();
         if (vm.contains("methods")) request["methods"] = SplitMethods(vm["methods"].as<std::string>());

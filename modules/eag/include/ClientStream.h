@@ -86,11 +86,48 @@ namespace Euclid::EAG {
         void Handshake(std::function<void(boost::beast::error_code)> done);
 
         /**
-         * @brief Reads one request from the caller.
+         * @brief A request whose headers have been read and whose body has not.
+         *
+         * @par
+         * Every request starts as one of these, because what the gateway does with a body depends
+         * on the route, and the route is only known once the path and method have arrived. A
+         * proxied request then becomes a BodyReader and an uploaded one a StreamReader - the two
+         * ways of reading the same remaining bytes.
          */
-        void AsyncRead(boost::beast::flat_buffer &buffer,
-                       boost::beast::http::request<boost::beast::http::string_body> &request,
+        using HeaderReader = boost::beast::http::request_parser<boost::beast::http::empty_body>;
+
+        /**
+         * @brief The rest of a request, read into memory in one go.
+         */
+        using BodyReader = boost::beast::http::request_parser<boost::beast::http::string_body>;
+
+        /**
+         * @brief The rest of a request, read a chunk at a time into a buffer the caller supplies.
+         */
+        using StreamReader = boost::beast::http::request_parser<boost::beast::http::buffer_body>;
+
+        /**
+         * @brief Reads one request's headers, leaving its body on the connection.
+         */
+        void AsyncReadHeader(boost::beast::flat_buffer &buffer, HeaderReader &reader,
+                             std::function<void(boost::beast::error_code)> done);
+
+        /**
+         * @brief Reads the rest of a request whose headers have already been read.
+         */
+        void AsyncRead(boost::beast::flat_buffer &buffer, BodyReader &reader,
                        std::function<void(boost::beast::error_code)> done);
+
+        /**
+         * @brief Reads as much of the body as is available into the buffer the reader points at.
+         *
+         * @par
+         * Called repeatedly until the reader says it is done. Completes with
+         * http::error::need_buffer when it has filled the buffer and there is more to come, which
+         * is not a failure - it is the reader asking to be given somewhere to put the next piece.
+         */
+        void AsyncReadSome(boost::beast::flat_buffer &buffer, StreamReader &reader,
+                           std::function<void(boost::beast::error_code)> done);
 
         /**
          * @brief Writes one response back to the caller.

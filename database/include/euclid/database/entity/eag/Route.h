@@ -21,8 +21,56 @@
 
 // Euclid includes
 #include <euclid/database/entity/eag/RouteAuthentication.h>
+#include <euclid/database/entity/eag/RouteType.h>
 
 namespace Euclid::Database::Entity::EAG {
+
+    /**
+     * @brief Where an upload route puts what it receives, and what it will accept.
+     *
+     * @par
+     * Only meaningful on a route of type UPLOAD, which is why it is a document of its own rather
+     * than five more fields on Route: a proxy route carrying an empty bucket and a zero part size
+     * would invite the question of what they mean, and the answer is nothing.
+     */
+    struct UploadSpec {
+
+        /**
+         * @brief ERN of the bucket objects are written to.
+         */
+        std::string bucket;
+
+        /**
+         * @brief Prefix every key is confined to, or empty for the whole bucket.
+         *
+         * @par
+         * The home directory of a transfer server, in a bucket: without it anybody who may upload
+         * at all may overwrite any key the bucket has. See TransferAuthorizer for why the same
+         * argument applies to FTP - ESM's grants are per bucket, and "may add but not replace" is
+         * not something they can say.
+         */
+        std::string keyPrefix;
+
+        /**
+         * @brief Largest body this route accepts, in bytes. 0 is no limit beyond the listener's.
+         *
+         * @par
+         * Per route because it is a property of what is published: a route taking ONIX deliveries
+         * and one taking profile pictures have nothing to say to each other about size.
+         */
+        long maxBytes{};
+
+        /**
+         * @brief Bytes per part streamed to ESM, and the threshold under which a body is written
+         * with one put-object instead of a multipart upload.
+         */
+        long partSize{};
+
+        /**
+         * @brief Content types accepted, or empty for any.
+         */
+        std::vector<std::string> contentTypes;
+    };
 
     /**
      * @brief One resource the API gateway serves: a path, and the application behind it.
@@ -85,6 +133,20 @@ namespace Euclid::Database::Entity::EAG {
          * either being reordered or rewritten.
          */
         std::string path;
+
+        /**
+         * @brief What the gateway does with a request this route matches.
+         *
+         * @par
+         * PROXY unless it says otherwise, which is what every route written before uploads existed
+         * means and what most routes written after will still mean.
+         */
+        RouteType type = RouteType::PROXY;
+
+        /**
+         * @brief Where an UPLOAD route writes, and what it accepts. Unused by a PROXY route.
+         */
+        UploadSpec upload;
 
         /**
          * @brief Application that serves this path.
