@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.1.26](https://github.com/jensvogt/euclid/compare/1.1.25...v1.1.26) (2026-09-20)
+
+
+### Bug Fixes
+
+* adding opensearch/kibana for logging.- ([2a56182](https://github.com/jensvogt/euclid/commit/2a56182d911037c284eee61953cbd9e09d5b4a8b))
+* bump to boost 1.92 ([bf197d8](https://github.com/jensvogt/euclid/commit/bf197d8c45755ffbcb7f8597167de76ac6582d7c))
+* hardening ([30a1202](https://github.com/jensvogt/euclid/commit/30a120291d1e5e5a0a707fb1b089aedd573cde60))
+* secure HTTP upload to ESM ([1850fc9](https://github.com/jensvogt/euclid/commit/1850fc98ee41527d1bbb6a35441a2951d2d2ba9a))
+
 ## [1.1.25](https://github.com/jensvogt/euclid/compare/1.1.24...v1.1.25) (2026-09-19)
 
 
