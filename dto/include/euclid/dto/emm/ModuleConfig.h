@@ -115,6 +115,22 @@ namespace Euclid::Dto {
         bool application = false;
 
         /**
+         * @brief The namespace an application belongs to. Empty for a euclid module.
+         *
+         * @par
+         * Carried so that what the manager reads back from the process can say where it came
+         * from. One installation's logs are one index, and a namespace is how development is told
+         * from production within it - which the applicationId alone does not say, since an
+         * applicationId is unique only within (account, namespace).
+         */
+        std::string nameSpace;
+
+        /**
+         * @brief The account an application belongs to. Empty for a euclid module.
+         */
+        std::string accountId;
+
+        /**
          * @brief Names of the modules that have to be running before this one is started.
          *
          * @par

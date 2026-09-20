@@ -393,6 +393,27 @@ target_link_libraries(${DIR_UTILS_BINARY} PRIVATE euclidcore Boost::unit_test_fr
 
 add_test(NAME ${DIR_UTILS_BINARY} COMMAND ${DIR_UTILS_BINARY})
 
+# ---------------------------------------------------------------------------------------------
+# JSON log format
+# ---------------------------------------------------------------------------------------------
+set(JSON_LOG_BINARY euclid-json-log-format-tests)
+
+add_executable(${JSON_LOG_BINARY} JsonLogFormatTest.cpp)
+set_target_properties(${JSON_LOG_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${JSON_LOG_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${JSON_LOG_BINARY} COMMAND ${JSON_LOG_BINARY})
+
+set(SINK_LEVEL_BINARY euclid-sink-level-tests)
+
+add_executable(${SINK_LEVEL_BINARY} SinkLevelTest.cpp)
+set_target_properties(${SINK_LEVEL_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${SINK_LEVEL_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${SINK_LEVEL_BINARY} COMMAND ${SINK_LEVEL_BINARY})
+
 set(LOG_CHANNEL_BINARY euclid-log-channel-tests)
 
 add_executable(${LOG_CHANNEL_BINARY} LogChannelTest.cpp)
