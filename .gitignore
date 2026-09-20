@@ -54,3 +54,15 @@ Testing/
 
 # Claude
 .claude/settings.local.json
+
+# Fuzzing
+#
+# The seed corpus under fuzz/corpus is checked in - those are the inputs somebody thought worth
+# writing down, and fuzz/smoke.sh runs over them. What libFuzzer *finds* is not: it names new
+# inputs after their SHA-1, and a few seconds of smoke produces hundreds of them. smoke.sh keeps
+# them out by writing to a scratch corpus under the build directory, but a target run by hand can
+# still be pointed straight at fuzz/corpus, so the forty-hex-digit names are ignored outright.
+fuzz/corpus/*/[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]
+
+# A build directory that is not called cmake-build-* (the sanitizer build in CI, say).
+fuzz-corpus/

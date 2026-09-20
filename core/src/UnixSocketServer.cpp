@@ -3,6 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 // C++ includes
+#include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <csignal>
@@ -96,8 +97,13 @@ namespace Euclid::Core {
 
     // ── UnixSocketServer ─────────────────────────────────────────────────────
 
+    int UnixSocketServer::ClampWorkerThreads(const long requested) {
+        constexpr long kMaxWorkerThreads = 256;
+        return static_cast<int>(std::clamp(requested, 1L, kMaxWorkerThreads));
+    }
+
     UnixSocketServer::UnixSocketServer(std::string serviceName, std::string socketPath, const int threads)
-        : _serviceName(std::move(serviceName)), _socketPath(std::move(socketPath)), _ioc(threads), _acceptor(_ioc), _threads(threads) {
+        : _serviceName(std::move(serviceName)), _socketPath(std::move(socketPath)), _ioc(ClampWorkerThreads(threads)), _acceptor(_ioc), _threads(ClampWorkerThreads(threads)) {
 
         // The directory first. bind() answers ENOENT - "No such file or directory" - when the
         // *parent* is missing, which reads as though the socket itself were expected to exist and
@@ -129,7 +135,7 @@ namespace Euclid::Core {
 
     void UnixSocketServer::start() {
         doAccept();
-        _workers.reserve(_threads);
+        _workers.reserve(static_cast<std::size_t>(_threads));
         for (int i = 0; i < _threads; ++i) _workers.emplace_back([this] { _ioc.run(); });
     }
 

@@ -14,6 +14,7 @@
 // Euclid includes
 #include <euclid/core/Configuration.h>
 #include <euclid/core/HttpActionServer.h>
+#include <euclid/core/UnixSocketServer.h>
 #include <euclid/core/SigV4.h>
 #include <euclid/core/monitoring/MonitoringTimer.h>
 #include <euclid/manager/GatewayServer.h>
@@ -281,9 +282,6 @@ namespace Euclid::main {
             return r;
         };
 
-        auto ok = [&](std::string body) {
-            return jsonResponse(http::status::ok, std::move(body));
-        };
         auto err = [&](const http::status status, std::string_view msg) {
             return jsonResponse(status, boost::json::serialize(boost::json::object{{"error", msg}}));
         };
@@ -633,7 +631,8 @@ namespace Euclid::main {
 
     // ── GatewayServer ────────────────────────────────────────────────────────
 
-    GatewayServer::GatewayServer(ServiceController &ctrl, const unsigned short port, const int threads) : _ctrl(ctrl), _ioc(threads), _acceptor(_ioc), _port(port), _threads(threads) {
+    GatewayServer::GatewayServer(ServiceController &ctrl, const unsigned short port, const int threads)
+        : _ctrl(ctrl), _ioc(Core::UnixSocketServer::ClampWorkerThreads(threads)), _acceptor(_ioc), _port(port), _threads(Core::UnixSocketServer::ClampWorkerThreads(threads)) {
 
         const tcp::endpoint endpoint{tcp::v6(), port};
         _acceptor.open(endpoint.protocol());
@@ -658,7 +657,7 @@ namespace Euclid::main {
 
     void GatewayServer::start() {
         doAccept();
-        _workers.reserve(_threads);
+        _workers.reserve(static_cast<std::size_t>(_threads));
         for (int i = 0; i < _threads; ++i) _workers.emplace_back([this] { _ioc.run(); });
         log_info << "Gateway " << (_tlsEnabled ? "HTTPS" : "HTTP") << " server listening on port " << _port << " (" << _threads << " worker thread(s))";
     }

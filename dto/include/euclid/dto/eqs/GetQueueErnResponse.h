@@ -37,6 +37,7 @@ namespace Euclid::Dto::EQS {
 
         friend GetQueueErnResponse tag_invoke(boost::json::value_to_tag<GetQueueErnResponse>, boost::json::value const &v) {
             GetQueueErnResponse r;
+            static_cast<BaseDto &>(r) = GetMetadata(v);
             r.name = Core::GetStringValue(v, "name");
             r.ern = Core::GetStringValue(v, "ern");
             return r;
@@ -44,6 +45,7 @@ namespace Euclid::Dto::EQS {
 
         friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetQueueErnResponse const &obj) {
             jv = {
+                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
                     {"name", obj.name},
                     {"ern", obj.ern},
             };

@@ -49,6 +49,7 @@ namespace Euclid::Dto::EKM {
 
         friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, ListKeysResponse const &obj) {
             jv = {
+                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
                     {"keys", boost::json::value_from(obj.keys)},
                     {"total", obj.total},
             };

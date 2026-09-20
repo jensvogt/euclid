@@ -38,7 +38,7 @@ namespace Euclid::Database::Entity::EQS {
         HIGH
     };
 
-    static std::map<MessagePriority, std::string> MessagePriorityNames{
+    inline std::map<MessagePriority, std::string> MessagePriorityNames{
             {MessagePriority::LOW, "LOW"},
             {MessagePriority::MEDIUM, "MEDIUM"},
             {MessagePriority::HIGH, "HIGH"},
@@ -61,7 +61,7 @@ namespace Euclid::Database::Entity::EQS {
     constexpr auto kLegacyMediumName = "MIDDLE";
 
     [[maybe_unused]]
-    static std::string MessagePriorityToString(const MessagePriority &priority) {
+    inline std::string MessagePriorityToString(const MessagePriority &priority) {
         return MessagePriorityNames[priority];
     }
 
@@ -80,7 +80,7 @@ namespace Euclid::Database::Entity::EQS {
      * somebody is waiting for; MessagePriorityFromString() is that reading.
      */
     [[maybe_unused]]
-    static std::optional<MessagePriority> TryMessagePriorityFromString(const std::string &priority) {
+    inline std::optional<MessagePriority> TryMessagePriorityFromString(const std::string &priority) {
         auto upper = priority;
         std::ranges::transform(upper, upper.begin(), [](const unsigned char c) { return static_cast<char>(std::toupper(c)); });
 
@@ -102,7 +102,7 @@ namespace Euclid::Database::Entity::EQS {
      * flight - anywhere failing would cost a message. Requests use TryMessagePriorityFromString()
      * and refuse instead.
      */
-    static MessagePriority MessagePriorityFromString(const std::string &priority) {
+    inline MessagePriority MessagePriorityFromString(const std::string &priority) {
         return TryMessagePriorityFromString(priority).value_or(MessagePriority::MEDIUM);
     }
 

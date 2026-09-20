@@ -58,8 +58,79 @@ jobs:
           mkdir ${{ env.BUILD_DIR }}
           cmake -B ${{ env.BUILD_DIR }} -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake
 
+      # Everything, not one target. "--target euclid-tests" built and ran a single suite - the
+      # SigV4 one - and left the other sixty-five neither compiled nor run, so a pull request
+      # could break any of them and go green.
       - name: Build tests
-        run: cmake --build ${{ env.BUILD_DIR }} --target euclid-tests --parallel 2
+        run: cmake --build ${{ env.BUILD_DIR }} --parallel 2
 
       - name: Run tests
-        run: ctest --test-dir ${{ env.BUILD_DIR }} -R euclid-tests --output-on-failure --timeout 120
+        run: ctest --test-dir ${{ env.BUILD_DIR }} --output-on-failure --timeout 300
+
+  sanitizers:
+    name: AddressSanitizer and UndefinedBehaviorSanitizer
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y ninja-build linux-libc-dev autoconf autoconf-archive automake libtool g++-14 libmagic-dev libgoogle-perftools-dev
+
+      - name: Create vcpkg binary cache dir
+        run: mkdir -p ${{ github.workspace }}/vcpkg-bincache
+
+      - name: Cache vcpkg binary packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg-bincache
+          key: vcpkg-v1-${{ runner.os }}-${{ hashFiles('**/vcpkg.json') }}
+          restore-keys: |
+            vcpkg-v1-${{ runner.os }}-
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgDirectory: "${{ github.workspace }}/vcpkg"
+          vcpkgJsonGlob: 'vcpkg.json'
+          runVcpkgInstall: false
+
+      - name: Set g++-14 as default
+        run: |
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 14
+          sudo update-alternatives --set g++ /usr/bin/g++-14
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 14
+          sudo update-alternatives --set gcc /usr/bin/gcc-14
+
+      - name: Configure
+        run: |
+          cmake -B ${{ github.workspace }}/build-asan -G Ninja \
+                -DCMAKE_BUILD_TYPE=Debug \
+                -DEUCLID_SANITIZE=address,undefined \
+                -DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake
+
+      - name: Build
+        run: cmake --build ${{ github.workspace }}/build-asan --parallel 2
+
+      # halt_on_error so a finding fails the job rather than being printed and passed over.
+      # Leak detection is off: it reports what a process still holds at exit, which for a test
+      # that never shuts a singleton down is noise rather than a bug.
+      # Not a campaign: twenty thousand executions per target, over the seeds somebody thought
+      # worth writing down. Long enough to catch an input that used to be handled and now
+      # crashes; short enough to sit in a pull request. A real campaign runs for hours and keeps
+      # what it finds, which is a different job on a different schedule.
+      - name: Build and smoke the fuzz targets
+        run: |
+          sudo apt install -y clang
+          ./fuzz/build.sh -b ${{ github.workspace }}/build-asan
+          ./fuzz/smoke.sh -b ${{ github.workspace }}/build-asan
+
+      - name: Run tests under the sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --test-dir ${{ github.workspace }}/build-asan --output-on-failure --timeout 600

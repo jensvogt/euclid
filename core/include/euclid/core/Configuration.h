@@ -5,6 +5,7 @@
 #pragma once
 
 // C++ standard
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -401,7 +402,7 @@ namespace Euclid::Core {
          * @param out The output stream where the formatted JSON will be written.
          * @param indent The current indentation level (used internally for recursive calls).
          */
-        static void prettyPrintValue(const boost::json::value &v, std::ostream &out, int indent);
+        static void prettyPrintValue(const boost::json::value &v, std::ostream &out, std::size_t indent);
 
         /**
          * @brief Internal storage for the hierarchical configuration data.

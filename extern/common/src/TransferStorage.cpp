@@ -59,15 +59,6 @@ namespace Euclid::Transfer {
             return result;
         }
 
-        bool readFile(const std::filesystem::path &path, std::string &out) {
-            std::ifstream in(path, std::ios::binary);
-            if (!in) return false;
-            std::ostringstream buffer;
-            buffer << in.rdbuf();
-            out = buffer.str();
-            return true;
-        }
-
     }// namespace
 
     std::vector<std::pair<std::string, std::string> > TransferStorage::scopedHeaders(std::vector<std::pair<std::string, std::string> > headers) const {

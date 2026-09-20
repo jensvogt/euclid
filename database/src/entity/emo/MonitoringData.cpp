@@ -13,8 +13,8 @@ namespace Euclid::Database::Entity::Monitoring {
     bsoncxx::document::value MonitoringData::toDocument() const {
 
         bsoncxx::builder::basic::document labelDocument{};
-        for (const auto &[name, value]: labels) {
-            labelDocument.append(bsoncxx::builder::basic::kvp(name, value));
+        for (const auto &[labelName, labelValue]: labels) {
+            labelDocument.append(bsoncxx::builder::basic::kvp(labelName, labelValue));
         }
 
         return bsoncxx::builder::basic::make_document(
