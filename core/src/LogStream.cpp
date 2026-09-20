@@ -133,9 +133,16 @@ namespace Euclid::Core {
                 // Logback's JSON encoder calls it "level"; ECS and everything reading this call it
                 // "log.level". Renamed rather than duplicated, so one query finds every record
                 // whatever wrote it.
+                //
+                // Copied out before anything is inserted. "level" points into "out", and
+                // out["log.level"] inserts a key that is not there yet - which can reallocate the
+                // object's storage and leave that pointer dangling, so the value written would be
+                // whatever the freed memory held. AddressSanitizer found it; the effect would have
+                // been a corrupted log.level on exactly the application records this exists for.
                 if (const auto *level = out.if_contains("level"); level != nullptr && level->is_string()) {
-                    out["log.level"] = *level;
+                    auto value = *level;
                     out.erase("level");
+                    out["log.level"] = std::move(value);
                 }
                 spliced = true;
             }
@@ -198,7 +205,7 @@ namespace Euclid::Core {
 
         // The same for the severity
         strm << " [" << rec[boost::log::trivial::severity] << "]";
-        strm << " [" << rec[thread_id].get().native_id() << "]";
+        strm << " [" << rec[Log::thread_id].get().native_id() << "]";
         strm << " [" << func << ":" << boost::log::extract<int>("Line", rec) << "] ";
 
         // Finally, put the record message to the stream
@@ -294,7 +301,7 @@ namespace Euclid::Core {
 
         // "::channel" - the attribute keyword is declared at global scope, alongside the logger
         // it belongs to.
-        const auto recordChannel = attributes[::channel];
+        const auto recordChannel = attributes[Log::channel];
         const auto threshold = LogStream::SeverityFor(recordChannel ? recordChannel.get() : std::string(LogStream::kDefaultChannel));
 
         // No threshold at all means the channel is off, whatever the record's severity.

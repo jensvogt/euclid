@@ -49,7 +49,10 @@ namespace Euclid::Core {
         std::string uriEncode(const std::string &value, const bool encodeSlash) {
             std::ostringstream oss;
             oss << std::hex << std::uppercase << std::setfill('0');
-            for (const unsigned char c: value) {
+            for (const char ch: value) {
+                // Read as unsigned deliberately: a byte over 0x7f is a negative char, and the
+                // static_cast<int> below would then print %FFFFFF80 instead of %80.
+                const auto c = static_cast<unsigned char>(ch);
                 if (isUnreserved(c) || (c == '/' && !encodeSlash)) {
                     oss << static_cast<char>(c);
                 } else {

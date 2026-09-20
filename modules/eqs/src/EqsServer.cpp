@@ -109,9 +109,10 @@ namespace Euclid::EQS {
         return queue.has_value() && auth.user.has_value() && queue->isInternalPlumbingOf(auth.user->userId);
     }
 
-    // Fills in the caller identity shared by every response DTO's "metadata" object. The
-    // request ID that correlates this response with its request travels as the
-    // "x-euclid-request-id" header instead (set centrally in HttpActionServer::JsonResponse).
+    // Fills in the caller identity every response DTO inherits from BaseDto and serialises as a
+    // nested "metadata" object. Resolved from the authenticated user rather than from anything the
+    // request said it was. The request ID that correlates this response with its request travels
+    // as the "x-euclid-request-id" header instead (set centrally in HttpActionServer::JsonResponse).
     static void applyMetadata(Dto::BaseDto &response, const Database::Entity::EAM::User &user) {
         response.user = user.userId;
         response.accountId = user.accountId;
@@ -183,6 +184,7 @@ namespace Euclid::EQS {
         Dto::EQS::CreateQueueResponse response;
         response.name = saved.name;
         response.ern = saved.ern;
+        applyMetadata(response, *auth.user);
         return EqsServer::JsonResponse(req, status::ok, response.toJson());
     }
 
@@ -248,6 +250,7 @@ namespace Euclid::EQS {
         Dto::EQS::GetQueueErnResponse response;
         response.ern = queue->ern;
 
+        applyMetadata(response, *auth.user);
         return EqsServer::JsonResponse(req, status::ok, response.toJson());
     }
 
@@ -288,6 +291,7 @@ namespace Euclid::EQS {
         Dto::EQS::GetQueueResponse response;
         response.queue = Dto::EQS::EqsMapper::toDto(*queue);
 
+        applyMetadata(response, *auth.user);
         return EqsServer::JsonResponse(req, status::ok, response.toJson());
     }
 
@@ -321,6 +325,7 @@ namespace Euclid::EQS {
         Dto::EQS::GetMessageResponse response;
         response.message = Dto::EQS::EqsMapper::toDto(*message);
 
+        applyMetadata(response, *auth.user);
         return EqsServer::JsonResponse(req, status::ok, response.toJson());
     }
 
@@ -355,6 +360,7 @@ namespace Euclid::EQS {
         response.queues = Dto::EQS::EqsMapper::toDto(queues);
         response.total = repo->countQueues(auth.user->accountId, ns, request.prefix, includeInternal);
 
+        applyMetadata(response, *auth.user);
         return EqsServer::JsonResponse(req, status::ok, response.toJson());
     }
 
@@ -362,7 +368,8 @@ namespace Euclid::EQS {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-messages");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
@@ -378,6 +385,7 @@ namespace Euclid::EQS {
         response.messages = Dto::EQS::EqsMapper::toDto(messages);
         response.total = repo->countMessages(request.queueErn);
 
+        applyMetadata(response, *auth.user);
         return EqsServer::JsonResponse(req, status::ok, response.toJson());
     }
 
@@ -484,6 +492,7 @@ namespace Euclid::EQS {
         Dto::EQS::SendMessageResponse response;
         response.messageId = message.messageId;
 
+        applyMetadata(response, *auth.user);
         return EqsServer::JsonResponse(req, status::ok, response.toJson());
     }
 
@@ -546,6 +555,7 @@ namespace Euclid::EQS {
             log_info << "EQS ReceiveMessages ern: " << request.ern << ", count: " << response.messages.size() << ", total: " << response.total;
         }
 
+        applyMetadata(response, *auth.user);
         return EqsServer::JsonResponse(req, status::ok, response.toJson());
     }
 
@@ -553,7 +563,8 @@ namespace Euclid::EQS {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-visibility");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
@@ -592,7 +603,8 @@ namespace Euclid::EQS {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-message");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
@@ -673,7 +685,8 @@ namespace Euclid::EQS {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "redrive-dlq");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
@@ -759,7 +772,8 @@ namespace Euclid::EQS {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "purge-all-queues");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
@@ -777,7 +791,8 @@ namespace Euclid::EQS {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-message-count");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
@@ -797,6 +812,7 @@ namespace Euclid::EQS {
         response.delayed = queue->delayed;
         response.invisible = queue->invisible;
         response.total = queue->available + queue->delayed + queue->invisible;
+        applyMetadata(response, *auth.user);
         return EqsServer::JsonResponse(req, status::ok, response.toJson());
     }
 
@@ -804,7 +820,8 @@ namespace Euclid::EQS {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-queue-metadata");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
@@ -838,7 +855,8 @@ namespace Euclid::EQS {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-message-attribute");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
@@ -862,6 +880,7 @@ namespace Euclid::EQS {
         response.name = request.name;
         response.value = Dto::EQS::EqsMapper::toDto(attribute->second);
 
+        applyMetadata(response, *auth.user);
         return EqsServer::JsonResponse(req, status::ok, response.toJson());
     }
 
@@ -869,7 +888,8 @@ namespace Euclid::EQS {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-message-attribute");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
@@ -892,6 +912,7 @@ namespace Euclid::EQS {
         response.name = request.key;
         response.value = Dto::EQS::EqsMapper::toDto(message->attributes[request.key]);
 
+        applyMetadata(response, *auth.user);
         return EqsServer::JsonResponse(req, status::ok, response.toJson());
     }
 
@@ -899,7 +920,8 @@ namespace Euclid::EQS {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-message-metadata");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
@@ -925,6 +947,7 @@ namespace Euclid::EQS {
         response.contentType = message->contentType;
         response.created = Core::DateTimeUtils::ToISO8601(message->created);
         response.modified = Core::DateTimeUtils::ToISO8601(message->modified);
+        applyMetadata(response, *auth.user);
         return EqsServer::JsonResponse(req, status::ok, response.toJson());
     }
 
@@ -932,7 +955,8 @@ namespace Euclid::EQS {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-metadata");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
@@ -950,7 +974,8 @@ namespace Euclid::EQS {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "add-metadata");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
@@ -967,7 +992,8 @@ namespace Euclid::EQS {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "add-queue-tag");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
@@ -1036,7 +1062,8 @@ namespace Euclid::EQS {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-queue-visibility");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
@@ -1076,7 +1103,8 @@ namespace Euclid::EQS {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-queue-delay");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
@@ -1115,7 +1143,8 @@ namespace Euclid::EQS {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-queue-max-message-length");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
@@ -1160,7 +1189,8 @@ namespace Euclid::EQS {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-queue-tag");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
@@ -1186,7 +1216,8 @@ namespace Euclid::EQS {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-queue-tag");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;

@@ -67,13 +67,22 @@ using euclid_logger_t = boost::log::sources::severity_channel_logger_mt<boost::l
 
 BOOST_LOG_INLINE_GLOBAL_LOGGER_DEFAULT(my_logger, euclid_logger_t)
 
-BOOST_LOG_ATTRIBUTE_KEYWORD(process_id, "ProcessID", boost::log::attributes::current_process_id::value_type)
-BOOST_LOG_ATTRIBUTE_KEYWORD(thread_id, "ThreadID", boost::log::attributes::current_thread_id::value_type)
-BOOST_LOG_ATTRIBUTE_KEYWORD(timestamp, "TimeStamp", boost::posix_time::ptime)
-BOOST_LOG_ATTRIBUTE_KEYWORD(line, "Line", int)
-BOOST_LOG_ATTRIBUTE_KEYWORD(file, "File", std::string)
-BOOST_LOG_ATTRIBUTE_KEYWORD(function, "Function", boost::log::attributes::function<std::string>)
-BOOST_LOG_ATTRIBUTE_KEYWORD(channel, "Channel", std::string)
+// Namespaced rather than left at global scope, which is where BOOST_LOG_ATTRIBUTE_KEYWORD puts
+// them if you let it. Every one of these is a word an ordinary function wants for an ordinary
+// local - file, line, timestamp, channel, function - and this header reaches nearly every
+// translation unit in euclid, so at global scope they make `auto file = ...` a shadow warning
+// anywhere in the codebase. That had already happened: the record filter below had to be written
+// `attributes[::channel]` to say it meant the keyword and not the parameter it sits next to.
+namespace Euclid::Core::Log {
+
+    BOOST_LOG_ATTRIBUTE_KEYWORD(process_id, "ProcessID", boost::log::attributes::current_process_id::value_type)
+    BOOST_LOG_ATTRIBUTE_KEYWORD(thread_id, "ThreadID", boost::log::attributes::current_thread_id::value_type)
+    BOOST_LOG_ATTRIBUTE_KEYWORD(timestamp, "TimeStamp", boost::posix_time::ptime)
+    BOOST_LOG_ATTRIBUTE_KEYWORD(line, "Line", int)
+    BOOST_LOG_ATTRIBUTE_KEYWORD(file, "File", std::string)
+    BOOST_LOG_ATTRIBUTE_KEYWORD(function, "Function", boost::log::attributes::function<std::string>)
+    BOOST_LOG_ATTRIBUTE_KEYWORD(channel, "Channel", std::string)
+}
 
 namespace Euclid::Core {
 

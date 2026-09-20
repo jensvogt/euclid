@@ -50,7 +50,7 @@ namespace Euclid::Core {
         bool constantTimeEquals(const std::vector<unsigned char> &a, const std::vector<unsigned char> &b) {
             if (a.size() != b.size()) return false;
             unsigned char diff = 0;
-            for (std::size_t i = 0; i < a.size(); ++i) diff |= a[i] ^ b[i];
+            for (std::size_t i = 0; i < a.size(); ++i) diff |= static_cast<unsigned char>(a[i] ^ b[i]);
             return diff == 0;
         }
 

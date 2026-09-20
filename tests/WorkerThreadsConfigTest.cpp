@@ -8,9 +8,11 @@
 // Euclid includes
 #include <euclid/core/Configuration.h>
 #include <euclid/core/HttpActionServer.h>
+#include <euclid/core/UnixSocketServer.h>
 
 using Euclid::Core::Configuration;
 using Euclid::Core::HttpActionServer;
+using Euclid::Core::UnixSocketServer;
 
 // How many worker threads a module runs decides how many requests it can be in the middle of at
 // once, and getting it wrong does not announce itself: a module with too few threads does not
@@ -54,4 +56,22 @@ BOOST_AUTO_TEST_CASE(AnAbsurdCountIsCappedRatherThanAttempted) {
     Configuration::instance().set<long>("euclid.modules.esm.threads", 1000000);
 
     BOOST_TEST(HttpActionServer::ConfiguredWorkerThreads("esm", 2) == 256);
+}
+
+BOOST_AUTO_TEST_CASE(TheClampGuardsCallersThatNeverAskedTheConfigurationReader) {
+    // ConfiguredWorkerThreads is not the only way a count reaches a server: the gateway reads
+    // euclid.gateway.http.max-thread itself and hands the number straight to a constructor. That
+    // count sizes a std::vector of workers, and a negative int is not a small size there - it is
+    // a very large unsigned one, so the reserve() throws and the gateway reports "failed to
+    // start" without a word about the typo behind it. The clamp lives low enough to cover both
+    // routes in.
+    BOOST_TEST(UnixSocketServer::ClampWorkerThreads(-1) == 1);
+    BOOST_TEST(UnixSocketServer::ClampWorkerThreads(0) == 1);
+    BOOST_TEST(UnixSocketServer::ClampWorkerThreads(8) == 8);
+    BOOST_TEST(UnixSocketServer::ClampWorkerThreads(256) == 256);
+    BOOST_TEST(UnixSocketServer::ClampWorkerThreads(1000000) == 256);
+
+    // A long that does not fit an int at all, which is what a pasted-in millisecond timestamp
+    // looks like when it lands on the wrong configuration key.
+    BOOST_TEST(UnixSocketServer::ClampWorkerThreads(4294967296L) == 256);
 }

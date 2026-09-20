@@ -10,10 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/BaseDto.h>
 
 namespace Euclid::Dto::EQS {
 
-    struct GetMessageMetadataResponse {
+    struct GetMessageMetadataResponse : BaseDto {
 
         /**
          * @brief Message ID
@@ -81,6 +82,7 @@ namespace Euclid::Dto::EQS {
 
         friend GetMessageMetadataResponse tag_invoke(boost::json::value_to_tag<GetMessageMetadataResponse>, boost::json::value const &v) {
             GetMessageMetadataResponse r;
+            static_cast<BaseDto &>(r) = GetMetadata(v);
             r.messageId = Core::GetStringValue(v, "messageId");
             r.queueErn = Core::GetStringValue(v, "queueErn");
             r.receiptHandle = Core::GetStringValue(v, "receiptHandle");
@@ -97,6 +99,7 @@ namespace Euclid::Dto::EQS {
 
         friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, GetMessageMetadataResponse const &obj) {
             jv = {
+                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
                     {"messageId", obj.messageId},
                     {"queueErn", obj.queueErn},
                     {"receiptHandle", obj.receiptHandle},

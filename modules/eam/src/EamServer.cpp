@@ -2032,12 +2032,6 @@ namespace Euclid::EAM {
     }
 
 
-    // Whether this principal already holds this role in this account, so the migration can be run
-    // twice without granting everything twice.
-    static bool alreadyGranted(const std::vector<Database::Entity::EAM::Grant> &existing, const std::string &role, const std::string &accountId) {
-        return std::ranges::any_of(existing, [&](const auto &grant) { return grant.role == role && grant.accountId == accountId; });
-    }
-
         enum class Action {
             Unknown,
             Login,

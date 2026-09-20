@@ -205,7 +205,11 @@ BOOST_AUTO_TEST_CASE(ANarrowerCoveredSetIsRefused) {
     const auto base = HttpSignature::BuildSignatureBase(req, {"@method"}, parameters);
     BOOST_TEST_REQUIRE(base.has_value());
 
-    const auto signature = CryptoUtils::hmacSha256({std::string(kSecret).begin(), std::string(kSecret).end()}, *base);
+    // One string, named. Writing std::string(kSecret).begin() and std::string(kSecret).end()
+    // constructs two *different* temporaries, so the pair is not a range at all - it reads from
+    // the first until it passes the address of the second's end. AddressSanitizer found it here.
+    const std::string secret(kSecret);
+    const auto signature = CryptoUtils::hmacSha256({secret.begin(), secret.end()}, *base);
     req.set("Signature-Input", "sig1=" + parameters);
     req.set("Signature", "sig1=:" + CryptoUtils::Base64Encode({signature.begin(), signature.end()}) + ":");
 

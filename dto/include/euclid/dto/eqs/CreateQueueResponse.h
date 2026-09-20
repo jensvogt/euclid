@@ -45,7 +45,7 @@ namespace Euclid::Dto::EQS {
 
         friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, CreateQueueResponse const &obj) {
             jv = {
-                    //                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
+                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
                     {"name", obj.name},
                     {"ern", obj.ern},
             };

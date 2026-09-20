@@ -50,34 +50,34 @@ namespace Euclid::Database::Entity::EQS {
         std::array<long, 3> target{};
         std::array<double, 3> remainder{};
         long allocated = 0;
-        for (int i = 0; i < 3; ++i) {
+        for (std::size_t i = 0; i < 3; ++i) {
             const double raw = static_cast<double>(maxCount) * w[i] / totalWeight;
             target[i] = static_cast<long>(std::floor(raw));
             remainder[i] = raw - static_cast<double>(target[i]);
             allocated += target[i];
         }
 
-        std::array<int, 3> byRemainder{0, 1, 2};
-        std::ranges::stable_sort(byRemainder, [&](const int a, const int b) { return remainder[a] > remainder[b]; });
-        for (int i = 0; i < 3 && allocated < maxCount; ++i) {
+        std::array<std::size_t, 3> byRemainder{0, 1, 2};
+        std::ranges::stable_sort(byRemainder, [&](const std::size_t a, const std::size_t b) { return remainder[a] > remainder[b]; });
+        for (std::size_t i = 0; i < 3 && allocated < maxCount; ++i) {
             ++target[byRemainder[i]];
             ++allocated;
         }
 
         // Cap by what's actually available, redistributing any shortfall highest-priority-first.
         std::array<long, 3> avail{};
-        for (int i = 0; i < 3; ++i) {
+        for (std::size_t i = 0; i < 3; ++i) {
             const auto it = available.find(order[i]);
             avail[i] = it != available.end() ? it->second : 0;
         }
 
         std::array<long, 3> taken{};
         long shortfall = 0;
-        for (int i = 0; i < 3; ++i) {
+        for (std::size_t i = 0; i < 3; ++i) {
             taken[i] = std::min(target[i], avail[i]);
             shortfall += target[i] - taken[i];
         }
-        for (int i = 0; i < 3 && shortfall > 0; ++i) {
+        for (std::size_t i = 0; i < 3 && shortfall > 0; ++i) {
             const long spare = std::min(avail[i] - taken[i], shortfall);
             taken[i] += spare;
             shortfall -= spare;
