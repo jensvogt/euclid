@@ -6,8 +6,13 @@
 // Created by vogje01 on 9/5/26.
 //
 
+// C++ includes
+#include <cstdint>
+
+// MongoDB includes
 #include <bsoncxx/builder/basic/array.hpp>
 
+// Euclid includes
 #include <euclid/database/entity/eag/Route.h>
 
 namespace Euclid::Database::Entity::EAG {
@@ -26,8 +31,12 @@ namespace Euclid::Database::Entity::EAG {
         auto uploadDocument = bsoncxx::builder::basic::make_document(
                 bsoncxx::builder::basic::kvp("bucket", upload.bucket),
                 bsoncxx::builder::basic::kvp("keyPrefix", upload.keyPrefix),
-                bsoncxx::builder::basic::kvp("maxBytes", upload.maxBytes),
-                bsoncxx::builder::basic::kvp("partSize", upload.partSize),
+                // Cast rather than passed as the long they are declared: bsoncxx overloads append()
+                // on std::int32_t and std::int64_t, and on macOS int64_t is long long, so a long is
+                // an exact match for neither and both overloads are viable. It compiles on Linux
+                // only because int64_t is long there. Same reason as MonitoringData's "samples".
+                bsoncxx::builder::basic::kvp("maxBytes", static_cast<std::int64_t>(upload.maxBytes)),
+                bsoncxx::builder::basic::kvp("partSize", static_cast<std::int64_t>(upload.partSize)),
                 bsoncxx::builder::basic::kvp("contentTypes", contentTypeArray));
 
         return bsoncxx::builder::basic::make_document(
