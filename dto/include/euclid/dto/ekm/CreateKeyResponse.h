@@ -10,10 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/BaseDto.h>
 
 namespace Euclid::Dto::EKM {
 
-    struct CreateKeyResponse {
+    struct CreateKeyResponse : BaseDto {
 
         /**
          * @brief Euclid resource name
@@ -63,6 +64,7 @@ namespace Euclid::Dto::EKM {
 
         friend CreateKeyResponse tag_invoke(boost::json::value_to_tag<CreateKeyResponse>, boost::json::value const &v) {
             CreateKeyResponse r;
+            static_cast<BaseDto &>(r) = GetMetadata(v);
             r.ern = Core::GetStringValue(v, "ern");
             r.name = Core::GetStringValue(v, "name");
             r.description = Core::GetStringValue(v, "description");
@@ -74,6 +76,7 @@ namespace Euclid::Dto::EKM {
 
         friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, CreateKeyResponse const &obj) {
             jv = {
+                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
                     {"ern", obj.ern},
                     {"name", obj.name},
                     {"description", obj.description},

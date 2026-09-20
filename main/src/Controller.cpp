@@ -64,7 +64,10 @@ namespace Euclid::main {
     static std::string sanitizeForLog(const std::string &raw) {
         std::string out;
         out.reserve(raw.size());
-        for (const unsigned char c: raw) {
+        for (const char ch: raw) {
+            // Unsigned deliberately: the >= 0x20 test has to reject control bytes, not accept
+            // every byte over 0x7f because it happened to be a negative char.
+            const auto c = static_cast<unsigned char>(ch);
             if (c == '\t' || (c >= 0x20 && c != 0x7f)) {
                 out += static_cast<char>(c);
             } else {
@@ -1451,8 +1454,13 @@ namespace Euclid::main {
         const auto backlog = latestByInstance("application-backlog");
         if (utilisation.empty() && backlog.empty()) return;
 
+        // No freshness cutoff here, unlike the direct road. LoadFreshnessSeconds() is 45 seconds -
+        // an application's own reporting interval - and nothing on this path reports directly:
+        // every figure has been through EMO's buckets, which are one per averaging period, 300
+        // seconds by default. Measuring a 300-second bucket against a 45-second cutoff would
+        // discard every sample and the fallback would find nothing at all. What bounds staleness
+        // here is the query window above, `since`, read from the same averaging period.
         const auto now = std::chrono::steady_clock::now();
-        const auto fresh = std::chrono::system_clock::now() - std::chrono::seconds(LoadFreshnessSeconds());
 
         std::lock_guard lock(_mutex);
         for (const auto &name: poolNames) {

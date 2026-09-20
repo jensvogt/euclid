@@ -133,7 +133,7 @@ namespace Euclid::Database::Entity::EAP {
     }
 
     std::string RedeployRefusal(const std::string &deployedVersion, const std::string &deployedMd5Sum,
-                                const std::string &version, const std::string &md5Sum) {
+                                [[maybe_unused]] const std::string &version, const std::string &md5Sum) {
 
         // The version is deliberately not checked. Redeploying the same version with different
         // bytes is a normal thing to do - a rebuilt snapshot, a fix that keeps the number - and

@@ -10,10 +10,11 @@
 
 // Euclid includes
 #include <euclid/core/JsonUtils.h>
+#include <euclid/dto/BaseDto.h>
 
 namespace Euclid::Dto::EKM {
 
-    struct DeleteKeyResponse {
+    struct DeleteKeyResponse : BaseDto {
 
         /**
          * @brief Euclid resource name
@@ -53,6 +54,7 @@ namespace Euclid::Dto::EKM {
 
         friend DeleteKeyResponse tag_invoke(boost::json::value_to_tag<DeleteKeyResponse>, boost::json::value const &v) {
             DeleteKeyResponse r;
+            static_cast<BaseDto &>(r) = GetMetadata(v);
             r.ern = Core::GetStringValue(v, "ern");
             r.name = Core::GetStringValue(v, "name");
             r.deletionDate = Core::GetStringValue(v, "deletionDate");
@@ -62,6 +64,7 @@ namespace Euclid::Dto::EKM {
 
         friend void tag_invoke(boost::json::value_from_tag, boost::json::value &jv, DeleteKeyResponse const &obj) {
             jv = {
+                    {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
                     {"ern", obj.ern},
                     {"name", obj.name},
                     {"deletionDate", obj.deletionDate},

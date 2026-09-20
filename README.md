@@ -269,6 +269,9 @@ cmake -B build -DCMAKE_TOOLCHAIN_FILE=<path-to-vcpkg>/scripts/buildsystems/vcpkg
 cmake --build build --parallel
 ```
 
+Builds carry warnings, hardening flags (RELRO, stack protector, `_GLIBCXX_ASSERTIONS`) and an
+optional sanitizer configuration - see [docs/hardening.md](docs/hardening.md).
+
 Requires a C++23 compiler (GCC 14+/Clang), CMake 3.28+, and
 [vcpkg](https://github.com/microsoft/vcpkg) (dependencies are resolved from
 `vcpkg.json` automatically). Binaries land in `build/bin/`.
@@ -641,6 +644,7 @@ own process, which is what `SIGUSR1` re-reads.
 | Project                                                    | What it is                                                                                                                      |
 |------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------|
 | [euclid-rui](https://github.com/jensvogt/euclid-rui)       | Desktop UI (Qt/QML) - browse and administer queues, topics, buckets, keys, applications and transfer servers, with live metrics |
+| [euclid-web](https://github.com/jensvogt/euclid-web)       | Angular admin UI - the same nine modules euclid-ndk wraps, as dashboard cards and sortable list views in a browser              |
 | [euclid-jdk](https://github.com/jensvogt/euclid-jdk)       | Java client library for every module                                                                                            |
 | [euclid-spring](https://github.com/jensvogt/euclid-spring) | Spring Boot starter: `@QueueListener`, `@TopicListener` and `@BucketListener`, plus autoconfiguration                           |
 | [euclid-pdk](https://github.com/jensvogt/euclid-pdk)       | Python client library - EAM, ESM, EQS, ENS, EKM and ESS, both signing schemes, and no dependencies beyond the standard library  |

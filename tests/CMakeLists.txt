@@ -627,3 +627,12 @@ set_target_properties(${AUTHORIZATION_GATE_BINARY} PROPERTIES CXX_SCAN_FOR_MODUL
 target_link_libraries(${AUTHORIZATION_GATE_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
 
 add_test(NAME ${AUTHORIZATION_GATE_BINARY} COMMAND ${AUTHORIZATION_GATE_BINARY})
+
+set(RESPONSE_METADATA_BINARY euclid-response-metadata-tests)
+
+add_executable(${RESPONSE_METADATA_BINARY} ResponseMetadataTest.cpp)
+set_target_properties(${RESPONSE_METADATA_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${RESPONSE_METADATA_BINARY} PRIVATE eucliddto Boost::unit_test_framework)
+
+add_test(NAME ${RESPONSE_METADATA_BINARY} COMMAND ${RESPONSE_METADATA_BINARY})

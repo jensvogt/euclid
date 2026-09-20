@@ -41,9 +41,10 @@ namespace Euclid::EKM {
         return EkmServer::Unauthorized(req, {.subject = std::nullopt, .tokenExpired = auth.tokenExpired, .denialReason = auth.denialReason});
     }
 
-    // Fills in the caller identity shared by every response DTO's "metadata" object. The
-    // request ID that correlates this response with its request travels as the
-    // "x-euclid-request-id" header instead (set centrally in HttpActionServer::JsonResponse).
+    // Fills in the caller identity every response DTO inherits from BaseDto and serialises as a
+    // nested "metadata" object. Resolved from the authenticated user rather than from anything the
+    // request said it was. The request ID that correlates this response with its request travels
+    // as the "x-euclid-request-id" header instead (set centrally in HttpActionServer::JsonResponse).
     static void applyMetadata(Dto::BaseDto &response, const Database::Entity::EAM::User &user) {
         response.user = user.userId;
         response.accountId = user.accountId;
@@ -120,6 +121,7 @@ namespace Euclid::EKM {
         response.algorithm = saved.algorithm;
         response.length = saved.length;
         response.status = Database::Entity::EKM::KeyStatusToString(saved.status);
+        applyMetadata(response, *auth.user);
         return EkmServer::JsonResponse(req, status::ok, response.toJson());
     }
 
@@ -164,6 +166,7 @@ namespace Euclid::EKM {
         response.ern = saved.ern;
         response.deletionDate = Core::DateTimeUtils::ToISO8601(saved.deletionDate);
         response.status = Database::Entity::EKM::KeyStatusToString(saved.status);
+        applyMetadata(response, *auth.user);
         return EkmServer::JsonResponse(req, status::ok, response.toJson());
     }
 
@@ -177,7 +180,8 @@ namespace Euclid::EKM {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "revoke-key");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EkmServer::ParseJsonBody(req, jv)) return *err;
@@ -205,6 +209,7 @@ namespace Euclid::EKM {
         response.name = saved.name;
         response.ern = saved.ern;
         response.status = Database::Entity::EKM::KeyStatusToString(saved.status);
+        applyMetadata(response, *auth.user);
         return EkmServer::JsonResponse(req, status::ok, response.toJson());
     }
 
@@ -305,7 +310,8 @@ namespace Euclid::EKM {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-key-description");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EkmServer::ParseJsonBody(req, jv)) return *err;
@@ -331,6 +337,7 @@ namespace Euclid::EKM {
         response.ern = saved.ern;
         response.name = saved.name;
         response.description = saved.description;
+        applyMetadata(response, *auth.user);
         return EkmServer::JsonResponse(req, status::ok, response.toJson());
     }
 
@@ -341,7 +348,8 @@ namespace Euclid::EKM {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "add-key-tag");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EkmServer::ParseJsonBody(req, jv)) return *err;
@@ -366,7 +374,8 @@ namespace Euclid::EKM {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-key-tag");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EkmServer::ParseJsonBody(req, jv)) return *err;
@@ -420,6 +429,7 @@ namespace Euclid::EKM {
         Dto::EKM::GetKeyResponse response;
         response.key = Dto::EKM::EkmMapper::toDto(*key);
 
+        applyMetadata(response, *auth.user);
         return EkmServer::JsonResponse(req, status::ok, response.toJson());
     }
 
@@ -445,6 +455,7 @@ namespace Euclid::EKM {
         response.keys = Dto::EKM::EkmMapper::toDto(keys);
         response.total = repo->countKeys(auth.user->accountId, nameSpace, request.prefix);
 
+        applyMetadata(response, *auth.user);
         return EkmServer::JsonResponse(req, status::ok, response.toJson());
     }
 
@@ -486,9 +497,11 @@ namespace Euclid::EKM {
             return certificate;
         }
 
-        response<string_body> certificateResponse(const request<string_body> &req, const Database::Entity::EKM::Certificate &saved) {
+        response<string_body> certificateResponse(const request<string_body> &req, const Database::Entity::EKM::Certificate &saved,
+                                                  const Database::Entity::EAM::User &user) {
             Dto::EKM::CertificateResponse response;
             response.certificate = Dto::EKM::EkmMapper::toDto(saved);
+            applyMetadata(response, user);
             return EkmServer::JsonResponse(req, status::ok, response.toJson());
         }
 
@@ -545,7 +558,7 @@ namespace Euclid::EKM {
                 },
                 "ekm");
 
-        return certificateResponse(req, saved);
+        return certificateResponse(req, saved, *auth.user);
     }
 
     // Generates a self-signed certificate, for an installation that has to serve HTTPS before
@@ -602,7 +615,7 @@ namespace Euclid::EKM {
                 },
                 "ekm");
 
-        return certificateResponse(req, saved);
+        return certificateResponse(req, saved, *auth.user);
     }
 
     static response<string_body> handleListCertificates(const request<string_body> &req) {
@@ -626,6 +639,7 @@ namespace Euclid::EKM {
         response.certificates = Dto::EKM::EkmMapper::toDto(certificates);
         response.total = repo->countCertificates(auth.user->accountId, nameSpace, request.prefix);
 
+        applyMetadata(response, *auth.user);
         return EkmServer::JsonResponse(req, status::ok, response.toJson());
     }
 
@@ -650,7 +664,7 @@ namespace Euclid::EKM {
             return EkmServer::ErrorResponse(req, status::not_found, "Certificate not found, name: " + request.name);
         }
 
-        return certificateResponse(req, *certificate);
+        return certificateResponse(req, *certificate, *auth.user);
     }
 
     // Deleted outright, with no grace period: unlike a key, nothing becomes unreadable. A listener
@@ -694,6 +708,7 @@ namespace Euclid::EKM {
         Dto::EKM::DeleteCertificateResponse response;
         response.ern = certificate->ern;
         response.name = certificate->name;
+        applyMetadata(response, *auth.user);
         return EkmServer::JsonResponse(req, status::ok, response.toJson());
     }
 

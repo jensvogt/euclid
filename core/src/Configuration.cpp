@@ -210,7 +210,7 @@ namespace Euclid::Core {
         }
     }
 
-    void Configuration::prettyPrintValue(const boost::json::value &v, std::ostream &out, int indent) {
+    void Configuration::prettyPrintValue(const boost::json::value &v, std::ostream &out, const std::size_t indent) {
 
         const std::string pad(indent * 2, ' ');
         const std::string childPad((indent + 1) * 2, ' ');

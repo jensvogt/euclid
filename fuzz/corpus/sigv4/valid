@@ -1,0 +1,1 @@
+AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE0000000001/20260920/eu-central-1/esm/aws4_request, SignedHeaders=host;x-euclid-action, Signature=deadbeef
