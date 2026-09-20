@@ -9,6 +9,7 @@
 #include <atomic>
 #include <chrono>
 #include <map>
+#include <set>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -683,6 +684,25 @@ namespace Euclid::main {
          * @brief Maintains a collection of service module pools managed by the system, keyed by module name.
          */
         std::map<std::string, ServiceGroup> _services;
+
+        /**
+         * @brief Runtime names of application pools this controller has registered, kept after the
+         * pool itself is gone.
+         *
+         * @par
+         * An application's data directory is removed when its definition disappears, and the pool
+         * cannot be what says so: stopping an application already deregisters it (see
+         * reconcileApplications), so by the time a stopped application is deleted there is no pool
+         * left to notice. Which is the ordinary way to remove one - stop it, check, then delete -
+         * and it would have been the case that never cleaned up.
+         *
+         * @par
+         * Names are removed from here once their directory has been dealt with. An application
+         * that was already stopped when this process started is not in here, so its directory
+         * outlives a delete; that is a narrower gap than the one it replaces, and a restart with
+         * the application defined puts the name back.
+         */
+        std::set<std::string> _applicationPools;
 
         /**
          * @brief Ensures thread-safe access to shared resources.

@@ -28,10 +28,12 @@
 #include <euclid/core/JwtUtils.h>
 #include <euclid/core/LogStream.h>
 #include <euclid/core/ObjectCipher.h>
+#include <euclid/database/entity/RuntimeName.h>
 #include <euclid/database/Database.h>
 #include <euclid/database/RepositoryFactory.h>
 #include <euclid/database/entity/ets/TransferServer.h>
 #include <euclid/dto/emm/EmmMapper.h>
+#include <euclid/manager/ApplicationCleanup.h>
 #include <euclid/manager/BacklogTarget.h>
 #include <euclid/manager/UtilisationSignals.h>
 #include <euclid/manager/Controller.h>
@@ -690,6 +692,41 @@ namespace Euclid::main {
             return std::filesystem::path(dataDir) / runtimeName;
         }
 
+        // Takes the directory away with the application, which nothing used to do: deleting an
+        // application removed its row, its principal and its process, and left the artifact and
+        // working files behind for good. They accumulate one directory per application ever
+        // deleted, and - worse than the waste - a new application of the same name would start up
+        // on top of a dead one's files.
+        //
+        // That second effect is the whole reason runtime names carry a random suffix (see
+        // Entity::GenerateRuntimeName): a name that is never reused cannot collide with litter.
+        // Cleaning up here is what makes the suffix unnecessary rather than load-bearing.
+        //
+        // Best effort. A directory that will not go is worth a line in the log and nothing more -
+        // the application is already stopped and deregistered by this point, and throwing here
+        // would abandon the rest of the reconciliation pass over a file.
+        void removeApplicationDir(const std::string &runtimeName) {
+
+            // A pool name reaches this from a database row, so it is checked rather than trusted:
+            // "..", a path separator or an empty name would each resolve somewhere other than one
+            // directory below the data dir, and this call deletes recursively.
+            if (!Database::Entity::IsSafeRuntimeName(runtimeName)) {
+                log_warning << "Refusing to remove an application directory for a suspect runtime name: " << runtimeName;
+                return;
+            }
+
+            const auto directory = applicationDir(runtimeName);
+            std::error_code ec;
+            if (!std::filesystem::exists(directory, ec)) return;
+
+            const auto removed = std::filesystem::remove_all(directory, ec);
+            if (ec) {
+                log_warning << "Could not remove application directory, path: " << directory.string() << ", error: " << ec.message();
+                return;
+            }
+            log_info << "Removed application directory, path: " << directory.string() << ", entries: " << removed;
+        }
+
         // Copies the artifact out of ESM's object storage next to where the application will run.
         //
         // Read straight off ESM's data directory rather than through the module: the manager is
@@ -1123,6 +1160,12 @@ namespace Euclid::main {
                         << ", runtime: " << RuntimeToString(application.runtime) << ", command: " << config.executable
                         << ", instances: " << config.minInstances << "-" << config.maxInstances;
                 registerModule(config);
+                {
+                    // Remembered past the pool's own life, so that deleting an application that
+                    // was stopped first still takes its directory with it - see _applicationPools.
+                    std::lock_guard lock(_mutex);
+                    _applicationPools.insert(runtimeName);
+                }
                 start(runtimeName);
 
             } else if (!wantRunning && registered) {
@@ -1153,6 +1196,19 @@ namespace Euclid::main {
             // inherit a level nobody can see any more - the row that carried it is gone.
             Core::LogStream::ClearChannelSeverity(std::string(Core::LogStream::kApplicationChannel) + "." + name);
         }
+
+        // Separately from the pools above, because a pool is not what says an application is gone.
+        // One that was stopped before it was deleted has already been deregistered, so it never
+        // appears as an orphan here - and stop, check, then delete is how anybody removes an
+        // application. These are the names this controller has started at any point, whether or
+        // not they are still registered.
+        std::vector<std::string> departed;
+        {
+            std::lock_guard lock(_mutex);
+            departed = DepartedApplicationPools(_applicationPools, defined);
+            for (const auto &name: departed) _applicationPools.erase(name);
+        }
+        for (const auto &name: departed) removeApplicationDir(name);
     }
 
     bool ServiceController::start(const std::string &name) {
