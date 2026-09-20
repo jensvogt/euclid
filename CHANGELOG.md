@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.29](https://github.com/jensvogt/euclid/compare/1.1.28...v1.1.29) (2026-09-20)
+
+
+### Bug Fixes
+
+* add backup scheme ([3d5dce1](https://github.com/jensvogt/euclid/commit/3d5dce107453c3a45fa92dcd9c3eee7f212b7226))
+
 ## [1.1.28](https://github.com/jensvogt/euclid/compare/v1.1.27...v1.1.28) (2026-09-20)
 
 
