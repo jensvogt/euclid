@@ -636,3 +636,23 @@ set_target_properties(${RESPONSE_METADATA_BINARY} PROPERTIES CXX_SCAN_FOR_MODULE
 target_link_libraries(${RESPONSE_METADATA_BINARY} PRIVATE eucliddto Boost::unit_test_framework)
 
 add_test(NAME ${RESPONSE_METADATA_BINARY} COMMAND ${RESPONSE_METADATA_BINARY})
+
+set(APPLICATION_CLEANUP_BINARY euclid-application-cleanup-tests)
+
+add_executable(${APPLICATION_CLEANUP_BINARY} ApplicationCleanupTest.cpp)
+set_target_properties(${APPLICATION_CLEANUP_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${APPLICATION_CLEANUP_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/main/include)
+target_link_libraries(${APPLICATION_CLEANUP_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${APPLICATION_CLEANUP_BINARY} COMMAND ${APPLICATION_CLEANUP_BINARY})
+
+set(BACKUP_RETENTION_BINARY euclid-backup-retention-tests)
+
+add_executable(${BACKUP_RETENTION_BINARY} BackupRetentionTest.cpp)
+set_target_properties(${BACKUP_RETENTION_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${BACKUP_RETENTION_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/emm/include)
+target_link_libraries(${BACKUP_RETENTION_BINARY} PRIVATE Boost::unit_test_framework)
+
+add_test(NAME ${BACKUP_RETENTION_BINARY} COMMAND ${BACKUP_RETENTION_BINARY})

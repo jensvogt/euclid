@@ -23,6 +23,8 @@ using Euclid::Database::Entity::EAP::RestartRefusal;
 using Euclid::Database::Entity::EAP::Runtime;
 using Euclid::Database::Entity::EAP::RuntimeCommandPrefix;
 using Euclid::Database::Entity::GenerateRuntimeName;
+using Euclid::Database::Entity::IsSafeRuntimeName;
+using Euclid::Database::Entity::IssueRuntimeName;
 using Euclid::Database::Entity::EAP::RuntimeName;
 using Euclid::Database::Entity::EAP::VersionFromArtifactName;
 
@@ -219,6 +221,66 @@ BOOST_AUTO_TEST_CASE(AnIssuedRuntimeNameSaysWhichApplicationItIs) {
     // is built from is cut rather than allowed to take the name past that.
     const std::string long_id(80, 'x');
     BOOST_TEST(GenerateRuntimeName(long_id).size() == 32U + 1U + 8U);
+}
+
+BOOST_AUTO_TEST_CASE(APlainNameIsIssuedWhenNothingElseHasIt) {
+
+    // What an operator reads off ps output, a socket path, a data directory and a log channel.
+    // "protocolizing" says everything "protocolizing-5yrdi4gh" says without the noise, so the
+    // plain name is taken when it is free.
+    const auto free = [](const std::string &) { return false; };
+    BOOST_TEST(IssueRuntimeName("protocolizing", free) == "protocolizing");
+    BOOST_TEST(IssueRuntimeName("orders", free) == "orders");
+}
+
+BOOST_AUTO_TEST_CASE(ATakenNameFallsBackToASuffixedOne) {
+
+    // Which is the case the suffix exists for: two namespaces may each define an application of
+    // the same name, and a directory and a socket are per host, with nowhere to put a namespace.
+    const auto onlyPlainTaken = [](const std::string &candidate) { return candidate == "orders"; };
+
+    const auto issued = IssueRuntimeName("orders", onlyPlainTaken);
+    BOOST_TEST(issued != "orders");
+    BOOST_TEST(issued.starts_with("orders-"));
+    BOOST_TEST(issued.size() == std::string("orders-").size() + 8U);
+
+    // And it keeps trying rather than handing back a name somebody already has: a suffix is
+    // random, so "unlikely" is not "cannot".
+    int refusals = 0;
+    const auto refuseTheFirstFew = [&refusals](const std::string &) { return refusals++ < 3; };
+    const auto eventual = IssueRuntimeName("orders", refuseTheFirstFew);
+    BOOST_TEST(eventual.starts_with("orders-"));
+    BOOST_TEST(refusals == 4);
+}
+
+BOOST_AUTO_TEST_CASE(AnIssuedNameIsAlwaysOneUsablePathComponent) {
+
+    // A runtime name is a path component before it is anything else - a directory under the data
+    // dir, a unix socket - and one caller deletes that directory recursively. Anything that would
+    // resolve somewhere other than one level down is refused.
+    BOOST_TEST(!IsSafeRuntimeName(""));
+    BOOST_TEST(!IsSafeRuntimeName("."));
+    BOOST_TEST(!IsSafeRuntimeName(".."));
+    BOOST_TEST(!IsSafeRuntimeName("../../etc"));
+    BOOST_TEST(!IsSafeRuntimeName("a/b"));
+    BOOST_TEST(!IsSafeRuntimeName("a\\b"));
+    BOOST_TEST(!IsSafeRuntimeName(std::string("a\0b", 4)));
+    BOOST_TEST(IsSafeRuntimeName("protocolizing"));
+    BOOST_TEST(IsSafeRuntimeName("orders-a1b2c3d4"));
+
+    // An id that is not usable on its own does not come back as itself, suffix or no suffix.
+    const auto free = [](const std::string &) { return false; };
+    BOOST_TEST(IssueRuntimeName("..", free) != "..");
+    BOOST_TEST(IsSafeRuntimeName(IssueRuntimeName("..", free)));
+}
+
+BOOST_AUTO_TEST_CASE(APlainNameIsCutToFitASocketPathToo) {
+
+    // The cap is on the name, not on the generated part: sun_path is 108 bytes and the whole of
+    // this ends up inside one. A plain name that skipped the cut would be the long one.
+    const std::string longId(80, 'x');
+    const auto free = [](const std::string &) { return false; };
+    BOOST_TEST(IssueRuntimeName(longId, free).size() == 32U);
 }
 
 BOOST_AUTO_TEST_CASE(ALogLevelIsNotAChangeOfDefinition) {

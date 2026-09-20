@@ -20,6 +20,7 @@
 #include <euclid/core/DateTimeUtils.h>
 #include <euclid/core/ErnUtils.h>
 #include <euclid/core/monitoring/MonitoringTimer.h>
+#include <euclid/database/entity/RuntimeName.h>
 #include <euclid/database/entity/eam/User.h>
 #include <euclid/database/entity/esm/Object.h>
 
@@ -303,11 +304,9 @@ namespace Euclid::EAP {
         // failure anybody would enjoy diagnosing.
         std::string issueRuntimeName(const std::string &applicationId) {
             const auto repository = Database::RepositoryFactory::instance().eapRepository();
-            for (int attempt = 0; attempt < 8; ++attempt) {
-                auto candidate = Database::Entity::GenerateRuntimeName(applicationId);
-                if (!repository->findApplicationByRuntimeName(candidate).has_value()) return candidate;
-            }
-            throw std::runtime_error("could not find a free runtime name for application " + applicationId);
+            return Database::Entity::IssueRuntimeName(applicationId, [&repository](const std::string &candidate) {
+                return repository->findApplicationByRuntimeName(candidate).has_value();
+            });
         }
 
         boost::json::object toJson(const Application &application) {
@@ -848,7 +847,29 @@ namespace Euclid::EAP {
         // thing it was issued to is exactly the orphan this arrangement exists to avoid. A user
         // the caller named themselves is left alone.
         if (application.has_value() && isOwnedTechnicalUser(*application)) {
-            Database::RepositoryFactory::instance().eamRepository()->deleteUser(application->userId);
+
+            const auto eamRepository = Database::RepositoryFactory::instance().eamRepository();
+
+            // The grants go before the principal does, and they used not to go at all. Deleting an
+            // application removed its user and left every grant that user held behind, pointing at
+            // an ERN that no longer resolves - so they accumulated, and worse, they came back.
+            //
+            // A technical principal is named after the application, so deleting an application and
+            // creating one of the same name later produces a user with the same ERN - and the old
+            // grants attach themselves to it. Deleting an application to take its access away did
+            // not take its access away; it only waited for the name to be used again. Observed on
+            // this installation: a principal recreated under its old name came up holding
+            // thirty-seven grants nobody had issued to it.
+            if (const auto principal = eamRepository->findUserByUserId(application->userId); principal.has_value()) {
+                const auto grants = eamRepository->findGrantsByPrincipals({principal->ern});
+                for (const auto &grant: grants) eamRepository->deleteGrant(grant.oid);
+                if (!grants.empty()) {
+                    log_info << "EAP revoked technical user's grants, userId: " << application->userId
+                            << ", grants: " << grants.size();
+                }
+            }
+
+            eamRepository->deleteUser(application->userId);
             log_info << "EAP deleted technical user, userId: " << application->userId;
         }
 

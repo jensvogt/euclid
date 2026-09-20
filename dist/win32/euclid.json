@@ -160,7 +160,14 @@
         "executable": "C:\\Program Files\\euclid\\bin\\euclid-emm.exe",
         "minInstances": 1,
         "maxInstances": 1,
-        "threads": 2
+        "threads": 2,
+        "backup": {
+          "enabled": true,
+          "schedule": "0 1 * * *",
+          "directory": "C:\\Program Files\\euclid\\data\\backup",
+          "keep": 7,
+          "passphrase": ""
+        }
       },
       "ees": {
         "dependencies": [
