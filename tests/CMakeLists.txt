@@ -80,6 +80,16 @@ target_link_libraries(${OUTBOX_BINARY} PRIVATE euclidcore Boost::unit_test_frame
 
 add_test(NAME ${OUTBOX_BINARY} COMMAND ${OUTBOX_BINARY})
 
+set(FRONTEND_ROUTE_BINARY euclid-gateway-frontend-route-tests)
+
+add_executable(${FRONTEND_ROUTE_BINARY} GatewayFrontendRouteTest.cpp)
+set_target_properties(${FRONTEND_ROUTE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${FRONTEND_ROUTE_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/main/include)
+target_link_libraries(${FRONTEND_ROUTE_BINARY} PRIVATE Boost::unit_test_framework)
+
+add_test(NAME ${FRONTEND_ROUTE_BINARY} COMMAND ${FRONTEND_ROUTE_BINARY})
+
 set(WS_FRAME_BINARY euclid-gateway-ws-frame-tests)
 
 add_executable(${WS_FRAME_BINARY} GatewayWsFrameTest.cpp)

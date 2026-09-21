@@ -309,6 +309,24 @@ namespace Euclid::main {
     }
 
 #if defined(_WIN32)
+    // Both of the kernel handles an instance owns, released together because they have the same
+    // lifetime - the process is gone, so neither the handle to it nor the event used to ask it
+    // to stop is good for anything. One function rather than the pair open-coded at each of the
+    // three places an instance ends, so a fourth cannot quietly leak the event the way it would
+    // have to be remembered separately otherwise.
+    static void closeInstanceHandles(const std::shared_ptr<Dto::ModuleProcess> &svc) {
+        if (svc->processHandle) {
+            CloseHandle(svc->processHandle);
+            svc->processHandle = nullptr;
+        }
+        if (svc->stopEvent) {
+            CloseHandle(svc->stopEvent);
+            svc->stopEvent = nullptr;
+        }
+    }
+#endif
+
+#if defined(_WIN32)
     bool spawnInstance(const std::shared_ptr<Dto::ModuleProcess> &svc) {
 
         // Which pool slot this process is, so that anything it reports about itself can be
@@ -349,15 +367,16 @@ namespace Euclid::main {
         const std::string instanceSocket = makeInstanceSocketPath(svc->config.socketPath, instanceId);
 
         pid_t pid = -1;
-        HANDLE processHandle = nullptr;
+        HANDLE processHandle = nullptr, stopEvent = nullptr;
         int outFd = -1, errFd = -1;
-        if (!Platform::SpawnInstance(svc->config, instanceSocket, pid, processHandle, outFd, errFd)) {
+        if (!Platform::SpawnInstance(svc->config, instanceSocket, pid, processHandle, stopEvent, outFd, errFd)) {
             svc->state = Database::Entity::ModuleState::CRASHED;
             return false;
         }
 
         svc->pid = pid;
         svc->processHandle = processHandle;
+        svc->stopEvent = stopEvent;
         svc->instanceSocketPath = instanceSocket;
         svc->state = Database::Entity::ModuleState::STARTING;
         svc->startTime = std::chrono::steady_clock::now();
@@ -387,10 +406,7 @@ namespace Euclid::main {
                 << (liveness ? " exited during startup, pid " : " did not become ready, killing pid ") << svc->pid;
         Platform::ForceKill(svc->processHandle);
         ServiceController::waitForExit(svc->pid, 2000);
-        if (svc->processHandle) {
-            CloseHandle(svc->processHandle);
-            svc->processHandle = nullptr;
-        }
+        closeInstanceHandles(svc);
         if (!svc->instanceSocketPath.empty()) std::remove(svc->instanceSocketPath.c_str());
         svc->pid = -1;
         svc->instanceSocketPath.clear();
@@ -2289,10 +2305,7 @@ namespace Euclid::main {
             }
         }
         for (auto &svc: exited) {
-            if (svc->processHandle) {
-                CloseHandle(svc->processHandle);
-                svc->processHandle = nullptr;
-            }
+            closeInstanceHandles(svc);
             handleExitedInstance(svc);
         }
     }
@@ -2356,7 +2369,14 @@ namespace Euclid::main {
         log_info << "Stopping instance '" << svc->config.name << "' (pid " << svc->pid << ")";
 
 #if defined(_WIN32)
-        Platform::RequestGracefulStop(svc->pid);
+        // Said once per instance rather than left to look like a slow shutdown: an instance with
+        // no stop event is never asked to stop at all, so it always burns the whole timeout below
+        // and is then killed - and the log would otherwise read exactly like a module that was
+        // asked politely and ignored it.
+        if (!Platform::RequestGracefulStop(svc->stopEvent)) {
+            log_warning << "Instance '" << svc->config.name << "' (pid " << svc->pid
+                        << ") has no stop event and cannot be asked to shut down, it will be terminated";
+        }
         if (!waitForExit(svc->pid, timeoutMs)) {
             log_warning << "Instance '" << svc->config.name << "' (pid " << svc->pid << ") did not stop in " << timeoutMs << "ms, terminating";
             Platform::ForceKill(svc->processHandle);
@@ -2369,10 +2389,7 @@ namespace Euclid::main {
         } else {
             log_info << "Instance '" << svc->config.name << "' (pid " << svc->pid << ") stopped cleanly";
         }
-        if (svc->processHandle) {
-            CloseHandle(svc->processHandle);
-            svc->processHandle = nullptr;
-        }
+        closeInstanceHandles(svc);
 #else
         kill(svc->pid, SIGTERM);
         if (!waitForExit(svc->pid, timeoutMs)) {

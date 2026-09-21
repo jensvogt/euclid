@@ -1,5 +1,320 @@
 # Changelog
 
+## [1.1.31](https://github.com/jensvogt/euclid/compare/1.1.30...v1.1.31) (2026-09-21)
+
+
+### Bug Fixes
+
+* add EAM change password ([d473c81](https://github.com/jensvogt/euclid/commit/d473c81ae54b4b5ee872866d9ccf01ec234bc8ae))
+* add EAM change password ([775d6f9](https://github.com/jensvogt/euclid/commit/775d6f9fd40c3cfe1596fc2b5dd96c0df089c4a6))
+
+## [1.1.30](https://github.com/jensvogt/euclid/compare/v1.1.29...v1.1.30) (2026-09-21)
+
+
+### Bug Fixes
+
+* windows build ([3794d14](https://github.com/jensvogt/euclid/commit/3794d1465776f804353e4134319596fb066cd8a3))
+
+## [1.1.29](https://github.com/jensvogt/euclid/compare/1.1.28...v1.1.29) (2026-09-20)
+
+
+### Bug Fixes
+
+* add backup scheme ([3d5dce1](https://github.com/jensvogt/euclid/commit/3d5dce107453c3a45fa92dcd9c3eee7f212b7226))
+
+## [1.1.28](https://github.com/jensvogt/euclid/compare/v1.1.27...v1.1.28) (2026-09-20)
+
+
+### Bug Fixes
+
+* macOS build ([7a94a69](https://github.com/jensvogt/euclid/commit/7a94a694155a12ad76698976697a440997ad5b60))
+
+## [1.1.27](https://github.com/jensvogt/euclid/compare/v1.1.26...v1.1.27) (2026-09-20)
+
+
+### Bug Fixes
+
+* socker build ([9c01fb9](https://github.com/jensvogt/euclid/commit/9c01fb9ab6a0fb46e5c32e55176046d67ee5d574))
+
+## [1.1.26](https://github.com/jensvogt/euclid/compare/1.1.25...v1.1.26) (2026-09-20)
+
+
+### Bug Fixes
+
+* adding opensearch/kibana for logging.- ([2a56182](https://github.com/jensvogt/euclid/commit/2a56182d911037c284eee61953cbd9e09d5b4a8b))
+* bump to boost 1.92 ([bf197d8](https://github.com/jensvogt/euclid/commit/bf197d8c45755ffbcb7f8597167de76ac6582d7c))
+* hardening ([30a1202](https://github.com/jensvogt/euclid/commit/30a120291d1e5e5a0a707fb1b089aedd573cde60))
+* secure HTTP upload to ESM ([1850fc9](https://github.com/jensvogt/euclid/commit/1850fc98ee41527d1bbb6a35441a2951d2d2ba9a))
+
+## [1.1.25](https://github.com/jensvogt/euclid/compare/1.1.24...v1.1.25) (2026-09-19)
+
+
+### Bug Fixes
+
+* add EAM grants paging ([50243cb](https://github.com/jensvogt/euclid/commit/50243cbdeb9056495d9177faef2e8615fedaaf69))
+
+## [1.1.24](https://github.com/jensvogt/euclid/compare/v1.1.23...v1.1.24) (2026-09-19)
+
+
+### Bug Fixes
+
+* add get-details for ENS, EQS and ESM ([0935864](https://github.com/jensvogt/euclid/commit/0935864472dc4ad819f37a768d4d6b552ec2e527))
+
+## [1.1.23](https://github.com/jensvogt/euclid/compare/1.1.22...v1.1.23) (2026-09-19)
+
+
+### Bug Fixes
+
+* auto completion of commands ([86c8971](https://github.com/jensvogt/euclid/commit/86c89712d56d752f85920a27e38b77b1bb69fc85))
+
+## [1.1.22](https://github.com/jensvogt/euclid/compare/1.1.21...v1.1.22) (2026-09-19)
+
+
+### Bug Fixes
+
+* concurrency issues ([9e71f85](https://github.com/jensvogt/euclid/commit/9e71f8560c6be51ca42d79f8a187bfa933aef106))
+
+## [1.1.21](https://github.com/jensvogt/euclid/compare/1.1.20...v1.1.21) (2026-09-18)
+
+
+### Bug Fixes
+
+* audit log overflow ([cc47511](https://github.com/jensvogt/euclid/commit/cc4751136a41fe17129e947b77586c56405c3066))
+* FIx shared ESM notification queues ([c385c11](https://github.com/jensvogt/euclid/commit/c385c1184970b8b28ac9b66326224ff889bf6cd9))
+* make auto-scaler more robust ([513344a](https://github.com/jensvogt/euclid/commit/513344a4d5f3147a818c2375478b04ef62e8238e))
+
+## [1.1.20](https://github.com/jensvogt/euclid/compare/1.1.19...v1.1.20) (2026-09-18)
+
+
+### Bug Fixes
+
+* fix EAP ramp up ([af60f6d](https://github.com/jensvogt/euclid/commit/af60f6da9dca8dc7712dcdcccefe65231acb8e85))
+
+## [1.1.19](https://github.com/jensvogt/euclid/compare/1.1.18...v1.1.19) (2026-09-17)
+
+
+### Bug Fixes
+
+* micrometer metrics in EMO ([cea6105](https://github.com/jensvogt/euclid/commit/cea6105f503cb02d169231cad2621d785667520f))
+
+## [1.1.18](https://github.com/jensvogt/euclid/compare/1.1.17...v1.1.18) (2026-09-16)
+
+
+### Bug Fixes
+
+* logging to file ([9acf0f8](https://github.com/jensvogt/euclid/commit/9acf0f83a8e67ead2dfd089f236135f956bece5d))
+* micrometer metrics in EMO ([5700e28](https://github.com/jensvogt/euclid/commit/5700e283fa042a641080d9a7df22c9d49af58029))
+
+## [1.1.17](https://github.com/jensvogt/euclid/compare/v1.1.16...v1.1.17) (2026-09-16)
+
+
+### Bug Fixes
+
+* AED auditing ([8f323b7](https://github.com/jensvogt/euclid/commit/8f323b747664af24872e8dab86c5b9a6d2c03804))
+* windows build ([aafc6e4](https://github.com/jensvogt/euclid/commit/aafc6e4685dc02ddef0d402bf3c7811f4209fe54))
+
+## [1.1.16](https://github.com/jensvogt/euclid/compare/1.1.15...v1.1.16) (2026-09-15)
+
+
+### Bug Fixes
+
+* ENS and protocolizing ([3ca1a2f](https://github.com/jensvogt/euclid/commit/3ca1a2f799bc49061576d233176c4d4894cca369))
+
+## [1.1.15](https://github.com/jensvogt/euclid/compare/1.1.14...v1.1.15) (2026-09-14)
+
+
+### Bug Fixes
+
+* autoscale performance ([56f29a3](https://github.com/jensvogt/euclid/commit/56f29a30f0de7f0e3b4140ac678241a838c6a562))
+
+## [1.1.14](https://github.com/jensvogt/euclid/compare/1.1.13...v1.1.14) (2026-09-14)
+
+
+### Bug Fixes
+
+* faster ramp up/down of EAP applications ([86dd82f](https://github.com/jensvogt/euclid/commit/86dd82f643251ef56ff7872d5d8d8fd2c168ee9c))
+* faster ramp up/down of EAP applications ([8afeccc](https://github.com/jensvogt/euclid/commit/8afecccde77eb579b05ce687f3cae5d230ebc3c0))
+
+## [1.1.13](https://github.com/jensvogt/euclid/compare/1.1.12...v1.1.13) (2026-09-14)
+
+
+### Bug Fixes
+
+* cleanup of code. ([472034d](https://github.com/jensvogt/euclid/commit/472034d5f649ab0e276dd87686304118ab14fd64))
+
+## [1.1.12](https://github.com/jensvogt/euclid/compare/1.1.11...v1.1.12) (2026-09-13)
+
+
+### Bug Fixes
+
+* purge bucket async handling ([804df00](https://github.com/jensvogt/euclid/commit/804df0004d5558decda234adb3096400c183c3c9))
+
+## [1.1.11](https://github.com/jensvogt/euclid/compare/1.1.10...v1.1.11) (2026-09-13)
+
+
+### Bug Fixes
+
+* some rules needs adjustments ([b272cc1](https://github.com/jensvogt/euclid/commit/b272cc1be11f91da6706c747a243e02d4a6fa54d))
+
+## [1.1.10](https://github.com/jensvogt/euclid/compare/v1.1.9...v1.1.10) (2026-09-13)
+
+
+### Bug Fixes
+
+* FTP/SFTP directories ([5856fd4](https://github.com/jensvogt/euclid/commit/5856fd41b15cfa10207d2c5b2de9649083c61495))
+
+## [1.1.9](https://github.com/jensvogt/euclid/compare/v1.1.8...v1.1.9) (2026-09-13)
+
+
+### Bug Fixes
+
+* macOS build ([10806f4](https://github.com/jensvogt/euclid/commit/10806f47803216e36d34cf56f64be61f23091e57))
+
+## [1.1.8](https://github.com/jensvogt/euclid/compare/v1.1.7...v1.1.8) (2026-09-13)
+
+
+### Bug Fixes
+
+* add man-pages, first roles ([f060185](https://github.com/jensvogt/euclid/commit/f060185f457f8c87ccebc4134fc9c111b39a3148))
+
+## [1.1.7](https://github.com/jensvogt/euclid/compare/1.1.6...v1.1.7) (2026-09-12)
+
+
+### Bug Fixes
+
+* introduce a role concept, based on modules actions ([736cb44](https://github.com/jensvogt/euclid/commit/736cb44e56a5e62b8f514cbdf065289f053ca3bd))
+
+## [1.1.6](https://github.com/jensvogt/euclid/compare/1.1.5...v1.1.6) (2026-09-12)
+
+
+### Bug Fixes
+
+* ENS/EQS maxMessageLength, delay, retention editable ([bb55c30](https://github.com/jensvogt/euclid/commit/bb55c309f441d61e1ad4c12e466b5c317b67edb2))
+
+## [1.1.5](https://github.com/jensvogt/euclid/compare/1.1.4...v1.1.5) (2026-09-12)
+
+
+### Bug Fixes
+
+* docker issues using the in-memory database ([5261c45](https://github.com/jensvogt/euclid/commit/5261c4567288a639520c9f2d49cb4afd9205b94b))
+
+## [1.1.4](https://github.com/jensvogt/euclid/compare/1.1.3...v1.1.4) (2026-09-11)
+
+
+### Bug Fixes
+
+* docker installation ([4a5505b](https://github.com/jensvogt/euclid/commit/4a5505b56aa8ef15937aaddefbe076f9859bd3d7))
+
+## [1.1.3](https://github.com/jensvogt/euclid/compare/v1.1.2...v1.1.3) (2026-09-11)
+
+
+### Bug Fixes
+
+* licensing ([9acf98e](https://github.com/jensvogt/euclid/commit/9acf98e1bdde9f50e358c893b8b653dfab6280b6))
+
+## [1.1.2](https://github.com/jensvogt/euclid/compare/1.1.1...v1.1.2) (2026-09-11)
+
+
+### Bug Fixes
+
+* full sccount/namespace scope ([8b86014](https://github.com/jensvogt/euclid/commit/8b860148f7fb40e594d94bb6ac6bc1597654e7c8))
+
+## [1.1.1](https://github.com/jensvogt/euclid/compare/1.1.0...v1.1.1) (2026-09-10)
+
+
+### Bug Fixes
+
+* ad nodeJS SDK ([7667eee](https://github.com/jensvogt/euclid/commit/7667eee793385bf504b43fab96d2fb3c912b7bfd))
+* add ENS topic start/stop, ENS topic retention ([0d8c0d8](https://github.com/jensvogt/euclid/commit/0d8c0d8c697a87fe1e4ab06ead65834df5667d4e))
+
+## [1.1.0](https://github.com/jensvogt/euclid/compare/1.0.84...v1.1.0) (2026-09-10)
+
+
+### Features
+
+* add key/value database, new module ekv ([957b7c2](https://github.com/jensvogt/euclid/commit/957b7c2b1502deba98eb0ffa585363dbe1f3fd84))
+
+## [1.0.84](https://github.com/jensvogt/euclid/compare/v1.0.83...v1.0.84) (2026-09-09)
+
+
+### Bug Fixes
+
+* add oidc, SAML and onelogin as authentication options ([4ea1054](https://github.com/jensvogt/euclid/commit/4ea1054d8282048bd5fb4942f9c1e9aed3745673))
+* add oidc, SAML and onelogin as authentication options ([1be6150](https://github.com/jensvogt/euclid/commit/1be6150f7d7784aec1c50bc53528a983b0f37ade))
+
+## [1.0.83](https://github.com/jensvogt/euclid/compare/1.0.82...v1.0.83) (2026-09-09)
+
+
+### Bug Fixes
+
+* add oidc, SAML and onelogin as authentication options ([97b27b3](https://github.com/jensvogt/euclid/commit/97b27b30f7ead13694d8e3434c785c565638916f))
+
+## [1.0.82](https://github.com/jensvogt/euclid/compare/1.0.81...v1.0.82) (2026-09-08)
+
+
+### Bug Fixes
+
+* lower default log level ([8e2b209](https://github.com/jensvogt/euclid/commit/8e2b2097ba22e472770db7bae44d19ee16bae453))
+
+## [1.0.81](https://github.com/jensvogt/euclid/compare/1.0.80...v1.0.81) (2026-09-08)
+
+
+### Bug Fixes
+
+* update to readme mentioning python SDK ([f1f86fd](https://github.com/jensvogt/euclid/commit/f1f86fd2d16037a3fea58b9663acf3b2e11de0f5))
+
+## [1.0.80](https://github.com/jensvogt/euclid/compare/v1.0.79...v1.0.80) (2026-09-08)
+
+
+### Bug Fixes
+
+* macOS issues ([5437f8e](https://github.com/jensvogt/euclid/commit/5437f8e14da83a233afac0b39928485b0eec1bff))
+
+## [1.0.79](https://github.com/jensvogt/euclid/compare/v1.0.78...v1.0.79) (2026-09-08)
+
+
+### Bug Fixes
+
+* macOS issues ([ee483c5](https://github.com/jensvogt/euclid/commit/ee483c55564ae6e1ffb2da50b1cf44cde0096b11))
+
+## [1.0.78](https://github.com/jensvogt/euclid/compare/v1.0.77...v1.0.78) (2026-09-08)
+
+
+### Bug Fixes
+
+* github cleanup ([2177fdd](https://github.com/jensvogt/euclid/commit/2177fddf2d6c7df0c8c68a9473e90f0bb76051bc))
+
+## [1.0.77](https://github.com/jensvogt/euclid/compare/1.0.76...v1.0.77) (2026-09-08)
+
+
+### Bug Fixes
+
+* convert in-memory database to an own module. ([a4d4b3b](https://github.com/jensvogt/euclid/commit/a4d4b3bfa53e18ecbbca221454d3a88a03519c0f))
+* performance fixes for ESM and EQS ([09fab27](https://github.com/jensvogt/euclid/commit/09fab270cfd193e160d6c4da047fd399f13ae1d0))
+
+## [1.0.76](https://github.com/jensvogt/euclid/compare/1.0.75...v1.0.76) (2026-09-07)
+
+
+### Bug Fixes
+
+* add ports to instance persistence ([97c3d3a](https://github.com/jensvogt/euclid/commit/97c3d3ac1c54ce9dacca87ab661039cf6144f2fe))
+
+## [1.0.75](https://github.com/jensvogt/euclid/compare/v1.0.74...v1.0.75) (2026-09-07)
+
+
+### Bug Fixes
+
+* logging channels ([3dc70fc](https://github.com/jensvogt/euclid/commit/3dc70fc44236448f302fb9379aae2d834ca2338e))
+
+## [1.0.74](https://github.com/jensvogt/euclid/compare/1.0.73...v1.0.74) (2026-09-07)
+
+
+### Bug Fixes
+
+* EAG ssh support ([d6d18ed](https://github.com/jensvogt/euclid/commit/d6d18eda2ed07f35bdc4611898a38f06af565ab8))
+* EKM certificate store ([ab83b3c](https://github.com/jensvogt/euclid/commit/ab83b3c91cdd9f7b30fdab90e03a9b176a0e156e))
+* logging channels ([7d102fa](https://github.com/jensvogt/euclid/commit/7d102fa7c5c13b1ae53311134e400383a2222377))
+
 ## [1.0.73](https://github.com/jensvogt/euclid/compare/1.0.72...v1.0.73) (2026-09-07)
 
 
