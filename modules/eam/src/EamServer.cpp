@@ -284,16 +284,15 @@ namespace Euclid::EAM {
             return {config, EamServer::JwtSecret()};
         }
 
+        // What an installation is willing to do with somebody its identity provider has vouched for.
+        // The two federations answer this from their own configuration blocks, and the answer means
+        // the same thing in both.
+        struct ProvisioningPolicy {
+            bool jitProvisioning{true};
+            bool linkExistingUsers{false};
+            std::string accountId;
+        };
     }// namespace
-
-    // What an installation is willing to do with somebody its identity provider has vouched for.
-    // The two federations answer this from their own configuration blocks, and the answer means
-    // the same thing in both.
-    struct ProvisioningPolicy {
-        bool jitProvisioning{true};
-        bool linkExistingUsers{false};
-        std::string accountId;
-    };
 
     // Finds the euclid user a verified identity belongs to, creating one if the installation is
     // configured to and there is nothing to find.

@@ -5,12 +5,15 @@
 #if defined(_WIN32)
 
 // C++ includes
+#include <atomic>
 #include <cstring>
 #include <map>
+#include <string>
 #include <string_view>
 #include <vector>
 
 // Euclid includes
+#include <euclid/core/UnixSocketServer.h>
 #include <euclid/manager/ControllerPlatform.h>
 
 namespace Euclid::main::Platform {
@@ -81,7 +84,8 @@ namespace Euclid::main::Platform {
     }// namespace
 
     bool SpawnInstance(const Dto::ModuleConfig &config, const std::string &instanceSocket,
-                        pid_t &outPid, HANDLE &outProcessHandle, int &outStdoutFd, int &outStderrFd) {
+                        pid_t &outPid, HANDLE &outProcessHandle, HANDLE &outStopEvent,
+                        int &outStdoutFd, int &outStderrFd) {
         SECURITY_ATTRIBUTES sa{};
         sa.nLength = sizeof(sa);
         sa.bInheritHandle = TRUE;
@@ -124,35 +128,56 @@ namespace Euclid::main::Platform {
         DWORD flags = CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW;
         if (haveAttrs) flags |= EXTENDED_STARTUPINFO_PRESENT;
 
+        // This instance's SIGTERM - see Core::STOP_EVENT_VARIABLE for why a console control
+        // event cannot be one. Manual-reset so it stays signalled once set: the child may be
+        // anywhere between "still starting up" and "already inside a request" when the manager
+        // asks it to stop, and an auto-reset event would be consumed by whichever of those got
+        // to it first. Named rather than inherited, so the child can open it by name without
+        // the manager having to hand a handle across the process boundary.
+        //
+        // The name only has to be unique among live instances and agreed on by both sides. It
+        // is built rather than derived from instanceSocket because that is a path, and the
+        // backslashes and colon in a Windows one are not legal in a kernel object name.
+        static std::atomic<std::uint32_t> s_nextStopEventId{1};
+        const std::string stopEventName = "Local\\euclid-stop-" + std::to_string(GetCurrentProcessId())
+                                        + "-" + std::to_string(s_nextStopEventId.fetch_add(1));
+        const HANDLE stopEvent = CreateEventA(nullptr, TRUE, FALSE, stopEventName.c_str());
+
         // An application's environment (and the socket path, which a foreign runtime reads from
         // EUCLID_SOCKET rather than off the command line) has to be materialised as one
         // NUL-separated, double-NUL-terminated block, on top of whatever the manager itself has -
         // passing only the additions would start the child with nothing else, not even PATH.
-        std::vector<char> environmentBlock;
-        if (!config.environment.empty()) {
-            std::map<std::string, std::string> merged;
-            if (const char *existing = GetEnvironmentStringsA()) {
-                for (const char *entry = existing; *entry != '\0'; entry += std::strlen(entry) + 1) {
-                    if (const std::string_view text(entry); text.find('=') != std::string_view::npos && !text.starts_with('=')) {
-                        const auto split = text.find('=');
-                        merged[std::string(text.substr(0, split))] = std::string(text.substr(split + 1));
-                    }
+        //
+        // Built unconditionally, where it used to be skipped for a module that added nothing of
+        // its own: EUCLID_STOP_EVENT is added to every instance, so there is no longer such a
+        // thing as a child that needs no additions. Merging over GetEnvironmentStringsA() first
+        // means a child that adds nothing still gets exactly the environment it inherited before.
+        std::map<std::string, std::string> merged;
+        if (const char *existing = GetEnvironmentStringsA()) {
+            for (const char *entry = existing; *entry != '\0'; entry += std::strlen(entry) + 1) {
+                if (const std::string_view text(entry); text.find('=') != std::string_view::npos && !text.starts_with('=')) {
+                    const auto split = text.find('=');
+                    merged[std::string(text.substr(0, split))] = std::string(text.substr(split + 1));
                 }
             }
-            for (const auto &[name, value]: config.environment) merged[name] = value;
-            merged["EUCLID_SOCKET"] = instanceSocket;
+        }
+        for (const auto &[name, value]: config.environment) merged[name] = value;
+        merged["EUCLID_SOCKET"] = instanceSocket;
+        // Only when there is one to name. A child that finds the variable absent falls back to
+        // its console handler, which is the right behaviour for a process nobody can signal.
+        if (stopEvent) merged[Core::STOP_EVENT_VARIABLE] = stopEventName;
 
-            for (const auto &[name, value]: merged) {
-                const auto entry = name + "=" + value;
-                environmentBlock.insert(environmentBlock.end(), entry.begin(), entry.end());
-                environmentBlock.push_back('\0');
-            }
+        std::vector<char> environmentBlock;
+        for (const auto &[name, value]: merged) {
+            const auto entry = name + "=" + value;
+            environmentBlock.insert(environmentBlock.end(), entry.begin(), entry.end());
             environmentBlock.push_back('\0');
         }
+        environmentBlock.push_back('\0');
 
         const BOOL ok = CreateProcessA(
                 nullptr, cmdLineBuf.data(), nullptr, nullptr, TRUE, flags,
-                environmentBlock.empty() ? nullptr : environmentBlock.data(),
+                environmentBlock.data(),
                 config.workingDir.empty() ? nullptr : config.workingDir.c_str(), &siex.StartupInfo, &pi);
 
         // The child (if created) now holds its own copies of the write ends; the parent's
@@ -163,6 +188,7 @@ namespace Euclid::main::Platform {
         if (!ok) {
             CloseHandle(outRead);
             CloseHandle(errRead);
+            if (stopEvent) CloseHandle(stopEvent);
             return false;
         }
         CloseHandle(pi.hThread);
@@ -174,20 +200,21 @@ namespace Euclid::main::Platform {
             if (stderrFd == -1) CloseHandle(errRead); else _close(stderrFd);
             TerminateProcess(pi.hProcess, 1);
             CloseHandle(pi.hProcess);
+            if (stopEvent) CloseHandle(stopEvent);
             return false;
         }
 
         outPid = static_cast<pid_t>(pi.dwProcessId);
         outProcessHandle = pi.hProcess;
+        outStopEvent = stopEvent;
         outStdoutFd = stdoutFd;
         outStderrFd = stderrFd;
         return true;
     }
 
-    void RequestGracefulStop(const pid_t pid) {
-        // CTRL_BREAK_EVENT targets a process GROUP id, which for a process created with
-        // CREATE_NEW_PROCESS_GROUP is its own pid.
-        GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, static_cast<DWORD>(pid));
+    // ReSharper disable once CppParameterMayBeConst
+    bool RequestGracefulStop(HANDLE stopEvent) {
+        return stopEvent && SetEvent(stopEvent);
     }
 
     // ReSharper disable once CppParameterMayBeConst

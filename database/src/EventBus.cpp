@@ -13,6 +13,7 @@
 #include <bsoncxx/builder/basic/document.hpp>
 #include <bsoncxx/builder/basic/kvp.hpp>
 #include <mongocxx/change_stream.hpp>
+#include <mongocxx/exception/exception.hpp>
 #include <mongocxx/options/change_stream.hpp>
 #include <mongocxx/options/find_one_and_update.hpp>
 #include <mongocxx/options/index.hpp>
@@ -869,6 +870,22 @@ namespace Euclid::Database {
                         pollOnce(moduleType);// pure wake-up signal - the claim re-reads status from the DB itself
                     }
                 }
+
+            } catch (const mongocxx::exception &e) {
+
+                // 40573 is not a failure to retry - it is the deployment saying it has no oplog to
+                // tail, which is true of every standalone mongod and stays true until somebody
+                // restarts it as a replica set. Retrying costs an error line every
+                // kWatchReconnectDelay per module type, for the life of the process, which is the
+                // unreadable log Start() takes care to avoid on the in-memory backend. Delivery is
+                // unaffected: the change stream only ever called pollOnce() sooner than the poll
+                // timer would have, so dropping it here leaves the poll running alone.
+                if (e.code().value() == kChangeStreamUnsupported) {
+                    log_warning << "EventBus polling only, this MongoDB deployment is a standalone and has no oplog to"
+                                   " tail; start it as a replica set to get sub-second delivery, moduleType: " << moduleType;
+                    return;
+                }
+                log_error << "EventBus change stream failed, moduleType: " << moduleType << ", error: " << e.what() << ", reconnecting";
 
             } catch (const std::exception &e) {
                 log_error << "EventBus change stream failed, moduleType: " << moduleType << ", error: " << e.what() << ", reconnecting";
