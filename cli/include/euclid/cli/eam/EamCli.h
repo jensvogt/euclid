@@ -24,6 +24,7 @@
 #include <euclid/dto/eam/GetUserRequest.h>
 #include <euclid/dto/eam/CreateAccessKeyResponse.h>
 #include <euclid/dto/eam/ChangeNamespaceRequest.h>
+#include <euclid/dto/eam/ChangePasswordRequest.h>
 #include <euclid/dto/eam/CreateAccountRequest.h>
 #include <euclid/dto/eam/CreateNamespaceRequest.h>
 #include <euclid/dto/eam/CheckPermissionRequest.h>
@@ -185,6 +186,25 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int deleteUser(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Changes the caller's own password, or resets another user's.
+         *
+         * @par
+         * Which of the two it is follows from --user: without it, or naming yourself, this is a
+         * change and the old password has to be given; naming somebody else is a reset and takes
+         * no old password, since an administrator is not supposed to know one.
+         *
+         * @par
+         * Passwords left off the command line are asked for at the terminal, unechoed, and a new
+         * one asked for that way is asked for twice - a command line is visible in the shell
+         * history and, while it runs, in the process list.
+         *
+         * @param args action arguments
+         * @return the process exit code
+         */
+        [[nodiscard]]
+        int changePassword(const std::vector<std::string> &args) const;
 
         /**
          * @brief Creates a new SigV4 access key for the caller and stores it locally
