@@ -18,6 +18,26 @@
 namespace Euclid::Core {
 
     /**
+     * @brief Names the environment variable through which the manager tells a module which
+     * Windows event object means "stop" - the platform's stand-in for SIGTERM.
+     *
+     * @par
+     * Windows has no way to send a signal to an unrelated process. The obvious substitute,
+     * GenerateConsoleCtrlEvent(), only reaches a process group that shares the *caller's*
+     * console, and the manager running as a Windows service has no console at all - so the
+     * console control handler RunUntilSignal() installs was never reached, and every module
+     * had to be TerminateProcess()d after its stop timeout expired. A named event carries no
+     * such requirement: the manager creates one per instance before spawning it, names it
+     * here, and setting it is exactly what sending SIGTERM is on the other platforms.
+     *
+     * @par
+     * Unset when a module is started by hand rather than by the manager, which is not an
+     * error - such a process is stopped from its console instead, which is what the
+     * SetConsoleCtrlHandler() path in RunUntilSignal() is still there for.
+     */
+    inline constexpr auto STOP_EVENT_VARIABLE = "EUCLID_STOP_EVENT";
+
+    /**
      * @brief Base class for module services that listen on a Unix domain socket and speak
      * HTTP, e.g. the access and SQS services.
      *

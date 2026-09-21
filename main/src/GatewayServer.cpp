@@ -5,6 +5,8 @@
 // C++ includes
 #include <algorithm>
 #include <charconv>
+#include <filesystem>
+#include <fstream>
 #include <optional>
 
 // Boost includes
@@ -17,6 +19,7 @@
 #include <euclid/core/UnixSocketServer.h>
 #include <euclid/core/SigV4.h>
 #include <euclid/core/monitoring/MonitoringTimer.h>
+#include <euclid/manager/FrontendRoute.h>
 #include <euclid/manager/GatewayServer.h>
 #include <euclid/manager/GatewayWsSession.h>
 
@@ -70,6 +73,25 @@ namespace Euclid::main {
     static std::chrono::seconds KeepAliveTimeout() {
         constexpr long kDefaultKeepAliveSeconds = 75;
         return std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.gateway.http.keep-alive-seconds", kDefaultKeepAliveSeconds));
+    }
+
+    // Where euclid-web's build output was installed, and whether it is to be served at all. Empty
+    // or missing directory is not an error: an installation that never deployed the web frontend
+    // simply has nothing there, and every path falls through to the 404 at the bottom of
+    // routeAsync() exactly as it did before.
+    static std::string FrontendDirectory() {
+        return Core::Configuration::instance().getOr<std::string>("euclid.gateway.frontend.directory", "/usr/local/euclid/frontend");
+    }
+
+    static bool FrontendEnabled() {
+        return Core::Configuration::instance().getOr<bool>("euclid.gateway.frontend.enabled", true);
+    }
+
+    // How long a browser may keep an asset. See Frontend::IsIndex() for why index.html is exempt
+    // from this at any setting.
+    static long FrontendCacheSeconds() {
+        constexpr long kDefaultFrontendCacheSeconds = 3600;
+        return Core::Configuration::instance().getOr<long>("euclid.gateway.frontend.cache-seconds", kDefaultFrontendCacheSeconds);
     }
 
     // ── Euclid service detection ────────────────────────────────────────────────
@@ -146,6 +168,75 @@ namespace Euclid::main {
         }
         if (req.method() == http::verb::post && path == "/eam/saml/acs") return "saml-acs";
         return {};
+    }
+
+    // ── efe: the euclid frontend ────────────────────────────────────────────────
+    //
+    // The file euclid-web is to be answered with, or nothing if this request is not for it.
+    //
+    // Same shape as federationRouteAction() above and there for the same reason: a browser asking
+    // for the admin UI carries no x-euclid-target either - it is following a link or a script tag
+    // that the UI itself emitted - so the path is once again all there is to go on. The difference
+    // is that this one is not a fixed list: an Angular build is a few hundred hashed file names
+    // nobody here knows, so the directory decides, and Frontend::ResolveFile() is what keeps the
+    // question "which file in that directory" from being answerable with any file on the disk.
+    //
+    // GET and HEAD only. A browser never sends anything else at a static asset, and the methods
+    // that change things must keep reaching their modules - or, failing that, the 404 - rather than
+    // being answered with a page.
+    static std::optional<std::filesystem::path> efeRouteAction(const http::request<http::string_body> &req, const std::string &path) {
+
+        if (!FrontendEnabled()) return std::nullopt;
+        if (req.method() != http::verb::get && req.method() != http::verb::head) return std::nullopt;
+
+        return Frontend::ResolveFile(FrontendDirectory(), path);
+    }
+
+    // Reads the file and dresses it as a response. Whole-file into a string_body, which is what the
+    // rest of this gateway is built on: a euclid-web bundle is a few megabytes at the outside, an
+    // order of magnitude under the body limit every other request here is already allowed.
+    static http::response<http::string_body> efeResponse(const http::request<http::string_body> &req, const std::filesystem::path &file) {
+
+        const auto version = req.version();
+        const auto keepAlive = req.keep_alive();
+
+        std::ifstream in(file, std::ios::binary);
+        if (!in) {
+            // Resolved a moment ago and gone or unreadable now - a deploy replacing the directory
+            // under a running gateway is the ordinary way this happens.
+            log_warning << "Frontend file could not be read, file: " << file.string();
+            http::response<http::string_body> r{http::status::not_found, version};
+            r.set(http::field::content_type, "application/json");
+            r.keep_alive(keepAlive);
+            r.body() = boost::json::serialize(boost::json::object{{"error", "not found"}});
+            r.prepare_payload();
+            return r;
+        }
+
+        std::string body{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+
+        http::response<http::string_body> r{http::status::ok, version};
+        r.set(http::field::content_type, Frontend::ContentType(file));
+        r.set(http::field::cache_control, Frontend::IsIndex(file) ? "no-cache" : "public, max-age=" + std::to_string(FrontendCacheSeconds()));
+
+        // The content-type here is asserted from the file's name rather than sniffed from its bytes
+        // (see Frontend::ContentType()), so it is worth telling the browser not to second-guess it
+        // either - and an upload that reached this directory some other way is then not executable
+        // as script merely because it happens to look like one.
+        r.set("X-Content-Type-Options", "nosniff");
+        r.keep_alive(keepAlive);
+        r.body() = std::move(body);
+        r.prepare_payload();
+
+        // prepare_payload() has just set Content-Length from the body, which is the right length to
+        // announce; a HEAD is that same answer without the bytes, so the body goes and the header
+        // it produced stays.
+        if (req.method() == http::verb::head) {
+            const auto length = r.body().size();
+            r.body().clear();
+            r.content_length(length);
+        }
+        return r;
     }
 
     // Proxies req over a Unix-domain socket at socketPath and hands the backend's response to
@@ -398,6 +489,17 @@ namespace Euclid::main {
                                       [done, guard](http::response<http::string_body> res) mutable {
                                           done(std::move(res));
                                       });
+                return;
+            }
+
+            // ── euclid-web (efe) ────────────────────────────────────────────────
+            // Last, deliberately: every branch above identifies itself by a header or by one of
+            // the five federation paths, and this one answers whatever is left. Putting it here
+            // means a request that is addressed to a module is still routed to that module even if
+            // a file of the same name happens to sit in the frontend directory, and that the only
+            // requests a missing frontend changes the fate of are the ones that were already 404.
+            if (const auto file = efeRouteAction(req, target); file.has_value()) {
+                done(efeResponse(req, *file));
                 return;
             }
 
@@ -660,6 +762,17 @@ namespace Euclid::main {
         _workers.reserve(static_cast<std::size_t>(_threads));
         for (int i = 0; i < _threads; ++i) _workers.emplace_back([this] { _ioc.run(); });
         log_info << "Gateway " << (_tlsEnabled ? "HTTPS" : "HTTP") << " server listening on port " << _port << " (" << _threads << " worker thread(s))";
+
+        // Said once, at startup, because the alternative is finding out from the browser: a
+        // frontend that is configured but not installed looks exactly like one that is installed
+        // and broken - both answer 404 - and this is the line that tells the two apart.
+        if (FrontendEnabled()) {
+            if (const auto directory = FrontendDirectory(); !Frontend::ResolveFile(directory, "/").has_value()) {
+                log_info << "Gateway frontend not served, no index.html in directory: " << directory;
+            } else {
+                log_info << "Gateway serving frontend from directory: " << directory;
+            }
+        }
     }
 
     void GatewayServer::stop() {

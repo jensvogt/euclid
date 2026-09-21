@@ -568,6 +568,9 @@ namespace Euclid::Database {
         static constexpr int kBatchSize = 200;
         static constexpr auto kVisibilityTimeout = std::chrono::seconds(30);
         static constexpr auto kWatchReconnectDelay = std::chrono::seconds(2);
+        // "The $changeStream stage is only supported on replica sets or mongos" - see watchLoop(),
+        // which stops watching rather than reconnecting when the server says this.
+        static constexpr int kChangeStreamUnsupported = 40573;
 
         std::once_flag _indexesOnce;
         std::string _instanceId;

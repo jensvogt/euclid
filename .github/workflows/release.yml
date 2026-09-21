@@ -212,19 +212,18 @@ jobs:
       - name: Build (Frontend)
         shell: bash
         run: |
-          # euclid-ui doesn't exist as a separate repo yet - package without a bundled
-          # frontend until it does, rather than failing the whole release.
-          mkdir -p ${{ github.workspace }}/frontend
-          cd ${{ github.workspace }}/frontend
-          if git ls-remote https://github.com/jensvogt/euclid-ui.git >/dev/null 2>&1; then
-            git clone https://github.com/jensvogt/euclid-ui
-            cd euclid-ui
-            npm install
-            npm run build
-          else
-            echo "::warning::jensvogt/euclid-ui not found - packaging without a bundled frontend"
-            mkdir -p euclid-ui/dist/euclid-ui/browser
-          fi
+          # Only what the build emits gets packaged: euclid-web writes its bundle to
+          # dist/browser, and that directory alone becomes /usr/local/euclid/frontend - not the
+          # checkout around it, not node_modules, not the sources.
+          rm -rf ${{ github.workspace }}/frontend
+          git clone --depth 1 https://github.com/jensvogt/euclid-web.git ${{ github.workspace }}/frontend/euclid-web
+          cd ${{ github.workspace }}/frontend/euclid-web
+          npm install
+          npm run build
+          # A build that quietly emitted nothing would ship a package whose gateway answers 404
+          # for every page - which is only discovered on an installed system, so check it here.
+          test -f dist/browser/index.html \
+            || { echo "::error::euclid-web build produced no dist/browser/index.html"; exit 1; }
 
       - name: Prepare package structure
         run: |
@@ -278,7 +277,10 @@ jobs:
           sed -i '' -E "1s/(euclid(-cli)? )[0-9]+\.[0-9]+\.[0-9]+/\1${MAN_VERSION}/" \
             ${{ env.PACKAGE_DIR }}/share/man/man1/*.1 ${{ env.PACKAGE_DIR }}/share/man/man8/*.8
           gzip -9n ${{ env.PACKAGE_DIR }}/share/man/man1/*.1 ${{ env.PACKAGE_DIR }}/share/man/man8/*.8
-          cp -R ${{ github.workspace }}/frontend/euclid-ui/dist/euclid-ui/browser/* ${{ env.PACKAGE_DIR }}/euclid/frontend/ 2>/dev/null || true
+          # The contents of dist/browser, not the directory itself, so index.html lands at the
+          # root of the frontend directory where the gateway looks for it. Not "|| true": the
+          # build step above already verified the bundle exists, so a failure here is real.
+          cp -R ${{ github.workspace }}/frontend/euclid-web/dist/browser/. ${{ env.PACKAGE_DIR }}/euclid/frontend/
 
       - name: Verify macOS package contents
         run: |
@@ -422,19 +424,18 @@ jobs:
       - name: Build (Frontend)
         shell: bash
         run: |
-          # euclid-ui doesn't exist as a separate repo yet - package without a bundled
-          # frontend until it does, rather than failing the whole release.
-          mkdir -p ${{ github.workspace }}/frontend
-          cd ${{ github.workspace }}/frontend
-          if git ls-remote https://github.com/jensvogt/euclid-ui.git >/dev/null 2>&1; then
-            git clone https://github.com/jensvogt/euclid-ui
-            cd euclid-ui
-            npm install
-            npm run build
-          else
-            echo "::warning::jensvogt/euclid-ui not found - packaging without a bundled frontend"
-            mkdir -p euclid-ui/dist/euclid-ui/browser
-          fi
+          # Only what the build emits gets packaged: euclid-web writes its bundle to
+          # dist/browser, and that directory alone becomes /usr/local/euclid/frontend - not the
+          # checkout around it, not node_modules, not the sources.
+          rm -rf ${{ github.workspace }}/frontend
+          git clone --depth 1 https://github.com/jensvogt/euclid-web.git ${{ github.workspace }}/frontend/euclid-web
+          cd ${{ github.workspace }}/frontend/euclid-web
+          npm install
+          npm run build
+          # A build that quietly emitted nothing would ship a package whose gateway answers 404
+          # for every page - which is only discovered on an installed system, so check it here.
+          test -f dist/browser/index.html \
+            || { echo "::error::euclid-web build produced no dist/browser/index.html"; exit 1; }
 
       # ── DEB ────────────────────────────────────────────────────────────────
 
@@ -496,7 +497,10 @@ jobs:
           sed -i -E "1s/(euclid(-cli)? )[0-9]+\.[0-9]+\.[0-9]+/\1${MAN_VERSION}/" \
             ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man1/*.1 ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man8/*.8
           gzip -9n ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man1/*.1 ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man8/*.8
-          cp -R ${{ github.workspace }}/frontend/euclid-ui/dist/euclid-ui/browser/* ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/frontend/ 2>/dev/null || true
+          # The contents of dist/browser, not the directory itself, so index.html lands at the
+          # root of /usr/local/euclid/frontend where the gateway looks for it. Not "|| true": the
+          # build step above already verified the bundle exists, so a failure here is real.
+          cp -R ${{ github.workspace }}/frontend/euclid-web/dist/browser/. ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/frontend/
 
           # Maintainer scripts live OUTSIDE PACKAGE_DIR_DEB - that whole tree gets mapped
           # verbatim onto the target filesystem root by fpm's "-s dir ... PACKAGE_DIR/=/"
@@ -665,7 +669,8 @@ jobs:
           sed -i -E "1s/(euclid(-cli)? )[0-9]+\.[0-9]+\.[0-9]+/\1${MAN_VERSION}/" \
             ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man1/*.1 ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man8/*.8
           gzip -9n ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man1/*.1 ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man8/*.8
-          cp -R ${{ github.workspace }}/frontend/euclid-ui/dist/euclid-ui/browser/* ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/frontend/ 2>/dev/null || true
+          # See the DEB step above: the contents of dist/browser only, and no "|| true".
+          cp -R ${{ github.workspace }}/frontend/euclid-web/dist/browser/. ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/frontend/
 
           # Maintainer scripts live OUTSIDE PACKAGE_DIR_RPM - see the matching comment in the
           # DEB step above for why (this whole tree is mapped verbatim onto the target

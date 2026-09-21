@@ -51,6 +51,13 @@ sorted. Requires administrator privileges. See
 Deletes a user account by user ID. Requires administrator privileges. See
 .BR euclid-cli-eam-delete-user (1).
 .TP
+.B change-password
+Changes your own password, given the current one - self-service, no
+administrator privileges required - or, naming another user, resets
+theirs, which requires administrator privileges and no old password.
+See
+.BR euclid-cli-eam-change-password (1).
+.TP
 .B create-access-key
 Creates a new access key for the logged-in user and stores it
 locally. Self-service; no administrator privileges required. See
@@ -429,6 +436,7 @@ euclid-cli --endpoint http://localhost:5566 eam change-namespace \e
 .BR euclid-cli-eam-register (1),
 .BR euclid-cli-eam-list-users (1),
 .BR euclid-cli-eam-delete-user (1),
+.BR euclid-cli-eam-change-password (1),
 .BR euclid-cli-eam-create-access-key (1),
 .BR euclid-cli-eam-list-access-keys (1),
 .BR euclid-cli-eam-delete-access-key (1),
