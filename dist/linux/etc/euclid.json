@@ -31,6 +31,11 @@
         "max-outbox-frames": 256,
         "max-outbox-bytes": 8388608
       },
+      "frontend": {
+        "enabled": true,
+        "directory": "/usr/local/euclid/frontend",
+        "cache-seconds": 3600
+      },
       "event-socket-path": "/var/run/euclid/euclid-gateway-events.sock"
     },
     "modules": {

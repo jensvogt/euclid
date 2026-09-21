@@ -93,6 +93,15 @@ namespace Euclid::Dto {
          *        GetExitCodeProcess() since Windows has no waitpid()-by-pid equivalent.
          */
         HANDLE processHandle = nullptr;
+
+        /**
+         * @brief This instance's stop event - setting it is what SIGTERM is on the other
+         *        platforms. See Core::STOP_EVENT_VARIABLE for why Windows needs one.
+         *
+         * Created by Platform::SpawnInstance() and owned from there on by whoever holds this
+         * struct, alongside processHandle and closed at the same points.
+         */
+        HANDLE stopEvent = nullptr;
 #endif
 
         /**

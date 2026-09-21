@@ -8,9 +8,11 @@
 #include <condition_variable>
 #include <csignal>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <mutex>
 #include <optional>
+#include <thread>
 #include <utility>
 #if defined(_WIN32)
 #include <windows.h>
@@ -198,13 +200,50 @@ namespace Euclid::Core {
                     return FALSE;
             }
         }
+
+        // The manager's SIGTERM - see STOP_EVENT_VARIABLE for why a console control event
+        // cannot be one. Waited on by a thread of its own rather than folded into the wait in
+        // RunUntilSignal(), because that wait is on a std::condition_variable and a Windows
+        // event is not something a condition_variable can be woken by; this thread is what
+        // turns the one into the other. It sets the same s_signalled/s_signalCv state the
+        // console handler above does, so both routes stop the process the same way.
+        void watchStopEvent() {
+
+            const char *name = std::getenv(STOP_EVENT_VARIABLE);
+            if (!name || *name == '\0') return;// started by hand, not by the manager
+
+            // SYNCHRONIZE alone: this side only ever waits on the event, the manager is the
+            // only one that sets it.
+            const HANDLE stopEvent = OpenEventA(SYNCHRONIZE, FALSE, name);
+            if (!stopEvent) {
+                // Worth saying out loud, because the visible consequence comes minutes or days
+                // later and looks unrelated: this process will be killed outright at the end of
+                // the manager's stop timeout instead of being asked to shut down.
+                log_warning << "Could not open the manager's stop event, this process will be terminated rather than"
+                               " asked to stop, name: " << name << ", error: " << GetLastError();
+                return;
+            }
+
+            std::thread([stopEvent] {
+                WaitForSingleObject(stopEvent, INFINITE);
+                CloseHandle(stopEvent);
+                {
+                    std::lock_guard lock(s_signalMutex);
+                    s_signalled = true;
+                }
+                s_signalCv.notify_all();
+            }).detach();
+        }
     }// namespace
 #endif
 
     int UnixSocketServer::RunUntilSignal() {
         s_instance = this;
 #if defined(_WIN32)
+        // Both, not either: the event is how the manager stops a module it started, and the
+        // console handler is how Ctrl+C stops one somebody started by hand.
         SetConsoleCtrlHandler(consoleHandler, TRUE);
+        watchStopEvent();
 #else
         std::signal(SIGTERM, onSignal);
         std::signal(SIGINT, onSignal);
