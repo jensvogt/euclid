@@ -145,25 +145,38 @@ BOOST_FIXTURE_TEST_SUITE(JsonLogFormatTest, Fixture)
     // two apart - which is the other half of why this went unnoticed.
     BOOST_AUTO_TEST_CASE(TheTimestampIsActuallyUtcAndNotLocalTimeWearingAZ) {
 
+        // POSIX TZ rather than the IANA name "Europe/Berlin": glibc understands both, and the CRT
+        // understands only this form - it would take an IANA name, fail to make sense of it, fall
+        // back to UTC, and leave the test passing while testing nothing at all. Central European
+        // Time either way, so the offset is an hour or two and never zero.
+        static constexpr auto kZone = "CET-1CEST";
+
         struct ForcedZone {
             explicit ForcedZone(const char *zone) : _had(std::getenv("TZ") != nullptr) {
                 if (_had) _saved = std::getenv("TZ");
-                setenv("TZ", zone, 1);
-                tzset();
+                set("TZ", zone);
             }
-            ~ForcedZone() {
-                if (_had) setenv("TZ", _saved.c_str(), 1);
-                else unsetenv("TZ");
+            ~ForcedZone() { set("TZ", _had ? _saved.c_str() : ""); }
+
+            static void set(const char *name, const char *value) {
+#ifdef _WIN32
+                // _putenv_s with an empty value is how the CRT removes a variable; there is no
+                // unsetenv.
+                _putenv_s(name, value);
+                _tzset();
+#else
+                if (value != nullptr && *value != '\0') setenv(name, value, 1);
+                else unsetenv(name);
                 tzset();
+#endif
             }
+
             bool _had;
             std::string _saved;
         };
 
-        // A zone that is never UTC, in either half of the year: +2 in summer, +1 in winter. A test
-        // that passed only outside daylight saving would be worse than none.
-        const ForcedZone zone("Europe/Berlin");
-        BOOST_TEST_REQUIRE(std::string(std::getenv("TZ")) == "Europe/Berlin");
+        const ForcedZone zone(kZone);
+        BOOST_TEST_REQUIRE(std::string(std::getenv("TZ")) == kZone);
 
         const auto before = std::time(nullptr);
         std::string stamp;
@@ -179,10 +192,17 @@ BOOST_FIXTURE_TEST_SUITE(JsonLogFormatTest, Fixture)
         std::istringstream in(stamp.substr(0, 19));
         in >> std::get_time(&parsed, "%Y-%m-%dT%H:%M:%S");
         BOOST_TEST_REQUIRE(!in.fail());
-        const auto reported = timegm(&parsed);
 
-        // Generous, because the point is not clock precision: a record stamped with Berlin local
-        // time is 3600 or 7200 seconds out, and nothing here runs for a minute.
+        // timegm() is POSIX; the CRT spells the same thing _mkgmtime. Not mktime, which would read
+        // the fields as local time and undo exactly what this is measuring.
+#ifdef _WIN32
+        const auto reported = _mkgmtime(&parsed);
+#else
+        const auto reported = timegm(&parsed);
+#endif
+
+        // Generous, because the point is not clock precision: a record stamped with local time in
+        // this zone is 3600 or 7200 seconds out, and nothing here runs for a minute.
         const auto drift = std::abs(static_cast<long>(reported - before));
         BOOST_TEST_CONTEXT("@timestamp=" << stamp << " drift=" << drift << "s") {
             BOOST_TEST(drift < 60);
