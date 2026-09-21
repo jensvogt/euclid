@@ -324,6 +324,38 @@ namespace Euclid::Core {
      * @param ern ERN to parse
      * @return the account ID, or an empty string if @p ern doesn't have enough fields.
      */
+    /**
+     * @brief The module an ERN belongs to, e.g. "esm" for a bucket.
+     *
+     * @param ern the ERN to read
+     * @return the service field, or empty if this is not shaped like an ERN
+     */
+    inline std::string serviceFromErn(const std::string &ern) {
+        const auto start = ern.find(':');
+        if (start == std::string::npos) return {};
+        const auto end = ern.find(':', start + 1);
+        if (end == std::string::npos) return {};
+        return ern.substr(start + 1, end - start - 1);
+    }
+
+    /**
+     * @brief The resource's own name, the last field of an ERN.
+     *
+     * @par
+     * What a caller named before the server resolved it - "orders" out of
+     * "ern:eqs:eu-central-1:000000000000:development:queue:orders". Reading it back is how a
+     * resource is looked up again somewhere its ERN would not be right: the same queue name means
+     * a different queue in a different namespace, and an ERN carries the namespace it was resolved
+     * in.
+     *
+     * @param ern the ERN to read
+     * @return the last field, or empty if there is none
+     */
+    inline std::string resourceNameFromErn(const std::string &ern) {
+        const auto pos = ern.rfind(':');
+        return pos == std::string::npos ? std::string{} : ern.substr(pos + 1);
+    }
+
     inline std::string accountIdFromErn(const std::string &ern) {
         std::size_t pos = 0;
         for (int field = 0; field < 3; ++field) {
