@@ -72,24 +72,34 @@ namespace Euclid::main::Platform {
      *
      * The pipe read ends are returned as CRT file descriptors (via _open_osfhandle) so the
      * rest of Controller.cpp's pipe-draining code doesn't need to know it's a HANDLE
-     * underneath. Created with CREATE_NEW_PROCESS_GROUP so RequestGracefulStop() can later
-     * target this process (and only this process) with CTRL_BREAK_EVENT.
+     * underneath.
+     *
+     * Also creates this instance's stop event and passes its name to the child in
+     * EUCLID_STOP_EVENT - see Core::STOP_EVENT_VARIABLE. Ownership of that handle passes to
+     * the caller, which must CloseHandle() it once the instance is gone; it is closed here
+     * only if the spawn itself fails.
      *
      * @return false on failure; all handles/fds opened so far are closed before returning.
      */
     bool SpawnInstance(const Dto::ModuleConfig &config, const std::string &instanceSocket,
-                        pid_t &outPid, HANDLE &outProcessHandle, int &outStdoutFd, int &outStderrFd);
+                        pid_t &outPid, HANDLE &outProcessHandle, HANDLE &outStopEvent,
+                        int &outStdoutFd, int &outStderrFd);
 
     /**
-     * @brief SIGTERM-equivalent: sends CTRL_BREAK_EVENT to the process's group.
+     * @brief SIGTERM-equivalent: sets the instance's stop event, which is what
+     *        UnixSocketServer::RunUntilSignal() is waiting on.
      *
-     * Best-effort - only triggers graceful shutdown if the target installed a console
-     * control handler (see UnixSocketServer::RunUntilSignal's Windows branch). Processes
-     * that didn't are simply terminated by the OS's default handling, which is an
-     * acceptable fallback given the caller is already tearing the instance down and will
-     * escalate to ForceKill() if it doesn't exit in time regardless.
+     * @par
+     * This used to send CTRL_BREAK_EVENT to the process group instead, which could never work
+     * from a process running as a Windows service: GenerateConsoleCtrlEvent() only reaches a
+     * group sharing the caller's console, and a service has none. The call failed silently and
+     * every module was TerminateProcess()d after its stop timeout - see STOP_EVENT_VARIABLE.
+     *
+     * @return false if the instance has no stop event, or the event could not be set - in
+     *         which case nothing was asked of the process and the caller's timeout will
+     *         expire in full before it escalates to ForceKill().
      */
-    void RequestGracefulStop(pid_t pid);
+    bool RequestGracefulStop(HANDLE stopEvent);
 
     /**
      * @brief SIGKILL-equivalent.

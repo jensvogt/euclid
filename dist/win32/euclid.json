@@ -31,6 +31,11 @@
         "max-outbox-frames": 256,
         "max-outbox-bytes": 8388608
       },
+      "frontend": {
+        "enabled": true,
+        "directory": "C:\\Program Files\\euclid\\frontend",
+        "cache-seconds": 3600
+      },
       "event-socket-path": "C:\\Program Files\\euclid\\data\\run\\euclid-gateway-events.sock"
     },
     "modules": {
@@ -273,7 +278,7 @@
     },
     "mongodb": {
       "name": "euclid",
-      "host": "localhost",
+      "host": "127.0.0.1",
       "port": 27017,
       "user": "root",
       "password": "password",

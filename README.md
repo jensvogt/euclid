@@ -298,6 +298,9 @@ Every process reads the same JSON config (`--config <path>`, default
 | `euclid.gateway.websocket.max-message-size`     | 1048576     | Max inbound websocket frame size, in bytes                                                                                                                                              |
 | `euclid.gateway.websocket.idle-timeout-seconds` | 300         | Websocket ping/pong idle timeout                                                                                                                                                        |
 | `euclid.gateway.event-socket-path`              | (none)      | Unix domain socket modules push business events to, for websocket clients (`Core::EventPusher`)                                                                                         |
+| `euclid.gateway.frontend.enabled`               | true        | Serve the [euclid-web](https://github.com/jensvogt/euclid-web) admin UI from the gateway port - see [The web UI](#the-web-ui)                                                           |
+| `euclid.gateway.frontend.directory`             | `/usr/local/euclid/frontend` | Directory the euclid-web build was installed into; nothing is served if it does not exist                                                                               |
+| `euclid.gateway.frontend.cache-seconds`         | 3600        | How long a browser may keep an asset; `index.html` is never cached, so a deploy is picked up on the next reload                                                                         |
 | `euclid.database.backend`                       | mongodb     | `mongodb`, `emd` (the shared in-memory store) or `memory` (in-process) - see [Running without a database](#running-without-a-database)                                                  |
 | `euclid.modules.emd.socketPath`                 | (none)      | Socket the memory database listens on; every module reaches the store here                                                                                                              |
 | `euclid.modules.emd.connect-timeout-ms`         | 1000        | How long a module retries reaching the store before a query fails                                                                                                                       |
@@ -503,6 +506,26 @@ One consequence is unavoidable: an assertion fetched this way answers no authent
 
 An installation that only ever consumes assertions this way needs no `idp-sso-url`: that is where a browser would be
 sent, and this flow sends nobody anywhere.
+
+### The web UI
+
+[euclid-web](https://github.com/jensvogt/euclid-web) is served by the gateway itself, on the same port and behind the
+same TLS as every API call. Build it and copy the output - `index.html` and the bundles beside it - into
+`/usr/local/euclid/frontend`:
+
+```bash
+npm run build                                  # in the euclid-web checkout
+sudo cp -r dist/euclid-web/browser/* /usr/local/euclid/frontend/
+```
+
+`https://<host>:5566/` then answers with the UI, and its own routes (`/buckets`, `/users/42`) answer with it too - the
+application resolves those in the browser, so anything that does not name a file on disk is served `index.html` for it
+to boot from. A path that names a file which is not there stays a 404, because that is a broken deploy rather than a
+route.
+
+Nothing about the API changes: module calls are addressed by the `x-euclid-target` header, which a page load does not
+carry, so they are routed before any of this is consulted. An installation that deploys no frontend leaves the
+directory absent and the gateway answers exactly as it did before.
 
 ### The key/value store
 
