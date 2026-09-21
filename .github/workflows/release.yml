@@ -172,6 +172,19 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Checked out here rather than next to the frontend build below, so that a token which
+      # cannot read euclid-web fails this job in seconds instead of after the hour-long backend
+      # build. euclid-web is a private repository, so the default GITHUB_TOKEN - scoped to this
+      # repository alone - cannot read it, and an unauthenticated clone dies with "could not read
+      # Username for 'https://github.com'". GH_AUTH_TOKEN is the PAT release-please already uses.
+      - name: Checkout frontend (euclid-web)
+        uses: actions/checkout@v4.2.2
+        with:
+          repository: jensvogt/euclid-web
+          token: ${{ secrets.GH_AUTH_TOKEN }}
+          path: frontend/euclid-web
+          persist-credentials: false
+
       - name: Install system dependencies
         shell: bash
         run: |
@@ -209,21 +222,30 @@ jobs:
             echo
           done
 
+      # euclid-web's package.json requires node >=24 and npm >=11, which is newer than what the
+      # runner image happens to ship - pinned rather than inherited so the frontend builds on the
+      # same toolchain regardless of when the image is updated.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
       - name: Build (Frontend)
         shell: bash
         run: |
-          # Only what the build emits gets packaged: euclid-web writes its bundle to
-          # dist/browser, and that directory alone becomes /usr/local/euclid/frontend - not the
-          # checkout around it, not node_modules, not the sources.
-          rm -rf ${{ github.workspace }}/frontend
-          git clone --depth 1 https://github.com/jensvogt/euclid-web.git ${{ github.workspace }}/frontend/euclid-web
+          # Only what the build emits gets packaged. Angular's "application" builder writes to
+          # <outputPath>/browser, and euclid-web's angular.json sets outputPath to
+          # "dist/euclid-web" - so dist/euclid-web/browser is the bundle, and that directory alone
+          # becomes /usr/local/euclid/frontend: not the checkout around it, not node_modules, not
+          # the sources.
           cd ${{ github.workspace }}/frontend/euclid-web
-          npm install
+          npm ci
           npm run build
-          # A build that quietly emitted nothing would ship a package whose gateway answers 404
-          # for every page - which is only discovered on an installed system, so check it here.
-          test -f dist/browser/index.html \
-            || { echo "::error::euclid-web build produced no dist/browser/index.html"; exit 1; }
+          # A build that quietly emitted nothing, or emitted elsewhere because outputPath changed,
+          # would ship a package whose gateway answers 404 for every page - which is only
+          # discovered on an installed system, so check it here.
+          test -f dist/euclid-web/browser/index.html \
+            || { echo "::error::euclid-web build produced no dist/euclid-web/browser/index.html"; exit 1; }
 
       - name: Prepare package structure
         run: |
@@ -277,10 +299,10 @@ jobs:
           sed -i '' -E "1s/(euclid(-cli)? )[0-9]+\.[0-9]+\.[0-9]+/\1${MAN_VERSION}/" \
             ${{ env.PACKAGE_DIR }}/share/man/man1/*.1 ${{ env.PACKAGE_DIR }}/share/man/man8/*.8
           gzip -9n ${{ env.PACKAGE_DIR }}/share/man/man1/*.1 ${{ env.PACKAGE_DIR }}/share/man/man8/*.8
-          # The contents of dist/browser, not the directory itself, so index.html lands at the
-          # root of the frontend directory where the gateway looks for it. Not "|| true": the
+          # The contents of the bundle directory, not the directory itself, so index.html lands at
+          # the root of the frontend directory where the gateway looks for it. Not "|| true": the
           # build step above already verified the bundle exists, so a failure here is real.
-          cp -R ${{ github.workspace }}/frontend/euclid-web/dist/browser/. ${{ env.PACKAGE_DIR }}/euclid/frontend/
+          cp -R ${{ github.workspace }}/frontend/euclid-web/dist/euclid-web/browser/. ${{ env.PACKAGE_DIR }}/euclid/frontend/
 
       - name: Verify macOS package contents
         run: |
@@ -385,6 +407,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      # See the macOS job: private repository, so the default GITHUB_TOKEN cannot read it, and
+      # checked out up front so a token problem fails before the backend build rather than after.
+      - name: Checkout frontend (euclid-web)
+        uses: actions/checkout@v4.2.2
+        with:
+          repository: jensvogt/euclid-web
+          token: ${{ secrets.GH_AUTH_TOKEN }}
+          path: frontend/euclid-web
+          persist-credentials: false
+
       - name: Install system dependencies
         run: |
           sudo apt update
@@ -421,21 +453,28 @@ jobs:
           cmake -B ${{ env.BUILD_DIR }} -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake
           cmake --build ${{ env.BUILD_DIR }} --config Release --parallel 2
 
+      # euclid-web's package.json requires node >=24 and npm >=11 - see the macOS job.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
       - name: Build (Frontend)
         shell: bash
         run: |
-          # Only what the build emits gets packaged: euclid-web writes its bundle to
-          # dist/browser, and that directory alone becomes /usr/local/euclid/frontend - not the
-          # checkout around it, not node_modules, not the sources.
-          rm -rf ${{ github.workspace }}/frontend
-          git clone --depth 1 https://github.com/jensvogt/euclid-web.git ${{ github.workspace }}/frontend/euclid-web
+          # Only what the build emits gets packaged. Angular's "application" builder writes to
+          # <outputPath>/browser, and euclid-web's angular.json sets outputPath to
+          # "dist/euclid-web" - so dist/euclid-web/browser is the bundle, and that directory alone
+          # becomes /usr/local/euclid/frontend: not the checkout around it, not node_modules, not
+          # the sources.
           cd ${{ github.workspace }}/frontend/euclid-web
-          npm install
+          npm ci
           npm run build
-          # A build that quietly emitted nothing would ship a package whose gateway answers 404
-          # for every page - which is only discovered on an installed system, so check it here.
-          test -f dist/browser/index.html \
-            || { echo "::error::euclid-web build produced no dist/browser/index.html"; exit 1; }
+          # A build that quietly emitted nothing, or emitted elsewhere because outputPath changed,
+          # would ship a package whose gateway answers 404 for every page - which is only
+          # discovered on an installed system, so check it here.
+          test -f dist/euclid-web/browser/index.html \
+            || { echo "::error::euclid-web build produced no dist/euclid-web/browser/index.html"; exit 1; }
 
       # ── DEB ────────────────────────────────────────────────────────────────
 
@@ -497,10 +536,10 @@ jobs:
           sed -i -E "1s/(euclid(-cli)? )[0-9]+\.[0-9]+\.[0-9]+/\1${MAN_VERSION}/" \
             ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man1/*.1 ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man8/*.8
           gzip -9n ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man1/*.1 ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man8/*.8
-          # The contents of dist/browser, not the directory itself, so index.html lands at the
-          # root of /usr/local/euclid/frontend where the gateway looks for it. Not "|| true": the
-          # build step above already verified the bundle exists, so a failure here is real.
-          cp -R ${{ github.workspace }}/frontend/euclid-web/dist/browser/. ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/frontend/
+          # The contents of the bundle directory, not the directory itself, so index.html lands at
+          # the root of /usr/local/euclid/frontend where the gateway looks for it. Not "|| true":
+          # the build step above already verified the bundle exists, so a failure here is real.
+          cp -R ${{ github.workspace }}/frontend/euclid-web/dist/euclid-web/browser/. ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/frontend/
 
           # Maintainer scripts live OUTSIDE PACKAGE_DIR_DEB - that whole tree gets mapped
           # verbatim onto the target filesystem root by fpm's "-s dir ... PACKAGE_DIR/=/"
@@ -669,8 +708,8 @@ jobs:
           sed -i -E "1s/(euclid(-cli)? )[0-9]+\.[0-9]+\.[0-9]+/\1${MAN_VERSION}/" \
             ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man1/*.1 ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man8/*.8
           gzip -9n ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man1/*.1 ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man8/*.8
-          # See the DEB step above: the contents of dist/browser only, and no "|| true".
-          cp -R ${{ github.workspace }}/frontend/euclid-web/dist/browser/. ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/frontend/
+          # See the DEB step above: the contents of the bundle directory only, and no "|| true".
+          cp -R ${{ github.workspace }}/frontend/euclid-web/dist/euclid-web/browser/. ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/frontend/
 
           # Maintainer scripts live OUTSIDE PACKAGE_DIR_RPM - see the matching comment in the
           # DEB step above for why (this whole tree is mapped verbatim onto the target

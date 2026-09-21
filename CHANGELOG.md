@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.1.33](https://github.com/jensvogt/euclid/compare/v1.1.32...v1.1.33) (2026-09-21)
+
+
+### Bug Fixes
+
+* euclid-web in release ([5574a67](https://github.com/jensvogt/euclid/commit/5574a67d6259fe622a820b51e7373879e7d323df))
+
+## [1.1.32](https://github.com/jensvogt/euclid/compare/1.1.31...v1.1.32) (2026-09-21)
+
+
+### Bug Fixes
+
+* include web frontend, fis some windows bugs ([89e27ce](https://github.com/jensvogt/euclid/commit/89e27cee368e8baa5c5824c9b3f3e696cf8ad45b))
+
 ## [1.1.31](https://github.com/jensvogt/euclid/compare/1.1.30...v1.1.31) (2026-09-21)
 
 
