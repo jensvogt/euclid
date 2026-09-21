@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.31](https://github.com/jensvogt/euclid/compare/1.1.30...v1.1.31) (2026-09-21)
+
+
+### Bug Fixes
+
+* add EAM change password ([d473c81](https://github.com/jensvogt/euclid/commit/d473c81ae54b4b5ee872866d9ccf01ec234bc8ae))
+* add EAM change password ([775d6f9](https://github.com/jensvogt/euclid/commit/775d6f9fd40c3cfe1596fc2b5dd96c0df089c4a6))
+
 ## [1.1.30](https://github.com/jensvogt/euclid/compare/v1.1.29...v1.1.30) (2026-09-21)
 
 
