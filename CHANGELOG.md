@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.30](https://github.com/jensvogt/euclid/compare/v1.1.29...v1.1.30) (2026-09-21)
+
+
+### Bug Fixes
+
+* windows build ([3794d14](https://github.com/jensvogt/euclid/commit/3794d1465776f804353e4134319596fb066cd8a3))
+
 ## [1.1.29](https://github.com/jensvogt/euclid/compare/1.1.28...v1.1.29) (2026-09-20)
 
 
