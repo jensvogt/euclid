@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.32](https://github.com/jensvogt/euclid/compare/1.1.31...v1.1.32) (2026-09-21)
+
+
+### Bug Fixes
+
+* include web frontend, fis some windows bugs ([89e27ce](https://github.com/jensvogt/euclid/commit/89e27cee368e8baa5c5824c9b3f3e696cf8ad45b))
+
 ## [1.1.31](https://github.com/jensvogt/euclid/compare/1.1.30...v1.1.31) (2026-09-21)
 
 
