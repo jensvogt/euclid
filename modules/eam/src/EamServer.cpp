@@ -15,6 +15,7 @@
 #include <euclid/core/monitoring/MetricEventBus.h>
 #include <euclid/core/monitoring/MonitoringTimer.h>
 #include <euclid/dto/eam/ChangeNamespaceRequest.h>
+#include <euclid/dto/eam/ChangePasswordRequest.h>
 #include <euclid/dto/eam/CreateAccountRequest.h>
 #include <euclid/dto/eam/CreateAccountResponse.h>
 #include <euclid/dto/eam/CreateNamespaceRequest.h>
@@ -951,6 +952,80 @@ namespace Euclid::EAM {
 
         repo->deleteUser(request.userId);
         log_info << "User deleted, userId: " << request.userId;
+
+        return EamServer::JsonResponse(req, status::ok);
+    }
+
+    // Replaces a password. Two things wear this one name, and what separates them is what each
+    // has to prove: a person changing their own proves it by knowing the old one, and an
+    // administrator resetting somebody else's proves it by being an administrator.
+    //
+    // They are one action rather than two because they end in the same write, and two handlers
+    // over one field is two chances for one of them to skip a check the other makes. Which of the
+    // two a request is, is decided by the userId it names and not by what it sends - so a caller
+    // cannot get the reset path by simply omitting the old password.
+    //
+    // Note what this does not do: the bearer token a session already holds is a JWT, verified
+    // against the signing secret rather than against anything stored, so it stays valid for the
+    // rest of its hour. Changing a password closes the door for the next login, not for a session
+    // already through it.
+    static response<string_body> handleChangePassword(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "change-password");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) {
+            return unauthorized(req, auth);
+        }
+
+        boost::json::value jv;
+        if (const auto err = EamServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EAM::ChangePasswordRequest>(jv);
+        if (request.newPassword.empty()) {
+            return EamServer::ErrorResponse(req, status::bad_request, "newPassword is required");
+        }
+
+        // Empty means "mine", so a client that knows only its own session does not have to name
+        // itself - and naming yourself is the same request, not the administrator one.
+        const auto targetUserId = request.userId.empty() ? auth.user->userId : request.userId;
+        const bool ownPassword = targetUserId == auth.user->userId;
+
+        if (!ownPassword && !isAdmin(*auth.user)) {
+            return EamServer::ErrorResponse(req, status::forbidden, "Administrator privileges required to change another user's password");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().eamRepository();
+        auto user = ownPassword ? auth.user : repo->findUserByUserId(targetUserId);
+        if (!user.has_value()) {
+            return EamServer::ErrorResponse(req, status::not_found, "User not found, userId: " + targetUserId);
+        }
+
+        // An account that does not log in with a password has no password to change, and giving
+        // it one would be handing it a way in it was deliberately created without - the same flag
+        // that keeps a federated user and an application's technical principal out of doLogin().
+        if (!user->loginEnabled) {
+            return EamServer::ErrorResponse(req, status::conflict, "User does not log in with a password, userId: " + targetUserId);
+        }
+
+        // Without this, a token left behind on an unattended terminal is enough to take an account
+        // over rather than merely to use it until the hour is out.
+        //
+        // Refused as 403 rather than 401, though it is a credential that failed: 401 is what every
+        // euclid client is told means "your session is gone", and answers it by throwing the stored
+        // one away and asking for a login. A mistyped old password would then log the caller out,
+        // which is a poor answer to a typo. The session is fine; this one request is not.
+        if (ownPassword && !Core::PasswordUtils::Verify(request.oldPassword, user->password)) {
+            log_warning << "Password change refused, the old password does not match, userId: " << user->userId;
+            return EamServer::ErrorResponse(req, status::forbidden, "The old password is not correct");
+        }
+
+        user->password = Core::PasswordUtils::Hash(request.newPassword);
+        user->modified = std::chrono::system_clock::now();
+        repo->upsertUser(*user);
+
+        log_info << "Password changed, userId: " << user->userId
+                 << (ownPassword ? "" : ", reset by: " + auth.user->userId);
 
         return EamServer::JsonResponse(req, status::ok);
     }
@@ -2046,6 +2121,7 @@ namespace Euclid::EAM {
             GetUserGroup,
             ListUsers,
             DeleteUser,
+            ChangePassword,
             CreateAccessKey,
             ListAccessKeys,
             DeleteAccessKey,
@@ -2091,6 +2167,7 @@ namespace Euclid::EAM {
         if (action == "get-user-group") return Action::GetUserGroup;
         if (action == "list-users") return Action::ListUsers;
         if (action == "delete-user") return Action::DeleteUser;
+        if (action == "change-password") return Action::ChangePassword;
         if (action == "create-access-key") return Action::CreateAccessKey;
         if (action == "list-access-keys") return Action::ListAccessKeys;
         if (action == "delete-access-key") return Action::DeleteAccessKey;
@@ -2160,6 +2237,9 @@ namespace Euclid::EAM {
 
             case Action::DeleteUser:
                 return handleDeleteUser(req);
+
+            case Action::ChangePassword:
+                return handleChangePassword(req);
 
             case Action::CreateAccessKey:
                 return handleCreateAccessKey(req);

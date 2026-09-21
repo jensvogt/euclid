@@ -10,7 +10,10 @@
 
 #ifdef _WIN32
 #include <conio.h>
-#include <io.h>
+// For GetConsoleMode alone - see hasTerminal(). Safe to include here despite what readPassword()
+// says about this file and windows.h macros: the build defines NOMINMAX and WIN32_LEAN_AND_MEAN
+// for every target (see the top-level CMakeLists.txt), so the ones worth avoiding never arrive.
+#include <windows.h>
 #else
 #include <termios.h>
 #include <unistd.h>
@@ -202,7 +205,14 @@ namespace Euclid::CLI {
         // through the environment instead.
         bool hasTerminal() {
 #ifdef _WIN32
-            return _isatty(_fileno(stdin)) != 0;
+            // Not _isatty(): on Windows that answers "is this a character device", and NUL is one -
+            // so a scheduled task, whose stdin is the null device, was told there was somebody to
+            // ask and then blocked forever in _getch(), which reads the console rather than stdin.
+            // A console is what is actually being asked about, and GetConsoleMode succeeds for
+            // nothing else - including a stdin redirected from a file or a pipe, where there is
+            // likewise nobody at a keyboard.
+            DWORD consoleMode;
+            return GetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), &consoleMode) != 0;
 #else
             return isatty(STDIN_FILENO) != 0;
 #endif
@@ -343,6 +353,7 @@ namespace Euclid::CLI {
     const std::vector<std::pair<std::string, std::string> > &EamCli::Actions() {
         static const std::vector<std::pair<std::string, std::string> > kActions = {
                 {"change-namespace", "Switch the active namespace for this session"},
+                {"change-password", "Change your own password, or reset another user's"},
                 {"create-access-key", "Create a SigV4 access key and store it locally"},
                 {"create-account", "Create a new account"},
                 {"create-namespace", "Create a new namespace under an account"},
@@ -392,6 +403,9 @@ namespace Euclid::CLI {
         }
         if (action == "delete-user") {
             return deleteUser(args);
+        }
+        if (action == "change-password") {
+            return changePassword(args);
         }
         if (action == "create-access-key") {
             return createAccessKey(args);
@@ -967,6 +981,100 @@ namespace Euclid::CLI {
 
             if (const HttpResponse response = client.Post("eam", "delete-user", boost::json::value_from(request)); !response.IsSuccess()) {
                 reportFailure("delete-user", response);
+                return 1;
+            }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::changePassword(const std::vector<std::string> &args) const {
+        po::options_description desc("eam change-password options");
+        desc.add_options()
+                ("user,u", po::value<std::string>(), "user whose password to reset; omit for your own, which is the only one you can change without being an administrator")
+                ("old-password,o", po::value<std::string>(), "your current password; asked for at the terminal if omitted, and not used when resetting somebody else's")
+                ("new-password,n", po::value<std::string>(), "the new password; asked for twice at the terminal if omitted");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "change-password", "[--user <userId>] [--old-password <password>] [--new-password <password>]",
+                                   "Replaces a password.\n\n"
+                                   "Without --user this changes your own, and the current password has to be given as well - "
+                                   "so a session somebody walked away from cannot be turned into the account itself. With "
+                                   "--user naming somebody else it is an administrator's reset, which takes no old password "
+                                   "because an administrator is not supposed to know one.\n\n"
+                                   "A password left off the command line is asked for at the terminal without being echoed, "
+                                   "and a new one asked for that way is asked for twice - a command line is visible in the "
+                                   "shell history and, while the command runs, in the process list. Where there is no "
+                                   "terminal to ask at, as under a scheduler, the options are the only way.\n\n"
+                                   "Your session is not ended by this: the bearer token it holds stays valid until it "
+                                   "expires, and the new password is what the next login wants.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        const auto userId = vm.contains("user") ? vm["user"].as<std::string>() : std::string{};
+
+        // Naming yourself is a change rather than a reset, which is also how the server reads it -
+        // so the old password is asked for here rather than sent empty and refused there.
+        const bool ownPassword = userId.empty() || userId == _authentication.userId;
+
+        if (!ownPassword && vm.contains("old-password")) {
+            std::cerr << "error: --old-password is for changing your own; resetting " << userId << "'s takes administrator privileges instead\n";
+            return 1;
+        }
+
+        // Said once, not enforced - the same note "login" gives, and for the same reason: whoever
+        // passes one anyway is usually in a script and has already decided.
+        if (vm.contains("old-password") || vm.contains("new-password")) {
+            std::cerr << "note: a password on the command line is visible in your shell history and the process list;"
+                         " leaving it out asks for it at the terminal instead\n";
+        }
+
+        std::string oldPassword = vm.contains("old-password") ? vm["old-password"].as<std::string>() : std::string{};
+        if (ownPassword && oldPassword.empty()) {
+            oldPassword = readPassword("Current password: ");
+            if (oldPassword.empty()) {
+                std::cerr << "error: changing your own password needs the current one; pass --old-password where there is no terminal to ask at\n";
+                return 1;
+            }
+        }
+
+        std::string newPassword = vm.contains("new-password") ? vm["new-password"].as<std::string>() : std::string{};
+        if (newPassword.empty()) {
+            newPassword = readPassword("New password: ");
+            if (newPassword.empty()) {
+                std::cerr << "error: no new password given; pass --new-password where there is no terminal to ask at\n";
+                return 1;
+            }
+
+            // Asked for twice because it is not echoed: a typo in a password nobody can see is
+            // otherwise found at the next login, when nothing remembers what was typed.
+            if (readPassword("New password again: ") != newPassword) {
+                std::cerr << "error: the two new passwords do not match\n";
+                return 1;
+            }
+        }
+
+        Dto::EAM::ChangePasswordRequest request;
+        request.userId = userId;
+        request.oldPassword = oldPassword;
+        request.newPassword = newPassword;
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+
+            if (const HttpResponse response = client.Post("eam", "change-password", boost::json::value_from(request)); !response.IsSuccess()) {
+                reportFailure("change-password", response);
                 return 1;
             }
             return 0;
