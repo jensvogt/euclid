@@ -70,6 +70,7 @@ namespace Euclid::CLI {
                 {"stop-application", "Ask the manager to stop an application"},
                 {"set-log-level", "Turn an application's own logging up, down or off"},
                 {"update-application", "Change an existing application's definition"},
+                {"copy-application", "Define the same application again in another namespace"},
         };
         return kActions;
     }
@@ -96,6 +97,7 @@ namespace Euclid::CLI {
 
         if (action == "create-application") return createApplication(args);
         if (action == "update-application") return updateApplication(args);
+        if (action == "copy-application") return copyApplication(args);
         if (action == "redeploy-application") return redeployApplication(args);
         if (action == "list-applications") return listApplications(args);
         if (action == "get-application") return getApplication(args);
@@ -256,6 +258,64 @@ namespace Euclid::CLI {
             const HttpResponse response = client.Post("eap", "update-application", request);
             if (!response.IsSuccess()) {
                 std::cerr << "error: update-application failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EapCli::copyApplication(const std::vector<std::string> &args) const {
+        po::options_description desc("copy an application into another namespace");
+        desc.add_options()
+                ("application-id,n", po::value<std::string>()->required(), "name of the application to copy")
+                ("to-namespace,t", po::value<std::string>()->required(), "namespace to copy it into")
+                ("as", po::value<std::string>(), "name the copy is defined under; the original's name unless given");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eap", "copy-application",
+                                   "--application-id <name> --to-namespace <namespace> [--as <name>]",
+                                   "Defines the same application again in another namespace, leaving the original alone and running - "
+                                   "which is how a build is promoted from development to integration to production without taking the "
+                                   "namespace it came from out of service. Use \"eap update-application --namespace\" instead to move an "
+                                   "application rather than copy it. "
+                                   "The copy runs the same artifact: bucket, object key and checksum are taken as they stand, so it is "
+                                   "the same bytes and not a rebuild that happens to share a version. "
+                                   "It is given its own runtime name and its own technical principal with its own access key, because "
+                                   "both are installation-wide and cannot be shared - so revoking the copy's credentials leaves the "
+                                   "original running. An application told to run as a named user keeps that user. "
+                                   "What it may reach is re-resolved rather than copied: a bucket or queue ERN carries the namespace it "
+                                   "was resolved in, so copying the list would point the new application at the old namespace's data. "
+                                   "The same names are looked up in the target namespace instead, and a name that does not exist there "
+                                   "fails the copy rather than quietly leaving the application with less access than the original. "
+                                   "The copy is created stopped, whatever the original is doing - start it with \"eap start-application\" "
+                                   "once you have looked at it.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        boost::json::object request{
+                {"applicationId", vm["application-id"].as<std::string>()},
+                {"targetNamespace", vm["to-namespace"].as<std::string>()},
+        };
+        if (vm.contains("as")) request["targetApplicationId"] = vm["as"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eap", "copy-application", request);
+            if (!response.IsSuccess()) {
+                std::cerr << "error: copy-application failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);

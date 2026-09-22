@@ -1,0 +1,92 @@
+.TH EUCLID-CLI-EAP-COPY-APPLICATION 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eap-copy-application \- define an application again in another namespace
+.SH SYNOPSIS
+.B euclid-cli eap copy-application
+.BR \-\-application\-id | \-n
+.I NAME
+.BR \-\-to\-namespace | \-t
+.I NAMESPACE
+[\fB\-\-as\fR \fINAME\fR]
+.SH DESCRIPTION
+Defines the same application again in another namespace, leaving the
+original alone and running. This is how a build is promoted \- development
+to integration, integration to production \- without taking the namespace
+it came from out of service.
+.PP
+To move an application rather than copy it, use
+.B \-\-namespace
+on
+.BR euclid-cli-eap-update-application (1).
+That takes the definition with it, so what ran in the old namespace stops
+running there.
+.PP
+The copy runs the same artifact: bucket, object key and checksum are taken
+as they stand rather than resolved again, so it is the same bytes and not a
+rebuild that happens to share a version number.
+.PP
+It is given its own runtime name and its own technical principal with its
+own access key. Both are installation-wide and cannot be shared \- two
+applications cannot hold the same data directory, unix socket or log
+channel \- so the copy is independent of the original, and revoking one
+set of credentials leaves the other running. An application told to run as
+a named user keeps that user, which is yours to manage rather than EAP's
+to duplicate.
+.PP
+What the application may reach is re-resolved rather than copied. A bucket
+or queue ERN carries the namespace it was resolved in, so copying the list
+verbatim would point the new application at the old namespace's data \- a
+production application reading development's queues, or the reverse. The
+same
+.I names
+are looked up in the target namespace instead.
+.PP
+The copy is created stopped, whatever the original is doing, and is started
+with
+.BR euclid-cli-eap-start-application (1).
+A copy that started itself would put a second consumer on the target
+namespace's queues the moment the command returned.
+.SH OPTIONS
+.TP
+.BR \-\-application\-id ", " \-n " " \fINAME\fR
+Name of the application to copy, in the namespace the session is working
+in.
+.TP
+.BR \-\-to\-namespace ", " \-t " " \fINAMESPACE\fR
+Namespace to copy it into. It has to exist already \- see
+.BR euclid-cli-eam-create-namespace (1).
+.TP
+.B \-\-as " " \fINAME\fR
+Name the copy is defined under. The original's name unless given, which is
+usually what is wanted; naming it is how an application is copied beside
+itself within one namespace.
+.SH EXIT STATUS
+Non-zero if the application does not exist in the current namespace, if the
+target namespace does not exist, if an application of that name is already
+defined there, or if a bucket or queue the original may use has no
+counterpart of the same name in the target namespace. That last one fails
+the copy rather than quietly producing an application with less access than
+the one it was copied from.
+.SH EXAMPLES
+Promote an application to production:
+.RS
+.nf
+euclid-cli eap copy-application --application-id inbox --to-namespace production
+euclid-cli eap start-application --application-id inbox
+.fi
+.RE
+.PP
+Copy it beside itself to try a change:
+.RS
+.nf
+euclid-cli eap copy-application --application-id inbox --to-namespace development --as inbox-next
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eap (1),
+.BR euclid-cli-eap-create-application (1),
+.BR euclid-cli-eap-update-application (1),
+.BR euclid-cli-eap-start-application (1),
+.BR euclid-cli-eap-get-application (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

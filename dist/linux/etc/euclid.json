@@ -323,13 +323,13 @@
       "pool-size": 256
     },
     "logging": {
-      "file-active": false,
       "format": "text",
-      "console-format": "",
-      "file-format": "",
-      "console-level": "",
-      "file-level": "",
+      "file-active": true,
+      "file-format": "json",
+      "file-level": "info",
       "console-active": true,
+      "console-level": "info",
+      "console-format": "test",
       "level": "warning",
       "dir": "/usr/local/euclid/log",
       "prefix": "euclid",
