@@ -68,6 +68,12 @@ Deletes all messages from every queue in a region/account. See
 Sends a message to a queue, with optional attributes and priority. See
 .BR euclid-cli-eqs-send-message (1).
 .TP
+.B send-message-batch
+Sends several messages to one queue in a single call, written in one
+insert; a rejected message does not stop the others. See
+.BR euclid-cli-eqs-send-message-batch (1).
+
+.TP
 .B receive-messages
 Receives up to a given number of messages from a queue, favoring higher
 priority messages. See
@@ -296,6 +302,7 @@ euclid-cli --endpoint http://localhost:5566 eqs delete-queue \e
 .BR euclid-cli-eqs-redrive-dlq (1),
 .BR euclid-cli-eqs-purge-all-queues (1),
 .BR euclid-cli-eqs-send-message (1),
+.BR euclid-cli-eqs-send-message-batch (1),
 .BR euclid-cli-eqs-receive-messages (1),
 .BR euclid-cli-eqs-list-messages (1),
 .BR euclid-cli-eqs-set-message-visibility (1),

@@ -116,7 +116,8 @@
         "minInstances": 1,
         "maxInstances": 4,
         "threads": 8,
-        "retention-period": 345600
+        "retention-period": 345600,
+        "max-batch-size": 100
       },
       "ens": {
         "dependencies": [

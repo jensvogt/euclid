@@ -32,6 +32,21 @@ namespace Euclid::EQS {
         constexpr auto kServiceTimer = "eqs-service-time";
         constexpr auto kServiceCounter = "eqs-service-count";
 
+        // The most messages one send-message-batch accepts.
+        //
+        // A bound rather than a guess: the batch arrives as one request body, is built into one
+        // insert and is answered with one list of ids, so the number decides how much memory a
+        // single caller can ask this module to hold. A hundred is where the per-message cost of a
+        // round trip has already stopped mattering - insert_many measured a thousand documents at
+        // 29 ms against 13,621 ms one at a time - and is still a request an operator can read.
+        //
+        // Floored at one rather than trusted: a misread or missing setting must not mean "accept
+        // nothing", which would take send-message-batch out of service without saying so.
+        long MaxBatchSize() {
+            constexpr long kDefaultMaxBatchSize = 100;
+            return std::max<long>(1, Core::Configuration::instance().getOr<long>("euclid.modules.eqs.max-batch-size", kDefaultMaxBatchSize));
+        }
+
         // How many worker threads may sit in a receive-messages wait at once, always leaving one
         // over. receiveMessages() holds its thread for the whole waitTime, so without this cap
         // enough waiting consumers leave nothing to answer a send, a delete or a create - and
@@ -491,6 +506,149 @@ namespace Euclid::EQS {
 
         Dto::EQS::SendMessageResponse response;
         response.messageId = message.messageId;
+
+        applyMetadata(response, *auth.user);
+        return EqsServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    // Puts several messages on one queue in a single call.
+    //
+    // The saving is not mainly the round trip. A send is a signature to verify, an authorization to
+    // decide, a queue to resolve and an insert to wait for; a batch does the first three once for
+    // the whole lot, and the fourth becomes one insert_many, which measured a thousand documents at
+    // 29 ms against 13,621 ms one at a time.
+    //
+    // A message that cannot be sent is reported against its position and the rest still go. That is
+    // not what delete-objects does - a key naming nothing is skipped there and only counted - and
+    // the difference is deliberate: a delete that skipped something removed what was already gone,
+    // while a send that skipped something dropped it. A producer holding "97 of 100" and no way to
+    // learn which three would have to send all hundred again, and duplicate ninety-seven of them.
+    static response<string_body> handleSendMessageBatch(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "send-message-batch");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
+
+        // Checked on the raw value rather than after parsing, because the parsed request cannot
+        // tell "messages was absent" from "messages was an empty array" - and those are different
+        // mistakes. A shape that is wrong fails the whole request, which is the house rule.
+        if (!jv.is_object()) return EqsServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+        const auto *messagesField = jv.as_object().if_contains("messages");
+        if (messagesField == nullptr || !messagesField->is_array()) {
+            return EqsServer::ErrorResponse(req, status::bad_request, "messages must be an array of objects");
+        }
+
+        const auto request = boost::json::value_to<Dto::EQS::SendMessageBatchRequest>(jv);
+        const auto asked = static_cast<long>(request.messages.size());
+        log_info << "EQS SendMessageBatch queueErn: " << request.ern << ", messages: " << asked;
+
+        if (const auto refusal = Database::Entity::EQS::BatchRefusal(asked, MaxBatchSize()); !refusal.empty()) {
+            return EqsServer::ErrorResponse(req, status::bad_request, refusal);
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().eqsRepository();
+        std::optional<Database::Entity::EQS::Queue> queue = repo->findQueueByErn(request.ern);
+        if (!queue.has_value()) {
+            return EqsServer::ErrorResponse(req, status::bad_request, "Queue does not exist");
+        }
+
+        // Before anything is looked at message by message, so a caller with no business here
+        // learns that and not how big somebody else's queue accepts.
+        if (const auto denied = denyUngrantedQueue(req, auth, request.ern)) return *denied;
+
+        const auto maxMessageLength = Database::Entity::EQS::EffectiveMaxMessageLength(queue->maxMessageLength);
+
+        std::vector<Database::IEqsRepository::MessageDraft> drafts;
+        std::vector<Dto::EQS::SendMessageBatchFailure> failed;
+        drafts.reserve(request.messages.size());
+
+        for (std::size_t i = 0; i < request.messages.size(); ++i) {
+            const auto &entry = request.messages[i];
+
+            // The same two checks a single send makes, from the same place - see BatchEntryRefusal,
+            // which exists so the batch cannot drift into accepting what send-message refuses, or
+            // refusing what it accepts.
+            if (auto refusal = Database::Entity::EQS::BatchEntryRefusal(static_cast<long>(entry.body.size()),
+                                                                        maxMessageLength, entry.priority);
+                !refusal.empty()) {
+                failed.push_back(Dto::EQS::SendMessageBatchFailure{.index = static_cast<long>(i), .reason = std::move(refusal)});
+                continue;
+            }
+
+            Database::IEqsRepository::MessageDraft draft;
+            draft.messageId = Core::UuidUtils::CreateRandomUuid();
+            draft.ern = Core::createEqsMessageErn(auth.user->accountId, draft.messageId);
+            draft.body = entry.body;
+
+            for (const auto &[key, variant]: entry.attributes) {
+                draft.attributes[key] = Dto::EQS::EqsMapper::toEntity(variant);
+            }
+            // The envelope the caller was carrying, passed on per message - see handleSendMessage.
+            for (const auto &[key, variant]: entry.systemAttributes) {
+                draft.systemAttributes[key] = Dto::EQS::EqsMapper::toEntity(variant);
+            }
+
+            // The queue's own unless this message names one. BatchEntryRefusal has already refused
+            // anything unparsable, so the value here is known good.
+            draft.priority = queue->priority;
+            if (!entry.priority.empty()) {
+                draft.priority = Database::Entity::EQS::TryMessagePriorityFromString(entry.priority).value();
+            }
+
+            drafts.push_back(std::move(draft));
+        }
+
+        Dto::EQS::SendMessageBatchResponse response;
+        response.ern = request.ern;
+        response.asked = asked;
+        response.failed = std::move(failed);
+
+        // Nothing acceptable is not an error: every message was answered, each with its own reason,
+        // and the caller has exactly what it needs. Refusing the request as well would take the
+        // reasons away with it.
+        if (!drafts.empty()) {
+
+            const auto sent = repo->sendMessages(request.ern, drafts);
+            if (sent.empty()) {
+                return EqsServer::ErrorResponse(req, status::internal_server_error, "Could not send the batch");
+            }
+
+            long bytes = 0;
+            std::vector<std::pair<boost::json::value, Database::EventBus::Delivery> > events;
+            events.reserve(sent.size());
+
+            for (const auto &message: sent) {
+                response.messageIds.push_back(message.messageId);
+                bytes += message.size;
+                events.emplace_back(boost::json::value{
+                                            {"ern", message.ern},
+                                            {"queueErn", message.queueErn},
+                                            {"queueName", queue->name},
+                                            {"messageId", message.messageId},
+                                            {"size", message.size},
+                                            {"accountId", queue->accountId},
+                                            {"region", queue->region},
+                                    },
+                                    Database::EventBus::Delivery{});
+            }
+
+            // Once for the batch, because both already take a count: a series that jumped by one a
+            // hundred times would say the same thing about volume and something quite wrong about
+            // how many sends there were.
+            recordMessagesSent(request.ern, static_cast<long>(sent.size()), bytes);
+
+            // One event per message still - a subscriber watching a queue wants to hear about each
+            // message, not about the batch somebody happened to group them into - but published
+            // together, which is one insert rather than N. PublishBatch takes the event type once
+            // because every event here is the same type.
+            Database::EventBus::instance().PublishBatch("eqs.message.sent", events, "eqs");
+
+            response.sent = static_cast<long>(sent.size());
+        }
 
         applyMetadata(response, *auth.user);
         return EqsServer::JsonResponse(req, status::ok, response.toJson());
@@ -1255,6 +1413,7 @@ namespace Euclid::EQS {
             ListQueues,
             ListMessages,
             SendMessage,
+            SendMessageBatch,
             ReceiveMessages,
             SetVisibility,
             SetQueueVisibility,
@@ -1284,6 +1443,7 @@ namespace Euclid::EQS {
         if (action == "list-queues") return Command::ListQueues;
         if (action == "list-messages") return Command::ListMessages;
         if (action == "send-message") return Command::SendMessage;
+        if (action == "send-message-batch") return Command::SendMessageBatch;
         if (action == "receive-messages") return Command::ReceiveMessages;
         // Two spellings, one command. "set-message-visibility" is the name that says what it
         // changes, and pairs with "set-queue-visibility"; "set-visibility" is what it was called
@@ -1346,6 +1506,9 @@ namespace Euclid::EQS {
 
             case Command::SendMessage:
                 return handleSendMessage(req);
+
+            case Command::SendMessageBatch:
+                return handleSendMessageBatch(req);
 
             case Command::ReceiveMessages:
                 return handleReceiveMessage(req);

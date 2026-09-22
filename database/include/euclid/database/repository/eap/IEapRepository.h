@@ -162,6 +162,31 @@ namespace Euclid::Database {
                                             const std::string &applicationId, const std::string &logLevel) = 0;
 
         /**
+         * @brief Changes the instance bounds the autoscaler works within, without restarting.
+         *
+         * @par
+         * Its own method for the reason setApplicationLogLevel() gives, and the consequence is
+         * larger here: upsertApplication() stamps the modification date, so scaling an application
+         * through it would restart every instance the pool already has. Adding capacity by first
+         * taking away what is running is not what anybody asking for more of it wants, and under
+         * load it is the worst possible moment for it.
+         *
+         * @par
+         * -1 leaves a bound alone, so a ceiling can be raised without disturbing the floor and the
+         * two can be set independently. The manager picks the change up on its next reconcile and
+         * scales toward it; nothing is started or stopped here.
+         *
+         * @param accountId account the application belongs to
+         * @param nameSpace namespace within accountId
+         * @param applicationId application to scale
+         * @param minInstances smallest number of instances to keep running, or -1 to leave it
+         * @param maxInstances largest number the autoscaler may run, or -1 to leave it
+         * @return true if an application of that name was changed
+         */
+        virtual bool setApplicationInstances(const std::string &accountId, const std::string &nameSpace,
+                                             const std::string &applicationId, long minInstances, long maxInstances) = 0;
+
+        /**
          * @brief Stamps an application's modification date, so the manager starts its instances
          * again.
          *

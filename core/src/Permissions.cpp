@@ -93,7 +93,7 @@ namespace Euclid::Core {
                 "eam:user-group-add-user",
                 "eam:user-group-remove-user",
 
-                // eap - 12 actions
+                // eap - 13 actions
                 "eap:copy-application",
                 "eap:create-application",
                 "eap:delete-application",
@@ -103,6 +103,7 @@ namespace Euclid::Core {
                 "eap:redeploy-application",
                 "eap:report-load",
                 "eap:restart-application",
+                "eap:scale-application",
                 "eap:set-log-level",
                 "eap:start-application",
                 "eap:stop-application",
@@ -177,7 +178,7 @@ namespace Euclid::Core {
                 "ens:subscribe",
                 "ens:unsubscribe",
 
-                // eqs - 31 actions
+                // eqs - 32 actions
                 "eqs:add-metadata",
                 "eqs:add-queue-tag",
                 "eqs:create-queue",
@@ -200,6 +201,7 @@ namespace Euclid::Core {
                 "eqs:receive-messages",
                 "eqs:redrive-dlq",
                 "eqs:send-message",
+                "eqs:send-message-batch",
                 "eqs:set-message-attribute",
                 "eqs:set-message-visibility",
                 "eqs:set-queue-delay",

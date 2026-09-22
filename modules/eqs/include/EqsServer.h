@@ -24,6 +24,7 @@
 #include <euclid/database/EventBus.h>
 #include <euclid/database/RepositoryFactory.h>
 #include <euclid/database/entity/eam/User.h>
+#include <euclid/database/entity/eqs/MessageBatch.h>
 #include <euclid/database/entity/eqs/Queue.h>
 #include <euclid/dto/BaseDto.h>
 #include <euclid/dto/eqs/AddQueueTagRequest.h>
@@ -55,6 +56,8 @@
 #include <euclid/dto/eqs/PurgeQueueRequest.h>
 #include <euclid/dto/eqs/ReceiveMessagesRequest.h>
 #include <euclid/dto/eqs/ReceiveMessagesResponse.h>
+#include <euclid/dto/eqs/SendMessageBatchRequest.h>
+#include <euclid/dto/eqs/SendMessageBatchResponse.h>
 #include <euclid/dto/eqs/SendMessageRequest.h>
 #include <euclid/dto/eqs/SendMessageResponse.h>
 #include <euclid/dto/eqs/SetMessageAttributeRequest.h>

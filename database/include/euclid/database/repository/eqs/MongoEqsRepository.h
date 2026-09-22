@@ -168,6 +168,8 @@ namespace Euclid::Database {
          */
         Entity::EQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes, const std::map<std::string, Entity::COM::Variant> &systemAttributes, Entity::EQS::MessagePriority priority) override;
 
+        std::vector<Entity::EQS::Message> sendMessages(const std::string &queueErn, const std::vector<MessageDraft> &drafts) override;
+
         /**
          * @brief Receives up to maxCount available messages from a queue, long-polling for up to waitTime seconds
          *
