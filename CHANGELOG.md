@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.34](https://github.com/jensvogt/euclid/compare/1.1.33...v1.1.34) (2026-09-22)
+
+
+### Bug Fixes
+
+* linux system load ([c5653e7](https://github.com/jensvogt/euclid/commit/c5653e76eafe6b86fd9769301c3ba5e9da6f700f))
+* scale applications, EQS sens-message-batch ([e3f7d77](https://github.com/jensvogt/euclid/commit/e3f7d77ed9f33a0e0a9274b59145c4c2c8565571))
+
 ## [1.1.33](https://github.com/jensvogt/euclid/compare/v1.1.32...v1.1.33) (2026-09-21)
 
 
