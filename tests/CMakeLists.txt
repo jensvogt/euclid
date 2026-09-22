@@ -666,3 +666,12 @@ target_include_directories(${BACKUP_RETENTION_BINARY} PRIVATE ${CMAKE_SOURCE_DIR
 target_link_libraries(${BACKUP_RETENTION_BINARY} PRIVATE Boost::unit_test_framework)
 
 add_test(NAME ${BACKUP_RETENTION_BINARY} COMMAND ${BACKUP_RETENTION_BINARY})
+
+set(SYSTEM_LOAD_BINARY euclid-system-load-tests)
+
+add_executable(${SYSTEM_LOAD_BINARY} SystemLoadTest.cpp)
+set_target_properties(${SYSTEM_LOAD_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${SYSTEM_LOAD_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${SYSTEM_LOAD_BINARY} COMMAND ${SYSTEM_LOAD_BINARY})

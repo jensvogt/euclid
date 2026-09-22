@@ -527,6 +527,127 @@ namespace Euclid::EAP {
         return EapServer::JsonResponse(req, status::ok, boost::json::serialize(toJson(stored)));
     }
 
+    // Defines the same application again in another namespace, leaving the original alone.
+    //
+    // The sibling of update-application's namespace move, and the difference is the whole point:
+    // a move takes the definition with it, so what ran in development stops running there. A copy
+    // is how the same build is promoted - development to integration, integration to production -
+    // while the namespace it came from goes on serving.
+    //
+    // What is deliberately not copied:
+    //
+    // - The runtime name, which is installation-wide. Two applications cannot share a data
+    //   directory, a unix socket or a log channel, so the copy is issued its own.
+    // - The technical principal, for the same reason: it is named after the runtime name. The copy
+    //   gets its own identity and its own access key, so revoking one does not disarm the other.
+    //   An application told to run as a named user keeps that user, which is the caller's to manage.
+    // - The resource grants, as ERNs. An ERN carries the namespace it was resolved in, so copying
+    //   the list verbatim would point the copy at the *source* namespace's queues and buckets -
+    //   a production application quietly reading development's data, or worse the reverse. The
+    //   names are re-resolved in the target namespace instead, and a name that does not exist
+    //   there fails the copy rather than silently narrowing what it may reach.
+    //
+    // The artifact is not re-resolved: bucket, key and checksum are taken as they stand, so the
+    // copy runs the same bytes the original does. A promotion that rebuilt from a different
+    // bucket's contents would be a different build wearing the same version.
+    static response<string_body> handleCopyApplication(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "copy-application");
+
+        AuthResult auth;
+        if (const auto denied = requireAdmin(req, auth)) return *denied;
+
+        boost::json::value jv;
+        if (const auto err = EapServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+        const auto &obj = jv.as_object();
+
+        const auto applicationId = stringField(obj, "applicationId");
+        if (applicationId.empty()) return EapServer::ErrorResponse(req, status::bad_request, "applicationId is required");
+
+        const auto targetNameSpace = stringField(obj, "targetNamespace");
+        if (targetNameSpace.empty()) return EapServer::ErrorResponse(req, status::bad_request, "targetNamespace is required");
+
+        // Named separately so one application can be copied beside itself - useful within a
+        // namespace, and the only way to copy without a namespace to move to.
+        const auto targetApplicationId = stringField(obj, "targetApplicationId", applicationId);
+
+        const auto sourceNameSpace = std::string(req["x-euclid-namespace"]);
+        if (targetNameSpace == sourceNameSpace && targetApplicationId == applicationId) {
+            return EapServer::ErrorResponse(req, status::bad_request,
+                                            "The copy would be the original: give a different targetNamespace or a targetApplicationId");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().eapRepository();
+        const auto source = repo->findApplicationByApplicationId(auth.user->accountId, sourceNameSpace, applicationId);
+        if (!source.has_value()) {
+            return EapServer::ErrorResponse(req, status::not_found, "Application not found: " + applicationId);
+        }
+        if (repo->applicationExists(auth.user->accountId, targetNameSpace, targetApplicationId)) {
+            return EapServer::ErrorResponse(req, status::conflict,
+                                            "Application already exists in namespace '" + targetNameSpace + "': " + targetApplicationId);
+        }
+
+        // Checked rather than assumed: an application defined in a namespace nobody created runs
+        // fine and is invisible to every list that scopes by namespace.
+        const auto eamRepository = Database::RepositoryFactory::instance().eamRepository();
+        if (!eamRepository->namespaceExists(auth.user->accountId, targetNameSpace)) {
+            return EapServer::ErrorResponse(req, status::not_found, "Namespace not found: " + targetNameSpace);
+        }
+
+        // The same resources by name, resolved where the copy will run. See the note above.
+        std::vector<std::string> buckets;
+        std::vector<std::string> queues;
+        for (const auto &resource: source->resources) {
+            const auto service = Core::serviceFromErn(resource);
+            const auto name = Core::resourceNameFromErn(resource);
+            if (name.empty()) continue;
+            if (service == "esm") buckets.push_back(name);
+            else if (service == "eqs") queues.push_back(name);
+        }
+
+        std::string unresolved;
+        const auto resources = resolveResources(auth.user->accountId, targetNameSpace, buckets, queues, unresolved);
+        if (!resources.has_value()) {
+            return EapServer::ErrorResponse(req, status::not_found,
+                                            "Not found in namespace '" + targetNameSpace + "': " + unresolved +
+                                                    " - the copy would otherwise run with less access than the original");
+        }
+
+        const auto runtimeName = issueRuntimeName(targetApplicationId);
+
+        // An application running as its own technical principal gets a new one; one told to run as
+        // a named user keeps it, because that user is not EAP's to duplicate.
+        auto userId = source->userId;
+        if (isOwnedTechnicalUser(*source)) {
+            userId = createTechnicalUser(runtimeName, auth.user->accountId, auth.user->region,
+                                         targetNameSpace, *resources)
+                             .userId;
+        }
+
+        Application copy = *source;
+        copy.applicationId = targetApplicationId;
+        copy.runtimeName = runtimeName;
+        copy.nameSpace = targetNameSpace;
+        copy.ern = Core::createEapApplicationErn(copy.accountId, targetNameSpace, targetApplicationId);
+        copy.resources = *resources;
+        copy.userId = userId;
+
+        // Stopped, whatever the original is doing. A copy that started itself would put a second
+        // consumer on the target namespace's queues the moment the command returned, before
+        // anybody had looked at what it was about to do.
+        copy.desiredState = ApplicationState::STOPPED;
+
+        const auto stored = repo->upsertApplication(copy);
+        log_info << "EAP copied application, applicationId: " << applicationId << " ('" << sourceNameSpace << "')"
+                << " -> " << stored.applicationId << " ('" << stored.nameSpace << "')"
+                << ", runtimeName: " << Database::Entity::EAP::RuntimeName(stored)
+                << ", user: " << stored.userId
+                << ", resources: " << stored.resources.size();
+
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(toJson(stored)));
+    }
+
     static response<string_body> handleUpdateApplication(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "update-application");
@@ -1151,6 +1272,7 @@ namespace Euclid::EAP {
 
         if (action == "create-application") return handleCreateApplication(req);
         if (action == "update-application") return handleUpdateApplication(req);
+        if (action == "copy-application") return handleCopyApplication(req);
         if (action == "redeploy-application") return handleRedeployApplication(req);
         if (action == "list-applications") return handleListApplications(req);
         if (action == "get-application") return handleGetApplication(req);

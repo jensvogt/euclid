@@ -280,6 +280,23 @@ namespace Euclid::Database {
 
             messageCollection.create_index(make_document(kvp("queueErn", 1), kvp("status", 1), kvp("priority", 1)));
 
+            // What listMessages() pages over: one queue's messages, newest first. The compound
+            // index above cannot serve it - it orders by status and priority within a queue, not
+            // by time - and the standalone {created: 1} index cannot either, because it says
+            // nothing about which queue a message is in.
+            //
+            // Left to choose between them the planner takes {created: 1}, since that at least
+            // supplies the sort order and avoids a blocking sort. What it then does is walk the
+            // whole collection in time order and fetch every document to test its queueErn:
+            //
+            //     LIMIT -> SKIP -> FETCH (filter: queueErn) -> IXSCAN {created: 1}
+            //
+            // On a queue holding 2.2 million of a collection's 3.6 million messages, the last
+            // page of that examined all 3.6 million keys and fetched 3.6 million documents to
+            // return eight rows, in 28 seconds - long enough that the UI asking for it gave up,
+            // which is how this was noticed. Neither field alone is selective; the pair is.
+            messageCollection.create_index(make_document(kvp("queueErn", 1), kvp("created", -1)));
+
             // Supports resetExpiredMessages()'s per-status sweeps (INVISIBLE, then DELAYED),
             // which filter by status alone - the compound index above can't serve that, since
             // queueErn is its leading field and isn't part of that filter.

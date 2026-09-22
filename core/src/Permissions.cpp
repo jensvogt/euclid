@@ -93,7 +93,8 @@ namespace Euclid::Core {
                 "eam:user-group-add-user",
                 "eam:user-group-remove-user",
 
-                // eap - 11 actions
+                // eap - 12 actions
+                "eap:copy-application",
                 "eap:create-application",
                 "eap:delete-application",
                 "eap:get-application",

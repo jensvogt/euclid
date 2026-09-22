@@ -83,6 +83,15 @@ namespace Euclid::CLI {
         int updateApplication(const std::vector<std::string> &args) const;
 
         /**
+         * @brief Defines the same application again in another namespace, leaving the original.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int copyApplication(const std::vector<std::string> &args) const;
+
+        /**
          * @brief Deploys a new build of an application from a local file.
          *
          * The two commands this replaces - uploading the artifact, then updating the definition so
