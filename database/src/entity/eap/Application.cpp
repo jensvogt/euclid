@@ -132,6 +132,30 @@ namespace Euclid::Database::Entity::EAP {
         return {};
     }
 
+    std::string ScaleRefusal(const long requestedMin, const long requestedMax,
+                             const long currentMin, const long currentMax) {
+
+        if (requestedMin < 0 && requestedMax < 0) {
+            return "Nothing to change: give minInstances, maxInstances, or both";
+        }
+        if (requestedMin == 0) {
+            return "minInstances must be at least 1 - use 'stop-application' to take it out of service";
+        }
+        if (requestedMax == 0) {
+            return "maxInstances must be at least 1";
+        }
+
+        // Against what the other bound will be, not what it is - a request naming one of the two
+        // is checked against the stored counterpart it has to live with.
+        const auto effectiveMin = requestedMin >= 0 ? requestedMin : currentMin;
+        const auto effectiveMax = requestedMax >= 0 ? requestedMax : currentMax;
+        if (effectiveMin > effectiveMax) {
+            return "minInstances (" + std::to_string(effectiveMin) + ") cannot exceed maxInstances (" +
+                   std::to_string(effectiveMax) + ")";
+        }
+        return {};
+    }
+
     std::string RedeployRefusal(const std::string &deployedVersion, const std::string &deployedMd5Sum,
                                 [[maybe_unused]] const std::string &version, const std::string &md5Sum) {
 

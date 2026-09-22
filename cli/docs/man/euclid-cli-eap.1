@@ -285,6 +285,11 @@ Defines the same application again in another namespace, leaving the
 original running; the way a build is promoted between namespaces. See
 .BR euclid-cli-eap-copy-application (1).
 .TP
+.B scale-application
+Changes how many instances an application runs, without restarting the ones
+it has. See
+.BR euclid-cli-eap-scale-application (1).
+.TP
 .B redeploy-application
 Deploys a new build from a local file: uploads it where the application's
 artifact lives and restarts the application onto it, refusing anything
@@ -433,6 +438,7 @@ euclid-cli eap update-application --application-id inbox --artifact inbox.jar
 .BR euclid-cli-eap-create-application (1),
 .BR euclid-cli-eap-update-application (1),
 .BR euclid-cli-eap-copy-application (1),
+.BR euclid-cli-eap-scale-application (1),
 .BR euclid-cli-eap-redeploy-application (1),
 .BR euclid-cli-eap-list-applications (1),
 .BR euclid-cli-eap-get-application (1),

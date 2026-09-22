@@ -19,6 +19,7 @@ using Euclid::Database::MongoEapRepository;
 using Euclid::Database::Entity::EAP::Application;
 using Euclid::Database::Entity::EAP::ApplicationState;
 using Euclid::Database::Entity::EAP::RedeployRefusal;
+using Euclid::Database::Entity::EAP::ScaleRefusal;
 using Euclid::Database::Entity::EAP::RestartRefusal;
 using Euclid::Database::Entity::EAP::Runtime;
 using Euclid::Database::Entity::EAP::RuntimeCommandPrefix;
@@ -281,6 +282,51 @@ BOOST_AUTO_TEST_CASE(APlainNameIsCutToFitASocketPathToo) {
     const std::string longId(80, 'x');
     const auto free = [](const std::string &) { return false; };
     BOOST_TEST(IssueRuntimeName(longId, free).size() == 32U);
+}
+
+BOOST_AUTO_TEST_CASE(ScalingOneBoundIsCheckedAgainstTheOtherAsItWillStand) {
+
+    // The case a per-field check misses. An application running 2..8 is asked for a floor of 6:
+    // fine against the stored ceiling. Asked for a floor of 12, it is not - and nothing about the
+    // request itself says so, because 12 is a perfectly ordinary number. It has to be checked
+    // against the ceiling it will actually sit under.
+    BOOST_TEST(ScaleRefusal(6, -1, 2, 8).empty());
+    BOOST_TEST(!ScaleRefusal(12, -1, 2, 8).empty());
+
+    // The same from the other side: lowering a ceiling below the floor already in place.
+    BOOST_TEST(ScaleRefusal(-1, 4, 2, 8).empty());
+    BOOST_TEST(!ScaleRefusal(-1, 1, 2, 8).empty());
+
+    // And both at once, which is the one case where the stored pair does not matter at all.
+    BOOST_TEST(ScaleRefusal(10, 20, 2, 8).empty());
+    BOOST_TEST(!ScaleRefusal(20, 10, 2, 8).empty());
+}
+
+BOOST_AUTO_TEST_CASE(PinningAPoolAtOneSizeIsAllowed) {
+
+    // Equal bounds leave the autoscaler no room, which is how an application is held at a fixed
+    // size on purpose. Not a refusal - an operator who wants exactly four is entitled to four.
+    BOOST_TEST(ScaleRefusal(4, 4, 1, 8).empty());
+    BOOST_TEST(ScaleRefusal(1, 1, 1, 8).empty());
+}
+
+BOOST_AUTO_TEST_CASE(AFloorOfZeroIsRefusedRatherThanReadAsStop) {
+
+    // A pool desired RUNNING with a floor of zero runs nothing and reads in every listing as one
+    // that has failed to start. Stopping an application is a different thing and says so in the
+    // field that carries the truth about it.
+    const auto refusal = ScaleRefusal(0, -1, 1, 8);
+    BOOST_TEST(!refusal.empty());
+    BOOST_TEST(refusal.find("stop-application") != std::string::npos);
+
+    BOOST_TEST(!ScaleRefusal(-1, 0, 1, 8).empty());
+}
+
+BOOST_AUTO_TEST_CASE(ARequestThatNamesNeitherBoundChangesNothing) {
+
+    // -1 is "leave alone" for both, so this asks for nothing. Refused rather than silently
+    // succeeding, because the caller meant something and did not say it.
+    BOOST_TEST(!ScaleRefusal(-1, -1, 1, 8).empty());
 }
 
 BOOST_AUTO_TEST_CASE(ALogLevelIsNotAChangeOfDefinition) {

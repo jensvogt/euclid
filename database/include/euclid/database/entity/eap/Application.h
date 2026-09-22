@@ -334,6 +334,34 @@ namespace Euclid::Database::Entity::EAP {
     std::string RedeployRefusal(const std::string &deployedVersion, const std::string &deployedMd5Sum,
                                 const std::string &version, const std::string &md5Sum);
 
+
+    /**
+     * @brief Whether a request to change an application's instance bounds should be refused.
+     *
+     * @par
+     * The single place that decides it, for the same reason RedeployRefusal() is: the CLI checks
+     * before it sends and the eap module checks before it writes, and the two have to agree.
+     *
+     * @par
+     * The interesting case is not either bound on its own but the pair, because a request may name
+     * only one of them. Checking a new floor against the floor it replaces says nothing useful -
+     * it has to be checked against the ceiling it will actually sit under, which may be the stored
+     * one. Otherwise a pool ends up with a floor above its ceiling and the manager is left to
+     * decide which of the two nobody meant.
+     *
+     * @par
+     * A floor of zero is refused rather than read as "run nothing": an application desired RUNNING
+     * with no instances reads in every listing as a pool that has failed, and stop-application is
+     * how one is taken out of service in a way that says so.
+     *
+     * @param requestedMin floor asked for, or -1 to leave the stored one
+     * @param requestedMax ceiling asked for, or -1 to leave the stored one
+     * @param currentMin floor the application has now
+     * @param currentMax ceiling the application has now
+     * @return the reason to refuse, phrased for whoever is scaling, or empty to go ahead
+     */
+    std::string ScaleRefusal(long requestedMin, long requestedMax, long currentMin, long currentMax);
+
     /**
      * @brief Why this application cannot be restarted, or empty if it can.
      *

@@ -92,6 +92,15 @@ namespace Euclid::CLI {
         int copyApplication(const std::vector<std::string> &args) const;
 
         /**
+         * @brief Changes how many instances an application runs, without restarting it.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int scaleApplication(const std::vector<std::string> &args) const;
+
+        /**
          * @brief Deploys a new build of an application from a local file.
          *
          * The two commands this replaces - uploading the artifact, then updating the definition so

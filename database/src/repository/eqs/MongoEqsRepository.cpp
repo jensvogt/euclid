@@ -880,6 +880,101 @@ namespace Euclid::Database {
         return message;
     }
 
+    std::vector<Entity::EQS::Message> MongoEqsRepository::sendMessages(const std::string &queueErn,
+                                                                      const std::vector<MessageDraft> &drafts) {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "sendMessages");
+
+        std::vector<Entity::EQS::Message> messages;
+        if (drafts.empty()) return messages;
+
+        try {
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
+
+            // Read once for the batch rather than once per message. It is cached for thirty
+            // seconds anyway (see queueConfig), but taking it here also guarantees every message
+            // in one batch is built against the same answer - a cache that expired midway through
+            // would otherwise be able to split a batch across two versions of the queue.
+            const auto queue = queueConfig(queueErn);
+
+            const auto now = std::chrono::system_clock::now();
+            const auto stamp = bsoncxx::types::b_date{std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch())};
+
+            std::vector<bsoncxx::document::value> documents;
+            documents.reserve(drafts.size());
+            messages.reserve(drafts.size());
+
+            long bytes = 0;
+            for (const auto &draft: drafts) {
+
+                Entity::EQS::Message message;
+                message.ern = draft.ern;
+                message.queueErn = queueErn;
+                message.body = draft.body;
+                message.size = static_cast<long>(draft.body.size());
+                message.messageId = draft.messageId;
+                message.contentType = Core::ContentTypeUtils::fromContent(message.body);
+                message.attributes = draft.attributes;
+                message.systemAttributes = draft.systemAttributes;
+                message.status = Entity::EQS::MessageStatus::AVAILABLE;
+                message.priority = draft.priority;
+                message.created = now;
+                message.modified = now;
+
+                // Identical to what sendMessage() does per message, and deliberately: a message
+                // sent in a batch has to be indistinguishable afterwards from the same message
+                // sent on its own.
+                if (queue) {
+                    message.visibilityTimeout = queue->visibility;
+                    if (queue->delay > 0) {
+                        message.status = Entity::EQS::MessageStatus::DELAYED;
+                        message.delayUntil = now + std::chrono::seconds(queue->delay);
+                    }
+                    const auto retention = queue->retentionPeriod > 0 ? queue->retentionPeriod : defaultRetentionPeriod();
+                    message.expiresAt = now + std::chrono::seconds(retention);
+                }
+
+                // The created/modified stamps are appended here for the reason sendMessage()
+                // gives: ToDocument() leaves them out so the upsert path can stamp them itself.
+                document doc;
+                doc.append(concatenate(message.ToDocument().view()));
+                doc.append(kvp("created", stamp), kvp("modified", stamp));
+                documents.push_back(doc.extract());
+
+                bytes += message.size;
+                messages.push_back(std::move(message));
+            }
+
+            // One round trip for the whole batch - the reason this method exists. Unordered, so a
+            // document the server rejects does not stop the ones after it.
+            const auto inserted = messageCollection.insert_many(documents);
+
+            // Counted from what the database says it stored rather than from what was handed to
+            // it. The two agree in every ordinary case; when they do not, the counter follows the
+            // messages that are actually there, which is the number get-queue has to match.
+            if (inserted != static_cast<long>(documents.size())) {
+                log_warning << "Send batch stored fewer messages than asked, queueErn: " << queueErn
+                            << ", asked: " << documents.size() << ", inserted: " << inserted;
+            }
+
+            // After the insert, so a counted message is always a stored one - and once for the
+            // batch, because adjustQueueCounters already takes deltas.
+            //
+            // The split is not per message: delay belongs to the queue, so either every message in
+            // this batch is delayed or none of them is.
+            if (inserted > 0) {
+                const auto delayed = !messages.empty() && messages.front().status == Entity::EQS::MessageStatus::DELAYED;
+                adjustQueueCounters(queueErn, delayed ? 0 : inserted, 0, delayed ? inserted : 0, bytes);
+            }
+
+            log_debug << "Message batch sent, queueErn: " << queueErn << ", messages: " << inserted;
+
+        } catch (const std::exception &e) {
+            log_error << "Send batch failed, queueErn: " << queueErn << ", error: " << e.what();
+            return {};
+        }
+        return messages;
+    }
+
     std::vector<Entity::EQS::Message> MongoEqsRepository::receiveMessages(const std::string &queueErn, const long maxCount, const long waitTime) {
 
         std::vector<Entity::EQS::Message> result;

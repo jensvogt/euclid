@@ -112,6 +112,7 @@
         "maxInstances": 4,
         "threads": 8,
         "retention-period": 345600,
+        "max-batch-size": 100,
         "priority-weights": {
           "high": 4,
           "medium": 2,

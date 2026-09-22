@@ -527,6 +527,64 @@ namespace Euclid::EAP {
         return EapServer::JsonResponse(req, status::ok, boost::json::serialize(toJson(stored)));
     }
 
+    // Changes how many instances an application runs, without restarting the ones it has.
+    //
+    // Separate from update-application, which can set the same two fields, because that one writes
+    // the whole definition and stamps the modification date - and the manager restarts a pool whose
+    // application has been modified since it started it. Scaling through it therefore stops every
+    // running instance and starts it again, which is the opposite of what asking for more capacity
+    // means, and worst at exactly the moment somebody asks.
+    //
+    // What this sets is the range the autoscaler works within, not a count: the manager scales
+    // toward it on its next reconcile. Naming the same number for both pins the pool there, which
+    // is how an application is held at a fixed size.
+    static response<string_body> handleScaleApplication(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "scale-application");
+
+        AuthResult auth;
+        if (const auto denied = requireAdmin(req, auth)) return *denied;
+
+        boost::json::value jv;
+        if (const auto err = EapServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+        const auto &obj = jv.as_object();
+
+        const auto applicationId = stringField(obj, "applicationId");
+        if (applicationId.empty()) return EapServer::ErrorResponse(req, status::bad_request, "applicationId is required");
+
+        const auto ns = std::string(req["x-euclid-namespace"]);
+        const auto repo = Database::RepositoryFactory::instance().eapRepository();
+        const auto application = repo->findApplicationByApplicationId(auth.user->accountId, ns, applicationId);
+        if (!application.has_value()) {
+            return EapServer::ErrorResponse(req, status::not_found, "Application not found: " + applicationId);
+        }
+
+        // Absent means "leave alone", which is what lets a ceiling be raised without touching the
+        // floor. -1 rather than 0 as the sentinel, because 0 is a number somebody might mean.
+        const auto minInstances = obj.contains("minInstances") ? longField(obj, "minInstances", -1) : -1;
+        const auto maxInstances = obj.contains("maxInstances") ? longField(obj, "maxInstances", -1) : -1;
+        if (const auto refusal = Database::Entity::EAP::ScaleRefusal(minInstances, maxInstances,
+                                                                     application->minInstances, application->maxInstances);
+            !refusal.empty()) {
+            return EapServer::ErrorResponse(req, status::bad_request, refusal);
+        }
+
+        const auto effectiveMin = minInstances >= 0 ? minInstances : application->minInstances;
+        const auto effectiveMax = maxInstances >= 0 ? maxInstances : application->maxInstances;
+
+        if (!repo->setApplicationInstances(auth.user->accountId, ns, applicationId, minInstances, maxInstances)) {
+            return EapServer::ErrorResponse(req, status::internal_server_error, "Could not scale application: " + applicationId);
+        }
+
+        log_info << "EAP scaled application, applicationId: " << applicationId
+                << ", minInstances: " << application->minInstances << " -> " << effectiveMin
+                << ", maxInstances: " << application->maxInstances << " -> " << effectiveMax;
+
+        const auto stored = repo->findApplicationByApplicationId(auth.user->accountId, ns, applicationId);
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(toJson(stored.value_or(*application))));
+    }
+
     // Defines the same application again in another namespace, leaving the original alone.
     //
     // The sibling of update-application's namespace move, and the difference is the whole point:
@@ -1273,6 +1331,7 @@ namespace Euclid::EAP {
         if (action == "create-application") return handleCreateApplication(req);
         if (action == "update-application") return handleUpdateApplication(req);
         if (action == "copy-application") return handleCopyApplication(req);
+        if (action == "scale-application") return handleScaleApplication(req);
         if (action == "redeploy-application") return handleRedeployApplication(req);
         if (action == "list-applications") return handleListApplications(req);
         if (action == "get-application") return handleGetApplication(req);

@@ -675,3 +675,12 @@ set_target_properties(${SYSTEM_LOAD_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 target_link_libraries(${SYSTEM_LOAD_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
 
 add_test(NAME ${SYSTEM_LOAD_BINARY} COMMAND ${SYSTEM_LOAD_BINARY})
+
+set(SEND_MESSAGE_BATCH_BINARY euclid-send-message-batch-tests)
+
+add_executable(${SEND_MESSAGE_BATCH_BINARY} SendMessageBatchTest.cpp)
+set_target_properties(${SEND_MESSAGE_BATCH_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${SEND_MESSAGE_BATCH_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${SEND_MESSAGE_BATCH_BINARY} COMMAND ${SEND_MESSAGE_BATCH_BINARY})
