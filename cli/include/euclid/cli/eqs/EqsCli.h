@@ -195,6 +195,15 @@ namespace Euclid::CLI {
         int sendMessage(const std::vector<std::string> &args) const;
 
         /**
+         * @brief Sends several messages to one queue in a single call.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int sendMessageBatch(const std::vector<std::string> &args) const;
+
+        /**
          * @brief Receives message.
          *
          * @param args action arguments

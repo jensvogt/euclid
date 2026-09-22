@@ -216,6 +216,49 @@ namespace Euclid::Database {
         virtual Entity::EQS::Message sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes, const std::map<std::string, Entity::COM::Variant> &systemAttributes, Entity::EQS::MessagePriority priority) = 0;
 
         /**
+         * @brief One message of a batch, as the caller described it.
+         *
+         * @par
+         * The id and the ERN are minted by the caller rather than here, the same way sendMessage()
+         * takes them: the module that resolved the account is the one that can build a message ERN
+         * for it, and a batch's ids are wanted in the response whether or not the write succeeds.
+         */
+        struct MessageDraft {
+            std::string messageId;
+            std::string ern;
+            std::string body;
+            std::map<std::string, Entity::COM::Variant> attributes;
+            std::map<std::string, Entity::COM::Variant> systemAttributes;
+            Entity::EQS::MessagePriority priority{};
+        };
+
+        /**
+         * @brief Sends several messages to one queue in a single round trip.
+         *
+         * @par
+         * The reason this exists rather than a loop over sendMessage(): each insert_one is a
+         * synchronous round trip, and Collection::insert_many measured 1,000 documents at 29 ms
+         * together against 13,621 ms one at a time. The queue's counters are adjusted once with
+         * the totals rather than once per message, for the same reason.
+         *
+         * @par
+         * Every message in a batch lands in the same state, because delay is a property of the
+         * queue and not of a message: either all of them are AVAILABLE or all of them are DELAYED.
+         *
+         * @par
+         * All or nothing at this level. Whether an individual message is acceptable is decided
+         * before it gets here - see Entity::EQS::BatchEntryRefusal - so anything reaching this
+         * method is expected to store, and a failure is a failure of the whole write rather than
+         * of one message in it.
+         *
+         * @param queueErn ERN of the queue the messages are sent to
+         * @param drafts the messages to store, in order
+         * @return the stored messages, in the same order; empty if the write failed
+         */
+        virtual std::vector<Entity::EQS::Message> sendMessages(const std::string &queueErn,
+                                                               const std::vector<MessageDraft> &drafts) = 0;
+
+        /**
          * @brief Receives up to maxCount available messages from a queue.
          *
          * Available messages are claimed and moved to status "busy" (in-flight) before being

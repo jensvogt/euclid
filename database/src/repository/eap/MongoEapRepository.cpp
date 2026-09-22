@@ -225,6 +225,33 @@ namespace Euclid::Database {
         }
     }
 
+    bool MongoEapRepository::setApplicationInstances(const std::string &accountId, const std::string &nameSpace,
+                                                     const std::string &applicationId, const long minInstances,
+                                                     const long maxInstances) {
+
+        try {
+            // Nothing asked for is not an error, but it must not become an empty $set - MongoDB
+            // rejects that, and "leave both alone" is a request that is already satisfied.
+            if (minInstances < 0 && maxInstances < 0) return true;
+
+            bsoncxx::builder::basic::document fields;
+            if (minInstances >= 0) fields.append(kvp("minInstances", static_cast<std::int64_t>(minInstances)));
+            if (maxInstances >= 0) fields.append(kvp("maxInstances", static_cast<std::int64_t>(maxInstances)));
+
+            auto collection = Database::instance().collection(COLLECTION);
+
+            // The two fields by hand rather than through upsertApplication(), which stamps
+            // "modified" - the revision the manager restarts a pool on. See the interface.
+            const auto result = collection.update_one(applicationFilter(accountId, nameSpace, applicationId).view(),
+                                                      make_document(kvp("$set", fields.extract())).view());
+            return result && result->matched_count() > 0;
+
+        } catch (const std::exception &e) {
+            log_error << "Set application instances failed, applicationId: " << applicationId << ", error: " << e.what();
+        }
+        return false;
+    }
+
     bool MongoEapRepository::setApplicationLogLevel(const std::string &accountId, const std::string &nameSpace,
                                                     const std::string &applicationId, const std::string &logLevel) {
 

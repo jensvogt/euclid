@@ -61,6 +61,7 @@ namespace Euclid::CLI {
                 {"redrive-dlq", "Move messages from a dead letter queue back into the queue they failed in"},
                 {"receive-messages", "Receive messages from a queue"},
                 {"send-message", "Send a message to a queue"},
+                {"send-message-batch", "Send several messages to a queue in one call"},
                 {"set-message-attribute", "Sets the value of a message attribute"},
                 {"set-message-visibility", "Sets the visibility timeout of a single message"},
                 {"set-queue-tag", "Sets the value of an existing queue tag"},
@@ -194,6 +195,9 @@ namespace Euclid::CLI {
         }
         if (action == "send-message") {
             return sendMessage(args);
+        }
+        if (action == "send-message-batch") {
+            return sendMessageBatch(args);
         }
         if (action == "receive-messages") {
             return receiveMessages(args);
@@ -684,6 +688,73 @@ namespace Euclid::CLI {
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EqsCli::sendMessageBatch(const std::vector<std::string> &args) const {
+        po::options_description desc("send batch options");
+        desc.add_options()
+                ("queue,q", po::value<std::string>()->required(), "queue resource name")
+                ("messages,m", po::value<std::string>()->required(), "the messages, as a JSON array (or file://path)");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eqs", "send-message-batch", "--queue <name|ern> --messages <json|file://path>",
+                                   "Sends several messages to one queue in a single call. --messages is a JSON array of objects, each with the same fields "
+                                   "send-message takes for one message - \"body\" and optionally \"attributes\", \"systemAttributes\" and \"priority\" - given "
+                                   "literally or via 'file://path'. The queue is named once, so every message in a batch goes to the same queue. "
+                                   "The saving over send-message in a loop is mostly in the database: the whole batch is written in one insert, and the queue's "
+                                   "counters are adjusted once rather than per message. "
+                                   "A message that cannot be sent does not stop the others. The response carries \"asked\" and \"sent\", the ids of what went in "
+                                   "request order, and a \"failed\" list naming each rejected message by its position in the array you sent - so a producer can "
+                                   "retry exactly those rather than the whole batch. "
+                                   "An installation accepts at most euclid.modules.eqs.max-batch-size messages per call, 100 by default; an empty array or one "
+                                   "over the cap is refused outright, because that is a mistake in the request rather than in a message.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        try {
+            const std::string messagesJson = ResolveFileOrLiteral(vm["messages"].as<std::string>());
+            const auto messages = Core::ParseJsonString(messagesJson);
+            if (!messages.is_array()) {
+                std::cerr << "error: --messages must be a JSON array of objects" << std::endl;
+                return 1;
+            }
+
+            // Built as a value rather than through the DTO: the array is already in the shape the
+            // server wants, and round-tripping it through SendMessageBatchRequest would only re-serialise
+            // what the caller wrote - while quietly dropping any field a newer server understands
+            // and this build does not.
+            const boost::json::value request{{"ern", vm["queue"].as<std::string>()}, {"messages", messages}};
+
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eqs", "send-message-batch", request);
+            if (!response.IsSuccess()) {
+                std::cerr << "error: send-message-batch failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+
+            // A batch that sent nothing is answered with 200 and a reason per message, so the exit
+            // code has to say what the status code does not - a script that checks only the latter
+            // would read "every message was refused" as success.
+            if (const auto *object = response.body.if_object()) {
+                if (const auto *sent = object->if_contains("sent"); sent != nullptr && sent->is_int64() && sent->as_int64() == 0) {
+                    return 1;
+                }
+            }
             return 0;
         } catch (const std::exception &ex) {
             std::cerr << "error: " << ex.what() << std::endl;

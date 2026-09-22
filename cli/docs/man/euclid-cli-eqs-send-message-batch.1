@@ -1,0 +1,91 @@
+.TH EUCLID-CLI-EQS-SEND-BATCH 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eqs-send-message-batch \- send several messages to a queue in one call
+.SH SYNOPSIS
+.B euclid-cli eqs send-message-batch
+.BR \-\-queue | \-q
+.I NAME\fR|\fIERN
+.BR \-\-messages | \-m
+.I JSON\fR|\fIfile://PATH
+.SH DESCRIPTION
+Sends several messages to one queue in a single call.
+.PP
+.B \-\-messages
+is a JSON array of objects, each carrying the fields
+.BR euclid-cli-eqs-send-message (1)
+takes for one message \-
+.BR body ,
+and optionally
+.BR attributes ,
+.B systemAttributes
+and
+.BR priority .
+The queue is named once, so every message in a batch goes to the same queue.
+.PP
+The saving over calling send-message in a loop is mostly in the database,
+not the network. Each single send is its own round trip; a batch is written
+in one insert, and the queue's counters are adjusted once rather than once
+per message. A thousand documents measured 29 ms inserted together against
+13,621 ms one at a time.
+.SH A REJECTED MESSAGE DOES NOT STOP THE OTHERS
+A message that cannot be sent \- a body over the queue's limit, a priority
+that is not one of the three \- is reported and the rest are still sent.
+The response says how many were asked for and how many went, lists the ids
+of those that went in request order, and names each rejection by its
+.I position in the array you sent:
+.RS
+.nf
+{
+  "ern": "ern:eqs:eu-central-1:000000000000:development:queue:orders",
+  "asked": 100,
+  "sent": 99,
+  "messageIds": ["a1b2...", "c3d4...", ...],
+  "failed": [
+    {"index": 37, "reason": "message is 2097152 bytes, and this queue accepts 1048576"}
+  ]
+}
+.fi
+.RE
+.PP
+This is deliberately unlike
+.BR euclid-cli-esm-delete-objects (1),
+which only counts what it did. A delete that skipped a key removed
+something that was already gone; a send that skipped a message dropped it.
+A producer holding "99 of 100" and no way to learn which one would have to
+send all hundred again and duplicate ninety-nine of them.
+.PP
+Every message being rejected is still a 200 with a reason for each \- the
+request was well formed and has been answered. The command exits non-zero
+in that case, so a script that checks only the exit status does not read it
+as success.
+.SH LIMITS
+An installation accepts at most
+.B euclid.modules.eqs.max-batch-size
+messages per call, 100 by default. An empty array, or one over the cap, is
+refused outright with 400: those are mistakes in the request rather than in
+a message, and there is no partial outcome to report.
+.SH EXAMPLES
+Send three messages:
+.RS
+.nf
+euclid-cli eqs send-message-batch --queue orders --messages '[
+  {"body": "first"},
+  {"body": "second", "priority": "HIGH"},
+  {"body": "third", "attributes": {"source": {"type": "string", "value": "import"}}}
+]'
+.fi
+.RE
+.PP
+Send a batch prepared earlier:
+.RS
+.nf
+euclid-cli eqs send-message-batch --queue orders --messages file://batch.json
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eqs (1),
+.BR euclid-cli-eqs-send-message (1),
+.BR euclid-cli-eqs-receive-messages (1),
+.BR euclid-cli-eqs-get-queue (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

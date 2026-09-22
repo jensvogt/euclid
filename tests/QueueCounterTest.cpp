@@ -12,6 +12,7 @@
 
 // Euclid includes
 #include <euclid/database/Database.h>
+#include <euclid/database/repository/eqs/IEqsRepository.h>
 #include <euclid/database/repository/eqs/MongoEqsRepository.h>
 
 using Euclid::Database::MongoEqsRepository;
@@ -74,6 +75,89 @@ BOOST_AUTO_TEST_CASE(ASendCountsTheMessageAndItsBytes) {
     BOOST_TEST(queue.size == 10);
     BOOST_TEST(queue.invisible == 0);
     BOOST_TEST(queue.delayed == 0);
+}
+
+BOOST_AUTO_TEST_CASE(ABatchCountsOnceForTheWholeBatch) {
+
+    // The arithmetic send-message-batch turns on. The counters are adjusted once with the totals rather
+    // than once per message, so the risk is not an off-by-one but an off-by-N: a batch that bumped
+    // the counter by 1, or by the byte count instead of the message count, would look plausible
+    // until somebody compared it against the messages actually there.
+    auto repo = freshRepository();
+    queueOf(repo, kQueue, "orders");
+
+    std::vector<Euclid::Database::IEqsRepository::MessageDraft> drafts;
+    for (int i = 0; i < 7; ++i) {
+        Euclid::Database::IEqsRepository::MessageDraft draft;
+        draft.messageId = "b-" + std::to_string(i);
+        draft.ern = "ern:eqs:...:message:b-" + std::to_string(i);
+        draft.body = "0123456789";
+        draft.priority = MessagePriority::MEDIUM;
+        drafts.push_back(std::move(draft));
+    }
+
+    const auto sent = repo.sendMessages(kQueue, drafts);
+    repo.flushQueueCounters();
+
+    BOOST_TEST_REQUIRE(sent.size() == 7U);
+
+    const auto queue = reread(repo, kQueue);
+    BOOST_TEST(queue.available == 7);
+    BOOST_TEST(queue.size == 70);
+    BOOST_TEST(queue.invisible == 0);
+    BOOST_TEST(queue.delayed == 0);
+}
+
+BOOST_AUTO_TEST_CASE(ABatchLeavesTheSameCountersAsTheSameMessagesSentOneAtATime) {
+
+    // The property that matters more than any individual number: a message sent in a batch has to
+    // be indistinguishable afterwards from the same message sent on its own. Two queues, the same
+    // five bodies, two paths in.
+    auto repo = freshRepository();
+    queueOf(repo, kQueue, "orders");
+    queueOf(repo, kDeadLetterQueue, "orders-dlqueue");
+
+    const std::vector<std::string> bodies{"a", "bb", "ccc", "dddd", "eeeee"};
+
+    for (std::size_t i = 0; i < bodies.size(); ++i) {
+        repo.sendMessage("one-" + std::to_string(i), "ern:eqs:...:message:one", kQueue, bodies[i], {}, {}, MessagePriority::MEDIUM);
+    }
+
+    std::vector<Euclid::Database::IEqsRepository::MessageDraft> drafts;
+    for (std::size_t i = 0; i < bodies.size(); ++i) {
+        Euclid::Database::IEqsRepository::MessageDraft draft;
+        draft.messageId = "many-" + std::to_string(i);
+        draft.ern = "ern:eqs:...:message:many";
+        draft.body = bodies[i];
+        draft.priority = MessagePriority::MEDIUM;
+        drafts.push_back(std::move(draft));
+    }
+    std::ignore = repo.sendMessages(kDeadLetterQueue, drafts);
+    repo.flushQueueCounters();
+
+    const auto singly = reread(repo, kQueue);
+    const auto batched = reread(repo, kDeadLetterQueue);
+
+    BOOST_TEST(batched.available == singly.available);
+    BOOST_TEST(batched.size == singly.size);
+    BOOST_TEST(batched.delayed == singly.delayed);
+    BOOST_TEST(batched.invisible == singly.invisible);
+}
+
+BOOST_AUTO_TEST_CASE(AnEmptyBatchTouchesNothing) {
+
+    // Guarded in the repository before any document is built, because insert_many of nothing is a
+    // round trip that achieves nothing and an adjustment of zero is a write nobody needs.
+    auto repo = freshRepository();
+    queueOf(repo, kQueue, "orders");
+
+    const auto sent = repo.sendMessages(kQueue, {});
+    repo.flushQueueCounters();
+
+    BOOST_TEST(sent.empty());
+    const auto queue = reread(repo, kQueue);
+    BOOST_TEST(queue.available == 0);
+    BOOST_TEST(queue.size == 0);
 }
 
 BOOST_AUTO_TEST_CASE(AReceiveMovesMessagesFromAvailableToInvisible) {
