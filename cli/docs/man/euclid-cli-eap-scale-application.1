@@ -1,0 +1,84 @@
+.TH EUCLID-CLI-EAP-SCALE-APPLICATION 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eap-scale-application \- change how many instances an application runs
+.SH SYNOPSIS
+.B euclid-cli eap scale-application
+.BR \-\-application\-id | \-n
+.I NAME
+[\fB\-\-instances\fR|\fB\-i\fR \fIN\fR]
+[\fB\-\-min\-instances\fR \fIN\fR]
+[\fB\-\-max\-instances\fR \fIN\fR]
+.SH DESCRIPTION
+Changes how many instances an application runs, without restarting the ones
+it already has.
+.PP
+.BR euclid-cli-eap-update-application (1)
+can set the same two fields, but it writes the whole definition and stamps
+the modification date \- and the manager restarts a pool whose application
+has changed since it started it. Scaling that way therefore stops every
+running instance and starts it again, which is the opposite of what asking
+for more capacity means, and worst at the moment somebody asks for it.
+.PP
+What is set is the range the autoscaler works within, not a count. The
+manager picks the change up on its next reconcile, within a few seconds,
+and scales toward it \- adding instances one at a time and stopping idle
+ones as the load allows. Nothing is started or stopped by this command
+itself.
+.SH OPTIONS
+.TP
+.BR \-\-application\-id ", " \-n " " \fINAME\fR
+Name of the application to scale, in the namespace the session works in.
+.TP
+.BR \-\-instances ", " \-i " " \fIN\fR
+Run exactly this many: shorthand for setting both bounds to the same number.
+That pins the pool at that size and leaves the autoscaler nothing to decide,
+which is useful to hold an application steady and worth undoing afterwards.
+Cannot be combined with the two below.
+.TP
+.B \-\-min\-instances " " \fIN\fR
+Smallest number of instances to keep running. Left as it stands if not
+given, so a ceiling can be raised without touching the floor.
+.TP
+.B \-\-max\-instances " " \fIN\fR
+Largest number the autoscaler may run. Left as it stands if not given.
+.SH EXIT STATUS
+Non-zero if the application does not exist, if nothing was named to change,
+or if the bounds would leave a floor above a ceiling. That last check is
+made against the bound as it
+.I will
+stand rather than as it is, so raising only the floor is refused when it
+would pass the stored ceiling.
+.PP
+A floor of zero is refused. An application desired RUNNING with no instances
+reads in every listing as a pool that has failed to start;
+.BR euclid-cli-eap-stop-application (1)
+is how one is taken out of service in a way that says so.
+.SH EXAMPLES
+Give an application more room to scale under load:
+.RS
+.nf
+euclid-cli eap scale-application --application-id transformation --max-instances 16
+.fi
+.RE
+.PP
+Guarantee four instances are always up:
+.RS
+.nf
+euclid-cli eap scale-application --application-id parser --min-instances 4
+.fi
+.RE
+.PP
+Hold it at exactly two, whatever the load:
+.RS
+.nf
+euclid-cli eap scale-application --application-id splitting --instances 2
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eap (1),
+.BR euclid-cli-eap-update-application (1),
+.BR euclid-cli-eap-start-application (1),
+.BR euclid-cli-eap-stop-application (1),
+.BR euclid-cli-eap-get-application (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

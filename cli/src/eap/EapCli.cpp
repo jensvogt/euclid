@@ -71,6 +71,7 @@ namespace Euclid::CLI {
                 {"set-log-level", "Turn an application's own logging up, down or off"},
                 {"update-application", "Change an existing application's definition"},
                 {"copy-application", "Define the same application again in another namespace"},
+                {"scale-application", "Change how many instances an application runs, without restarting it"},
         };
         return kActions;
     }
@@ -98,6 +99,7 @@ namespace Euclid::CLI {
         if (action == "create-application") return createApplication(args);
         if (action == "update-application") return updateApplication(args);
         if (action == "copy-application") return copyApplication(args);
+        if (action == "scale-application") return scaleApplication(args);
         if (action == "redeploy-application") return redeployApplication(args);
         if (action == "list-applications") return listApplications(args);
         if (action == "get-application") return getApplication(args);
@@ -316,6 +318,76 @@ namespace Euclid::CLI {
             const HttpResponse response = client.Post("eap", "copy-application", request);
             if (!response.IsSuccess()) {
                 std::cerr << "error: copy-application failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EapCli::scaleApplication(const std::vector<std::string> &args) const {
+        po::options_description desc("change how many instances an application runs");
+        desc.add_options()
+                ("application-id,n", po::value<std::string>()->required(), "name of the application to scale")
+                ("min-instances", po::value<long>(), "smallest number of instances to keep running; left alone if not given")
+                ("max-instances", po::value<long>(), "largest number the autoscaler may run; left alone if not given")
+                ("instances,i", po::value<long>(), "run exactly this many: sets both bounds, which pins the pool and leaves the autoscaler no room");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eap", "scale-application",
+                                   "--application-id <name> [--instances <n>] [--min-instances <n>] [--max-instances <n>]",
+                                   "Changes how many instances an application runs, without restarting the ones it already has. "
+                                   "\"eap update-application\" can set the same two fields, but it writes the whole definition and "
+                                   "stamps the modification date - and the manager restarts a pool whose application changed since it "
+                                   "started it. Scaling that way therefore stops every running instance and starts it again, which is "
+                                   "the opposite of what asking for more capacity means and worst at the moment somebody asks for it. "
+                                   "What is set is the range the autoscaler works within, not a count: the manager scales toward it "
+                                   "within a few seconds, adding instances one at a time and stopping idle ones as the load allows. "
+                                   "--instances is shorthand for setting both bounds to the same number, which pins the pool at that "
+                                   "size and leaves the autoscaler nothing to decide - useful to hold an application steady, and worth "
+                                   "undoing afterwards. A bound not named is left as it stands, so a ceiling can be raised without "
+                                   "touching the floor; the two are checked against each other, so a floor cannot be left above a "
+                                   "ceiling. A floor of zero is refused: an application desired RUNNING with no instances reads "
+                                   "everywhere as a pool that has failed - use \"eap stop-application\" to take one out of service.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        if (vm.contains("instances") && (vm.contains("min-instances") || vm.contains("max-instances"))) {
+            std::cerr << "error: --instances sets both bounds, so it cannot be combined with --min-instances or --max-instances" << std::endl;
+            return 1;
+        }
+        if (!vm.contains("instances") && !vm.contains("min-instances") && !vm.contains("max-instances")) {
+            std::cerr << "error: nothing to change - give --instances, --min-instances or --max-instances" << std::endl;
+            return 1;
+        }
+
+        boost::json::object request{{"applicationId", vm["application-id"].as<std::string>()}};
+        if (vm.contains("instances")) {
+            const auto instances = vm["instances"].as<long>();
+            request["minInstances"] = instances;
+            request["maxInstances"] = instances;
+        } else {
+            if (vm.contains("min-instances")) request["minInstances"] = vm["min-instances"].as<long>();
+            if (vm.contains("max-instances")) request["maxInstances"] = vm["max-instances"].as<long>();
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eap", "scale-application", request);
+            if (!response.IsSuccess()) {
+                std::cerr << "error: scale-application failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);
