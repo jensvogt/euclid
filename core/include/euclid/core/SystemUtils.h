@@ -138,6 +138,38 @@ namespace Euclid::Core {
         static std::optional<CpuTimes> ReadCpuTimes();
 
         /**
+         * @brief The kernel's run-queue averages over the last 1, 5 and 15 minutes, and the number
+         * of CPUs they should be read against.
+         *
+         * @par
+         * Load average is not a percentage and does not saturate at 100: it counts the processes
+         * that were runnable or in uninterruptible I/O wait, so a figure of 8 means "eight things
+         * wanted to run at once". Whether that is idle or desperate depends entirely on how many
+         * CPUs there are, which is why the count is reported alongside rather than left to whoever
+         * reads the graph - the same 8 is a third of this machine and four times a two-core one.
+         */
+        struct LoadAverage {
+            double oneMinute = 0;
+            double fiveMinutes = 0;
+            double fifteenMinutes = 0;
+            long cpuCount = 0;
+        };
+
+        /**
+         * @brief Reads /proc/loadavg (Linux-only, see man proc(5)), whose first three fields are
+         * the 1-, 5- and 15-minute load averages.
+         *
+         * @par
+         * A direct reading like ReadMemoryUsage() rather than a delta like ReadCpuTimes(): the
+         * kernel has already done the averaging, so two calls are not needed and a single one is
+         * meaningful on its own.
+         *
+         * @return the three averages and the CPU count, or std::nullopt if /proc/loadavg could not
+         * be read or parsed (e.g. a non-Linux system).
+         */
+        static std::optional<LoadAverage> ReadLoadAverage();
+
+        /**
          * @brief How much of the machine's memory is in use, as a percentage.
          *
          * @par

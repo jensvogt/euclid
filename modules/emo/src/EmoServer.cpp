@@ -410,6 +410,11 @@ namespace Euclid::Monitoring {
 
         _memoryUsageTaskId = scheduler.SchedulePeriodic("monitoring-memory-usage", [] { collectMemoryUsage(); },
                                                         std::chrono::duration_cast<std::chrono::milliseconds>(cpuUsagePeriod));
+
+        // Same period as the CPU figure: load average and CPU usage answer the same question from
+        // two sides - how much is queued, and how much is being served - and are read together.
+        _systemLoadTaskId = scheduler.SchedulePeriodic("monitoring-system-load", [] { collectSystemLoad(); },
+                                                       std::chrono::duration_cast<std::chrono::milliseconds>(cpuUsagePeriod));
 #endif
     }
 
@@ -425,6 +430,7 @@ namespace Euclid::Monitoring {
         scheduler.Cancel(_moduleInstancesTaskId);
         scheduler.Cancel(_databaseSizeTaskId);
         scheduler.Cancel(_cpuUsageTaskId);
+        scheduler.Cancel(_systemLoadTaskId);
         // Scheduled since it was added and never cancelled until now: a task that outlives the
         // server it calls into fires into freed memory on the next tick.
         scheduler.Cancel(_memoryUsageTaskId);
@@ -511,6 +517,40 @@ namespace Euclid::Monitoring {
         // can aggregate it at all.
         const auto usage = 100.0 * static_cast<double>(totalDelta - idleDelta) / static_cast<double>(totalDelta);
         recordSample("system-cpu-usage", "host", Core::SystemUtils::GetHostName(), usage, MetricType::GAUGE);
+    }
+
+    void EmoServer::collectSystemLoad() {
+
+        const auto load = Core::SystemUtils::ReadLoadAverage();
+        if (!load.has_value()) {
+            log_warning << "Monitoring system-load collection failed, /proc/loadavg not readable";
+            return;
+        }
+
+        const auto host = Core::SystemUtils::GetHostName();
+
+        // Three series rather than one, labelled by the window they average over, so a dashboard
+        // can put the 1-minute figure against the 15-minute one - which is the whole point of the
+        // kernel reporting all three. Spiking or subsiding is the difference between them.
+        //
+        // Recorded as samples like everything else, so they are bucket-aligned and the rollups can
+        // aggregate them. Note what the rollup's max then means here: the highest one-minute
+        // average seen in the bucket, which is a reasonable "how bad did it get" - the average of
+        // an average is the weaker figure of the two.
+        recordSample("system-load-average", {{"host", host}, {"interval", "1m"}}, load->oneMinute, MetricType::GAUGE);
+        recordSample("system-load-average", {{"host", host}, {"interval", "5m"}}, load->fiveMinutes, MetricType::GAUGE);
+        recordSample("system-load-average", {{"host", host}, {"interval", "15m"}}, load->fifteenMinutes, MetricType::GAUGE);
+
+        // The same figure divided by the number of CPUs, because the raw one cannot be compared
+        // across hosts or even read without knowing the machine: a load of 8 is a third of a
+        // 24-core host and four times a two-core one. One is the saturation point here, whatever
+        // the hardware, which is what makes this the series worth alerting on.
+        //
+        // Skipped rather than guessed at if the CPU count is unknown - see ReadLoadAverage().
+        if (load->cpuCount > 0) {
+            const auto perCore = load->oneMinute / static_cast<double>(load->cpuCount);
+            recordSample("system-load-per-core", "host", host, perCore, MetricType::GAUGE);
+        }
     }
 
     void EmoServer::collectModuleInstances() {
