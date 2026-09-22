@@ -182,6 +182,30 @@ namespace Euclid::Core {
 #endif
     }
 
+    std::optional<SystemUtils::LoadAverage> SystemUtils::ReadLoadAverage() {
+#ifdef __linux__
+        std::ifstream loadavg("/proc/loadavg");
+        if (!loadavg.is_open()) return std::nullopt;
+
+        // "0.45 0.62 0.71 2/1483 29174" - the three averages, then running/total tasks and the
+        // last pid. Only the first three are read; the rest are a different question.
+        LoadAverage load;
+        loadavg >> load.oneMinute >> load.fiveMinutes >> load.fifteenMinutes;
+        if (!loadavg) return std::nullopt;
+
+        // Reported with the averages rather than left to the caller, because a load average means
+        // nothing without it - see LoadAverage. Zero rather than one when the count is unknown, so
+        // a caller dividing by it has something obviously wrong to notice rather than a figure
+        // that looks plausible and is out by the width of the machine.
+        const auto processors = sysconf(_SC_NPROCESSORS_ONLN);
+        load.cpuCount = processors > 0 ? static_cast<long>(processors) : 0;
+
+        return load;
+#else
+        return std::nullopt;
+#endif
+    }
+
     std::optional<SystemUtils::MemoryUsage> SystemUtils::ReadMemoryUsage() {
 #ifdef __linux__
         std::ifstream status("/proc/self/status");

@@ -99,6 +99,20 @@ namespace Euclid::Monitoring {
         static void collectCpuUsage();
 
         /**
+         * @brief Reads the Linux run-queue averages (from /proc/loadavg) and records them as
+         * "system-load-average", labelled by the window each averages over, plus
+         * "system-load-per-core" for the one-minute figure divided by the CPU count.
+         *
+         * @par
+         * Both, because neither is sufficient alone. The raw averages are what an operator
+         * recognises and what the three windows make comparable - a 1-minute figure well above the
+         * 15-minute one is a machine that has just got busy. The per-core figure is the one that
+         * means the same thing on every host: it saturates at 1 whatever the hardware, where a raw
+         * load of 8 is a third of a 24-core machine and four times a two-core one.
+         */
+        static void collectSystemLoad();
+
+        /**
          * @brief Samples what each module's pool is doing: how many instances it runs, how loaded
          * they say they are, and how much work is waiting.
          *
@@ -156,6 +170,7 @@ namespace Euclid::Monitoring {
         std::string _databaseSizeTaskId;
 
         std::string _cpuUsageTaskId;
+        std::string _systemLoadTaskId;
         std::string _memoryUsageTaskId;
         std::string _queueCountsTaskId;
 

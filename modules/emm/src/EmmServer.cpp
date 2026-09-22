@@ -257,8 +257,8 @@ namespace Euclid::EMM {
                         {"utilisation", i.utilisation},
                         {"backlog", i.backlog},
                         {"loadReportedAt", i.loadReportedAt.time_since_epoch().count() == 0
-                                                   ? std::string()
-                                                   : Core::DateTimeUtils::ToISO8601(i.loadReportedAt)},
+                                               ? std::string()
+                                               : Core::DateTimeUtils::ToISO8601(i.loadReportedAt)},
                         // Work the instance is doing that no request is waiting on - an --async
                         // purge, say. Scale-down passes over an instance reporting any.
                         {"backgroundTasks", i.backgroundTasks},
@@ -325,7 +325,7 @@ namespace Euclid::EMM {
         const auto salt = Core::GetStringValue(jv, "salt");
 
         if (all == !requestedModules.empty()) {
-            return EmmServer::ErrorResponse(req, status::bad_request, "exactly one of \"all\" or \"modules\" is required");
+            return EmmServer::ErrorResponse(req, status::bad_request, R"(exactly one of "all" or "modules" is required)");
         }
 
         // ekm is the one module whose export is worth as much as the database it came from:
@@ -370,8 +370,7 @@ namespace Euclid::EMM {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "import");
 
-        const auto auth = authenticate(req);
-        if (!auth.user.has_value()) return unauthorized(req, auth);
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
 
         if (req.body().empty()) {
             return EmmServer::ErrorResponse(req, status::bad_request, "missing JSON body");
@@ -698,7 +697,7 @@ namespace Euclid::EMM {
         // be undone within seconds. Refused, with a pointer at the command that does work.
         if (!module->core) {
             return EmmServer::ErrorResponse(req, status::bad_request,
-                                            name + " is not a euclid module - use \"eap stop-application\" or \"ets stop-server\" for its own kind");
+                                            name + R"( is not a euclid module - use "eap stop-application" or "ets stop-server" for its own kind)");
         }
 
         if (module->desiredStopped == stopped) {
