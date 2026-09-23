@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.36](https://github.com/jensvogt/euclid/compare/1.1.35...v1.1.36) (2026-09-23)
+
+
+### Bug Fixes
+
+* exists queries ([e73f7f0](https://github.com/jensvogt/euclid/commit/e73f7f00df13ea082616f607d6c9fa2e3342bda5))
+
 ## [1.1.35](https://github.com/jensvogt/euclid/compare/1.1.34...v1.1.35) (2026-09-23)
 
 
