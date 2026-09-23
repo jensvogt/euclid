@@ -1,0 +1,99 @@
+.TH EUCLID-CLI-ESM-EXISTS-BUCKET 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-exists-bucket \- whether a bucket exists, as an exit code for a script
+.SH SYNOPSIS
+.B euclid-cli esm exists-bucket
+.BR \-\-bucket | \-b
+.I NAME
+.SH DESCRIPTION
+Answers whether a bucket exists. Written to be branched on rather than
+read: a shell treats a successful exit as true, so the answer is the exit
+status.
+.PP
+.B "true"
+or
+.B "false"
+also goes to standard output, and nothing else does \(em no JSON, no
+metadata, nothing to cut out of the way with
+.BR sed (1).
+So the same command serves
+.B if
+and
+.BR "$(\|.\|.\|.\|)" .
+.PP
+The question has three answers, not two. Alongside "yes" and "no" there
+is "could not tell": an expired session, an unreachable gateway, a
+refused permission. Those exit
+.BR 2 ,
+so a script never reads an outage as an absent bucket and goes on to
+create one that was already there, or skip a step that mattered. A script
+that only branches on
+.B if
+still gets the safe outcome, because
+.B 2
+is not success either and the true branch is not taken on an answer
+nobody actually got.
+.PP
+Asks about the bucket, not about anything in it. A bucket that exists
+and holds no objects is still there, and this says so.
+.PP
+Needs
+.IR esm:get-bucket-ern ,
+because that is the call it makes. A caller without it gets
+.B 2
+rather than a wrong answer.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-bucket " " \fINAME\fR
+Name of the bucket to look for. Required. A missing
+.B \-\-bucket
+is a broken command line rather than an absent bucket, and exits
+.BR 2 .
+.SH EXIT STATUS
+.TP
+.B 0
+The bucket exists.
+.B "true"
+is written to standard output.
+.TP
+.B 1
+The bucket does not exist.
+.B "false"
+is written to standard output.
+.TP
+.B 2
+The question could not be answered: no
+.BR \-\-bucket ,
+an unreachable or unauthenticated gateway, a refused permission, or any
+other error. The reason is written to standard error and standard output
+is left empty.
+.SH EXAMPLES
+Act only if it is not already there:
+.RS
+.nf
+if ! euclid\-cli esm exists\-bucket \-b apps > /dev/null; then
+    echo "creating apps"
+fi
+.fi
+.RE
+.PP
+Tell the three answers apart, which any script that acts on absence
+should do:
+.RS
+.nf
+euclid\-cli esm exists\-bucket \-b apps > /dev/null
+case $? in
+    0) echo "already there" ;;
+    1) echo "absent" ;;
+    2) echo "could not tell \(em leaving it alone" >&2; exit 1 ;;
+esac
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-get-bucket-ern (1),
+.BR euclid-cli-esm-create-bucket (1),
+.BR euclid-cli-esm-get-bucket (1),
+.BR euclid-cli-eqs-exists-queue (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

@@ -35,6 +35,7 @@ namespace Euclid::CLI {
                 {"encrypt", "Encrypt a file or stdin with a key"},
                 {"get-certificate", "Show one certificate, without its private key"},
                 {"get-key", "Show one key's description"},
+                {"exists-key", "Whether a key exists; exit 0 yes, 1 no, 2 could not tell"},
                 {"import-certificate", "Store a certificate and its private key"},
                 {"list-certificates", "List stored certificates"},
                 {"list-keys", "List existing keys"},
@@ -51,6 +52,7 @@ namespace Euclid::CLI {
         if (action == "create-key") {
             return createKey(args);
         }
+        if (action == "exists-key") return existsKey(args);
         if (action == "get-key") {
             return getKey(args);
         }
@@ -134,6 +136,52 @@ namespace Euclid::CLI {
         } catch (const std::exception &ex) {
             std::cerr << "error: " << ex.what() << std::endl;
             return 1;
+        }
+    }
+
+    int EkmCli::existsKey(const std::vector<std::string> &args) const {
+
+        po::options_description desc("exists key options");
+        desc.add_options()("key,k", po::value<std::string>()->required(), "key name; a full ERN also works and is what reaches another namespace");
+
+        if (IsHelpRequest(args)) {
+            PrintActionHelp("ekm", "exists-key", "--key <name>",
+                            "Answers whether a key exists as an exit code, for use in a script: 0 if it "
+                            "exists, 1 if it does not, 2 if the question could not be answered at all - an "
+                            "expired session, an unreachable gateway, a refused permission. Writes \"true\" "
+                            "or \"false\" to stdout and nothing else. Use as: "
+                            "if euclid-cli ekm exists-key -k mine; then ...",
+                            desc);
+            return Exists::kYes;
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            // A missing --key is not "the key is absent", it is a broken command line.
+            return Exists::Unknown("exists-key", ex.what());
+        }
+
+        const auto name = vm["key"].as<std::string>();
+        Dto::EKM::GetKeyRequest request;
+        if (name.starts_with("ern:")) {
+            request.ern = name;
+        } else {
+            request.name = name;
+        }
+
+        // Reads the key's description, never its material - see get-key. A revoked key still
+        // exists, and this says so; get-key shows the status that distinguishes them.
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ekm", "get-key", boost::json::value_from(request));
+            return Exists::FromLookup("exists-key", response.statusCode, response.IsSuccess(), response.body);
+        } catch (const std::exception &ex) {
+            // Never reached the gateway at all, which is the case a script most needs not to read
+            // as "false" - see Exists.
+            return Exists::Unknown("exists-key", ex.what());
         }
     }
 

@@ -47,6 +47,12 @@ Lists user accounts, optionally filtered by user ID prefix, paged and
 sorted. Requires administrator privileges. See
 .BR euclid-cli-eam-list-users (1).
 .TP
+.B get-user
+Shows one user account by its user id: the account and region it belongs
+to, whether it may log in, and its access keys. Requires administrator
+privileges. See
+.BR euclid-cli-eam-get-user (1).
+.TP
 .B delete-user
 Deletes a user account by user ID. Requires administrator privileges. See
 .BR euclid-cli-eam-delete-user (1).
@@ -82,6 +88,11 @@ Lists user groups, optionally filtered by name prefix, paged and sorted.
 Requires administrator privileges. See
 .BR euclid-cli-eam-list-user-groups (1).
 .TP
+.B get-user-group
+Shows one user group and who is in it, by name or ERN. Requires
+administrator privileges. See
+.BR euclid-cli-eam-get-user-group (1).
+.TP
 .B user-group-add-user
 Adds a user to a user group. Requires administrator privileges. See
 .BR euclid-cli-eam-user-group-add-user (1).
@@ -103,6 +114,12 @@ global administrator privileges. See
 Lists accounts, optionally filtered by account ID prefix, paged and
 sorted. Requires global administrator privileges. See
 .BR euclid-cli-eam-list-accounts (1).
+.TP
+.B get-account
+Shows one account by its id: its name, ERN, description and when it was
+created. The same description "list-accounts" gives of each of its own.
+See
+.BR euclid-cli-eam-get-account (1).
 .TP
 .B delete-account
 Deletes an account by account ID. The account must have no remaining
@@ -434,6 +451,7 @@ euclid-cli --endpoint http://localhost:5566 eam change-namespace \e
 .BR euclid-cli (1),
 .BR euclid-cli-eam-login (1),
 .BR euclid-cli-eam-register (1),
+.BR euclid-cli-eam-get-user (1),
 .BR euclid-cli-eam-list-users (1),
 .BR euclid-cli-eam-delete-user (1),
 .BR euclid-cli-eam-change-password (1),
@@ -441,11 +459,13 @@ euclid-cli --endpoint http://localhost:5566 eam change-namespace \e
 .BR euclid-cli-eam-list-access-keys (1),
 .BR euclid-cli-eam-delete-access-key (1),
 .BR euclid-cli-eam-create-user-group (1),
+.BR euclid-cli-eam-get-user-group (1),
 .BR euclid-cli-eam-list-user-groups (1),
 .BR euclid-cli-eam-user-group-add-user (1),
 .BR euclid-cli-eam-user-group-remove-user (1),
 .BR euclid-cli-eam-delete-user-group (1),
 .BR euclid-cli-eam-create-account (1),
+.BR euclid-cli-eam-get-account (1),
 .BR euclid-cli-eam-list-accounts (1),
 .BR euclid-cli-eam-delete-account (1),
 .BR euclid-cli-eam-create-namespace (1),

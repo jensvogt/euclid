@@ -47,6 +47,7 @@ namespace Euclid::CLI {
                 {"delete-message", "Deletes a single message, by receipt handle or message ID"},
                 {"delete-queue", "Delete a queue"},
                 {"delete-queue-tag", "Deletes a tag from the queue"},
+                {"exists-queue", "Whether a queue exists; exit 0 yes, 1 no, 2 could not tell"},
                 {"get-message-attribute", "Return a message attribute by name"},
                 {"get-message-count", "Returns the message counters"},
                 {"get-message-metadata", "Return the metadata for a message"},
@@ -180,6 +181,9 @@ namespace Euclid::CLI {
         if (action == "get-message") return getMessage(args);
         if (action == "get-queue-ern") {
             return getQueueErn(args);
+        }
+        if (action == "exists-queue") {
+            return existsQueue(args);
         }
         if (action == "redrive-dlq") {
             return redriveDlq(args);
@@ -385,6 +389,45 @@ namespace Euclid::CLI {
         } catch (const std::exception &ex) {
             std::cerr << "error: " << ex.what() << std::endl;
             return 1;
+        }
+    }
+
+    int EqsCli::existsQueue(const std::vector<std::string> &args) const {
+
+        po::options_description desc("exists queue options");
+        desc.add_options()("queue,q", po::value<std::string>()->required(), "queue name or ERN");
+
+        if (IsHelpRequest(args)) {
+            PrintActionHelp("eqs", "exists-queue", "--queue <name>",
+                            "Answers whether a queue exists as an exit code, for use in a script: 0 if it "
+                            "exists, 1 if it does not, 2 if the question could not be answered at all - an "
+                            "expired session, an unreachable gateway, a refused permission. Writes \"true\" "
+                            "or \"false\" to stdout and nothing else. Use as: "
+                            "if euclid-cli eqs exists-queue -q orders; then ...",
+                            desc);
+            return Exists::kYes;
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            // A missing --queue is not "the queue is absent", it is a broken command line.
+            return Exists::Unknown("exists-queue", ex.what());
+        }
+
+        Dto::EQS::CreateQueueRequest request;
+        request.name = vm["queue"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eqs", "get-queue-ern", boost::json::value_from(request));
+            return Exists::FromLookup("exists-queue", response.statusCode, response.IsSuccess(), response.body);
+        } catch (const std::exception &ex) {
+            // Never reached the gateway at all, which is the case a script most needs not to read
+            // as "false" - see Exists.
+            return Exists::Unknown("exists-queue", ex.what());
         }
     }
 
@@ -960,10 +1003,14 @@ namespace Euclid::CLI {
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eqs", "delete-message", "--receipt-handle <handle> | --message-id <messageId>",
-                                   "Deletes a single message. Use --receipt-handle for a message that was received (this is the standard "
-                                   "SQS-compatible way, and fails once the visibility timeout has expired). Use --message-id to delete a "
-                                   "message directly, including one that has never been received (status AVAILABLE or DELAYED); this bypasses "
-                                   "the usual receipt-handle lease and is a Euclid-specific extension with no AWS SQS equivalent.",
+                                   "Deletes a single message. Use --receipt-handle for a message that was received, which is the "
+                                   "standard SQS-compatible way. Use --message-id to delete a message directly, including one that has "
+                                   "never been received (status AVAILABLE or DELAYED); this bypasses the receipt-handle lease and is a "
+                                   "Euclid-specific extension with no AWS SQS equivalent. If both are given the receipt handle wins.\n\n"
+                                   "Deleting a message that is not there succeeds: 0 means there is now no such message, not that there "
+                                   "was one. An expired receipt handle is the case that bites - the message became AVAILABLE again and "
+                                   "its handle was cleared, so the delete matches nothing, exits 0, and the message is redelivered to "
+                                   "somebody else. Nothing is printed on success, because there is nothing it can honestly claim.",
                                    desc);
         }
 
