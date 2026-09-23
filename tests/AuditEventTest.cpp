@@ -6,6 +6,7 @@
 #include <boost/test/unit_test.hpp>
 
 // C++ includes
+#include <set>
 #include <string>
 
 // Boost includes
@@ -206,57 +207,134 @@ BOOST_AUTO_TEST_CASE(TheDocumentStoreIsNeverRecorded) {
     BOOST_TEST(!Server::ShouldAudit("emd", "find-one", 200));
 }
 
-BOOST_AUTO_TEST_CASE(TheDataPlaneActionsAreNotRecordedWhenTheySucceed) {
+BOOST_AUTO_TEST_CASE(WhatFlowsThroughAResourceIsNotRecordedWhenItSucceeds) {
 
-    // Not whole modules this time - ESM and EQS are very much worth auditing - but three actions
-    // inside them that repeat per unit of data rather than per thing a person did. Measured over
-    // twenty minutes: 205,631 upload-part, 101,736 receive-messages and 95,248 delete-message,
-    // against a few thousand entries for everything an operator would search for. The writer could
-    // not keep up and began discarding the oldest entries - 46,000 in one process - so this volume
-    // was not merely noisy, it was destroying the trail it was part of.
-    for (const auto *action: {"upload-part", "receive-messages", "delete-message"}) {
-        BOOST_TEST_CONTEXT("action " << action) {
-            BOOST_TEST(!Server::ShouldAudit("esm", action, 200));
-            BOOST_TEST(!Server::ShouldAudit("eqs", action, 201));
-        }
+    // The rule the trail turns on: a queue, a bucket or a table is a thing somebody manages, and
+    // the messages, objects and items moving through it are the traffic. Measured over twenty
+    // minutes on the development installation: 205,631 upload-part, 101,736 receive-messages and
+    // 95,248 delete-message, against a few thousand entries for everything an operator would
+    // actually search for. The writer could not keep up and began discarding the oldest entries -
+    // 46,000 in one process - so this volume was not merely noisy, it was destroying the trail it
+    // was part of.
+    for (const auto *action: {"send-message", "receive-messages", "delete-message", "set-message-visibility"}) {
+        BOOST_TEST_CONTEXT("eqs:" << action) { BOOST_TEST(!Server::ShouldAudit("eqs", action, 200)); }
     }
+    for (const auto *action: {"put-object", "delete-object", "delete-objects", "copy-object", "move-object",
+                              "upload-part", "download-part", "set-object-attribute"}) {
+        BOOST_TEST_CONTEXT("esm:" << action) { BOOST_TEST(!Server::ShouldAudit("esm", action, 200)); }
+    }
+    for (const auto *action: {"put-item", "delete-item", "query", "scan"}) {
+        BOOST_TEST_CONTEXT("ekv:" << action) { BOOST_TEST(!Server::ShouldAudit("ekv", action, 200)); }
+    }
+    BOOST_TEST(!Server::ShouldAudit("ens", "publish-message", 200));
+    BOOST_TEST(!Server::ShouldAudit("ees", "receive-events", 200));
 }
 
-BOOST_AUTO_TEST_CASE(ADataPlaneActionThatFailedIsStillRecorded) {
+BOOST_AUTO_TEST_CASE(ABatchOfMessagesIsStillMessages) {
 
-    // The difference from the machinery exclusion above, and the whole reason these are filtered
-    // on success rather than outright. A refused upload-part is exactly what an audit is for, and
+    // The one the subject-word rule cannot see: send-message-batch ends in "batch", and is N sends.
+    BOOST_TEST(!Server::ShouldAudit("eqs", "send-message-batch", 200));
+
+    // As is the older spelling of set-message-visibility, which is still dispatched.
+    BOOST_TEST(!Server::ShouldAudit("eqs", "set-visibility", 200));
+}
+
+BOOST_AUTO_TEST_CASE(SomethingThatFlowedThroughButFailedIsStillRecorded) {
+
+    // The difference from the machinery exclusion above, and the whole reason these are filtered on
+    // success rather than outright. A refused upload-part is exactly what an audit is for, and
     // unlike a successful one it does not arrive by the thousand.
     for (const long status: {400L, 403L, 404L, 500L}) {
         BOOST_TEST_CONTEXT("status " << status) {
             BOOST_TEST(Server::ShouldAudit("esm", "upload-part", status));
+            BOOST_TEST(Server::ShouldAudit("esm", "put-object", status));
             BOOST_TEST(Server::ShouldAudit("eqs", "receive-messages", status));
             BOOST_TEST(Server::ShouldAudit("eqs", "delete-message", status));
+            BOOST_TEST(Server::ShouldAudit("ekv", "query", status));
         }
     }
 }
 
-BOOST_AUTO_TEST_CASE(WhatBracketsAnUploadIsStillRecorded) {
+BOOST_AUTO_TEST_CASE(WhatBracketsATransferIsStillRecorded) {
 
-    // upload-part is safe to leave out only because these two are not: they carry the key, the
-    // caller and the outcome, which is what somebody looks for. A 12 GB file is 1,479 parts, and
-    // the parts are how the bytes arrived rather than what was done.
-    BOOST_TEST(Server::ShouldAudit("esm", "create-upload", 200));
-    BOOST_TEST(Server::ShouldAudit("esm", "complete-upload", 200));
+    // upload-part is safe to leave out only because these are not: they carry the key, the caller
+    // and the outcome, which is what somebody looks for. A 12 GB file is 1,479 parts, and the parts
+    // are how the bytes arrived rather than what was done.
+    for (const auto *action: {"create-upload", "complete-upload", "abort-upload", "create-download",
+                              "complete-download"}) {
+        BOOST_TEST_CONTEXT("esm:" << action) { BOOST_TEST(Server::ShouldAudit("esm", action, 200)); }
+    }
+}
 
-    // And on the queue side: a consumer acknowledging work it was given is dropped, somebody
-    // putting work in is not.
-    BOOST_TEST(Server::ShouldAudit("eqs", "send-message", 200));
-    BOOST_TEST(Server::ShouldAudit("esm", "delete-object", 200));
+BOOST_AUTO_TEST_CASE(AMentionOfAMessageIsNotAMessage) {
+
+    // Only the last word is the subject. These configure a queue and merely name a message on the
+    // way past, and getting that wrong would silently drop queue administration from the trail.
+    for (const auto *action: {"set-queue-max-message-length", "set-queue-visibility", "set-queue-delay"}) {
+        BOOST_TEST_CONTEXT("eqs:" << action) { BOOST_TEST(Server::ShouldAudit("eqs", action, 200)); }
+    }
+    BOOST_TEST(Server::ShouldAudit("ens", "set-topic-max-message-length", 200));
+}
+
+BOOST_AUTO_TEST_CASE(EmptyingSomethingIsAnOperationOnTheThingEmptied) {
+
+    // Irreversible, and at the top of the list of what an audit gets opened to find. purge-events
+    // also empties the trail itself, which had better be in the trail.
+    BOOST_TEST(Server::ShouldAudit("eqs", "purge-queue", 200));
+    BOOST_TEST(Server::ShouldAudit("eqs", "purge-all-queues", 200));
+    BOOST_TEST(Server::ShouldAudit("esm", "purge-bucket", 200));
+    BOOST_TEST(Server::ShouldAudit("ens", "purge-topic", 200));
+    BOOST_TEST(Server::ShouldAudit("ead", "purge-events", 200));
+}
+
+BOOST_AUTO_TEST_CASE(ReportingLoadIsMachineryTheSameWayMetricsAre) {
+
+    // Every instance of every application, on a timer, for as long as it runs. It is in eap because
+    // that is where the autoscaler reads it, not because anybody asked for it - and like the
+    // machinery modules it is out whatever the status, because an instance that cannot report fails
+    // on that same timer.
+    BOOST_TEST(!Server::ShouldAudit("eap", "report-load", 200));
+    BOOST_TEST(!Server::ShouldAudit("eap", "report-load", 403));
+    BOOST_TEST(!Server::ShouldAudit("eap", "report-load", 500));
 }
 
 // ── What is recorded ────────────────────────────────────────────────────────
 
-BOOST_AUTO_TEST_CASE(AnythingThatChangesSomethingIsRecorded) {
+BOOST_AUTO_TEST_CASE(ChangingAResourceIsRecorded) {
 
-    for (const auto *action: {"delete-bucket", "purge-bucket", "create-queue", "put-object"}) {
-        BOOST_TEST_CONTEXT("esm:" << action) { BOOST_TEST(Server::ShouldAudit("esm", action, 200)); }
-    }
+    // The entries the trail is kept for - "admin deleted queue X". Every first-level resource in
+    // euclid, so a module added later that follows the naming lands here by default.
+    BOOST_TEST(Server::ShouldAudit("eqs", "create-queue", 200));
+    BOOST_TEST(Server::ShouldAudit("eqs", "delete-queue", 200));
+    BOOST_TEST(Server::ShouldAudit("ens", "delete-topic", 200));
+    BOOST_TEST(Server::ShouldAudit("esm", "delete-bucket", 200));
+    BOOST_TEST(Server::ShouldAudit("ekm", "delete-key", 200));
+    BOOST_TEST(Server::ShouldAudit("ekm", "revoke-key", 200));
+    BOOST_TEST(Server::ShouldAudit("ess", "delete-secret", 200));
+    BOOST_TEST(Server::ShouldAudit("ekv", "delete-table", 200));
+    BOOST_TEST(Server::ShouldAudit("eam", "delete-user", 200));
+    BOOST_TEST(Server::ShouldAudit("eap", "delete-application", 200));
+}
+
+BOOST_AUTO_TEST_CASE(WhoMayDoWhatIsRecorded) {
+
+    // Not a create or a delete of anything, and the first thing anybody asks an audit about.
+    BOOST_TEST(Server::ShouldAudit("eam", "grant-role", 200));
+    BOOST_TEST(Server::ShouldAudit("eam", "revoke-role", 200));
+    BOOST_TEST(Server::ShouldAudit("eam", "login", 200));
+    BOOST_TEST(Server::ShouldAudit("eam", "change-password", 200));
+    BOOST_TEST(Server::ShouldAudit("eam", "create-access-key", 200));
+    BOOST_TEST(Server::ShouldAudit("eam", "user-group-add-user", 200));
+}
+
+BOOST_AUTO_TEST_CASE(StartingAndStoppingSomethingIsRecorded) {
+
+    // Not CRUD either, and it takes a service away from everybody using it.
+    BOOST_TEST(Server::ShouldAudit("eqs", "stop-queue", 200));
+    BOOST_TEST(Server::ShouldAudit("ens", "stop-topic", 200));
+    BOOST_TEST(Server::ShouldAudit("eap", "stop-application", 200));
+    BOOST_TEST(Server::ShouldAudit("eap", "scale-application", 200));
+    BOOST_TEST(Server::ShouldAudit("ets", "stop-server", 200));
 }
 
 BOOST_AUTO_TEST_CASE(ARefusalIsRecordedEvenThoughItOnlyTriedToRead) {
@@ -273,6 +351,42 @@ BOOST_AUTO_TEST_CASE(ASuccessfulReadIsNotRecordedByDefault) {
     // esm:get-object calls - so they are out unless euclid.modules.ead.audit-reads asks for them.
     BOOST_TEST(!Server::ShouldAudit("esm", "get-object", 200));
     BOOST_TEST(!Server::ShouldAudit("eqs", "list-queues", 200));
+}
+
+BOOST_AUTO_TEST_CASE(EveryActionEuclidHasIsPartitionedDeliberately) {
+
+    // The sweep. Every permission euclid answers, run through the rule, with the write actions it
+    // drops named one by one - so an action added later that happens to end in "object" or
+    // "message" fails here and gets decided on rather than disappearing from the trail quietly.
+    // The same contract PermissionVocabularyTest enforces on the vocabulary itself.
+    const std::set<std::string> expected{
+            "eap:report-load",
+            "ees:ack-events", "ees:receive-events", "ees:subscribe-events", "ees:unsubscribe-events",
+            "ekv:delete-item", "ekv:put-item", "ekv:query", "ekv:scan",
+            "ens:publish-message", "ens:resend-messages", "ens:set-message-attribute",
+            "eqs:delete-message", "eqs:receive-messages", "eqs:send-message", "eqs:send-message-batch",
+            "eqs:set-message-attribute", "eqs:set-message-visibility", "eqs:set-visibility",
+            "esm:add-object-attribute", "esm:copy-object", "esm:delete-object",
+            "esm:delete-object-attribute", "esm:delete-objects", "esm:download-part", "esm:move-object",
+            "esm:put-object", "esm:rename-object", "esm:set-object-attribute", "esm:touch-object",
+            "esm:upload-part"};
+
+    std::set<std::string> dropped;
+    for (const auto &permission: Euclid::Core::Permissions::All()) {
+
+        const auto colon = permission.find(':');
+        const auto module = permission.substr(0, colon);
+        const auto action = permission.substr(colon + 1);
+
+        // The machinery modules are a separate rule with its own tests above; a read that is not
+        // recorded is the audit-reads default, not this.
+        if (module == "emo" || module == "emd") continue;
+        if (Euclid::Core::Permissions::IsRead(action)) continue;
+
+        if (!Server::ShouldAudit(module, action, 200)) dropped.insert(std::string(permission));
+    }
+
+    BOOST_TEST(dropped == expected, boost::test_tools::per_element());
 }
 
 BOOST_AUTO_TEST_SUITE_END()
