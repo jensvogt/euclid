@@ -19,6 +19,7 @@
 // Euclid includes
 #include <euclid/cli/BaseCli.h>
 #include <euclid/cli/credentials/Credentials.h>
+#include <euclid/cli/ExistsCheck.h>
 #include <euclid/cli/help/CliHelp.h>
 #include <euclid/cli/http/HttpClient.h>
 #include <euclid/core/JsonUtils.h>
@@ -121,6 +122,29 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int getQueueErn(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Whether a queue exists, answered as an exit code a shell can branch on.
+         *
+         * @par
+         * Written for `if euclid-cli eqs exists-queue -q orders; then`. A shell reads success as
+         * true, so the answer is the exit status: 0 when the queue is there, 1 when it is not.
+         * "true" or "false" also goes to stdout for `$(...)`, and nothing else does - no JSON, no
+         * metadata, nothing to cut out of the way with sed.
+         *
+         * @par Why not just use get-queue-ern
+         * Because it exits 1 for "no such queue" and 1 for "your session expired", and a script
+         * cannot tell those apart. `if` would read an expired token, a stopped gateway or a
+         * refused permission as "the queue is not there" and go on to create it, or skip a step
+         * that mattered. So not-found is 1 and could-not-tell is 2, and a script that only
+         * branches on `if` still gets the safe outcome: 2 is not success either, so the true
+         * branch is never taken on an answer nobody actually got.
+         *
+         * @param args command line arguments
+         * @return 0 if the queue exists, 1 if it does not, 2 if the question could not be answered
+         */
+        [[nodiscard]]
+        int existsQueue(const std::vector<std::string> &args) const;
 
         /**
          * @brief List all available queues.

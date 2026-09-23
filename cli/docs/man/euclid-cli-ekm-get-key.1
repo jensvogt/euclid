@@ -1,0 +1,86 @@
+.TH EUCLID-CLI-EKM-GET-KEY 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ekm-get-key \- show one encryption key's description
+.SH SYNOPSIS
+.B euclid-cli ekm get-key
+.BR \-\-key | \-k
+.I NAME\fR|\fIERN
+.SH DESCRIPTION
+Shows one key's description as JSON: its ERN, the account and namespace it
+belongs to, its algorithm and length, its status, its description and
+tags, and when it was created and last modified.
+.PP
+The same description
+.BR euclid-cli-ekm-list-keys (1)
+gives of each of its own, for one key \(em so what a listing shows and
+what this shows cannot drift apart.
+.SH KEY MATERIAL
+Never the key material. That has no way out of the key management module
+at all, which is the point of having one:
+.BR euclid-cli-ekm-encrypt (1)
+and
+.BR euclid-cli-ekm-decrypt (1)
+are how a key is used, and the bytes stay inside EKM while they are.
+.PP
+So this is safe to print in a terminal, paste into a ticket, or run from
+a script. What it reveals is that a key of that name exists and what it
+is for.
+.SH NAMES AND ERNS
+A name is resolved in the session's own account and namespace. An ERN
+names one key in the whole installation, and is what an encrypted bucket
+or secret carries \(em the
+.I encryptionKeyErn
+printed by
+.BR euclid-cli-ess-get-secret (1)
+can be pasted straight in here to find out which key a secret is
+encrypted under, including one in another namespace that a bare name
+would not reach.
+.SH STATUS
+The
+.I status
+is what distinguishes a key that can still be used from one that cannot.
+A revoked or pending-deletion key still exists and is still returned
+here; the status is the only thing that says so. Something that only needs
+to know whether the name is taken wants
+.BR euclid-cli-ekm-exists-key (1),
+which answers as an exit code and does not distinguish them.
+.SH OPTIONS
+.TP
+.BR \-k ", " \-\-key " " \fINAME\fR|\fIERN\fR
+Name of the key in the session's account and namespace, or a full ERN.
+Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The key was found and its description printed as JSON.
+.TP
+.B 1
+Missing or invalid arguments, no key of that name, the caller may not read
+it, or the server could not be reached.
+.SH EXAMPLES
+.RS
+.nf
+euclid\-cli ekm get\-key \-\-key ess\-development
+
+euclid\-cli ekm get\-key \e
+    \-\-key ern:ekm:eu\-central\-1:000000000000:key:ess\-development
+.fi
+.RE
+.PP
+Which key a secret is encrypted under:
+.RS
+.nf
+euclid\-cli ekm get\-key \-\-key "$(euclid\-cli ess get\-secret \e
+    \-\-name db\-password | jq \-r .secret.encryptionKeyErn)"
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ekm (1),
+.BR euclid-cli-ekm-list-keys (1),
+.BR euclid-cli-ekm-create-key (1),
+.BR euclid-cli-ekm-exists-key (1),
+.BR euclid-cli-ekm-revoke-key (1),
+.BR euclid-cli-ekm-encrypt (1),
+.BR euclid-cli-ekm-decrypt (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

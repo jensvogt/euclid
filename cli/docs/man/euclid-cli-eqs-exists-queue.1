@@ -1,0 +1,113 @@
+.TH EUCLID-CLI-EQS-EXISTS-QUEUE 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eqs-exists-queue \- whether a queue exists, as an exit code for a script
+.SH SYNOPSIS
+.B euclid-cli eqs exists-queue
+.BR \-\-queue | \-q
+.I NAME
+.SH DESCRIPTION
+Answers whether a queue exists. Written to be branched on rather than
+read: a shell treats a successful exit as true, so the answer is the
+exit status.
+.PP
+.B "true"
+or
+.B "false"
+also goes to standard output, and nothing else does \(em no JSON, no
+metadata, nothing to cut out of the way with
+.BR sed (1).
+So the same command serves
+.B if
+and
+.BR "$(\|.\|.\|.\|)" .
+.PP
+The question has three answers, not two. Alongside "yes" and "no" there
+is "could not tell": an expired session, an unreachable gateway, a
+refused permission. Those exit
+.BR 2 ,
+so a script never reads an outage as an absent queue and goes on to
+create one that was already there, or skip a step that mattered. A
+script that only branches on
+.B if
+still gets the safe outcome, because
+.B 2
+is not success either and the true branch is not taken on an answer
+nobody actually got.
+.PP
+Distinguishing them is the reason this exists rather than
+.BR euclid-cli-eqs-get-queue-ern (1),
+which exits
+.B 1
+both for "no such queue" and for "your session expired" and gives a
+script no way to tell the two apart.
+.PP
+Needs the same permission as
+.BR euclid-cli-eqs-get-queue-ern (1),
+which is
+.IR eqs:get\-queue\-ern ,
+because that is the call it makes. A caller without it gets
+.B 2
+rather than a wrong answer.
+.SH OPTIONS
+.TP
+.BR \-q ", " \-\-queue " " \fINAME\fR
+Name of the queue to look for, or its ERN. Required. A missing
+.B \-\-queue
+is a broken command line rather than an absent queue, and exits
+.BR 2 .
+.SH EXIT STATUS
+.TP
+.B 0
+The queue exists.
+.B "true"
+is written to standard output.
+.TP
+.B 1
+The queue does not exist.
+.B "false"
+is written to standard output.
+.TP
+.B 2
+The question could not be answered: no
+.BR \-\-queue ,
+an unreachable or unauthenticated gateway, a refused permission, or any
+other error. The reason is written to standard error and standard output
+is left empty.
+.SH EXAMPLES
+Create a queue only if it is not already there:
+.RS
+.nf
+if ! euclid\-cli eqs exists\-queue \-q orders > /dev/null; then
+    euclid\-cli eqs create\-queue \-\-name orders
+fi
+.fi
+.RE
+.PP
+Tell the three answers apart, which a script that can act on a queue's
+absence should do:
+.RS
+.nf
+euclid\-cli eqs exists\-queue \-q orders > /dev/null
+case $? in
+    0) echo "already there" ;;
+    1) euclid\-cli eqs create\-queue \-\-name orders ;;
+    2) echo "could not tell \(em leaving it alone" >&2; exit 1 ;;
+esac
+.fi
+.RE
+.PP
+Read the word instead:
+.RS
+.nf
+if [ "$(euclid\-cli eqs exists\-queue \-q orders)" = true ]; then
+    echo yes
+fi
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eqs (1),
+.BR euclid-cli-eqs-get-queue-ern (1),
+.BR euclid-cli-eqs-create-queue (1),
+.BR euclid-cli-eqs-get-queue (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

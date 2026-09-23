@@ -47,6 +47,11 @@ Shows one message, by its id. See
 Resolves a queue's Euclid resource name (ERN) by its name. See
 .BR euclid-cli-eqs-get-queue-ern (1).
 .TP
+.B exists-queue
+Answers whether a queue exists as an exit code, for use in a script: 0
+yes, 1 no, 2 could not tell. See
+.BR euclid-cli-eqs-exists-queue (1).
+.TP
 .B get-queue-metadata
 Shows a queue's metadata (region, account, namespace, size, message
 counts). See
@@ -78,6 +83,10 @@ insert; a rejected message does not stop the others. See
 Receives up to a given number of messages from a queue, favoring higher
 priority messages. See
 .BR euclid-cli-eqs-receive-messages (1).
+.TP
+.B delete-message
+Deletes a single message, by receipt handle or by message id. See
+.BR euclid-cli-eqs-delete-message (1).
 .TP
 .B list-messages
 Lists a queue's messages without receiving them, i.e. without changing
@@ -295,6 +304,7 @@ euclid-cli --endpoint http://localhost:5566 eqs delete-queue \e
 .BR euclid-cli-eqs-list-queues (1),
 .BR euclid-cli-eqs-get-queue (1),
 .BR euclid-cli-eqs-get-message (1),
+.BR euclid-cli-eqs-exists-queue (1),
 .BR euclid-cli-eqs-get-queue-ern (1),
 .BR euclid-cli-eqs-get-queue-metadata (1),
 .BR euclid-cli-eqs-delete-queue (1),
@@ -303,6 +313,7 @@ euclid-cli --endpoint http://localhost:5566 eqs delete-queue \e
 .BR euclid-cli-eqs-purge-all-queues (1),
 .BR euclid-cli-eqs-send-message (1),
 .BR euclid-cli-eqs-send-message-batch (1),
+.BR euclid-cli-eqs-delete-message (1),
 .BR euclid-cli-eqs-receive-messages (1),
 .BR euclid-cli-eqs-list-messages (1),
 .BR euclid-cli-eqs-set-message-visibility (1),

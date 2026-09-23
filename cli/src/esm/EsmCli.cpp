@@ -90,6 +90,7 @@ namespace Euclid::CLI {
                 {"enable-encryption", "Encrypt the objects written to a bucket from now on"},
                 {"get-bucket", "Show one bucket's definition"},
                 {"get-bucket-ern", "Resolve a bucket's ERN by name"},
+                {"exists-bucket", "Whether a bucket exists; exit 0 yes, 1 no, 2 could not tell"},
                 {"get-bucket-size", "Returns the bucket size in bytes"},
                 {"get-object-count", "Return a bucket's stored object count, without counting"},
                 {"list-buckets", "List buckets"},
@@ -143,6 +144,7 @@ namespace Euclid::CLI {
             return listBuckets(args);
         }
         if (action == "get-bucket") return getBucket(args);
+        if (action == "exists-bucket") return existsBucket(args);
         if (action == "get-bucket-ern") {
             return getBucketErn(args);
         }
@@ -361,6 +363,46 @@ namespace Euclid::CLI {
         } catch (const std::exception &ex) {
             std::cerr << "error: " << ex.what() << std::endl;
             return 1;
+        }
+    }
+
+    int EsmCli::existsBucket(const std::vector<std::string> &args) const {
+
+        po::options_description desc("exists bucket options");
+        desc.add_options()("bucket,b", po::value<std::string>()->required(), "bucket name or ERN");
+
+        if (IsHelpRequest(args)) {
+            PrintActionHelp("esm", "exists-bucket", "--bucket <name>",
+                            "Answers whether a bucket exists as an exit code, for use in a script: 0 if it "
+                            "exists, 1 if it does not, 2 if the question could not be answered at all - an "
+                            "expired session, an unreachable gateway, a refused permission. Writes \"true\" "
+                            "or \"false\" to stdout and nothing else. Use as: "
+                            "if euclid-cli esm exists-bucket -b mine; then ...",
+                            desc);
+            return Exists::kYes;
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            // A missing --bucket is not "the bucket is absent", it is a broken command line.
+            return Exists::Unknown("exists-bucket", ex.what());
+        }
+
+        Dto::ESM::GetBucketErnRequest request;
+        request.name = vm["bucket"].as<std::string>();
+
+        // A bucket, not an object in one: exists-bucket asks whether the container is there.
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("esm", "get-bucket-ern", boost::json::value_from(request));
+            return Exists::FromLookup("exists-bucket", response.statusCode, response.IsSuccess(), response.body);
+        } catch (const std::exception &ex) {
+            // Never reached the gateway at all, which is the case a script most needs not to read
+            // as "false" - see Exists.
+            return Exists::Unknown("exists-bucket", ex.what());
         }
     }
 
