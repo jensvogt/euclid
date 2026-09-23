@@ -1143,7 +1143,17 @@ namespace Euclid::main {
                 // command overrides all of it.
                 Dto::ModuleConfig config;
                 config.name = runtimeName;
-                const auto prefix = Database::Entity::EAP::RuntimeCommandPrefix(application.runtime);
+                auto prefix = Database::Entity::EAP::RuntimeCommandPrefix(application.runtime);
+
+                // Where this host keeps that runtime, if it has been told. Decided here rather
+                // than in EAP because the application records which version it needs and the host
+                // it lands on records where that version lives - a JDK 25 application is the same
+                // definition on every host and a different path on each of them.
+                if (const auto setting = Database::Entity::EAP::RuntimeExecutableSetting(application.runtime);
+                    !prefix.empty() && !setting.empty()) {
+                    prefix.front() = Core::Configuration::instance().getOr<std::string>(setting, prefix.front());
+                }
+
                 if (!application.command.empty()) {
                     config.executable = application.command;
                     config.args = {artifact->string()};

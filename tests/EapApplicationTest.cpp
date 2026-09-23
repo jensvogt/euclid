@@ -23,6 +23,9 @@ using Euclid::Database::Entity::EAP::ScaleRefusal;
 using Euclid::Database::Entity::EAP::RestartRefusal;
 using Euclid::Database::Entity::EAP::Runtime;
 using Euclid::Database::Entity::EAP::RuntimeCommandPrefix;
+using Euclid::Database::Entity::EAP::RuntimeExecutableSetting;
+using Euclid::Database::Entity::EAP::RuntimeFromString;
+using Euclid::Database::Entity::EAP::RuntimeToString;
 using Euclid::Database::Entity::GenerateRuntimeName;
 using Euclid::Database::Entity::IsSafeRuntimeName;
 using Euclid::Database::Entity::IssueRuntimeName;
@@ -114,9 +117,53 @@ BOOST_AUTO_TEST_CASE(RuntimeDecidesTheCommandPrefix) {
     // What the manager execs: an interpreter with the artifact as its argument, or - for a
     // compiled binary - the artifact itself, which is why BINARY has no prefix at all.
     BOOST_TEST(RuntimeCommandPrefix(Runtime::JAVA) == (std::vector<std::string>{"java", "-jar"}));
+    BOOST_TEST(RuntimeCommandPrefix(Runtime::JAVA21) == (std::vector<std::string>{"java21", "-jar"}));
+    BOOST_TEST(RuntimeCommandPrefix(Runtime::JAVA25) == (std::vector<std::string>{"java25", "-jar"}));
     BOOST_TEST(RuntimeCommandPrefix(Runtime::PYTHON) == (std::vector<std::string>{"python3"}));
     BOOST_TEST(RuntimeCommandPrefix(Runtime::NODEJS) == (std::vector<std::string>{"node"}));
     BOOST_TEST(RuntimeCommandPrefix(Runtime::BINARY).empty());
+}
+
+BOOST_AUTO_TEST_CASE(EveryVersionedRuntimeGetsItsOwnExecutable) {
+
+    // The point of naming a version: a host with three JDKs installed side by side has no single
+    // answer to "java", and a jar built for 25 does not start on 21. If two of these ever returned
+    // the same key, asking for one version would silently get the other - which is the failure
+    // this was added to stop.
+    BOOST_TEST(RuntimeExecutableSetting(Runtime::JAVA21) == "euclid.modules.eap.runtimes.java21");
+    BOOST_TEST(RuntimeExecutableSetting(Runtime::JAVA25) == "euclid.modules.eap.runtimes.java25");
+    BOOST_TEST(RuntimeExecutableSetting(Runtime::JAVA) != RuntimeExecutableSetting(Runtime::JAVA21));
+    BOOST_TEST(RuntimeExecutableSetting(Runtime::JAVA21) != RuntimeExecutableSetting(Runtime::JAVA25));
+
+    // Nothing to name for something that is its own command.
+    BOOST_TEST(RuntimeExecutableSetting(Runtime::BINARY).empty());
+    BOOST_TEST(RuntimeExecutableSetting(Runtime::UNKNOWN).empty());
+
+    // A key exists for every runtime that has an interpreter, so a host can move any of them.
+    for (const auto runtime: {Runtime::JAVA, Runtime::JAVA21, Runtime::JAVA25, Runtime::PYTHON, Runtime::NODEJS}) {
+        BOOST_TEST_CONTEXT("runtime " << RuntimeToString(runtime)) {
+            BOOST_TEST(!RuntimeExecutableSetting(runtime).empty());
+        }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(TheRuntimeNameOnTheWireSurvivesARoundTrip) {
+
+    // Stored as its name, so adding JAVA21 and JAVA25 must not have disturbed the ones already in
+    // the database. An application written before this exists says "JAVA", and has to keep running
+    // as the plain java this host has - if RuntimeFromString stopped answering for it, every Java
+    // application deployed so far would come back UNKNOWN and refuse to start.
+    for (const auto runtime: {Runtime::JAVA, Runtime::JAVA21, Runtime::JAVA25, Runtime::PYTHON,
+                              Runtime::NODEJS, Runtime::BINARY}) {
+        BOOST_TEST_CONTEXT("runtime " << RuntimeToString(runtime)) {
+            BOOST_TEST((RuntimeFromString(RuntimeToString(runtime)) == runtime));
+        }
+    }
+
+    // And anything else is still UNKNOWN rather than quietly one of them - "JAVA22" is a typo, not
+    // a runtime, and create-application refuses it.
+    BOOST_TEST((RuntimeFromString("JAVA22") == Runtime::UNKNOWN));
+    BOOST_TEST((RuntimeFromString("java21") == Runtime::UNKNOWN));
 }
 
 BOOST_AUTO_TEST_CASE(RepositoryKeepsOneRowPerApplicationId) {

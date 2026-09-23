@@ -312,11 +312,32 @@ its own principal with its own short-lived credentials, whatever uid it happens 
 
 | Runtime | Started as | Notes |
 |---|---|---|
-| `JAVA` | `java -jar <artifact>` | |
+| `JAVA` | `java -jar <artifact>` | Whichever `java` the host calls java |
+| `JAVA21` | `<java21> -jar <artifact>` | The executable configured for it on that host |
+| `JAVA25` | `<java25> -jar <artifact>` | The executable configured for it on that host |
 | `PYTHON` | `python3 <artifact>` | |
 | `NODEJS` | `node <artifact>` | |
 | `BINARY` | `<artifact>` | Rust, C++, Go — anything executable; the manager sets the exec bit |
 
 `--command` overrides all of it when an application needs something else entirely (a wrapper
-script, an interpreter that isn't on `PATH`). The interpreter is resolved through `PATH`: euclid
-launches processes, it does not manage language toolchains.
+script, an interpreter that isn't on `PATH`).
+
+Where each runtime's interpreter lives is per host, under `euclid.modules.eap.runtimes` in
+`euclid.json`:
+
+```json
+"runtimes": {
+  "java": "java",
+  "java21": "/usr/lib/jvm/java-21-openjdk-amd64/bin/java",
+  "java25": "/usr/lib/jvm/java-25-openjdk-amd64/bin/java",
+  "python": "python3",
+  "nodejs": "node"
+}
+```
+
+Unset entries fall back to a bare name resolved through `PATH`, which is what `JAVA`, `PYTHON` and
+`NODEJS` are for. `JAVA21` and `JAVA25` fall back to `java21` and `java25`, names no distribution
+ships — deliberately, so an installation that asked for a version and configured nothing fails to
+start with the name it was looking for in the message, rather than running the jar under whichever
+JDK happened to be first on `PATH`. The application definition names the version; the host decides
+what that means there, so the same application runs on hosts whose JDKs live in different places.

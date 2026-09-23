@@ -21,6 +21,7 @@
 // Euclid includes
 #include <euclid/core/Configuration.h>
 #include <euclid/core/LogStream.h>
+#include <euclid/core/Scheduler.h>
 #include <euclid/core/UnixSocketServer.h>
 
 namespace Euclid::Core {
@@ -142,6 +143,17 @@ namespace Euclid::Core {
     }
 
     void UnixSocketServer::stop() {
+
+        // Before the io_context, and before anything else here: a scheduled task is the one thing
+        // in the process that runs on a thread nobody holds, and until this returns it can be
+        // halfway through reading state that the rest of shutdown is about to take away. Left to
+        // static destruction instead - which is where it was, because nothing called Stop() at all
+        // - the task outlives the singletons it reads. See Scheduler::Stop().
+        //
+        // Safe for a module that never schedules anything: Stop() on a scheduler that was never
+        // started returns immediately.
+        Scheduler::instance().Stop();
+
         _ioc.stop();
         for (auto &t: _workers) if (t.joinable()) t.join();
         std::remove(_socketPath.c_str());

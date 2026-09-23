@@ -418,7 +418,7 @@ namespace Euclid::EAP {
 
         const auto runtime = RuntimeFromString(stringField(obj, "runtime"));
         if (runtime == Runtime::UNKNOWN) {
-            return EapServer::ErrorResponse(req, status::bad_request, "runtime must be one of JAVA, PYTHON, NODEJS, BINARY");
+            return EapServer::ErrorResponse(req, status::bad_request, "runtime must be one of JAVA, JAVA21, JAVA25, PYTHON, NODEJS, BINARY");
         }
 
         // The bucket and the artifact are resolved now rather than at start-up, so a typo is
@@ -731,7 +731,7 @@ namespace Euclid::EAP {
         if (obj.contains("runtime")) {
             const auto runtime = RuntimeFromString(stringField(obj, "runtime"));
             if (runtime == Runtime::UNKNOWN) {
-                return EapServer::ErrorResponse(req, status::bad_request, "runtime must be one of JAVA, PYTHON, NODEJS, BINARY");
+                return EapServer::ErrorResponse(req, status::bad_request, "runtime must be one of JAVA, JAVA21, JAVA25, PYTHON, NODEJS, BINARY");
             }
             application->runtime = runtime;
         }

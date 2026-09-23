@@ -41,6 +41,13 @@ namespace Euclid::EAD {
      * installation they outnumber everything else by orders of magnitude, and a trail that large
      * buries what it was kept for.
      *
+     * @par
+     * Nor what flows through a resource rather than being one: a message, an object, an item, an
+     * event or a part, when the command succeeded. The trail is about the things somebody manages -
+     * "admin deleted queue X" - and the traffic through them arrives at a rate that was measured
+     * destroying this very collection, 46,000 discarded entries at a time. A failure is recorded
+     * whatever it was acting on. See Core::Permissions::IsSecondLevel() for the rule.
+     *
      * @author jensvogt47\@gmail.com
      */
     class EadServer final : public Core::HttpActionServer {
