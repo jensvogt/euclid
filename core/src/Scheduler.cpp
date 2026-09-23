@@ -17,6 +17,18 @@
 
 namespace Euclid::Core {
 
+    namespace {
+
+        // How long Stop() waits for tasks that are already running.
+        //
+        // Under the manager's five seconds, with room left for UnixSocketServer::stop() to join
+        // the io_context workers afterwards. A task that outlasts this is one that blocks
+        // indefinitely - a socket read with no timeout, a backup halfway through a large zip - and
+        // holding the process open for it only trades a race for a SIGKILL.
+        constexpr auto kStopGracePeriod = std::chrono::milliseconds(2000);
+
+    }// namespace
+
     Scheduler::~Scheduler() {
         Stop();
     }
@@ -30,7 +42,29 @@ namespace Euclid::Core {
     void Scheduler::Stop() {
         if (!_running.exchange(false)) return;
         _cv.notify_all();
+
+        // The timer thread first, so nothing new is dispatched while we wait below. Once it has
+        // returned, every task that will ever run has already been counted into _inFlight.
         if (_worker.joinable()) _worker.join();
+
+        std::unique_lock lock(_inFlightMutex);
+        if (!_inFlightCv.wait_for(lock, kStopGracePeriod, [this] { return _inFlight.empty(); })) {
+
+            std::string running;
+            for (const auto &[name, count]: _inFlight) {
+                if (!running.empty()) running += ", ";
+                running += name;
+                if (count > 1) running += " (x" + std::to_string(count) + ")";
+            }
+
+            // Not an error: the process is going away regardless, and the task may be doing
+            // exactly what it should with a slow resource. It is a warning because whatever those
+            // tasks touch is about to be destroyed underneath them.
+            log_warning << "Scheduler stopped with tasks still running, waited: " << kStopGracePeriod.count()
+                        << "ms, running: " << running;
+            return;
+        }
+
         log_debug << "Scheduler stopped";
     }
 
@@ -113,7 +147,39 @@ namespace Euclid::Core {
             if (entry->cancelled) continue;
 
             lock.unlock();
-            std::thread([entry] {
+
+            // Counted before the thread exists, not inside it. Registering from the new thread
+            // would leave a window in which the task is dispatched but invisible, and Stop() could
+            // pass through that window and let the process tear down around a task about to start.
+            {
+                std::lock_guard inFlight(_inFlightMutex);
+                ++_inFlight[entry->name];
+            }
+
+            std::thread([this, entry] {
+                // Whatever happens, the count comes back down - a task that throws past the
+                // handlers below would otherwise hold every future Stop() for the full grace
+                // period.
+                struct Done {
+                    Scheduler *scheduler;
+                    const std::string &name;
+                    ~Done() {
+                        {
+                            std::lock_guard lock(scheduler->_inFlightMutex);
+                            if (const auto it = scheduler->_inFlight.find(name); it != scheduler->_inFlight.end() && --it->second <= 0) {
+                                scheduler->_inFlight.erase(it);
+                            }
+                        }
+                        scheduler->_inFlightCv.notify_all();
+                    }
+                } done{this, entry->name};
+
+                // Cancelled between being taken off the queue and getting here. Cheap, and the
+                // difference between a clean shutdown and one last firing of a task whose owner
+                // has already been destroyed - MetricsPusher's destructor cancels, and it runs
+                // while the module is stopping.
+                if (entry->cancelled) return;
+
                 try {
                     entry->function();
                 } catch (const std::exception &ex) {

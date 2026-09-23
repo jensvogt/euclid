@@ -72,8 +72,28 @@ namespace Euclid::Core {
         void Start();
 
         /**
-         * @brief Stops the scheduler thread and joins it. Already running task threads are not
-         * interrupted, only future firings are cancelled.
+         * @brief Stops the scheduler thread, and waits for the tasks already running to finish.
+         *
+         * @par
+         * A barrier, not just a flag. Task threads are detached, so nothing else in the process
+         * knows they exist - and at shutdown that meant a task could still be running while the
+         * singletons it reads were being destroyed underneath it. Seen in production as
+         * "metrics-push-eap ... string too large": MonitoringCollector's map had already been
+         * destroyed, the samples read back as garbage, and boost::json refused a string two
+         * billion bytes long. That refusal was the lucky outcome; the same race is a segfault in a
+         * process that was otherwise exiting cleanly, on a shutdown path nobody would think to
+         * look at.
+         *
+         * @par
+         * Bounded, because a wedged task must not hold the process open: the manager SIGKILLs an
+         * instance that has not stopped in five seconds, and a shutdown that always ends in
+         * SIGKILL is not a shutdown. If the grace period runs out the still-running tasks are
+         * named in the log and the process carries on exiting, which is where it was before this
+         * existed - but now it says so.
+         *
+         * @par
+         * Already-running tasks are not interrupted; there is no portable way to do that to a
+         * task that is mid-call. Future firings are cancelled.
          */
         void Stop();
 
@@ -198,6 +218,29 @@ namespace Euclid::Core {
          * @brief Entries by id, for Cancel().
          */
         std::unordered_map<std::string, std::shared_ptr<Entry> > _tasks;
+
+        /**
+         * @brief Guards _inFlight. Separate from _mutex so a finishing task never waits on the
+         * timer thread, and so Stop() can wait for tasks without holding the queue lock a task
+         * might itself want - scheduling from inside a task is allowed and must not deadlock.
+         */
+        std::mutex _inFlightMutex;
+
+        /**
+         * @brief Signalled every time a task thread finishes.
+         */
+        std::condition_variable _inFlightCv;
+
+        /**
+         * @brief How many threads are inside a task right now, by task name.
+         *
+         * @par
+         * Counted by name rather than by id because the name is what a log line has to say to be
+         * of any use - "waited 2000ms, still running: nightly-backup" names the thing to look at.
+         * Several firings of one periodic task can overlap, hence a count per name rather than a
+         * set.
+         */
+        std::map<std::string, long> _inFlight;
     };
 
 }// namespace Euclid::Core

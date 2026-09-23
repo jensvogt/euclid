@@ -117,7 +117,7 @@ namespace Euclid::CLI {
         po::options_description desc("create a new application");
         desc.add_options()
                 ("application-id,n", po::value<std::string>()->required(), "name identifying the application, unique across the installation")
-                ("runtime,r", po::value<std::string>()->required(), "runtime the artifact is started with: JAVA, PYTHON, NODEJS or BINARY")
+                ("runtime,r", po::value<std::string>()->required(), "runtime the artifact is started with: JAVA, JAVA21, JAVA25, PYTHON, NODEJS or BINARY")
                 ("bucket,b", po::value<std::string>()->required(), "name of the ESM bucket holding the artifact")
                 ("artifact,a", po::value<std::string>()->required(), "object key of the artifact within that bucket")
                 ("version", po::value<std::string>(), "version of this build; read out of the artifact name (x.y.z) when not given")
