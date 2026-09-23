@@ -340,6 +340,15 @@ target_link_libraries(${AUDIT_EVENT_BINARY} PRIVATE eucliddb euclidcore Boost::u
 
 add_test(NAME ${AUDIT_EVENT_BINARY} COMMAND ${AUDIT_EVENT_BINARY})
 
+set(SCHEDULER_SHUTDOWN_BINARY euclid-scheduler-shutdown-tests)
+
+add_executable(${SCHEDULER_SHUTDOWN_BINARY} SchedulerShutdownTest.cpp)
+set_target_properties(${SCHEDULER_SHUTDOWN_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${SCHEDULER_SHUTDOWN_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${SCHEDULER_SHUTDOWN_BINARY} COMMAND ${SCHEDULER_SHUTDOWN_BINARY})
+
 set(BACKGROUND_WORK_BINARY euclid-background-work-tests)
 
 add_executable(${BACKGROUND_WORK_BINARY} BackgroundWorkTest.cpp)

@@ -153,6 +153,42 @@ namespace Euclid::Core {
          * @return true when it only reads.
          */
         static bool IsRead(std::string_view permission);
+
+        /**
+         * @brief Whether an action's subject is a second-level thing rather than a resource.
+         *
+         * @par
+         * The distinction the audit trail turns on. euclid's resources come in two tiers: the ones
+         * somebody creates and manages - a queue, a topic, a bucket, a key, a secret, a table, a
+         * user, an application - and the things that then flow through them: messages, objects,
+         * items, events, parts. An operator acts on the first tier and reads about it afterwards;
+         * programs act on the second tier, continuously, and that traffic is not what an audit is
+         * for.
+         *
+         * @par
+         * Judged by what the action acts on rather than by its verb, because euclid's verbs are
+         * not uniform and a verb rule gets the important cases wrong in both directions.
+         * "set-queue-delay" is an update of a queue though it is not spelled like one, and
+         * "purge-queue" is about as consequential as an operation on a queue gets; both would fall
+         * outside a create/update/delete rule. Meanwhile "delete-message" reads like a deletion and
+         * is a consumer acknowledging work, thousands of times an hour.
+         *
+         * @par
+         * Measured on a development installation over twenty minutes: 205,631 upload-part, 101,736
+         * receive-messages and 95,248 delete-message, against a few thousand entries for
+         * everything an operator would actually search for. The writer could not keep up and began
+         * discarding the oldest entries - 46,000 in one process - so the volume was not merely
+         * noisy, it was destroying the trail it was part of.
+         *
+         * @par
+         * Each of these is already bracketed by something that is recorded: create-upload and
+         * complete-upload record an upload with its key, its caller and its outcome, so the 1,479
+         * parts of a 12 GB file are how the bytes arrived rather than what was done.
+         *
+         * @param permission a full "<module>:<action>", or a bare action.
+         * @return true when it acts on a message, object, item, event, part or upload.
+         */
+        static bool IsSecondLevel(std::string_view permission);
     };
 
 }// namespace Euclid::Core

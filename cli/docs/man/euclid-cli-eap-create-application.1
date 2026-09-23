@@ -57,10 +57,17 @@ requests address it by. Required.
 .TP
 .BR \-r ", " \-\-runtime " " \fIRUNTIME\fR
 What the artifact is started with: \fIJAVA\fR (\fBjava \-jar\fR),
-\fIPYTHON\fR (\fBpython3\fR), \fINODEJS\fR (\fBnode\fR) or \fIBINARY\fR
-(the artifact itself, made executable). The interpreter is resolved
-through \fIPATH\fR; Euclid launches processes and does not manage
-language toolchains. Required.
+\fIJAVA21\fR, \fIJAVA25\fR, \fIPYTHON\fR (\fBpython3\fR),
+\fINODEJS\fR (\fBnode\fR) or \fIBINARY\fR (the artifact itself, made
+executable). Required.
+.IP
+\fIJAVA\fR is whichever \fBjava\fR the host calls java, resolved through
+\fIPATH\fR. \fIJAVA21\fR and \fIJAVA25\fR name a version and are started
+with the executable that host has configured under
+\fIeuclid.modules.eap.runtimes\fR \(em a jar built for 25 does not start on
+21, and a host that runs several JDKs has no single answer to "java".
+An installation that has not configured the version it was asked for
+fails to start the application, naming the executable it looked for.
 .TP
 .BR \-b ", " \-\-bucket " " \fIBUCKET\fR
 Name of the bucket holding the artifact. Required.
