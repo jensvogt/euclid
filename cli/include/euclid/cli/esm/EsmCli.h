@@ -25,6 +25,7 @@
 // Euclid includes
 #include <euclid/cli/BaseCli.h>
 #include <euclid/cli/credentials/Credentials.h>
+#include <euclid/cli/ExistsCheck.h>
 #include <euclid/cli/help/CliHelp.h>
 #include <euclid/cli/http/HttpClient.h>
 #include <euclid/core/Configuration.h>
@@ -137,6 +138,20 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int uploadOneFile(const std::string &bucketErn, const std::string &key, const std::string &filePath, long partSize, int concurrency, boost::json::value &outResult) const;
+
+        /**
+         * @brief Whether a bucket exists, answered as an exit code a shell can branch on.
+         *
+         * @par
+         * Written for `if euclid-cli esm exists-bucket -b name; then`. 0 when it is there, 1 when it
+         * is not, 2 when the question could not be answered - see Exists for why the third code
+         * matters more than it looks. "true" or "false" goes to stdout and nothing else does.
+         *
+         * @param args command line arguments
+         * @return 0 if the bucket exists, 1 if it does not, 2 if the question could not be answered
+         */
+        [[nodiscard]]
+        int existsBucket(const std::vector<std::string> &args) const;
 
     private:
 

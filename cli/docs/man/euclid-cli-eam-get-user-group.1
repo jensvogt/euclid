@@ -1,0 +1,66 @@
+.TH EUCLID-CLI-EAM-GET-USER-GROUP 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eam-get-user-group \- show one user group and who is in it
+.SH SYNOPSIS
+.B euclid-cli eam get-user-group
+.BR \-\-group | \-g
+.I NAME\fR|\fIERN
+.SH DESCRIPTION
+Shows one user group as JSON: its ERN, who is in it and when it was
+created.
+.PP
+The same description
+.BR euclid-cli-eam-list-user-groups (1)
+gives of each of its own, for one group.
+.PP
+Groups are installation-wide rather than scoped to an account, so a name
+identifies one on its own. An ERN is accepted too, because that is what a
+grant's principal carries \(em so the principal printed by
+.BR euclid-cli-eam-list-grants (1)
+can be pasted straight back in to find out who the grant actually
+reaches.
+.PP
+Which is the reason to run this. A role granted to a group is held by
+every member, and the membership is the part that is not visible in the
+grant: the grant names the group, and this is what turns that into
+people.
+.PP
+Requires administrator privileges.
+.SH OPTIONS
+.TP
+.BR \-g ", " \-\-group " " \fINAME\fR|\fIERN\fR
+Name of the group, or its full ERN. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The group was found and printed as JSON.
+.TP
+.B 1
+Missing or invalid arguments, no group of that name, the caller is not an
+administrator, or the server could not be reached.
+.SH EXAMPLES
+.RS
+.nf
+euclid\-cli eam get\-user\-group \-\-group ftp\-users
+
+euclid\-cli eam get\-user\-group \e
+    \-\-group ern:eam:eu\-central\-1:000000000000:userGroup:ftp\-users
+.fi
+.RE
+.PP
+What the group may do, which this does not show:
+.RS
+.nf
+euclid\-cli eam list\-grants \e
+    \-\-principal ern:eam:eu\-central\-1:000000000000:userGroup:ftp\-users
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-list-user-groups (1),
+.BR euclid-cli-eam-create-user-group (1),
+.BR euclid-cli-eam-delete-user-group (1),
+.BR euclid-cli-eam-get-user (1),
+.BR euclid-cli-eam-list-grants (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

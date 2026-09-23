@@ -111,6 +111,11 @@ Shows one message, by its id. See
 Resolves a topic's Euclid resource name (ERN) by its name. See
 .BR euclid-cli-ens-get-topic-ern (1).
 .TP
+.B exists-topic
+Answers whether a topic exists as an exit code, for use in a script: 0
+yes, 1 no, 2 could not tell. See
+.BR euclid-cli-ens-exists-topic (1).
+.TP
 .B get-topic-metadata
 Shows a topic's metadata (region, account, owner, namespace, size,
 message counts). See
@@ -368,6 +373,7 @@ euclid-cli --endpoint http://localhost:5566 ens delete-topic \e
 .BR euclid-cli-ens-list-topics (1),
 .BR euclid-cli-ens-get-topic (1),
 .BR euclid-cli-ens-get-message (1),
+.BR euclid-cli-ens-exists-topic (1),
 .BR euclid-cli-ens-get-topic-ern (1),
 .BR euclid-cli-ens-get-topic-metadata (1),
 .BR euclid-cli-ens-publish-message (1),
