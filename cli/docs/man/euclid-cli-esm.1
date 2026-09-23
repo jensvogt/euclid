@@ -97,6 +97,12 @@ enough to be split into parts is exactly the one whose priority somebody
 bothered to decide.
 .SH ACTIONS
 .TP
+.B abort-upload
+Discards a multipart upload: the parts staged under its id, and \(em for a
+first upload \(em the object row seeded for bytes that never arrived. The
+counterpart to "complete-upload". See
+.BR euclid-cli-esm-abort-upload (1).
+.TP
 .B create-bucket
 Creates a new storage bucket. See
 .BR euclid-cli-esm-create-bucket (1).
@@ -113,6 +119,11 @@ See
 .B get-bucket-ern
 Resolves a bucket's Euclid resource name (ERN) by its name. See
 .BR euclid-cli-esm-get-bucket-ern (1).
+.TP
+.B exists-bucket
+Answers whether a bucket exists as an exit code, for use in a script: 0
+yes, 1 no, 2 could not tell. See
+.BR euclid-cli-esm-exists-bucket (1).
 .TP
 .B get-bucket-size
 Returns a bucket's total size in bytes. See
@@ -448,12 +459,14 @@ euclid-cli --endpoint http://localhost:5566 esm unsubscribe \e
 .BR euclid-cli-esm-create-bucket (1),
 .BR euclid-cli-esm-list-buckets (1),
 .BR euclid-cli-esm-get-bucket (1),
+.BR euclid-cli-esm-exists-bucket (1),
 .BR euclid-cli-esm-get-bucket-ern (1),
 .BR euclid-cli-esm-get-bucket-size (1),
 .BR euclid-cli-esm-delete-bucket (1),
 .BR euclid-cli-esm-rename-bucket (1),
 .BR euclid-cli-esm-enable-encryption (1),
 .BR euclid-cli-esm-disable-encryption (1),
+.BR euclid-cli-esm-abort-upload (1),
 .BR euclid-cli-esm-upload-file (1),
 .BR euclid-cli-esm-upload-directory (1),
 .BR euclid-cli-esm-download-file (1),
