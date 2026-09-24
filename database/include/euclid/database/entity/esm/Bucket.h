@@ -89,6 +89,30 @@ namespace Euclid::Database::Entity::ESM {
         bool internal = false;
 
         /**
+         * @brief Priority the notifications this bucket sends are given, or empty for none.
+         *
+         * @par
+         * The bucket itself does nothing with it. A bucket is not consumed from and has no queue of
+         * its own, so there is nothing here for a priority to mean - it exists only to be handed on,
+         * to the messages a subscription of this bucket turns an object event into. "Everything that
+         * lands in this bucket is urgent" is the statement it makes, and the queue on the other side
+         * of the subscription is where that statement finally has an effect.
+         *
+         * @par
+         * Empty means the bucket says nothing, which is not the same as saying MEDIUM: a notification
+         * from a bucket with no priority set takes the target queue's own default, exactly as it did
+         * before buckets had this. That distinction is why this is a string and not a
+         * MessagePriority - the enum has no way to spell "unset", and defaulting it to MEDIUM would
+         * have every bucket silently overriding every queue.
+         *
+         * @par
+         * Less specific than the object's own. Whatever writes an object may set a priority in its
+         * system attributes, and that is a statement about one object where this is a statement about
+         * all of them - so it wins. See NotificationPriority().
+         */
+        std::string priority;
+
+        /**
          * @brief Bucket size in bytes
          */
         int64_t size{};
@@ -140,5 +164,33 @@ namespace Euclid::Database::Entity::ESM {
          */
         static Bucket fromDocument(const std::optional<bsoncxx::document::view> &document);
     };
+
+    /**
+     * @brief The priority a notification about one object should carry.
+     *
+     * @par
+     * Two statements can be in play and they are not the same size. A bucket's priority says
+     * "everything from here is urgent"; the priority in an object's system attributes says "this one
+     * is". The narrower statement wins, which is the only ordering that lets a bucket set a floor
+     * without taking away the ability to say more about a particular object.
+     *
+     * @par
+     * Both empty means empty, and that is deliberate rather than a default of MEDIUM: an empty
+     * answer leaves the target queue's own default in force, which is what happened before a bucket
+     * could carry a priority at all. Returning MEDIUM here would silently override every queue that
+     * had chosen something else.
+     *
+     * @par
+     * Not validated here, only chosen. Whether the string names a real priority was settled when it
+     * was stored - set-bucket-priority refuses one that does not - and the reader downstream falls
+     * back to the queue default for anything it cannot parse.
+     *
+     * @param objectPriority the priority in the object's system attributes, or empty.
+     * @param bucketPriority the bucket's own, or empty.
+     * @return the one to put on the notification, or empty to leave it unsaid.
+     */
+    inline std::string NotificationPriority(const std::string &objectPriority, const std::string &bucketPriority) {
+        return !objectPriority.empty() ? objectPriority : bucketPriority;
+    }
 
 }// namespace Euclid::Database::Entity::SQS

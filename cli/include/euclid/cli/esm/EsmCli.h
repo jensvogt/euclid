@@ -174,6 +174,15 @@ namespace Euclid::CLI {
         int setBucketInternal(const std::vector<std::string> &args) const;
 
         /**
+         * @brief Sets the priority this bucket's notifications are sent with.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int setBucketPriority(const std::vector<std::string> &args) const;
+
+        /**
          * @brief Delete a bucket
          *
          * @param args command line arguments

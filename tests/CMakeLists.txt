@@ -274,6 +274,15 @@ target_link_libraries(${QUEUE_COUNTER_BINARY} PRIVATE eucliddb Boost::unit_test_
 
 add_test(NAME ${QUEUE_COUNTER_BINARY} COMMAND ${QUEUE_COUNTER_BINARY})
 
+set(BUCKET_PRIORITY_BINARY euclid-esm-bucket-priority-tests)
+
+add_executable(${BUCKET_PRIORITY_BINARY} BucketPriorityTest.cpp)
+set_target_properties(${BUCKET_PRIORITY_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${BUCKET_PRIORITY_BINARY} PRIVATE eucliddb eucliddto Boost::unit_test_framework)
+
+add_test(NAME ${BUCKET_PRIORITY_BINARY} COMMAND ${BUCKET_PRIORITY_BINARY})
+
 set(BUCKET_COUNTER_BINARY euclid-esm-bucket-counter-tests)
 
 add_executable(${BUCKET_COUNTER_BINARY} BucketCounterTest.cpp)
