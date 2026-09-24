@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.1.37](https://github.com/jensvogt/euclid/compare/1.1.36...v1.1.37) (2026-09-24)
+
+
+### Bug Fixes
+
+* add bucket priority ([40865cb](https://github.com/jensvogt/euclid/commit/40865cb2596cf8cf96f2de55f69662f9266051d9))
+* add cpp example ([8064eb9](https://github.com/jensvogt/euclid/commit/8064eb9b100e74fdca3c9f862ebef64043c12833))
+* add cpp example ([9f8a2b1](https://github.com/jensvogt/euclid/commit/9f8a2b1ebbcc075e71f837f1392a77a0ca1e824d))
+
 ## [1.1.36](https://github.com/jensvogt/euclid/compare/1.1.35...v1.1.36) (2026-09-23)
 
 
