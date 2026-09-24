@@ -1663,23 +1663,37 @@ namespace Euclid::EQS {
         // bucket - has no notion of it.
         const auto systemAttributes = readAttributes("systemAttributes");
 
-        // Three sources, least specific first.
+        // Four sources, least specific first, each overriding the one before it. Written as four
+        // assignments rather than a chain of else-ifs because the order *is* the rule, and a reader
+        // should be able to see it without working out which branches exclude which.
         //
-        // The queue's own default is the floor, which is also what send-message starts from, so a
-        // message put into a queue by a subscription and one put there by a client are treated
-        // alike. A topic message carries a priority of its own and keeps it across the hop.
+        // 1. The queue's own default is the floor, which is also what send-message starts from, so a
+        //    message put into a queue by a subscription and one put there by a client are treated
+        //    alike.
         //
-        // An object carries no priority by itself - a bucket has no notion of one - so whatever
-        // decided the work was urgent says so in the object's system attributes, which travel with
-        // it. ESM sends them along with the notification and they go on to the message, so the
-        // producer's decision survives two hops it would otherwise be lost at. It is read here,
-        // where priority means something, rather than being a field ESM has to understand.
+        // 2. The source bucket's priority, if it has one: "everything that lands in this bucket is
+        //    urgent". A bucket is not consumed from and has no use for a priority itself - it exists
+        //    on the bucket only to be handed to the messages its notifications become, which is
+        //    here. Sent by ESM as the bucket stored it, unresolved, because comparing it against the
+        //    object's would mean ESM parsing a priority it has no use for.
+        //
+        // 3. The object's own, from its system attributes: "this one is". Narrower than the bucket's
+        //    statement, so it wins - a bucket sets a floor without taking away the ability to say
+        //    more about one object. Whatever wrote the object set it two hops upstream, and it
+        //    travels the whole way so the producer's decision is not lost in the middle.
+        //
+        // 4. A priority carried on the delivery, which is what a topic hop puts there. Most specific
+        //    because it is not a default at all: it is the priority a message already had.
         auto priority = queue->priority;
-        if (const auto carried = Core::GetStringValue(envelope.payload, "priority"); !carried.empty()) {
-            priority = Database::Entity::EQS::MessagePriorityFromString(carried);
-        } else if (const auto it = systemAttributes.find(Database::Entity::EQS::kPriorityAttribute);
+        if (const auto bucketDefault = Core::GetStringValue(envelope.payload, "bucketPriority"); !bucketDefault.empty()) {
+            priority = Database::Entity::EQS::MessagePriorityFromString(bucketDefault);
+        }
+        if (const auto it = systemAttributes.find(Database::Entity::EQS::kPriorityAttribute);
             it != systemAttributes.end() && it->second.holds<std::string>()) {
             priority = Database::Entity::EQS::MessagePriorityFromString(it->second.get<std::string>());
+        }
+        if (const auto carried = Core::GetStringValue(envelope.payload, "priority"); !carried.empty()) {
+            priority = Database::Entity::EQS::MessagePriorityFromString(carried);
         }
 
         const auto messageId = Core::UuidUtils::CreateRandomUuid();

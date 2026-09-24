@@ -43,6 +43,7 @@ namespace Euclid::Dto::ESM {
         dto.encryptionKeyErn = entity.encryptionKeyErn;
         dto.encrypted = !entity.encryptionKeyErn.empty();
         dto.internal = entity.internal;
+        dto.priority = entity.priority;
         dto.created = entity.created;
         dto.modified = entity.modified;
         return dto;

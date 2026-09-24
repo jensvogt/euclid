@@ -19,6 +19,12 @@ ordinary bucket does, but is left out of
 and the bucket count. Hidden, not protected \- see
 .BR euclid-cli-esm-set-bucket-internal (1),
 which also changes this afterwards.
+.TP
+.BR \-p ", " \-\-priority " " \fILOW\fR|\fIMEDIUM\fR|\fIHIGH\fR
+Priority the notifications a subscription of this bucket produces are sent
+with. Not for the bucket, which has no use for one. Omit it and the queue a
+notification lands in applies its own default. See
+.BR euclid-cli-esm-set-bucket-priority (1).
 .SH EXIT STATUS
 .TP
 .B 0
@@ -35,6 +41,7 @@ euclid-cli --endpoint http://localhost:5566 esm create-bucket \e
 .fi
 .RE
 .SH SEE ALSO
+.BR euclid-cli-esm-set-bucket-priority (1),
 .BR euclid-cli-esm (1),
 .BR euclid-cli-esm-list-buckets (1),
 .BR euclid-cli-esm-get-bucket-ern (1),
