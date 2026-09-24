@@ -212,7 +212,7 @@ namespace Euclid::Core {
                 "eqs:start-queue",
                 "eqs:stop-queue",
 
-                // esm - 39 actions
+                // esm - 41 actions
                 "esm:abort-upload",
                 "esm:add-bucket-tag",
                 "esm:add-object-attribute",
@@ -247,6 +247,7 @@ namespace Euclid::Core {
                 "esm:rename-bucket",
                 "esm:rename-object",
                 "esm:set-bucket-internal",
+                "esm:set-bucket-priority",
                 "esm:set-bucket-tag",
                 "esm:set-object-attribute",
                 "esm:subscribe",

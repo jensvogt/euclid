@@ -1,159 +1,117 @@
 #!/usr/bin/env python3
-"""Minimal euclid application, in the standard library only.
+"""A euclid application in Python, using euclid-pdk.
 
-An application is a process euclid starts and scales. The contract is small enough to fit in one
-file, and this file is that contract spelled out:
+An application is a process euclid starts, restarts, and scales between a minimum and a maximum
+instance count. The contract is small:
 
-  1. Serve HTTP/1.1 on the Unix socket path given in EUCLID_SOCKET. Creating that socket is what
-     tells the manager the instance is ready - it waits for it to appear, and kills the process
-     if it does not within the application's readyTimeoutMs.
-  2. Dispatch on the x-euclid-action request header, the way every euclid module does.
-  3. Log to stdout/stderr; the manager drains both into its own log.
-  4. Exit on SIGTERM.
+  1. Survive your own startup - still running a couple of seconds later.
+  2. Log to stdout and stderr; the manager drains both into euclid's log.
+  3. Exit on SIGTERM.
 
-Calling back into euclid is optional, and the second half of this file shows how. The manager
-writes a short-lived token into the file named by EUCLID_CREDENTIALS_FILE and replaces it before
-it expires; requests carrying it are authenticated as the identity the application runs as. An
-application deployed to run as a named user gets that user's access key instead, in
-EUCLID_ACCESS_KEY_ID/EUCLID_SECRET_ACCESS_KEY, and signs with it (RFC 9421 HTTP Message
-Signatures) - which is what sign() below does.
+Optionally, serve HTTP/1.1 on the Unix socket path in EUCLID_SOCKET, dispatching on the
+x-euclid-action header the way every euclid module does. That is how a request addressed to this
+application through the gateway reaches it, and it is the half no SDK can do for you - euclid-pdk is
+a client, and this is the server side. The rest of this file is the client side, and the PDK is all
+of it.
 
 Deploy it with:
 
     euclid-cli esm upload-file --bucket apps --key euclid_app.py --file euclid_app.py
     euclid-cli eap create-application --application-id demo --runtime PYTHON \\
-        --bucket apps --artifact euclid_app.py --user appuser
+        --bucket apps --artifact euclid_app.py --version 1.0.0
     euclid-cli eap start-application --application-id demo
+
+euclid-pdk has to be importable by the interpreter the manager starts this with - `pip install
+euclid-pdk` for that interpreter, or ship a virtualenv and point the application's `--command` at
+its python.
 """
 
-import base64
-import hashlib
-import hmac
-import http.client
 import json
 import os
 import signal
-import socket
 import socketserver
-import ssl
 import sys
 import threading
-import time
 from http.server import BaseHTTPRequestHandler
 
-# Exactly the components euclid's verifier requires, in exactly this order. The list is fixed on
-# purpose at both ends: a signature that covered less could be stripped down in transit and still
-# verify.
-COVERED_COMPONENTS = [
-    "@method",
-    "@path",
-    "@authority",
-    "content-digest",
-    "x-euclid-account-id",
-    "x-euclid-action",
-    "x-euclid-region",
-    "x-euclid-target",
-    "x-euclid-user-id",
-]
+from euclid import EuclidSession, credentials
+from euclid.auth import SigningScheme
+from euclid.http import DEFAULT_CA_CERT_PATH
+from euclid.modules.eam import AUTH_BEARER
 
 
-def content_digest(body: bytes) -> str:
-    """The RFC 9530 Content-Digest header value binding a body to its signature."""
-    return "sha-256=:" + base64.b64encode(hashlib.sha256(body).digest()).decode() + ":"
+def open_session() -> EuclidSession:
+    """A session built from the credentials the manager wrote, with no login.
 
+    An application has no password. It is handed a bearer token for its own technical principal in
+    the file EUCLID_CREDENTIALS_FILE names, and :func:`credentials.load` reads exactly that file -
+    :func:`credentials.path` prefers the environment variable over ``~/.euclid``.
 
-def sign(method: str, path: str, authority: str, headers: dict, body: bytes, key_id: str, secret: str) -> dict:
-    """Adds Content-Digest, Signature-Input and Signature to headers, and returns it."""
-    headers["Content-Digest"] = content_digest(body)
-
-    components = " ".join('"%s"' % name for name in COVERED_COMPONENTS)
-    parameters = '(%s);created=%d;keyid="%s";alg="hmac-sha256"' % (components, int(time.time()), key_id)
-
-    derived = {"@method": method.upper(), "@path": path, "@authority": authority.lower()}
-    # Component names are lowercase, HTTP header names are not case-sensitive - so the lookup
-    # cannot be a plain dict access, or "Content-Digest" would not answer to "content-digest".
-    by_lower_name = {name.lower(): value for name, value in headers.items()}
-    lines = []
-    for name in COVERED_COMPONENTS:
-        value = derived[name] if name.startswith("@") else by_lower_name[name]
-        lines.append('"%s": %s' % (name, value.strip()))
-    # The parameters are repeated verbatim on the last line; the verifier rebuilds the base from
-    # what it received, so any difference here - even in spacing - is a failed signature.
-    lines.append('"@signature-params": %s' % parameters)
-    base = "\n".join(lines).encode()
-
-    signature = hmac.new(secret.encode(), base, hashlib.sha256).digest()
-    headers["Signature-Input"] = "sig1=" + parameters
-    headers["Signature"] = "sig1=:" + base64.b64encode(signature).decode() + ":"
-    return headers
-
-
-def credentials() -> dict:
-    """The application's current credentials, re-read every time they are used.
-
-    The manager rewrites this file before the token in it expires, so an application that cached
-    the first token it saw would start getting 401s about an hour in. Reading it per call is the
-    simplest thing that stays correct - it is a small local file, and the alternative is knowing
-    when to look again.
+    ``AUTH_BEARER`` because a technical principal has no access key at all: its long-lived secret
+    never leaves EAM, so the token is the whole of what this process holds and there is nothing here
+    to sign with. ``cache=False`` because ``~/.euclid/credentials`` is the CLI's file and an
+    application has no business writing it.
     """
-    path = os.environ.get("EUCLID_CREDENTIALS_FILE")
-    if not path or not os.path.exists(path):
-        return {}
-    try:
-        with open(path, "r", encoding="utf-8") as handle:
-            return json.load(handle)
-    except (OSError, ValueError):
-        return {}
+    stored = credentials.load()
+    if stored is None:
+        raise SystemExit("no credentials: EUCLID_CREDENTIALS_FILE=%s"
+                         % os.environ.get("EUCLID_CREDENTIALS_FILE", "(unset)"))
 
+    # The manager writes the server as "endpoint"; EUCLID_ENDPOINT carries the same value, and is
+    # the fallback for an older euclid whose file this SDK could not read the server out of.
+    base_url = stored.base_url or os.environ.get("EUCLID_ENDPOINT") or os.environ.get("EUCLID_BASE_URL", "")
+    if not base_url:
+        raise SystemExit("credentials name no server, and neither does the environment")
 
-def call_euclid(target: str, action: str, body: dict) -> dict:
-    """Calls another euclid module through the gateway, as this application's identity."""
-    endpoint = os.environ["EUCLID_ENDPOINT"]
-    scheme, _, hostport = endpoint.partition("://")
-    host, _, port = hostport.partition(":")
-    port = int(port or (443 if scheme == "https" else 80))
-    authority = "%s:%d" % (host, port)
+    session = EuclidSession(
+        base_url=base_url,
+        token=stored.token,
+        user_id=stored.user_id,
+        account_id=stored.account_id,
+        region=stored.region,
+        access_key_id="",
+        secret_access_key="",
+        is_admin=False,
+        # What lets this name a queue or a bucket rather than spell out a full ERN.
+        namespace=stored.namespace,
+        raw={},
+        ca_cert_path=DEFAULT_CA_CERT_PATH,
+        verify=True,
+        timeout=30.0,
+        signing_scheme=SigningScheme.RFC9421,
+        auth=AUTH_BEARER,
+        cache=False,
+    )
 
-    payload = json.dumps(body).encode()
-    headers = {
-        "Host": authority,
-        "Content-Type": "application/json",
-        "x-euclid-target": target,
-        "x-euclid-action": action,
-        "x-euclid-region": os.environ.get("EUCLID_REGION", ""),
-        "x-euclid-account-id": os.environ.get("EUCLID_ACCOUNT_ID", ""),
-        "x-euclid-user-id": os.environ.get("EUCLID_USER_ID", ""),
-    }
-    # A short-lived bearer token when the manager left one - it expires, so nothing worth
-    # stealing sits in this process for long. An access key is the fallback, for an application
-    # deployed to run as a user whose key its operator manages.
-    token = credentials().get("token")
-    if token:
-        headers["Authorization"] = "Bearer " + token
-        headers["Content-Digest"] = content_digest(payload)
-    else:
-        sign("POST", "/", authority, headers, payload,
-             os.environ["EUCLID_ACCESS_KEY_ID"], os.environ["EUCLID_SECRET_ACCESS_KEY"])
+    # And the part that makes it keep working. The manager replaces the token once less than half
+    # its hour is left, so the session is told where to get the current one rather than handed a
+    # copy of the first. Without this an application works for an hour and then collects
+    # "401 Bearer token expired", a long way from the change that caused it.
+    #
+    # Re-reading the file per request is what this looks like, and it is cheap: the manager writes
+    # it beside and renames, so a reader never sees half a file, and the page has been in cache
+    # since the last call.
+    def current_token() -> str:
+        latest = credentials.load()
+        return latest.token if latest is not None else ""
 
-    if scheme == "https":
-        # Development installations use a self-signed gateway certificate; point this at the real
-        # CA (ssl.create_default_context(cafile=...)) anywhere it matters.
-        context = ssl._create_unverified_context()
-        connection = http.client.HTTPSConnection(host, port, context=context, timeout=30)
-    else:
-        connection = http.client.HTTPConnection(host, port, timeout=30)
-
-    connection.request("POST", "/", body=payload, headers=headers)
-    response = connection.getresponse()
-    raw = response.read()
-    return {"status": response.status, "body": json.loads(raw or b"{}")}
+    session.token_provider = current_token
+    return session
 
 
 class Handler(BaseHTTPRequestHandler):
+    """Two actions: one that answers from this process, one that calls back into euclid."""
+
     protocol_version = "HTTP/1.1"
 
+    # Set once in main(), because a handler is constructed per request and a session per request
+    # would be a login per request. The PDK builds one client per module per session, so
+    # ``session.esm()`` inside a handler costs a dict lookup rather than a connection.
+    session: EuclidSession = None  # type: ignore[assignment]
+
     def log_message(self, fmt, *args):
-        # Straight to stdout, which the manager drains into euclid's own log.
+        # Straight to stdout, which the manager drains into euclid's own log under this
+        # application's own channel.
         sys.stdout.write("%s\n" % (fmt % args))
         sys.stdout.flush()
 
@@ -166,14 +124,18 @@ class Handler(BaseHTTPRequestHandler):
             if action == "ping":
                 result = {
                     "application": os.environ.get("EUCLID_APPLICATION_ID"),
-                    "user": os.environ.get("EUCLID_USER_ID"),
+                    "version": os.environ.get("EUCLID_APPLICATION_VERSION"),
+                    "instance": os.environ.get("EUCLID_INSTANCE_ID"),
+                    "user": self.session.user_id,
                     "pid": os.getpid(),
                     "echo": json.loads(request_body or b"{}"),
                 }
             elif action == "list-buckets":
-                # Proves the other half of the contract: this call is authenticated purely by the
-                # signature, using credentials the manager put in this process's environment.
-                result = call_euclid("esm", "list-buckets", {"pageSize": 10, "pageIndex": 0})
+                # The other half of the contract, and the whole reason to use the SDK: one call,
+                # authenticated as this application's own principal. No signing, no credentials
+                # file, no HTTP - the session above already knows all of it.
+                page = self.session.esm().list_buckets(page_size=10)
+                result = {"total": page.total, "buckets": [bucket.name for bucket in page.items]}
             else:
                 self.respond(404, {"error": "Action not implemented: %s" % action})
                 return
@@ -206,21 +168,27 @@ def main() -> int:
         sys.stderr.write("EUCLID_SOCKET is not set - this program is started by euclid-mgr\n")
         return 1
 
+    Handler.session = open_session()
+
     if os.path.exists(socket_path):
         os.unlink(socket_path)
-
     server = UnixHttpServer(socket_path, Handler)
 
     def shutdown(_signum, _frame):
-        # From another thread, always: shutdown() blocks until serve_forever() acknowledges it,
-        # and serve_forever() is running on this very thread - calling it here deadlocks, and the
-        # process then has to be killed rather than stopping when euclid asks it to.
+        # From another thread, always: shutdown() blocks until serve_forever() acknowledges it, and
+        # serve_forever() is running on this very thread - calling it here deadlocks, and the process
+        # then has to be killed rather than stopping when euclid asks it to.
         threading.Thread(target=server.shutdown, daemon=True).start()
 
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
 
-    print("application %s listening on %s" % (os.environ.get("EUCLID_APPLICATION_ID", "?"), socket_path), flush=True)
+    # Logged on start-up because stdout goes to euclid's log: a build that prints its version makes
+    # "what is actually running?" answerable from the log alone.
+    print("application %s version %s listening on %s as %s"
+          % (os.environ.get("EUCLID_APPLICATION_ID", "?"),
+             os.environ.get("EUCLID_APPLICATION_VERSION", "(unset)"),
+             socket_path, Handler.session.user_id), flush=True)
     try:
         server.serve_forever()
     finally:
