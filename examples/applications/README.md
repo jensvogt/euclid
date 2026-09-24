@@ -20,7 +20,8 @@ That is the whole of it.
 environment variable (and, for euclid's own modules, as `--socket`). An application that binds it
 and speaks HTTP/1.1 there, dispatching on the `x-euclid-action` header the way every euclid module
 does, can answer health and metrics calls; one that ignores it is treated no differently.
-`python/euclid_app.py` shows the whole arrangement, and euclid-spring binds the socket for a Spring
+`python/euclid_app.py` shows the whole arrangement - it is the one half no SDK can do for you, since
+the SDKs are clients and this is the server side - and euclid-spring binds the socket for a Spring
 application without it having to know.
 
 Earlier versions *required* the socket - creating it was the readiness signal - which killed
@@ -62,8 +63,9 @@ The file is JSON:
 (`euclid.modules.eap.credentials-ttl-seconds`), and the manager replaces the file once less than
 half of that is left — atomically, by writing alongside and renaming, so a reader never sees half a
 file. An application that held on to the first token it saw would work for an hour and then start
-getting `401 Bearer token expired`. Both examples here re-read the file rather than remember it;
-the Java one rebuilds its euclid-jdk session when the token changes.
+getting `401 Bearer token expired`. Every example here re-reads the file rather than remembering it:
+the Java one rebuilds its euclid-jdk session when the token changes, and the C++ one hands the SDK a
+token provider that re-reads it per request.
 
 This is the arrangement AWS uses for container and web-identity credentials, for the same reason:
 after `exec()` an environment cannot be rewritten, so anything that has to be replaced while a
@@ -82,9 +84,10 @@ with `alg="hmac-sha256"`, a `created` timestamp within 15 minutes of now, and a 
 header (RFC 9530) over the body. The component list is fixed at both ends on purpose: a signature
 covering less could be stripped down in transit and still verify.
 
-`python/euclid_app.py`'s `sign()` is a complete implementation in about twenty lines; the euclid
-side is `Core::HttpSignature`, and `tests/HttpSignatureTest.cpp` pins the two against each other
-with a recorded vector produced by that Python code.
+`python/rfc9421_reference.py` is a complete implementation in the standard library alone, and
+running it reproduces and checks the vector `tests/HttpSignatureTest.cpp` pins `Core::HttpSignature`
+against. It is there as an interoperability reference rather than as something to copy: every SDK
+signs for you, and `python/euclid_app.py` no longer does any of it by hand.
 
 ## Being told when a bucket changes
 
@@ -161,6 +164,13 @@ euclid-cli eap create-application \
 euclid-cli eap start-application --application-id demo
 euclid-cli eap list-applications
 ```
+
+One thing the artifact does not bring with it is its dependencies. The manager copies a single object
+out of the bucket and runs it; there is no install step on the other side. `python/euclid_app.py`
+imports euclid-pdk, so that has to be importable by the interpreter the manager starts — `pip install
+euclid-pdk` for that interpreter, or ship a virtualenv and point the application's `--command` at its
+python. The same is true in reverse of the C++ example, which is why `cpp/README.md` argues for
+linking the SDK statically: a single file that cannot arrive and fail to start for want of a library.
 
 ## Who an application is
 
@@ -296,6 +306,32 @@ with no `EUCLID_SOCKET` set it simply skips the socket half:
 ```bash
 java -jar target/euclid-inbox-app.jar
 ```
+
+## The C++ example
+
+`cpp/` is a queue worker built against the [euclid-cdk](https://github.com/jensvogt/euclid-cdk), and
+the only example here that is compiled — so it is also the one that shows the `BINARY` runtime, where
+the artifact is the executable and there is no interpreter in front of it.
+
+```bash
+cd cpp
+cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j 64
+
+euclid-cli esm upload-file --bucket apps --key echo-worker --file build/echo-worker
+euclid-cli eap create-application --application-id echo-worker --runtime BINARY \
+    --bucket apps --artifact echo-worker --version 1.0.0 \
+    --min-instances 1 --max-instances 4 --queues echo-worker-queue
+euclid-cli eap start-application --application-id echo-worker
+
+euclid-cli eqs send-message --queue echo-worker-queue --body 'hello'
+```
+
+It is the one to read for **load reporting**, which is what decides whether an application scales at
+all: nothing asks an application for anything over a socket, so the manager cannot see its load the
+way it sees a module's, and one that reports nothing runs a single instance forever however long its
+queue gets. `cpp/README.md` has the details, including the non-obvious half — an instance that stops
+reporting counts as *busy*, so a worker reporting only while it has work would never scale back down.
+
 
 ## What an application runs as
 

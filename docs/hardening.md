@@ -24,11 +24,16 @@ On for GCC and Clang, not for MSVC, whose existing options are left alone.
 | `-Wdouble-promotion` | a float silently widened, usually in a format string |
 | `-Wformat=2` | a format string that does not match its arguments |
 | `-Wimplicit-fallthrough` | a `switch` case falling through without saying so |
-| `-Wnull-dereference` | |
 | `-Wshadow` | a name hiding another — how the wrong variable gets assigned |
 
 **Not `-Werror`, deliberately.** A warning that stops the build is one somebody silences in a
 hurry. The point of turning these on is that they are read.
+
+**`-Wnull-dereference` is off**, behind `-DEUCLID_WARN_NULL_DEREFERENCE=ON`. GCC raises it from the
+optimizer, and the optimizer does not consult the `-isystem` marking that keeps third-party headers
+quiet — so a header inlined into a euclid translation unit reports against itself, and 334 of them do.
+Not restricted to Debug instead, which is the tempting half-measure: the warning needs `-O2` to fire at
+all, so a Debug-only setting is not weaker coverage but none, wearing the appearance of some. See §6.
 
 **`-Wno-missing-field-initializers`**, and not because it is inconvenient: GCC raises it for a
 designated initializer that omits a member *which has a default member initializer*, which is the
@@ -283,15 +288,32 @@ slow for every pull request it is a reasonable candidate for a nightly schedule 
 
 ## 6. Not done
 
-- **Release builds carry 162 warnings from Boost's headers**, none from euclid. All of them are
-  `-Wnull-dereference` inside `boost/asio` and `boost/beast`, and they appear only in an optimized
-  build: GCC raises that one from the optimizer once the header has been inlined into a euclid
-  translation unit, and by then the `-isystem` marking that would have suppressed it is gone. So
-  `-isystem` is not the fix, and there is no version of this that is euclid's bug to fix. It
-  matters only as the reason `-Werror` cannot simply be turned on for Release — see below.
+- **`-Wnull-dereference` is off by default**, which is a decision rather than an omission. Measured on
+  a full Release build of this tree with GCC 14.2: **334 findings, none of them in euclid's own code** —
+  127 in `boost/beast/http/impl/fields.hpp`, 108 in `boost/asio/detail/impl/scheduler.ipp`, 72 in
+  `boost/asio/io_context.hpp`, and 27 in libstdc++. With it off, a full Release build is at zero
+  warnings, the same as Debug.
+
+  Three things were checked before turning it off, because each of them looks like a fix and is not:
+
+  | | |
+  |---|---|
+  | `-isystem` | already in use — vcpkg's include arrives that way. The warning comes out of the optimizer, which does not consult it. |
+  | Debug only | the warning needs `-O2` to fire at all. At `-O0` GCC does not report even a plainly null dereference, so this is no coverage dressed as some. |
+  | clang | accepts the flag, reports no unknown option, and implements no such analysis. It never warned on anything, whatever the flags said. |
+
+  What does work, if it is ever wanted permanently, is `#pragma GCC diagnostic ignored` around the
+  offending includes: GCC checks the pragma state at the location it *reports*, so the suppression
+  applies where `-isystem` does not. It needs asio and beast wrapped everywhere they are included, and
+  one new file including either directly brings the noise back, which is why it is a switch instead:
+
+  ```
+  cmake -B build -DEUCLID_WARN_NULL_DEREFERENCE=ON
+  cmake --build build 2>&1 | grep -v vcpkg_installed | grep -v '/c++/'
+  ```
 - **`-Werror` is still not set.** It is now possible for euclid's own sources — they are
-  warning-free in both configurations — where before it
-  would have failed on 55 findings. Worth doing only with a decision about non-GCC builds: a
+  warning-free in both configurations, Release included now that the paragraph above is settled —
+  where before it would have failed on 55 findings. Worth doing only with a decision about non-GCC builds: a
   different compiler or a newer GCC finds warnings this one does not, and `-Werror` turns each of
   those into a build that does not compile rather than a build that complains. The middle option
   is to set it for the CI job and not for local builds.
