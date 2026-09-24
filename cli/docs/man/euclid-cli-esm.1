@@ -281,6 +281,11 @@ changing them. See
 Hides a bucket from listings, or stops hiding it. See
 .BR euclid-cli-esm-set-bucket-internal (1).
 .TP
+.B set-bucket-priority
+Sets the priority the notifications this bucket sends are given \(em the
+bucket itself does nothing with it. See
+.BR euclid-cli-esm-set-bucket-priority (1).
+.TP
 .B delete-objects
 Deletes several objects from a bucket, by key or by prefix. See
 .BR euclid-cli-esm-delete-objects (1).
@@ -459,6 +464,7 @@ euclid-cli --endpoint http://localhost:5566 esm unsubscribe \e
 .BR euclid-cli-esm-create-bucket (1),
 .BR euclid-cli-esm-list-buckets (1),
 .BR euclid-cli-esm-get-bucket (1),
+.BR euclid-cli-esm-set-bucket-priority (1),
 .BR euclid-cli-esm-exists-bucket (1),
 .BR euclid-cli-esm-get-bucket-ern (1),
 .BR euclid-cli-esm-get-bucket-size (1),

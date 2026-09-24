@@ -5,6 +5,7 @@
 // Euclid includes
 #include <EsmServer.h>
 #include <euclid/database/BackgroundWork.h>
+#include <euclid/database/entity/eqs/MessagePriority.h>
 
 #include "euclid/dto/esm/AddBucketTagRequest.h"
 #include "euclid/dto/esm/DeleteBucketTagRequest.h"
@@ -325,6 +326,7 @@ namespace Euclid::ESM {
                                           const std::string &md5Sum, bool directory,
                                           const boost::json::object &attributes,
                                           const boost::json::object &systemAttributes,
+                                          const std::string &bucketPriority,
                                           const std::vector<Database::Entity::ESM::Subscription> *resolved);
 
     // @param resolved the bucket's subscriptions, already looked up, or null to look them up here.
@@ -371,7 +373,8 @@ namespace Euclid::ESM {
         notifyBucketSubscriptions(eventType, object.bucketErn, object.key, object.ern, object.size,
                                   object.contentType, object.md5Sum,
                                   Database::Entity::ESM::IsDirectoryKey(object.key),
-                                  asJson(object.attributes), asJson(object.systemAttributes), resolved);
+                                  asJson(object.attributes), asJson(object.systemAttributes),
+                                  bucket.has_value() ? bucket->priority : std::string{}, resolved);
 
         Database::EventBus::instance().Publish(
                 eventType,
@@ -469,9 +472,15 @@ namespace Euclid::ESM {
                             .targetErn = subscription.targetErn,
                             .sourceErn = object.bucketErn,
                             .messageId = Core::UuidUtils::CreateRandomUuid()};
-                    const boost::json::value payload = {{"body", body},
-                                                        {"attributes", attributes},
-                                                        {"systemAttributes", systemAttributes}};
+                    // See the single-object path above for why this is the bucket's own figure
+                    // rather than a resolved one.
+                    boost::json::object payloadObject{{"body", body},
+                                                      {"attributes", attributes},
+                                                      {"systemAttributes", systemAttributes}};
+                    if (bucket.has_value() && !bucket->priority.empty()) {
+                        payloadObject["bucketPriority"] = bucket->priority;
+                    }
+                    const boost::json::value payload = payloadObject;
 
                     if (subscription.type == "SQS") deliveries.emplace_back(payload, delivery);
                     else if (subscription.type == "SNS") publications.emplace_back(payload, delivery);
@@ -901,6 +910,7 @@ namespace Euclid::ESM {
                                           const std::string &md5Sum, const bool directory,
                                           const boost::json::object &attributes,
                                           const boost::json::object &systemAttributes,
+                                          const std::string &bucketPriority,
                                           const std::vector<Database::Entity::ESM::Subscription> *resolved) {
 
         // Looked up here for a single object event, handed in for a page of them - see
@@ -955,9 +965,17 @@ namespace Euclid::ESM {
             // whatever put the object in the bucket knows things about it that the bucket cannot
             // express - which datenlieferant it came from, how urgent it is - and a subscriber
             // that has to fetch the object to find out has been told the wrong thing.
-            const boost::json::value payload = {{"body", body},
-                                                {"attributes", attributes},
-                                                {"systemAttributes", systemAttributes}};
+            // The bucket's own priority, for the queue on the other side to weigh against the
+            // object's. Sent as the bucket stored it rather than resolved here: ESM would have to
+            // parse a Variant out of the system attributes to compare the two, and priority means
+            // nothing to a bucket - see EqsServer::handleSubscriptionDelivery, which already reads
+            // both and is the one place that has a queue to apply them to. Omitted entirely when
+            // the bucket says nothing, so an event looks exactly as it did before.
+            boost::json::object payloadObject{{"body", body},
+                                              {"attributes", attributes},
+                                              {"systemAttributes", systemAttributes}};
+            if (!bucketPriority.empty()) payloadObject["bucketPriority"] = bucketPriority;
+            const boost::json::value payload = payloadObject;
 
             if (subscription.type == "SQS") {
                 Database::EventBus::instance().Publish("esm.subscription.delivery", payload, "esm", delivery);
@@ -993,6 +1011,18 @@ namespace Euclid::ESM {
         bucket.nameSpace = ns;
         bucket.owner = auth.user->userId;
         bucket.internal = request.internal;
+
+        // Refused rather than ignored, and before the bucket exists: a create that quietly dropped a
+        // priority it did not understand would leave a bucket looking configured and behaving as
+        // though it were not.
+        if (!request.priority.empty()) {
+            const auto parsed = Database::Entity::EQS::TryMessagePriorityFromString(request.priority);
+            if (!parsed.has_value()) {
+                return ErrorResponse(req, status::bad_request,
+                                     R"(priority must be "LOW", "MEDIUM" or "HIGH", not ")" + request.priority + R"(")");
+            }
+            bucket.priority = Database::Entity::EQS::MessagePriorityToString(*parsed);
+        }
 
         const auto saved = Database::RepositoryFactory::instance().esmRepository()->upsertBucket(bucket);
         log_info << "ESM bucket created, ern: " << bucket.ern;
@@ -1333,6 +1363,56 @@ namespace Euclid::ESM {
                                     {"ern", stored.ern},
                                     {"name", stored.name},
                                     {"internal", stored.internal}}));
+    }
+
+    response<string_body> EsmServer::handleSetBucketPriority(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-bucket-priority");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+
+        const auto ern = Core::GetStringValue(jv, "ern");
+        if (ern.empty()) return ErrorResponse(req, status::bad_request, "ern is required");
+
+        // An empty priority is how it is cleared, and it has to be expressible: a bucket that says
+        // nothing leaves the target queue's own default in force, and there would otherwise be no
+        // way back to that once a priority had been set.
+        const auto priority = Core::GetStringValue(jv, "priority");
+        if (!priority.empty() && !Database::Entity::EQS::TryMessagePriorityFromString(priority).has_value()) {
+            return ErrorResponse(req, status::bad_request,
+                                 R"(priority must be "LOW", "MEDIUM" or "HIGH", or empty to clear it, not ")" + priority + R"(")");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        auto bucket = repo->findBucketByErn(ern);
+        if (!bucket.has_value()) {
+            return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + ern);
+        }
+        if (bucket->accountId != auth.user->accountId) {
+            return ErrorResponse(req, status::forbidden, "Bucket does not belong to the caller's account");
+        }
+        if (const auto denied = denyUngrantedBucket(req, auth, ern)) return *denied;
+
+        // Stored uppercased, which is what TryMessagePriorityFromString accepted it as - so a bucket
+        // set with "high" reads back "HIGH" and matches what a queue or a message would say.
+        bucket->priority = priority.empty()
+                               ? std::string{}
+                               : Database::Entity::EQS::MessagePriorityToString(
+                                         *Database::Entity::EQS::TryMessagePriorityFromString(priority));
+        const auto stored = repo->upsertBucket(*bucket);
+
+        log_info << "ESM bucket priority set, bucket: " << stored.name
+                 << ", priority: " << (stored.priority.empty() ? "(none)" : stored.priority);
+
+        return JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                    {"ern", stored.ern},
+                                    {"name", stored.name},
+                                    {"priority", stored.priority}}));
     }
 
     response<string_body> EsmServer::handleRenameBucket(const request<string_body> &req) {
@@ -3571,6 +3651,7 @@ namespace Euclid::ESM {
             DeleteBucket,
             RenameBucket,
             SetBucketInternal,
+            SetBucketPriority,
             TouchObject,
             ListBuckets,
             GetBucket,
@@ -3634,6 +3715,7 @@ namespace Euclid::ESM {
         if (action == "rename-object") return Command::RenameObject;
         if (action == "rename-bucket") return Command::RenameBucket;
         if (action == "set-bucket-internal") return Command::SetBucketInternal;
+        if (action == "set-bucket-priority") return Command::SetBucketPriority;
         if (action == "touch-object") return Command::TouchObject;
         if (action == "add-object-attribute") return Command::AddObjectAttribute;
         if (action == "set-object-attribute") return Command::SetObjectAttribute;
@@ -3835,6 +3917,9 @@ namespace Euclid::ESM {
 
             case Command::SetBucketInternal:
                 return handleSetBucketInternal(req);
+
+            case Command::SetBucketPriority:
+                return handleSetBucketPriority(req);
 
             case Command::TouchObject:
                 return handleTouchObject(req);

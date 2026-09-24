@@ -1,0 +1,115 @@
+.TH EUCLID-CLI-ESM-SET-BUCKET-PRIORITY 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-set-bucket-priority \- set the priority a bucket's notifications are sent with
+.SH SYNOPSIS
+.B euclid-cli esm set-bucket-priority
+.BR \-\-bucket | \-b
+.I NAME
+.RB [ \-\-priority | \-p
+.IR LOW | MEDIUM | HIGH ]
+.SH DESCRIPTION
+Sets the priority the notifications this bucket sends are given.
+.PP
+.B The bucket does nothing with it.
+A bucket is not consumed from and has no queue of its own, so there is
+nothing here for a priority to mean. It exists only to be handed on \(em
+to the messages a subscription of this bucket turns an object event into.
+"Everything that lands in this bucket is urgent" is the statement it
+makes, and the queue on the other side of the subscription is where that
+statement finally has an effect.
+.PP
+It reaches a queue by either route a bucket subscription takes: directly,
+for an
+.I SQS
+subscription, and through the topic for an
+.IR SNS
+one \(em see
+.BR euclid-cli-esm-subscribe (1).
+Both end at the same place, and it keeps the same standing on both.
+.SH WHICH PRIORITY WINS
+Four statements can be in play about one message. Least specific first,
+each overriding the one before it:
+.TP
+.B 1. the queue's own default
+Set when the queue was created. This is the floor, and it is also where
+.BR euclid-cli-eqs-send-message (1)
+starts from, so a message put into a queue by a subscription and one put
+there by a client are treated alike.
+.TP
+.B 2. the bucket's priority
+What this command sets. A statement about every object in the bucket.
+.TP
+.B 3. the object's own
+A
+.I priority
+in the object's system attributes, set by whatever wrote it. A statement
+about one object, so it beats the bucket's \(em which is what lets a
+bucket set a floor without taking away the ability to say more about a
+particular object.
+.TP
+.B 4. a priority the message already had
+What a topic hop carries. Most specific, because it is not a default at
+all.
+.SH EMPTY IS NOT MEDIUM
+An empty
+.B \-\-priority
+clears it, and that is the only way back to letting the queue decide.
+.PP
+The distinction matters: a bucket that says nothing leaves a queue created
+with
+.I LOW
+delivering at
+.IR LOW ,
+where a bucket saying
+.I MEDIUM
+would override it. Every bucket that existed before buckets could carry a
+priority says nothing, and behaves exactly as it did.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-bucket " " \fINAME\fR
+Bucket to change. A name is enough; a full ERN also works. Required.
+.TP
+.BR \-p ", " \-\-priority " " \fILOW\fR|\fIMEDIUM\fR|\fIHIGH\fR
+The priority. Case is not significant \(em it is stored as the upper-case
+spelling a queue and a message use. Omit it, or pass an empty string, to
+clear it. Anything that is not one of the three is refused rather than
+ignored, so a bucket cannot end up looking configured and behaving as
+though it were not.
+.SH EXIT STATUS
+.TP
+.B 0
+The priority was set, and the bucket is printed as JSON.
+.TP
+.B 1
+Missing or invalid arguments, an unrecognised priority, no such bucket,
+the bucket belongs to another account, the caller was not granted it, or
+the server could not be reached.
+.SH EXAMPLES
+Everything arriving in this bucket is urgent:
+.RS
+.nf
+euclid\-cli esm set\-bucket\-priority \-\-bucket inbox \-\-priority HIGH
+.fi
+.RE
+.PP
+And back to letting each target queue decide:
+.RS
+.nf
+euclid\-cli esm set\-bucket\-priority \-\-bucket inbox \-\-priority ""
+.fi
+.RE
+.PP
+Set at creation instead:
+.RS
+.nf
+euclid\-cli esm create\-bucket \-\-name inbox \-\-priority HIGH
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-esm (1),
+.BR euclid-cli-esm-create-bucket (1),
+.BR euclid-cli-esm-get-bucket (1),
+.BR euclid-cli-esm-subscribe (1),
+.BR euclid-cli-eqs-send-message (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

@@ -26,6 +26,16 @@ namespace Euclid::Dto::ESM {
         bool internal = false;
 
         /**
+         * @brief Priority the notifications this bucket sends are given, or empty for none.
+         *
+         * @par
+         * The bucket does nothing with it - see Database::Entity::ESM::Bucket::priority for what it
+         * is and Database::Entity::ESM::NotificationPriority() for how it is weighed. Empty is not
+         * MEDIUM: it means the bucket says nothing, and the target queue's own default decides.
+         */
+        std::string priority;
+
+        /**
          * @brief Deserializes this request from a JSON string
          */
         [[nodiscard]] static CreateBucketRequest fromJson(const std::string &json) {
@@ -38,6 +48,7 @@ namespace Euclid::Dto::ESM {
             CreateBucketRequest r;
             r.name = Core::GetStringValue(v, "name");
             r.internal = Core::GetBoolValue(v, "internal");
+            r.priority = Core::GetStringValue(v, "priority");
             return r;
         }
 
@@ -45,6 +56,7 @@ namespace Euclid::Dto::ESM {
             jv = {
                     {"name", obj.name},
                     {"internal", obj.internal},
+                    {"priority", obj.priority},
             };
         }
     };

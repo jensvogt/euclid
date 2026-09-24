@@ -102,6 +102,7 @@ namespace Euclid::CLI {
                 {"rename-bucket", "Give a bucket another name"},
                 {"rename-object", "Renames an object within its bucket"},
                 {"set-bucket-internal", "Hide a bucket from listings, or stop hiding it"},
+                {"set-bucket-priority", "Set the priority this bucket's notifications are sent with"},
                 {"set-bucket-tag", "Sets the value of an existing bucket tag"},
                 {"set-object-attribute", "Sets the value of an existing object attribute"},
                 {"subscribe", "Subscribes a target resource (an EQS queue or an ENS topic) to a bucket's object-created events"},
@@ -121,6 +122,9 @@ namespace Euclid::CLI {
         }
         if (action == "set-bucket-internal") {
             return setBucketInternal(args);
+        }
+        if (action == "set-bucket-priority") {
+            return setBucketPriority(args);
         }
         if (action == "create-bucket") {
             return createBucket(args);
@@ -228,7 +232,8 @@ namespace Euclid::CLI {
         po::options_description desc("create bucket options");
         desc.add_options()
                 ("name,n", po::value<std::string>()->required(), "name")
-                ("internal,i", po::bool_switch(), "euclid's own plumbing: create it, but leave it out of list-buckets and the bucket count");
+                ("internal,i", po::bool_switch(), "euclid's own plumbing: create it, but leave it out of list-buckets and the bucket count")
+                ("priority,p", po::value<std::string>()->default_value(""), "priority this bucket's notifications are sent with: LOW, MEDIUM or HIGH; omit for none");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("esm", "create-bucket", "--name <name> [--internal]",
@@ -237,7 +242,11 @@ namespace Euclid::CLI {
                                    "works in every way an ordinary bucket does, but is left out of list-buckets and "
                                    "the bucket count, so it does not clutter a listing for people who have no reason "
                                    "to act on it. Hidden, not protected - anyone who knows the name can still use it. "
-                                   "Use \"esm set-bucket-internal\" to change this afterwards.",
+                                   "Use \"esm set-bucket-internal\" to change this afterwards.\n\n"
+                                   "--priority is for the notifications a subscription of this bucket produces, not "
+                                   "for the bucket: a bucket is not consumed from and has nothing to do with one. "
+                                   "Omit it and the queue a notification lands in applies its own default, which is "
+                                   "what happens today. See \"esm set-bucket-priority\".",
                                    desc);
         }
 
@@ -253,6 +262,7 @@ namespace Euclid::CLI {
         Dto::ESM::CreateBucketRequest request;
         request.name = vm["name"].as<std::string>();
         request.internal = vm["internal"].as<bool>();
+        request.priority = vm["priority"].as<std::string>();
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
@@ -2012,6 +2022,58 @@ namespace Euclid::CLI {
             const HttpResponse response = client.Post("esm", "set-bucket-internal", request);
             if (!response.IsSuccess()) {
                 std::cerr << "error: set-bucket-internal failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EsmCli::setBucketPriority(const std::vector<std::string> &args) const {
+        po::options_description desc("set bucket priority options");
+        desc.add_options()
+                ("bucket,b", po::value<std::string>()->required(), "bucket to change; a name is enough, a full ERN also works")
+                ("priority,p", po::value<std::string>()->default_value(""), "LOW, MEDIUM or HIGH; empty clears it");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", "set-bucket-priority", "--bucket <name|ern> [--priority LOW|MEDIUM|HIGH]",
+                                   "Sets the priority the notifications this bucket sends are given. The bucket does "
+                                   "nothing with it: a bucket is not consumed from and has no queue of its own, so "
+                                   "there is nothing here for a priority to mean. It exists to be handed on, to the "
+                                   "messages a subscription of this bucket turns an object event into - \"everything "
+                                   "that lands in this bucket is urgent\" is the statement it makes, and the queue on "
+                                   "the other side of the subscription is where it finally has an effect.\n\n"
+                                   "Less specific than an object's own. Whatever writes an object may set a priority "
+                                   "in its system attributes, and that is a statement about one object where this is "
+                                   "a statement about all of them - so the object's wins. Below both is the target "
+                                   "queue's own default.\n\n"
+                                   "An empty --priority clears it, which is the only way back to letting the queue "
+                                   "decide. Empty is not MEDIUM: a bucket that says nothing leaves a queue created "
+                                   "with LOW delivering at LOW, where a bucket saying MEDIUM would override it.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        const boost::json::object request{
+                {"ern", vm["bucket"].as<std::string>()},
+                {"priority", vm["priority"].as<std::string>()}};
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("esm", "set-bucket-priority", request);
+            if (!response.IsSuccess()) {
+                std::cerr << "error: set-bucket-priority failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);
