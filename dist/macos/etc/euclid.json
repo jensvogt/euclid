@@ -255,7 +255,8 @@
         "threads": 2,
         "http-port-min": 9000,
         "http-port-max": 9999,
-        "credentials-ttl-seconds": 3600
+        "credentials-ttl-seconds": 3600,
+        "bucket": "apps"
       },
       "ets": {
         "dependencies": [

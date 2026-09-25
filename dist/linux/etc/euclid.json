@@ -255,7 +255,8 @@
         "maxInstances": 32,
         "threads": 2,
         "http-port-min": 9000,
-        "http-port-max": 9999
+        "http-port-max": 9999,
+        "bucket": "apps"
       },
       "ets": {
         "dependencies": [

@@ -92,23 +92,36 @@ namespace Euclid::Monitoring {
         static void prune();
 
         /**
-         * @brief Reads the Linux system's overall CPU usage (from /proc/stat) since the previous
-         * call and persists it as a "system-cpu-usage" MonitoringData row. The first call after
-         * process start only primes the previous-reading state, since a delta needs two samples.
+         * @brief Reads the host's overall CPU usage since the previous call and persists it as a
+         * "system-cpu-usage" MonitoringData row. The first call after process start only primes the
+         * previous-reading state, since a delta needs two samples.
+         *
+         * @par
+         * The reading itself is Core::SystemUtils::ReadCpuTimes()' problem - /proc/stat on Linux,
+         * GetSystemTimes() on Windows - so the arithmetic here is the same on both.
          */
         static void collectCpuUsage();
 
         /**
-         * @brief Reads the Linux run-queue averages (from /proc/loadavg) and records them as
-         * "system-load-average", labelled by the window each averages over, plus
-         * "system-load-per-core" for the one-minute figure divided by the CPU count.
+         * @brief Records how much work is waiting for the processors, under the names the platform
+         * has figures for.
          *
-         * @par
-         * Both, because neither is sufficient alone. The raw averages are what an operator
-         * recognises and what the three windows make comparable - a 1-minute figure well above the
-         * 15-minute one is a machine that has just got busy. The per-core figure is the one that
-         * means the same thing on every host: it saturates at 1 whatever the hardware, where a raw
-         * load of 8 is a third of a 24-core machine and four times a two-core one.
+         * @par Linux
+         * The run-queue averages from /proc/loadavg, as "system-load-average" labelled by the window
+         * each averages over, plus "system-load-per-core" for the one-minute figure divided by the
+         * CPU count. Both, because neither is sufficient alone. The raw averages are what an
+         * operator recognises and what the three windows make comparable - a 1-minute figure well
+         * above the 15-minute one is a machine that has just got busy. The per-core figure is the
+         * one that means the same thing on every host: it saturates at 1 whatever the hardware,
+         * where a raw load of 8 is a third of a 24-core machine and four times a two-core one.
+         *
+         * @par Windows
+         * The "\\System\\Processor Queue Length" performance counter, as
+         * "system-processor-queue-length" and "system-processor-queue-per-core". Different names on
+         * purpose: Windows keeps no 1-, 5- and 15-minute averages, so recording an instantaneous
+         * count as "system-load-average" would put a figure averaged over nothing into a series
+         * whose whole meaning is the window it averages over. The averaging EMO does per bucket is
+         * what makes the instantaneous count readable instead.
          */
         static void collectSystemLoad();
 
@@ -142,9 +155,9 @@ namespace Euclid::Monitoring {
          * @brief Samples the machine's memory usage, labelled by host.
          *
          * @par
-         * The host's, not a process's: "euclid-memory-usage-percent" is recorded per module from
-         * /proc/self/status and answers what one process holds, which is a different question and
-         * cannot be added up into this one.
+         * The host's, not a process's: "euclid-memory-usage-percent" is recorded per module and
+         * answers what one process holds, which is a different question and cannot be added up into
+         * this one.
          */
         static void collectMemoryUsage();
 
