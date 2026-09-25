@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.39](https://github.com/jensvogt/euclid/compare/1.1.38...v1.1.39) (2026-09-25)
+
+
+### Bug Fixes
+
+* windows web interface ([9d77dba](https://github.com/jensvogt/euclid/commit/9d77dba30b27d187263fa3dfadde623b2e007beb))
+
 ## [1.1.38](https://github.com/jensvogt/euclid/compare/1.1.37...v1.1.38) (2026-09-25)
 
 
