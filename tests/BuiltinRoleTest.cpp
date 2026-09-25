@@ -271,6 +271,18 @@ BOOST_AUTO_TEST_CASE(ApplicationMayReportItsOwnLoad) {
 
     BOOST_TEST(grants(BuiltinRoles::Application, "eap:report-load"));
 
+    // And its own metrics, which is the other half and not the same half. EMO answers "what has
+    // this application been doing for the last fortnight" and answers it a bucket at a time;
+    // report-load answers "how busy is it right now" and the manager reads it on the next
+    // reconcile. An application that holds only the first drives the autoscaler minutes late, and
+    // one that holds neither is invisible to both - which is what a 403 on every push made of it.
+    BOOST_TEST(grants(BuiltinRoles::Application, "emo:push-metrics"));
+
+    // Reading the monitoring store back is not part of it. An application reports about itself; it
+    // does not get to see what the installation has been doing.
+    BOOST_TEST(!grants(BuiltinRoles::Application, "emo:list"));
+    BOOST_TEST(!grants(BuiltinRoles::Application, "emo:average"));
+
     // And nothing else of EAP. An application deploys nothing, starts nothing and stops nothing -
     // least of all itself.
     BOOST_TEST(!grants(BuiltinRoles::Application, "eap:create-application"));

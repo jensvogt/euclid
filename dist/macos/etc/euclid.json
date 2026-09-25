@@ -40,7 +40,7 @@
     },
     "modules": {
       "emd": {
-        "active": false,
+        "active": true,
         "name": "emd",
         "socketPath": "/var/run/euclid/euclid-emd.sock",
         "executable": "/usr/local/euclid/bin/euclid-emd",
@@ -255,6 +255,7 @@
         "threads": 2,
         "http-port-min": 9000,
         "http-port-max": 9999,
+        "bucket": "apps",
         "runtimes": {
           "java": "java",
           "java21": "/opt/homebrew/opt/openjdk@21/bin/java",
@@ -331,13 +332,13 @@
       "pool-size": 256
     },
     "logging": {
-      "file-active": false,
       "format": "text",
-      "console-format": "",
-      "file-format": "",
-      "console-level": "",
-      "file-level": "",
+      "file-active": true,
+      "file-format": "json",
+      "file-level": "info",
       "console-active": true,
+      "console-level": "info",
+      "console-format": "text",
       "level": "warning",
       "dir": "/usr/local/euclid/log",
       "prefix": "euclid",

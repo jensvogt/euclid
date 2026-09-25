@@ -998,6 +998,33 @@ namespace Euclid::main {
             // libraries in all of them.
             environment["EUCLID_SIGNATURE"] = "rfc9421";
 
+            // Which certificate to trust when that endpoint is https, which by default it is - and
+            // served with a self-signed certificate, which no system trust store has heard of.
+            //
+            // Told rather than left to be found. An application handed an https endpoint and no
+            // trust anchor has to guess where the certificate lives, and the guess is a path that
+            // differs on every platform and every installation prefix: the CLI's own default is
+            // "C:\Program Files\euclid\etc" on Windows and "/usr/local/euclid/etc" elsewhere. The
+            // Java SDK guessed "/etc/euclid/euclid_cert.crt", which is neither, so a Spring
+            // application on Windows failed to start with "failed to load CA certificate" before it
+            // ran a line of its own code.
+            //
+            // The same file the gateway serves, because that is what trusting a self-signed
+            // certificate means - it is its own authority. Exported only when it is there: a
+            // variable naming a file that does not exist is how this failed in the first place, and
+            // an SDK that finds nothing can still fall back to the system trust store.
+            if (configuration.getOr<bool>("euclid.gateway.tls.enabled", true)) {
+                if (const auto certificate = configuration.getOr<std::string>("euclid.gateway.tls.cert-file", ""); !certificate.empty() && std::filesystem::exists(certificate)) {
+                    environment["EUCLID_CA_CERT_PATH"] = certificate;
+                } else {
+                    // Not fatal, and worth a line: the gateway is serving TLS with a certificate
+                    // this cannot find, so every application that calls back in is about to have a
+                    // verification problem nothing else explains.
+                    log_warning << "No CA certificate to hand applications, euclid.gateway.tls.cert-file: '"
+                                << certificate << "' - applications calling back in over https will have to trust it themselves";
+                }
+            }
+
             // Where the short-lived credentials are, and when the process should look again.
             environment["EUCLID_CREDENTIALS_FILE"] = credentialsPath(Database::Entity::EAP::RuntimeName(application)).string();
 

@@ -37,6 +37,7 @@ perfectly working programs whose authors had never heard of the convention.
 | `EUCLID_ACCOUNT_ID`, `EUCLID_REGION`, `EUCLID_USER_ID` | the identity it runs as |
 | `EUCLID_ENDPOINT` | gateway URL to call other modules through |
 | `EUCLID_SIGNATURE` | `rfc9421` — how to sign those calls |
+| `EUCLID_CA_CERT_PATH` | PEM certificate to trust for that URL, when the gateway serves TLS with a self-signed one. Absent when there is nothing to add to the system trust store |
 | `EUCLID_CREDENTIALS_FILE` | file holding a short-lived bearer token for the application's identity |
 | `EUCLID_ACCESS_KEY_ID`, `EUCLID_SECRET_ACCESS_KEY` | an access key — only for an application deployed with `--user`, whose key its operator manages |
 
