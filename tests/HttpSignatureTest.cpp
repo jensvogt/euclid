@@ -276,11 +276,14 @@ BOOST_AUTO_TEST_CASE(SignatureBaseMatchesRfc9421Section26) {
 }
 
 BOOST_AUTO_TEST_CASE(InteroperatesWithAnIndependentImplementation) {
-    // A request signed by examples/applications/python/euclid_app.py - a few dozen lines of
+    // A request signed by examples/applications/python/rfc9421_reference.py - a few dozen lines of
     // Python standard library, written against the RFC rather than against this code. Pinning its
     // output here is what says an application in another language can actually authenticate: the
     // signature base, the digest and the HMAC all have to agree byte for byte, and none of that
     // is checked by signing and verifying with the same implementation.
+    //
+    // Running that file reproduces these constants and checks them, so the two sides can be put
+    // back in step without reading either of them: python3 rfc9421_reference.py
     //
     // Verified through BuildSignatureBase() rather than Verify(), because "created" is a fixed
     // timestamp in a recorded vector and Verify() rightly refuses anything that old.

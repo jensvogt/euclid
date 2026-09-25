@@ -19,6 +19,7 @@
 // Euclid includes
 #include <euclid/cli/BaseCli.h>
 #include <euclid/cli/credentials/Credentials.h>
+#include <euclid/cli/ExistsCheck.h>
 #include <euclid/cli/help/CliHelp.h>
 #include <euclid/cli/http/HttpClient.h>
 #include <euclid/core/JsonUtils.h>
@@ -64,6 +65,32 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int process(const std::string &action, const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Whether a secret exists, answered as an exit code a shell can branch on.
+         *
+         * @par
+         * Written for `if euclid-cli ess exists-secret -n db-password; then`. 0 when it is there, 1
+         * when it is not, 2 when the question could not be answered - see Exists for why the third
+         * code matters more than it looks.
+         *
+         * @par Why this one asks list-secrets and the others ask by name
+         * Because get-secret answers with the decrypted value. Asking it whether a secret exists
+         * would mean holding ess:get-secret - permission to read the password, not merely to know
+         * the name is taken - decrypting it, sending the plaintext across the wire, and leaving an
+         * entry in the audit trail indistinguishable from somebody actually reading it. None of
+         * that is any part of the question.
+         *
+         * @par
+         * list-secrets never returns a value, by construction, so this needs ess:list-secrets and
+         * the plaintext is never touched. The cost is that the prefix match has to be narrowed to
+         * an exact one here.
+         *
+         * @param args command line arguments
+         * @return 0 if the secret exists, 1 if it does not, 2 if the question could not be answered
+         */
+        [[nodiscard]]
+        int existsSecret(const std::vector<std::string> &args) const;
 
     private:
 

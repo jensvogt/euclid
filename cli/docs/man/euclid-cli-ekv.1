@@ -95,6 +95,11 @@ Creates a table and says what its items are keyed on. See
 Shows a table's key and how many items it holds. See
 .BR euclid-cli-ekv-get-table (1).
 .TP
+.B exists-table
+Answers whether a table exists as an exit code, for use in a script: 0
+yes, 1 no, 2 could not tell. See
+.BR euclid-cli-ekv-exists-table (1).
+.TP
 .B list-tables
 Lists the account's tables. See
 .BR euclid-cli-ekv-list-tables (1).
@@ -205,6 +210,7 @@ euclid-cli ekv query --table deliveries --partition-key '"4711"' \e
 .BR euclid-cli-eam-login (1),
 .BR euclid-cli-esm (1),
 .BR euclid-cli-ekv-create-table (1),
+.BR euclid-cli-ekv-exists-table (1),
 .BR euclid-cli-ekv-put-item (1),
 .BR euclid-cli-ekv-get-item (1),
 .BR euclid-cli-ekv-query (1),

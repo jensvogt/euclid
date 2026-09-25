@@ -9,6 +9,7 @@ set(SOURCES src/LogStream.cpp src/Configuration.cpp src/SystemUtils.cpp src/Http
 add_library(${LIBRARY} STATIC ${SOURCES})
 set_target_properties(${LIBRARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 target_include_directories(${LIBRARY} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(${LIBRARY} SYSTEM PRIVATE ${CMAKE_BINARY_DIR}/vcpkg_installed/x64-linux/include)
 target_link_libraries(${LIBRARY} PUBLIC Boost::boost Boost::json Boost::log Boost::log_setup
         PRIVATE OpenSSL::SSL OpenSSL::Crypto Boost::thread Boost::process Boost::date_time Boost::url Boost::chrono
         LibArchive::LibArchive unofficial::libmagic::libmagic jwt-cpp::jwt-cpp

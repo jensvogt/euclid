@@ -46,6 +46,16 @@ description saying what it is for. See
 Lists existing keys, paged and sorted. See
 .BR euclid-cli-ekm-list-keys (1).
 .TP
+.B get-key
+Shows one key's description by name or ERN \(em its algorithm, status,
+description and tags, never its material. See
+.BR euclid-cli-ekm-get-key (1).
+.TP
+.B exists-key
+Answers whether a key exists as an exit code, for use in a script: 0
+yes, 1 no, 2 could not tell. See
+.BR euclid-cli-ekm-exists-key (1).
+.TP
 .B delete-key
 Schedules a key for permanent deletion after a grace period (default
 7 days); decryption stays available until then, but encryption is
@@ -204,7 +214,9 @@ euclid-cli --endpoint http://localhost:5566 ekm delete-key \e
 .BR euclid-cli-eam (1),
 .BR euclid-cli-eap (1),
 .BR euclid-cli-eam-login (1),
+.BR euclid-cli-ekm-exists-key (1),
 .BR euclid-cli-ekm-create-key (1),
+.BR euclid-cli-ekm-get-key (1),
 .BR euclid-cli-ekm-list-keys (1),
 .BR euclid-cli-ekm-revoke-key (1),
 .BR euclid-cli-ekm-set-key-description (1),

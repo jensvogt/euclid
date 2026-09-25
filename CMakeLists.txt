@@ -46,7 +46,6 @@ if (NOT MSVC)
             -Wdouble-promotion       # a float silently widened, usually in a format string
             -Wformat=2               # a format string that does not match its arguments
             -Wimplicit-fallthrough   # a switch case falling through without saying so
-            -Wnull-dereference
             -Wshadow                 # a name hiding another, which is how the wrong variable gets assigned
 
             # Off, and not because it is inconvenient: GCC raises it for a designated initializer
@@ -55,6 +54,44 @@ if (NOT MSVC)
             # buries the 30 warnings worth reading under 200 that say nothing.
             -Wno-missing-field-initializers
     )
+endif ()
+
+# -------------------------------------------------------------------------
+# -Wnull-dereference, off by default
+#
+# GCC raises it from the optimizer rather than from the parser, and the
+# optimizer does not consult the -isystem marking that keeps third-party
+# headers quiet. So a header inlined into a euclid translation unit reports
+# against itself and there is nothing on euclid's side to fix. Measured on a
+# full Release build of this tree with GCC 14.2: 334 findings, every one of
+# them inside boost/asio, boost/beast or libstdc++, and none in euclid's own
+# code.
+#
+# Not merely restricted to Debug, which is the tempting half-measure: the
+# warning needs -O2 to fire at all (verified - at -O0 it does not report even
+# a plainly null dereference), so a Debug-only setting is not weaker coverage,
+# it is none, wearing the appearance of some. Clang is the same trap from the
+# other side: it accepts the flag, says nothing about an unknown option, and
+# implements no such analysis, so a clang build has never been checked by this
+# whatever the flags said.
+#
+# Kept as a switch rather than deleted because the analysis is real when it is
+# read deliberately - GCC does catch a genuine null dereference with it. Turn
+# it on for one build, read the euclid-owned findings, turn it off again:
+#
+#     cmake -B build -DEUCLID_WARN_NULL_DEREFERENCE=ON
+#     cmake --build build 2>&1 | grep -v vcpkg_installed | grep -v '/c++/'
+#
+# If it is ever wanted permanently, the way that works is a #pragma GCC
+# diagnostic ignored around the offending includes - GCC checks the pragma
+# state at the location it reports, so that does suppress it where -isystem
+# does not. It needs asio and beast wrapped everywhere they are included, and
+# one new file including either directly brings the noise back, which is why
+# it is not done here.
+# -------------------------------------------------------------------------
+option(EUCLID_WARN_NULL_DEREFERENCE "Enable -Wnull-dereference (noisy: third-party headers)" OFF)
+if (NOT MSVC AND EUCLID_WARN_NULL_DEREFERENCE)
+    add_compile_options(-Wnull-dereference)
 endif ()
 
 # -------------------------------------------------------------------------
@@ -195,12 +232,7 @@ find_package(Boost CONFIG REQUIRED COMPONENTS filesystem thread process date_tim
 find_package(jwt-cpp CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED COMPONENTS SSL Crypto)
 find_package(libssh CONFIG REQUIRED)
-
 find_package(unofficial-libmagic CONFIG REQUIRED)
-
-# SAML: assertions are XML signatures, and verifying one correctly is a library's job rather than
-# ours - see Core::SamlResponseVerifier. libxml2 comes along with it (and was already here
-# transitively); zlib is what the SAML redirect binding means by DEFLATE.
 find_package(LibXml2 REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(unofficial-xmlsec CONFIG REQUIRED)

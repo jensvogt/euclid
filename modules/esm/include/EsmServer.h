@@ -195,6 +195,19 @@ namespace Euclid::ESM {
          */
         static response<string_body> handleSetBucketInternal(const request<string_body> &req);
 
+        /**
+         * @brief Sets the priority the notifications this bucket sends are given.
+         *
+         * @par
+         * The bucket does nothing with it - see Database::Entity::ESM::Bucket::priority. An empty
+         * priority clears it, which is the only way back to letting the target queue's own default
+         * decide.
+         *
+         * @param req HTTP request
+         * @return HTTP response
+         */
+        static response<string_body> handleSetBucketPriority(const request<string_body> &req);
+
         static response<string_body> handleRenameBucket(const request<string_body> &req);
 
         /**

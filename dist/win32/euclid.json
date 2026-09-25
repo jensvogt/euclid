@@ -218,7 +218,13 @@
         "threads": 2,
         "http-port-min": 9000,
         "http-port-max": 9999,
-        "bucket": "apps"
+        "runtimes": {
+          "java": "java.exe",
+          "java21": "C:\\Program Files\\Java\\jdk-21\\bin\\java.exe",
+          "java25": "C:\\Program Files\\Java\\jdk-25\\bin\\java.exe",
+          "python": "python.exe",
+          "nodejs": "node.exe"
+        }
       },
       "ets": {
         "dependencies": [

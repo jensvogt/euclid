@@ -140,6 +140,7 @@ namespace Euclid::CLI {
                 {"get-topic", "Show one topic's definition and counters"},
                 {"get-message", "Show one message, by its id"},
                 {"get-topic-ern", "Returns the ERN for a topic"},
+                {"exists-topic", "Whether a topic exists; exit 0 yes, 1 no, 2 could not tell"},
                 {"get-topic-metadata", "Returns the metadata of a topics"},
                 {"list-messages", "List available messages"},
                 {"list-subscriptions", "Lists the subscriptions of a topic"},
@@ -263,6 +264,7 @@ namespace Euclid::CLI {
         }
         if (action == "get-topic") return getTopic(args);
         if (action == "get-message") return getMessage(args);
+        if (action == "exists-topic") return existsTopic(args);
         if (action == "get-topic-ern") {
             return getTopicErn(args);
         }
@@ -426,6 +428,45 @@ namespace Euclid::CLI {
         } catch (const std::exception &ex) {
             std::cerr << "error: " << ex.what() << std::endl;
             return 1;
+        }
+    }
+
+    int EnsCli::existsTopic(const std::vector<std::string> &args) const {
+
+        po::options_description desc("exists topic options");
+        desc.add_options()("topic,t", po::value<std::string>()->required(), "topic name or ERN");
+
+        if (IsHelpRequest(args)) {
+            PrintActionHelp("ens", "exists-topic", "--topic <name>",
+                            "Answers whether a topic exists as an exit code, for use in a script: 0 if it "
+                            "exists, 1 if it does not, 2 if the question could not be answered at all - an "
+                            "expired session, an unreachable gateway, a refused permission. Writes \"true\" "
+                            "or \"false\" to stdout and nothing else. Use as: "
+                            "if euclid-cli ens exists-topic -t mine; then ...",
+                            desc);
+            return Exists::kYes;
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            // A missing --topic is not "the topic is absent", it is a broken command line.
+            return Exists::Unknown("exists-topic", ex.what());
+        }
+
+        Dto::ENS::GetTopicErnRequest request;
+        request.name = vm["topic"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ens", "get-topic-ern", boost::json::value_from(request));
+            return Exists::FromLookup("exists-topic", response.statusCode, response.IsSuccess(), response.body);
+        } catch (const std::exception &ex) {
+            // Never reached the gateway at all, which is the case a script most needs not to read
+            // as "false" - see Exists.
+            return Exists::Unknown("exists-topic", ex.what());
         }
     }
 

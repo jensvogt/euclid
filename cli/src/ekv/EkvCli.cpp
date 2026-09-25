@@ -39,6 +39,7 @@ namespace Euclid::CLI {
                 {"delete-item", "Remove one item by its key"},
                 {"delete-table", "Delete a table and everything in it"},
                 {"get-table", "Show a table's key and how many items it holds"},
+                {"exists-table", "Whether a table exists; exit 0 yes, 1 no, 2 could not tell"},
                 {"get-item", "Read one item by its key"},
                 {"list-tables", "List the account's tables"},
                 {"put-item", "Write an item, replacing whatever was under its key"},
@@ -54,6 +55,7 @@ namespace Euclid::CLI {
         }
 
         if (action == "create-table") return createTable(args);
+        if (action == "exists-table") return existsTable(args);
         if (action == "get-table") return getTable(args);
         if (action == "list-tables") return listTables(args);
         if (action == "delete-table") return deleteTable(args);
@@ -153,6 +155,48 @@ namespace Euclid::CLI {
         } catch (const std::exception &ex) {
             std::cerr << "error: " << ex.what() << std::endl;
             return 1;
+        }
+    }
+
+    int EkvCli::existsTable(const std::vector<std::string> &args) const {
+
+        po::options_description desc("exists table options");
+        desc.add_options()("name,n", po::value<std::string>()->required(), "table name");
+
+        if (IsHelpRequest(args)) {
+            PrintActionHelp("ekv", "exists-table", "--name <name>",
+                            "Answers whether a table exists as an exit code, for use in a script: 0 if it "
+                            "exists, 1 if it does not, 2 if the question could not be answered at all - an "
+                            "expired session, an unreachable gateway, a refused permission. Writes \"true\" "
+                            "or \"false\" to stdout and nothing else. Use as: "
+                            "if euclid-cli ekv exists-table -n mine; then ...",
+                            desc);
+            return Exists::kYes;
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            // A missing --name is not "the table is absent", it is a broken command line.
+            return Exists::Unknown("exists-table", ex.what());
+        }
+
+        Dto::EKV::GetTableRequest request;
+        request.name = vm["name"].as<std::string>();
+
+        // get-table counts the table's items to answer, so this costs a query on a large table.
+        // There is no cheaper by-name lookup in EKV, and list-tables would need ekv:list-tables,
+        // which a principal deployed with one table does not necessarily hold.
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ekv", "get-table", boost::json::value_from(request));
+            return Exists::FromLookup("exists-table", response.statusCode, response.IsSuccess(), response.body);
+        } catch (const std::exception &ex) {
+            // Never reached the gateway at all, which is the case a script most needs not to read
+            // as "false" - see Exists.
+            return Exists::Unknown("exists-table", ex.what());
         }
     }
 
