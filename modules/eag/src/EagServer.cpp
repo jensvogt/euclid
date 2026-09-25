@@ -52,6 +52,14 @@ namespace Euclid::EAG {
 
         long longField(const boost::json::object &obj, const std::string &key, const long fallback = 0) {
             const auto *value = obj.if_contains(key);
+            return value && value->is_int64() ? static_cast<long>(value->as_int64()) : fallback;
+        }
+
+        // The same, for the fields that are sizes in bytes. Separate because "long" is 32 bits on
+        // Windows, and an upload route exists to carry deliveries measured in gigabytes - read
+        // through the one above, a 12GB limit arrived as whatever its low 32 bits said.
+        std::int64_t int64Field(const boost::json::object &obj, const std::string &key, const std::int64_t fallback = 0) {
+            const auto *value = obj.if_contains(key);
             return value && value->is_int64() ? value->as_int64() : fallback;
         }
 
@@ -59,7 +67,7 @@ namespace Euclid::EAG {
         // with one put-object instead. The same 5 MB the CLI's upload-file uses by default, for the
         // same reason: small enough that a failed part is cheap to lose, large enough that a big
         // object is not thousands of round trips.
-        constexpr long kDefaultPartSize = 5L * 1024 * 1024;
+        constexpr std::int64_t kDefaultPartSize = 5LL * 1024 * 1024;
 
         // The euclid modules a route may name. Kept as a list so a typo is refused at configuration
         // time: a route naming "emm " or "eeam" would otherwise be accepted, published, and answer
@@ -318,8 +326,8 @@ namespace Euclid::EAG {
         if (*type == RouteType::UPLOAD) {
             route.upload.bucket = bucket;
             route.upload.keyPrefix = stringField(obj, "keyPrefix");
-            route.upload.maxBytes = longField(obj, "maxBytes");
-            route.upload.partSize = longField(obj, "partSize", kDefaultPartSize);
+            route.upload.maxBytes = int64Field(obj, "maxBytes");
+            route.upload.partSize = int64Field(obj, "partSize", kDefaultPartSize);
             if (const auto *contentTypes = obj.if_contains("contentTypes"); contentTypes && contentTypes->is_array()) {
                 for (const auto &contentType: contentTypes->as_array()) {
                     if (contentType.is_string()) route.upload.contentTypes.emplace_back(contentType.as_string());
@@ -460,8 +468,8 @@ namespace Euclid::EAG {
             route->upload.bucket = bucket;
         }
         if (obj.contains("keyPrefix")) route->upload.keyPrefix = stringField(obj, "keyPrefix");
-        if (obj.contains("maxBytes")) route->upload.maxBytes = longField(obj, "maxBytes");
-        if (obj.contains("partSize")) route->upload.partSize = longField(obj, "partSize", kDefaultPartSize);
+        if (obj.contains("maxBytes")) route->upload.maxBytes = int64Field(obj, "maxBytes");
+        if (obj.contains("partSize")) route->upload.partSize = int64Field(obj, "partSize", kDefaultPartSize);
         if (const auto *contentTypes = obj.if_contains("contentTypes"); contentTypes && contentTypes->is_array()) {
             route->upload.contentTypes.clear();
             for (const auto &contentType: contentTypes->as_array()) {

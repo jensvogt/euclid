@@ -58,6 +58,8 @@ namespace Euclid::Database {
          */
         Entity::EAM::User upsertUser(Entity::EAM::User &user) override;
 
+        std::optional<Entity::EAM::User> renameUser(const std::string &userId, const std::string &newUserId) override;
+
         /**
          * @brief Returns a user by user ID.
          *

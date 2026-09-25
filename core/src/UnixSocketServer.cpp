@@ -41,8 +41,10 @@ namespace Euclid::Core {
         // shipped in dist/etc/euclid*.json) since requests reaching here already passed through
         // that same limit at the gateway hop.
         std::uint64_t MaxBodySize() {
-            constexpr long kDefaultMaxBodySize = 512L * 1024 * 1024;
-            return static_cast<std::uint64_t>(Configuration::instance().getOr<long>("euclid.gateway.http.max-body", kDefaultMaxBodySize));
+            // long long, not long: this is a size in bytes, and on Windows a long stops at 2GB -
+            // so a configured 8GB limit came back as whatever its low 32 bits happened to say.
+            constexpr long long kDefaultMaxBodySize = 512LL * 1024 * 1024;
+            return static_cast<std::uint64_t>(std::max<long long>(0, Configuration::instance().getOr<long long>("euclid.gateway.http.max-body", kDefaultMaxBodySize)));
         }
     }// namespace
 
@@ -100,9 +102,9 @@ namespace Euclid::Core {
 
     // ── UnixSocketServer ─────────────────────────────────────────────────────
 
-    int UnixSocketServer::ClampWorkerThreads(const long requested) {
-        constexpr long kMaxWorkerThreads = 256;
-        return static_cast<int>(std::clamp(requested, 1L, kMaxWorkerThreads));
+    int UnixSocketServer::ClampWorkerThreads(const std::int64_t requested) {
+        constexpr std::int64_t kMaxWorkerThreads = 256;
+        return static_cast<int>(std::clamp<std::int64_t>(requested, 1, kMaxWorkerThreads));
     }
 
     UnixSocketServer::UnixSocketServer(std::string serviceName, std::string socketPath, const int threads)

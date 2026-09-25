@@ -72,10 +72,15 @@ namespace Euclid::Core {
          * no thread answers nothing; the ceiling is there because a misconfigured count is a typo
          * away from more OS threads than will be created.
          *
+         * @par
+         * Takes a 64-bit count whatever "long" is on this platform. The number it guards against is
+         * the one that does not fit an int, and on Windows a long does not either - so a parameter
+         * of that type truncated the very value this exists to catch, on its way in.
+         *
          * @param requested Configured count, trusted for nothing
          * @return the count clamped to [1, 256]
          */
-        static int ClampWorkerThreads(long requested);
+        static int ClampWorkerThreads(std::int64_t requested);
 
         UnixSocketServer(const UnixSocketServer &) = delete;
         UnixSocketServer &operator=(const UnixSocketServer &) = delete;
