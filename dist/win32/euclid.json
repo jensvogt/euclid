@@ -314,7 +314,7 @@
       "console-level": "info",
       "console-format": "text",
       "level": "warning",
-      "dir": "/usr/local/euclid/log",
+      "dir": "C:\\Program Files\\euclid\\log",
       "prefix": "euclid",
       "channels": {
         "app": "info",

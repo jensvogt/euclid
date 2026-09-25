@@ -354,6 +354,7 @@ namespace Euclid::CLI {
         static const std::vector<std::pair<std::string, std::string> > kActions = {
                 {"change-namespace", "Switch the active namespace for this session"},
                 {"change-password", "Change your own password, or reset another user's"},
+                {"change-userid", "Give a user a different user ID"},
                 {"create-access-key", "Create a SigV4 access key and store it locally"},
                 {"create-account", "Create a new account"},
                 {"create-namespace", "Create a new namespace under an account"},
@@ -406,6 +407,9 @@ namespace Euclid::CLI {
         }
         if (action == "change-password") {
             return changePassword(args);
+        }
+        if (action == "change-userid") {
+            return changeUserId(args);
         }
         if (action == "create-access-key") {
             return createAccessKey(args);
@@ -1076,6 +1080,72 @@ namespace Euclid::CLI {
             if (const HttpResponse response = client.Post("eam", "change-password", boost::json::value_from(request)); !response.IsSuccess()) {
                 reportFailure("change-password", response);
                 return 1;
+            }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::changeUserId(const std::vector<std::string> &args) const {
+        po::options_description desc("eam change-userid options");
+        desc.add_options()
+                ("user,u", po::value<std::string>()->required(), "user to rename")
+                ("new-user,n", po::value<std::string>()->required(), "the id they should have from now on");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "change-userid", "--user <userId> --new-user <userId>",
+                                   "Gives a user a different user ID. Requires administrator privileges.\n\n"
+                                   "What moves with the name: the user's ERN, every grant written to it, and their "
+                                   "membership of any user group - a group's membership is a list of user ids. Without "
+                                   "that the user would authenticate perfectly and hold nothing, which is a failure that "
+                                   "looks like a permissions bug for as long as it takes to find.\n\n"
+                                   "What does not move: the history. An audit record says who did something under the "
+                                   "name they did it under, and the owner recorded on a bucket, a queue or an object "
+                                   "names who made it. Access keys travel with the user and keep their ids, so anything "
+                                   "signing with one goes on working.\n\n"
+                                   "Refused when another user holds the new id, and when an application runs as this "
+                                   "one - an application records its identity by id, so renaming it out from under the "
+                                   "application would leave it running and refused everything it calls. Point the "
+                                   "application elsewhere with 'eap update-application --user' first.\n\n"
+                                   "A session already open is not ended: its bearer token names the old id and stays "
+                                   "valid until it expires, and cannot be refreshed after that.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EAM::ChangeUserIdRequest request;
+        request.userId = vm["user"].as<std::string>();
+        request.newUserId = vm["new-user"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+
+            const HttpResponse response = client.Post("eam", "change-userid", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                reportFailure("change-userid", response);
+                return 1;
+            }
+
+            // The renamed user, as get-user would report them - so a script can read the new ERN
+            // out of the answer rather than building it.
+            Core::WriteJson(std::cout, response.body, _pretty);
+
+            // Said rather than left to be discovered: the caller who renames themselves keeps a
+            // session naming an id that no longer exists, and every call after this one is a 401
+            // that reads as the server having gone wrong.
+            if (request.userId == _authentication.userId) {
+                std::cerr << "note: you renamed yourself; log in again as '" << request.newUserId
+                          << "' - the session this used names the old id\n";
             }
             return 0;
         } catch (const std::exception &ex) {

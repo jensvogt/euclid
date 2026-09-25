@@ -149,8 +149,8 @@ namespace Euclid::CLI {
                 ("action", po::value<std::string>(), "the one action the module answers for on this route, e.g. login")
                 ("bucket,b", po::value<std::string>(), "upload routes only: ERN of the bucket bodies are written to")
                 ("key-prefix,k", po::value<std::string>(), "upload routes only: prefix every key is confined to")
-                ("max-bytes,x", po::value<long>(), "upload routes only: largest body accepted, in bytes; 0 for no limit")
-                ("part-size,s", po::value<long>(), "upload routes only: bytes per part streamed to ESM; defaults to 5 MB")
+                ("max-bytes,x", po::value<std::int64_t>(), "upload routes only: largest body accepted, in bytes; 0 for no limit")
+                ("part-size,s", po::value<std::int64_t>(), "upload routes only: bytes per part streamed to ESM; defaults to 5 MB")
                 ("content-types,c", po::value<std::string>(), "upload routes only: comma-separated content types accepted; omit for any")
                 ("methods,m", po::value<std::string>(), "comma-separated HTTP methods this route answers for, e.g. GET,POST; omit for all of them")
                 ("region,R", po::value<std::string>(), "region requests on this route act in; defaults to your own")
@@ -300,8 +300,8 @@ namespace Euclid::CLI {
         if (type == "upload") {
             request["bucket"] = vm["bucket"].as<std::string>();
             if (vm.contains("key-prefix")) request["keyPrefix"] = vm["key-prefix"].as<std::string>();
-            if (vm.contains("max-bytes")) request["maxBytes"] = vm["max-bytes"].as<long>();
-            if (vm.contains("part-size")) request["partSize"] = vm["part-size"].as<long>();
+            if (vm.contains("max-bytes")) request["maxBytes"] = vm["max-bytes"].as<std::int64_t>();
+            if (vm.contains("part-size")) request["partSize"] = vm["part-size"].as<std::int64_t>();
             if (vm.contains("content-types")) request["contentTypes"] = SplitContentTypes(vm["content-types"].as<std::string>());
         }
 
@@ -319,8 +319,8 @@ namespace Euclid::CLI {
                 ("action", po::value<std::string>(), "the action the module answers for on this route")
                 ("bucket,b", po::value<std::string>(), "upload routes only: ERN of the bucket bodies are written to")
                 ("key-prefix,k", po::value<std::string>(), "upload routes only: prefix every key is confined to")
-                ("max-bytes,x", po::value<long>(), "upload routes only: largest body accepted, in bytes; 0 for no limit")
-                ("part-size,s", po::value<long>(), "upload routes only: bytes per part streamed to ESM")
+                ("max-bytes,x", po::value<std::int64_t>(), "upload routes only: largest body accepted, in bytes; 0 for no limit")
+                ("part-size,s", po::value<std::int64_t>(), "upload routes only: bytes per part streamed to ESM")
                 ("content-types,c", po::value<std::string>(), "upload routes only: comma-separated content types accepted; an empty string for any")
                 ("methods,m", po::value<std::string>(), "comma-separated HTTP methods, or an empty string for all of them")
                 ("region,R", po::value<std::string>(), "region requests on this route act in")
@@ -380,8 +380,8 @@ namespace Euclid::CLI {
         if (vm.contains("action")) request["moduleAction"] = vm["action"].as<std::string>();
         if (vm.contains("bucket")) request["bucket"] = vm["bucket"].as<std::string>();
         if (vm.contains("key-prefix")) request["keyPrefix"] = vm["key-prefix"].as<std::string>();
-        if (vm.contains("max-bytes")) request["maxBytes"] = vm["max-bytes"].as<long>();
-        if (vm.contains("part-size")) request["partSize"] = vm["part-size"].as<long>();
+        if (vm.contains("max-bytes")) request["maxBytes"] = vm["max-bytes"].as<std::int64_t>();
+        if (vm.contains("part-size")) request["partSize"] = vm["part-size"].as<std::int64_t>();
         if (vm.contains("content-types")) request["contentTypes"] = SplitContentTypes(vm["content-types"].as<std::string>());
         if (vm.contains("region")) request["region"] = vm["region"].as<std::string>();
         if (vm.contains("namespace")) request["namespace"] = vm["namespace"].as<std::string>();

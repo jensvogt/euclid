@@ -16,6 +16,7 @@
 #include <euclid/core/monitoring/MonitoringTimer.h>
 #include <euclid/dto/eam/ChangeNamespaceRequest.h>
 #include <euclid/dto/eam/ChangePasswordRequest.h>
+#include <euclid/dto/eam/ChangeUserIdRequest.h>
 #include <euclid/dto/eam/CreateAccountRequest.h>
 #include <euclid/dto/eam/CreateAccountResponse.h>
 #include <euclid/dto/eam/CreateNamespaceRequest.h>
@@ -953,6 +954,97 @@ namespace Euclid::EAM {
         log_info << "User deleted, userId: " << request.userId;
 
         return EamServer::JsonResponse(req, status::ok);
+    }
+
+    /**
+     * @brief Gives a user a different user ID.
+     *
+     * @par
+     * Administrator-only, and about somebody rather than about yourself: unlike change-password,
+     * which means "mine" when it names nobody, this one names both ids outright. A rename that
+     * could mean the caller by saying nothing is one keystroke from renaming the wrong account.
+     *
+     * @par What moves with the name
+     * The grants and the group memberships, in the repository - see IEamRepository::renameUser(),
+     * which explains what does not move and why. What this handler adds is the refusals: a name
+     * somebody else holds, and a name an application is running as.
+     *
+     * @par The application check
+     * An application records the identity it runs as by userId, and the manager looks that identity
+     * up on every reconcile to hand the process its credentials. Rename the user out from under it
+     * and the lookup finds nothing: the application keeps running, gets no credentials, and is
+     * refused by everything it calls - with one warning in the manager's log to say so. Refused
+     * here instead, naming the application, because an operator who is told can point the
+     * application somewhere else first and an application that is quietly broken cannot.
+     *
+     * @par What a rename does not do
+     * It does not end a session. A bearer token is a JWT carrying the old id as its subject and is
+     * verified against the signing secret rather than against anything stored, so a session already
+     * open goes on working until it expires - and then cannot be refreshed, because the subject no
+     * longer resolves. The same bargain change-password makes, for the same reason.
+     */
+    static response<string_body> handleChangeUserId(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "change-userid");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) {
+            return unauthorized(req, auth);
+        }
+        if (!isAdmin(*auth.user)) {
+            return EamServer::ErrorResponse(req, status::forbidden, "Administrator privileges required");
+        }
+
+        boost::json::value jv;
+        if (const auto err = EamServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EAM::ChangeUserIdRequest>(jv);
+        if (request.userId.empty()) {
+            return EamServer::ErrorResponse(req, status::bad_request, "userId is required");
+        }
+        if (request.newUserId.empty()) {
+            return EamServer::ErrorResponse(req, status::bad_request, "newUserId is required");
+        }
+        if (request.userId == request.newUserId) {
+            // Refused rather than answered as a success that changed nothing: the two ids being
+            // the same is a caller who filled the same value in twice, not an idempotent retry -
+            // a retry of a rename that went through names an id that no longer exists and is
+            // answered 404 here, which is the truthful answer to it.
+            return EamServer::ErrorResponse(req, status::bad_request, "newUserId is the id the user already has: " + request.userId);
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().eamRepository();
+        if (!repo->userExists(request.userId)) {
+            return EamServer::ErrorResponse(req, status::not_found, "User not found, userId: " + request.userId);
+        }
+        if (repo->userExists(request.newUserId)) {
+            return EamServer::ErrorResponse(req, status::conflict, "User already exists, userId: " + request.newUserId);
+        }
+
+        // Every application in the installation rather than the caller's namespace: an identity is
+        // installation-wide - the unique index on userId says so - so an application in a namespace
+        // this administrator never looks at is still an application this rename would break.
+        for (const auto &application: Database::RepositoryFactory::instance().eapRepository()->listAllApplications("")) {
+            if (application.userId != request.userId) continue;
+
+            return EamServer::ErrorResponse(req, status::conflict,
+                                            "User '" + request.userId + "' is the identity application '" + application.applicationId +
+                                                    "' runs as. Point it at another user with 'eap update-application --user' first, "
+                                                    "or the application would keep running and be refused everything it calls.");
+        }
+
+        const auto renamed = repo->renameUser(request.userId, request.newUserId);
+        if (!renamed.has_value()) {
+            // The user was there a moment ago - something else renamed or deleted them in between.
+            return EamServer::ErrorResponse(req, status::conflict, "User could not be renamed, userId: " + request.userId);
+        }
+
+        log_info << "User renamed, userId: " << request.userId << " -> " << renamed->userId << ", by: " << auth.user->userId;
+
+        Dto::EAM::GetUserResponse response;
+        response.user = Dto::EAM::EamMapper::toDto(*renamed);
+
+        return EamServer::JsonResponse(req, status::ok, response.toJson());
     }
 
     // Replaces a password. Two things wear this one name, and what separates them is what each
@@ -2137,6 +2229,7 @@ namespace Euclid::EAM {
             ListNamespaces,
             DeleteNamespace,
             ChangeNamespace,
+            ChangeUserId,
             CreateRole,
             UpdateRole,
             GetRole,
@@ -2167,6 +2260,7 @@ namespace Euclid::EAM {
         if (action == "list-users") return Action::ListUsers;
         if (action == "delete-user") return Action::DeleteUser;
         if (action == "change-password") return Action::ChangePassword;
+        if (action == "change-userid") return Action::ChangeUserId;
         if (action == "create-access-key") return Action::CreateAccessKey;
         if (action == "list-access-keys") return Action::ListAccessKeys;
         if (action == "delete-access-key") return Action::DeleteAccessKey;
@@ -2239,6 +2333,9 @@ namespace Euclid::EAM {
 
             case Action::ChangePassword:
                 return handleChangePassword(req);
+
+            case Action::ChangeUserId:
+                return handleChangeUserId(req);
 
             case Action::CreateAccessKey:
                 return handleCreateAccessKey(req);

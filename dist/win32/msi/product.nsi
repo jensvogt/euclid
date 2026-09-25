@@ -184,10 +184,18 @@ Section "Main Application" SecMain
   CreateDirectory "$INSTDIR\data\ftp"
   CreateDirectory "$INSTDIR\frontend"
 
-  ; Copy frontend recursively, if it was built (see release.yml - skipped when the
-  ; euclid-ui repo doesn't exist yet, so the service falls back to no static UI)
+  ; The web frontend, from where release.yml builds it: euclid-web is checked out into
+  ; frontend\euclid-web, and Angular's "application" builder writes the bundle to
+  ; <outputPath>\browser - outputPath being "dist/euclid-web". The contents of that directory,
+  ; so index.html lands at the root of $INSTDIR\frontend where the gateway looks for it.
+  ;
+  ; This used to name frontend\euclid-ui\dist\euclid-ui\browser, which nothing has produced since
+  ; the repository was renamed - and with /nonfatal it produced an installer with an empty
+  ; frontend directory and no complaint, whose gateway then answered 404 for every page. The
+  ; build step in release.yml checks the bundle exists, so a failure here is real and is a build
+  ; that should stop.
   SetOutPath "$INSTDIR\frontend"
-  File /nonfatal /r "${SRCDIR}\frontend\euclid-ui\dist\euclid-ui\browser\*.*"
+  File /r "${SRCDIR}\frontend\euclid-web\dist\euclid-web\browser\*.*"
 
   ; Write registry for uninstaller
   WriteRegStr HKLM "Software\Euclid" "InstallDir" "$INSTDIR"

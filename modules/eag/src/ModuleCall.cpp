@@ -125,4 +125,113 @@ namespace Euclid::EAG {
         }
     }
 
+    // ── ModuleConnection ─────────────────────────────────────────────────────
+
+    struct ModuleConnection::State {
+
+        asio::io_context ioc;
+
+        // One of the two, or neither when nothing is open. Both are held rather than templated on,
+        // because whether the gateway speaks TLS is a configuration this is handed rather than a
+        // type it can be chosen by.
+        std::optional<beast::tcp_stream> plain;
+        std::optional<beast::ssl_stream<beast::tcp_stream> > secure;
+
+        // Lives with the connection, not with the call: what a read took off the socket beyond the
+        // response it was parsing belongs to the next response, and a buffer per call would drop it.
+        beast::flat_buffer buffer;
+
+        [[nodiscard]] bool open() const { return plain.has_value() || secure.has_value(); }
+
+        void close() {
+            beast::error_code ignored;
+            if (plain.has_value()) {
+                plain->socket().shutdown(tcp::socket::shutdown_both, ignored);
+                plain.reset();
+            }
+            if (secure.has_value()) {
+                beast::get_lowest_layer(*secure).socket().shutdown(tcp::socket::shutdown_both, ignored);
+                secure.reset();
+            }
+            buffer.clear();
+        }
+    };
+
+    ModuleConnection::ModuleConnection(const unsigned short port, const bool tls, asio::ssl::context &context)
+        : _state(std::make_unique<State>()), _port(port), _tls(tls), _context(context) {}
+
+    ModuleConnection::~ModuleConnection() {
+        _state->close();
+    }
+
+    ModuleResponse ModuleConnection::Call(const ModuleCredential &credential, const ModuleCallOptions &options) {
+
+        // Two attempts at most, and the second only for a connection that was already open when
+        // this began - see the header for why a fresh connection's failure is not retried.
+        for (int attempt = 0; attempt < 2; ++attempt) {
+
+            const bool reused = _state->open();
+
+            try {
+                if (!reused) {
+                    const tcp::endpoint endpoint(asio::ip::make_address("127.0.0.1"), _port);
+
+                    if (_tls) {
+                        _state->secure.emplace(_state->ioc, _context);
+                        beast::get_lowest_layer(*_state->secure).expires_after(kModuleTimeout);
+                        beast::get_lowest_layer(*_state->secure).connect(endpoint);
+                        // No SNI, for the reason CallModule() gives: the peer is a loopback
+                        // address, and an address is not a host name.
+                        _state->secure->handshake(asio::ssl::stream_base::client);
+                    } else {
+                        _state->plain.emplace(_state->ioc);
+                        _state->plain->expires_after(kModuleTimeout);
+                        _state->plain->connect(endpoint);
+                    }
+                }
+
+                const auto req = buildRequest(credential, options, _port);
+
+                // Reset per call rather than per connection: the timeout is meant to bound one
+                // exchange, and a stream that kept the first call's deadline would expire in the
+                // middle of a long upload however well it was going.
+                http::response<http::string_body> res;
+                if (_tls) {
+                    beast::get_lowest_layer(*_state->secure).expires_after(kModuleTimeout);
+                    http::write(*_state->secure, req);
+                    http::read(*_state->secure, _state->buffer, res);
+                } else {
+                    _state->plain->expires_after(kModuleTimeout);
+                    http::write(*_state->plain, req);
+                    http::read(*_state->plain, _state->buffer, res);
+                }
+
+                // The server's word on whether it is keeping the connection: a response that says
+                // otherwise, or one that ends at EOF, is the last one this socket will carry.
+                if (!res.keep_alive() || res.need_eof()) _state->close();
+
+                return {.status = static_cast<int>(res.result_int()), .body = res.body()};
+
+            } catch (const std::exception &e) {
+
+                _state->close();
+
+                // A connection that was open and then failed is almost always one the server had
+                // already closed while it was idle - the request never arrived, so making it again
+                // on a new connection is safe and is what any HTTP client does here.
+                if (reused && attempt == 0) {
+                    log_debug << "Module connection was stale, reopening for " << options.target << ":" << options.action;
+                    continue;
+                }
+
+                log_warning << "Module call failed, target: " << options.target << ", action: " << options.action
+                            << ", error: " << e.what();
+                return {.status = 0, .body = e.what()};
+            }
+        }
+
+        // Unreachable: the loop either returns or exhausts its one retry, which returns as well.
+        return {.status = 0, .body = "module call failed"};
+    }
+
 }// namespace Euclid::EAG

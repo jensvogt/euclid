@@ -648,6 +648,15 @@ target_link_libraries(${AUTHORIZATION_BINARY} PRIVATE eucliddb Boost::unit_test_
 
 add_test(NAME ${AUTHORIZATION_BINARY} COMMAND ${AUTHORIZATION_BINARY})
 
+set(USER_RENAME_BINARY euclid-eam-user-rename-tests)
+
+add_executable(${USER_RENAME_BINARY} UserRenameTest.cpp)
+set_target_properties(${USER_RENAME_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${USER_RENAME_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${USER_RENAME_BINARY} COMMAND ${USER_RENAME_BINARY})
+
 set(ROLE_REPOSITORY_BINARY euclid-role-repository-tests)
 
 add_executable(${ROLE_REPOSITORY_BINARY} RoleRepositoryTest.cpp)
