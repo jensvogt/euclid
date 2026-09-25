@@ -145,8 +145,10 @@ namespace {
     // scaled back down. So this is called on every cycle, including the empty ones.
     //
     // Needs eap:report-load, which the built-in "application" role already grants - so it works on
-    // a freshly created application with no extra grant. (emo:push-metrics, the older and slower
-    // road, does not, which is why this one is worth using.)
+    // a freshly created application with no extra grant. The role grants emo:push-metrics too, but
+    // that is the older and slower road for this particular figure: EMO writes a row when its
+    // averaging bucket closes, five minutes as shipped, so an autoscaler reading it reacts minutes
+    // after the fact. Push metrics there for the graphs; report load here for the scaling.
     void reportLoad(const EAP::Eap &eap, const std::string &applicationId, const long received, const long backlog) {
 
         // Two questions of one figure, and the autoscaler reads them against different bars: below

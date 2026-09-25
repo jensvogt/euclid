@@ -114,10 +114,13 @@ namespace Euclid::Core {
         static int GetNumberOfCores();
 
         /**
-         * @brief One reading of the Linux system's aggregate CPU time counters, from /proc/stat.
+         * @brief One reading of the system's aggregate CPU time counters.
          *
-         * idle/total are cumulative jiffies since boot, not a point-in-time percentage - callers
-         * take the delta between two readings to compute usage over the interval between them.
+         * idle/total are cumulative since boot, not a point-in-time percentage - callers take the
+         * delta between two readings to compute usage over the interval between them. The unit
+         * differs by platform (jiffies on Linux, 100-nanosecond intervals on Windows) and
+         * deliberately is not normalised: every caller takes a ratio of two deltas, where it
+         * cancels.
          */
         struct CpuTimes {
             unsigned long long idle = 0;
@@ -125,15 +128,20 @@ namespace Euclid::Core {
         };
 
         /**
-         * @brief Reads the aggregate "cpu" line of /proc/stat (Linux-only, see man proc(5)):
-         * "cpu  user nice system idle iowait irq softirq steal guest guest_nice".
+         * @brief Reads the machine's aggregate CPU time counters: on Linux the "cpu" line of
+         * /proc/stat (see man proc(5)), on Windows GetSystemTimes().
          *
+         * @par
          * Stateless - callers that want a usage percentage keep their own previous reading and
          * take the delta, since two different call sites polling on different schedules would
-         * otherwise corrupt each other's baseline if this kept the "previous" state itself.
+         * otherwise corrupt each other's baseline if this kept the "previous" state itself. That is
+         * also why the Windows side reads GetSystemTimes() rather than opening a PDH
+         * "% Processor Time" query: these are the counters PDH derives that percentage from, and a
+         * PDH query reports usage since its own last collect, which is state of exactly the kind
+         * two independent pollers cannot share.
          *
-         * @return idle/total jiffies since boot, or std::nullopt if /proc/stat couldn't be read
-         * or parsed (e.g. non-Linux system).
+         * @return cumulative idle/total CPU time since boot, or std::nullopt if the reading failed
+         * or the platform has none (e.g. macOS).
          */
         static std::optional<CpuTimes> ReadCpuTimes();
 
@@ -164,24 +172,73 @@ namespace Euclid::Core {
          * kernel has already done the averaging, so two calls are not needed and a single one is
          * meaningful on its own.
          *
+         * @par
+         * Stays Linux-only rather than growing a Windows branch: Windows keeps no run-queue
+         * averages at all, and the nearest thing it does keep is an instantaneous count with a
+         * reading of its own - see ReadProcessorQueueLength().
+         *
          * @return the three averages and the CPU count, or std::nullopt if /proc/loadavg could not
          * be read or parsed (e.g. a non-Linux system).
          */
         static std::optional<LoadAverage> ReadLoadAverage();
 
         /**
+         * @brief How many threads are waiting for a processor, and the number of processors they
+         * are waiting for.
+         *
+         * @par
+         * Windows' answer to the load average, and the reason it is a separate reading rather than
+         * a LoadAverage with one field filled in: the kernel keeps no 1-, 5- and 15-minute
+         * averages, so there is nothing to put in those three fields and computing them here would
+         * produce a smoothing that depended on how often the caller happened to poll. This is the
+         * instantaneous count, which is what Windows actually maintains.
+         *
+         * @par
+         * Read against the processor count for the same reason a load average is - a queue of 8 is
+         * a third of a 24-processor host and four times a two-processor one. The usual guidance is
+         * that a sustained queue of more than two per processor is a CPU bottleneck, which makes
+         * the per-processor figure the one worth alerting on.
+         */
+        struct ProcessorQueue {
+            double queueLength = 0;
+            long cpuCount = 0;
+        };
+
+        /**
+         * @brief Reads the "\\System\\Processor Queue Length" performance counter (Windows-only).
+         *
+         * @par
+         * Through PDH, which is the only way to reach it - there is no Win32 call for this figure,
+         * unlike the CPU times and the memory sizes. Added by its English name
+         * (PdhAddEnglishCounter), because counter paths are localised and the literal path above
+         * does not resolve on a Windows whose display language is not English.
+         *
+         * @par
+         * A direct reading like ReadLoadAverage() rather than a delta like ReadCpuTimes(): this is
+         * an instantaneous count of waiting threads, so one collect is meaningful on its own.
+         *
+         * @return the queue length and the active processor count, or std::nullopt if the counter
+         * could not be read or the platform has none (Linux, macOS).
+         */
+        static std::optional<ProcessorQueue> ReadProcessorQueueLength();
+
+        /**
          * @brief How much of the machine's memory is in use, as a percentage.
          *
          * @par
-         * The machine's, not this process's - ReadMemoryUsage() above answers the latter, from
-         * /proc/self/status, which is why every module reports its own small share and no figure
-         * for the host existed until this. Read from /proc/meminfo as
-         * (MemTotal - MemAvailable) / MemTotal, MemAvailable being what the kernel thinks can be
-         * handed out without swapping - a truer "in use" than subtracting MemFree, which counts
-         * page cache as used.
+         * The machine's, not this process's - ReadMemoryUsage() below answers the latter, which is
+         * why every module reports its own small share and no figure for the host existed until
+         * this.
          *
-         * @return percentage in use, or std::nullopt if /proc/meminfo could not be read or parsed
-         * (e.g. a non-Linux system).
+         * @par
+         * On Linux, read from /proc/meminfo as (MemTotal - MemAvailable) / MemTotal, MemAvailable
+         * being what the kernel thinks can be handed out without swapping - a truer "in use" than
+         * subtracting MemFree, which counts page cache as used. On Windows the same arithmetic over
+         * GlobalMemoryStatusEx's ullTotalPhys and ullAvailPhys, the latter being where the
+         * "\\Memory\\Available Bytes" counter gets its value.
+         *
+         * @return percentage in use, or std::nullopt if the reading failed or the platform has none
+         * (e.g. macOS).
          */
         static std::optional<double> ReadSystemMemoryUsagePercent();
 
@@ -197,13 +254,18 @@ namespace Euclid::Core {
         };
 
         /**
-         * @brief Reads this process's current memory usage from /proc/self/status (VmRSS,
-         * VmSize) and /proc/meminfo (MemTotal), Linux-only (see man proc(5)). Unlike
-         * ReadCpuTimes(), this is a direct point-in-time reading - no delta between two calls is
-         * needed.
+         * @brief Reads this process's current memory usage: on Linux from /proc/self/status (VmRSS,
+         * VmSize) and /proc/meminfo (MemTotal), see man proc(5); on Windows from
+         * GetProcessMemoryInfo() and GlobalMemoryStatusEx(). Unlike ReadCpuTimes(), this is a direct
+         * point-in-time reading - no delta between two calls is needed.
          *
-         * @return the reading, or std::nullopt if /proc/self/status or /proc/meminfo couldn't be
-         * read or parsed (e.g. non-Linux system).
+         * @par
+         * What "virtual" means differs between the two, unavoidably: Linux's VmSize is the whole
+         * address space, where the Windows figure is the commit charge ("\\Process\\Private Bytes").
+         * Reporting the literal equivalent there would mean reporting a reservation in the
+         * terabytes for every 64-bit process, which is not what anybody watches the series for.
+         *
+         * @return the reading, or std::nullopt if it failed or the platform has none (e.g. macOS).
          */
         static std::optional<MemoryUsage> ReadMemoryUsage();
 

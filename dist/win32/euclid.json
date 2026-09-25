@@ -40,7 +40,7 @@
     },
     "modules": {
       "emd": {
-        "active": false,
+        "active": true,
         "name": "emd",
         "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-emd.sock",
         "executable": "C:\\Program Files\\euclid\\bin\\euclid-emd.exe",
@@ -98,7 +98,7 @@
         "dependencies": [
           "emd"
         ],
-        "active": false,
+        "active": true,
         "name": "ens",
         "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-ens.sock",
         "executable": "C:\\Program Files\\euclid\\bin\\euclid-ens.exe",
@@ -143,6 +143,18 @@
         "minInstances": 1,
         "maxInstances": 4,
         "threads": 2
+      },
+      "ekv": {
+        "dependencies": [
+          "emd"
+        ],
+        "active": true,
+        "name": "ekv",
+        "socketPath": "C:\\Program Files\\euclid\\data\\run\\euclid-ekv.sock",
+        "executable": "C:\\Program Files\\euclid\\bin\\euclid-ekv.exe",
+        "minInstances": 1,
+        "maxInstances": 4,
+        "threads": 4
       },
       "ess": {
         "dependencies": [
@@ -218,6 +230,7 @@
         "threads": 2,
         "http-port-min": 9000,
         "http-port-max": 9999,
+        "bucket": "apps",
         "runtimes": {
           "java": "java.exe",
           "java21": "C:\\Program Files\\Java\\jdk-21\\bin\\java.exe",
@@ -293,10 +306,15 @@
       "pool-size": 256
     },
     "logging": {
+      "format": "text",
       "file-active": true,
-      "console-active": false,
+      "file-format": "json",
+      "file-level": "info",
+      "console-active": true,
+      "console-level": "info",
+      "console-format": "text",
       "level": "warning",
-      "dir": "C:\\Program Files\\euclid\\log",
+      "dir": "/usr/local/euclid/log",
       "prefix": "euclid",
       "channels": {
         "app": "info",
