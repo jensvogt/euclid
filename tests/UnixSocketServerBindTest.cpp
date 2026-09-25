@@ -9,6 +9,11 @@
 #include <filesystem>
 #include <string>
 
+#ifdef _WIN32
+#include <windows.h>    // GetFileAttributesW, DeleteFileW - see socketFileExists()
+#include <process.h>    // _getpid
+#endif
+
 // Euclid includes
 #include <euclid/core/UnixSocketServer.h>
 
@@ -31,8 +36,52 @@ namespace {
         }
     };
 
+    int processId() {
+#ifdef _WIN32
+        return _getpid();
+#else
+        return ::getpid();
+#endif
+    }
+
     std::filesystem::path uniqueRoot() {
-        return std::filesystem::temp_directory_path() / ("euclid-socket-test-" + std::to_string(::getpid()));
+        return std::filesystem::temp_directory_path() / ("euclid-socket-test-" + std::to_string(processId()));
+    }
+
+    /**
+     * @brief Whether a socket file was left on disk at this path.
+     *
+     * std::filesystem cannot answer that on Windows. An AF_UNIX socket there is a reparse point,
+     * and exists()/is_socket() go through a stat that fails on it with ERROR_CANT_ACCESS_FILE: the
+     * throwing overloads throw, and the error_code ones answer "no" about a file that is plainly
+     * there. GetFileAttributes does not follow the reparse point, and answers.
+     *
+     * On Linux the stronger question is asked, because it can be: not merely that something is
+     * there, but that it is a socket.
+     */
+    bool socketFileExists(const std::filesystem::path &path) {
+#ifdef _WIN32
+        return GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
+#else
+        return std::filesystem::is_socket(path);
+#endif
+    }
+
+    /**
+     * @brief Removes the test's directory, socket files and all.
+     *
+     * remove_all() is no use for the same reason exists() is not: it stats what it walks, and on
+     * Windows it fails on the socket file rather than deleting it. The sockets go first, by name
+     * and through the API that can, and what is left is an ordinary directory.
+     */
+    void removeTree(const std::filesystem::path &root, const std::vector<std::filesystem::path> &sockets = {}) {
+#ifdef _WIN32
+        for (const auto &socket: sockets) DeleteFileW(socket.c_str());
+#else
+        (void) sockets;
+#endif
+        std::error_code ec;
+        std::filesystem::remove_all(root, ec);
     }
 
 }// namespace
@@ -40,7 +89,7 @@ namespace {
 BOOST_AUTO_TEST_CASE(ASocketDirectoryThatIsNotThereIsCreated) {
 
     const auto root = uniqueRoot();
-    std::filesystem::remove_all(root);
+    removeTree(root);
 
     // Two levels below anything that exists, which is what a fresh host looks like: neither
     // /var/run/euclid nor a socket-dir under it has been made by anybody.
@@ -50,26 +99,29 @@ BOOST_AUTO_TEST_CASE(ASocketDirectoryThatIsNotThereIsCreated) {
     {
         BOOST_CHECK_NO_THROW(TestServer("test", socket.string()));
         BOOST_TEST(std::filesystem::exists(socket.parent_path()));
-        BOOST_TEST(std::filesystem::is_socket(socket));
+        BOOST_TEST(socketFileExists(socket));
     }
 
-    std::filesystem::remove_all(root);
+    removeTree(root, {socket});
 }
 
 BOOST_AUTO_TEST_CASE(ASocketLeftBehindByAPreviousRunIsReplaced) {
 
     const auto root = uniqueRoot();
-    std::filesystem::remove_all(root);
+    removeTree(root);
     std::filesystem::create_directories(root);
 
     // A process killed rather than stopped leaves its socket on disk, and bind() refuses to
     // replace a path that exists - so the file is removed first, and creating the directory must
     // not have disturbed that.
+    //
+    // The constructor is what does it, so the first server is destroyed without having stopped:
+    // stop() would take the socket with it and there would be nothing left behind to replace.
     const auto socket = root / "euclid-test.sock";
     { TestServer first("first", socket.string()); }
-    BOOST_TEST_REQUIRE(std::filesystem::exists(socket));
+    BOOST_TEST_REQUIRE(socketFileExists(socket));
 
     BOOST_CHECK_NO_THROW(TestServer("second", socket.string()));
 
-    std::filesystem::remove_all(root);
+    removeTree(root, {socket});
 }

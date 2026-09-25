@@ -52,6 +52,7 @@ namespace Euclid::Core {
                 // eam - 41 actions
                 "eam:change-namespace",
                 "eam:change-password",
+                "eam:change-userid",
                 "eam:check-permission",
                 "eam:create-access-key",
                 "eam:create-account",

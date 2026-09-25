@@ -255,6 +255,11 @@ namespace Euclid::EAP {
             user.accountId = accountId;
             user.region = region;
             user.ern = Core::createEamUserErn(accountId, user.userId);
+            // Stamped here, like every other creator of a user does it. Left unset, these were
+            // written as the epoch, so every application's principal was listed as having been
+            // created on the 1st of January 1970 - which is not only wrong to read: it is what
+            // anything asking "which principals are new since..." sorts and filters on.
+            user.created = user.modified = std::chrono::system_clock::now();
             // Not a hash of anything: PasswordUtils::Verify() cannot match an empty stored
             // password, so there is no password to guess even before loginEnabled is consulted.
             user.password = "";

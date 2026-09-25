@@ -7,6 +7,9 @@
 //
 
 // C++ includes
+#include <array>
+#include <functional>
+#include <memory>
 #include <utility>
 
 // Euclid includes
@@ -92,6 +95,72 @@ namespace Euclid::EAG {
             return;
         }
         beast::get_lowest_layer(std::get<beast::ssl_stream<beast::tcp_stream> >(_stream)).close();
+    }
+
+    namespace {
+        // How long a caller who ignores the refusal is read for before the socket is dropped on
+        // them. nginx's lingering_timeout, and bounded the same way - by time rather than by bytes.
+        //
+        // A byte budget was the wrong bound and was tried first: a caller refused four megabytes in
+        // still has most of them to send, so a cap of a few hundred kilobytes ends the drain with
+        // the connection full of unsent body, which is the reset this exists to avoid. Time is what
+        // actually protects the gateway here, and it protects it in the case that matters - a
+        // caller who has stopped listening and keeps writing - rather than in the ordinary one.
+        //
+        // Nothing is held while this runs but the socket and one buffer: the reads are asynchronous,
+        // so no worker waits out the five seconds.
+        constexpr auto kLingerTimeout = std::chrono::seconds(5);
+    }// namespace
+
+    struct ClientStream::Drain {
+        std::array<char, 16 * 1024> scratch{};
+        std::size_t read{0};
+    };
+
+    void ClientStream::LingeringClose() {
+
+        auto *plain = std::get_if<beast::tcp_stream>(&_stream);
+        if (!plain) {
+            // TLS is closed as Close() closes it, and for the reason given there: a close_notify
+            // waits on a peer that has stopped listening. Reading ciphertext only to discard it
+            // would mean decrypting it first, which is work done purely to throw away.
+            Close();
+            return;
+        }
+
+        // The send side first, which tells the caller there will be nothing more from here. The
+        // receive side stays open, which is the whole point.
+        beast::error_code ignored;
+        plain->socket().shutdown(tcp::socket::shutdown_send, ignored);
+        plain->expires_after(kLingerTimeout);
+
+        drainNext(std::make_shared<Drain>());
+    }
+
+    void ClientStream::drainNext(const std::shared_ptr<Drain> &drain) {
+
+        auto *plain = std::get_if<beast::tcp_stream>(&_stream);
+        if (!plain) {
+            Close();
+            return;
+        }
+
+        // shared_from_this, because whoever asked for this close has already answered its own
+        // caller and let go of its reference - the reads that follow are the only thing keeping
+        // the connection alive, and they have to keep it alive themselves.
+        plain->async_read_some(asio::buffer(drain->scratch),
+                               [self = shared_from_this(), drain](const beast::error_code &ec, const std::size_t bytes) {
+                                   drain->read += bytes;
+
+                                   // Done when the caller stops - end_of_stream, which is the
+                                   // ordinary ending - or when the deadline set in LingeringClose()
+                                   // fires. Either way the connection ends here.
+                                   if (ec) {
+                                       self->Close();
+                                       return;
+                                   }
+                                   self->drainNext(drain);
+                               });
     }
 
     std::optional<tcp::endpoint> ClientStream::RemoteEndpoint() const {
