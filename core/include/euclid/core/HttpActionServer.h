@@ -212,14 +212,22 @@ namespace Euclid::Core {
          * silently reverted, which is how this came to be public.
          *
          * @par What is in
-         * Everything that changes something, and everything that was refused or failed whatever
-         * its kind - a refusal is the entry an audit exists for, and a 403 that is not recorded
-         * looks exactly like a command nobody attempted. Successful reads only when
+         * Everything that changes a resource somebody manages - a queue, a topic, a bucket, a key,
+         * a secret, a table, a user, an application - and everything that was refused or failed
+         * whatever its kind. A refusal is the entry an audit exists for, and a 403 that is not
+         * recorded looks exactly like a command nobody attempted. Successful reads only when
          * `euclid.modules.ead.audit-reads` asks for them.
          *
          * @par What is never in
-         * The machinery modules, whatever the action and whatever the status - see the
-         * implementation for which and why.
+         * What flows through those resources rather than being one of them: messages, objects,
+         * items, events and parts, when the command succeeded. That is the traffic, and it arrives
+         * at a rate no audit can hold - see Permissions::IsSecondLevel for the rule and the
+         * measurements behind it. What brackets such traffic is kept, so an upload is still a
+         * recorded event even though its 1,479 parts are not.
+         *
+         * @par
+         * Also never in: the machinery modules and the machinery actions, whatever the status -
+         * see the implementation for which and why.
          *
          * @param target the module addressed, from x-euclid-target.
          * @param action the command, from x-euclid-action.

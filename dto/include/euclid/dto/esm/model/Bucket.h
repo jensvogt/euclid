@@ -73,6 +73,16 @@ namespace Euclid::Dto::ESM {
         bool internal = false;
 
         /**
+         * @brief Priority the notifications this bucket sends are given, empty when it sets none.
+         *
+         * @par
+         * Nothing about the bucket depends on it - see Database::Entity::ESM::Bucket::priority.
+         * Reported because a bucket whose notifications are arriving at a priority nobody set here
+         * would be a thing to work out from the messages backwards.
+         */
+        std::string priority;
+
+        /**
          * @brief Creation date
          */
         system_clock::time_point created;
@@ -111,6 +121,7 @@ namespace Euclid::Dto::ESM {
             r.encrypted = Core::GetBoolValue(v, "encrypted");
             r.encryptionKeyErn = Core::GetStringValue(v, "encryptionKeyErn");
             r.internal = Core::GetBoolValue(v, "internal");
+            r.priority = Core::GetStringValue(v, "priority");
             r.created = Core::GetDatetimeValue(v, "created");
             r.modified = Core::GetDatetimeValue(v, "modified");
             return r;
@@ -128,6 +139,7 @@ namespace Euclid::Dto::ESM {
                     {"encrypted", obj.encrypted},
                     {"encryptionKeyErn", obj.encryptionKeyErn},
                     {"internal", obj.internal},
+                    {"priority", obj.priority},
                     {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
             };

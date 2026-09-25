@@ -24,7 +24,9 @@ The queue's ERN is printed as JSON.
 .TP
 .B 1
 Missing/invalid arguments, the server could not be reached, or no queue
-with that name exists.
+with that name exists. A script that has to tell those apart wants
+.BR euclid-cli-eqs-exists-queue (1),
+which gives absence and failure different codes.
 .SH EXAMPLES
 .RS
 .nf
@@ -35,6 +37,7 @@ euclid-cli --endpoint http://localhost:5566 eqs get-queue-ern \e
 .SH SEE ALSO
 .BR euclid-cli-eqs (1),
 .BR euclid-cli-eqs-create-queue (1),
+.BR euclid-cli-eqs-exists-queue (1),
 .BR euclid-cli-eqs-list-queues (1)
 .SH AUTHOR
 Jens Vogt <jensvogt47@gmail.com>

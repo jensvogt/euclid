@@ -264,8 +264,14 @@
         "threads": 2,
         "http-port-min": 9000,
         "http-port-max": 9999,
-        "credentials-ttl-seconds": 3600,
-        "bucket": "apps"
+        "runtimes": {
+          "java": "java",
+          "java21": "/usr/lib/jvm/java-21-openjdk/bin/java",
+          "java25": "/usr/lib/jvm/java-25-openjdk/bin/java",
+          "python": "python3",
+          "nodejs": "node"
+        },
+        "credentials-ttl-seconds": 3600
       },
       "ets": {
         "dependencies": [

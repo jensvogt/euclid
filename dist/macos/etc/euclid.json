@@ -255,8 +255,14 @@
         "threads": 2,
         "http-port-min": 9000,
         "http-port-max": 9999,
-        "credentials-ttl-seconds": 3600,
-        "bucket": "apps"
+        "runtimes": {
+          "java": "java",
+          "java21": "/opt/homebrew/opt/openjdk@21/bin/java",
+          "java25": "/opt/homebrew/opt/openjdk@25/bin/java",
+          "python": "python3",
+          "nodejs": "node"
+        },
+        "credentials-ttl-seconds": 3600
       },
       "ets": {
         "dependencies": [

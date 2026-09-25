@@ -284,6 +284,15 @@ target_link_libraries(${QUEUE_COUNTER_BINARY} PRIVATE eucliddb Boost::unit_test_
 
 add_test(NAME ${QUEUE_COUNTER_BINARY} COMMAND ${QUEUE_COUNTER_BINARY})
 
+set(BUCKET_PRIORITY_BINARY euclid-esm-bucket-priority-tests)
+
+add_executable(${BUCKET_PRIORITY_BINARY} BucketPriorityTest.cpp)
+set_target_properties(${BUCKET_PRIORITY_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${BUCKET_PRIORITY_BINARY} PRIVATE eucliddb eucliddto Boost::unit_test_framework)
+
+add_test(NAME ${BUCKET_PRIORITY_BINARY} COMMAND ${BUCKET_PRIORITY_BINARY})
+
 set(BUCKET_COUNTER_BINARY euclid-esm-bucket-counter-tests)
 
 add_executable(${BUCKET_COUNTER_BINARY} BucketCounterTest.cpp)
@@ -349,6 +358,15 @@ set_target_properties(${AUDIT_EVENT_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 target_link_libraries(${AUDIT_EVENT_BINARY} PRIVATE eucliddb euclidcore Boost::unit_test_framework)
 
 add_test(NAME ${AUDIT_EVENT_BINARY} COMMAND ${AUDIT_EVENT_BINARY})
+
+set(SCHEDULER_SHUTDOWN_BINARY euclid-scheduler-shutdown-tests)
+
+add_executable(${SCHEDULER_SHUTDOWN_BINARY} SchedulerShutdownTest.cpp)
+set_target_properties(${SCHEDULER_SHUTDOWN_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${SCHEDULER_SHUTDOWN_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${SCHEDULER_SHUTDOWN_BINARY} COMMAND ${SCHEDULER_SHUTDOWN_BINARY})
 
 set(BACKGROUND_WORK_BINARY euclid-background-work-tests)
 

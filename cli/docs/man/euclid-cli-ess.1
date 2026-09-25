@@ -84,6 +84,11 @@ Stores a new secret, encrypted. See
 Reads a secret's value. The only action that decrypts one. See
 .BR euclid-cli-ess-get-secret (1).
 .TP
+.B exists-secret
+Answers whether a secret exists as an exit code, for use in a script: 0
+yes, 1 no, 2 could not tell. See
+.BR euclid-cli-ess-exists-secret (1).
+.TP
 .B list-secrets
 Lists secrets with their descriptions, versions and ages, never their
 values. See
@@ -166,6 +171,7 @@ openssl rand -base64 24 | \e
 .BR euclid-cli-eam-login (1),
 .BR euclid-cli-eap (1),
 .BR euclid-cli-ess-create-secret (1),
+.BR euclid-cli-ess-exists-secret (1),
 .BR euclid-cli-ess-get-secret (1),
 .BR euclid-cli-ess-list-secrets (1),
 .BR euclid-cli-ess-update-secret (1),

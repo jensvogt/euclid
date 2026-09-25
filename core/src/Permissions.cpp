@@ -212,7 +212,7 @@ namespace Euclid::Core {
                 "eqs:start-queue",
                 "eqs:stop-queue",
 
-                // esm - 39 actions
+                // esm - 41 actions
                 "esm:abort-upload",
                 "esm:add-bucket-tag",
                 "esm:add-object-attribute",
@@ -247,6 +247,7 @@ namespace Euclid::Core {
                 "esm:rename-bucket",
                 "esm:rename-object",
                 "esm:set-bucket-internal",
+                "esm:set-bucket-priority",
                 "esm:set-bucket-tag",
                 "esm:set-object-attribute",
                 "esm:subscribe",
@@ -354,6 +355,71 @@ namespace Euclid::Core {
 
         return action.starts_with("list-") || action.starts_with("get-")
                || action.starts_with("describe-") || action.starts_with("count-");
+    }
+
+    bool Permissions::IsSecondLevel(const std::string_view permission) {
+
+        const auto colon = permission.find(':');
+        const auto action = colon == std::string_view::npos ? permission : permission.substr(colon + 1);
+
+        // What brackets a transfer is first level, though its subject is not. These are what make
+        // the parts between them droppable: create-upload and complete-upload record an upload with
+        // its key, its caller and its outcome, so the 1,479 parts of a 12 GB file are how the bytes
+        // arrived rather than what was done. Drop the brackets too and the transfer disappears
+        // entirely.
+        constexpr std::array kTransferBrackets{
+                std::string_view{"create-upload"}, std::string_view{"complete-upload"},
+                std::string_view{"abort-upload"}, std::string_view{"create-download"},
+                std::string_view{"complete-download"},
+        };
+        if (std::ranges::contains(kTransferBrackets, action)) return false;
+
+        // Emptying a container is an operation on the container, whatever it was holding.
+        // purge-queue, purge-bucket, purge-topic and purge-events all discard somebody else's data
+        // irreversibly, which is the entry an audit is most often opened to find.
+        if (action.starts_with("purge-")) return false;
+
+        // Second level though the word does not say so. Each acts on messages or items; none of
+        // them names one, so the rule below cannot see it.
+        //
+        //   send-message-batch  - N messages in one request; reads as a batch, is a send
+        //   set-visibility      - the older spelling of set-message-visibility, still dispatched
+        //   query, scan         - reading a table's items, which get-/list- does not cover
+        constexpr std::array kUnnamedSecondLevel{
+                std::string_view{"send-message-batch"}, std::string_view{"set-visibility"},
+                std::string_view{"query"}, std::string_view{"scan"},
+        };
+        if (std::ranges::contains(kUnnamedSecondLevel, action)) return true;
+
+        // Matched as whole hyphen-separated words rather than as substrings, and only in the last
+        // position, because the last word is the subject and anything before it is a qualifier.
+        // "send-message" sends a message; "set-queue-max-message-length" sets a property of a
+        // queue and merely mentions one. Both spellings, singular and plural, because euclid names
+        // both ("delete-object", "delete-objects").
+        constexpr std::array kSecondLevel{
+                std::string_view{"message"}, std::string_view{"messages"},
+                std::string_view{"object"}, std::string_view{"objects"},
+                std::string_view{"item"}, std::string_view{"items"},
+                std::string_view{"event"}, std::string_view{"events"},
+                std::string_view{"part"}, std::string_view{"parts"},
+                std::string_view{"upload"}, std::string_view{"download"},
+        };
+
+        const auto lastSeparator = action.rfind('-');
+        const auto subject = lastSeparator == std::string_view::npos ? action : action.substr(lastSeparator + 1);
+
+        if (std::ranges::contains(kSecondLevel, subject)) return true;
+
+        // Except where the subject is a property of one, in which case the word before it says
+        // whose property: set-object-attribute is an object's, set-queue-visibility is a queue's.
+        if (subject == "attribute" || subject == "attributes" || subject == "visibility") {
+            const auto head = action.substr(0, lastSeparator);
+            const auto previous = head.rfind('-');
+            const auto qualifier = previous == std::string_view::npos ? head : head.substr(previous + 1);
+            return std::ranges::contains(kSecondLevel, qualifier);
+        }
+
+        return false;
     }
 
 }// namespace Euclid::Core

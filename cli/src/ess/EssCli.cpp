@@ -24,6 +24,7 @@ namespace Euclid::CLI {
                 {"create-secret", "Store a new secret"},
                 {"delete-secret", "Delete a secret"},
                 {"get-secret", "Read a secret's value"},
+                {"exists-secret", "Whether a secret exists; exit 0 yes, 1 no, 2 could not tell"},
                 {"list-secrets", "List stored secrets, without their values"},
                 {"update-secret", "Rotate a secret, or change its description or key"},
         };
@@ -36,6 +37,7 @@ namespace Euclid::CLI {
         if (action == "create-secret") {
             return createSecret(args);
         }
+        if (action == "exists-secret") return existsSecret(args);
         if (action == "get-secret") {
             return getSecret(args);
         }
@@ -203,6 +205,81 @@ namespace Euclid::CLI {
         } catch (const std::exception &ex) {
             std::cerr << "error: " << ex.what() << std::endl;
             return 1;
+        }
+    }
+
+    int EssCli::existsSecret(const std::vector<std::string> &args) const {
+
+        po::options_description desc("exists secret options");
+        desc.add_options()("name,n", po::value<std::string>()->required(), "secret name");
+
+        if (IsHelpRequest(args)) {
+            PrintActionHelp("ess", "exists-secret", "--name <name>",
+                            "Answers whether a secret exists as an exit code, for use in a script: 0 if it "
+                            "exists, 1 if it does not, 2 if the question could not be answered at all - an "
+                            "expired session, an unreachable gateway, a refused permission. Writes \"true\" "
+                            "or \"false\" to stdout and nothing else.\n\n"
+                            "Asks list-secrets rather than get-secret, so it needs ess:list-secrets and never "
+                            "decrypts the value - knowing a name is taken is not the same permission as "
+                            "reading the password, and should not leave the same trail. Use as: "
+                            "if euclid-cli ess exists-secret -n db-password; then ...",
+                            desc);
+            return Exists::kYes;
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            // A missing --name is not "the secret is absent", it is a broken command line.
+            return Exists::Unknown("exists-secret", ex.what());
+        }
+
+        const auto name = vm["name"].as<std::string>();
+
+        // The name as a prefix, then narrowed to an exact match below. Every secret whose name
+        // merely starts with this one comes back too - "db-password" also matches
+        // "db-password-old" - so the whole matching page is asked for rather than the default ten,
+        // or a name could be declared absent because longer ones crowded it off page one.
+        Dto::ESS::ListSecretsRequest request;
+        request.prefix = name;
+        request.pageSize = 0;
+        request.pageIndex = 0;
+        request.sortColumn = "name";
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ess", "list-secrets", boost::json::value_from(request));
+
+            // No 404 to read here: a listing that matched nothing is a success with an empty array,
+            // which is the answer rather than a failure.
+            if (!response.IsSuccess()) {
+                return Exists::Unknown("exists-secret", "HTTP " + std::to_string(response.statusCode) + ": " +
+                                                                boost::json::serialize(response.body));
+            }
+
+            const auto *object = response.body.if_object();
+            const auto *secrets = object ? object->if_contains("secrets") : nullptr;
+            const auto *array = secrets ? secrets->if_array() : nullptr;
+            if (array == nullptr) {
+                // A shape this does not understand is not an absent secret. Saying "false" to a
+                // response nobody parsed is the one answer that must not be guessed.
+                return Exists::Unknown("exists-secret", "could not read the secret list in the answer");
+            }
+
+            for (const auto &entry: *array) {
+                const auto *fields = entry.if_object();
+                const auto *secretName = fields ? fields->if_contains("name") : nullptr;
+                const auto *text = secretName ? secretName->if_string() : nullptr;
+                if (text != nullptr && std::string(text->c_str()) == name) return Exists::Answer(true);
+            }
+            return Exists::Answer(false);
+
+        } catch (const std::exception &ex) {
+            // Never reached the gateway at all, which is the case a script most needs not to read
+            // as "false" - see Exists.
+            return Exists::Unknown("exists-secret", ex.what());
         }
     }
 

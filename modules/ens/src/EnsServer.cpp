@@ -277,14 +277,14 @@ namespace Euclid::ENS {
     // payload, same attributes, same priority.
     static long deliverToSubscriptions(const std::string &topicErn, const std::string &messageId, const std::string &body,
                                        const boost::json::object &attributesJson, const boost::json::object &systemAttributes,
-                                       const std::string &priority) {
+                                       const std::string &priority, const std::string &bucketPriority = {}) {
 
         const auto repo = Database::RepositoryFactory::instance().ensRepository();
 
         long delivered = 0;
         for (const auto &subscription: repo->listSubscriptionsBySourceErn(topicErn)) {
             if (subscription.type != "SQS") continue;
-            const boost::json::value payload = {
+            boost::json::object payloadObject{
                     {"body", body},
                     {"attributes", attributesJson},
                     // Carried straight through: a topic in the middle of a chain must not be where
@@ -292,6 +292,13 @@ namespace Euclid::ENS {
                     {"systemAttributes", systemAttributes},
                     {"priority", priority},
             };
+
+            // Forwarded rather than folded into the priority above, so that a bucket's default keeps
+            // its rank across the hop. It is weaker than the object's own priority, and "priority"
+            // here is the strongest thing EqsServer weighs - putting a bucket default in it would
+            // make the same bucket outrank an object through a topic and lose to it through a queue.
+            if (!bucketPriority.empty()) payloadObject["bucketPriority"] = bucketPriority;
+            const boost::json::value payload = payloadObject;
             Database::EventBus::instance().Publish("ens.message.published", payload, "ens",
                                                    {.targetErn = subscription.targetErn,
                                                     .sourceErn = topicErn,
@@ -313,7 +320,8 @@ namespace Euclid::ENS {
                                                          const std::map<std::string, Dto::COM::Variant> &attributes,
                                                          const std::string &accountId,
                                                          const std::string &priority = "MEDIUM",
-                                                         const boost::json::object &systemAttributes = {}) {
+                                                         const boost::json::object &systemAttributes = {},
+                                                         const std::string &bucketPriority = {}) {
 
         const std::string messageId = Core::UuidUtils::CreateRandomUuid();
         const std::string ern = Core::createEnsMessageErn(accountId, messageId);
@@ -346,7 +354,7 @@ namespace Euclid::ENS {
             attributesJson[key] = boost::json::value_from(variant);
         }
 
-        const auto delivered = deliverToSubscriptions(topicErn, message.messageId, body, attributesJson, systemAttributes, priority);
+        const auto delivered = deliverToSubscriptions(topicErn, message.messageId, body, attributesJson, systemAttributes, priority, bucketPriority);
         recordMessages(kMessagesReceived, kBytesReceived, topicErn, delivered, delivered * message.size);
 
         return message;
@@ -438,7 +446,12 @@ namespace Euclid::ENS {
             }
         }
 
-        const auto message = publishToTopic(targetErn, body, {}, Core::accountIdFromErn(targetErn), "MEDIUM", systemAttributes);
+        // The topic message's own priority stays MEDIUM: a topic is not consumed from, so there is
+        // nothing here for one to mean. The bucket's travels beside it instead, at the rank
+        // EqsServer gives a default - see deliverToSubscriptions.
+        const auto bucketPriority = Core::GetStringValue(envelope.payload, "bucketPriority");
+        const auto message = publishToTopic(targetErn, body, {}, Core::accountIdFromErn(targetErn), "MEDIUM",
+                                            systemAttributes, bucketPriority);
 
         log_info << "ENS created message from ESM object-published notification, source: " << envelope.sourceModule << ", targetErn: " << targetErn
                   << ", messageId: " << message.messageId;

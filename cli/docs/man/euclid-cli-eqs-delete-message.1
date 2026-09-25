@@ -1,0 +1,116 @@
+.TH EUCLID-CLI-EQS-DELETE-MESSAGE 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eqs-delete-message \- delete a single message
+.SH SYNOPSIS
+.B euclid-cli eqs delete-message
+.BR \-\-receipt\-handle | \-r
+.I HANDLE
+.br
+.B euclid-cli eqs delete-message
+.BR \-\-message\-id | \-m
+.I MESSAGEID
+.SH DESCRIPTION
+Deletes one message. Exactly one of the two ways of naming it is needed;
+giving neither is refused.
+.SH THE TWO WAYS TO NAME IT
+.TP
+.B \-\-receipt\-handle
+The standard way, and the one a consumer uses: a handle is what
+.BR euclid-cli-eqs-receive-messages (1)
+hands back, and deleting by it is acknowledging work that was received.
+This is the AWS SQS-compatible path.
+.TP
+.B \-\-message\-id
+Deletes the message directly, whether or not it has ever been received \(em
+including one that is
+.I AVAILABLE
+or
+.IR DELAYED ,
+sitting in the queue waiting for a consumer. This bypasses the
+receipt-handle lease entirely and has no AWS SQS equivalent. It is for an
+operator removing a message that is poisoning a queue, not for a
+consumer.
+.PP
+If both are given the receipt handle is used and the message id is
+ignored.
+.SH IT DOES NOT SAY WHETHER ANYTHING WAS DELETED
+Deleting a message that is not there succeeds. The delete is a filtered
+removal, and a filter that matches nothing removes nothing and reports no
+error \(em so
+.B 0
+means "there is now no such message", not "there was one and it is gone".
+.PP
+This matters most for a receipt handle that has expired. When a message's
+visibility timeout runs out it becomes
+.I AVAILABLE
+again and its receipt handle is cleared, so the handle a consumer is
+holding no longer matches anything. Deleting by it then removes nothing
+and still exits
+.BR 0 ,
+while the message is redelivered to somebody else. A consumer that took
+too long does not find out here; it finds out because the work comes round
+again.
+.PP
+So a script cannot use the exit status to learn whether a message existed.
+.BR euclid-cli-eqs-get-message (1)
+answers that, and
+.BR euclid-cli-eqs-get-message-count (1)
+answers it in aggregate.
+.SH OUTPUT
+Nothing on success. A command that printed an acknowledgement would be
+claiming something it does not know \(em see above.
+.SH OPTIONS
+.TP
+.BR \-r ", " \-\-receipt\-handle " " \fIHANDLE\fR
+Receipt handle of a received message, as returned by
+.BR euclid-cli-eqs-receive-messages (1).
+.TP
+.BR \-m ", " \-\-message\-id " " \fIMESSAGEID\fR
+Message id. Deletes the message even if it has never been received.
+.SH EXIT STATUS
+.TP
+.B 0
+There is now no message with that handle or id. It may or may not have
+been there to begin with.
+.TP
+.B 1
+Neither
+.B \-\-receipt\-handle
+nor
+.B \-\-message\-id
+was given, the caller may not delete from the queue, or the server could
+not be reached.
+.SH EXAMPLES
+Acknowledge received work:
+.RS
+.nf
+euclid\-cli eqs delete\-message \-\-receipt\-handle "$HANDLE"
+.fi
+.RE
+.PP
+Remove a message nobody has received, by id:
+.RS
+.nf
+euclid\-cli eqs delete\-message \-\-message\-id 66f1c2a9e4b0
+.fi
+.RE
+.PP
+Confirm it is gone, which the delete itself does not tell you:
+.RS
+.nf
+euclid\-cli eqs delete\-message \-\-message\-id 66f1c2a9e4b0
+if euclid\-cli eqs get\-message \-\-message\-id 66f1c2a9e4b0 \e
+        > /dev/null 2>&1; then
+    echo "still there" >&2
+fi
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eqs (1),
+.BR euclid-cli-eqs-receive-messages (1),
+.BR euclid-cli-eqs-get-message (1),
+.BR euclid-cli-eqs-set-message-visibility (1),
+.BR euclid-cli-eqs-purge-queue (1),
+.BR euclid-cli-eqs-get-message-count (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>
