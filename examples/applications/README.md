@@ -147,10 +147,15 @@ database.
 ## Deploying one
 
 The artifact lives in an ESM bucket, so deployment is an ordinary upload — through the CLI, an
-SDK, or an FTP/SFTP transfer server:
+SDK, or an FTP/SFTP transfer server. The bucket is there already: when EAP starts it creates `apps`
+in each configured account, at the account root and in each of the account's namespaces — a bucket
+name means a different bucket in each namespace, so a deployment in `development` needs the one
+there. It is marked internal, so `list-buckets` leaves it out unless you ask with
+`--include-internal` — hidden, not protected, which is why uploading into it works as it always did.
+Another name, or none at all, through `euclid.modules.eap.bucket`. A namespace created after EAP
+started gets its bucket on EAP's next start.
 
 ```bash
-euclid-cli esm create-bucket --name apps
 euclid-cli esm upload-file --bucket apps --key euclid_app.py --file python/euclid_app.py
 
 euclid-cli eap create-application \

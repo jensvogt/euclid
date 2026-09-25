@@ -13,3 +13,11 @@ target_link_libraries(${LIBRARY} PUBLIC Boost::boost Boost::json Boost::log Boos
         PRIVATE OpenSSL::SSL OpenSSL::Crypto Boost::thread Boost::process Boost::date_time Boost::url Boost::chrono
         LibArchive::LibArchive unofficial::libmagic::libmagic jwt-cpp::jwt-cpp
         LibXml2::LibXml2 ZLIB::ZLIB unofficial::xmlsec::xmlsec1 unofficial::xmlsec::xmlsec1-openssl)
+
+if (WIN32)
+    # Pdh provides the performance counter API (PdhOpenQuery/PdhAddEnglishCounter/...) that
+    # SystemUtils::ReadProcessorQueueLength() reads "\System\Processor Queue Length" through - the
+    # Windows stand-in for a load average, and the one figure EMO collects that has no Win32 call.
+    # Psapi provides GetProcessMemoryInfo() for SystemUtils::ReadMemoryUsage().
+    target_link_libraries(${LIBRARY} PRIVATE Pdh Psapi)
+endif ()

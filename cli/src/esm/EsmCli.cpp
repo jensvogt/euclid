@@ -323,12 +323,17 @@ namespace Euclid::CLI {
                 ("page-size,s", po::value<long>()->default_value(-1), "page size")
                 ("page-index,i", po::value<long>()->default_value(-1), "page index")
                 ("sort-column,c", po::value<std::string>()->default_value("name"), "sort column")
-                ("sort-direction,d", po::value<std::string>()->default_value("asc"), "sort direction");
+                ("sort-direction,d", po::value<std::string>()->default_value("asc"), "sort direction")
+                // No short form: -i is page-index. Long-only rather than reshuffling the letters,
+                // which would break every script that already passes -i.
+                ("include-internal", po::bool_switch(), "include euclid's own buckets, e.g. the one applications are deployed from (administrators only)");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "list-buckets", "[--prefix <prefix>] [--page-size <n>] [--page-index <n>] [--sort-column <column>] [--sort-direction <direction>]",
+            return PrintActionHelp("esm", "list-buckets", "[--prefix <prefix>] [--page-size <n>] [--page-index <n>] [--sort-column <column>] [--sort-direction <direction>] [--include-internal]",
                                    "Lists storage buckets, optionally filtered by name prefix and paginated. Paginated: page-size defaults to 10, page-index to 0,"
-                                   " sort-column to \"created\" and sort-direction to \"asc\".",
+                                   " sort-column to \"created\" and sort-direction to \"asc\".\n\n"
+                                   "Euclid's own buckets are left out unless --include-internal is given, and that is honoured for administrators only. "
+                                   "The bucket EAP deploys applications from is one of them - see \"esm set-bucket-internal\" for what the flag means.",
                                    desc);
         }
 
@@ -345,6 +350,10 @@ namespace Euclid::CLI {
         request.pageSize = vm["page-size"].as<long>();
         request.pageIndex = vm["page-index"].as<long>();
         request.sortColumn = vm["sort-column"].as<std::string>();
+        // Parsed since the option was added and never sent, so "--sort-direction desc" listed
+        // ascending and said nothing about it.
+        request.sortDirection = vm["sort-direction"].as<std::string>();
+        request.includeInternal = vm["include-internal"].as<bool>();
         if (vm.contains("prefix")) {
             request.prefix = vm["prefix"].as<std::string>();
         }

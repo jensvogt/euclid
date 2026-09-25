@@ -13,6 +13,10 @@
 // Euclid includes
 #include <euclid/core/SystemUtils.h>
 
+#ifdef _WIN32
+#include <windows.h>    // GetActiveProcessorCount, for checking the count reported beside the queue
+#endif
+
 using Euclid::Core::SystemUtils;
 
 // EMO records the run-queue averages as "system-load-average" and the one-minute figure divided by
@@ -95,13 +99,89 @@ BOOST_AUTO_TEST_CASE(PerCoreSaturatesAtOneWhateverTheHardware) {
     BOOST_TEST(perCore < static_cast<double>(load->cpuCount));
 }
 
+#elif defined(_WIN32)
+
+// Windows has no run-queue average, so EMO records the processor queue instead - see
+// EmoServer::collectSystemLoad(). Same concern as the Linux cases above: a performance counter read
+// through the wrong path, or with the wrong processor count beside it, still draws a graph.
+
+BOOST_AUTO_TEST_CASE(ThereIsNoLoadAverageOnWindows) {
+
+    // Deliberately not emulated. Answering nullopt is what keeps an instantaneous count out of a
+    // series whose meaning is the window it averages over.
+    BOOST_TEST(!SystemUtils::ReadLoadAverage().has_value());
+}
+
+BOOST_AUTO_TEST_CASE(TheProcessorQueueIsReadableThroughPdh) {
+
+    // The counter is added by its English name, which is the part that can be wrong without
+    // anybody noticing until this runs on a Windows whose display language is not English - there
+    // PdhAddCounter would fail and this would be a permanent nullopt.
+    const auto queue = SystemUtils::ReadProcessorQueueLength();
+    BOOST_TEST_REQUIRE(queue.has_value());
+    BOOST_TEST(queue->queueLength >= 0.0);
+
+    // An idle desktop reads 0 and a saturated host reads tens. A figure in the thousands means the
+    // wrong counter was formatted, not a busy machine.
+    BOOST_TEST(queue->queueLength < 10000.0);
+}
+
+BOOST_AUTO_TEST_CASE(TheProcessorCountComesWithTheQueue) {
+
+    // Without it the queue cannot be read, for the same reason a load average cannot - see
+    // ReadProcessorQueueLength(). Counted over all processor groups, so a host with more than 64
+    // processors reports all of them rather than the group this thread happens to run in.
+    const auto queue = SystemUtils::ReadProcessorQueueLength();
+    BOOST_TEST_REQUIRE(queue.has_value());
+    BOOST_TEST(queue->cpuCount > 0);
+    BOOST_TEST(queue->cpuCount == static_cast<long>(GetActiveProcessorCount(ALL_PROCESSOR_GROUPS)));
+}
+
+BOOST_AUTO_TEST_CASE(TheCpuTimesAreCumulativeAndIdleIsPartOfTheTotal) {
+
+    // GetSystemTimes' kernel figure already includes idle, so total must not add it again - the
+    // mistake would halve every usage percentage EMO records and look plausible doing it.
+    const auto first = SystemUtils::ReadCpuTimes();
+    BOOST_TEST_REQUIRE(first.has_value());
+    BOOST_TEST(first->total > 0);
+    BOOST_TEST(first->idle <= first->total);
+
+    // Cumulative since boot, which is what lets two callers each keep their own baseline. A second
+    // reading can only be greater or equal, never a fresh interval starting from zero.
+    const auto second = SystemUtils::ReadCpuTimes();
+    BOOST_TEST_REQUIRE(second.has_value());
+    BOOST_TEST(second->total >= first->total);
+    BOOST_TEST(second->idle >= first->idle);
+}
+
+BOOST_AUTO_TEST_CASE(TheHostAndProcessMemoryFiguresAreBothInRange) {
+
+    // The host's memory, which is a percentage and cannot be outside 0..100 whatever happens.
+    const auto system = SystemUtils::ReadSystemMemoryUsagePercent();
+    BOOST_TEST_REQUIRE(system.has_value());
+    BOOST_TEST(*system > 0.0);
+    BOOST_TEST(*system <= 100.0);
+
+    // This process's, which is a different question - the working set of the test binary itself.
+    const auto process = SystemUtils::ReadMemoryUsage();
+    BOOST_TEST_REQUIRE(process.has_value());
+    BOOST_TEST(process->realMb > 0.0);
+    BOOST_TEST(process->virtualMb > 0.0);
+    BOOST_TEST(process->percentOfTotal > 0.0);
+
+    // A test binary holds a few megabytes of a machine with gigabytes. Not an equality, but a
+    // percentage in the double digits here would mean the working set was divided by the wrong total.
+    BOOST_TEST(process->percentOfTotal < 100.0);
+}
+
 #else
 
 BOOST_AUTO_TEST_CASE(ThereIsNoLoadAverageOffLinux) {
 
     // /proc/loadavg is Linux's. Answering nullopt is what lets EMO skip the collector on macOS
-    // and Windows rather than record a zero that reads as an idle machine.
+    // rather than record a zero that reads as an idle machine.
     BOOST_TEST(!SystemUtils::ReadLoadAverage().has_value());
+    BOOST_TEST(!SystemUtils::ReadProcessorQueueLength().has_value());
 }
 
 #endif
