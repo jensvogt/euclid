@@ -11,6 +11,9 @@
 // C++ includes
 #include <algorithm>
 
+// Euclid includes
+#include <euclid/core/ErnUtils.h>
+
 namespace Euclid::Database {
 
     MongoEamRepository::MongoEamRepository() {
@@ -65,6 +68,22 @@ namespace Euclid::Database {
 
     Entity::EAM::User MongoEamRepository::upsertUser(Entity::EAM::User &user) {
 
+        // Filled in when the caller left them unset, rather than required of every caller. Every
+        // handler in EAM stamps them and EAP's technical principal did not, so every application's
+        // identity was stored as having been created at the epoch - and nothing said so, because a
+        // date that is wrong still sorts, still formats and still prints.
+        //
+        // Only when unset: a caller that says when something happened is not corrected, and an
+        // update does not become a creation. A row written before this, carrying the epoch, is
+        // stamped the next time anything writes it - the honest answer to "when was this made" is
+        // then "not known, first seen now", which is what it says.
+        if (const auto now = std::chrono::system_clock::now(); user.created.time_since_epoch().count() == 0) {
+            user.created = now;
+            if (user.modified.time_since_epoch().count() == 0) user.modified = now;
+        } else if (user.modified.time_since_epoch().count() == 0) {
+            user.modified = now;
+        }
+
         try {
 
             const auto filter = make_document(kvp("userId", user.userId));
@@ -83,6 +102,67 @@ namespace Euclid::Database {
 
         } catch (const std::exception &e) {
             log_error << "Upsert user failed, error: " << e.what();
+            throw;
+        }
+    }
+
+    std::optional<Entity::EAM::User> MongoEamRepository::renameUser(const std::string &userId, const std::string &newUserId) {
+
+        const auto existing = findUserByUserId(userId);
+        if (!existing.has_value()) return std::nullopt;
+
+        // Rebuilt rather than patched: an ERN carries the region and the account as well as the
+        // name, and the one this user holds was built the same way when they were created.
+        const auto newErn = Core::createEamUserErn(existing->accountId, newUserId);
+
+        try {
+
+            // The user row first. If this is refused - the unique index on userId, because the new
+            // name is taken - nothing else has moved yet, and the user is exactly as they were.
+            const auto filter = make_document(kvp("userId", userId));
+            const auto update = make_document(kvp("$set", make_document(kvp("userId", newUserId), kvp("ern", newErn))));
+
+            mongocxx::options::find_one_and_update opts;
+            opts.return_document(mongocxx::options::return_document::k_after);
+
+            auto userCollection = Database::instance().collection(USER_COLLECTION);
+            const auto result = userCollection.find_one_and_update(filter.view(), update.view(), opts);
+            if (!result.has_value()) return std::nullopt;
+
+            // Then the grants, which hang off the ERN and are the whole of what this user may do.
+            // One statement rather than a read-modify-write per grant: nothing here needs to see
+            // them, and a principal that changed under a partial rewrite would hold half its rights.
+            auto grantCollection = Database::instance().collection(GRANT_COLLECTION);
+            const auto grantFilter = make_document(kvp("principal", existing->ern));
+            const auto grantUpdate = make_document(kvp("$set", make_document(kvp("principal", newErn))));
+            const auto movedGrants = grantCollection.update_many(grantFilter.view(), grantUpdate.view());
+
+            // And the group memberships, which are lists of userIds rather than of ERNs - so a
+            // rename drops the user out of every group they were in unless this follows. The
+            // groups are few and installation-wide (see PrincipalsOf), so they are read and
+            // rewritten one at a time rather than with an array update the memory backend would
+            // have to grow support for.
+            long movedMemberships = 0;
+            for (auto group: listUserGroups("", 0, 0, "name")) {
+                const auto member = std::ranges::find(group.userIds, userId);
+                if (member == group.userIds.end()) continue;
+
+                *member = newUserId;
+                std::ignore = upsertUserGroup(group);
+                movedMemberships++;
+            }
+
+            log_info << "User renamed, userId: " << userId << " -> " << newUserId
+                     << ", grants: " << (movedGrants.has_value() ? movedGrants->modified_count() : 0)
+                     << ", groups: " << movedMemberships;
+
+            return Entity::EAM::User::fromDocument(result->view());
+
+        } catch (const std::exception &e) {
+            // Rethrown rather than swallowed into a nullopt, which the caller reads as "no such
+            // user" - a rename that half happened is not a missing user, and the difference decides
+            // whether an operator goes looking.
+            log_error << "Rename user failed, userId: " << userId << " -> " << newUserId << ", error: " << e.what();
             throw;
         }
     }

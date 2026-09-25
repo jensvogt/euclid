@@ -46,7 +46,7 @@ jobs:
           CLEAN="${TAG#v}"   # remove leading 'v'
           echo "clean_tag=$CLEAN" >> $GITHUB_OUTPUT
 
-    # Temporarily disabled - see release.yml history to re-enable.
+  # Temporarily disabled - see release.yml history to re-enable.
   build-windows-msi:
     name: Build & Package (Windows MSI)
     runs-on: windows-latest
@@ -64,6 +64,19 @@ jobs:
         uses: actions/checkout@v4.2.2
         with:
           fetch-depth: 0
+
+      # Checked out here rather than next to the frontend build below, so that a token which
+      # cannot read euclid-web fails this job in seconds instead of after the backend build - the
+      # same reasoning, and the same placement, as the macOS and Linux jobs. euclid-web is a
+      # private repository, so the default GITHUB_TOKEN cannot read it and a plain "git clone"
+      # dies with "could not read Username for 'https://github.com'".
+      - name: Checkout frontend (euclid-web)
+        uses: actions/checkout@v4.2.2
+        with:
+          repository: jensvogt/euclid-web
+          token: ${{ secrets.GH_AUTH_TOKEN }}
+          path: frontend/euclid-web
+          persist-credentials: false
 
       - name: Setup MSVC environment
         uses: step-security/msvc-dev-cmd@v1
@@ -96,21 +109,32 @@ jobs:
           cmake -B "${{ env.BUILD_DIR }}" -S . -DCMAKE_BUILD_TYPE=Release -DVCPKG_ROOT=${{ env.VCPKG_ROOT}} -DCMAKE_TOOLCHAIN_FILE="${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_DEFAULT_TRIPLET }} -DVCPKG_DISABLE_AUTO_PACKAGE_REGISTRATION=ON
           cmake --build "${{ env.BUILD_DIR }}" --config Release --parallel 2
 
-      #      - name: Build (Frontend)
-      #        shell: pwsh
-      #        run: |
-      #          # euclid-ui doesn't exist as a separate repo yet - package without a bundled
-      #          # frontend until it does, rather than failing the whole release.
-      #          git ls-remote https://github.com/jensvogt/euclid-ui.git *>$null
-      #          if ($LASTEXITCODE -eq 0) {
-      #            git clone https://github.com/jensvogt/euclid-ui
-      #            cd euclid-ui
-      #            npm install
-      #            npm run build
-      #          } else {
-      #            Write-Warning "jensvogt/euclid-ui not found - packaging without a bundled frontend"
-      #            New-Item -ItemType Directory -Force -Path euclid-ui\dist\euclid-ui\browser | Out-Null
-      #          }
+      # euclid-web's package.json requires node >=24 and npm >=11, which is newer than what the
+      # runner image happens to ship - pinned rather than inherited so the frontend builds on the
+      # same toolchain regardless of when the image is updated.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Build (Frontend)
+        shell: pwsh
+        run: |
+          # Only what the build emits gets packaged. Angular's "application" builder writes to
+          # <outputPath>/browser, and euclid-web's angular.json sets outputPath to
+          # "dist/euclid-web" - so dist/euclid-web/browser is the bundle, and that directory alone
+          # becomes the installer's frontend directory: not the checkout around it, not
+          # node_modules, not the sources. product.nsi copies from exactly this path.
+          cd ${{ github.workspace }}/frontend/euclid-web
+          npm ci
+          npm run build
+          # A build that quietly emitted nothing, or emitted elsewhere because outputPath changed,
+          # would produce an installer whose gateway answers 404 for every page - which is only
+          # discovered on an installed system, so check it here.
+          if (-not (Test-Path dist/euclid-web/browser/index.html)) {
+            Write-Output "::error::euclid-web build produced no dist/euclid-web/browser/index.html"
+            exit 1
+          }
 
       - name: Install NSIS
         run: |

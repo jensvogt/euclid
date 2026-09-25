@@ -44,8 +44,11 @@ namespace Euclid::main {
     // client as a bare "connection reset". euclid.gateway.http.max-body already exists in the
     // shipped configs for this; it just wasn't wired to anything, so this is what makes it real.
     static std::uint64_t MaxBodySize() {
-        constexpr long kDefaultMaxBodySize = 512L * 1024 * 1024;
-        return static_cast<std::uint64_t>(Core::Configuration::instance().getOr<long>("euclid.gateway.http.max-body", kDefaultMaxBodySize));
+        // long long, not long: a byte limit is 64 bits, and on Windows a long is not - so a
+        // configured limit above 2GB came back as its low 32 bits, which is a smaller limit than
+        // the default and rejects what it was raised to allow.
+        constexpr long long kDefaultMaxBodySize = 512LL * 1024 * 1024;
+        return static_cast<std::uint64_t>(std::max<long long>(0, Core::Configuration::instance().getOr<long long>("euclid.gateway.http.max-body", kDefaultMaxBodySize)));
     }
 
     // How long forwardToService() waits on the module before giving up. Matters most when the

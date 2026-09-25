@@ -7,6 +7,7 @@
 
 // C++ includes
 #include <chrono>
+#include <cstdint>
 #include <string>
 
 // Euclid includes
@@ -27,7 +28,11 @@ namespace {
     // the form a provider hands a secret over in.
     constexpr auto kRfcSecret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
 
-    std::chrono::seconds at(const long unixSeconds) {
+    // A 64-bit parameter, not a long: the last vector below is 20,000,000,000 seconds, which a long
+    // holds on Linux and does not on Windows - so the value was truncated here, in the helper,
+    // before CodeAt() ever saw it. std::chrono::seconds carries at least 64 bits everywhere, which
+    // is why the production side was right all along.
+    std::chrono::seconds at(const std::int64_t unixSeconds) {
         return std::chrono::seconds(unixSeconds);
     }
 
