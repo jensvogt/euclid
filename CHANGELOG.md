@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.38](https://github.com/jensvogt/euclid/compare/1.1.37...v1.1.38) (2026-09-25)
+
+
+### Bug Fixes
+
+* windows issues ([1e78462](https://github.com/jensvogt/euclid/commit/1e784623e3c9bf1f08e233bc170d394e92baafe1))
+* windows issues ([e7b9857](https://github.com/jensvogt/euclid/commit/e7b985759ab1b9b01bf62d645d7cf273c1926bb0))
+
 ## [1.1.37](https://github.com/jensvogt/euclid/compare/1.1.36...v1.1.37) (2026-09-24)
 
 
