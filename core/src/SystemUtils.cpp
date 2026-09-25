@@ -8,7 +8,10 @@
 
 #include <../include/euclid/core/SystemUtils.h>
 #ifdef _WIN32
-#include <windows.h>    // GetEnvironmentVariable
+#include <windows.h>    // GetEnvironmentVariable, GetSystemTimes, GlobalMemoryStatusEx
+#include <pdh.h>        // PdhOpenQuery/PdhAddEnglishCounter - the performance counter API
+#include <pdhmsg.h>     // PDH_CSTATUS_VALID_DATA
+#include <psapi.h>      // GetProcessMemoryInfo
 #else
 #include <unistd.h>     // getuid
 #include <pwd.h>        // getpwuid_r
@@ -154,6 +157,20 @@ namespace Euclid::Core {
 
         const auto used = totalKb > availableKb ? totalKb - availableKb : 0;
         return 100.0 * static_cast<double>(used) / static_cast<double>(totalKb);
+#elif defined(_WIN32)
+        // The same two figures the Memory counter set reports - "\Memory\Available Bytes" against
+        // the machine's installed physical memory - read through GlobalMemoryStatusEx rather than
+        // PDH because that is where PDH itself gets them, and this way there is no query to open.
+        //
+        // ullAvailPhys is Windows' MemAvailable: what can be handed out without paging, standby
+        // pages included. Subtracting it is the same arithmetic as the Linux branch above, and it
+        // is right for the same reason - the cache is not "used".
+        MEMORYSTATUSEX status{};
+        status.dwLength = sizeof(status);
+        if (!GlobalMemoryStatusEx(&status) || status.ullTotalPhys == 0) return std::nullopt;
+
+        const auto used = status.ullTotalPhys > status.ullAvailPhys ? status.ullTotalPhys - status.ullAvailPhys : 0;
+        return 100.0 * static_cast<double>(used) / static_cast<double>(status.ullTotalPhys);
 #else
         return std::nullopt;
 #endif
@@ -176,6 +193,28 @@ namespace Euclid::Core {
         CpuTimes times;
         times.idle = idle + iowait;
         times.total = user + nice + system + idle + iowait + irq + softirq + steal;
+        return times;
+#elif defined(_WIN32)
+        // GetSystemTimes rather than a PDH "% Processor Time" query, although both answer the same
+        // question: these are the cumulative counters that PDH computes that percentage from, and
+        // cumulative is what this function has to return. A PDH query reports usage since its own
+        // previous collect, and there are two independent callers here polling on their own
+        // schedules (EmoServer and HttpActionServer, each keeping its own previous reading) - one
+        // shared query would hand each of them the other's interval. See the header.
+        FILETIME idleTime{}, kernelTime{}, userTime{};
+        if (!GetSystemTimes(&idleTime, &kernelTime, &userTime)) return std::nullopt;
+
+        // 100-nanosecond intervals since boot, split across two 32-bit halves. Not jiffies, but
+        // nothing downstream cares: every caller takes a ratio of two deltas.
+        const auto ticks = [](const FILETIME &fileTime) {
+            return static_cast<unsigned long long>(fileTime.dwHighDateTime) << 32 | fileTime.dwLowDateTime;
+        };
+
+        CpuTimes times;
+        times.idle = ticks(idleTime);
+        // Kernel time already includes idle time on Windows, so this is the whole of it - adding
+        // idle again would inflate the denominator and read as a machine half as busy as it is.
+        times.total = ticks(kernelTime) + ticks(userTime);
         return times;
 #else
         return std::nullopt;
@@ -201,6 +240,52 @@ namespace Euclid::Core {
         load.cpuCount = processors > 0 ? static_cast<long>(processors) : 0;
 
         return load;
+#else
+        return std::nullopt;
+#endif
+    }
+
+    std::optional<SystemUtils::ProcessorQueue> SystemUtils::ReadProcessorQueueLength() {
+#ifdef _WIN32
+        // The one figure here that genuinely needs PDH: the kernel exposes no call for it, and
+        // "\System\Processor Queue Length" is the counter Windows keeps instead of a load average.
+        PDH_HQUERY query = nullptr;
+        if (PdhOpenQueryA(nullptr, 0, &query) != ERROR_SUCCESS) return std::nullopt;
+
+        // Every path out of here closes the query, including the failures below. A leaked PDH query
+        // is a leaked handle on a collector that runs once a minute forever.
+        struct QueryGuard {
+            PDH_HQUERY handle;
+            ~QueryGuard() {
+                if (handle) PdhCloseQuery(handle);
+            }
+        } guard{query};
+
+        // The English name, via PdhAddEnglishCounter rather than PdhAddCounter: counter paths are
+        // localised, so "\System\Processor Queue Length" does not exist on a German or Japanese
+        // Windows and PdhAddCounter would fail there with PDH_CSTATUS_NO_COUNTER. The English
+        // variant looks up the counter by index and works whatever the display language is.
+        PDH_HCOUNTER counter = nullptr;
+        if (PdhAddEnglishCounterA(query, "\\System\\Processor Queue Length", 0, &counter) != ERROR_SUCCESS) return std::nullopt;
+
+        // One collect is enough, unlike a rate counter: this is an instantaneous count of threads
+        // waiting, so there is no interval to divide by and nothing to prime.
+        if (PdhCollectQueryData(query) != ERROR_SUCCESS) return std::nullopt;
+
+        PDH_FMT_COUNTERVALUE value{};
+        if (PdhGetFormattedCounterValue(counter, PDH_FMT_DOUBLE, nullptr, &value) != ERROR_SUCCESS) return std::nullopt;
+        if (value.CStatus != PDH_CSTATUS_VALID_DATA && value.CStatus != PDH_CSTATUS_NEW_DATA) return std::nullopt;
+
+        ProcessorQueue queue;
+        queue.queueLength = value.doubleValue;
+
+        // GetActiveProcessorCount over all groups rather than GetNumberOfCores(): a host with more
+        // than 64 processors is split into groups, and the per-group figure would make a busy
+        // machine read as a desperate one. Zero when unknown, same as ReadLoadAverage().
+        const auto processors = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+        queue.cpuCount = processors > 0 ? static_cast<long>(processors) : 0;
+
+        return queue;
 #else
         return std::nullopt;
 #endif
@@ -249,6 +334,32 @@ namespace Euclid::Core {
         usage.realMb = static_cast<double>(vmRssKb) / 1024.0;
         usage.virtualMb = static_cast<double>(vmSizeKb) / 1024.0;
         usage.percentOfTotal = 100.0 * static_cast<double>(vmRssKb) / static_cast<double>(memTotalKb);
+        return usage;
+#elif defined(_WIN32)
+        // The Process counter set's two sizes for this process, from GetProcessMemoryInfo rather
+        // than a per-process PDH query - a PDH instance path is "\Process(euclid-mon#2)\...", where
+        // the "#2" is assigned by enumeration order and moves when another instance of the same
+        // module exits. A pool that scales would silently start reporting a sibling's memory.
+        PROCESS_MEMORY_COUNTERS_EX counters{};
+        counters.cb = sizeof(counters);
+        if (!GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS *>(&counters), sizeof(counters))) {
+            return std::nullopt;
+        }
+
+        MEMORYSTATUSEX status{};
+        status.dwLength = sizeof(status);
+        if (!GlobalMemoryStatusEx(&status) || status.ullTotalPhys == 0) return std::nullopt;
+
+        MemoryUsage usage;
+        // WorkingSetSize is "\Process\Working Set", the resident pages - VmRSS, and the same figure
+        // the task manager's "memory" column shows.
+        usage.realMb = static_cast<double>(counters.WorkingSetSize) / (1024.0 * 1024.0);
+        // PrivateUsage is "\Process\Private Bytes", the commit charge. Reported as the virtual
+        // figure deliberately: Windows' literal VmSize equivalent counts every reservation the
+        // address space holds, which on a 64-bit process is a number in the terabytes and says
+        // nothing about the process. Committed memory is what VmSize is watched for.
+        usage.virtualMb = static_cast<double>(counters.PrivateUsage) / (1024.0 * 1024.0);
+        usage.percentOfTotal = 100.0 * static_cast<double>(counters.WorkingSetSize) / static_cast<double>(status.ullTotalPhys);
         return usage;
 #else
         return std::nullopt;

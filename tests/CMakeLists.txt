@@ -34,6 +34,16 @@ target_link_libraries(${EAP_APPLICATION_BINARY} PRIVATE eucliddb Boost::unit_tes
 
 add_test(NAME ${EAP_APPLICATION_BINARY} COMMAND ${EAP_APPLICATION_BINARY})
 
+set(EAP_APPLICATION_BUCKET_BINARY euclid-eap-application-bucket-tests)
+
+add_executable(${EAP_APPLICATION_BUCKET_BINARY} EapApplicationBucketTest.cpp ${CMAKE_SOURCE_DIR}/modules/eap/src/EapServer.cpp)
+set_target_properties(${EAP_APPLICATION_BUCKET_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${EAP_APPLICATION_BUCKET_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/eap/include)
+target_link_libraries(${EAP_APPLICATION_BUCKET_BINARY} PRIVATE eucliddto Boost::unit_test_framework)
+
+add_test(NAME ${EAP_APPLICATION_BUCKET_BINARY} COMMAND ${EAP_APPLICATION_BUCKET_BINARY})
+
 set(HTTP_SIGNATURE_BINARY euclid-http-signature-tests)
 
 add_executable(${HTTP_SIGNATURE_BINARY} HttpSignatureTest.cpp)

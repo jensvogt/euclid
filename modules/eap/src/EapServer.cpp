@@ -16,12 +16,14 @@
 
 // Euclid includes
 #include <EapServer.h>
+#include <euclid/core/Configuration.h>
 #include <euclid/core/CryptoUtils.h>
 #include <euclid/core/DateTimeUtils.h>
 #include <euclid/core/ErnUtils.h>
 #include <euclid/core/monitoring/MonitoringTimer.h>
 #include <euclid/database/entity/RuntimeName.h>
 #include <euclid/database/entity/eam/User.h>
+#include <euclid/database/entity/esm/Bucket.h>
 #include <euclid/database/entity/esm/Object.h>
 
 namespace Euclid::EAP {
@@ -29,6 +31,12 @@ namespace Euclid::EAP {
     namespace {
         constexpr auto kServiceTimer = "eap-service-time";
         constexpr auto kServiceCounter = "eap-service-count";
+
+        // The bucket artifacts are deployed from. "apps" because that is the name the documented
+        // workflow has always created by hand (examples/applications/README.md): an installation
+        // that already made one finds it here rather than being given a second bucket under another
+        // name, and every command in that documentation goes on working unchanged.
+        constexpr auto kDefaultApplicationBucket = "apps";
     }// namespace
 
     using Database::Entity::EAP::Application;
@@ -1348,7 +1356,128 @@ namespace Euclid::EAP {
 
     // ── EapServer ────────────────────────────────────────────────────────────
 
-    EapServer::EapServer(std::string socketPath, const int threads) : HttpActionServer("EAP", std::move(socketPath), threads) {}
+    // Every namespace the installation serves in one account, plus the account root.
+    //
+    // A bucket name is unique within (account, namespace), and every lookup that resolves a name -
+    // list-buckets, upload-file, create-application - is scoped to the namespace the request was
+    // made in. So a single bucket at the account root is not visible to a client working in
+    // "development" and cannot be deployed from there: it is a different bucket as far as ESM is
+    // concerned, which is exactly right and is why one per namespace is needed rather than one.
+    //
+    // Two sources, because neither is complete on its own. euclid.namespaces is what the deployment
+    // declares it serves and is what CheckScope() enforces requests against; the namespaces in EAM
+    // are the ones that actually exist, including any created after the file was written. A
+    // namespace created later than this pass gets its bucket on EAP's next start.
+    static std::set<std::string> servedNamespaces(const std::string &accountId, const Database::IEamRepository &identities) {
+
+        // The account root, always: that is where a request carrying no x-euclid-namespace lands,
+        // and it is what a single-environment installation uses.
+        std::set namespaces{std::string()};
+
+        const auto &configuration = Core::Configuration::instance();
+        if (configuration.has("euclid.namespaces")) {
+            for (const auto &declared: configuration.getArray<std::string>("euclid.namespaces")) {
+                if (!declared.empty()) namespaces.insert(declared);
+            }
+        }
+
+        // Unpaged and unsorted - every namespace in the account is wanted, in no particular order.
+        for (const auto &existing: identities.listNamespaces(accountId, "", 0, 0, "")) {
+            if (!existing.name.empty()) namespaces.insert(existing.name);
+        }
+
+        return namespaces;
+    }
+
+    void EapServer::EnsureApplicationBucket(Database::IEsmRepository &repository, const Database::IEamRepository &identities) {
+
+        const auto &configuration = Core::Configuration::instance();
+
+
+        // Configurable, and configurable to nothing: an installation that keeps its artifacts in a
+        // bucket of its own naming says so by setting this empty, and then nothing is created.
+        const auto name = configuration.getOr<std::string>("euclid.modules.eap.bucket", kDefaultApplicationBucket);
+        if (name.empty()) {
+            log_debug << "EAP application bucket not configured, none created";
+            return;
+        }
+
+        // has() before getArray(), which throws on a missing key - the same order ESM reads this in.
+        // Without an account there is nowhere to put the bucket: the account is part of the ERN, and
+        // a row written with a hole in it would not be found by the lookup create-application makes,
+        // so it would be invisible rather than merely unused.
+        if (!configuration.has("euclid.account-ids")) {
+            log_warning << "EAP could not create the '" << name << "' bucket: euclid.account-ids is not configured";
+            return;
+        }
+
+        // One per configured account rather than one for the installation. A bucket name is unique
+        // within an account and namespace, and create-application resolves the name it is given in
+        // the deployer's own account - so an account without this bucket cannot deploy from it, and
+        // one account's artifacts are not visible to another.
+        const auto accountIds = configuration.getArray<std::string>("euclid.account-ids");
+        const auto region = configuration.getOr<std::string>("euclid.region", "eu-central-1");
+
+        for (const auto &accountId: accountIds) {
+            if (accountId.empty()) continue;
+
+            // And one per namespace as well as one at the account root - see servedNamespaces() for
+            // why a single bucket is not enough. They cost nothing where nothing is deployed: an
+            // empty bucket, hidden from every listing and every count.
+            for (const auto &nameSpace: servedNamespaces(accountId, identities)) {
+
+                // Where it is, for a log line and for the error path - "the apps bucket" is not
+                // enough to act on when there are four of them.
+                const auto where = "accountId: " + accountId + ", namespace: '" + nameSpace + "', bucket: " + name;
+
+                try {
+                    // Checked rather than upserted over, and not only because an existing bucket is
+                    // to be left alone: upsertBucket() writes the whole document from the copy handed
+                    // to it, so an unconditional upsert here would reset the bucket's object count,
+                    // its size and any encryption key it had been given, once per EAP start.
+                    if (repository.bucketExists(accountId, nameSpace, name)) {
+                        log_debug << "EAP application bucket exists, " << where;
+                        continue;
+                    }
+
+                    Database::Entity::ESM::Bucket bucket;
+                    bucket.name = name;
+                    bucket.ern = Core::createEsmBucketErn(accountId, nameSpace, name);
+                    bucket.accountId = accountId;
+                    bucket.region = region;
+                    bucket.nameSpace = nameSpace;
+                    // Not a person. Nobody asked for this bucket, and naming whoever happened to
+                    // start the module would put an owner on it that means nothing once that user
+                    // is gone.
+                    bucket.owner = "eap";
+                    // Kept out of list-buckets and the bucket count - see
+                    // Entity::ESM::Bucket::internal, which exists for exactly this bucket. Hidden,
+                    // not protected: artifacts are uploaded into it and read out of it by name like
+                    // any other object, which is what makes the documented
+                    // `upload-file --bucket apps` go on working.
+                    bucket.internal = true;
+
+                    const auto stored = repository.upsertBucket(bucket);
+                    log_info << "EAP created internal application bucket, " << where << ", ern: " << stored.ern;
+
+                } catch (const std::exception &e) {
+                    // Never fatal, and deliberately inside the loop rather than around it: a module
+                    // that refused to start over this would take every application definition with
+                    // it, and one bucket failing is no reason to skip the rest. The bucket can still
+                    // be made by hand, and the next start tries again.
+                    log_error << "EAP could not create the application bucket, " << where << ", error: " << e.what();
+                }
+            }
+        }
+    }
+
+    EapServer::EapServer(std::string socketPath, const int threads) : HttpActionServer("EAP", std::move(socketPath), threads) {
+
+        // Before the socket is served: the first thing a client is likely to ask for is a deployment,
+        // and the bucket it deploys from should not be something they have to have known to create.
+        auto &repositories = Database::RepositoryFactory::instance();
+        EnsureApplicationBucket(*repositories.esmRepository(), *repositories.eamRepository());
+    }
 
     response<string_body> EapServer::DispatchAction(const request<string_body> &req) {
         return dispatch(req);

@@ -187,7 +187,28 @@ namespace Euclid::Core {
                                 // report is refused, the manager sees nothing, and the pool never
                                 // grows however much work is waiting - which is what happened when
                                 // the action was added and this was not.
-                                "eap:report-load"});
+                                "eap:report-load",
+                                // Its own metrics, for the history and the dashboards. A different
+                                // question from the load report above and not a substitute for it:
+                                // EMO writes a row when its averaging bucket closes, five minutes
+                                // as shipped, so an autoscaler driven from here reacts minutes
+                                // late - which is why utilisation was moved to eap:report-load.
+                                // What EMO is for is what happened over the last fortnight.
+                                //
+                                // Withheld until now, which made "the application goes on pushing
+                                // the same numbers to EMO" - the arrangement EmoServer and
+                                // EapServer both describe - something no application could
+                                // actually do: every push from a technical principal was answered
+                                // 403. An SDK still reporting the old way (euclid-spring's
+                                // listener container) does not degrade to the new one, it just
+                                // fails every fifteen seconds.
+                                //
+                                // What it costs, stated plainly: push-metrics takes the module
+                                // label from the request body, so an application holding this can
+                                // write samples labelled as anything. That is metric pollution and
+                                // nothing more - nothing reads EMO to make a decision, the
+                                // autoscaler least of all, which is exactly why it stopped.
+                                "emo:push-metrics"});
 
                 built[std::string(BuiltinRoles::Transfer)] = transferPermissions();
 
