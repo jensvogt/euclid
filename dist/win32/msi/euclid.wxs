@@ -26,7 +26,8 @@
   directory cannot be derived that way and are written out, as is the UpgradeCode - the identifier
   that must never change for as long as euclid is installed anywhere.
 -->
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
 
     <?ifndef Version ?>
     <?define Version = "1.0.0" ?>
@@ -45,6 +46,28 @@
     <?define FrontendDir = "$(SrcDir)\frontend\euclid-web\dist\euclid-web\browser" ?>
     <?endif?>
 
+    <!-- The licence the wizard shows, as RTF because that is the only thing the dialog reads.
+         Generated from the repository's LICENSE by license-to-rtf.ps1 rather than committed, so
+         there is one licence text and not two that can come to disagree - run that script once
+         before building this by hand.
+
+         Anchored to SrcDir rather than named on its own: a control file is resolved against the
+         working directory of the build, not against this file, so a bare name only works when
+         wix happens to be run from this directory - which the release workflow does not. -->
+    <!-- The banner across the top of most pages, and the background of the welcome and
+         finish pages. Drawn from the branding mark by make-ui-images.ps1, at the two sizes
+         Windows Installer will not scale - see that script. -->
+    <?ifndef BannerBmp ?>
+    <?define BannerBmp = "$(SrcDir)\dist\win32\msi\banner.bmp" ?>
+    <?endif?>
+    <?ifndef DialogBmp ?>
+    <?define DialogBmp = "$(SrcDir)\dist\win32\msi\dialog.bmp" ?>
+    <?endif?>
+
+    <?ifndef LicenseRtf ?>
+    <?define LicenseRtf = "$(SrcDir)\dist\win32\msi\license.rtf" ?>
+    <?endif?>
+
     <Package Name="Euclid"
              Manufacturer="Jens Vogt"
              Version="$(Version)"
@@ -61,10 +84,23 @@
 
         <MediaTemplate EmbedCab="yes" />
 
+        <!-- The wizard: welcome, licence, install directory, progress. WixUI_InstallDir rather
+             than the minimal one because this package installs a service and a data tree, and
+             where those go is a decision a server operator legitimately makes - a second euclid on
+             another volume, a machine whose system drive is small. INSTALLFOLDER is what the
+             dialog writes to, and everything in the package hangs off it, including the config
+             path the service is started with.
+
+             An unattended install ignores all of it: msiexec /qn takes INSTALLFOLDER from the
+             command line or the default and shows no dialog at all. -->
+        <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+        <WixVariable Id="WixUILicenseRtf" Value="$(LicenseRtf)" />
+        <WixVariable Id="WixUIBannerBmp" Value="$(BannerBmp)" />
+        <WixVariable Id="WixUIDialogBmp" Value="$(DialogBmp)" />
+
         <Icon Id="euclid.ico" SourceFile="$(SrcDir)\dist\branding\favicon.ico" />
         <Property Id="ARPPRODUCTICON" Value="euclid.ico" />
         <Property Id="ARPURLINFOABOUT" Value="https://github.com/jensvogt/euclid" />
-        <Property Id="ARPNOMODIFY" Value="1" />
 
         <StandardDirectory Id="ProgramFiles64Folder">
             <Directory Id="INSTALLFOLDER" Name="euclid">

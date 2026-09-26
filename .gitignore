@@ -66,3 +66,8 @@ fuzz/corpus/*/[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0
 
 # A build directory that is not called cmake-build-* (the sanitizer build in CI, say).
 fuzz-corpus/
+
+# Generated from LICENSE by dist/win32/msi/license-to-rtf.ps1 for the MSI licence dialog.
+dist/win32/msi/license.rtf
+dist/win32/msi/banner.bmp
+dist/win32/msi/dialog.bmp
