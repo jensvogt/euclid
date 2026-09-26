@@ -53,6 +53,12 @@
         <MajorUpgrade AllowSameVersionUpgrades="yes"
                       DowngradeErrorMessage="A newer version of the Euclid CLI is already installed. Uninstall it first if you mean to go back." />
 
+        <!-- Administrators only, for the same reason as the server package: this installs into
+             Program Files and edits the machine PATH, both of which need elevation. Stated up
+             front rather than left to fail as error 1730 at the end of the wizard. -->
+        <Launch Condition="Privileged"
+                Message="The Euclid CLI installs into Program Files and adds itself to the system PATH, so it has to be installed by an administrator. Right-click the package and choose Install, or run msiexec from an elevated command prompt." />
+
         <MediaTemplate EmbedCab="yes" />
 
         <!-- Welcome, licence, progress - and no install-directory page, unlike the server
