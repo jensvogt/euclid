@@ -71,3 +71,6 @@ fuzz-corpus/
 dist/win32/msi/license.rtf
 dist/win32/msi/banner.bmp
 dist/win32/msi/dialog.bmp
+
+# Locally built installers - dist/win32/msi/README.md explains how to make them.
+dist/out/
