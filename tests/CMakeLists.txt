@@ -330,6 +330,15 @@ target_link_libraries(${STICKY_CALL_BINARY} PRIVATE eucliddb euclidcore Boost::u
 
 add_test(NAME ${STICKY_CALL_BINARY} COMMAND ${STICKY_CALL_BINARY})
 
+set(DELETE_IF_EMPTY_BINARY euclid-delete-if-empty-tests)
+
+add_executable(${DELETE_IF_EMPTY_BINARY} DeleteIfEmptyTest.cpp)
+set_target_properties(${DELETE_IF_EMPTY_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${DELETE_IF_EMPTY_BINARY} PRIVATE eucliddb eucliddto euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${DELETE_IF_EMPTY_BINARY} COMMAND ${DELETE_IF_EMPTY_BINARY})
+
 set(MODULE_CALL_HEADER_BINARY euclid-module-call-header-tests)
 
 add_executable(${MODULE_CALL_HEADER_BINARY} ModuleCallHeaderTest.cpp ${CMAKE_SOURCE_DIR}/extern/common/src/TransferContext.cpp)
