@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.1.41](https://github.com/jensvogt/euclid/compare/1.1.40...v1.1.41) (2026-09-26)
+
+
+### Bug Fixes
+
+* **ci:** offer the Windows packages on the download page and the release ([9026204](https://github.com/jensvogt/euclid/commit/90262047d53cdc358636c5a72744b7429e01ca40))
+* **transfer:** FTP and SFTP sessions were refused every storage call ([cd3072a](https://github.com/jensvogt/euclid/commit/cd3072ab9f0068e87458a1fda0b8afe0ab0a3a6b))
+* **win32:** upgrades deleted the configuration they meant to preserve ([54833dc](https://github.com/jensvogt/euclid/commit/54833dcba5a3d4d22cbf83b6e6e7cc7fd159a301))
+* windows MSI installation ([45d8bf8](https://github.com/jensvogt/euclid/commit/45d8bf83ecae571d73db0d023e0cb340d22da7bf))
+
 ## [1.1.40](https://github.com/jensvogt/euclid/compare/1.1.39...v1.1.40) (2026-09-26)
 
 
