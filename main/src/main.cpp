@@ -183,10 +183,13 @@ static SERVICE_STATUS_HANDLE g_serviceStatusHandle = nullptr;
 static SERVICE_STATUS g_serviceStatus{};
 static DWORD g_serviceCheckpoint = 0;
 
-static void updateServiceStatus(const DWORD state, const DWORD exitCode = NO_ERROR, const DWORD waitHint = 0) {
+static void updateServiceStatus(const DWORD state, const DWORD exitCode = NO_ERROR, const DWORD waitHint = 0, const DWORD specificExitCode = 0) {
     if (!g_serviceStatusHandle) return;
     g_serviceStatus.dwCurrentState = state;
     g_serviceStatus.dwWin32ExitCode = exitCode;
+    // Only read by the SCM when dwWin32ExitCode says to look here, and it has to be zero otherwise
+    // - a leftover value in this field makes a clean stop look like a failure.
+    g_serviceStatus.dwServiceSpecificExitCode = (exitCode == ERROR_SERVICE_SPECIFIC_ERROR) ? specificExitCode : 0;
     g_serviceStatus.dwWaitHint = waitHint;
     g_serviceStatus.dwCheckPoint = (state == SERVICE_START_PENDING || state == SERVICE_STOP_PENDING) ? ++g_serviceCheckpoint : 0;
     SetServiceStatus(g_serviceStatusHandle, &g_serviceStatus);
@@ -837,7 +840,17 @@ static void WINAPI serviceMain(DWORD, LPSTR *) {
 
     updateServiceStatus(SERVICE_START_PENDING, NO_ERROR, 30000);
     const int rc = RunManager(*g_serviceCliOpts, true);
-    updateServiceStatus(SERVICE_STOPPED, rc == 0 ? static_cast<DWORD>(NO_ERROR) : static_cast<DWORD>(ERROR_SERVICE_SPECIFIC_ERROR));
+
+    // rc goes into dwServiceSpecificExitCode, or the event log reports every failure as
+    // "terminated with the following service-specific error: The operation completed successfully"
+    // - which is what an unset field formats to, and which says nothing about what went wrong. The
+    // early exits worth recognising there are the ones that happen before the log file exists:
+    // RunManager returns 1 when it cannot load its configuration, and writes that to a stderr no
+    // service has.
+    updateServiceStatus(SERVICE_STOPPED,
+                        rc == 0 ? static_cast<DWORD>(NO_ERROR) : static_cast<DWORD>(ERROR_SERVICE_SPECIFIC_ERROR),
+                        0,
+                        static_cast<DWORD>(rc));
 }
 #endif
 

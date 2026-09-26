@@ -11,7 +11,8 @@
   the other. They can sit side by side: this one installs into euclid-cli\ and puts that on the
   PATH, where the server package leaves its copy in euclid\bin, which is not on anybody's PATH.
 -->
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
 
     <?ifndef Version ?>
     <?define Version = "1.0.0" ?>
@@ -21,6 +22,21 @@
     <?endif?>
     <?ifndef SrcDir ?>
     <?define SrcDir = "..\..\.." ?>
+    <?endif?>
+
+    <!-- Generated from LICENSE by license-to-rtf.ps1 - see euclid.wxs. -->
+    <!-- The banner across the top of most pages, and the background of the welcome and
+         finish pages. Drawn from the branding mark by make-ui-images.ps1, at the two sizes
+         Windows Installer will not scale - see that script. -->
+    <?ifndef BannerBmp ?>
+    <?define BannerBmp = "$(SrcDir)\dist\win32\msi\banner.bmp" ?>
+    <?endif?>
+    <?ifndef DialogBmp ?>
+    <?define DialogBmp = "$(SrcDir)\dist\win32\msi\dialog.bmp" ?>
+    <?endif?>
+
+    <?ifndef LicenseRtf ?>
+    <?define LicenseRtf = "$(SrcDir)\dist\win32\msi\license.rtf" ?>
     <?endif?>
 
     <Package Name="Euclid CLI"
@@ -37,12 +53,26 @@
         <MajorUpgrade AllowSameVersionUpgrades="yes"
                       DowngradeErrorMessage="A newer version of the Euclid CLI is already installed. Uninstall it first if you mean to go back." />
 
+        <!-- Administrators only, for the same reason as the server package: this installs into
+             Program Files and edits the machine PATH, both of which need elevation. Stated up
+             front rather than left to fail as error 1730 at the end of the wizard. -->
+        <Launch Condition="Privileged"
+                Message="The Euclid CLI installs into Program Files and adds itself to the system PATH, so it has to be installed by an administrator. Right-click the package and choose Install, or run msiexec from an elevated command prompt." />
+
         <MediaTemplate EmbedCab="yes" />
+
+        <!-- Welcome, licence, progress - and no install-directory page, unlike the server
+             package. There is one file here and it goes on the PATH; where it sits is a
+             question with no consequences, and a wizard that asks anyway is one more page
+             between somebody and the command they came for. -->
+        <ui:WixUI Id="WixUI_Minimal" />
+        <WixVariable Id="WixUILicenseRtf" Value="$(LicenseRtf)" />
+        <WixVariable Id="WixUIBannerBmp" Value="$(BannerBmp)" />
+        <WixVariable Id="WixUIDialogBmp" Value="$(DialogBmp)" />
 
         <Icon Id="euclid.ico" SourceFile="$(SrcDir)\dist\branding\favicon.ico" />
         <Property Id="ARPPRODUCTICON" Value="euclid.ico" />
         <Property Id="ARPURLINFOABOUT" Value="https://github.com/jensvogt/euclid" />
-        <Property Id="ARPNOMODIFY" Value="1" />
 
         <StandardDirectory Id="ProgramFiles64Folder">
             <Directory Id="INSTALLFOLDER" Name="euclid-cli">

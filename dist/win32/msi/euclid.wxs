@@ -26,7 +26,8 @@
   directory cannot be derived that way and are written out, as is the UpgradeCode - the identifier
   that must never change for as long as euclid is installed anywhere.
 -->
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
 
     <?ifndef Version ?>
     <?define Version = "1.0.0" ?>
@@ -45,6 +46,28 @@
     <?define FrontendDir = "$(SrcDir)\frontend\euclid-web\dist\euclid-web\browser" ?>
     <?endif?>
 
+    <!-- The licence the wizard shows, as RTF because that is the only thing the dialog reads.
+         Generated from the repository's LICENSE by license-to-rtf.ps1 rather than committed, so
+         there is one licence text and not two that can come to disagree - run that script once
+         before building this by hand.
+
+         Anchored to SrcDir rather than named on its own: a control file is resolved against the
+         working directory of the build, not against this file, so a bare name only works when
+         wix happens to be run from this directory - which the release workflow does not. -->
+    <!-- The banner across the top of most pages, and the background of the welcome and
+         finish pages. Drawn from the branding mark by make-ui-images.ps1, at the two sizes
+         Windows Installer will not scale - see that script. -->
+    <?ifndef BannerBmp ?>
+    <?define BannerBmp = "$(SrcDir)\dist\win32\msi\banner.bmp" ?>
+    <?endif?>
+    <?ifndef DialogBmp ?>
+    <?define DialogBmp = "$(SrcDir)\dist\win32\msi\dialog.bmp" ?>
+    <?endif?>
+
+    <?ifndef LicenseRtf ?>
+    <?define LicenseRtf = "$(SrcDir)\dist\win32\msi\license.rtf" ?>
+    <?endif?>
+
     <Package Name="Euclid"
              Manufacturer="Jens Vogt"
              Version="$(Version)"
@@ -59,12 +82,34 @@
         <MajorUpgrade AllowSameVersionUpgrades="yes"
                       DowngradeErrorMessage="A newer version of Euclid is already installed. Uninstall it first if you mean to go back." />
 
+        <!-- Administrators only, stated rather than discovered. Scope="perMachine" already means
+             Windows elevates before touching anything, so a standard user cannot install this
+             either way - but without the condition they find that out at the end of the wizard,
+             after the licence, the directory and a UAC prompt they cannot answer, as error 1730.
+             Checked in both sequences, so it refuses at the first dialog and also stops an
+             unattended "msiexec /qn" from a session that is not elevated. -->
+        <Launch Condition="Privileged"
+                Message="Euclid installs a Windows service and writes to Program Files, so it has to be installed by an administrator. Right-click the package and choose Install, or run msiexec from an elevated command prompt." />
+
         <MediaTemplate EmbedCab="yes" />
+
+        <!-- The wizard: welcome, licence, install directory, progress. WixUI_InstallDir rather
+             than the minimal one because this package installs a service and a data tree, and
+             where those go is a decision a server operator legitimately makes - a second euclid on
+             another volume, a machine whose system drive is small. INSTALLFOLDER is what the
+             dialog writes to, and everything in the package hangs off it, including the config
+             path the service is started with.
+
+             An unattended install ignores all of it: msiexec /qn takes INSTALLFOLDER from the
+             command line or the default and shows no dialog at all. -->
+        <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+        <WixVariable Id="WixUILicenseRtf" Value="$(LicenseRtf)" />
+        <WixVariable Id="WixUIBannerBmp" Value="$(BannerBmp)" />
+        <WixVariable Id="WixUIDialogBmp" Value="$(DialogBmp)" />
 
         <Icon Id="euclid.ico" SourceFile="$(SrcDir)\dist\branding\favicon.ico" />
         <Property Id="ARPPRODUCTICON" Value="euclid.ico" />
         <Property Id="ARPURLINFOABOUT" Value="https://github.com/jensvogt/euclid" />
-        <Property Id="ARPNOMODIFY" Value="1" />
 
         <StandardDirectory Id="ProgramFiles64Folder">
             <Directory Id="INSTALLFOLDER" Name="euclid">
@@ -123,6 +168,23 @@
                      every client that trusts them - a pinned CA certificate, an SFTP client's
                      known_hosts entry.
 
+                     Permanent, all four, and that is not belt-and-braces: NeverOverwrite on its own
+                     deletes exactly what it is there to protect. MajorUpgrade schedules
+                     RemoveExistingProducts afterInstallValidate, at sequence 1401 - but component
+                     states are decided at CostFinalize, 1000, while the old version's files are
+                     still on disk. NeverOverwrite sees the key path present and marks the component
+                     "do not install"; RemoveExistingProducts then deletes it as part of uninstalling
+                     the old product; InstallFiles at 4000 honours the decision already taken and
+                     writes nothing. The upgrade ends with no euclid.json, no certificate and no key,
+                     and a service that exits 1 on the next start because it has no configuration to
+                     load. Permanent components are not removed by an uninstall, which includes the
+                     uninstall inside an upgrade, so the file the costing decision was based on is
+                     still there when the install finishes.
+
+                     The price is that a real uninstall leaves these four behind. That is the right
+                     trade for a server: data\ and log\ already outlive the package, and a machine
+                     that is reinstalled should not silently come back with a new identity.
+
                      The shipped versions are still written by a first install, which is what makes
                      a fresh one work out of the box.
 
@@ -130,16 +192,16 @@
                      from this exact build of libmagic, it has to match the binaries it ships with
                      (see Core::ContentTypeUtils), and nobody edits it. -->
                 <Directory Id="ETCFOLDER" Name="etc">
-                    <Component Id="EuclidJson" NeverOverwrite="yes">
+                    <Component Id="EuclidJson" NeverOverwrite="yes" Permanent="yes">
                         <File Id="euclid.json" Source="$(SrcDir)\dist\win32\euclid.json" KeyPath="yes" />
                     </Component>
-                    <Component Id="CertificateCrt" NeverOverwrite="yes">
+                    <Component Id="CertificateCrt" NeverOverwrite="yes" Permanent="yes">
                         <File Id="euclid_cert.crt" Source="$(SrcDir)\dist\linux\etc\euclid_cert.crt" KeyPath="yes" />
                     </Component>
-                    <Component Id="CertificateKey" NeverOverwrite="yes">
+                    <Component Id="CertificateKey" NeverOverwrite="yes" Permanent="yes">
                         <File Id="euclid_cert.key" Source="$(SrcDir)\dist\linux\etc\euclid_cert.key" KeyPath="yes" />
                     </Component>
-                    <Component Id="SshHostKey" NeverOverwrite="yes">
+                    <Component Id="SshHostKey" NeverOverwrite="yes" Permanent="yes">
                         <File Id="ssh_host_key" Source="$(SrcDir)\dist\linux\etc\ssh_host_key" KeyPath="yes" />
                     </Component>
                     <Component Id="MagicDatabase">

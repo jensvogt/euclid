@@ -139,15 +139,41 @@ jobs:
       # Pinned to 5, deliberately: WiX 6 and 7 require accepting the Open Source Maintenance Fee
       # EULA, which is a commercial arrangement rather than a build dependency. 5 is the last
       # version without it, and builds everything these packages use.
+      #
+      # The UI extension is pinned to the same version for a harder reason: unpinned, "wix
+      # extension add" takes the newest one published, which is a 7.x built against a toolset
+      # layout 5 cannot read - it is accepted with a warning and then fails the build with
+      # "extension could not be found".
       - name: Install WiX
-        run: dotnet tool install --global wix --version 5.0.2
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add -g WixToolset.UI.wixext/5.0.2
+
+      # The licence the wizard shows. Generated from the repository's LICENSE rather than committed
+      # as a second copy - see the script.
+      - name: Generate licence RTF
+        run: pwsh dist\win32\msi\license-to-rtf.ps1
+
+      # The wizard's banner and welcome-page artwork, drawn from the branding mark at the two sizes
+      # Windows Installer will not scale. Generated for the same reason the RTF is - see the script.
+      - name: Generate wizard images
+        run: pwsh dist\win32\msi\make-ui-images.ps1
+
+      # Signed before packaging, not after: the MSI carries copies of these files, and signing the
+      # package does nothing for the executable that ends up in Program Files and gets started as a
+      # service. Does nothing at all when the repository has no signing certificate - see sign.ps1.
+      - name: Sign binaries
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: pwsh dist\win32\msi\sign.ps1 -Path "${{ env.BUILD_DIR }}\bin\*.exe"
 
       # -arch x64, or every component goes into the package as 32-bit while the directories it
       # installs into are ProgramFiles64Folder - which ICE80 reports, and which Windows would
       # otherwise resolve to the WOW64 view of Program Files.
       - name: Build MSI
         run: |
-          wix build dist\win32\msi\euclid.wxs -arch x64 `
+          wix build dist\win32\msi\euclid.wxs -arch x64 -ext WixToolset.UI.wixext `
             -d Version=${{ env.SEMVER }} `
             -d BuildDir="${{ env.BUILD_DIR }}" `
             -d SrcDir="${{ github.workspace }}" `
@@ -163,6 +189,14 @@ jobs:
       - name: Validate MSI
         run: wix msi validate -sice ICE61 "${{ env.APP_NAME }}-${{ env.SEMVER }}-amd64.msi"
 
+      # After validation, because signing an MSI rewrites its summary information and there is no
+      # reason to make the ICE checks read a package that is about to change.
+      - name: Sign MSI
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: pwsh dist\win32\msi\sign.ps1 -Path "${{ env.APP_NAME }}-${{ env.SEMVER }}-amd64.msi"
+
       - name: Upload Windows installer
         uses: actions/upload-artifact@v7
         with:
@@ -173,7 +207,7 @@ jobs:
       # dist/win32/msi/euclid-cli.wxs.
       - name: Build CLI MSI
         run: |
-          wix build dist\win32\msi\euclid-cli.wxs -arch x64 `
+          wix build dist\win32\msi\euclid-cli.wxs -arch x64 -ext WixToolset.UI.wixext `
             -d Version=${{ env.SEMVER }} `
             -d BuildDir="${{ env.BUILD_DIR }}" `
             -d SrcDir="${{ github.workspace }}" `
@@ -181,6 +215,12 @@ jobs:
 
       - name: Validate CLI MSI
         run: wix msi validate -sice ICE61 "${{ env.CLI_NAME }}-${{ env.SEMVER }}-amd64.msi"
+
+      - name: Sign CLI MSI
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: pwsh dist\win32\msi\sign.ps1 -Path "${{ env.CLI_NAME }}-${{ env.SEMVER }}-amd64.msi"
 
       - name: Upload Windows CLI installer
         uses: actions/upload-artifact@v7
@@ -1144,7 +1184,7 @@ jobs:
       - release-please
       - build-linux
       - build-macos
-      - build-windows-msi  # temporarily disabled
+      - build-windows-msi
     env:
       SEMVER: "${{ needs.release-please.outputs.tag_name }}"
     steps:
@@ -1204,10 +1244,15 @@ jobs:
       # The CLI packages land in artifacts/linux alongside the server ones, so the globs below
       # pick them up without naming each file - which is also what keeps a future package from
       # being released only because somebody remembered to add a line here.
+      #
+      # artifacts/windows/* rather than *.msi: both Windows packages are downloaded into that
+      # directory and nothing else is, and naming the extension is how the Windows build came to
+      # be downloaded here and then left off the release when NSIS was replaced by WiX.
       - name: Create GitHub Release (attach installers)
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            artifacts/windows/*
             artifacts/macos/*.tgz
             artifacts/linux/*.deb
             artifacts/linux/*.rpm
@@ -1255,13 +1300,39 @@ jobs:
           cp ./artifacts/apt-repo-site/euclid-archive-keyring.asc public/apt/
           find . -ls
 
+      # Every copy above ends in "|| true", so a package that was never built, or was built under a
+      # name the copy does not match, leaves the download page quietly one platform short - which is
+      # what happened to Windows. This job depends on all four builds having succeeded, so a missing
+      # package here is a bug in the copying, and it should stop the deployment rather than publish
+      # a page that offers less than the release.
+      - name: Check every platform made it into the site
+        run: |
+          missing=""
+          for pattern in "*.msi" "*.deb" "*.rpm" "*.tgz"; do
+            count=$(find public -maxdepth 1 -name "$pattern" -type f | wc -l)
+            echo "$pattern: $count"
+            [ "$count" -gt 0 ] || missing="$missing $pattern"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::the download page would ship without:$missing"
+            exit 1
+          fi
+
+      # Everything sitting in the site directory, rather than a list of extensions to look for.
+      # That list was *.{exe,deb,rpm,tgz}, and the Windows package stopped appearing on the
+      # download page the day it went from NSIS to MSI: the file was copied in above and then not
+      # matched here, so the page offered Linux and macOS and silently nothing for Windows.
+      # Whatever "Create site folder" puts in public/ is what gets offered.
       - name: Generate files.json
         run: |
           cd public
           echo '{ "downloads": [' > files.json
           first=true
-          for f in *.{exe,deb,rpm,tgz}; do
+          for f in *; do
             [ -f "$f" ] || continue
+            # The site's own files, not downloads. files.json excludes itself because it exists
+            # by the time the glob runs.
+            case "$f" in index.html|files.json) continue ;; esac
             if [ "$first" = true ]; then
               first=false
             else
