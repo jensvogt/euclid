@@ -895,6 +895,20 @@ namespace Euclid::Database {
         }
     }
 
+    long EventBus::PendingDeliveries(const std::string &targetErn) const {
+
+        if (targetErn.empty()) return 0;
+
+        try {
+            return static_cast<long>(Database::instance().collection(EVENT_COLLECTION)
+                                             .count_documents(make_document(kvp("targetErn", targetErn)).view()));
+
+        } catch (const std::exception &e) {
+            log_error << "EventBus could not count deliveries, targetErn: " << targetErn << ", error: " << e.what();
+        }
+        return -1;
+    }
+
     long EventBus::DiscardDeliveries(const std::string &targetErn) {
 
         if (targetErn.empty()) return 0;

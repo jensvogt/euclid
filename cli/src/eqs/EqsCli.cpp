@@ -652,11 +652,17 @@ namespace Euclid::CLI {
     int EqsCli::deleteQueue(const std::vector<std::string> &args) const {
         po::options_description desc("delete queue options");
         desc.add_options()
-                ("queue,q", po::value<std::string>()->required(), "queue name; a full ERN also works and is what reaches another namespace");
+                ("queue,q", po::value<std::string>()->required(), "queue name; a full ERN also works and is what reaches another namespace")
+                ("if-empty", po::bool_switch()->default_value(false), "refuse unless the queue holds no messages and none are on their way into it");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eqs", "delete-queue", "--queue <name|ern>",
-                                   "Deletes an EQS queue identified by its Euclid resource name (ERN).",
+            return PrintActionHelp("eqs", "delete-queue", "--queue <name|ern> [--if-empty]",
+                                   "Deletes an EQS queue identified by its Euclid resource name (ERN), discarding the "
+                                   "messages in it and any events still being delivered into it. "
+                                   "Give --if-empty to remove it only while there is nothing to lose: a queue with messages, "
+                                   "or with deliveries still on their way in, is left alone and reported with HTTP 409 naming "
+                                   "how many. That is the form for scripts and provisioning, where the queue being deleted is "
+                                   "one nobody has looked at rather than one somebody has decided about.",
                                    desc);
         }
 
@@ -671,6 +677,7 @@ namespace Euclid::CLI {
 
         Dto::EQS::DeleteQueueRequest request;
         request.ern = vm["queue"].as<std::string>();
+        request.ifEmpty = vm["if-empty"].as<bool>();
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
