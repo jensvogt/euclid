@@ -215,8 +215,18 @@ tar -xzf euclid-<version>-macos.tgz
 
 ### Windows
 
-Download and run `euclid-<version>-amd64.exe` from the
-[releases page](https://github.com/jensvogt/euclid/releases).
+Download `euclid-<version>-amd64.msi` from the
+[releases page](https://github.com/jensvogt/euclid/releases) and run it, or install it unattended:
+
+```powershell
+msiexec /i euclid-<version>-amd64.msi /qn
+```
+
+It registers and starts the `euclid` service. Installing a newer package over an existing
+installation upgrades it in place: the service is stopped, the binaries and the web frontend are
+replaced, and `etc\euclid.json`, the TLS certificate, its key and the SSH host key are left exactly
+as they are — an installation's configuration and its identity belong to the installation, not to
+the package. Whatever is under `data\` is untouched, by an upgrade and by an uninstall alike.
 
 ### The CLI on its own
 
@@ -250,9 +260,9 @@ wget https://jensvogt.github.io/euclid/euclid-cli-<version>-macos.tgz
 sudo tar -xzf euclid-cli-<version>-macos.tgz -C /usr/local
 ```
 
-Windows - download and run `euclid-cli-<version>-amd64.exe`, which installs the command and adds
-it to the system PATH. Open a new terminal afterwards; an existing one keeps the PATH it started
-with.
+Windows - download and run `euclid-cli-<version>-amd64.msi`, which installs the command and adds
+it to the system PATH (`msiexec /i euclid-cli-<version>-amd64.msi /qn` to do it unattended). Open a
+new terminal afterwards; an existing one keeps the PATH it started with.
 
 Then point it at the server:
 

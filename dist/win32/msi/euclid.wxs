@@ -1,0 +1,229 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Windows package for a euclid server.
+
+  Windows Installer rather than the NSIS script this replaces, for four things that are properties
+  of the format rather than of the script:
+
+    - Files in use. The Restart Manager stops the service and anything else holding a binary,
+      replaces it and starts it again - where the NSIS script stopped only the service, so a
+      manager started by hand and any application process left behind kept their executables
+      locked and the install failed a file at a time.
+    - Configuration. euclid.json, the certificate, its key and the SSH host key are NeverOverwrite
+      below, so an upgrade cannot replace what an installation has been configured with. The NSIS
+      script rewrote all four every time; the JDK paths, the ports and the certificate an
+      installation had been given went with them.
+    - Upgrades. MajorUpgrade makes "install over the existing one" a first-class operation rather
+      than a copy over the top, and a downgrade is refused with a sentence instead of half-working.
+    - Rollback. An install that fails part-way is undone. An NSIS install that fails leaves
+      whatever it had managed to write.
+
+  The version has to be MSI-shaped: three fields, major <= 255, minor <= 255, build <= 65535.
+  euclid's semver fits as it stands.
+
+  Components carrying a file have no GUID of their own: WiX derives a stable one from the key path,
+  which is both less to get wrong and less to keep unique by hand. The ones that carry only a
+  directory cannot be derived that way and are written out, as is the UpgradeCode - the identifier
+  that must never change for as long as euclid is installed anywhere.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+    <?ifndef Version ?>
+    <?define Version = "1.0.0" ?>
+    <?endif?>
+
+    <!-- Where the build put the binaries, where the repository is, and where the frontend bundle
+         was built. All three are passed by the release workflow; the defaults describe a local
+         build, so "wix build" in this directory produces the same package. -->
+    <?ifndef BuildDir ?>
+    <?define BuildDir = "..\..\..\cmake-build-release" ?>
+    <?endif?>
+    <?ifndef SrcDir ?>
+    <?define SrcDir = "..\..\.." ?>
+    <?endif?>
+    <?ifndef FrontendDir ?>
+    <?define FrontendDir = "$(SrcDir)\frontend\euclid-web\dist\euclid-web\browser" ?>
+    <?endif?>
+
+    <Package Name="Euclid"
+             Manufacturer="Jens Vogt"
+             Version="$(Version)"
+             Language="1033"
+             Scope="perMachine"
+             Compressed="yes"
+             InstallerVersion="500"
+             UpgradeCode="7d1f4c96-3a57-4f58-9a4e-4f6b2b6b1c21">
+
+        <SummaryInformation Description="Euclid Cloud Services" Manufacturer="Jens Vogt" />
+
+        <MajorUpgrade AllowSameVersionUpgrades="yes"
+                      DowngradeErrorMessage="A newer version of Euclid is already installed. Uninstall it first if you mean to go back." />
+
+        <MediaTemplate EmbedCab="yes" />
+
+        <Icon Id="euclid.ico" SourceFile="$(SrcDir)\dist\branding\favicon.ico" />
+        <Property Id="ARPPRODUCTICON" Value="euclid.ico" />
+        <Property Id="ARPURLINFOABOUT" Value="https://github.com/jensvogt/euclid" />
+        <Property Id="ARPNOMODIFY" Value="1" />
+
+        <StandardDirectory Id="ProgramFiles64Folder">
+            <Directory Id="INSTALLFOLDER" Name="euclid">
+
+                <!-- ── Binaries ──────────────────────────────────────────────────────────────
+                     Harvested from the build output rather than listed by name. A hand-maintained
+                     list is how modules came to be missing from the Linux packages while
+                     euclid.json still pointed at them, and how the NSIS uninstaller came to delete
+                     seven of nineteen binaries and leave the directory behind.
+
+                     euclid-mgr is declared on its own because it carries the service; everything
+                     else is just a file. The test executables are built into the same directory
+                     and are the only thing excluded. -->
+                <Directory Id="BINFOLDER" Name="bin">
+                    <Files Include="$(BuildDir)\bin\euclid-*.exe">
+                        <Exclude Files="$(BuildDir)\bin\*-tests.exe" />
+                        <Exclude Files="$(BuildDir)\bin\euclid-mgr.exe" />
+                    </Files>
+
+                    <Component Id="ManagerService">
+                        <File Id="euclid_mgr.exe" Source="$(BuildDir)\bin\euclid-mgr.exe" KeyPath="yes" />
+
+                        <!-- Declared rather than run as a command, so Windows owns it: installing,
+                             starting, stopping and removing the service are steps of the
+                             transaction and are rolled back with it. The NSIS script stopped the
+                             service, removed it and created it again on every install, which threw
+                             away whatever had been configured on it - a delayed start, recovery
+                             actions, a service account. -->
+                        <ServiceInstall Id="EuclidService"
+                                        Name="euclid"
+                                        DisplayName="Euclid"
+                                        Description="Euclid Cloud Services"
+                                        Type="ownProcess"
+                                        Start="auto"
+                                        ErrorControl="normal"
+                                        Arguments="--config &quot;[INSTALLFOLDER]etc\euclid.json&quot;"
+                                        Vital="yes" />
+
+                        <!-- Stopped before the files under it are replaced and started again
+                             afterwards, which is what makes an upgrade leave the installation
+                             running rather than down. Removed with the product. -->
+                        <ServiceControl Id="EuclidServiceControl"
+                                        Name="euclid"
+                                        Start="install"
+                                        Stop="both"
+                                        Remove="uninstall"
+                                        Wait="yes" />
+                    </Component>
+                </Directory>
+
+                <!-- ── Configuration and keys ────────────────────────────────────────────────
+                     NeverOverwrite, all four: an installation's configuration and its identity
+                     belong to the installation, not to the package. An upgrade that replaced
+                     euclid.json would undo every path, port and account id the host had been
+                     given, and one that replaced the certificate or the SSH host key would break
+                     every client that trusts them - a pinned CA certificate, an SFTP client's
+                     known_hosts entry.
+
+                     The shipped versions are still written by a first install, which is what makes
+                     a fresh one work out of the box.
+
+                     magic.mgc is deliberately not among them: it is the compiled magic database
+                     from this exact build of libmagic, it has to match the binaries it ships with
+                     (see Core::ContentTypeUtils), and nobody edits it. -->
+                <Directory Id="ETCFOLDER" Name="etc">
+                    <Component Id="EuclidJson" NeverOverwrite="yes">
+                        <File Id="euclid.json" Source="$(SrcDir)\dist\win32\euclid.json" KeyPath="yes" />
+                    </Component>
+                    <Component Id="CertificateCrt" NeverOverwrite="yes">
+                        <File Id="euclid_cert.crt" Source="$(SrcDir)\dist\linux\etc\euclid_cert.crt" KeyPath="yes" />
+                    </Component>
+                    <Component Id="CertificateKey" NeverOverwrite="yes">
+                        <File Id="euclid_cert.key" Source="$(SrcDir)\dist\linux\etc\euclid_cert.key" KeyPath="yes" />
+                    </Component>
+                    <Component Id="SshHostKey" NeverOverwrite="yes">
+                        <File Id="ssh_host_key" Source="$(SrcDir)\dist\linux\etc\ssh_host_key" KeyPath="yes" />
+                    </Component>
+                    <Component Id="MagicDatabase">
+                        <File Id="magic.mgc" Source="$(BuildDir)\vcpkg_installed\x64-windows-static\share\libmagic\misc\magic.mgc" KeyPath="yes" />
+                    </Component>
+                </Directory>
+
+                <!-- ── Frontend ──────────────────────────────────────────────────────────────
+                     The contents of Angular's bundle directory, so index.html lands at the root of
+                     frontend\ where the gateway looks for it. Harvested, because the file names
+                     carry content hashes and change with every build - and because MSI removes the
+                     files of the version it replaces, which is what keeps this directory from
+                     filling up with the chunks of every release ever installed the way the NSIS
+                     one did. -->
+                <Directory Id="FRONTENDFOLDER" Name="frontend">
+                    <Files Include="$(FrontendDir)\**" />
+                </Directory>
+
+                <!-- ── Directories euclid writes into ────────────────────────────────────────
+                     Created empty, and this is the whole of what the package says about them. What
+                     a euclid writes into data\ - buckets, stored objects, application artifacts,
+                     the FTP tree - is not the package's and is never in its file table, so an
+                     uninstall leaves it where it is. The NSIS uninstaller deleted the whole tree
+                     unprompted, and made no distinction between an uninstall and an upgrade. -->
+                <Directory Id="LOGFOLDER" Name="log">
+                    <Component Id="LogFolder" Guid="5383daaf-d6ea-42b2-b4d3-3e768e86ed24">
+                        <CreateFolder />
+                    </Component>
+                </Directory>
+                <Directory Id="INITFOLDER" Name="init">
+                    <Component Id="InitFolder" Guid="92ac2f8e-3308-4379-83ab-4facc43d6922">
+                        <CreateFolder />
+                    </Component>
+                </Directory>
+                <Directory Id="DATAFOLDER" Name="data">
+                    <Directory Id="DATATMPFOLDER" Name="tmp">
+                        <Component Id="DataTmpFolder" Guid="e1cb39df-892f-4cc6-be26-60f034c5b487">
+                            <CreateFolder />
+                        </Component>
+                    </Directory>
+                    <Directory Id="DATABACKUPFOLDER" Name="backup">
+                        <Component Id="DataBackupFolder" Guid="a5185614-bb0e-47b8-8dcb-175c64a678a5">
+                            <CreateFolder />
+                        </Component>
+                    </Directory>
+                    <Directory Id="DATARUNFOLDER" Name="run">
+                        <Component Id="DataRunFolder" Guid="8e7ff57d-11d2-48fb-8438-b22bdc447426">
+                            <CreateFolder />
+                        </Component>
+                    </Directory>
+                    <Directory Id="DATAEAMFOLDER" Name="eam">
+                        <Component Id="DataEamFolder" Guid="0e846d72-e7e6-41db-bd38-dac6878c2e82">
+                            <CreateFolder />
+                        </Component>
+                    </Directory>
+                    <Directory Id="DATAEAPFOLDER" Name="eap">
+                        <Component Id="DataEapFolder" Guid="25f772e0-eb62-478a-a678-7e7d7ab83731">
+                            <CreateFolder />
+                        </Component>
+                    </Directory>
+                    <Directory Id="DATAEQMFOLDER" Name="eqm">
+                        <Component Id="DataEqmFolder" Guid="b1a006df-f402-413d-9791-6543aaf603c8">
+                            <CreateFolder />
+                        </Component>
+                    </Directory>
+                    <Directory Id="DATAESMFOLDER" Name="esm">
+                        <Component Id="DataEsmFolder" Guid="8f93495b-c054-4e2a-bd98-788af31b7b02">
+                            <CreateFolder />
+                        </Component>
+                    </Directory>
+                    <Directory Id="DATAETSFOLDER" Name="ets">
+                        <Component Id="DataEtsFolder" Guid="14ce104c-22c9-46af-af18-4bdf20eb163f">
+                            <CreateFolder />
+                        </Component>
+                    </Directory>
+                    <Directory Id="DATAFTPFOLDER" Name="ftp">
+                        <Component Id="DataFtpFolder" Guid="3581d442-32f7-48ef-bec0-b2810f17be7b">
+                            <CreateFolder />
+                        </Component>
+                    </Directory>
+                </Directory>
+
+            </Directory>
+        </StandardDirectory>
+
+    </Package>
+</Wix>
