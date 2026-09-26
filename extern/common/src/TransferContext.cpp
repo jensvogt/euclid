@@ -49,20 +49,24 @@ namespace Euclid::Transfer {
         return sockets;
     }
 
-    ModuleResponse CallModuleAt(const std::string &socketPath, const std::string &action, const std::string &token,
-                                const std::vector<std::pair<std::string, std::string> > &headers, const std::string &body) {
+    ModuleResponse CallModuleAt(const std::string &socketPath, const std::string &moduleName, const std::string &action,
+                                const std::string &token, const std::vector<std::pair<std::string, std::string> > &headers,
+                                const std::string &body) {
 
         try {
             boost::asio::io_context ioc;
             local::stream_protocol::socket sock(ioc);
             sock.connect(local::stream_protocol::endpoint(socketPath));
 
-            http::request<http::string_body> req{http::verb::post, "/", 11};
-            req.set("x-euclid-action", action);
-            if (!token.empty()) req.set(http::field::authorization, "Bearer " + token);
-            for (const auto &[name, value]: headers) req.set(name, value);
-            req.body() = body;
-            req.prepare_payload();
+            // Both halves of the permission, and the target half was missing until 2026-09-26.
+            // Core::HttpActionServer's gate builds what it requires as "<target>:<action>", so
+            // without it every call a transfer server made asked for ":list-objects" or
+            // ":put-object" - not permissions the vocabulary has, so refused before a single grant
+            // was read. The symptom was an FTP or SFTP session that logged in and then got 403 on
+            // everything, with no grant able to fix it: the reason names a permission that cannot
+            // be held. Requests through the gateway were unaffected, because ProxyServer sets the
+            // header itself, which is what made this look like a grant problem.
+            auto req = Detail::BuildModuleRequest(moduleName, action, token, headers, body);
 
             write(sock, req);
 
@@ -96,7 +100,7 @@ namespace Euclid::Transfer {
         // resolve against.
         auto response = Detail::StickyCall(
                 socketPath,
-                [&](const std::string &candidate) { return CallModuleAt(candidate, action, token, headers, body); },
+                [&](const std::string &candidate) { return CallModuleAt(candidate, moduleName, action, token, headers, body); },
                 [&] { return ModuleSockets(moduleName); });
 
         if (socketPath != previous && response.status != 0) {
@@ -119,7 +123,7 @@ namespace Euclid::Transfer {
         }
 
         for (const auto &socketPath: sockets) {
-            if (auto response = CallModuleAt(socketPath, action, token, headers, body); response.status != 0) {
+            if (auto response = CallModuleAt(socketPath, moduleName, action, token, headers, body); response.status != 0) {
                 return response;
             }
         }
