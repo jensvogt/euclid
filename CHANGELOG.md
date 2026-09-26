@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.40](https://github.com/jensvogt/euclid/compare/1.1.39...v1.1.40) (2026-09-26)
+
+
+### Bug Fixes
+
+* windows MSI installation ([72dfd5a](https://github.com/jensvogt/euclid/commit/72dfd5a3baf1f2f7c99ae04cd411a488248b1361))
+
 ## [1.1.39](https://github.com/jensvogt/euclid/compare/1.1.38...v1.1.39) (2026-09-25)
 
 
