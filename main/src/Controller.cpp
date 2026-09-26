@@ -45,6 +45,13 @@
 // branch on _WIN32 for the handful of calls (fork/exec vs CreateProcess, kill vs
 // TerminateProcess, waitpid vs GetExitCodeProcess) that don't have a shared name.
 
+#if defined(__linux__)
+// PR_SET_PDEATHSIG, which is how a spawned instance is made to die with the manager. Linux only:
+// macOS has no equivalent, so an instance there outlives a manager that was killed - see the
+// comment at the call.
+#include <sys/prctl.h>
+#endif
+
 namespace Euclid::main {
 
     // The API gateway module. Named here because the shutdown ordering has to treat it as a
@@ -370,6 +377,11 @@ namespace Euclid::main {
         HANDLE processHandle = nullptr, stopEvent = nullptr;
         int outFd = -1, errFd = -1;
         if (!Platform::SpawnInstance(svc->config, instanceSocket, pid, processHandle, stopEvent, outFd, errFd)) {
+            // Marked and reported. Platform::SpawnInstance() has already said what Windows
+            // answered; this says which instance it was about, so a pool that never started can be
+            // told from one that started and died - which without these two lines looked the same
+            // from the log, both of them being nothing at all.
+            log_error << "Instance " << svc->config.name << " could not be spawned, executable: " << svc->config.executable;
             svc->state = Database::Entity::ModuleState::CRASHED;
             return false;
         }
@@ -448,6 +460,14 @@ namespace Euclid::main {
         std::ignore = pipe(outPipe);
         std::ignore = pipe(errPipe);
 
+        // Read before the fork, because afterwards the child has no other way to ask who its
+        // parent was: getppid() answers truthfully only while that parent is still alive, and a
+        // parent that is not is exactly the case the child has to tell apart.
+        //
+        // maybe_unused for macOS, which has no PR_SET_PDEATHSIG and therefore nothing to compare
+        // this against.
+        [[maybe_unused]] const pid_t parentPid = getpid();
+
         const pid_t pid = fork();
 
         if (pid < 0) {
@@ -463,6 +483,25 @@ namespace Euclid::main {
             close(outPipe[1]);
             close(errPipe[0]);
             close(errPipe[1]);
+
+#if defined(__linux__)
+            // Die with the manager, whatever happens to it. A manager that is killed - or that
+            // crashes, or is stopped the hard way - otherwise leaves its children running: they go
+            // on consuming the queues their application listens to, holding the HTTP port the next
+            // instance will be handed, and reporting their load to a manager that has no record of
+            // them. The Windows side gets the same guarantee from a kill-on-close job object; see
+            // Platform::SpawnInstance().
+            //
+            // Set before setsid() and before exec, so the window in which it does not apply is as
+            // small as it can be made. It survives exec, which is the point - the application
+            // euclid runs is not euclid's code and cannot be asked to arrange this for itself.
+            prctl(PR_SET_PDEATHSIG, SIGKILL);
+
+            // And the race it cannot close: the manager can die between fork() and the line above,
+            // in which case the signal was armed against a parent that is already gone and will
+            // never arrive. Being reparented to init is what that looks like from here.
+            if (getppid() != parentPid) _exit(128 + SIGKILL);
+#endif
 
             setsid();
 
@@ -896,7 +935,62 @@ namespace Euclid::main {
             return {};
         }
 
+        /**
+         * @brief Reports an application whose principal cannot be found, and reports it once.
+         *
+         * @par
+         * Once, because the reconciler runs every few seconds and a mismatch lasts until somebody
+         * fixes it - a line per tick would bury the log it is trying to be found in. And once again
+         * when it comes back, because "it is working now" is the other half of the story and is
+         * exactly what somebody who has just changed the definition is waiting to see.
+         */
+        void noteApplicationPrincipal(const std::string &runtimeName, const std::string &applicationId,
+                                      const std::string &userId, const bool resolves) {
+
+            static std::mutex mutex;
+            static std::set<std::string> reported;
+
+            std::lock_guard lock(mutex);
+
+            if (resolves) {
+                if (reported.erase(runtimeName) > 0) {
+                    log_info << "Application identity resolves again, applicationId: " << applicationId << ", user: " << userId;
+                }
+                return;
+            }
+
+            if (!reported.insert(runtimeName).second) return;
+
+            log_error << "Application identity does not exist, applicationId: " << applicationId << ", user: " << userId
+                      << " - it will run with no working credentials and be refused everything it calls. "
+                         "Point it at a principal that exists: 'eap update-application --application-id "
+                      << applicationId << " --user <userId>', or 'eam list-users' to see which there are";
+        }
+
         bool writeApplicationCredentials(const Database::Entity::EAP::Application &application) {
+
+            // The identity first, because a token is only worth writing if there is somebody for it
+            // to be about. A JWT names its subject and is verified against the signing secret, so
+            // one minted for a user that does not exist is perfectly well-formed and authenticates
+            // as nobody: every call the application makes is refused, and the refusal it reports is
+            // about whatever it was trying to do - "failed to read the secret X" - rather than
+            // about the identity it was doing it as.
+            //
+            // Observed exactly so: two applications named principals one letter off the ones that
+            // existed ("app-supplier" against "app-suppliers"), were handed credentials anyway, and
+            // the only sign was one warning line in the manager's log.
+            if (!Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(application.userId).has_value()) {
+                log_error << "Application credentials not written, applicationId: " << application.applicationId
+                          << ", user: " << application.userId
+                          << " - no such user. Point the application at one that exists with "
+                             "'eap update-application --application-id " << application.applicationId << " --user <userId>'";
+
+                // The file already there is left alone rather than removed. It holds the only copy
+                // of a token an instance may still be inside the hour of, and if the principal is
+                // created again under the name the definition asks for, that token starts working
+                // again - so taking it away helps nobody and can take working credentials with it.
+                return false;
+            }
 
             const auto expiresAt = std::chrono::system_clock::now() + credentialsTtl();
             const auto token = Core::JwtUtils::CreateToken(application.userId, Core::HttpActionServer::JwtSecret(), credentialsTtl());
@@ -1135,10 +1229,25 @@ namespace Euclid::main {
                 registered = false;
             }
 
+            // The identity the application runs as, checked on every pass rather than only when the
+            // application was created. A principal can be deleted, or renamed, or never have
+            // existed under the name the definition carries - and until now nothing noticed: the
+            // application was started, handed a token naming nobody, and refused everything it
+            // asked for. What reaches an operator then is whatever the application says about the
+            // first call it made, which is a sentence about a secret or a queue and not about who
+            // it is.
+            const bool principalResolves =
+                    !wantRunning || Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(application.userId).has_value();
+            noteApplicationPrincipal(runtimeName, application.applicationId, application.userId, principalResolves);
+
             // Rewritten while the application runs, not only when it starts: that is the whole
             // point of putting them in a file. An instance started an hour ago is holding a token
             // that is about to expire, and the only thing that can replace it is this.
-            if (wantRunning && credentialsNeedRefresh(runtimeName)) {
+            //
+            // Not attempted at all for a principal that does not resolve: the file would be a token
+            // that authenticates as nobody, and credentialsNeedRefresh() would ask for it again on
+            // every tick for as long as the mismatch lasts.
+            if (wantRunning && principalResolves && credentialsNeedRefresh(runtimeName)) {
                 if (writeApplicationCredentials(application)) {
                     log_debug << "Application credentials refreshed, applicationId: " << runtimeName;
                 }
@@ -1219,7 +1328,16 @@ namespace Euclid::main {
                     std::lock_guard lock(_mutex);
                     _applicationPools.insert(runtimeName);
                 }
-                start(runtimeName);
+
+                // The answer is acted on rather than dropped. A pool whose instances could not be
+                // spawned stays registered, which is right - the watchdog retries it - but nothing
+                // else would say the attempt failed, and "registered, no instances, no log line" is
+                // not a state anybody can diagnose. On Windows it was exactly that: the spawn
+                // returned false in silence and this threw the answer away.
+                if (!start(runtimeName)) {
+                    log_error << "Application did not start, applicationId: " << runtimeName
+                              << ", command: " << config.executable;
+                }
 
             } else if (!wantRunning && registered) {
                 log_info << "Application stopping, applicationId: " << runtimeName;

@@ -6,6 +6,7 @@
 
 // C++ includes
 #include <atomic>
+#include <cctype>
 #include <cstring>
 #include <map>
 #include <string>
@@ -13,10 +14,33 @@
 #include <vector>
 
 // Euclid includes
+#include <euclid/core/LogStream.h>
 #include <euclid/core/UnixSocketServer.h>
 #include <euclid/manager/ControllerPlatform.h>
 
 namespace Euclid::main::Platform {
+
+    namespace {
+        // What Windows says went wrong, rather than only the number it says it with. A spawn
+        // failure is read by whoever is wondering why a pool has no processes, and "error 267"
+        // sends them to a search engine where "The directory name is invalid" ends it.
+        std::string LastError(const DWORD error) {
+            char *text = nullptr;
+            const auto length = FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM
+                                                       | FORMAT_MESSAGE_IGNORE_INSERTS,
+                                               nullptr, error, 0, reinterpret_cast<char *>(&text), 0, nullptr);
+
+            std::string message = length > 0 && text ? std::string(text, length) : std::string();
+            if (text) LocalFree(text);
+
+            // FormatMessage ends its text with a newline, which would break the log line in two.
+            while (!message.empty() && std::isspace(static_cast<unsigned char>(message.back()))) {
+                message.pop_back();
+            }
+            return message.empty() ? "error " + std::to_string(error)
+                                   : message + " (error " + std::to_string(error) + ")";
+        }
+    }// namespace
 
     // Standard MSVC/CommandLineToArgvW quoting algorithm: only quotes when needed, and
     // doubles up backslashes that immediately precede either a literal quote or the
@@ -51,6 +75,51 @@ namespace Euclid::main::Platform {
     }
 
     namespace {
+
+        /**
+         * @brief The job object every instance this manager spawns is put into, so that none of
+         * them outlives it.
+         *
+         * @par
+         * A manager that is killed - or that crashes, or is stopped the hard way - leaves its
+         * children running: they go on consuming the queues their application listens to, holding
+         * the HTTP port the next instance will be handed, and reporting their load to a manager
+         * that has no record of them. What that looks like afterwards is messages handled twice,
+         * an application that cannot bind its port, and "load report matched no instance" every
+         * fifteen seconds from a process nobody can account for. Seen on this installation with
+         * four dead managers' worth of leftovers at once.
+         *
+         * @par
+         * KILL_ON_JOB_CLOSE ends that: the job's last handle closes when the manager's process
+         * object is torn down, however it is torn down, and the kernel kills what is in it. There
+         * is nothing to reap afterwards because nothing is left.
+         *
+         * @par
+         * The cost, stated plainly: an application cannot outlive the manager on purpose either.
+         * A restart stops every instance and starts it again, which is what a restart already did
+         * on the shutdown path - this only makes the crash path behave the same way.
+         *
+         * @par
+         * Created once and never closed: it is the process's own, and its lifetime is meant to be
+         * exactly the process's. Nested jobs have been allowed since Windows 8, so a manager that
+         * is itself inside somebody else's job - a service wrapper, a CI agent - still gets one.
+         */
+        HANDLE instanceJob() {
+            static const HANDLE job = [] {
+                const HANDLE created = CreateJobObjectA(nullptr, nullptr);
+                if (!created) return static_cast<HANDLE>(nullptr);
+
+                JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+                limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                if (!SetInformationJobObject(created, JobObjectExtendedLimitInformation, &limits, sizeof(limits))) {
+                    CloseHandle(created);
+                    return static_cast<HANDLE>(nullptr);
+                }
+                return created;
+            }();
+            return job;
+        }
+
         // Restricts handle inheritance to exactly the two pipe write-ends, so the child
         // doesn't also inherit every other inheritable handle the manager happens to have
         // open (listening sockets, other modules' pipes, ...) - the default
@@ -91,7 +160,10 @@ namespace Euclid::main::Platform {
         sa.bInheritHandle = TRUE;
 
         HANDLE outRead = nullptr, outWrite = nullptr, errRead = nullptr, errWrite = nullptr;
-        if (!CreatePipe(&outRead, &outWrite, &sa, 0)) return false;
+        if (!CreatePipe(&outRead, &outWrite, &sa, 0)) {
+            log_error << "Could not create the output pipe for " << config.name << ": " << LastError(GetLastError());
+            return false;
+        }
         SetHandleInformation(outRead, HANDLE_FLAG_INHERIT, 0);
 
         if (!CreatePipe(&errRead, &errWrite, &sa, 0)) {
@@ -125,7 +197,10 @@ namespace Euclid::main::Platform {
         siex.lpAttributeList = attrs.list;
 
         PROCESS_INFORMATION pi{};
-        DWORD flags = CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW;
+        // Suspended, so the process is in the job below before it executes an instruction:
+        // assigning it afterwards is a race in which a child that spawns something of its own
+        // first leaves that grandchild outside the job, which is the thing the job exists to stop.
+        DWORD flags = CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW | CREATE_SUSPENDED;
         if (haveAttrs) flags |= EXTENDED_STARTUPINFO_PRESENT;
 
         // This instance's SIGTERM - see Core::STOP_EVENT_VARIABLE for why a console control
@@ -179,6 +254,7 @@ namespace Euclid::main::Platform {
                 nullptr, cmdLineBuf.data(), nullptr, nullptr, TRUE, flags,
                 environmentBlock.data(),
                 config.workingDir.empty() ? nullptr : config.workingDir.c_str(), &siex.StartupInfo, &pi);
+        const auto createError = GetLastError();
 
         // The child (if created) now holds its own copies of the write ends; the parent's
         // copies must be closed or the pipe's read end never sees EOF once the child exits.
@@ -186,23 +262,58 @@ namespace Euclid::main::Platform {
         CloseHandle(errWrite);
 
         if (!ok) {
+            // Said out loud, and with everything needed to act on it: the whole command line,
+            // because a quoting or path problem is only visible in the assembled thing, and the
+            // working directory, because a directory that is not there is one of the two commonest
+            // reasons this fails - the other being an executable that is not where the
+            // configuration says.
+            //
+            // This used to return false without a word, and the caller dropped the answer, so an
+            // application that could not be spawned produced no output at any level: no process, no
+            // instance record, and a log that said nothing at all. That is a worse failure than the
+            // one it was hiding.
+            log_error << "Could not spawn " << config.name << ": " << LastError(createError)
+                      << ", command: " << cmdLine
+                      << ", workingDir: " << (config.workingDir.empty() ? "(inherited)" : config.workingDir);
+
             CloseHandle(outRead);
             CloseHandle(errRead);
             if (stopEvent) CloseHandle(stopEvent);
             return false;
         }
-        CloseHandle(pi.hThread);
+        // Into the job that dies with this process, then let it run. A failure here is not a
+        // failure to start: the instance is perfectly good, it simply is not covered if the
+        // manager is killed - which is what the installation looked like before the job existed,
+        // and is better than refusing to run the application at all.
+        if (const HANDLE job = instanceJob(); job) {
+            if (!AssignProcessToJobObject(job, pi.hProcess)) {
+                log_warning << "Could not put " << config.name << " in the manager's job object: " << LastError(GetLastError())
+                            << " - it will outlive the manager if the manager is killed";
+            }
+        } else {
+            log_warning << "No job object for spawned instances - an instance will outlive a manager that is killed";
+        }
 
         const int stdoutFd = _open_osfhandle(reinterpret_cast<intptr_t>(outRead), _O_RDONLY);
         const int stderrFd = _open_osfhandle(reinterpret_cast<intptr_t>(errRead), _O_RDONLY);
         if (stdoutFd == -1 || stderrFd == -1) {
+            // Still suspended, so this kills a process that never ran an instruction - and says so,
+            // because from the outside it would otherwise look like one that died on its own.
+            log_error << "Could not take the output handles of " << config.name << ", killing pid " << pi.dwProcessId;
             if (stdoutFd == -1) CloseHandle(outRead); else _close(stdoutFd);
             if (stderrFd == -1) CloseHandle(errRead); else _close(stderrFd);
             TerminateProcess(pi.hProcess, 1);
+            CloseHandle(pi.hThread);
             CloseHandle(pi.hProcess);
             if (stopEvent) CloseHandle(stopEvent);
             return false;
         }
+
+        // Everything the parent needs is in place, so the child may run: the job holds it and the
+        // pipes are wrapped, so nothing it writes on its first breath is lost and nothing it
+        // spawns escapes the job.
+        ResumeThread(pi.hThread);
+        CloseHandle(pi.hThread);
 
         outPid = static_cast<pid_t>(pi.dwProcessId);
         outProcessHandle = pi.hProcess;

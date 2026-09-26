@@ -206,6 +206,7 @@ namespace Euclid::CLI {
                 ("runtime,r", po::value<std::string>(), "runtime the artifact is started with")
                 ("artifact,a", po::value<std::string>(), "object key of the artifact within the application's bucket")
                 ("command,c", po::value<std::string>(), "command to run instead of the runtime's default")
+                ("user,u", po::value<std::string>(), "EAM user the application runs as; it has to exist and have an access key")
                 ("namespace", po::value<std::string>(), "namespace the application's own requests run in, which is what lets it name a queue or topic rather than spell out a full ERN; pass an empty string to move it back to the account root")
                 ("arguments", po::value<std::string>(), "comma-separated arguments; replaces the current list")
                 ("environment,e", po::value<std::string>(), "comma-separated KEY=value environment variables; replaces the current set")
@@ -219,7 +220,7 @@ namespace Euclid::CLI {
             return PrintActionHelp("eap", "update-application",
                                    "--application-id <name> [--runtime <runtime>] [--artifact <key>] [--command <cmd>] "
                                    "[--arguments <list>] [--environment <list>] [--buckets <list>] [--queues <list>] "
-                                   "[--min-instances <n>] [--max-instances <n>] [--ready-timeout <ms>]",
+                                   "[--min-instances <n>] [--max-instances <n>] [--ready-timeout <ms>] [--user <userId>]",
                                    "Changes an existing application's definition. Only the options actually given are altered, so one "
                                    "setting can be changed without resending the whole definition; --arguments and --environment "
                                    "replace the current values rather than adding to them. A running application is restarted onto the "
@@ -229,8 +230,12 @@ namespace Euclid::CLI {
                                    "key with \"esm upload-file\" and run this command, which re-materialises the artifact even when "
                                    "nothing about the definition changed. "
                                    "Changing --buckets or --queues re-grants the application's technical principal, so the "
-                                   "new list takes effect immediately, for running instances too. The identity the application runs as "
-                                   "cannot be changed here - delete it and create it again instead.",
+                                   "new list takes effect immediately, for running instances too. "
+                                   "--user points the application at a different EAM identity, which has to exist and hold an access "
+                                   "key - the repair for a definition naming a principal that was deleted or renamed, which otherwise "
+                                   "runs and is refused everything it calls. If the application was running as a technical principal EAP "
+                                   "issued it, that principal and its grants are deleted with the change: it was made for this "
+                                   "application and nothing else can use it.",
                                    desc);
         }
 
@@ -247,6 +252,7 @@ namespace Euclid::CLI {
         if (vm.contains("runtime")) request["runtime"] = vm["runtime"].as<std::string>();
         if (vm.contains("artifact")) request["artifact"] = vm["artifact"].as<std::string>();
         if (vm.contains("command")) request["command"] = vm["command"].as<std::string>();
+        if (vm.contains("user")) request["user"] = vm["user"].as<std::string>();
         if (vm.contains("arguments")) request["arguments"] = SplitList(vm["arguments"].as<std::string>());
         if (vm.contains("environment")) request["environment"] = SplitEnvironment(vm["environment"].as<std::string>());
         if (vm.contains("buckets")) request["buckets"] = SplitList(vm["buckets"].as<std::string>());
@@ -404,10 +410,11 @@ namespace Euclid::CLI {
                 ("application-id,n", po::value<std::string>()->required(), "name of the application to deploy")
                 ("file,f", po::value<std::string>()->required(), "the new build: the jar for JAVA, the script for PYTHON/NODEJS, the executable for BINARY")
                 ("artifact,a", po::value<std::string>(), "object key to store it under; defaults to the key the application already uses")
-                ("version", po::value<std::string>(), "version this build is; read out of the file name (x.y.z) when not given");
+                ("version", po::value<std::string>(), "version this build is; read out of the file name (x.y.z) when not given")
+                ("force", po::bool_switch(), "deploy even when the build is byte for byte the one already deployed");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eap", "redeploy-application", "--application-id <name> --file <path> [--artifact <key>] [--version <x.y.z>]",
+            return PrintActionHelp("eap", "redeploy-application", "--application-id <name> --file <path> [--artifact <key>] [--version <x.y.z>] [--force]",
                                    "Deploys a new build: uploads the local file into the application's own bucket, under the artifact "
                                    "key the application already uses, and stamps the definition so the manager restarts the running "
                                    "instances onto it - within a few seconds, since an artifact is decided when a process starts. "
@@ -416,6 +423,9 @@ namespace Euclid::CLI {
                                    "What is refused is a build that is byte for byte the one already deployed: there would be nothing "
                                    "to deploy, and the restart would buy nothing. Checked here before the upload, so a refused redeploy "
                                    "leaves the bucket as it was, and again by the server. "
+                                   "--force deploys it anyway, for when the same bytes are the point: an artifact that was deleted and "
+                                   "is being put back, or a host that lost its copy of the build. The upload happens and the definition "
+                                   "is stamped, so the manager restarts the pool onto it - which is the part that was wanted. "
                                    "Give --artifact to deploy under a different key, for a versioned name (\"orders-1.4.0.jar\"); the "
                                    "application is repointed at it. An application that is stopped stays stopped and comes up on the "
                                    "new build when it is started.",
@@ -478,12 +488,21 @@ namespace Euclid::CLI {
             const auto deployedVersion = definition.contains("version") ? std::string(definition.at("version").as_string()) : std::string();
             const auto deployedMd5 = definition.contains("md5Sum") ? std::string(definition.at("md5Sum").as_string()) : std::string();
 
-            if (const auto refused = Database::Entity::EAP::RedeployRefusal(deployedVersion, deployedMd5, version,
-                                                                            Core::CryptoUtils::md5SumFile(filePath));
+            // Present, and not merely assumed to be: the checksum on this side was just taken over
+            // the file about to be uploaded, so the bytes are in front of us. The server asks its
+            // storage the same question, where the answer can be no.
+            //
+            // Not asked at all under --force: the answer is known and has been overridden, and
+            // hashing the file only to ignore what it says costs a read of something that is
+            // routinely hundreds of megabytes.
+            const auto force = vm["force"].as<bool>();
+            if (const auto refused = force ? std::string()
+                                           : Database::Entity::EAP::RedeployRefusal(deployedVersion, deployedMd5, version,
+                                                                                    Core::CryptoUtils::md5SumFile(filePath), true);
                 !refused.empty()) {
                 std::cerr << "error: refusing to redeploy '" << applicationId << "': " << refused
-                        << "\nuse 'eap update-application --application-id " << applicationId << " --artifact " << artifactKey
-                        << "' to deploy it anyway\n";
+                        << "\npass --force to deploy it anyway, or use 'eap update-application --application-id " << applicationId
+                        << " --artifact " << artifactKey << "'\n";
                 return 1;
             }
 
@@ -498,8 +517,12 @@ namespace Euclid::CLI {
             // Recording the new version is what makes this a deployment rather than an upload: the
             // definition is stamped, and the manager reads that as a new revision and restarts the
             // pool onto the new artifact.
+            //
+            // The flag travels with it: the server asks the same question against what is in its
+            // own storage, and the upload that just happened is exactly what it would refuse.
             const HttpResponse response = client.Post("eap", "redeploy-application",
-                                                      boost::json::object{{"applicationId", applicationId}, {"artifact", artifactKey}, {"version", version}});
+                                                      boost::json::object{{"applicationId", applicationId}, {"artifact", artifactKey},
+                                                                          {"version", version}, {"force", force}});
             if (!response.IsSuccess()) {
                 std::cerr << "error: redeploy-application failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body)
                         << "\nthe new build was uploaded to " << artifactKey << "; run 'eap redeploy-application --application-id " << applicationId

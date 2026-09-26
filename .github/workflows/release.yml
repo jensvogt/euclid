@@ -124,7 +124,7 @@ jobs:
           # <outputPath>/browser, and euclid-web's angular.json sets outputPath to
           # "dist/euclid-web" - so dist/euclid-web/browser is the bundle, and that directory alone
           # becomes the installer's frontend directory: not the checkout around it, not
-          # node_modules, not the sources. product.nsi copies from exactly this path.
+          # node_modules, not the sources. euclid.wxs harvests exactly this path.
           cd ${{ github.workspace }}/frontend/euclid-web
           npm ci
           npm run build
@@ -136,41 +136,57 @@ jobs:
             exit 1
           }
 
-      - name: Install NSIS
-        run: |
-          choco install nsis --no-progress -y
-          echo "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
+      # Pinned to 5, deliberately: WiX 6 and 7 require accepting the Open Source Maintenance Fee
+      # EULA, which is a commercial arrangement rather than a build dependency. 5 is the last
+      # version without it, and builds everything these packages use.
+      - name: Install WiX
+        run: dotnet tool install --global wix --version 5.0.2
 
-      - name: Install NSIS plugins
+      # -arch x64, or every component goes into the package as 32-bit while the directories it
+      # installs into are ProgramFiles64Folder - which ICE80 reports, and which Windows would
+      # otherwise resolve to the WOW64 view of Program Files.
+      - name: Build MSI
         run: |
-          $pluginDir = "C:\Program Files (x86)\NSIS\Plugins\x86-unicode"
-          Copy-Item "${{ github.workspace }}\dist\win32\msi\nsis\INetC.dll" "$pluginDir\"
-          Copy-Item "${{ github.workspace }}\dist\win32\msi\nsis\nsJSON.dll" "$pluginDir\"
-          Copy-Item "${{ github.workspace }}\dist\win32\msi\nsis\SimpleSC.dll" "$pluginDir\"
+          wix build dist\win32\msi\euclid.wxs -arch x64 `
+            -d Version=${{ env.SEMVER }} `
+            -d BuildDir="${{ env.BUILD_DIR }}" `
+            -d SrcDir="${{ github.workspace }}" `
+            -d FrontendDir="${{ github.workspace }}\frontend\euclid-web\dist\euclid-web\browser" `
+            -o "${{ env.APP_NAME }}-${{ env.SEMVER }}-amd64.msi"
 
-      - name: Build NSIS installer
-        env:
-          SRCDIR: ${{ github.workspace }}
-        run: makensis /DSRCDIR=${{ github.workspace }} /DBUILDDIR="${{ env.BUILD_DIR }}" /DVERSION=${{ env.SEMVER }} dist\win32\msi\product.nsi
+      # The consistency checks Windows Installer ships for its own format. A package that fails
+      # them installs in ways somebody else's deployment tooling refuses or mishandles, and finding
+      # that out on a customer's machine is the expensive way.
+      #
+      # ICE61 alone is suppressed: AllowSameVersionUpgrades always trips it, and that attribute is
+      # there on purpose - reinstalling a version over itself is how a build gets tested.
+      - name: Validate MSI
+        run: wix msi validate -sice ICE61 "${{ env.APP_NAME }}-${{ env.SEMVER }}-amd64.msi"
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v7
         with:
           name: installer-windows
-          path: ${{ env.APP_NAME }}-${{ env.SEMVER }}-amd64.exe
+          path: ${{ env.APP_NAME }}-${{ env.SEMVER }}-amd64.msi
 
-      # The CLI on its own, from the same euclid-cli.exe the installer above contains - see
-      # dist/win32/msi/cli.nsi.
-      - name: Build NSIS CLI installer
-        env:
-          SRCDIR: ${{ github.workspace }}
-        run: makensis /DSRCDIR=${{ github.workspace }} /DBUILDDIR="${{ env.BUILD_DIR }}" /DVERSION=${{ env.SEMVER }} dist\win32\msi\cli.nsi
+      # The CLI on its own, from the same euclid-cli.exe the package above contains - see
+      # dist/win32/msi/euclid-cli.wxs.
+      - name: Build CLI MSI
+        run: |
+          wix build dist\win32\msi\euclid-cli.wxs -arch x64 `
+            -d Version=${{ env.SEMVER }} `
+            -d BuildDir="${{ env.BUILD_DIR }}" `
+            -d SrcDir="${{ github.workspace }}" `
+            -o "${{ env.CLI_NAME }}-${{ env.SEMVER }}-amd64.msi"
+
+      - name: Validate CLI MSI
+        run: wix msi validate -sice ICE61 "${{ env.CLI_NAME }}-${{ env.SEMVER }}-amd64.msi"
 
       - name: Upload Windows CLI installer
         uses: actions/upload-artifact@v7
         with:
           name: cli-installer-windows
-          path: ${{ env.CLI_NAME }}-${{ env.SEMVER }}-amd64.exe
+          path: ${{ env.CLI_NAME }}-${{ env.SEMVER }}-amd64.msi
           overwrite: true
 
   build-macos:
@@ -1224,9 +1240,9 @@ jobs:
       - name: Create site folder
         run: |
           mkdir public
-          cp ./artifacts/installer-windows/*.exe public/ || true
+          cp ./artifacts/installer-windows/*.msi public/ || true
           cp ./artifacts/installer-macos/*.tgz public/ || true
-          cp ./artifacts/cli-installer-windows/*.exe public/ || true
+          cp ./artifacts/cli-installer-windows/*.msi public/ || true
           cp ./artifacts/cli-installer-macos/*.tgz public/ || true
           cp ./artifacts/deb-package-linux/*.deb public/ || true
           cp ./artifacts/rpm-package-linux/*.rpm public/ || true
