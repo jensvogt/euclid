@@ -330,6 +330,16 @@ target_link_libraries(${STICKY_CALL_BINARY} PRIVATE eucliddb euclidcore Boost::u
 
 add_test(NAME ${STICKY_CALL_BINARY} COMMAND ${STICKY_CALL_BINARY})
 
+set(MODULE_CALL_HEADER_BINARY euclid-module-call-header-tests)
+
+add_executable(${MODULE_CALL_HEADER_BINARY} ModuleCallHeaderTest.cpp ${CMAKE_SOURCE_DIR}/extern/common/src/TransferContext.cpp)
+set_target_properties(${MODULE_CALL_HEADER_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+target_include_directories(${MODULE_CALL_HEADER_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/extern/common/include)
+
+target_link_libraries(${MODULE_CALL_HEADER_BINARY} PRIVATE eucliddb euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${MODULE_CALL_HEADER_BINARY} COMMAND ${MODULE_CALL_HEADER_BINARY})
+
 set(BACKLOG_TARGET_BINARY euclid-backlog-target-tests)
 
 add_executable(${BACKLOG_TARGET_BINARY} BacklogTargetTest.cpp)
