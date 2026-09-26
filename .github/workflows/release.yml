@@ -1184,7 +1184,7 @@ jobs:
       - release-please
       - build-linux
       - build-macos
-      - build-windows-msi  # temporarily disabled
+      - build-windows-msi
     env:
       SEMVER: "${{ needs.release-please.outputs.tag_name }}"
     steps:
@@ -1244,10 +1244,15 @@ jobs:
       # The CLI packages land in artifacts/linux alongside the server ones, so the globs below
       # pick them up without naming each file - which is also what keeps a future package from
       # being released only because somebody remembered to add a line here.
+      #
+      # artifacts/windows/* rather than *.msi: both Windows packages are downloaded into that
+      # directory and nothing else is, and naming the extension is how the Windows build came to
+      # be downloaded here and then left off the release when NSIS was replaced by WiX.
       - name: Create GitHub Release (attach installers)
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            artifacts/windows/*
             artifacts/macos/*.tgz
             artifacts/linux/*.deb
             artifacts/linux/*.rpm
@@ -1295,13 +1300,39 @@ jobs:
           cp ./artifacts/apt-repo-site/euclid-archive-keyring.asc public/apt/
           find . -ls
 
+      # Every copy above ends in "|| true", so a package that was never built, or was built under a
+      # name the copy does not match, leaves the download page quietly one platform short - which is
+      # what happened to Windows. This job depends on all four builds having succeeded, so a missing
+      # package here is a bug in the copying, and it should stop the deployment rather than publish
+      # a page that offers less than the release.
+      - name: Check every platform made it into the site
+        run: |
+          missing=""
+          for pattern in "*.msi" "*.deb" "*.rpm" "*.tgz"; do
+            count=$(find public -maxdepth 1 -name "$pattern" -type f | wc -l)
+            echo "$pattern: $count"
+            [ "$count" -gt 0 ] || missing="$missing $pattern"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::the download page would ship without:$missing"
+            exit 1
+          fi
+
+      # Everything sitting in the site directory, rather than a list of extensions to look for.
+      # That list was *.{exe,deb,rpm,tgz}, and the Windows package stopped appearing on the
+      # download page the day it went from NSIS to MSI: the file was copied in above and then not
+      # matched here, so the page offered Linux and macOS and silently nothing for Windows.
+      # Whatever "Create site folder" puts in public/ is what gets offered.
       - name: Generate files.json
         run: |
           cd public
           echo '{ "downloads": [' > files.json
           first=true
-          for f in *.{exe,deb,rpm,tgz}; do
+          for f in *; do
             [ -f "$f" ] || continue
+            # The site's own files, not downloads. files.json excludes itself because it exists
+            # by the time the glob runs.
+            case "$f" in index.html|files.json) continue ;; esac
             if [ "$first" = true ]; then
               first=false
             else
