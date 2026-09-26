@@ -9,6 +9,7 @@ euclid-cli-eap-redeploy-application \- deploy a new build of an application
 .I PATH
 [\fB\-\-artifact\fR|\fB\-a\fR \fIKEY\fR]
 [\fB\-\-version\fR \fIX.Y.Z\fR]
+[\fB\-\-force\fR]
 .SH DESCRIPTION
 Deploys a new build of an application from a local file: the jar for a
 .IR JAVA
@@ -34,23 +35,29 @@ bucket and key the application uses, and without the failure mode of
 running only the first of the two, where the new build sits in the bucket
 while every instance goes on running the old one and nothing looks wrong.
 .PP
-A redeploy has to be a new build, and is refused otherwise:
-.IP \(bu 2
-the version has to differ from the one deployed. Two deployments under one
-version cannot be told apart afterwards - not in a log, not in an
-incident, not in
-.BR euclid-cli-eap-list-applications (1).
-.IP \(bu 2
-the artifact has to differ from the one deployed, by MD5. A version bump
-carrying identical bytes ships nothing, and the restart it would cause
+A redeploy has to be a new build, and is refused otherwise: the artifact
+has to differ from the one deployed, by MD5. A build that is byte for byte
+the one already running ships nothing, and the restart it would cause
 changes nothing.
 .PP
-Both are checked here, before the upload, so a refused redeploy leaves the
-bucket exactly as it was - and again by the eap module, which is the
-boundary. Deploying either on purpose - the same version rebuilt, a
-rollback to bytes already seen - is what
+The version is deliberately not part of that rule. Deploying the same
+version again is ordinary - a rebuilt snapshot keeps its number, a fix
+keeps it - and it is the bytes that say whether anything is being
+deployed.
+.PP
+Checked here, before the upload, so a refused redeploy leaves the bucket
+exactly as it was - and again by the eap module, which is the boundary.
+.PP
+.B \-\-force
+deploys it anyway, for when the same bytes are the point: an artifact that
+was deleted and is being put back, or a host that lost its copy of the
+build. The upload happens, the definition is stamped, and the manager
+restarts the pool onto it - which is the part that was wanted. The eap
+module logs the refusal it was told to ignore, so a pool that restarted
+onto an identical build is still answerable for afterwards.
+.PP
 .BR euclid-cli-eap-update-application (1)
-is for.
+remains the way to repoint an application without any of these checks.
 .PP
 An application that is
 .I stopped
@@ -69,6 +76,12 @@ Version this build is. Read out of the local file's own name when not
 given - \fIorders\-1.4.0.jar\fR is 1.4.0 - then out of the artifact key,
 and required when neither carries one.
 .TP
+.B \-\-force
+Deploy even when the build is byte for byte the one already deployed. The
+local checksum is not taken at all in that case - the answer is known and
+has been overridden, and hashing a build that is routinely hundreds of
+megabytes only to ignore what it says is work for nothing.
+.TP
 .BR \-a ", " \-\-artifact " " \fIKEY\fR
 Object key to store the build under, when it should not be the key the
 application already uses - a versioned name like
@@ -85,8 +98,8 @@ Missing/invalid arguments,
 .B \-\-file
 is not a file, the caller is not an authenticated administrator, no
 application of that name exists, no version was given and none could be
-read from the file or artifact name, the version or the artifact is the
-one already deployed, or the upload failed. An upload that
+read from the file or artifact name, the artifact is byte for byte the one
+already deployed and \fB\-\-force\fR was not given, or the upload failed. An upload that
 failed leaves the definition untouched, so the application keeps running
 on the build it has; if the upload succeeded and only the definition
 could not be stamped, the error says which key the build reached and what
@@ -106,6 +119,15 @@ Deploy a build whose file name carries no version:
 .nf
 euclid-cli eap redeploy-application --application-id file-copy \\
     --file target/file-copy-service.jar --version 1.4.0
+.fi
+.RE
+.PP
+Put an artifact back that was deleted, which is the same build the
+definition already names:
+.RS
+.nf
+euclid-cli eap redeploy-application --application-id file-copy \\
+    --file target/file-copy-service-1.4.0.jar --force
 .fi
 .RE
 .PP

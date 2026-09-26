@@ -4,6 +4,7 @@
 
 // C++ includes
 #include <chrono>
+#include <filesystem>
 #include <map>
 #include <optional>
 #include <string>
@@ -19,6 +20,7 @@
 #include <euclid/core/Configuration.h>
 #include <euclid/core/CryptoUtils.h>
 #include <euclid/core/DateTimeUtils.h>
+#include <euclid/core/DirUtils.h>
 #include <euclid/core/ErnUtils.h>
 #include <euclid/core/monitoring/MonitoringTimer.h>
 #include <euclid/database/entity/RuntimeName.h>
@@ -70,6 +72,11 @@ namespace Euclid::EAP {
 
         double doubleField(const boost::json::object &obj, const std::string &key, const double fallback = 0.0) {
             if (const auto *v = obj.if_contains(key); v && v->is_number()) return v->to_number<double>();
+            return fallback;
+        }
+
+        bool boolField(const boost::json::object &obj, const std::string &key, const bool fallback = false) {
+            if (const auto *v = obj.if_contains(key); v && v->is_bool()) return v->as_bool();
             return fallback;
         }
 
@@ -131,6 +138,36 @@ namespace Euclid::EAP {
                 if (std::chrono::steady_clock::now() >= deadline) return result;
                 std::this_thread::sleep_for(kPollInterval);
             }
+        }
+
+        // Whether the bytes an artifact's recorded checksum was taken over are still on disk.
+        //
+        // An ESM object is two things: a row in the database and a file under the storage
+        // directory. The row outlives the file whenever the file is removed from under it - tidied
+        // by hand, lost with a volume restored from a backup taken at another moment, left behind
+        // by a data directory that moved - and it goes on reporting the checksum of bytes that are
+        // no longer anywhere.
+        //
+        // Read from ESM's own directory, the same key and the same lookup the manager uses when it
+        // materialises an artifact for a pool: the modules of an installation run beside each other
+        // on the host that holds its storage, so this is the same disk ESM wrote to.
+        bool artifactBytesOnDisk(const Database::Entity::ESM::Object &object) {
+
+            // Nothing recorded to look for, which is the same answer as a file that is not there:
+            // there are no bytes this checksum can be said to describe.
+            if (object.internalName.empty()) return false;
+
+#ifdef _WIN32
+            constexpr auto kDefaultStorageDir = R"(C:\Program Files\euclid\data\esm)";
+#else
+            constexpr auto kDefaultStorageDir = "/usr/local/euclid/data/esm";
+#endif
+            const auto storageDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultStorageDir);
+
+            // Wherever ESM put it: objects written since the storage was fanned out live a couple
+            // of directories down, older ones are still flat - see Core::DirUtils.
+            std::error_code ec;
+            return std::filesystem::exists(Core::DirUtils::FindFilePath(storageDir, object.internalName), ec);
         }
 
         // The message for an artifact whose upload has not settled, kept in one place so all three
@@ -362,6 +399,18 @@ namespace Euclid::EAP {
                     {"environment", environment},
                     {"resources", resources},
                     {"userId", application.userId},
+                    // Whether that identity still exists, asked here rather than left to whoever
+                    // reads the id. It is checked when the application is created and never again,
+                    // and a principal can be deleted or renamed underneath a definition that goes
+                    // on naming it - after which the application runs, authenticates as nobody and
+                    // is refused everything, reporting whatever call it happened to make first.
+                    //
+                    // False is the interesting answer and is why this is here: it turns a failure
+                    // that reads as "euclid refused my secret" into one that reads as "this
+                    // application's user does not exist", in the listing an operator already has
+                    // open.
+                    {"userExists", !application.userId.empty()
+                                   && Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(application.userId).has_value()},
                     {"logLevel", application.logLevel},
                     {"minInstances", application.minInstances},
                     {"maxInstances", application.maxInstances},
@@ -784,6 +833,64 @@ namespace Euclid::EAP {
                                             "Namespace '" + application->nameSpace + "' already has an application called '" + applicationId + "'");
         }
 
+        // The identity the application runs as, which until now could be set when an application
+        // was created and never again. That left one way out of a definition naming a principal
+        // that does not exist - delete the application and make it again - and the manager's own
+        // advice for that state ("point it at a principal that exists") named a command that did
+        // not take the argument. An application outliving the identity it was given is ordinary:
+        // principals are deleted, renamed, or were created by hand under a name one letter off.
+        if (obj.contains("user")) {
+            const auto userId = stringField(obj, "user");
+            if (userId.empty()) {
+                // Not read as "give it one of its own": that would mint a principal and its access
+                // key as a side effect of an empty field, which is not something to do by accident.
+                return EapServer::ErrorResponse(req, status::bad_request, "user must name a user; it cannot be emptied");
+            }
+
+            const auto eamRepository = Database::RepositoryFactory::instance().eamRepository();
+            const auto user = eamRepository->findUserByUserId(userId);
+            if (!user.has_value()) {
+                return EapServer::ErrorResponse(req, status::not_found, "User not found: " + userId);
+            }
+            if (user->accessKeys.empty()) {
+                // The same rule create-application applies, and for the same reason: an application
+                // pointed at a principal that cannot authenticate is one that starts and is refused
+                // everything, which is the failure this whole change is about.
+                return EapServer::ErrorResponse(req, status::bad_request,
+                                                "User '" + userId + "' has no access key - create one with 'euclid-cli eam create-access-key' "
+                                                "so the application can authenticate");
+            }
+
+            // Asked before the field is overwritten, because it is the old value that says whether
+            // the principal being left behind was EAP's to keep.
+            const bool hadOwnPrincipal = isOwnedTechnicalUser(*application);
+            const auto previousUserId = application->userId;
+
+            if (previousUserId != userId) {
+                application->userId = userId;
+
+                // The principal EAP made for this application goes with it, exactly as it does on
+                // delete-application and for the same reason: it was issued to this application,
+                // nothing else can use it, and a credential outliving the thing it was issued to is
+                // the orphan that arrangement exists to avoid. Its grants go first - a grant left
+                // pointing at a deleted principal comes back to life the day somebody creates a
+                // user of that name again.
+                if (hadOwnPrincipal) {
+                    if (const auto principal = eamRepository->findUserByUserId(previousUserId); principal.has_value()) {
+                        const auto grants = eamRepository->findGrantsByPrincipals({principal->ern});
+                        for (const auto &grant: grants) eamRepository->deleteGrant(grant.oid);
+                        eamRepository->deleteUser(previousUserId);
+
+                        log_info << "EAP deleted the technical user its application no longer runs as, userId: " << previousUserId
+                                 << ", grants: " << grants.size();
+                    }
+                }
+
+                log_info << "EAP changed application identity, applicationId: " << applicationId
+                         << ", user: " << previousUserId << " -> " << userId;
+            }
+        }
+
         if (obj.contains("version")) application->version = stringField(obj, "version");
         if (obj.contains("command")) application->command = stringField(obj, "command");
         if (obj.contains("arguments")) application->arguments = stringArray(obj, "arguments");
@@ -945,10 +1052,41 @@ namespace Euclid::EAP {
                                             "version is required: it could not be read from the artifact name '" + artifactKey + "' (expected something like 1.4.0)");
         }
 
-        if (const auto refused = RedeployRefusal(application->version, application->md5Sum, version, artifact->md5Sum); !refused.empty()) {
-            return EapServer::ErrorResponse(req, status::conflict,
-                                            "Refusing to redeploy '" + applicationId + "': " + refused
-                                                    + ". Use 'update-application' to deploy it anyway.");
+        // Asked for outright, by somebody who has been told what the refusal would be and means it
+        // anyway. The case it exists for is a redeploy of the build already recorded: putting a
+        // deleted artifact back, or restarting a pool onto the same bytes after the host lost its
+        // copy - both of which are a deployment of something identical, which is exactly what the
+        // rule below is otherwise right to refuse.
+        const auto force = boolField(obj, "force");
+
+        // Both checksums in this comparison come out of the database, so the refusal is only
+        // meaningful while the artifact's bytes are still on disk - see RedeployRefusal(). An
+        // artifact whose file has gone is exactly what somebody is redeploying to put right, and it
+        // would otherwise be refused as "the build already deployed" on the strength of a hash of
+        // bytes that no longer exist.
+        const auto bytesPresent = artifactBytesOnDisk(*artifact);
+        if (!bytesPresent) {
+            // Worth saying: ESM is reporting an object it cannot actually read, which is a problem
+            // of its own - and this line is what explains why the redeploy went through without the
+            // check that usually applies.
+            log_warning << "EAP artifact has no file in storage, redeploying without comparing checksums, applicationId: "
+                        << applicationId << ", artifact: " << artifactKey << ", object: " << artifact->internalName;
+        }
+
+        if (const auto refused = RedeployRefusal(application->version, application->md5Sum, version, artifact->md5Sum, bytesPresent);
+            !refused.empty()) {
+
+            if (!force) {
+                return EapServer::ErrorResponse(req, status::conflict,
+                                                "Refusing to redeploy '" + applicationId + "': " + refused
+                                                        + ". Redeploy with force to do it anyway, or use 'update-application'.");
+            }
+
+            // Said at info and with the reason that was overridden, so the log shows both that this
+            // deployment changed no bytes and that somebody meant it - which is what anybody
+            // reading back "why did this pool restart onto the same build" needs.
+            log_info << "EAP redeploy forced, applicationId: " << applicationId << ", artifact: " << artifactKey
+                     << ", overridden: " << refused;
         }
 
         const auto previousVersion = application->version;

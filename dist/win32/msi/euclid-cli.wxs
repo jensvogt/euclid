@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Windows package for euclid-cli on its own.
+
+  The server package already contains the CLI, because a server is administered from the machine it
+  runs on. This one is for the machine it does not: a workstation, a build agent, anything that
+  talks to a euclid somewhere else and has no business installing nineteen module binaries and a
+  service to do it.
+
+  Its own UpgradeCode, so the two packages are separate products and neither upgrades or uninstalls
+  the other. They can sit side by side: this one installs into euclid-cli\ and puts that on the
+  PATH, where the server package leaves its copy in euclid\bin, which is not on anybody's PATH.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+    <?ifndef Version ?>
+    <?define Version = "1.0.0" ?>
+    <?endif?>
+    <?ifndef BuildDir ?>
+    <?define BuildDir = "..\..\..\cmake-build-release" ?>
+    <?endif?>
+    <?ifndef SrcDir ?>
+    <?define SrcDir = "..\..\.." ?>
+    <?endif?>
+
+    <Package Name="Euclid CLI"
+             Manufacturer="Jens Vogt"
+             Version="$(Version)"
+             Language="1033"
+             Scope="perMachine"
+             Compressed="yes"
+             InstallerVersion="500"
+             UpgradeCode="c4e1b9a7-5d62-4f8b-9c3a-2e7d6f1b8a40">
+
+        <SummaryInformation Description="Euclid command line interface" Manufacturer="Jens Vogt" />
+
+        <MajorUpgrade AllowSameVersionUpgrades="yes"
+                      DowngradeErrorMessage="A newer version of the Euclid CLI is already installed. Uninstall it first if you mean to go back." />
+
+        <MediaTemplate EmbedCab="yes" />
+
+        <Icon Id="euclid.ico" SourceFile="$(SrcDir)\dist\branding\favicon.ico" />
+        <Property Id="ARPPRODUCTICON" Value="euclid.ico" />
+        <Property Id="ARPURLINFOABOUT" Value="https://github.com/jensvogt/euclid" />
+        <Property Id="ARPNOMODIFY" Value="1" />
+
+        <StandardDirectory Id="ProgramFiles64Folder">
+            <Directory Id="INSTALLFOLDER" Name="euclid-cli">
+                <Directory Id="BINFOLDER" Name="bin">
+                    <Component Id="EuclidCli">
+                        <File Id="euclid_cli.exe" Source="$(BuildDir)\bin\euclid-cli.exe" KeyPath="yes" />
+
+                        <!-- Appended to the machine PATH, and taken off again on uninstall, by
+                             Windows Installer itself. The NSIS package shipped a PowerShell script
+                             to do this - see the comments in the euclid-path.ps1 it replaced for
+                             how many ways there are to destroy a PATH by editing it from an
+                             installer. None of them are available here: the value is a row in a
+                             table and the removal is part of the uninstall transaction.
+
+                             Part="last" appends rather than replacing, and System="yes" makes it
+                             the machine's PATH rather than the installing administrator's - a CLI
+                             installed for everyone should be on everyone's PATH. -->
+                        <Environment Id="PathEntry"
+                                     Name="PATH"
+                                     Value="[BINFOLDER]"
+                                     Action="set"
+                                     Part="last"
+                                     System="yes"
+                                     Permanent="no" />
+                    </Component>
+                </Directory>
+            </Directory>
+        </StandardDirectory>
+
+    </Package>
+</Wix>
