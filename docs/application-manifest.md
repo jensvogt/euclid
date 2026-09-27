@@ -151,3 +151,36 @@ Running it twice changes nothing the second time.
 A byte order mark is skipped rather than refused. Every Windows editor writes one by default,
 including PowerShell's own `Set-Content -Encoding utf8`, and "syntax error at line 1" about an
 invisible character is the least actionable message there is.
+
+## Deploying with one
+
+```
+euclid-cli eap apply             --application-id parsing --directory ./euclid
+euclid-cli eap create-application --application-id parsing --runtime JAVA25 \
+    --bucket apps --artifact parsing-1.115.0.jar --manifest ./euclid
+```
+
+`--manifest` is the half of this that matters for security. Without it a deployment says nothing
+about what it needs, so EAP grants its principal the `application` role with `resources = ["*"]` —
+every bucket, queue and topic in the namespace. With it, the principal is granted exactly the
+objects the manifest names, owned and borrowed alike:
+
+```
+principal : ern:eam:eu-central-1:000000000000:user:app-parsing
+role      : application
+namespaces: ['development']
+  resource: ern:esm:...:development:bucket:parsing-work
+  resource: ern:esm:...:development:bucket:transfer-server
+  resource: ern:eqs:...:development:queue:parsing-in
+```
+
+Both halves count: an application reaches what it owns and what it borrows, and a grant naming only
+the first would refuse it the second. `update-application --manifest` replaces the list the same way,
+which is how a manifest that gained a queue becomes a principal that may use it.
+
+Apply first, deploy second. The names have to resolve to objects that exist, and the one that creates
+them is `apply`.
+
+A manifest declaring nothing leaves the deployment's own lists alone rather than sending three empty
+ones — EAP reads "no resources named" as "every resource in the account", which is the opposite of
+what a manifest is for.

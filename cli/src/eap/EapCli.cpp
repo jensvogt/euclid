@@ -48,6 +48,50 @@ namespace Euclid::CLI {
             return entries;
         }
 
+        // The objects a manifest names, split the way create-application and update-application
+        // take them. Both halves count: an application reaches what it owns and what it borrows,
+        // and a grant that named only the first would refuse it the second.
+        //
+        // This is what turns a manifest into a narrower principal. Without it EAP grants the
+        // application role with resources = ["*"], because a deployment that says nothing about
+        // what it needs can only safely be read as needing everything in its namespace.
+        bool addManifestResources(const std::filesystem::path &directory, boost::json::object &request) {
+
+            const auto loaded = Core::LoadApplicationManifest(directory);
+            if (!loaded.ok()) {
+                std::cerr << "error: " << directory.string() << " cannot be read:\n";
+                for (const auto &problem: loaded.errors) std::cerr << "  " << problem << "\n";
+                return false;
+            }
+
+            boost::json::array buckets;
+            boost::json::array queues;
+            boost::json::array topics;
+
+            const auto add = [&](const Core::ApplicationManifest::Kind kind, const std::string &name) {
+                switch (kind) {
+                    case Core::ApplicationManifest::Kind::Bucket: buckets.push_back(boost::json::string(name)); break;
+                    case Core::ApplicationManifest::Kind::Queue: queues.push_back(boost::json::string(name)); break;
+                    case Core::ApplicationManifest::Kind::Topic: topics.push_back(boost::json::string(name)); break;
+                }
+            };
+
+            for (const auto &declaration: loaded.manifest.creates) add(declaration.kind, declaration.name);
+            for (const auto &declaration: loaded.manifest.uses) add(declaration.kind, declaration.name);
+
+            if (buckets.empty() && queues.empty() && topics.empty()) {
+                // A manifest that declares nothing would otherwise send three empty lists, and EAP
+                // reads "no resources named" as "every resource in the account" - the opposite of
+                // what a manifest is for. Better to leave the deployment's own lists alone.
+                std::cerr << "warning: " << directory.string() << " declares no objects; the deployment's resources are unchanged\n";
+                return true;
+            }
+
+            request["buckets"] = buckets;
+            request["queues"] = queues;
+            request["topics"] = topics;
+            return true;
+        }
     }// namespace
 
     EapCli::EapCli(std::string endpoint, Credentials::Entry authentication, const bool pretty, std::string caCertPath) : _endpoint(std::move(endpoint)), _authentication(std::move(authentication)), _pretty(pretty), _caCertPath(std::move(caCertPath)) {}
@@ -127,6 +171,7 @@ namespace Euclid::CLI {
                 ("version", po::value<std::string>(), "version of this build; read out of the artifact name (x.y.z) when not given")
                 ("user,u", po::value<std::string>(), "EAM user the application runs as; defaults to a technical principal created for this application alone")
                 ("buckets", po::value<std::string>(), "comma-separated names of the ESM buckets the application may use; empty means every bucket in its account")
+                ("manifest", po::value<std::string>(), "an application euclid/ directory; the objects it declares become the resources this application is granted, instead of every resource in its namespace")
                 ("queues", po::value<std::string>(), "comma-separated names of the EQS queues the application may use; empty means every queue in its account")
                 ("command,c", po::value<std::string>(), "command to run instead of the runtime's default")
                 ("arguments", po::value<std::string>(), "comma-separated arguments passed after the artifact")
@@ -184,6 +229,7 @@ namespace Euclid::CLI {
         if (vm.contains("environment")) request["environment"] = SplitEnvironment(vm["environment"].as<std::string>());
         if (vm.contains("buckets")) request["buckets"] = SplitList(vm["buckets"].as<std::string>());
         if (vm.contains("queues")) request["queues"] = SplitList(vm["queues"].as<std::string>());
+        if (vm.contains("manifest") && !addManifestResources(vm["manifest"].as<std::string>(), request)) return 1;
         if (vm.contains("min-instances")) request["minInstances"] = vm["min-instances"].as<long>();
         if (vm.contains("max-instances")) request["maxInstances"] = vm["max-instances"].as<long>();
         if (vm.contains("ready-timeout")) request["readyTimeoutMs"] = vm["ready-timeout"].as<long>();
@@ -215,6 +261,7 @@ namespace Euclid::CLI {
                 ("arguments", po::value<std::string>(), "comma-separated arguments; replaces the current list")
                 ("environment,e", po::value<std::string>(), "comma-separated KEY=value environment variables; replaces the current set")
                 ("buckets", po::value<std::string>(), "comma-separated bucket names the application may use; replaces the current list")
+                ("manifest", po::value<std::string>(), "an application euclid/ directory; the objects it declares become the resources this application is granted, instead of every resource in its namespace")
                 ("queues", po::value<std::string>(), "comma-separated queue names the application may use; replaces the current list")
                 ("min-instances", po::value<long>(), "smallest number of instances the autoscaler keeps running")
                 ("max-instances", po::value<long>(), "largest number of instances the autoscaler may scale out to")
@@ -261,6 +308,7 @@ namespace Euclid::CLI {
         if (vm.contains("environment")) request["environment"] = SplitEnvironment(vm["environment"].as<std::string>());
         if (vm.contains("buckets")) request["buckets"] = SplitList(vm["buckets"].as<std::string>());
         if (vm.contains("queues")) request["queues"] = SplitList(vm["queues"].as<std::string>());
+        if (vm.contains("manifest") && !addManifestResources(vm["manifest"].as<std::string>(), request)) return 1;
         if (vm.contains("min-instances")) request["minInstances"] = vm["min-instances"].as<long>();
         if (vm.contains("max-instances")) request["maxInstances"] = vm["max-instances"].as<long>();
         if (vm.contains("ready-timeout")) request["readyTimeoutMs"] = vm["ready-timeout"].as<long>();
@@ -952,6 +1000,7 @@ namespace Euclid::CLI {
             }
             return owned;
         }
+
 
     }// namespace
 

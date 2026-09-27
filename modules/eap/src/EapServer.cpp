@@ -251,7 +251,7 @@ namespace Euclid::EAP {
         // resource rather than whoever else in the installation has a bucket or queue called that.
         std::optional<std::vector<std::string> > resolveResources(const std::string &accountId, const std::string &nameSpace,
                                                                   const std::vector<std::string> &buckets, const std::vector<std::string> &queues,
-                                                                  std::string &unresolved) {
+                                                                  const std::vector<std::string> &topics, std::string &unresolved) {
 
             std::vector<std::string> resources;
 
@@ -271,6 +271,18 @@ namespace Euclid::EAP {
                     return std::nullopt;
                 }
                 resources.push_back(queue->ern);
+            }
+
+            // Topics belong here for the same reason queues do: an application that publishes to
+            // one needs it named, or its grant falls back to every resource in the account. They
+            // were missing only because nothing asked for them until a manifest did.
+            for (const auto &name: topics) {
+                const auto topic = Database::RepositoryFactory::instance().ensRepository()->findTopicByName(accountId, nameSpace, name);
+                if (!topic.has_value()) {
+                    unresolved = "topic '" + name + "'";
+                    return std::nullopt;
+                }
+                resources.push_back(topic->ern);
             }
             return resources;
         }
@@ -533,7 +545,7 @@ namespace Euclid::EAP {
         // a rejected deployment rather than an application that runs and is denied everything.
         std::string unresolved;
         const auto resources = resolveResources(auth.user->accountId, ns,
-                                                stringArray(obj, "buckets"), stringArray(obj, "queues"), unresolved);
+                                                stringArray(obj, "buckets"), stringArray(obj, "queues"), stringArray(obj, "topics"), unresolved);
         if (!resources.has_value()) {
             return EapServer::ErrorResponse(req, status::not_found, "Not found: " + unresolved);
         }
@@ -718,16 +730,18 @@ namespace Euclid::EAP {
         // The same resources by name, resolved where the copy will run. See the note above.
         std::vector<std::string> buckets;
         std::vector<std::string> queues;
+        std::vector<std::string> topics;
         for (const auto &resource: source->resources) {
             const auto service = Core::serviceFromErn(resource);
             const auto name = Core::resourceNameFromErn(resource);
             if (name.empty()) continue;
             if (service == "esm") buckets.push_back(name);
             else if (service == "eqs") queues.push_back(name);
+            else if (service == "ens") topics.push_back(name);
         }
 
         std::string unresolved;
-        const auto resources = resolveResources(auth.user->accountId, targetNameSpace, buckets, queues, unresolved);
+        const auto resources = resolveResources(auth.user->accountId, targetNameSpace, buckets, queues, topics, unresolved);
         if (!resources.has_value()) {
             return EapServer::ErrorResponse(req, status::not_found,
                                             "Not found in namespace '" + targetNameSpace + "': " + unresolved +
@@ -899,13 +913,13 @@ namespace Euclid::EAP {
         if (obj.contains("maxInstances")) application->maxInstances = std::max(application->minInstances, longField(obj, "maxInstances", application->maxInstances));
         if (obj.contains("readyTimeoutMs")) application->readyTimeoutMs = std::max(1000L, longField(obj, "readyTimeoutMs", application->readyTimeoutMs));
 
-        if (obj.contains("buckets") || obj.contains("queues")) {
+        if (obj.contains("buckets") || obj.contains("queues") || obj.contains("topics")) {
             std::string unresolved;
             // The application's own account and namespace rather than the request's: the grants
             // being rewritten are the application's, and it is the namespace set just above - the
             // one it will actually run in - that decides which queue a bare name means to it.
             const auto resources = resolveResources(application->accountId, application->nameSpace,
-                                                    stringArray(obj, "buckets"), stringArray(obj, "queues"), unresolved);
+                                                    stringArray(obj, "buckets"), stringArray(obj, "queues"), stringArray(obj, "topics"), unresolved);
             if (!resources.has_value()) {
                 return EapServer::ErrorResponse(req, status::not_found, "Not found: " + unresolved);
             }
