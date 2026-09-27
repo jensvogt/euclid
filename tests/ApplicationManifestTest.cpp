@@ -95,7 +95,7 @@ BOOST_AUTO_TEST_CASE(a_directory_of_files_becomes_one_manifest) {
     BOOST_TEST(queue->settings.at("visibility").as_int64() == 300);
     BOOST_TEST(queue->source == "queues.json");
 
-    BOOST_TEST((result.manifest.uses.front().access == Access::Subscribe));
+    BOOST_TEST((result.manifest.uses.front().access == std::vector{Access::Subscribe}));
     BOOST_TEST(result.manifest.uses.front().owner == "transformation");
 }
 
@@ -154,6 +154,33 @@ BOOST_AUTO_TEST_CASE(a_misspelt_section_is_refused_not_skipped) {
     BOOST_TEST(!result.ok());
     BOOST_TEST(mentions(result.errors, "unknown section \"queue\""));
     BOOST_TEST(mentions(result.errors, "buckets, queues, topics"));
+}
+
+BOOST_AUTO_TEST_CASE(one_object_can_be_reached_more_than_one_way) {
+
+    // A @BucketListener attaches to a bucket's events and then fetches what each event names.
+    // Making it choose between subscribe and read would understate what it needs, and declaring the
+    // bucket twice is refused - so the ways belong in one declaration.
+    const auto result = ParseApplicationManifest(
+            R"({"version":1,"uses":{"buckets":[{"name":"transfer-server","access":["subscribe","read"]}]}})", "access.json");
+
+    BOOST_TEST(result.ok());
+    BOOST_REQUIRE(result.manifest.uses.size() == 1u);
+    BOOST_TEST((result.manifest.uses.front().access == std::vector{Access::Read, Access::Subscribe}));
+
+    // Order is not a difference: sorted on the way in, so two files saying the same thing
+    // differently are not a conflict.
+    const auto reversed = ParseApplicationManifest(
+            R"({"version":1,"uses":{"buckets":[{"name":"transfer-server","access":["read","subscribe"]}]}})", "other.json");
+    BOOST_TEST((reversed.manifest.uses.front().access == result.manifest.uses.front().access));
+
+    // And a way that does not exist is still refused, inside a list as much as alone.
+    const auto unknown = ParseApplicationManifest(
+            R"({"version":1,"uses":{"buckets":[{"name":"x","access":["read","rw"]}]}})", "access.json");
+    BOOST_TEST(!unknown.ok());
+
+    const auto none = ParseApplicationManifest(R"({"version":1,"uses":{"buckets":[{"name":"x","access":[]}]}})", "access.json");
+    BOOST_TEST(!none.ok());
 }
 
 BOOST_AUTO_TEST_CASE(a_used_object_must_say_how_it_is_reached) {

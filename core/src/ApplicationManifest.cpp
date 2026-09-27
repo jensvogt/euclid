@@ -91,6 +91,15 @@ namespace Euclid::Core {
         return "read";
     }
 
+    std::string ToString(const std::vector<Access> &access) {
+        std::string all;
+        for (const auto &one: access) {
+            if (!all.empty()) all += ", ";
+            all += ToString(one);
+        }
+        return all.empty() ? "read" : all;
+    }
+
     std::string ToString(const Kind kind) {
         for (const auto &[text, value]: sections()) {
             // "buckets" -> "bucket": a message is about one of them.
@@ -240,18 +249,49 @@ namespace Euclid::Core {
                         // No default. An application that does not say how it reaches somebody
                         // else's object has not said what it needs, and guessing "read" would
                         // quietly grant the wrong thing to whichever half of the guess was wrong.
+                        //
+                        // One way or several: a @BucketListener attaches to a bucket's events and
+                        // then fetches what each event names, which is subscribe and read, and
+                        // making it choose would understate what it needs.
                         const auto *access = object.if_contains("access");
-                        if (access == nullptr || !access->is_string()) {
-                            fail(describe(declaration.kind, declaration.name) + " in \"uses\" needs an \"access\"; one of: " + joinKeys(accessLevels()));
+                        if (access == nullptr || (!access->is_string() && !access->is_array())) {
+                            fail(describe(declaration.kind, declaration.name) + " in \"uses\" needs an \"access\"; one or more of: " + joinKeys(accessLevels()));
                             continue;
                         }
-                        const auto level = accessLevels().find(std::string(access->as_string()));
-                        if (level == accessLevels().end()) {
-                            fail(describe(declaration.kind, declaration.name) + " has an unknown access \"" +
-                                 std::string(access->as_string()) + "\"; expected one of: " + joinKeys(accessLevels()));
+
+                        std::vector<boost::json::value> wanted;
+                        if (access->is_string()) {
+                            wanted.push_back(*access);
+                        } else {
+                            for (const auto &entry: access->as_array()) wanted.push_back(entry);
+                        }
+
+                        declaration.access.clear();
+                        bool understood = true;
+                        for (const auto &entry: wanted) {
+                            if (!entry.is_string()) {
+                                fail(describe(declaration.kind, declaration.name) + " has an \"access\" that is not a name");
+                                understood = false;
+                                break;
+                            }
+                            const auto level = accessLevels().find(std::string(entry.as_string()));
+                            if (level == accessLevels().end()) {
+                                fail(describe(declaration.kind, declaration.name) + " has an unknown access \"" +
+                                     std::string(entry.as_string()) + "\"; expected one or more of: " + joinKeys(accessLevels()));
+                                understood = false;
+                                break;
+                            }
+                            if (!std::ranges::contains(declaration.access, level->second)) declaration.access.push_back(level->second);
+                        }
+                        if (!understood) continue;
+                        if (declaration.access.empty()) {
+                            fail(describe(declaration.kind, declaration.name) + " has an empty \"access\"; name at least one of: " + joinKeys(accessLevels()));
                             continue;
                         }
-                        declaration.access = level->second;
+
+                        // Sorted, so that ["read","subscribe"] and ["subscribe","read"] are the
+                        // same declaration rather than a conflict between two files.
+                        std::ranges::sort(declaration.access);
 
                         if (const auto *owner = object.if_contains("owner"); owner != nullptr && owner->is_string()) {
                             declaration.owner = std::string(owner->as_string());
@@ -347,6 +387,8 @@ namespace Euclid::Core {
         for (const auto &used: result.manifest.uses) {
             const auto key = std::pair{static_cast<int>(used.kind), used.name};
             const auto [entry, inserted] = usedOnce.emplace(key, &used);
+            // Both are sorted, so this is set equality: the same ways in a different order are the
+            // same declaration, and a different set is two answers to one question.
             if (!inserted && entry->second->access != used.access) {
                 result.errors.push_back(used.source + ": " + describe(used.kind, used.name) + " is used as '" +
                                         ToString(used.access) + "' here and as '" + ToString(entry->second->access) +
