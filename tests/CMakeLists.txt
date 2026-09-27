@@ -330,6 +330,15 @@ target_link_libraries(${STICKY_CALL_BINARY} PRIVATE eucliddb euclidcore Boost::u
 
 add_test(NAME ${STICKY_CALL_BINARY} COMMAND ${STICKY_CALL_BINARY})
 
+set(APPLICATION_MANIFEST_BINARY euclid-application-manifest-tests)
+
+add_executable(${APPLICATION_MANIFEST_BINARY} ApplicationManifestTest.cpp)
+set_target_properties(${APPLICATION_MANIFEST_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${APPLICATION_MANIFEST_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${APPLICATION_MANIFEST_BINARY} COMMAND ${APPLICATION_MANIFEST_BINARY})
+
 set(DELETE_IF_EMPTY_BINARY euclid-delete-if-empty-tests)
 
 add_executable(${DELETE_IF_EMPTY_BINARY} DeleteIfEmptyTest.cpp)
