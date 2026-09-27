@@ -355,7 +355,7 @@ namespace Euclid::main::Platform {
         }
 
         const SC_HANDLE svc = CreateServiceA(
-                scm, "euclid", "Euclid",
+                scm, "euclid", "Euclid Cloud Service",
                 SERVICE_ALL_ACCESS, SERVICE_WIN32_OWN_PROCESS, SERVICE_AUTO_START, SERVICE_ERROR_NORMAL,
                 binPath.c_str(), nullptr, nullptr, nullptr, nullptr, nullptr);
 
