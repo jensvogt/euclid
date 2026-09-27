@@ -337,7 +337,7 @@
       "file-level": "info",
       "console-active": true,
       "console-level": "info",
-      "console-format": "test",
+      "console-format": "text",
       "level": "warning",
       "dir": "/usr/local/euclid/log",
       "prefix": "euclid",
