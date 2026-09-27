@@ -222,8 +222,39 @@ namespace Euclid::EQS {
         // Deleting is destructive and was not resource-checked at all until 2026-09-13, so a
         // principal granted one queue could remove any of them. Its own delivery plumbing is the
         // exception, because that queue is not something a resource list can name.
-        if (const auto existing = repo->findQueueByErn(request.ern); !isOwnInternalQueue(existing, auth)) {
+        const auto existingQueue = repo->findQueueByErn(request.ern);
+        if (!isOwnInternalQueue(existingQueue, auth)) {
             if (const auto denied = denyUngrantedQueue(req, auth, request.ern)) return *denied;
+        }
+
+        // "Remove it only if nothing is using it" - what an automated caller means. Counted rather
+        // than read off the queue's own counters, which are maintained alongside the messages and
+        // would be deciding this if they had drifted.
+        if (request.ifEmpty) {
+            if (!existingQueue.has_value()) return EqsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + request.ern);
+
+            if (const auto remaining = repo->countMessages(request.ern); remaining > 0) {
+                log_info << "EQS queue not deleted, ern: " << request.ern << ", ifEmpty requested and messages remain: " << remaining;
+                return EqsServer::ErrorResponse(req, status::conflict,
+                                                "Queue is not empty: " + std::to_string(remaining) +
+                                                        " message(s) remain. Purge it first, or delete the queue without ifEmpty.");
+            }
+
+            // Undelivered events are as much "in use" as messages already in the queue: they are
+            // about to become messages, and the delete below discards them. A caller asking to
+            // remove an unused queue is not asking for that.
+            //
+            // A negative count is "could not tell", and that refuses too. The alternative is
+            // deleting a queue because the database did not answer a question about it.
+            const auto pending = Database::EventBus::instance().PendingDeliveries(request.ern);
+            if (pending != 0) {
+                log_info << "EQS queue not deleted, ern: " << request.ern
+                         << ", ifEmpty requested and pending deliveries: " << pending;
+                return EqsServer::ErrorResponse(req, status::conflict,
+                                                pending > 0
+                                                        ? "Queue is not empty: " + std::to_string(pending) + " event(s) are still being delivered into it."
+                                                        : "Could not establish whether events are still being delivered into this queue; refusing to delete it.");
+            }
         }
 
         repo->deleteQueueByErn(request.ern);

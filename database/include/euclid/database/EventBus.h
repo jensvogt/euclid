@@ -381,6 +381,23 @@ namespace Euclid::Database {
         long DiscardDeliveries(const std::string &targetErn);
 
         /**
+         * @brief How many undelivered events are addressed to one delivery target.
+         *
+         * @par
+         * DiscardDeliveries() asked the same question and answered it by deleting, which is no use
+         * to a caller deciding whether deleting is allowed. delete-queue --if-empty needs to know
+         * that events are still on their way into a queue: they are about to become messages in
+         * it, so a queue with a delivery backlog is in use however empty the queue itself looks.
+         *
+         * @param targetErn the queue or topic ERN the deliveries name.
+         * @return how many are waiting; 0 for an empty ERN, and -1 when the question could not be
+         * answered. Not 0 for a failed query: this decides whether a destructive call may proceed,
+         * and "the database did not answer" is not evidence that nothing is waiting - the same
+         * reason Euclid::CLI::Exists has a third answer rather than folding could-not-tell into no.
+         */
+        [[nodiscard]] long PendingDeliveries(const std::string &targetErn) const;
+
+        /**
          * @brief Lists a subscriber's subscriptions.
          *
          * @param subscriber subscriber name.

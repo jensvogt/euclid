@@ -1200,10 +1200,30 @@ namespace Euclid::ESM {
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
         const auto bucket = repo->findBucketByErn(request.ern);
 
+        // "Remove it only if nothing is using it" - what an automated caller means, as opposed to
+        // an operator who has decided that the contents go too. Counted rather than read off
+        // Bucket::objects: that counter is maintained alongside the objects and a drift in it
+        // would decide this, which is not a thing to be wrong about. Directories count, because a
+        // directory marker is an object somebody's transfer client can see.
+        if (request.ifEmpty) {
+            if (!bucket.has_value()) return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.ern);
+
+            if (const auto remaining = repo->countObjects(request.ern, "", true); remaining > 0) {
+                log_info << "ESM bucket not deleted, ern: " << request.ern << ", ifEmpty requested and objects remain: " << remaining;
+                return ErrorResponse(req, status::conflict,
+                                     "Bucket is not empty: " + std::to_string(remaining) +
+                                             " object(s) remain. Delete them first, or delete the bucket without ifEmpty.");
+            }
+        }
+
         // A bucket big enough to be worth emptying in the background is emptied in the background,
         // and the bucket itself goes when that finishes - so it stays listed, and still deletable,
         // until it is genuinely gone.
-        if (Core::GetBoolValue(jv, "async")) {
+        //
+        // ifEmpty has already established there is nothing to empty, so it never takes this path:
+        // a background job to remove no objects is a job that exists only to be waited on, and the
+        // bucket would stay listed until it finished.
+        if (!request.ifEmpty && Core::GetBoolValue(jv, "async")) {
             const auto jobId = removeBucketObjectsInBackground(request.ern, "", auth.user->userId, true);
             return JsonResponse(req, status::accepted, boost::json::serialize(boost::json::object{
                                         {"ern", request.ern},
@@ -1216,11 +1236,32 @@ namespace Euclid::ESM {
         // its bucket, so a row left behind here is unreachable for good, and the file it names is
         // disk nothing accounts for. No counters to adjust, unlike purge-bucket - the bucket whose
         // counters they are is about to be deleted.
-        const auto removed = removeBucketObjects(request.ern, "", bucket, auth.user->userId);
+        // Nothing to remove when ifEmpty got this far, and "remove nothing" still means walking the
+        // object collection a page at a time to establish it.
+        const auto removed = request.ifEmpty ? RemovedObjects{}
+                                             : removeBucketObjects(request.ern, "", bucket, auth.user->userId);
         if (removed.count > 0)
             log_info << "ESM bucket objects deleted, ern: " << request.ern << ", count: " << removed.count << ", size: " << removed.size;
 
         repo->deleteBucketByErn(request.ern);
+
+        // The gap between counting and deleting is small and real: a transfer server delivering
+        // into this bucket can land an object inside it. That object is now unreachable - an object
+        // is only ever found through its bucket - and the file it names is disk nothing accounts
+        // for. So the bucket is put back and the caller told it is not empty, which is what it
+        // asked to be told. Checking afterwards rather than locking beforehand because the delivery
+        // that matters is the one that arrives *during* this, and no check before it can see that.
+        if (request.ifEmpty) {
+            if (const auto arrived = repo->countObjects(request.ern, "", true); arrived > 0) {
+                auto restored = *bucket;// upsertBucket takes it by non-const reference
+                std::ignore = repo->upsertBucket(restored);
+                log_warning << "ESM bucket delete undone, ern: " << request.ern
+                            << ", objects arrived while it was being deleted: " << arrived;
+                return ErrorResponse(req, status::conflict,
+                                     "Bucket is not empty: " + std::to_string(arrived) +
+                                             " object(s) arrived while it was being deleted.");
+            }
+        }
 
         Database::EventBus::instance().Publish(
                 "esm.bucket.deleted",

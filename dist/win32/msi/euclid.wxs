@@ -140,7 +140,7 @@
                              actions, a service account. -->
                         <ServiceInstall Id="EuclidService"
                                         Name="euclid"
-                                        DisplayName="Euclid"
+                                        DisplayName="Euclid Cloud Service"
                                         Description="Euclid Cloud Services"
                                         Type="ownProcess"
                                         Start="auto"
