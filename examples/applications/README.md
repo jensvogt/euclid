@@ -37,6 +37,7 @@ perfectly working programs whose authors had never heard of the convention.
 | `EUCLID_ACCOUNT_ID`, `EUCLID_REGION`, `EUCLID_USER_ID` | the identity it runs as |
 | `EUCLID_ENDPOINT` | gateway URL to call other modules through |
 | `EUCLID_SIGNATURE` | `rfc9421` — how to sign those calls |
+| `EUCLID_CA_CERT_PATH` | PEM certificate to trust for that URL, when the gateway serves TLS with a self-signed one. Absent when there is nothing to add to the system trust store |
 | `EUCLID_CREDENTIALS_FILE` | file holding a short-lived bearer token for the application's identity |
 | `EUCLID_ACCESS_KEY_ID`, `EUCLID_SECRET_ACCESS_KEY` | an access key — only for an application deployed with `--user`, whose key its operator manages |
 
@@ -150,10 +151,15 @@ database.
 ## Deploying one
 
 The artifact lives in an ESM bucket, so deployment is an ordinary upload — through the CLI, an
-SDK, or an FTP/SFTP transfer server:
+SDK, or an FTP/SFTP transfer server. The bucket is there already: when EAP starts it creates `apps`
+in each configured account, at the account root and in each of the account's namespaces — a bucket
+name means a different bucket in each namespace, so a deployment in `development` needs the one
+there. It is marked internal, so `list-buckets` leaves it out unless you ask with
+`--include-internal` — hidden, not protected, which is why uploading into it works as it always did.
+Another name, or none at all, through `euclid.modules.eap.bucket`. A namespace created after EAP
+started gets its bucket on EAP's next start.
 
 ```bash
-euclid-cli esm create-bucket --name apps
 euclid-cli esm upload-file --bucket apps --key euclid_app.py --file python/euclid_app.py
 
 euclid-cli eap create-application \

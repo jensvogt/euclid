@@ -114,7 +114,7 @@ namespace Euclid::Transfer {
 
         const auto response = CallModule("esm", "list-objects", _token, scopedHeaders({}), body);
         if (!response.ok()) {
-            log_warning << "Transfer storage list failed, prefix: " << prefix << ", status: " << response.status;
+            log_warning << "Transfer storage list failed, prefix: " << prefix << ", status: " << response.describe();
             return {};
         }
 
@@ -231,7 +231,7 @@ namespace Euclid::Transfer {
             return downloadInParts(key, spoolPath);
         }
         if (!response.ok()) {
-            log_warning << "Transfer storage download failed, key: " << key << ", status: " << response.status;
+            log_warning << "Transfer storage download failed, key: " << key << ", status: " << response.describe();
             return false;
         }
 
@@ -295,7 +295,7 @@ namespace Euclid::Transfer {
                                                _buffer.substr(0, size));
         if (!response.ok()) {
             log_warning << "Transfer storage upload part failed, key: " << _key << ", part: " << _partNumber
-                        << ", status: " << response.status;
+                        << ", status: " << response.describe();
             return false;
         }
 
@@ -344,7 +344,7 @@ namespace Euclid::Transfer {
 
             const auto response = CallModule("esm", "put-object", _storage->_token, inlineHeaders, _buffer);
             if (!response.ok()) {
-                log_warning << "Transfer storage upload failed, key: " << _key << ", status: " << response.status;
+                log_warning << "Transfer storage upload failed, key: " << _key << ", status: " << response.describe();
                 return false;
             }
             log_info << "Transfer storage stored object, key: " << _key << ", size: " << _buffer.size();
@@ -441,7 +441,7 @@ namespace Euclid::Transfer {
                                                                   {"x-euclid-part-size", std::to_string(partSize)}}),
                                                    "");
             if (!response.ok()) {
-                log_warning << "Transfer storage download part failed, key: " << key << ", part: " << partNumber << ", status: " << response.status;
+                log_warning << "Transfer storage download part failed, key: " << key << ", part: " << partNumber << ", status: " << response.describe();
                 return false;
             }
             out.write(response.body.data(), static_cast<std::streamsize>(response.body.size()));
@@ -512,7 +512,7 @@ namespace Euclid::Transfer {
         const auto response = CallModule("esm", "delete-object", _token, scopedHeaders({}),
                                          boost::json::serialize(boost::json::object{{"ern", *ern}}));
         if (!response.ok()) {
-            log_warning << "Transfer storage remove failed, key: " << key << ", status: " << response.status;
+            log_warning << "Transfer storage remove failed, key: " << key << ", status: " << response.describe();
             return false;
         }
         return true;
@@ -543,7 +543,7 @@ namespace Euclid::Transfer {
         const auto response = CallModule("esm", "put-object", _token,
                                          scopedHeaders({{"x-euclid-bucket-ern", _bucketErn}, {"x-euclid-key", prefix}}), "");
         if (!response.ok()) {
-            log_warning << "Transfer storage mkdir failed, directory: " << directory << ", status: " << response.status;
+            log_warning << "Transfer storage mkdir failed, directory: " << directory << ", status: " << response.describe();
             return false;
         }
         return true;

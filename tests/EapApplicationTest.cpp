@@ -531,22 +531,39 @@ BOOST_AUTO_TEST_CASE(ARedeployHasToBeANewBuild) {
     const std::string otherMd5 = "655d7ed7f70afed3e3e437b71f992611";
 
     // A new version carrying new bytes: the plain case.
-    BOOST_TEST(RedeployRefusal(deployedVersion, deployedMd5, "1.5.0", otherMd5).empty());
+    BOOST_TEST(RedeployRefusal(deployedVersion, deployedMd5, "1.5.0", otherMd5, true).empty());
 
     // New bytes under the version already running - allowed. A rebuilt snapshot keeps its number,
     // and it is the bytes that make it a different build.
-    BOOST_TEST(RedeployRefusal(deployedVersion, deployedMd5, "1.4.0", otherMd5).empty());
+    BOOST_TEST(RedeployRefusal(deployedVersion, deployedMd5, "1.4.0", otherMd5, true).empty());
 
     // The build already deployed, whatever it is called: the restart would change nothing.
-    BOOST_TEST(!RedeployRefusal(deployedVersion, deployedMd5, "1.5.0", deployedMd5).empty());
-    BOOST_TEST(!RedeployRefusal(deployedVersion, deployedMd5, "1.4.0", deployedMd5).empty());
+    BOOST_TEST(!RedeployRefusal(deployedVersion, deployedMd5, "1.5.0", deployedMd5, true).empty());
+    BOOST_TEST(!RedeployRefusal(deployedVersion, deployedMd5, "1.4.0", deployedMd5, true).empty());
 
     // An application defined before versions existed carries neither, and its first redeploy is
     // what fills them in - refusing it would leave it with no way forward at all.
-    BOOST_TEST(RedeployRefusal("", "", "1.0.0", otherMd5).empty());
+    BOOST_TEST(RedeployRefusal("", "", "1.0.0", otherMd5, true).empty());
 
     // The reason is what an operator is shown, so it has to name what is actually wrong.
-    BOOST_TEST(RedeployRefusal(deployedVersion, deployedMd5, "1.5.0", deployedMd5).find("byte for byte") != std::string::npos);
+    BOOST_TEST(RedeployRefusal(deployedVersion, deployedMd5, "1.5.0", deployedMd5, true).find("byte for byte") != std::string::npos);
+}
+
+// Both checksums come out of the database, and the bytes one of them was taken over can be gone -
+// an ESM object is a row and a file, and the file can be removed from under the row. Refusing there
+// is refusing on the strength of a hash of bytes that do not exist, at the moment the redeploy is
+// most likely to be the thing putting the artifact back.
+BOOST_AUTO_TEST_CASE(ARedeployIsNotRefusedOverAnArtifactThatIsNoLongerOnDisk) {
+    const std::string deployedVersion = "1.4.0";
+    const std::string deployedMd5 = "0dc7cdef5e707bae7f7b6bbb5be4c32a";
+
+    // The same checksum, which is what the refusal is made of - and no bytes behind it.
+    BOOST_TEST(RedeployRefusal(deployedVersion, deployedMd5, "1.4.0", deployedMd5, false).empty());
+    BOOST_TEST(RedeployRefusal(deployedVersion, deployedMd5, "1.5.0", deployedMd5, false).empty());
+
+    // And the rule is unchanged for everything else: bytes that are there are still compared, so
+    // this is not a way of quietly turning the check off.
+    BOOST_TEST(!RedeployRefusal(deployedVersion, deployedMd5, "1.4.0", deployedMd5, true).empty());
 }
 
 BOOST_AUTO_TEST_CASE(OnlyARunningApplicationCanBeRestarted) {

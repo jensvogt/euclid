@@ -34,6 +34,16 @@ target_link_libraries(${EAP_APPLICATION_BINARY} PRIVATE eucliddb Boost::unit_tes
 
 add_test(NAME ${EAP_APPLICATION_BINARY} COMMAND ${EAP_APPLICATION_BINARY})
 
+set(EAP_APPLICATION_BUCKET_BINARY euclid-eap-application-bucket-tests)
+
+add_executable(${EAP_APPLICATION_BUCKET_BINARY} EapApplicationBucketTest.cpp ${CMAKE_SOURCE_DIR}/modules/eap/src/EapServer.cpp)
+set_target_properties(${EAP_APPLICATION_BUCKET_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${EAP_APPLICATION_BUCKET_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/eap/include)
+target_link_libraries(${EAP_APPLICATION_BUCKET_BINARY} PRIVATE eucliddto Boost::unit_test_framework)
+
+add_test(NAME ${EAP_APPLICATION_BUCKET_BINARY} COMMAND ${EAP_APPLICATION_BUCKET_BINARY})
+
 set(HTTP_SIGNATURE_BINARY euclid-http-signature-tests)
 
 add_executable(${HTTP_SIGNATURE_BINARY} HttpSignatureTest.cpp)
@@ -319,6 +329,16 @@ target_include_directories(${STICKY_CALL_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/ext
 target_link_libraries(${STICKY_CALL_BINARY} PRIVATE eucliddb euclidcore Boost::unit_test_framework)
 
 add_test(NAME ${STICKY_CALL_BINARY} COMMAND ${STICKY_CALL_BINARY})
+
+set(MODULE_CALL_HEADER_BINARY euclid-module-call-header-tests)
+
+add_executable(${MODULE_CALL_HEADER_BINARY} ModuleCallHeaderTest.cpp ${CMAKE_SOURCE_DIR}/extern/common/src/TransferContext.cpp)
+set_target_properties(${MODULE_CALL_HEADER_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+target_include_directories(${MODULE_CALL_HEADER_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/extern/common/include)
+
+target_link_libraries(${MODULE_CALL_HEADER_BINARY} PRIVATE eucliddb euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${MODULE_CALL_HEADER_BINARY} COMMAND ${MODULE_CALL_HEADER_BINARY})
 
 set(BACKLOG_TARGET_BINARY euclid-backlog-target-tests)
 
@@ -637,6 +657,15 @@ set_target_properties(${AUTHORIZATION_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OF
 target_link_libraries(${AUTHORIZATION_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
 
 add_test(NAME ${AUTHORIZATION_BINARY} COMMAND ${AUTHORIZATION_BINARY})
+
+set(USER_RENAME_BINARY euclid-eam-user-rename-tests)
+
+add_executable(${USER_RENAME_BINARY} UserRenameTest.cpp)
+set_target_properties(${USER_RENAME_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${USER_RENAME_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${USER_RENAME_BINARY} COMMAND ${USER_RENAME_BINARY})
 
 set(ROLE_REPOSITORY_BINARY euclid-role-repository-tests)
 
