@@ -252,6 +252,29 @@ namespace Euclid::Database {
         return false;
     }
 
+    bool MongoEapRepository::setApplicationInfrastructure(const std::string &accountId, const std::string &nameSpace,
+                                                          const std::string &applicationId,
+                                                          const std::vector<std::string> &infrastructure) {
+
+        try {
+            bsoncxx::builder::basic::array erns;
+            for (const auto &ern: infrastructure) erns.append(ern);
+
+            auto collection = Database::instance().collection(COLLECTION);
+
+            // One field, by hand, for the reason setApplicationLogLevel gives below: upsertApplication
+            // stamps "modified", and the manager restarts a pool whose application has been modified
+            // since its instances started. Applying a declaration touches no process.
+            const auto result = collection.update_one(applicationFilter(accountId, nameSpace, applicationId).view(),
+                                                      make_document(kvp("$set", make_document(kvp("infrastructure", erns)))).view());
+            return result && result->matched_count() > 0;
+
+        } catch (const std::exception &e) {
+            log_error << "Set application infrastructure failed, applicationId: " << applicationId << ", error: " << e.what();
+        }
+        return false;
+    }
+
     bool MongoEapRepository::setApplicationLogLevel(const std::string &accountId, const std::string &nameSpace,
                                                     const std::string &applicationId, const std::string &logLevel) {
 

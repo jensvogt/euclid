@@ -6,6 +6,7 @@
 
 // C++ standard
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -447,12 +448,50 @@ namespace Euclid::Core {
      * long is a distinct type everywhere and is 64 bits everywhere, so this is the one to ask for
      * when the value is a size in bytes rather than a count of something small.
      */
+    namespace detail {
+
+        /**
+         * @brief A double narrowed to a 64-bit integer, clamped rather than undefined.
+         *
+         * @par
+         * The bound is 2^63 and not the integer maximum, which is the whole point. The maximum is
+         * 2^63-1 and no double holds it exactly, so converting it to one rounds *up* to 2^63 -
+         * clamping against that rounded bound let the result reach 2^63 itself, and casting that
+         * back to an integer is undefined. The guard written to stop a value truncating was
+         * therefore the thing that wandered off, for every configured figure past about nine
+         * quintillion.
+         *
+         * @par
+         * 2^63 is exactly representable as a double, so the comparisons here are exact and the cast
+         * below only ever sees a value the integer range holds.
+         *
+         * @param value the double to narrow.
+         * @return the clamped value, or nothing at all for a NaN - which no comparison is true of,
+         * and which would otherwise fall through to the same undefined cast.
+         */
+        inline std::optional<long long> clampedFromDouble(const double value) {
+
+            constexpr auto beyond = 9223372036854775808.0;// 2^63
+
+            if (std::isnan(value)) return std::nullopt;
+            if (value >= beyond) return std::numeric_limits<long long>::max();
+            // The minimum is exactly -2^63 and is representable, so this bound is exact too.
+            if (value <= -beyond) return std::numeric_limits<long long>::min();
+            return static_cast<long long>(value);
+        }
+
+    }// namespace detail
+
     template<>
     inline long long Configuration::extractValue<long long>(
         const boost::json::value &v, const std::string &path) {
         if (v.is_int64()) return v.get_int64();
         if (v.is_uint64()) return static_cast<long long>(v.get_uint64());
-        if (v.is_double()) return static_cast<long long>(v.get_double());
+        if (v.is_double()) {
+            const auto narrowed = detail::clampedFromDouble(v.get_double());
+            if (!narrowed.has_value()) throw std::runtime_error("Config key '" + path + "' is not a number");
+            return *narrowed;
+        }
         throw std::runtime_error("Config key '" + path + "' is not a long");
     }
 
@@ -483,7 +522,14 @@ namespace Euclid::Core {
 
         if (v.is_int64()) return clamped(v.get_int64());
         if (v.is_uint64()) return clamped(static_cast<long long>(std::min<std::uint64_t>(v.get_uint64(), highest)));
-        if (v.is_double()) return clamped(static_cast<long long>(std::clamp<double>(v.get_double(), lowest, highest)));
+        if (v.is_double()) {
+            // Narrowed to 64 bits first and clamped to `long` second. Clamping in the double domain
+            // was what raised -Wfloat-conversion here, and the warning was right: the bound it was
+            // given could not be represented, so the clamp did not hold - see clampedFromDouble().
+            const auto narrowed = detail::clampedFromDouble(v.get_double());
+            if (!narrowed.has_value()) throw std::runtime_error("Config key '" + path + "' is not a number");
+            return clamped(*narrowed);
+        }
         throw std::runtime_error("Config key '" + path + "' is not a long");
     }
 
