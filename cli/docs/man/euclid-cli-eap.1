@@ -296,6 +296,12 @@ artifact lives and restarts the application onto it, refusing anything
 that is not a new build. See
 .BR euclid-cli-eap-redeploy-application (1).
 .TP
+.B deploy-infrastructure
+Stores an application's declaration folder beside its artifact and applies it:
+creates what the application owns, removes what it no longer declares, and
+replaces its access grants. See
+.BR euclid-cli-eap-deploy-infrastructure (1).
+.TP
 .B list-applications
 Lists the defined applications with their desired state and how many
 instances are running. See
@@ -439,6 +445,7 @@ euclid-cli eap update-application --application-id inbox --artifact inbox.jar
 .BR euclid-cli-eap-update-application (1),
 .BR euclid-cli-eap-copy-application (1),
 .BR euclid-cli-eap-scale-application (1),
+.BR euclid-cli-eap-deploy-infrastructure (1),
 .BR euclid-cli-eap-redeploy-application (1),
 .BR euclid-cli-eap-list-applications (1),
 .BR euclid-cli-eap-get-application (1),

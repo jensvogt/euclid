@@ -187,6 +187,26 @@ namespace Euclid::Database {
                                              const std::string &applicationId, long minInstances, long maxInstances) = 0;
 
         /**
+         * @brief Records the resources an application's declaration created.
+         *
+         * @par
+         * The list a full reconcile diffs the next declaration against - see
+         * Entity::EAP::Application::infrastructure. Written by hand rather than through
+         * upsertApplication(), which stamps "modified" and so restarts the pool: applying a
+         * declaration changes nothing about the running processes, and must not look as though it
+         * had.
+         *
+         * @param accountId      account the application belongs to
+         * @param nameSpace      namespace within accountId
+         * @param applicationId  application to record against
+         * @param infrastructure ERNs of what it now owns
+         * @return true if an application of that name was changed
+         */
+        virtual bool setApplicationInfrastructure(const std::string &accountId, const std::string &nameSpace,
+                                                  const std::string &applicationId,
+                                                  const std::vector<std::string> &infrastructure) = 0;
+
+        /**
          * @brief Stamps an application's modification date, so the manager starts its instances
          * again.
          *

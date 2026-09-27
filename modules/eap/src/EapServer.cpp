@@ -25,6 +25,12 @@
 #include <euclid/core/monitoring/MonitoringTimer.h>
 #include <euclid/database/entity/RuntimeName.h>
 #include <euclid/database/entity/eam/User.h>
+#include <euclid/database/entity/eap/Infrastructure.h>
+#include <euclid/database/entity/eqs/Queue.h>
+#include <euclid/database/entity/ens/Topic.h>
+#include <euclid/database/entity/eam/Role.h>
+#include <fstream>
+#include <sstream>
 #include <euclid/database/entity/esm/Bucket.h>
 #include <euclid/database/entity/esm/Object.h>
 
@@ -285,6 +291,357 @@ namespace Euclid::EAP {
                 resources.push_back(topic->ern);
             }
             return resources;
+        }
+
+        // ── Infrastructure, from the sidecar beside the artifact ─────────────
+        //
+        // An application declares what it needs in a `euclid/` folder of its own repository; the
+        // files are merged and stored beside the artifact as `<application-id>.euclid.json`. This is
+        // the side that reads it and makes the installation match - see
+        // Database::Entity::EAP::Infrastructure for the schema and the access table.
+
+        // What applying a declaration did, so the caller is told rather than left to diff it.
+        struct InfrastructurePlan {
+            std::vector<std::string> created;
+            std::vector<std::string> deleted;
+            std::vector<std::string> granted;
+            std::vector<std::string> revoked;
+            std::string error;
+        };
+
+        // Reads the sidecar, if there is one.
+        //
+        // Absent is not an error: an application that declares nothing is every application deployed
+        // before this existed, and refusing those would make the feature a migration.
+        std::optional<Database::Entity::EAP::Infrastructure::Declaration>
+        readInfrastructure(const std::string &bucketErn, const std::string &applicationId, std::string &error) {
+
+            const auto key = Database::Entity::EAP::Infrastructure::ObjectKey(applicationId);
+            const auto object = Database::RepositoryFactory::instance().esmRepository()->findObjectByBucketAndKey(bucketErn, key);
+            if (!object.has_value()) return std::nullopt;
+
+            if (!artifactBytesOnDisk(*object)) {
+                error = "declaration " + key + " has a row but no bytes on disk";
+                return std::nullopt;
+            }
+
+#ifdef _WIN32
+            constexpr auto kDefaultStorageDir = R"(C:\Program Files\euclid\data\esm)";
+#else
+            constexpr auto kDefaultStorageDir = "/usr/local/euclid/data/esm";
+#endif
+            const auto storageDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultStorageDir);
+            const auto path = Core::DirUtils::FindFilePath(storageDir, object->internalName);
+
+            std::ifstream in(path, std::ios::binary);
+            if (!in) {
+                error = "declaration " + key + " could not be read";
+                return std::nullopt;
+            }
+            std::ostringstream buffer;
+            buffer << in.rdbuf();
+
+            boost::json::value parsed;
+            try {
+                parsed = boost::json::parse(buffer.str());
+            } catch (const std::exception &ex) {
+                error = "declaration " + key + " is not JSON: " + ex.what();
+                return std::nullopt;
+            }
+
+            auto read = Database::Entity::EAP::Infrastructure::Read(parsed);
+            if (!read.error.empty()) {
+                error = "declaration " + key + ": " + read.error;
+                return std::nullopt;
+            }
+
+            // Refused rather than applied to whoever asked. A declaration that names another
+            // application would have its resources recorded against this one, and this one's next
+            // reconcile would delete them because they are recorded and not declared.
+            if (const auto mismatch = Database::Entity::EAP::Infrastructure::Belongs(read.declaration, applicationId);
+                !mismatch.empty()) {
+                error = mismatch;
+                return std::nullopt;
+            }
+            return read.declaration;
+        }
+
+        // The role one access level is granted through.
+        //
+        // A grant names a role, not a list of permissions, so each level in the access table needs
+        // one. Created in the caller's own account the first time it is used and then reused, with
+        // the permissions rewritten every time: the table is the definition, and a role left holding
+        // yesterday's permissions would be a grant that quietly means something else.
+        std::string accessRole(const std::string &accountId, const std::string &region,
+                               const std::string &kind, const std::string &access) {
+
+            // "queues" -> "queue", so the role reads as the thing rather than the section.
+            auto singular = kind;
+            if (singular.ends_with("s")) singular.pop_back();
+            const auto name = "access-" + singular + "-" + access;
+
+            const auto repository = Database::RepositoryFactory::instance().eamRepository();
+            auto existing = repository->findRoleByName(accountId, name);
+
+            Database::Entity::EAM::Role role = existing.value_or(Database::Entity::EAM::Role{});
+            role.name = name;
+            role.accountId = accountId;
+            role.region = region;
+            role.description = "Reach a " + singular + " somebody else owns, to " + access + " it"
+                               + " - written by eap from an application's declaration";
+            role.permissions = Database::Entity::EAP::Infrastructure::PermissionsFor(kind, access);
+
+            const auto stored = repository->upsertRole(role);
+            return stored.name;
+        }
+
+        // Creates one resource the application owns, if it is not there. Answers with its ERN, or
+        // empty when it could not be made.
+        std::string createOwnedResource(const Database::Entity::EAP::Infrastructure::Resource &resource,
+                                        const std::string &accountId, const std::string &region,
+                                        const std::string &nameSpace, bool &existed) {
+
+            const auto &factory = Database::RepositoryFactory::instance();
+            existed = false;
+
+            if (resource.kind == "queues") {
+                if (const auto found = factory.eqsRepository()->findQueueByName(accountId, nameSpace, resource.name);
+                    found.has_value()) {
+                    existed = true;
+                    return found->ern;
+                }
+                Database::Entity::EQS::Queue queue;
+                queue.name = resource.name;
+                queue.ern = Core::createEqsQueueErn(accountId, nameSpace, resource.name);
+                queue.region = region;
+                queue.accountId = accountId;
+                queue.nameSpace = nameSpace;
+                queue.owner = "eap";
+                return factory.eqsRepository()->upsertQueue(queue).ern;
+            }
+
+            if (resource.kind == "topics") {
+                if (const auto found = factory.ensRepository()->findTopicByName(accountId, nameSpace, resource.name);
+                    found.has_value()) {
+                    existed = true;
+                    return found->ern;
+                }
+                Database::Entity::ENS::Topic topic;
+                topic.name = resource.name;
+                topic.ern = Core::createEnsTopicErn(accountId, nameSpace, resource.name);
+                topic.region = region;
+                topic.accountId = accountId;
+                topic.nameSpace = nameSpace;
+                topic.owner = "eap";
+                return factory.ensRepository()->upsertTopic(topic).ern;
+            }
+
+            if (resource.kind == "buckets") {
+                if (const auto found = factory.esmRepository()->findBucketByName(accountId, nameSpace, resource.name);
+                    found.has_value()) {
+                    existed = true;
+                    return found->ern;
+                }
+                Database::Entity::ESM::Bucket bucket;
+                bucket.name = resource.name;
+                bucket.ern = Core::createEsmBucketErn(accountId, nameSpace, resource.name);
+                bucket.region = region;
+                bucket.accountId = accountId;
+                bucket.nameSpace = nameSpace;
+                bucket.owner = "eap";
+                return factory.esmRepository()->upsertBucket(bucket).ern;
+            }
+
+            return {};
+        }
+
+        // Deletes one resource this application owned and no longer declares.
+        //
+        // The destructive half of a full reconcile, and it is destructive: a queue takes its messages
+        // with it and a bucket its objects. Only ever reached for a resource the *previous*
+        // declaration created - recorded on the application - so removing a line from the file is the
+        // only way to get here, and what went is named in the answer rather than left to be noticed.
+        bool deleteOwnedResource(const std::string &ern) {
+
+            const auto &factory = Database::RepositoryFactory::instance();
+
+            // Which module owns it, read off the ERN itself rather than remembered alongside: the
+            // ERN is what was recorded, and it already says.
+            const auto service = Core::serviceFromErn(ern);
+            try {
+                if (service == "eqs") {
+                    factory.eqsRepository()->deleteQueueByErn(ern);
+                    return true;
+                }
+                if (service == "ens") {
+                    factory.ensRepository()->deleteTopicByErn(ern);
+                    return true;
+                }
+                if (service == "esm") {
+                    factory.esmRepository()->deleteBucketByErn(ern);
+                    return true;
+                }
+            } catch (const std::exception &ex) {
+                log_error << "EAP could not remove a resource it no longer declares, ern: " << ern << ", error: " << ex.what();
+            }
+            return false;
+        }
+
+        // Makes the installation match a declaration.
+        //
+        // @par What it does
+        // Creates what the application owns and does not have; deletes what it owned and no longer
+        // declares; replaces the access grants so they are exactly the ones the file asks for. Called
+        // on create, update and redeploy, so the file is the statement of record every time the
+        // application is deployed rather than only the first.
+        //
+        // @par Why the previous state is recorded rather than derived
+        // "Which resources did this application create?" cannot be answered by looking at the
+        // installation: a queue carries no note of who asked for it, and treating every queue the
+        // application can reach as its own would delete a queue it merely uses. So the ERNs are kept
+        // on the application, and the reconcile is against that list.
+        InfrastructurePlan applyInfrastructure(const Database::Entity::EAP::Application &application,
+                                               const Database::Entity::EAP::Infrastructure::Declaration &declaration,
+                                               const std::string &principalErn) {
+
+            InfrastructurePlan plan;
+            const auto &accountId = application.accountId;
+            const auto &nameSpace = application.nameSpace;
+            const auto region = application.region;
+
+            // ── what it owns ────────────────────────────────────────────────
+            std::vector<std::string> owned;
+            for (const auto &resource: declaration.creates) {
+                bool existed = false;
+                const auto ern = createOwnedResource(resource, accountId, region, nameSpace, existed);
+                if (ern.empty()) {
+                    plan.error = "could not create " + resource.kind + " '" + resource.name + "'";
+                    return plan;
+                }
+                owned.push_back(ern);
+                if (!existed) plan.created.push_back(ern);
+            }
+
+            // Anything it created last time and does not declare now. Full reconcile, as asked for -
+            // and the one step here that cannot be undone.
+            for (const auto &previous: application.infrastructure) {
+                if (std::ranges::find(owned, previous) != owned.end()) continue;
+                if (deleteOwnedResource(previous)) plan.deleted.push_back(previous);
+            }
+
+            // ── what it reaches ─────────────────────────────────────────────
+            //
+            // Replaced rather than added to: the file is the whole statement, so a `uses` entry
+            // somebody removed has to stop being granted. Only the roles this writes are touched, so
+            // a grant an operator made by hand survives.
+            const auto eamRepository = Database::RepositoryFactory::instance().eamRepository();
+            for (const auto &existing: eamRepository->findGrantsByPrincipals({principalErn})) {
+                if (!existing.role.starts_with("access-")) continue;
+                eamRepository->deleteGrant(existing.oid);
+                plan.revoked.push_back(existing.role);
+            }
+
+            for (const auto &resource: declaration.uses) {
+
+                // Resolved, not created: a service that could conjure another team's queue by naming
+                // it would make ownership meaningless, so a `uses` entry for something absent is the
+                // deployment being wrong about its own dependencies.
+                std::string unresolved;
+                const auto resolved = resource.kind == "buckets"
+                                              ? resolveResources(accountId, nameSpace, {resource.name}, {}, unresolved)
+                                              : resource.kind == "queues"
+                                              ? resolveResources(accountId, nameSpace, {}, {resource.name}, unresolved)
+                                              : std::optional<std::vector<std::string> >{};
+
+                std::string ern;
+                if (resource.kind == "topics") {
+                    const auto topic = Database::RepositoryFactory::instance().ensRepository()->findTopicByName(accountId, nameSpace, resource.name);
+                    if (!topic.has_value()) {
+                        plan.error = "uses a topic that does not exist: '" + resource.name + "'";
+                        return plan;
+                    }
+                    ern = topic->ern;
+                } else {
+                    if (!resolved.has_value() || resolved->empty()) {
+                        plan.error = "uses a " + resource.kind + " that does not exist: '" + resource.name + "'";
+                        return plan;
+                    }
+                    ern = resolved->front();
+                }
+
+                for (const auto &access: resource.access) {
+                    Database::Entity::EAM::Grant grant;
+                    grant.role = accessRole(accountId, region, resource.kind, access);
+                    grant.principal = principalErn;
+                    grant.accountId = accountId;
+                    grant.namespaces = nameSpace.empty() ? std::vector<std::string>{"*"} : std::vector{nameSpace};
+                    // The one resource, and only it. An access level granted on "*" would be the
+                    // opposite of what naming a resource is for.
+                    grant.resources = {ern};
+                    grant.granted = std::chrono::system_clock::now();
+                    grant.grantedBy = "eap";
+                    std::ignore = eamRepository->addGrant(grant);
+                    plan.granted.push_back(grant.role + " on " + ern);
+                }
+            }
+
+            return plan;
+        }
+
+        // Applies the declaration beside the artifact, if there is one, and says what it did.
+        //
+        // Shared by create, update and redeploy so that the file is the statement of record every
+        // time the application is deployed rather than only the first. Absent is not an error: an
+        // application that declares nothing is every application deployed before this existed.
+        //
+        // Never fatal to the deployment. A declaration that cannot be applied leaves the application
+        // as it is and says why in the answer - refusing the deploy would mean a typo in a JSON file
+        // stopping a release whose artifact is fine, and the pool would be left on the previous build
+        // for a reason nobody reading "create-application failed" would guess.
+        boost::json::object provisionInfrastructure(Database::Entity::EAP::Application &application,
+                                                   const std::string &principalErn) {
+
+            std::string error;
+            const auto declaration = readInfrastructure(application.bucketErn, application.applicationId, error);
+            if (!error.empty()) {
+                log_warning << "EAP could not read an application's declaration, applicationId: "
+                            << application.applicationId << ", error: " << error;
+                return {{"declared", false}, {"error", error}};
+            }
+            if (!declaration.has_value()) return {{"declared", false}};
+
+            const auto plan = applyInfrastructure(application, *declaration, principalErn);
+            if (!plan.error.empty()) {
+                log_warning << "EAP could not apply an application's declaration, applicationId: "
+                            << application.applicationId << ", error: " << plan.error;
+                return {{"declared", true}, {"error", plan.error}};
+            }
+
+            // What it now owns, for the next reconcile to diff against. Written onto the application
+            // by the caller, which is the one that stores it.
+            application.infrastructure.clear();
+            for (const auto &resource: declaration->creates) {
+                bool existed = false;
+                const auto ern = createOwnedResource(resource, application.accountId, application.region,
+                                                     application.nameSpace, existed);
+                if (!ern.empty()) application.infrastructure.push_back(ern);
+            }
+
+            const auto asArray = [](const std::vector<std::string> &values) {
+                boost::json::array out;
+                for (const auto &value: values) out.push_back(boost::json::value(value));
+                return out;
+            };
+
+            log_info << "EAP applied an application's declaration, applicationId: " << application.applicationId
+                     << ", created: " << plan.created.size() << ", deleted: " << plan.deleted.size()
+                     << ", granted: " << plan.granted.size() << ", revoked: " << plan.revoked.size();
+
+            return {{"declared", true},
+                    {"created", asArray(plan.created)},
+                    {"deleted", asArray(plan.deleted)},
+                    {"granted", asArray(plan.granted)},
+                    {"revoked", asArray(plan.revoked)}};
         }
 
         Database::Entity::EAM::User createTechnicalUser(const std::string &runtimeName, const std::string &accountId,
@@ -594,11 +951,72 @@ namespace Euclid::EAP {
         application.readyTimeoutMs = std::max(1000L, longField(obj, "readyTimeoutMs", 30000));
         application.desiredState = ApplicationState::STOPPED;
 
+        // Before the application is stored, so that what it owns exists by the time the manager
+        // reads the row and starts a pool against it.
+        const auto principal = Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(application.userId);
+        const auto infrastructure = provisionInfrastructure(application, principal.has_value() ? principal->ern : std::string{});
+
         const auto stored = repo->upsertApplication(application);
         log_info << "EAP created application, applicationId: " << stored.applicationId << ", runtime: " << RuntimeToString(stored.runtime)
                 << ", artifact: " << stored.artifactKey << ", version: " << stored.version << ", user: " << stored.userId;
 
-        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(toJson(stored)));
+        auto response = toJson(stored);
+        response["infrastructure"] = infrastructure;
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(response));
+    }
+
+    // Applies the declaration stored beside an application's artifact, now.
+    //
+    // create, update and redeploy each apply it as a side effect of deploying; this is the way to
+    // apply it on its own - after the sidecar has been re-uploaded, or to see what a declaration
+    // would do before a release depends on it.
+    //
+    // Answers with what changed: what was created, what was removed, what access was granted and
+    // what was revoked. The removals are the reason it answers rather than just succeeding - a full
+    // reconcile deletes what the file no longer names, and that should never be something an operator
+    // has to go looking for.
+    static response<string_body> handleApplyInfrastructure(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "apply-infrastructure");
+
+        AuthResult auth;
+        if (const auto denied = requireAdmin(req, auth)) return *denied;
+
+        boost::json::value jv;
+        if (const auto err = EapServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+        const auto &obj = jv.as_object();
+
+        const auto applicationId = stringField(obj, "applicationId");
+        if (applicationId.empty()) {
+            return EapServer::ErrorResponse(req, status::bad_request, "applicationId is required");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().eapRepository();
+        auto application = repo->findApplicationByApplicationId(auth.user->accountId, std::string(req["x-euclid-namespace"]), applicationId);
+        if (!application.has_value()) {
+            return EapServer::ErrorResponse(req, status::not_found, "Application not found, applicationId: " + applicationId);
+        }
+
+        const auto principal = Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(application->userId);
+        const auto infrastructure = provisionInfrastructure(*application, principal.has_value() ? principal->ern : std::string{});
+
+        // A declaration that could not be applied is an error the caller asked for directly, unlike
+        // the same failure during a deploy - there, refusing would stop a release over a JSON typo.
+        if (const auto *error = infrastructure.if_contains("error"); error != nullptr) {
+            return EapServer::ErrorResponse(req, status::bad_request, std::string(error->as_string()));
+        }
+
+        // Written by hand rather than through upsertApplication: that stamps `modified`, which the
+        // manager reads as a new revision and restarts the pool for. Applying a declaration changes
+        // nothing about the running processes, so it must not.
+        std::ignore = repo->setApplicationInfrastructure(auth.user->accountId, std::string(req["x-euclid-namespace"]),
+                                                         applicationId, application->infrastructure);
+
+        boost::json::object response;
+        response["applicationId"] = applicationId;
+        for (const auto &[key, value]: infrastructure) response[key] = value;
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(response));
     }
 
     // Changes how many instances an application runs, without restarting the ones it has.
@@ -765,6 +1183,12 @@ namespace Euclid::EAP {
         copy.nameSpace = targetNameSpace;
         copy.ern = Core::createEapApplicationErn(copy.accountId, targetNameSpace, targetApplicationId);
         copy.resources = *resources;
+        // Emphatically not copied: infrastructure records the resources *this* application's
+        // declaration created, and a copy has created nothing. Carrying it over would make the copy
+        // believe it owned the original's queues and topics - and the next reconcile, seeing them
+        // recorded and not declared, would delete them out from under the application that does own
+        // them. Which is exactly what happened before this line existed.
+        copy.infrastructure.clear();
         copy.userId = userId;
 
         // Stopped, whatever the original is doing. A copy that started itself would put a second
@@ -1505,6 +1929,7 @@ namespace Euclid::EAP {
         if (action == "stop-application") return handleSetState(req, ApplicationState::STOPPED);
         if (action == "restart-application") return handleRestartApplication(req);
         if (action == "set-log-level") return handleSetLogLevel(req);
+        if (action == "apply-infrastructure") return handleApplyInfrastructure(req);
         if (action == "report-load") return handleReportLoad(req);
         if (action == "get-metrics") return EapServer::MetricsResponse(req);
 

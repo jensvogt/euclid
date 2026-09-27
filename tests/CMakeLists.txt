@@ -284,6 +284,15 @@ target_link_libraries(${QUEUE_COUNTER_BINARY} PRIVATE eucliddb Boost::unit_test_
 
 add_test(NAME ${QUEUE_COUNTER_BINARY} COMMAND ${QUEUE_COUNTER_BINARY})
 
+set(INFRASTRUCTURE_BINARY euclid-eap-infrastructure-tests)
+
+add_executable(${INFRASTRUCTURE_BINARY} InfrastructureDeclarationTest.cpp)
+set_target_properties(${INFRASTRUCTURE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${INFRASTRUCTURE_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${INFRASTRUCTURE_BINARY} COMMAND ${INFRASTRUCTURE_BINARY})
+
 set(BUCKET_PRIORITY_BINARY euclid-esm-bucket-priority-tests)
 
 add_executable(${BUCKET_PRIORITY_BINARY} BucketPriorityTest.cpp)
