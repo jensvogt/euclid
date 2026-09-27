@@ -4,6 +4,7 @@
 
 // C++ includes
 #include <filesystem>
+#include <map>
 #include <sstream>
 
 // Euclid includes
@@ -898,6 +899,60 @@ namespace Euclid::CLI {
             }
         }
 
+        // Every object of one kind this application owns, by the tag apply wrote. The list is how
+        // pruning knows what it used to have: the manifest says what should exist now, and the
+        // difference is what a previous version of the manifest created and this one does not
+        // mention. Nothing untagged is ever in this list, so nothing an application did not declare
+        // can be removed by it.
+        std::vector<std::pair<std::string, std::string> > ownedObjects(const HttpClient &client,
+                                                                      const Core::ApplicationManifest::Kind kind,
+                                                                      const std::string &application, bool &known) {
+
+            static const std::map<std::string, std::string> kListActions{
+                    {"esm", "list-buckets"},
+                    {"eqs", "list-queues"},
+                    {"ens", "list-topics"},
+            };
+            static const std::map<std::string, std::string> kCollections{
+                    {"esm", "buckets"},
+                    {"eqs", "queues"},
+                    {"ens", "topics"},
+            };
+
+            known = false;
+            std::vector<std::pair<std::string, std::string> > owned;
+
+            const auto actions = actionsFor(kind);
+            try {
+                const HttpResponse response = client.Post(actions.module, kListActions.at(actions.module),
+                                                          boost::json::object{{"pageSize", 10000}, {"pageIndex", 0}});
+                if (!response.IsSuccess() || !response.body.is_object()) return owned;
+
+                const auto *collection = response.body.as_object().if_contains(kCollections.at(actions.module));
+                if (collection == nullptr || !collection->is_array()) return owned;
+
+                known = true;
+                for (const auto &entry: collection->as_array()) {
+                    if (!entry.is_object()) continue;
+                    const auto &object = entry.as_object();
+
+                    const auto *tags = object.if_contains("tags");
+                    if (tags == nullptr || !tags->is_object()) continue;
+                    const auto *owner = tags->as_object().if_contains(kOwnerTag);
+                    if (owner == nullptr || !owner->is_string() || std::string(owner->as_string()) != application) continue;
+
+                    const auto *name = object.if_contains("name");
+                    const auto *ern = object.if_contains("ern");
+                    if (name == nullptr || !name->is_string() || ern == nullptr || !ern->is_string()) continue;
+
+                    owned.emplace_back(std::string(name->as_string()), std::string(ern->as_string()));
+                }
+            } catch (const std::exception &) {
+                known = false;
+            }
+            return owned;
+        }
+
     }// namespace
 
     int EapCli::applyManifest(const std::vector<std::string> &args) const {
@@ -906,7 +961,8 @@ namespace Euclid::CLI {
         desc.add_options()
                 ("application-id,n", po::value<std::string>()->required(), "the application these objects belong to; recorded as their owner")
                 ("directory,d", po::value<std::string>()->default_value("euclid"), "the application's euclid/ directory")
-                ("dry-run", po::bool_switch()->default_value(false), "say what would be done, and do none of it");
+                ("dry-run", po::bool_switch()->default_value(false), "say what would be done, and do none of it")
+                ("no-prune", po::bool_switch()->default_value(false), "leave objects this application owns that the manifest no longer lists");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eap", "apply", "--application-id <name> [--directory <path>] [--dry-run]",
@@ -935,6 +991,7 @@ namespace Euclid::CLI {
         const auto application = vm["application-id"].as<std::string>();
         const auto directory = std::filesystem::path(vm["directory"].as<std::string>());
         const auto dryRun = vm["dry-run"].as<bool>();
+        const auto prune = !vm["no-prune"].as<bool>();
 
         const auto loaded = Core::LoadApplicationManifest(directory);
         if (!loaded.ok()) {
@@ -1020,6 +1077,45 @@ namespace Euclid::CLI {
             blocked = true;
         }
 
+        // ── What it used to own and no longer declares ──────────────────────────────────────
+        //
+        // The manifest is the desired state, so an object this application owns and no longer
+        // mentions is one a previous version of the manifest created. Only ever objects carrying
+        // this application's owner tag: nothing untagged, and nothing another application's, can be
+        // reached from here however the manifest is edited.
+        struct Removal {
+            Core::ApplicationManifest::Kind kind{};
+            std::string name;
+            std::string ern;
+        };
+        std::vector<Removal> removals;
+
+        if (prune && !blocked && !unanswerable) {
+            for (const auto kind: {Core::ApplicationManifest::Kind::Bucket,
+                                   Core::ApplicationManifest::Kind::Queue,
+                                   Core::ApplicationManifest::Kind::Topic}) {
+
+                bool listed = false;
+                const auto owned = ownedObjects(client, kind, application, listed);
+                if (!listed) {
+                    // Refusing to prune on a list that may be short is the only safe reading: what
+                    // is missing from it looks exactly like an object the manifest still declares.
+                    std::cout << "  ?       " << Core::ToString(kind) << "s could not be listed; nothing of this kind will be removed\n";
+                    continue;
+                }
+
+                for (const auto &[name, ern]: owned) {
+                    const auto declared = std::ranges::any_of(loaded.manifest.creates, [&](const auto &declaration) {
+                        return declaration.kind == kind && declaration.name == name;
+                    });
+                    if (declared) continue;
+
+                    std::cout << "  remove  " << Core::ToString(kind) << " " << name << " - owned here, no longer declared\n";
+                    removals.push_back({.kind = kind, .name = name, .ern = ern});
+                }
+            }
+        }
+
         std::cout << "\n";
 
         if (unanswerable) {
@@ -1034,7 +1130,7 @@ namespace Euclid::CLI {
             std::cout << "--dry-run: nothing was changed.\n";
             return 0;
         }
-        if (work.empty()) {
+        if (work.empty() && removals.empty()) {
             std::cout << "Already matches the manifest.\n";
             return 0;
         }
@@ -1095,7 +1191,55 @@ namespace Euclid::CLI {
             }
         }
 
-        std::cout << "Created " << created << ", adopted " << adoptions << ".\n";
+        // ── Remove what is no longer declared ───────────────────────────────────────────────
+        int removed = 0;
+        std::vector<std::string> orphans;
+
+        for (const auto &removal: removals) {
+
+            const auto kind = Core::ToString(removal.kind);
+            const auto actions = actionsFor(removal.kind);
+            const auto deleteAction = removal.kind == Core::ApplicationManifest::Kind::Bucket ? "delete-bucket"
+                                      : removal.kind == Core::ApplicationManifest::Kind::Queue ? "delete-queue"
+                                                                                               : "delete-topic";
+
+            try {
+                // ifEmpty, always. An object this application owns may still hold a delivery
+                // somebody is waiting for, and a line removed from a file is not a decision to
+                // destroy it - see docs/application-manifest.md. A topic has no ifEmpty because it
+                // holds nothing: what it has is subscriptions, and ENS refuses a topic that still
+                // has them on its own.
+                boost::json::object body{{"ern", removal.ern}};
+                if (removal.kind != Core::ApplicationManifest::Kind::Topic) body["ifEmpty"] = true;
+
+                const HttpResponse response = client.Post(actions.module, deleteAction, body);
+                if (response.IsSuccess()) {
+                    std::cout << "  removed " << kind << " " << removal.name << "\n";
+                    removed++;
+                    continue;
+                }
+                if (response.statusCode == 409) {
+                    // Not a failure. It is the answer the rule asks for: still in use, so still
+                    // here, and now somebody's to decide about.
+                    orphans.push_back(kind + " " + removal.name + " - " + boost::json::serialize(response.body));
+                    continue;
+                }
+                orphans.push_back(kind + " " + removal.name + " - HTTP " + std::to_string(response.statusCode) + ": " + boost::json::serialize(response.body));
+
+            } catch (const std::exception &ex) {
+                orphans.push_back(kind + " " + removal.name + " - " + ex.what());
+            }
+        }
+
+        std::cout << "Created " << created << ", adopted " << adoptions << ", removed " << removed << ".\n";
+
+        if (!orphans.empty()) {
+            // Reported rather than counted away: these are objects nothing declares any more, which
+            // nobody will look for again unless they are named here. They keep their owner tag, so
+            // the next run offers them again.
+            std::cout << "\nLeft in place, no longer declared by " << application << ":\n";
+            for (const auto &orphan: orphans) std::cout << "  " << orphan << "\n";
+        }
         return 0;
     }
 
