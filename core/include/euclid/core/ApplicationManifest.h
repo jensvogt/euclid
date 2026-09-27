@@ -104,7 +104,16 @@ namespace Euclid::Core {
         struct Uses {
             Kind kind{};
             std::string name;
-            Access access{Access::Read};
+            /**
+             * @brief Every way this application reaches the object, at least one.
+             *
+             * @par
+             * A list because one object is routinely reached two ways at once: a @BucketListener
+             * attaches to a bucket's events and then fetches the object each event names, which is
+             * subscribe and read. Declaring it twice is still refused - two declarations of one
+             * object are two answers - so the ways it is reached belong in one of them.
+             */
+            std::vector<Access> access{Access::Read};
 
             /**
              * @brief The application expected to own it, when the author knows.
@@ -183,6 +192,11 @@ namespace Euclid::Core {
      * @brief The wire spelling of an access level, as a manifest writes it.
      */
     [[nodiscard]] std::string ToString(ApplicationManifest::Access access);
+
+    /**
+     * @brief Several of them, comma separated, as a message names them.
+     */
+    [[nodiscard]] std::string ToString(const std::vector<ApplicationManifest::Access> &access);
 
     /**
      * @brief The wire spelling of an object kind, singular - "bucket", "queue", "topic".

@@ -40,7 +40,7 @@ repository.
   },
   "uses": {
     "topics":  [ { "name": "artikel-updates", "access": "subscribe", "owner": "transformation" } ],
-    "buckets": [ { "name": "transfer-server", "access": "read" } ]
+    "buckets": [ { "name": "transfer-server", "access": ["subscribe", "read"] } ]
   }
 }
 ```
@@ -56,7 +56,9 @@ exist, and a deploy that cannot find it fails naming the application that should
 which is why `owner` is worth writing even though it is optional and never checked against the real
 owner. `access` is required: an application that does not say how it reaches somebody else's object
 has not said what it needs, and a default would grant the wrong thing to whichever half of the guess
-was wrong.
+was wrong. One way or several: a `@BucketListener` attaches to a bucket's events and then fetches
+what each event names, which is `["subscribe", "read"]`. Order does not matter, and declaring the
+same object twice is still refused — two declarations of one object are two answers.
 
 | `access` | means |
 | --- | --- |
