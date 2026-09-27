@@ -186,6 +186,25 @@ namespace Euclid::Database::Entity::EAP {
         std::vector<std::string> resources;
 
         /**
+         * @brief ERNs of the resources this application's declaration created, as it last stood.
+         *
+         * @par
+         * The record a full reconcile needs. "Which resources did this application create?" cannot be
+         * answered by looking at the installation - a queue carries no note of who asked for it, and
+         * treating every queue the application can reach as its own would delete one it merely uses.
+         * So what was created is kept here, and a resource that drops out of the declaration is
+         * removed because it is in this list and no longer in the file.
+         *
+         * @par
+         * Empty for every application that declares nothing, which is every one deployed before the
+         * sidecar existed - so nothing is ever deleted on their behalf.
+         *
+         * @par
+         * See Infrastructure::ObjectKey() for where the declaration lives.
+         */
+        std::vector<std::string> infrastructure;
+
+        /**
          * @brief EAM user the application runs as.
          *
          * @par

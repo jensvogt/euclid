@@ -7,6 +7,9 @@
 #include <sstream>
 
 // Euclid includes
+#include <euclid/database/entity/eap/Infrastructure.h>
+#include <fstream>
+#include <algorithm>
 #include <euclid/cli/eap/EapCli.h>
 #include <euclid/cli/esm/EsmCli.h>
 #include <euclid/core/CryptoUtils.h>
@@ -64,6 +67,7 @@ namespace Euclid::CLI {
                 {"delete-application", "Delete an application definition"},
                 {"list-applications", "List the defined applications and how many instances are running"},
                 {"get-application", "Show one application's definition"},
+                {"deploy-infrastructure", "Store an application's declaration beside its artifact and apply it"},
                 {"redeploy-application", "Deploy a new build of an application from a local file"},
                 {"restart-application", "Ask the manager to start an application's instances again"},
                 {"start-application", "Ask the manager to start an application"},
@@ -100,6 +104,7 @@ namespace Euclid::CLI {
         if (action == "update-application") return updateApplication(args);
         if (action == "copy-application") return copyApplication(args);
         if (action == "scale-application") return scaleApplication(args);
+        if (action == "deploy-infrastructure") return deployInfrastructure(args);
         if (action == "redeploy-application") return redeployApplication(args);
         if (action == "list-applications") return listApplications(args);
         if (action == "get-application") return getApplication(args);
@@ -398,6 +403,166 @@ namespace Euclid::CLI {
             }
             Core::WriteJson(std::cout, response.body, _pretty);
             return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EapCli::deployInfrastructure(const std::vector<std::string> &args) const {
+
+        po::options_description desc("deploy infrastructure options");
+        desc.add_options()
+                ("application-id,n", po::value<std::string>()->required(), "application the declaration belongs to")
+                ("dir,d", po::value<std::string>()->default_value("euclid"), "folder of declaration files")
+                ("dry-run", po::bool_switch(), "print the merged declaration and stop, uploading nothing");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eap", "deploy-infrastructure",
+                                   "--application-id <name> [--dir <folder>] [--dry-run]",
+                                   "Merges an application's declaration folder into one document, stores it beside the "
+                                   "artifact in the application's own bucket as \"<application-id>.euclid.json\", and "
+                                   "asks EAP to apply it.\n\n"
+                                   "The folder is the application's own: one file naming the queues and topics it owns, "
+                                   "another the buckets somebody else owns that it has to reach. How the files are split "
+                                   "is the author's business - they are merged by section and kind, not by filename - but "
+                                   "two of them naming the same resource is refused rather than resolved, because "
+                                   "whichever a merge preferred, the other author would have been overruled silently.\n\n"
+                                   "Applying is a full reconcile: what the application owns is created, what it owned "
+                                   "and no longer declares is DELETED, and its access grants are replaced with exactly "
+                                   "the ones the file asks for. A deleted queue takes its messages with it and a deleted "
+                                   "bucket its objects, so what went is named in the answer. Run --dry-run first.\n\n"
+                                   "Nothing is created for a resource the application only uses: a service that could "
+                                   "conjure another team's queue by naming it would make ownership meaningless, so a "
+                                   "\"uses\" entry naming something absent is refused.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        const auto applicationId = vm["application-id"].as<std::string>();
+        const auto directory = vm["dir"].as<std::string>();
+        const auto dryRun = vm["dry-run"].as<bool>();
+
+        std::error_code ec;
+        if (!std::filesystem::is_directory(directory, ec)) {
+            std::cerr << "error: not a directory: " << directory << std::endl;
+            return 1;
+        }
+
+        // Every *.json in the folder, in name order so that a run over the same folder reads them
+        // the same way twice - the merge sorts its output, but a stable read order keeps an error
+        // message about one file meaning the same file next time.
+        std::vector<std::filesystem::path> files;
+        for (const auto &entry: std::filesystem::directory_iterator(directory, ec)) {
+            if (entry.is_regular_file() && entry.path().extension() == ".json") files.push_back(entry.path());
+        }
+        std::ranges::sort(files);
+        if (files.empty()) {
+            std::cerr << "error: no .json files in " << directory << std::endl;
+            return 1;
+        }
+
+        std::vector<Database::Entity::EAP::Infrastructure::Declaration> declarations;
+        for (const auto &file: files) {
+            std::ifstream in(file, std::ios::binary);
+            std::ostringstream buffer;
+            buffer << in.rdbuf();
+
+            boost::json::value parsed;
+            try {
+                parsed = boost::json::parse(buffer.str());
+            } catch (const std::exception &ex) {
+                std::cerr << "error: " << file.filename().string() << " is not JSON: " << ex.what() << std::endl;
+                return 1;
+            }
+            auto read = Database::Entity::EAP::Infrastructure::Read(parsed);
+            if (!read.error.empty()) {
+                std::cerr << "error: " << file.filename().string() << ": " << read.error << std::endl;
+                return 1;
+            }
+            declarations.push_back(std::move(read.declaration));
+        }
+
+        auto merged = Database::Entity::EAP::Infrastructure::Merge(declarations);
+        if (!merged.error.empty()) {
+            std::cerr << "error: " << merged.error << std::endl;
+            return 1;
+        }
+
+        // Stamped into the document, so that from here on the file says which application it is for
+        // rather than relying on the key it happens to be stored under. EAP refuses one that names a
+        // different application - which is what stops a mistyped --application-id handing one
+        // service's queues and topics to another, for that one to delete on its next reconcile.
+        if (merged.declaration.applicationId.empty()) merged.declaration.applicationId = applicationId;
+        if (merged.declaration.applicationId != applicationId) {
+            std::cerr << "error: these files declare \"" << merged.declaration.applicationId
+                      << "\", not \"" << applicationId << "\"" << std::endl;
+            return 1;
+        }
+
+        const auto document = boost::json::serialize(Database::Entity::EAP::Infrastructure::Write(merged.declaration));
+        const auto key = Database::Entity::EAP::Infrastructure::ObjectKey(applicationId);
+
+        if (dryRun) {
+            std::cout << "would store " << files.size() << " file(s) as " << key << ":" << std::endl;
+            Core::WriteJson(std::cout, boost::json::parse(document), _pretty);
+            return 0;
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+
+            // The application's own bucket rather than a configured one: the declaration belongs
+            // beside the artifact, and where that is, is something only the application record knows.
+            const HttpResponse current = client.Post("eap", "get-application",
+                                                     boost::json::object{{"applicationId", applicationId}});
+            if (!current.IsSuccess()) {
+                std::cerr << "error: get-application failed (HTTP " << current.statusCode << "): "
+                          << boost::json::serialize(current.body) << std::endl;
+                return 1;
+            }
+            // Read off the top level: get-application answers with the application's own fields,
+            // not with the definition nested under a key. And through GetStringValue rather than
+            // at(), which throws for a field that is not there - a missing bucketErn should be this
+            // command's explanation, not boost's.
+            const auto bucketErn = Core::GetStringValue(current.body, "bucketErn");
+            if (bucketErn.empty()) {
+                std::cerr << "error: " << applicationId << " has no bucket to store a declaration beside" << std::endl;
+                return 1;
+            }
+
+            // Written out and uploaded rather than sent inline: this is an ordinary object, and
+            // uploadOneFile is the same put-object path every other upload takes.
+            const auto temporary = std::filesystem::temp_directory_path() / key;
+            {
+                std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
+                out << document;
+            }
+
+            const EsmCli esm(_endpoint, _authentication, _pretty, _caCertPath);
+            boost::json::value uploaded;
+            const auto result = esm.uploadOneFile(bucketErn, key, temporary.string(), 0, 0, uploaded);
+            std::filesystem::remove(temporary, ec);
+            if (result != 0) return result;
+
+            const HttpResponse applied = client.Post("eap", "apply-infrastructure",
+                                                     boost::json::object{{"applicationId", applicationId}});
+            if (!applied.IsSuccess()) {
+                std::cerr << "error: apply-infrastructure failed (HTTP " << applied.statusCode << "): "
+                          << boost::json::serialize(applied.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, applied.body, _pretty);
+            return 0;
+
         } catch (const std::exception &ex) {
             std::cerr << "error: " << ex.what() << std::endl;
             return 1;
