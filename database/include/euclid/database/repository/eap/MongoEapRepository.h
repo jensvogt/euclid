@@ -145,6 +145,10 @@ namespace Euclid::Database {
         bool setApplicationInstances(const std::string &accountId, const std::string &nameSpace,
                                      const std::string &applicationId, long minInstances, long maxInstances) override;
 
+        bool setApplicationInfrastructure(const std::string &accountId, const std::string &nameSpace,
+                                          const std::string &applicationId,
+                                          const std::vector<std::string> &infrastructure) override;
+
         /**
          * @brief Stamps the modification date, and nothing else - which the manager reads as a
          * definition change and answers by starting the instances again.

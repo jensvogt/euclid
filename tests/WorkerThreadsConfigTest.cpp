@@ -6,6 +6,8 @@
 #include <boost/test/unit_test.hpp>
 
 // Euclid includes
+#include <limits>
+
 #include <euclid/core/Configuration.h>
 #include <euclid/core/HttpActionServer.h>
 #include <euclid/core/UnixSocketServer.h>
@@ -107,4 +109,52 @@ BOOST_AUTO_TEST_CASE(ASizeInBytesIsReadAsSixtyFourBitsWherever) {
     Configuration::instance().set<long long>("euclid.gateway.http.max-body", twelveGigabytes);
 
     BOOST_TEST(Configuration::instance().getOr<long long>("euclid.gateway.http.max-body", 0LL) == twelveGigabytes);
+}
+
+// ── Narrowing a configured double ───────────────────────────────────────────
+//
+// A number in a configuration file arrives as whatever JSON made of it, and a figure past the
+// integer range used to be undefined rather than clamped: the bound it was clamped against was
+// LONG_MAX converted to a double, which rounds *up* to 2^63, so the clamp let the result reach a
+// value the cast back could not hold. The comment promising "clamped rather than truncated" was
+// describing what the code was trying to do rather than what it did.
+
+BOOST_AUTO_TEST_CASE(ADoubleBeyondTheIntegerRangeIsClampedRatherThanUndefined) {
+
+    Configuration::instance().set<double>("test.narrowing.huge", 1e30);
+    BOOST_TEST(Configuration::instance().getOr<long>("test.narrowing.huge", 0)
+               == std::numeric_limits<long>::max());
+
+    Configuration::instance().set<double>("test.narrowing.tiny", -1e30);
+    BOOST_TEST(Configuration::instance().getOr<long>("test.narrowing.tiny", 0)
+               == std::numeric_limits<long>::min());
+}
+
+BOOST_AUTO_TEST_CASE(ADoubleAtTheBoundIsClampedToo) {
+
+    // 2^63 exactly - the first double above the range, and the value the old clamp could produce
+    // and then cast. It has to come back as the maximum rather than as whatever the cast did.
+    Configuration::instance().set<double>("test.narrowing.bound", 9223372036854775808.0);
+    BOOST_TEST(Configuration::instance().getOr<long>("test.narrowing.bound", 0)
+               == std::numeric_limits<long>::max());
+}
+
+BOOST_AUTO_TEST_CASE(AnOrdinaryDoubleStillNarrowsToItsOwnValue) {
+
+    // The clamp must not have become the answer for everything: a figure inside the range is still
+    // itself, truncated toward zero as a cast has always been.
+    Configuration::instance().set<double>("test.narrowing.ordinary", 4096.0);
+    BOOST_TEST(Configuration::instance().getOr<long>("test.narrowing.ordinary", 0) == 4096L);
+
+    Configuration::instance().set<double>("test.narrowing.fraction", 1500.75);
+    BOOST_TEST(Configuration::instance().getOr<long>("test.narrowing.fraction", 0) == 1500L);
+}
+
+BOOST_AUTO_TEST_CASE(TheSixtyFourBitReaderNarrowsTheSameWay) {
+
+    // The long long specialisation had the same undefined cast without a warning to point at it,
+    // so the two share one narrowing and have to agree.
+    Configuration::instance().set<double>("test.narrowing.huge64", 1e30);
+    BOOST_TEST(Configuration::instance().getOr<long long>("test.narrowing.huge64", 0)
+               == std::numeric_limits<long long>::max());
 }

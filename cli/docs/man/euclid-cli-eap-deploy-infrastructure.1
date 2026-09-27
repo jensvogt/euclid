@@ -1,0 +1,131 @@
+.TH EUCLID-CLI-EAP-DEPLOY-INFRASTRUCTURE 1 "September 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eap-deploy-infrastructure \- store an application's declaration beside its artifact and apply it
+.SH SYNOPSIS
+.B euclid-cli eap deploy-infrastructure
+.BR \-\-application\-id | \-n
+.I NAME
+.RB [ \-\-dir | \-d
+.IR FOLDER ]
+.RB [ \-\-dry\-run ]
+.SH DESCRIPTION
+Merges an application's declaration folder into one document, stores it in the
+application's own bucket as
+.IR <application-id>.euclid.json ,
+and asks EAP to apply it.
+.SH THE DECLARATION
+An application's own repository carries a
+.I euclid/
+folder: one file naming the queues and topics it owns, another the buckets
+somebody else owns that it has to reach.
+.PP
+.RS
+.nf
+{ "version": 1,
+  "creates": { "queues": [ {"name": "file-logging-cancel-queue"} ] },
+  "uses":    { "buckets": [ {"name": "transfer-server",
+                             "access": ["subscribe", "read"],
+                             "owner": "ftp-server"} ] } }
+.fi
+.RE
+.PP
+.B creates
+is what the application owns: euclid makes these.
+.B uses
+is what somebody else owns: euclid grants access and creates nothing, because a
+service that could conjure another team's queue by naming it would make
+ownership meaningless. A
+.B uses
+entry naming something absent is refused.
+.PP
+How the files are split is the author's business \(em they are merged by section
+and kind, not by filename. Two of them naming the same resource is refused
+rather than resolved: whichever a merge preferred, the other author would have
+been overruled without being told.
+.SH WHY BESIDE THE ARTIFACT
+A jar cannot be read without unpacking it, and a declaration euclid has to open
+the artifact to find is one no operator can look at either. As a sibling object
+it is fetched, diffed and versioned by everything that already knows how to read
+a bucket \(em and an application in any language carries it the same way.
+.SH ACCESS LEVELS
+Per kind, because the verbs differ. Anything else is refused, and the refusal
+says what would have worked.
+.TS
+tab(@);
+l l.
+\fBqueues\fR@produce, consume
+\fBtopics\fR@produce, subscribe
+\fBbuckets\fR@read, write, subscribe
+.TE
+.PP
+Each is granted narrowed to the one resource, through a role euclid writes named
+.IR access\-<kind>\-<level> .
+Producing and consuming are deliberately separate: the service that fills a queue
+and the one that drains it are usually different, and each reaching only its own
+end is the point.
+.SH APPLYING IS A FULL RECONCILE
+.B What the application owns is created; what it owned and no longer declares is
+.BR deleted ;
+its access grants are replaced with exactly the ones the file asks for.
+.PP
+A deleted queue takes its messages with it and a deleted bucket its objects. Only
+a resource a
+.I previous
+declaration created is ever removed \(em the ERNs are recorded on the application,
+so removing a line from the file is the only way to reach a deletion \(em and what
+went is named in the answer rather than left to be noticed.
+.PP
+.B Run \-\-dry\-run first.
+It prints the merged document and stops, uploading nothing and changing nothing.
+.PP
+Grants an operator made by hand are left alone: only the
+.I access\-
+roles this writes are replaced.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-application\-id " " \fINAME\fR
+The application the declaration belongs to. Required. Its bucket is where the
+declaration is stored, so the application has to exist already.
+.TP
+.BR \-d ", " \-\-dir " " \fIFOLDER\fR
+Folder of declaration files. Defaults to
+.IR euclid .
+Every
+.I *.json
+in it is read, in name order.
+.TP
+.B \-\-dry\-run
+Print the merged declaration and stop.
+.SH EXIT STATUS
+.TP
+.B 0
+The declaration was stored and applied, or printed for a dry run.
+.TP
+.B 1
+The folder is missing or holds no JSON, a file could not be read or is not a
+valid declaration, two files name the same resource, a
+.B uses
+entry names something that does not exist, the application is unknown, or the
+server could not be reached.
+.SH EXAMPLES
+Look first:
+.RS
+.nf
+cd file\-copy\-service
+euclid\-cli eap deploy\-infrastructure \-n file\-copy \-\-dry\-run
+.fi
+.RE
+.PP
+Then apply it:
+.RS
+.nf
+euclid\-cli eap deploy\-infrastructure \-n file\-copy
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eap (1),
+.BR euclid-cli-eap-create-application (1),
+.BR euclid-cli-eap-redeploy-application (1),
+.BR euclid-cli-eam-list-grants (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

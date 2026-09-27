@@ -114,6 +114,15 @@ namespace Euclid::CLI {
         int redeployApplication(const std::vector<std::string> &args) const;
 
         /**
+         * @brief Stores an application's declaration folder beside its artifact and applies it.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int deployInfrastructure(const std::vector<std::string> &args) const;
+
+        /**
          * @brief Lists applications, with how many instances of each are actually running.
          *
          * @param args command line arguments
