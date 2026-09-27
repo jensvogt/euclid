@@ -168,6 +168,23 @@ namespace Euclid::CLI {
         [[nodiscard]]
         int setLogLevel(const std::vector<std::string> &args) const;
 
+        /**
+         * @brief Applies an application's euclid/ manifest: creates what it owns, checks what it
+         * uses, and says what it did before it does it.
+         *
+         * @par
+         * The same work EAP will do at deploy, from a source tree and under a human's eye first.
+         * That order is deliberate: an apply that runs unattended inside a deployment is a bad
+         * place to discover what the rules turned out to be.
+         *
+         * @param args command line arguments
+         * @return 0 when the installation matches the manifest, 1 when something is wrong with the
+         * manifest or could not be applied, 2 when the question could not be asked at all - the
+         * same three answers Euclid::CLI::Exists gives, for the same reason.
+         */
+        [[nodiscard]]
+        int applyManifest(const std::vector<std::string> &args) const;
+
         std::string _endpoint;
         Credentials::Entry _authentication;
         bool _pretty;

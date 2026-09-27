@@ -283,10 +283,11 @@ namespace Euclid::CLI {
         po::options_description desc("delete bucket options");
         desc.add_options()
                 ("bucket,b", po::value<std::string>()->required(), "bucket name; a full ERN also works and is what reaches another namespace")
-                ("async", po::bool_switch()->default_value(false), "return at once and remove the objects in the background; for buckets too large to empty within one request");
+                ("async", po::bool_switch()->default_value(false), "return at once and remove the objects in the background; for buckets too large to empty within one request")
+                ("if-empty", po::bool_switch()->default_value(false), "refuse unless the bucket is empty, instead of deleting what is in it");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("esm", "delete-bucket", "--bucket <name|ern> [--async]",
+            return PrintActionHelp("esm", "delete-bucket", "--bucket <name|ern> [--async] [--if-empty]",
                                    "Deletes a storage bucket identified by its Euclid resource name (ERN), "
                                    "along with every object it contains - their stored files are removed and one "
                                    "\"esm.object.deleted\" event is published per object, exactly as if each had been "
@@ -296,7 +297,11 @@ namespace Euclid::CLI {
                                    "Give --async for a bucket large enough that emptying it takes minutes: the request is answered at once "
                                    "with HTTP 202, and a background thread inside ESM removes the objects and then the bucket - which stays "
                                    "listed, and still deletable, until it is genuinely gone. Without it the call sits there until the "
-                                   "gateway times out while the removal carries on unseen behind it. This cannot be undone.",
+                                   "gateway times out while the removal carries on unseen behind it. This cannot be undone. "
+                                   "Give --if-empty to make it undoable by never being done: the bucket goes only while it holds "
+                                   "nothing, and one with objects in it is left alone and reported with HTTP 409 naming how many. "
+                                   "That is the form for scripts and provisioning - removing a line from a file should not be able "
+                                   "to destroy a bucket full of deliveries.",
                                    desc);
         }
 
@@ -311,6 +316,7 @@ namespace Euclid::CLI {
 
         Dto::ESM::DeleteBucketRequest request;
         request.ern = vm["bucket"].as<std::string>();
+        request.ifEmpty = vm["if-empty"].as<bool>();
 
         auto body = boost::json::value_from(request);
         if (vm["async"].as<bool>()) body.as_object()["async"] = true;
