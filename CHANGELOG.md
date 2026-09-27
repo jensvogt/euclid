@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.2.0](https://github.com/jensvogt/euclid/compare/1.1.41...v1.2.0) (2026-09-27)
+
+
+### Features
+
+* **cli:** eap apply removes what an application no longer declares ([7956e70](https://github.com/jensvogt/euclid/commit/7956e7012791faca8c7f8dbdb8bbc5d8c3b82269))
+* **cli:** eap apply, to make an installation match an application's manifest ([ebad1c9](https://github.com/jensvogt/euclid/commit/ebad1c963b2d1ed306930371ded17793094bcfc0))
+* **core:** a used object can name more than one way of being reached ([97a0f85](https://github.com/jensvogt/euclid/commit/97a0f857f9f6030257fa3a05ff6a318e8591dee2))
+* **core:** read an application's euclid/ manifest ([cd3e38c](https://github.com/jensvogt/euclid/commit/cd3e38cb7bc471a6f6d0622d5efb66d3fdfb6784))
+* **eap:** deploy an application with the resources its manifest names ([3eac7a5](https://github.com/jensvogt/euclid/commit/3eac7a553a690abf60d724f9293f601d1de69de5))
+* **esm,eqs:** delete-bucket and delete-queue can refuse a non-empty target ([74864a6](https://github.com/jensvogt/euclid/commit/74864a657c8864527c6309b263967e13d3582a42))
+* **win32:** the service is listed as "Euclid Cloud Service" ([c9bf347](https://github.com/jensvogt/euclid/commit/c9bf347c9ed499744cd3e3a842dec2c99c7a80df))
+
+
+### Bug Fixes
+
+* add bucket priority ([5dbbee0](https://github.com/jensvogt/euclid/commit/5dbbee0add4c3cb034478a18a35768a93e508360))
+* add euclid infrastructure handling ([8f37ac3](https://github.com/jensvogt/euclid/commit/8f37ac34e2c9cf87cc129faf6d8b675a7cdf86b1))
+* linux build errors ([4487172](https://github.com/jensvogt/euclid/commit/448717256976aaadd1bd844047193f7b0c10d5bf))
+* linux build errors ([86df5bc](https://github.com/jensvogt/euclid/commit/86df5bc1b781ea92117b18c49733d47662c61055))
+
 ## [1.1.41](https://github.com/jensvogt/euclid/compare/1.1.40...v1.1.41) (2026-09-26)
 
 
