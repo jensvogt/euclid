@@ -546,28 +546,29 @@ namespace Euclid::EAP {
                 // Resolved, not created: a service that could conjure another team's queue by naming
                 // it would make ownership meaningless, so a `uses` entry for something absent is the
                 // deployment being wrong about its own dependencies.
+                // All three kinds go through the one resolver rather than this doing topics itself:
+                // it names what it could not find - "topic 'reminder-topic'" - so the answer says
+                // which resource was missing and not merely that something was.
                 std::string unresolved;
+                const std::vector<std::string> named{resource.name};
                 const auto resolved = resource.kind == "buckets"
-                                              ? resolveResources(accountId, nameSpace, {resource.name}, {}, unresolved)
+                                              ? resolveResources(accountId, nameSpace, named, {}, {}, unresolved)
                                               : resource.kind == "queues"
-                                              ? resolveResources(accountId, nameSpace, {}, {resource.name}, unresolved)
+                                              ? resolveResources(accountId, nameSpace, {}, named, {}, unresolved)
+                                              : resource.kind == "topics"
+                                              ? resolveResources(accountId, nameSpace, {}, {}, named, unresolved)
                                               : std::optional<std::vector<std::string> >{};
 
-                std::string ern;
-                if (resource.kind == "topics") {
-                    const auto topic = Database::RepositoryFactory::instance().ensRepository()->findTopicByName(accountId, nameSpace, resource.name);
-                    if (!topic.has_value()) {
-                        plan.error = "uses a topic that does not exist: '" + resource.name + "'";
-                        return plan;
-                    }
-                    ern = topic->ern;
-                } else {
-                    if (!resolved.has_value() || resolved->empty()) {
-                        plan.error = "uses a " + resource.kind + " that does not exist: '" + resource.name + "'";
-                        return plan;
-                    }
-                    ern = resolved->front();
+                if (!resolved.has_value() || resolved->empty()) {
+                    // An empty `unresolved` means the resolver was never asked, which only happens
+                    // for a kind it has no loop for - unreachable through Infrastructure::Read,
+                    // which refuses one, and said plainly here rather than reported as absence.
+                    plan.error = unresolved.empty()
+                                         ? "uses a kind of resource this server does not know: '" + resource.kind + "'"
+                                         : "uses a " + unresolved + " that does not exist";
+                    return plan;
                 }
+                const auto &ern = resolved->front();
 
                 for (const auto &access: resource.access) {
                     Database::Entity::EAM::Grant grant;
