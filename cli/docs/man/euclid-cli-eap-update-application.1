@@ -16,6 +16,7 @@ euclid-cli-eap-update-application \- change an application's definition
 [\fB\-\-min\-instances\fR \fIN\fR]
 [\fB\-\-max\-instances\fR \fIN\fR]
 [\fB\-\-ready\-timeout\fR \fIMS\fR]
+[\fB\-\-user\fR|\fB\-u\fR \fIUSERID\fR]
 .SH DESCRIPTION
 Changes an existing application's definition. Only the options actually
 given are altered, so one setting can be changed without resending the
@@ -42,9 +43,27 @@ always the artifact it points at; the recorded version follows only when
 .B \-\-version
 says so.
 .PP
-The identity an application runs as cannot be changed here - delete it
-and create it again instead. Neither can its bucket; the artifact key
-must name an object in the bucket the application already has.
+.B \-\-user
+points the application at a different EAM identity. It has to exist and
+hold an access key, checked here rather than discovered later: an
+application pointed at a principal that cannot authenticate starts
+normally and is refused everything it calls, and what it reports is the
+first call it made \- a secret it could not read, a queue it could not
+reach \- rather than who it was calling as.
+.PP
+That is the repair for a definition naming a principal that has been
+deleted or renamed, which before this could only be fixed by deleting the
+application and creating it again.
+.PP
+If the application was running as a technical principal EAP issued it
+(\fIapp\-<runtime name>\fR), that principal is deleted with the change,
+its grants first \- it was made for this application, nothing else can
+use it, and a grant left pointing at a deleted principal comes back to
+life the day somebody creates a user of that name again. A user you named
+yourself is yours and is left alone.
+.PP
+The application's bucket cannot be changed here; the artifact key must
+name an object in the bucket the application already has.
 .SH OPTIONS
 .TP
 .BR \-n ", " \-\-application\-id " " \fINAME\fR
@@ -61,6 +80,11 @@ Object key of the artifact within the application's bucket. Must exist.
 .B \-\-version " " \fIX.Y.Z\fR
 Version recorded for the application. Taken as given - this is the one
 place a version can be set to anything, including one already deployed.
+.TP
+.BR \-u ", " \-\-user " " \fIUSERID\fR
+EAM user the application runs as. Must exist and have an access key.
+Replaces the technical principal EAP issued the application, if it had
+one \- see above.
 .TP
 .BR \-c ", " \-\-command " " \fICMD\fR
 Command to run instead of the runtime's default.

@@ -1,0 +1,105 @@
+.TH EUCLID-CLI-EAM-CHANGE-USERID 1 "September 2026" "euclid-cli 1.1.37" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eam-change-userid \- give a user a different user ID
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B eam change-userid
+\fB\-\-user\fR|\fB\-u\fR \fIUSERID\fR
+\fB\-\-new\-user\fR|\fB\-n\fR \fIUSERID\fR
+.SH DESCRIPTION
+Renames a user via the eam service's
+.I change-userid
+action. Requires administrator privileges.
+.PP
+Both ids are named outright. Unlike
+.BR euclid-cli-eam-change-password (1),
+which means your own when it names nobody, this one has no "mine" \- a
+rename that could mean the caller by saying nothing is one keystroke
+from renaming the wrong account.
+.SH WHAT MOVES WITH THE NAME
+A user ID is not only a label, and three things are built out of it:
+.RS
+.IP \(bu 3
+the user's
+.BR ERN ,
+which is rebuilt from the new id in the account and region it always
+named;
+.IP \(bu 3
+every
+.B grant
+written to that ERN, which is the whole of what the user may do;
+.IP \(bu 3
+their
+.B membership
+of any user group, since a group's members are a list of user ids rather
+than of ERNs \- and grants held through a group go with it.
+.RE
+.PP
+All three follow the rename. Without them the user would authenticate
+perfectly and hold nothing, which from the outside is indistinguishable
+from a permissions bug.
+.PP
+Access keys travel with the user because they live in the user record,
+and keep their ids \- so anything already signing with one goes on
+working.
+.SH WHAT DOES NOT
+The history. An audit record says who did something under the name they
+did it under, and rewriting it would be falsifying it. The same goes for
+the owner recorded on a bucket, a queue or an object: that names who made
+the thing, not who exists now.
+.SH REFUSALS
+.TP
+.B Another user holds the new id
+Answered 409. User ids are unique across the installation.
+.TP
+.B An application runs as this user
+Answered 409, naming the application. An application records the identity
+it runs as by user id, and the manager looks it up on every reconcile to
+hand the process its credentials \- so renaming the user out from under
+it leaves the application running and refused everything it calls, with
+one line in the manager's log to say so. Point it elsewhere with
+.B euclid-cli eap update-application \-\-user
+first.
+.SH SESSIONS
+A session already open is not ended. Its bearer token is a JWT carrying
+the old id as its subject and is verified against the signing secret
+rather than against anything stored, so it stays valid until it expires
+\- and cannot be refreshed after that, because the subject no longer
+resolves. Renaming yourself therefore means logging in again under the
+new id, and the command says so when it happens.
+.SH OPTIONS
+.TP
+.BR \-u ", " \-\-user " " \fIUSERID\fR
+The user to rename. Required.
+.TP
+.BR \-n ", " \-\-new\-user " " \fIUSERID\fR
+The id they should have from now on. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The renamed user is printed as JSON, as
+.BR euclid-cli-eam-get-user (1)
+reports one \- so a script can read the new ERN out of the answer rather
+than building it.
+.TP
+.B 1
+Missing/invalid arguments, not an administrator, no such user, the new id
+is taken, an application runs as this user, or the server could not be
+reached.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli --endpoint https://localhost:5566 eam change-userid \e
+    --user jens --new-user jens.vogt
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eam (1),
+.BR euclid-cli-eam-get-user (1),
+.BR euclid-cli-eam-delete-user (1),
+.BR euclid-cli-eam-change-password (1),
+.BR euclid-cli-eam-list-grants (1),
+.BR euclid-cli-eap-update-application (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

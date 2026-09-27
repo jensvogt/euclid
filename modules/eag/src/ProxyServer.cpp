@@ -54,9 +54,11 @@ namespace Euclid::EAG {
         // be reached by a thousand callers at once. Shared with euclid's own gateway, since a
         // request that goes through this one to a module has to pass both.
         std::uint64_t maxProxyBody() {
-            constexpr long kDefaultMaxBodySize = 512L * 1024 * 1024;
-            return static_cast<std::uint64_t>(
-                    Core::Configuration::instance().getOr<long>("euclid.gateway.http.max-body", kDefaultMaxBodySize));
+            // long long, not long - see GatewayServer::MaxBodySize(). This is the limit an upload
+            // route's own maxBytes is checked against, and both of them are sizes in bytes.
+            constexpr long long kDefaultMaxBodySize = 512LL * 1024 * 1024;
+            return static_cast<std::uint64_t>(std::max<long long>(0,
+                    Core::Configuration::instance().getOr<long long>("euclid.gateway.http.max-body", kDefaultMaxBodySize)));
         }
 
         // Templated on the body, because a refusal is often decided before the body has been read
@@ -265,8 +267,17 @@ namespace Euclid::EAG {
                               const std::shared_ptr<http::response<http::string_body> > &response) {
 
         stream->AsyncWrite(*response, [stream, response](const beast::error_code &ec) {
-            if (ec) log_debug << "API gateway write failed: " << ec.message();
-            stream->Close();
+            if (ec) {
+                log_debug << "API gateway write failed: " << ec.message();
+                stream->Close();
+                return;
+            }
+
+            // Not Close(): a response often goes out while the caller is still sending - a refusal
+            // decided from the headers is the whole reason not to read the body - and closing on
+            // unread data resets the connection, which throws the response away before the caller
+            // can read it. See ClientStream::LingeringClose().
+            stream->LingeringClose();
         });
     }
 
@@ -435,6 +446,18 @@ namespace Euclid::EAG {
         Database::Entity::EAG::Route route;
 
         /**
+         * @brief The one connection to euclid's gateway that every call of this upload goes
+         * through - create-upload, each part, and complete-upload.
+         *
+         * @par
+         * One rather than one per call, which is what this used to be: a 12GB delivery at a 64KB
+         * part size is two hundred thousand calls, and opening a connection for each of them
+         * exhausts a Windows host's ephemeral ports part-way through the body. See
+         * ModuleConnection.
+         */
+        std::unique_ptr<ModuleConnection> connection;
+
+        /**
          * @brief One part's worth of bytes, reused for every part.
          *
          * @par
@@ -559,8 +582,10 @@ namespace Euclid::EAG {
 
         // Staged before a byte is read, so that a caller who may not write here is told so now.
         // ESM decides that, against the caller's own grants - see ModuleCredential.
+        upload->connection = std::make_unique<ModuleConnection>(_euclidGatewayPort, _euclidGatewayTls, _euclidGatewayCtx);
+
         const boost::json::object create{{"bucketErn", match.upload.bucket}, {"key", upload->key}};
-        const auto created = CallModule(_euclidGatewayPort, _euclidGatewayTls, _euclidGatewayCtx, upload->auth.credential,
+        const auto created = upload->connection->Call(upload->auth.credential,
                                         {.target = "esm",
                                          .action = "create-upload",
                                          .body = boost::json::serialize(create),
@@ -651,7 +676,7 @@ namespace Euclid::EAG {
         if (upload->uploadId.empty()) return;
 
         const boost::json::object abort{{"uploadId", upload->uploadId}};
-        if (const auto answer = CallModule(_euclidGatewayPort, _euclidGatewayTls, _euclidGatewayCtx, upload->auth.credential,
+        if (const auto answer = upload->connection->Call(upload->auth.credential,
                                            {.target = "esm",
                                             .action = "abort-upload",
                                             .body = boost::json::serialize(abort),
@@ -675,7 +700,7 @@ namespace Euclid::EAG {
 
     bool ProxyServer::sendUploadPart(const std::shared_ptr<Upload> &upload, const std::size_t size) {
 
-        const auto answer = CallModule(_euclidGatewayPort, _euclidGatewayTls, _euclidGatewayCtx, upload->auth.credential,
+        const auto answer = upload->connection->Call(upload->auth.credential,
                                        {.target = "esm",
                                         .action = "upload-part",
                                         .body = std::string(upload->part.data(), size),
@@ -732,7 +757,7 @@ namespace Euclid::EAG {
         if (upload->partNumber == 0 && !sendUploadPart(upload, 0)) return;
 
         const boost::json::object complete{{"uploadId", upload->uploadId}};
-        const auto answer = CallModule(_euclidGatewayPort, _euclidGatewayTls, _euclidGatewayCtx, upload->auth.credential,
+        const auto answer = upload->connection->Call(upload->auth.credential,
                                        {.target = "esm",
                                         .action = "complete-upload",
                                         .body = boost::json::serialize(complete),

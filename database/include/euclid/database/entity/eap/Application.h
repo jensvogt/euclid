@@ -324,15 +324,31 @@ namespace Euclid::Database::Entity::EAP {
      * whether anything is actually being deployed. `deployedVersion` is still taken, because the
      * refusal names it when it can.
      *
+     * @par Only while the bytes exist
+     * Both checksums in this comparison come out of the database, and the bytes one of them was
+     * taken over can be gone: an ESM object is a row and a file, and a file can be removed from
+     * under a row that goes on describing it - tidied by hand, lost with a volume restored from a
+     * backup taken at another moment, left behind by a data directory that moved.
+     *
+     * @par
+     * Refusing there would be refusing on the strength of a hash of bytes that are not there, at
+     * the moment somebody is most likely to be redeploying: the artifact has been put back and the
+     * application has to be pointed at it again. So the caller says whether the bytes are present,
+     * and when they are not there is nothing to compare and nothing to refuse.
+     *
      * @param deployedVersion version currently recorded on the application, empty for one defined
      * before versions existed
      * @param deployedMd5Sum artifact checksum currently recorded, empty for the same reason
      * @param version version being deployed
      * @param md5Sum checksum of the build being deployed
+     * @param artifactBytesPresent whether the artifact this checksum describes is actually on
+     * disk. True for a caller holding the file itself - the CLI hashes what it is about to upload -
+     * and asked of the storage by anything working from a recorded checksum.
      * @return the reason to refuse, phrased for whoever is deploying, or empty to go ahead
      */
     std::string RedeployRefusal(const std::string &deployedVersion, const std::string &deployedMd5Sum,
-                                const std::string &version, const std::string &md5Sum);
+                                const std::string &version, const std::string &md5Sum,
+                                bool artifactBytesPresent);
 
 
     /**

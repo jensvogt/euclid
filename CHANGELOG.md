@@ -1,5 +1,68 @@
 # Changelog
 
+## [1.1.41](https://github.com/jensvogt/euclid/compare/1.1.40...v1.1.41) (2026-09-26)
+
+
+### Bug Fixes
+
+* **ci:** offer the Windows packages on the download page and the release ([9026204](https://github.com/jensvogt/euclid/commit/90262047d53cdc358636c5a72744b7429e01ca40))
+* **transfer:** FTP and SFTP sessions were refused every storage call ([cd3072a](https://github.com/jensvogt/euclid/commit/cd3072ab9f0068e87458a1fda0b8afe0ab0a3a6b))
+* **win32:** upgrades deleted the configuration they meant to preserve ([54833dc](https://github.com/jensvogt/euclid/commit/54833dcba5a3d4d22cbf83b6e6e7cc7fd159a301))
+* windows MSI installation ([45d8bf8](https://github.com/jensvogt/euclid/commit/45d8bf83ecae571d73db0d023e0cb340d22da7bf))
+
+## [1.1.40](https://github.com/jensvogt/euclid/compare/1.1.39...v1.1.40) (2026-09-26)
+
+
+### Bug Fixes
+
+* windows MSI installation ([72dfd5a](https://github.com/jensvogt/euclid/commit/72dfd5a3baf1f2f7c99ae04cd411a488248b1361))
+
+## [1.1.39](https://github.com/jensvogt/euclid/compare/1.1.38...v1.1.39) (2026-09-25)
+
+
+### Bug Fixes
+
+* windows web interface ([9d77dba](https://github.com/jensvogt/euclid/commit/9d77dba30b27d187263fa3dfadde623b2e007beb))
+
+## [1.1.38](https://github.com/jensvogt/euclid/compare/1.1.37...v1.1.38) (2026-09-25)
+
+
+### Bug Fixes
+
+* windows issues ([1e78462](https://github.com/jensvogt/euclid/commit/1e784623e3c9bf1f08e233bc170d394e92baafe1))
+* windows issues ([e7b9857](https://github.com/jensvogt/euclid/commit/e7b985759ab1b9b01bf62d645d7cf273c1926bb0))
+
+## [1.1.37](https://github.com/jensvogt/euclid/compare/1.1.36...v1.1.37) (2026-09-24)
+
+
+### Bug Fixes
+
+* add bucket priority ([40865cb](https://github.com/jensvogt/euclid/commit/40865cb2596cf8cf96f2de55f69662f9266051d9))
+* add cpp example ([8064eb9](https://github.com/jensvogt/euclid/commit/8064eb9b100e74fdca3c9f862ebef64043c12833))
+* add cpp example ([9f8a2b1](https://github.com/jensvogt/euclid/commit/9f8a2b1ebbcc075e71f837f1392a77a0ca1e824d))
+
+## [1.1.36](https://github.com/jensvogt/euclid/compare/1.1.35...v1.1.36) (2026-09-23)
+
+
+### Bug Fixes
+
+* exists queries ([e73f7f0](https://github.com/jensvogt/euclid/commit/e73f7f00df13ea082616f607d6c9fa2e3342bda5))
+
+## [1.1.35](https://github.com/jensvogt/euclid/compare/1.1.34...v1.1.35) (2026-09-23)
+
+
+### Bug Fixes
+
+* graceful shutdown ([d2927b4](https://github.com/jensvogt/euclid/commit/d2927b494b63d543ca3e2e191eaa6a7ba04d0ab7))
+
+## [1.1.34](https://github.com/jensvogt/euclid/compare/1.1.33...v1.1.34) (2026-09-22)
+
+
+### Bug Fixes
+
+* linux system load ([c5653e7](https://github.com/jensvogt/euclid/commit/c5653e76eafe6b86fd9769301c3ba5e9da6f700f))
+* scale applications, EQS sens-message-batch ([e3f7d77](https://github.com/jensvogt/euclid/commit/e3f7d77ed9f33a0e0a9274b59145c4c2c8565571))
+
 ## [1.1.33](https://github.com/jensvogt/euclid/compare/v1.1.32...v1.1.33) (2026-09-21)
 
 

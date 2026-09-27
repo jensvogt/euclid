@@ -396,23 +396,29 @@ namespace Euclid::Monitoring {
                                                             [] { collectModuleInstances(); },
                                                             std::chrono::duration_cast<std::chrono::milliseconds>(moduleInstancePeriod));
 
-#ifdef __linux__
-        // collectCpuUsage() reads /proc/stat, which only exists on Linux.
+        // Nothing platform-specific about this one, unlike the three below: it asks the repository
+        // for sizes rather than reading them off the machine. It used to sit inside the Linux guard
+        // with them, which meant a Windows installation recorded nothing about its own database.
+        const auto databaseSizePeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.modules.emo.database-size-period", kDatabaseSizePeriod.count()));
+        _databaseSizeTaskId = scheduler.SchedulePeriodic("monitoring-database-size", [] { collectDatabaseSize(); },
+                                                        std::chrono::duration_cast<std::chrono::milliseconds>(databaseSizePeriod));
+
+#if defined(__linux__) || defined(_WIN32)
+        // What the host itself is doing. Read from /proc on Linux and from the Windows performance
+        // counters on Windows - see Core::SystemUtils, which is where the difference lives. Still
+        // guarded rather than scheduled unconditionally: on a platform with no reading (macOS) each
+        // of these would log a warning once a minute for the life of the process.
         const auto cpuUsagePeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.modules.emo.cpu-usage-period", kCpuUsagePeriod.count()));
         _cpuUsageTaskId = scheduler.SchedulePeriodic("monitoring-cpu-usage", [] { collectCpuUsage(); },
                                                      std::chrono::duration_cast<std::chrono::milliseconds>(cpuUsagePeriod));
 
-        // Same period as the CPU figure, and the same reason: they are read together on a
-        // dashboard and drifting apart in age would make them hard to compare.
-        const auto databaseSizePeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.modules.emo.database-size-period", kDatabaseSizePeriod.count()));
-        _databaseSizeTaskId = scheduler.SchedulePeriodic("monitoring-database-size", [] { collectDatabaseSize(); },
-                                                         std::chrono::duration_cast<std::chrono::milliseconds>(databaseSizePeriod));
-
+        // Same period as the CPU figure, and the same reason: they are read together on a dashboard
+        // and drifting apart in age would make them hard to compare.
         _memoryUsageTaskId = scheduler.SchedulePeriodic("monitoring-memory-usage", [] { collectMemoryUsage(); },
                                                         std::chrono::duration_cast<std::chrono::milliseconds>(cpuUsagePeriod));
 
-        // Same period as the CPU figure: load average and CPU usage answer the same question from
-        // two sides - how much is queued, and how much is being served - and are read together.
+        // Same period as the CPU figure: how much is queued and how much is being served are the
+        // same question from two sides, and are read together.
         _systemLoadTaskId = scheduler.SchedulePeriodic("monitoring-system-load", [] { collectSystemLoad(); },
                                                        std::chrono::duration_cast<std::chrono::milliseconds>(cpuUsagePeriod));
 #endif
@@ -496,7 +502,7 @@ namespace Euclid::Monitoring {
 
         const auto current = Core::SystemUtils::ReadCpuTimes();
         if (!current.has_value()) {
-            log_warning << "Monitoring cpu-usage collection failed, /proc/stat not readable";
+            log_warning << "Monitoring cpu-usage collection failed, system CPU times not readable";
             return;
         }
 
@@ -521,13 +527,38 @@ namespace Euclid::Monitoring {
 
     void EmoServer::collectSystemLoad() {
 
+        const auto host = Core::SystemUtils::GetHostName();
+
+#ifdef _WIN32
+        // Windows keeps no run-queue averages, so there is no "system-load-average" to record here
+        // and a zero in its place would read as an idle machine. What it does keep is the
+        // instantaneous queue - see Core::SystemUtils::ReadProcessorQueueLength() - recorded under
+        // its own names so that nothing reading "system-load-average" is handed a figure that is
+        // averaged over nothing.
+        const auto queue = Core::SystemUtils::ReadProcessorQueueLength();
+        if (!queue.has_value()) {
+            log_warning << R"(Monitoring system-load collection failed, "\System\Processor Queue Length" not readable)";
+            return;
+        }
+
+        // The averaging EMO already does over each bucket is what makes this readable: one sample a
+        // minute of an instantaneous count would be noise, where the mean and max over a five-minute
+        // bucket say how much was waiting and how bad it got.
+        recordSample("system-processor-queue-length", "host", host, queue->queueLength, MetricType::GAUGE);
+
+        // The comparable figure, for the same reason as system-load-per-core below: a queue of 8 is
+        // a third of a 24-processor host and four times a two-processor one. The usual threshold is
+        // a sustained 2 per processor, which is what makes this the series worth alerting on.
+        if (queue->cpuCount > 0) {
+            const auto perCore = queue->queueLength / static_cast<double>(queue->cpuCount);
+            recordSample("system-processor-queue-per-core", "host", host, perCore, MetricType::GAUGE);
+        }
+#else
         const auto load = Core::SystemUtils::ReadLoadAverage();
         if (!load.has_value()) {
             log_warning << "Monitoring system-load collection failed, /proc/loadavg not readable";
             return;
         }
-
-        const auto host = Core::SystemUtils::GetHostName();
 
         // Three series rather than one, labelled by the window they average over, so a dashboard
         // can put the 1-minute figure against the 15-minute one - which is the whole point of the
@@ -551,6 +582,7 @@ namespace Euclid::Monitoring {
             const auto perCore = load->oneMinute / static_cast<double>(load->cpuCount);
             recordSample("system-load-per-core", "host", host, perCore, MetricType::GAUGE);
         }
+#endif
     }
 
     void EmoServer::collectModuleInstances() {
@@ -581,7 +613,7 @@ namespace Euclid::Monitoring {
         // summing or averaging those never answered this one.
         const auto usage = Core::SystemUtils::ReadSystemMemoryUsagePercent();
         if (!usage.has_value()) {
-            log_warning << "Monitoring memory-usage collection failed, /proc/meminfo not readable";
+            log_warning << "Monitoring memory-usage collection failed, system memory not readable";
             return;
         }
 

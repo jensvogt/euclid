@@ -42,7 +42,7 @@ namespace Euclid::EAG {
      *
      * @author jensvogt47\@gmail.com
      */
-    class ClientStream {
+    class ClientStream : public std::enable_shared_from_this<ClientStream> {
 
     public:
 
@@ -148,6 +148,33 @@ namespace Euclid::EAG {
         void Close();
 
         /**
+         * @brief Reads and throws away whatever the caller is still sending, then ends the
+         * connection.
+         *
+         * @par Why a response is not the end of it
+         * A request is refused before its body has been read whenever the refusal can be decided
+         * from the headers - a body larger than the route takes, a content type it does not, a
+         * part ESM would not store. The response goes out while the caller is still writing, which
+         * is the point: there is no reason to carry twenty gigabytes to reject it.
+         *
+         * @par
+         * Closing there loses the refusal. The caller goes on writing into a socket nobody is
+         * reading, the receive buffer fills, and a connection closed with unread data in it is
+         * reset rather than finished - and a reset throws away what the socket had already
+         * received, including the response that explains everything. What the caller sees is not
+         * "413 Payload Too Large" but a connection dropped mid-upload, with nothing to act on.
+         *
+         * @par
+         * So the send side closes, the receive side keeps reading until the caller stops, and the
+         * connection ends in order. This is what nginx calls a lingering close, and it is bounded
+         * the same way: whichever comes first of the caller finishing, a few seconds passing, or
+         * enough bytes read to say they are not stopping. A caller who keeps writing regardless
+         * gets the reset they were always going to get, and the gateway is not still holding a
+         * socket for them.
+         */
+        void LingeringClose();
+
+        /**
          * @brief The caller's address, for the X-Forwarded-For header, or nothing if the
          * connection has already gone away.
          */
@@ -155,6 +182,23 @@ namespace Euclid::EAG {
         std::optional<boost::asio::ip::tcp::endpoint> RemoteEndpoint() const;
 
     private:
+
+        /**
+         * @brief What a lingering close is carrying: somewhere to put the bytes being discarded,
+         * and how many there have been.
+         */
+        struct Drain;
+
+        /**
+         * @brief Reads one more helping of what the caller is still sending, and arms itself again
+         * until there is nothing more, the deadline passes, or enough has been read.
+         *
+         * @par
+         * Keeps the stream alive itself, through shared_from_this() in the handler: whoever asked
+         * for the close has answered its caller and let go of its own reference by the time the
+         * first read completes.
+         */
+        void drainNext(const std::shared_ptr<Drain> &drain);
 
         /**
          * @brief The connection itself: plain or TLS, decided when it was accepted and never

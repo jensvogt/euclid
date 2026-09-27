@@ -25,6 +25,7 @@
 #include <euclid/dto/eam/CreateAccessKeyResponse.h>
 #include <euclid/dto/eam/ChangeNamespaceRequest.h>
 #include <euclid/dto/eam/ChangePasswordRequest.h>
+#include <euclid/dto/eam/ChangeUserIdRequest.h>
 #include <euclid/dto/eam/CreateAccountRequest.h>
 #include <euclid/dto/eam/CreateNamespaceRequest.h>
 #include <euclid/dto/eam/CheckPermissionRequest.h>
@@ -205,6 +206,21 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int changePassword(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Gives a user a different user ID
+         *
+         * @par
+         * Administrator-only, and both ids are named outright - there is no "mine" here, unlike
+         * change-password. The grants and group memberships follow the rename; what an audit
+         * record and a bucket's owner say does not, since those name who did something and who
+         * made something rather than who exists now.
+         *
+         * @param args action arguments
+         * @return the process exit code
+         */
+        [[nodiscard]]
+        int changeUserId(const std::vector<std::string> &args) const;
 
         /**
          * @brief Creates a new SigV4 access key for the caller and stores it locally

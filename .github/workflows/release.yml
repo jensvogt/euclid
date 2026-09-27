@@ -46,7 +46,7 @@ jobs:
           CLEAN="${TAG#v}"   # remove leading 'v'
           echo "clean_tag=$CLEAN" >> $GITHUB_OUTPUT
 
-    # Temporarily disabled - see release.yml history to re-enable.
+  # Temporarily disabled - see release.yml history to re-enable.
   build-windows-msi:
     name: Build & Package (Windows MSI)
     runs-on: windows-latest
@@ -64,6 +64,19 @@ jobs:
         uses: actions/checkout@v4.2.2
         with:
           fetch-depth: 0
+
+      # Checked out here rather than next to the frontend build below, so that a token which
+      # cannot read euclid-web fails this job in seconds instead of after the backend build - the
+      # same reasoning, and the same placement, as the macOS and Linux jobs. euclid-web is a
+      # private repository, so the default GITHUB_TOKEN cannot read it and a plain "git clone"
+      # dies with "could not read Username for 'https://github.com'".
+      - name: Checkout frontend (euclid-web)
+        uses: actions/checkout@v4.2.2
+        with:
+          repository: jensvogt/euclid-web
+          token: ${{ secrets.GH_AUTH_TOKEN }}
+          path: frontend/euclid-web
+          persist-credentials: false
 
       - name: Setup MSVC environment
         uses: step-security/msvc-dev-cmd@v1
@@ -96,57 +109,124 @@ jobs:
           cmake -B "${{ env.BUILD_DIR }}" -S . -DCMAKE_BUILD_TYPE=Release -DVCPKG_ROOT=${{ env.VCPKG_ROOT}} -DCMAKE_TOOLCHAIN_FILE="${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_DEFAULT_TRIPLET }} -DVCPKG_DISABLE_AUTO_PACKAGE_REGISTRATION=ON
           cmake --build "${{ env.BUILD_DIR }}" --config Release --parallel 2
 
-      #      - name: Build (Frontend)
-      #        shell: pwsh
-      #        run: |
-      #          # euclid-ui doesn't exist as a separate repo yet - package without a bundled
-      #          # frontend until it does, rather than failing the whole release.
-      #          git ls-remote https://github.com/jensvogt/euclid-ui.git *>$null
-      #          if ($LASTEXITCODE -eq 0) {
-      #            git clone https://github.com/jensvogt/euclid-ui
-      #            cd euclid-ui
-      #            npm install
-      #            npm run build
-      #          } else {
-      #            Write-Warning "jensvogt/euclid-ui not found - packaging without a bundled frontend"
-      #            New-Item -ItemType Directory -Force -Path euclid-ui\dist\euclid-ui\browser | Out-Null
-      #          }
+      # euclid-web's package.json requires node >=24 and npm >=11, which is newer than what the
+      # runner image happens to ship - pinned rather than inherited so the frontend builds on the
+      # same toolchain regardless of when the image is updated.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
 
-      - name: Install NSIS
+      - name: Build (Frontend)
+        shell: pwsh
         run: |
-          choco install nsis --no-progress -y
-          echo "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
+          # Only what the build emits gets packaged. Angular's "application" builder writes to
+          # <outputPath>/browser, and euclid-web's angular.json sets outputPath to
+          # "dist/euclid-web" - so dist/euclid-web/browser is the bundle, and that directory alone
+          # becomes the installer's frontend directory: not the checkout around it, not
+          # node_modules, not the sources. euclid.wxs harvests exactly this path.
+          cd ${{ github.workspace }}/frontend/euclid-web
+          npm ci
+          npm run build
+          # A build that quietly emitted nothing, or emitted elsewhere because outputPath changed,
+          # would produce an installer whose gateway answers 404 for every page - which is only
+          # discovered on an installed system, so check it here.
+          if (-not (Test-Path dist/euclid-web/browser/index.html)) {
+            Write-Output "::error::euclid-web build produced no dist/euclid-web/browser/index.html"
+            exit 1
+          }
 
-      - name: Install NSIS plugins
+      # Pinned to 5, deliberately: WiX 6 and 7 require accepting the Open Source Maintenance Fee
+      # EULA, which is a commercial arrangement rather than a build dependency. 5 is the last
+      # version without it, and builds everything these packages use.
+      #
+      # The UI extension is pinned to the same version for a harder reason: unpinned, "wix
+      # extension add" takes the newest one published, which is a 7.x built against a toolset
+      # layout 5 cannot read - it is accepted with a warning and then fails the build with
+      # "extension could not be found".
+      - name: Install WiX
         run: |
-          $pluginDir = "C:\Program Files (x86)\NSIS\Plugins\x86-unicode"
-          Copy-Item "${{ github.workspace }}\dist\win32\msi\nsis\INetC.dll" "$pluginDir\"
-          Copy-Item "${{ github.workspace }}\dist\win32\msi\nsis\nsJSON.dll" "$pluginDir\"
-          Copy-Item "${{ github.workspace }}\dist\win32\msi\nsis\SimpleSC.dll" "$pluginDir\"
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add -g WixToolset.UI.wixext/5.0.2
 
-      - name: Build NSIS installer
+      # The licence the wizard shows. Generated from the repository's LICENSE rather than committed
+      # as a second copy - see the script.
+      - name: Generate licence RTF
+        run: pwsh dist\win32\msi\license-to-rtf.ps1
+
+      # The wizard's banner and welcome-page artwork, drawn from the branding mark at the two sizes
+      # Windows Installer will not scale. Generated for the same reason the RTF is - see the script.
+      - name: Generate wizard images
+        run: pwsh dist\win32\msi\make-ui-images.ps1
+
+      # Signed before packaging, not after: the MSI carries copies of these files, and signing the
+      # package does nothing for the executable that ends up in Program Files and gets started as a
+      # service. Does nothing at all when the repository has no signing certificate - see sign.ps1.
+      - name: Sign binaries
         env:
-          SRCDIR: ${{ github.workspace }}
-        run: makensis /DSRCDIR=${{ github.workspace }} /DBUILDDIR="${{ env.BUILD_DIR }}" /DVERSION=${{ env.SEMVER }} dist\win32\msi\product.nsi
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: pwsh dist\win32\msi\sign.ps1 -Path "${{ env.BUILD_DIR }}\bin\*.exe"
+
+      # -arch x64, or every component goes into the package as 32-bit while the directories it
+      # installs into are ProgramFiles64Folder - which ICE80 reports, and which Windows would
+      # otherwise resolve to the WOW64 view of Program Files.
+      - name: Build MSI
+        run: |
+          wix build dist\win32\msi\euclid.wxs -arch x64 -ext WixToolset.UI.wixext `
+            -d Version=${{ env.SEMVER }} `
+            -d BuildDir="${{ env.BUILD_DIR }}" `
+            -d SrcDir="${{ github.workspace }}" `
+            -d FrontendDir="${{ github.workspace }}\frontend\euclid-web\dist\euclid-web\browser" `
+            -o "${{ env.APP_NAME }}-${{ env.SEMVER }}-amd64.msi"
+
+      # The consistency checks Windows Installer ships for its own format. A package that fails
+      # them installs in ways somebody else's deployment tooling refuses or mishandles, and finding
+      # that out on a customer's machine is the expensive way.
+      #
+      # ICE61 alone is suppressed: AllowSameVersionUpgrades always trips it, and that attribute is
+      # there on purpose - reinstalling a version over itself is how a build gets tested.
+      - name: Validate MSI
+        run: wix msi validate -sice ICE61 "${{ env.APP_NAME }}-${{ env.SEMVER }}-amd64.msi"
+
+      # After validation, because signing an MSI rewrites its summary information and there is no
+      # reason to make the ICE checks read a package that is about to change.
+      - name: Sign MSI
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: pwsh dist\win32\msi\sign.ps1 -Path "${{ env.APP_NAME }}-${{ env.SEMVER }}-amd64.msi"
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v7
         with:
           name: installer-windows
-          path: ${{ env.APP_NAME }}-${{ env.SEMVER }}-amd64.exe
+          path: ${{ env.APP_NAME }}-${{ env.SEMVER }}-amd64.msi
 
-      # The CLI on its own, from the same euclid-cli.exe the installer above contains - see
-      # dist/win32/msi/cli.nsi.
-      - name: Build NSIS CLI installer
+      # The CLI on its own, from the same euclid-cli.exe the package above contains - see
+      # dist/win32/msi/euclid-cli.wxs.
+      - name: Build CLI MSI
+        run: |
+          wix build dist\win32\msi\euclid-cli.wxs -arch x64 -ext WixToolset.UI.wixext `
+            -d Version=${{ env.SEMVER }} `
+            -d BuildDir="${{ env.BUILD_DIR }}" `
+            -d SrcDir="${{ github.workspace }}" `
+            -o "${{ env.CLI_NAME }}-${{ env.SEMVER }}-amd64.msi"
+
+      - name: Validate CLI MSI
+        run: wix msi validate -sice ICE61 "${{ env.CLI_NAME }}-${{ env.SEMVER }}-amd64.msi"
+
+      - name: Sign CLI MSI
         env:
-          SRCDIR: ${{ github.workspace }}
-        run: makensis /DSRCDIR=${{ github.workspace }} /DBUILDDIR="${{ env.BUILD_DIR }}" /DVERSION=${{ env.SEMVER }} dist\win32\msi\cli.nsi
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: pwsh dist\win32\msi\sign.ps1 -Path "${{ env.CLI_NAME }}-${{ env.SEMVER }}-amd64.msi"
 
       - name: Upload Windows CLI installer
         uses: actions/upload-artifact@v7
         with:
           name: cli-installer-windows
-          path: ${{ env.CLI_NAME }}-${{ env.SEMVER }}-amd64.exe
+          path: ${{ env.CLI_NAME }}-${{ env.SEMVER }}-amd64.msi
           overwrite: true
 
   build-macos:
@@ -1104,7 +1184,7 @@ jobs:
       - release-please
       - build-linux
       - build-macos
-      - build-windows-msi  # temporarily disabled
+      - build-windows-msi
     env:
       SEMVER: "${{ needs.release-please.outputs.tag_name }}"
     steps:
@@ -1164,10 +1244,15 @@ jobs:
       # The CLI packages land in artifacts/linux alongside the server ones, so the globs below
       # pick them up without naming each file - which is also what keeps a future package from
       # being released only because somebody remembered to add a line here.
+      #
+      # artifacts/windows/* rather than *.msi: both Windows packages are downloaded into that
+      # directory and nothing else is, and naming the extension is how the Windows build came to
+      # be downloaded here and then left off the release when NSIS was replaced by WiX.
       - name: Create GitHub Release (attach installers)
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            artifacts/windows/*
             artifacts/macos/*.tgz
             artifacts/linux/*.deb
             artifacts/linux/*.rpm
@@ -1200,9 +1285,9 @@ jobs:
       - name: Create site folder
         run: |
           mkdir public
-          cp ./artifacts/installer-windows/*.exe public/ || true
+          cp ./artifacts/installer-windows/*.msi public/ || true
           cp ./artifacts/installer-macos/*.tgz public/ || true
-          cp ./artifacts/cli-installer-windows/*.exe public/ || true
+          cp ./artifacts/cli-installer-windows/*.msi public/ || true
           cp ./artifacts/cli-installer-macos/*.tgz public/ || true
           cp ./artifacts/deb-package-linux/*.deb public/ || true
           cp ./artifacts/rpm-package-linux/*.rpm public/ || true
@@ -1215,13 +1300,39 @@ jobs:
           cp ./artifacts/apt-repo-site/euclid-archive-keyring.asc public/apt/
           find . -ls
 
+      # Every copy above ends in "|| true", so a package that was never built, or was built under a
+      # name the copy does not match, leaves the download page quietly one platform short - which is
+      # what happened to Windows. This job depends on all four builds having succeeded, so a missing
+      # package here is a bug in the copying, and it should stop the deployment rather than publish
+      # a page that offers less than the release.
+      - name: Check every platform made it into the site
+        run: |
+          missing=""
+          for pattern in "*.msi" "*.deb" "*.rpm" "*.tgz"; do
+            count=$(find public -maxdepth 1 -name "$pattern" -type f | wc -l)
+            echo "$pattern: $count"
+            [ "$count" -gt 0 ] || missing="$missing $pattern"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::the download page would ship without:$missing"
+            exit 1
+          fi
+
+      # Everything sitting in the site directory, rather than a list of extensions to look for.
+      # That list was *.{exe,deb,rpm,tgz}, and the Windows package stopped appearing on the
+      # download page the day it went from NSIS to MSI: the file was copied in above and then not
+      # matched here, so the page offered Linux and macOS and silently nothing for Windows.
+      # Whatever "Create site folder" puts in public/ is what gets offered.
       - name: Generate files.json
         run: |
           cd public
           echo '{ "downloads": [' > files.json
           first=true
-          for f in *.{exe,deb,rpm,tgz}; do
+          for f in *; do
             [ -f "$f" ] || continue
+            # The site's own files, not downloads. files.json excludes itself because it exists
+            # by the time the glob runs.
+            case "$f" in index.html|files.json) continue ;; esac
             if [ "$first" = true ]; then
               first=false
             else

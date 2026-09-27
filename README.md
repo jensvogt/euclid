@@ -215,8 +215,18 @@ tar -xzf euclid-<version>-macos.tgz
 
 ### Windows
 
-Download and run `euclid-<version>-amd64.exe` from the
-[releases page](https://github.com/jensvogt/euclid/releases).
+Download `euclid-<version>-amd64.msi` from the
+[releases page](https://github.com/jensvogt/euclid/releases) and run it, or install it unattended:
+
+```powershell
+msiexec /i euclid-<version>-amd64.msi /qn
+```
+
+It registers and starts the `euclid` service. Installing a newer package over an existing
+installation upgrades it in place: the service is stopped, the binaries and the web frontend are
+replaced, and `etc\euclid.json`, the TLS certificate, its key and the SSH host key are left exactly
+as they are — an installation's configuration and its identity belong to the installation, not to
+the package. Whatever is under `data\` is untouched, by an upgrade and by an uninstall alike.
 
 ### The CLI on its own
 
@@ -250,9 +260,9 @@ wget https://jensvogt.github.io/euclid/euclid-cli-<version>-macos.tgz
 sudo tar -xzf euclid-cli-<version>-macos.tgz -C /usr/local
 ```
 
-Windows - download and run `euclid-cli-<version>-amd64.exe`, which installs the command and adds
-it to the system PATH. Open a new terminal afterwards; an existing one keeps the PATH it started
-with.
+Windows - download and run `euclid-cli-<version>-amd64.msi`, which installs the command and adds
+it to the system PATH (`msiexec /i euclid-cli-<version>-amd64.msi /qn` to do it unattended). Open a
+new terminal afterwards; an existing one keeps the PATH it started with.
 
 Then point it at the server:
 
@@ -314,6 +324,7 @@ Every process reads the same JSON config (`--config <path>`, default
 | `euclid.modules.eag.certificate`                | (none)      | Name of the EKM certificate an HTTPS listener serves; a self-signed one is generated under that name if it does not exist                                                               |
 | `euclid.modules.eag.basic-auth-cache-seconds`   | 60          | How long a verified Basic credential stays verified; 0 checks every request                                                                                                             |
 | `euclid.modules.eap.http-port-min` / `-max`     | 9000 / 9999 | Range the manager hands application instances their own HTTP port from                                                                                                                  |
+| `euclid.modules.eap.bucket`                     | apps        | Bucket applications are deployed from. EAP creates it when it starts, in each configured account and in each of its namespaces, unless it is there already. Set empty to create none      |
 | `euclid.modules.eam.oidc.enabled`               | false       | Offer login through an OpenID Connect provider alongside passwords - see [Signing in with an identity provider](#signing-in-with-an-identity-provider)                                  |
 | `euclid.modules.eam.saml.enabled`               | false       | Offer login through a SAML 2.0 identity provider, the same way                                                                                                                          |
 

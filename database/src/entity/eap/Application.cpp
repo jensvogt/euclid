@@ -157,7 +157,15 @@ namespace Euclid::Database::Entity::EAP {
     }
 
     std::string RedeployRefusal(const std::string &deployedVersion, const std::string &deployedMd5Sum,
-                                [[maybe_unused]] const std::string &version, const std::string &md5Sum) {
+                                [[maybe_unused]] const std::string &version, const std::string &md5Sum,
+                                const bool artifactBytesPresent) {
+
+        // Nothing to compare when the artifact's bytes are not on disk: the checksum recorded for
+        // them describes something that is no longer there, and "byte for byte the build already
+        // deployed" is not a thing that can be said about bytes that do not exist. See the header -
+        // this is the redeploy that puts a lost artifact back, and refusing it is refusing the one
+        // that was needed.
+        if (!artifactBytesPresent) return {};
 
         // The version is deliberately not checked. Redeploying the same version with different
         // bytes is a normal thing to do - a rebuilt snapshot, a fix that keeps the number - and

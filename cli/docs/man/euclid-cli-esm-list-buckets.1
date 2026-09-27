@@ -7,9 +7,17 @@ euclid-cli-esm-list-buckets \- list storage buckets
 [\fB\-\-page\-size\fR|\fB\-s\fR \fIN\fR]
 [\fB\-\-page\-index\fR|\fB\-i\fR \fIN\fR]
 [\fB\-\-sort\-column\fR|\fB\-c\fR \fICOLUMN\fR]
+[\fB\-\-sort\-direction\fR|\fB\-d\fR \fIDIRECTION\fR]
+[\fB\-\-include\-internal\fR]
 .SH DESCRIPTION
 Lists storage buckets, optionally filtered by name prefix and
 paginated.
+.PP
+Euclid's own buckets are left out. The bucket applications are deployed
+from is one of them \- EAP creates it when it starts \- so
+.B \-\-include\-internal
+is how it is seen. Hidden is all that means: the bucket is read and
+written by name like any other.
 .SH OPTIONS
 .TP
 .BR \-p ", " \-\-prefix " " \fIPREFIX\fR
@@ -25,6 +33,13 @@ Defaults to \fI-1\fR.
 .TP
 .BR \-c ", " \-\-sort\-column " " \fICOLUMN\fR
 Column to sort results by. Defaults to \fIname\fR.
+.TP
+.BR \-d ", " \-\-sort\-direction " " \fIDIRECTION\fR
+\fIasc\fR or \fIdesc\fR. Defaults to \fIasc\fR.
+.TP
+.B \-\-include\-internal
+Also list euclid's own buckets. Honoured for administrators only, and
+ignored for anybody else rather than refused.
 .SH EXIT STATUS
 .TP
 .B 0
@@ -40,6 +55,9 @@ euclid-cli --endpoint http://localhost:5566 esm list-buckets
 
 euclid-cli --endpoint http://localhost:5566 esm list-buckets \e
     --prefix report- --page-size 20 --page-index 0 --sort-column name
+
+euclid-cli --endpoint http://localhost:5566 esm list-buckets \e
+    --include-internal
 .fi
 .RE
 .SH SEE ALSO

@@ -7,6 +7,7 @@
 
 // C++ includes
 #include <atomic>
+#include <latch>
 #include <thread>
 #include <vector>
 
@@ -104,16 +105,74 @@ BOOST_AUTO_TEST_CASE(NoMoreThanTheLimitEverWaitAtOnce) {
     std::atomic<int> peak{0};
     std::atomic<int> refused{0};
 
+    // Every thread attempts at the same instant, and whoever gets a slot holds it until all of them
+    // have tried. Without that this was a race the test happened to win: the body of one attempt is
+    // a few atomic operations, so a thread could run all two hundred of them before the next thread
+    // was even created - 32 threads then contended with nobody, the limit was never reached, and
+    // "some had to be turned away" was a coin toss decided by how fast the platform starts threads.
+    // On Windows, where starting one costs far more than the work it was about to do, the coin came
+    // down the other way every time.
+    std::latch ready(kThreads);
+    std::atomic<int> attempted{0};
+
+    std::vector<std::thread> threads;
+    threads.reserve(kThreads);
+    for (int i = 0; i < kThreads; ++i) {
+        threads.emplace_back([&] {
+            ready.arrive_and_wait();
+
+            const auto slot = slots.acquire();
+            if (!slot.held()) {
+                refused.fetch_add(1);
+                attempted.fetch_add(1);
+                return;
+            }
+
+            const int now = waiting.fetch_add(1) + 1;
+            int seen = peak.load();
+            while (now > seen && !peak.compare_exchange_weak(seen, now)) {}
+
+            // Held until the last thread has had its answer, which is what makes the contention
+            // real rather than hoped for. Every thread increments before anybody waits on it, so
+            // this always ends.
+            attempted.fetch_add(1);
+            while (attempted.load() < kThreads) std::this_thread::yield();
+
+            waiting.fetch_sub(1);
+        });
+    }
+    for (auto &thread: threads) thread.join();
+
+    BOOST_TEST(peak.load() <= kLimit);
+    BOOST_TEST(waiting.load() == 0);
+
+    // Exactly, not merely "some": 32 threads asked at once for 4 slots, so 28 of them were turned
+    // away. A test that only asked for more than zero could pass having exercised the limit once.
+    BOOST_TEST(refused.load() == kThreads - kLimit);
+}
+
+// The same property under churn rather than under one simultaneous rush: slots taken and given back
+// as fast as the threads can manage, which is what a module under load actually does. Nothing is
+// asserted about refusals here - whether any two of these overlap is the platform's business - only
+// that the cap holds and nothing is left behind.
+BOOST_AUTO_TEST_CASE(SlotsAreGivenBackHoweverTheyAreTakenAndReturned) {
+    constexpr int kLimit = 4;
+    constexpr int kThreads = 16;
+
+    LongPollSlots slots;
+    slots.limit(kLimit);
+
+    std::atomic<int> waiting{0};
+    std::atomic<int> peak{0};
+
     std::vector<std::thread> threads;
     threads.reserve(kThreads);
     for (int i = 0; i < kThreads; ++i) {
         threads.emplace_back([&] {
             for (int attempt = 0; attempt < 200; ++attempt) {
                 const auto slot = slots.acquire();
-                if (!slot.held()) {
-                    refused.fetch_add(1);
-                    continue;
-                }
+                if (!slot.held()) continue;
+
                 const int now = waiting.fetch_add(1) + 1;
                 int seen = peak.load();
                 while (now > seen && !peak.compare_exchange_weak(seen, now)) {}
@@ -126,7 +185,22 @@ BOOST_AUTO_TEST_CASE(NoMoreThanTheLimitEverWaitAtOnce) {
 
     BOOST_TEST(peak.load() <= kLimit);
     BOOST_TEST(waiting.load() == 0);
-    // With 32 threads contending for 4 slots, some had to be turned away - otherwise this test
-    // would be passing without ever exercising the limit.
-    BOOST_TEST(refused.load() > 0);
+
+    // And the slots are all back - all four at once, which is the whole assertion: acquiring one
+    // four times in a row would pass with three of them leaked, since each temporary gives its slot
+    // back at the end of its own statement. A leak here is a module that answers fewer long polls
+    // after every burst until it answers none.
+    //
+    // Named rather than collected: Slot has a deleted copy and no move, so it cannot go in a
+    // container - it is meant to live exactly as long as the scope that took it.
+    const auto first = slots.acquire();
+    const auto second = slots.acquire();
+    const auto third = slots.acquire();
+    const auto fourth = slots.acquire();
+
+    BOOST_TEST(first.held());
+    BOOST_TEST(second.held());
+    BOOST_TEST(third.held());
+    BOOST_TEST(fourth.held());
+    static_assert(kLimit == 4, "one named slot per limit, so that all of them are held at once");
 }

@@ -5,9 +5,12 @@
 #pragma once
 
 // C++ standard
+#include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <map>
 #include <optional>
 #include <sstream>
@@ -435,12 +438,52 @@ namespace Euclid::Core {
         throw std::runtime_error("Config key '" + path + "' is not an integer");
     }
 
+    /**
+     * @brief A configured integer as a 64-bit value, whatever "long" happens to be here.
+     *
+     * @par
+     * Specialised on `long long` rather than on `std::int64_t` deliberately: on Linux int64_t *is*
+     * long, so specialising both would be the same specialisation twice and would not compile. long
+     * long is a distinct type everywhere and is 64 bits everywhere, so this is the one to ask for
+     * when the value is a size in bytes rather than a count of something small.
+     */
+    template<>
+    inline long long Configuration::extractValue<long long>(
+        const boost::json::value &v, const std::string &path) {
+        if (v.is_int64()) return v.get_int64();
+        if (v.is_uint64()) return static_cast<long long>(v.get_uint64());
+        if (v.is_double()) return static_cast<long long>(v.get_double());
+        throw std::runtime_error("Config key '" + path + "' is not a long");
+    }
+
+    /**
+     * @brief The same as a `long`, which is 64 bits on Linux and macOS and 32 on Windows.
+     *
+     * @par
+     * Out-of-range values are clamped rather than truncated, which only ever happens on Windows.
+     * The difference matters more than it sounds: truncating takes the low 32 bits, so a
+     * millisecond timestamp pasted onto a thread count came out as 1,051,373,568 - or, one digit
+     * along, as a small number that looks deliberate. Every caller of this already guards against a
+     * figure that is too large, because on Linux it could always arrive; none of them guards
+     * against one that wrapped into looking reasonable.
+     *
+     * @par
+     * Ask for `long long` where 64 bits are the point - a body limit, an upload size. This
+     * specialisation exists for the many places where the value is a port, a period or a count.
+     */
     template<>
     inline long Configuration::extractValue<long>(
         const boost::json::value &v, const std::string &path) {
-        if (v.is_int64()) return v.get_int64();
-        if (v.is_uint64()) return static_cast<long>(v.get_uint64());
-        if (v.is_double()) return static_cast<long>(v.get_double());
+        constexpr auto lowest = std::numeric_limits<long>::min();
+        constexpr auto highest = std::numeric_limits<long>::max();
+
+        const auto clamped = [](const long long value) {
+            return static_cast<long>(std::clamp<long long>(value, lowest, highest));
+        };
+
+        if (v.is_int64()) return clamped(v.get_int64());
+        if (v.is_uint64()) return clamped(static_cast<long long>(std::min<std::uint64_t>(v.get_uint64(), highest)));
+        if (v.is_double()) return clamped(static_cast<long long>(std::clamp<double>(v.get_double(), lowest, highest)));
         throw std::runtime_error("Config key '" + path + "' is not a long");
     }
 
@@ -480,6 +523,15 @@ namespace Euclid::Core {
 
     template<>
     inline void Configuration::set<long>(const std::string &p, long v) {
+        *resolveOrCreatePath(p) = boost::json::value(static_cast<std::int64_t>(v));
+    }
+
+    /**
+     * @brief The 64-bit counterpart of set<long>, for the same reason extractValue<long long>
+     * exists: on Windows a long cannot carry a size in bytes, so nothing could put one here.
+     */
+    template<>
+    inline void Configuration::set<long long>(const std::string &p, long long v) {
         *resolveOrCreatePath(p) = boost::json::value(static_cast<std::int64_t>(v));
     }
 

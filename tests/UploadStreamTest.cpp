@@ -103,17 +103,38 @@ namespace {
             });
         }
 
+        // Serves requests on one connection until the peer is done with it, the way a real HTTP
+        // server does - and the way this has to, now that an upload sends every part down one
+        // connection. Answering one request and closing made the gateway open a connection per
+        // part: 512 of them for a 32MB body, which on Windows exhausts the ephemeral port range
+        // and fails the upload a third of the way through.
         void handle(tcp::socket socket) {
 
             beast::flat_buffer buffer;
-            http::request_parser<http::string_body> parser;
-            parser.body_limit(boost::none);
+
+            for (;;) {
+                http::request_parser<http::string_body> parser;
+                parser.body_limit(boost::none);
+
+                boost::system::error_code ec;
+                http::read(socket, buffer, parser, ec);
+                // Including end_of_stream, which is the ordinary end of a connection the client
+                // has finished with rather than a failure.
+                if (ec) break;
+
+                if (!answer(socket, parser.get())) break;
+            }
+
+            boost::system::error_code ignored;
+            socket.shutdown(tcp::socket::shutdown_both, ignored);
+        }
+
+        /**
+         * @brief Answers one request. False when the connection should not be used again.
+         */
+        bool answer(tcp::socket &socket, const http::request<http::string_body> &req) {
 
             boost::system::error_code ec;
-            http::read(socket, buffer, parser, ec);
-            if (ec) return;
-
-            const auto &req = parser.get();
             const auto action = std::string(req["x-euclid-action"]);
 
             http::response<http::string_body> res{http::status::ok, req.version()};
@@ -148,9 +169,13 @@ namespace {
                     res.body() = R"({"key":"x"})";
                 }
             }
+            // Said outright rather than left to the default, so the client knows this connection
+            // carries another request - which is the whole point of the loop above.
+            res.keep_alive(req.keep_alive());
             res.prepare_payload();
             http::write(socket, res, ec);
-            socket.shutdown(tcp::socket::shutdown_both, ec);
+
+            return !ec && res.keep_alive();
         }
 
         asio::io_context _ioc;

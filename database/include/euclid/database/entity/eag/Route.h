@@ -10,6 +10,7 @@
 
 // C++ includes
 #include <chrono>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
@@ -58,13 +59,13 @@ namespace Euclid::Database::Entity::EAG {
          * Per route because it is a property of what is published: a route taking ONIX deliveries
          * and one taking profile pictures have nothing to say to each other about size.
          */
-        long maxBytes{};
+        std::int64_t maxBytes{};
 
         /**
          * @brief Bytes per part streamed to ESM, and the threshold under which a body is written
          * with one put-object instead of a multipart upload.
          */
-        long partSize{};
+        std::int64_t partSize{};
 
         /**
          * @brief Content types accepted, or empty for any.

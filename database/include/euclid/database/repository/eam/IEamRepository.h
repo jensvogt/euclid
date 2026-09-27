@@ -43,6 +43,36 @@ namespace Euclid::Database {
         virtual Entity::EAM::User upsertUser(Entity::EAM::User &user) = 0;
 
         /**
+         * @brief Gives a user a different user ID, taking with it everything that identifies them
+         * by it.
+         *
+         * @par
+         * Not an upsertUser() with the id changed, which would insert a second user rather than
+         * rename the first - upsertUser() matches on the very field being changed, and the write
+         * would then be refused by the unique index on email anyway.
+         *
+         * @par What travels with the name
+         * A userId is not only a label. The user's ERN is built from it and every grant hangs off
+         * that ERN, and a group's membership is a list of userIds - so a rename that moved only the
+         * user row would leave them authenticating perfectly and holding nothing, out of every
+         * group they were in, with no error anywhere to say why. Both follow the rename here, in
+         * this one place, rather than in whichever caller remembers.
+         *
+         * @par What does not
+         * The history: an audit record says who did something under the name they did it under, and
+         * rewriting that would be falsifying it. The same goes for the owner recorded on a bucket,
+         * a queue or an object - those name who created the thing, not who exists now. And the
+         * access keys travel because they live in the user document; their ids do not change, so
+         * anything signing with one goes on working.
+         *
+         * @param userId the user to rename.
+         * @param newUserId the id to give them; must not be taken - the unique index refuses it if
+         * it is, rather than producing two users under one name.
+         * @return the renamed user, or std::nullopt if there was no user with that id.
+         */
+        virtual std::optional<Entity::EAM::User> renameUser(const std::string &userId, const std::string &newUserId) = 0;
+
+        /**
          * @brief Removes a user by its user ID.
          *
          * @param userId The user ID of the user to be removed.
