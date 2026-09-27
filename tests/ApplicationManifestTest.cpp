@@ -75,7 +75,7 @@ BOOST_AUTO_TEST_SUITE(ApplicationManifestTest)
 BOOST_AUTO_TEST_CASE(a_directory_of_files_becomes_one_manifest) {
 
     const ManifestDirectory directory("merge");
-    directory.write("queues.json", R"({"version":1,"creates":{"queues":[{"name":"parsing-in","visibilityTimeout":300}]}})");
+    directory.write("queues.json", R"({"version":1,"creates":{"queues":[{"name":"parsing-in","visibility":300}]}})");
     directory.write("buckets.json", R"({"version":1,"creates":{"buckets":[{"name":"parsing-work"}]}})");
     directory.write("access.json", R"({"version":1,"uses":{"topics":[{"name":"artikel-updates","access":"subscribe","owner":"transformation"}]}})");
 
@@ -92,7 +92,7 @@ BOOST_AUTO_TEST_CASE(a_directory_of_files_becomes_one_manifest) {
     const auto queue = std::ranges::find_if(result.manifest.creates, [](const auto &c) { return c.kind == Kind::Queue; });
     BOOST_REQUIRE(queue != result.manifest.creates.end());
     BOOST_TEST(queue->name == "parsing-in");
-    BOOST_TEST(queue->settings.at("visibilityTimeout").as_int64() == 300);
+    BOOST_TEST(queue->settings.at("visibility").as_int64() == 300);
     BOOST_TEST(queue->source == "queues.json");
 
     BOOST_TEST((result.manifest.uses.front().access == Access::Subscribe));

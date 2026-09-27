@@ -104,11 +104,20 @@ namespace Euclid::Core {
         ManifestResult result;
         const auto fail = [&result, &source](const std::string &message) { result.errors.push_back(source + ": " + message); };
 
-        boost::json::value document;
-        try {
-            document = boost::json::parse(json);
-        } catch (const std::exception &e) {
-            fail(std::string("is not valid JSON: ") + e.what());
+        // A byte order mark, which every Windows editor writes by default and JSON does not allow.
+        // Skipped rather than rejected: a manifest saved from Notepad is not a mistake anybody can
+        // see, and "syntax error at line 1" for an invisible character is the least actionable
+        // message there is. PowerShell's own Set-Content -Encoding utf8 writes one.
+        std::string_view text = json;
+        if (text.starts_with("\xEF\xBB\xBF")) text.remove_prefix(3);
+
+        // The error code rather than the exception: Boost.JSON's what() carries the absolute path
+        // of the header it was built from on somebody else's machine, which is four lines of noise
+        // around "syntax error" in a message meant to send somebody to their own file.
+        boost::system::error_code ec;
+        const auto document = boost::json::parse(text, ec);
+        if (ec) {
+            fail("is not valid JSON: " + ec.message());
             return result;
         }
 

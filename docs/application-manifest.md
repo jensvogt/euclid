@@ -35,7 +35,7 @@ repository.
 {
   "version": 1,
   "creates": {
-    "queues":  [ { "name": "parsing-in", "visibilityTimeout": 300 } ],
+    "queues":  [ { "name": "parsing-in", "visibility": 300 } ],
     "buckets": [ { "name": "parsing-work" } ]
   },
   "uses": {
@@ -118,3 +118,36 @@ What is refused rather than ignored:
 
 A `euclid/` directory that does not exist is not an error. Most applications declare nothing, and a
 deploy that started refusing them would be this breaking every existing deployment on arrival.
+
+## Applying one by hand
+
+```
+euclid-cli eap apply --application-id parsing --directory ./euclid --dry-run
+```
+
+Everything is printed before anything is done, and `--dry-run` stops there:
+
+```
+Application 'parsing' in namespace development:
+
+  create  queue parsing-in  (queues.json)
+  ok      bucket parsing-work - already there
+  use     bucket transfer-server as read
+  MISSING topic artikel-updates - used but does not exist; created by 'transformation'
+```
+
+`adopt` is the one verb worth reading twice. An object that already exists and carries no owner tag
+predates the manifest, or was made by hand; applying claims it, because an object an application
+owns and cannot manage is a manifest that lies. One already owned by a different application is a
+`CLASH` and stops the run.
+
+Exit codes are the three [`Exists`](../cli/include/euclid/cli/ExistsCheck.h) gives, for the same
+reason: `0` the installation matches the manifest, `1` it does not and could not be made to, `2` the
+question could not be asked at all — an expired session, an unreachable gateway. Nothing is changed
+on `1` or `2`.
+
+Running it twice changes nothing the second time.
+
+A byte order mark is skipped rather than refused. Every Windows editor writes one by default,
+including PowerShell's own `Set-Content -Encoding utf8`, and "syntax error at line 1" about an
+invisible character is the least actionable message there is.
