@@ -128,7 +128,7 @@ namespace Euclid::Database {
     void MongoEmmRepository::clearInstanceReports(const std::string &moduleName, const std::string &instanceId) {
 
         try {
-            auto collection = Database::instance().collection(COLLECTION);
+            const auto collection = Database::instance().collection(COLLECTION);
 
             const auto filter = bsoncxx::builder::basic::make_document(
                     bsoncxx::builder::basic::kvp("name", moduleName),
@@ -204,8 +204,8 @@ namespace Euclid::Database {
                                                          // thing, and for a deployed pool this is the only writer.
                                                          bsoncxx::builder::basic::kvp("instances.$.backgroundTasks", static_cast<std::int64_t>(activeHandlers)),
                                                          bsoncxx::builder::basic::kvp("instances.$.loadReportedAt", bsoncxx::types::b_date{
-                                                                                                                           std::chrono::duration_cast<std::chrono::milliseconds>(
-                                                                                                                                   std::chrono::system_clock::now().time_since_epoch())}))));
+                                                                                              std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                                                                      std::chrono::system_clock::now().time_since_epoch())}))));
 
             // Whether it matched is the caller's business: a report written to a pool that does
             // not exist is silent otherwise, and that silence hid a misdirected report for days.
