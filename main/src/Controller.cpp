@@ -315,6 +315,16 @@ namespace Euclid::main {
         Database::RepositoryFactory::instance().emmRepository()->upsertInstance(Dto::EmmMapper::toModuleEntity(*svc), Dto::EmmMapper::toInstanceEntity(*svc));
     }
 
+    // Whether this module is the one holding the store the manager reads from - which is what
+    // euclid.database.backend names when it does not name a database. False on MongoDB and on the
+    // in-process store, neither of which is a module this manager starts.
+    //
+    // The one place the manager cannot treat a module as a module: anything it would write about
+    // this one has to go through the very process it is about to start.
+    static bool holdsTheStore(const std::string &name) {
+        return !name.empty() && Core::Configuration::instance().getOr<std::string>("euclid.database.backend", "mongodb") == name;
+    }
+
 #if defined(_WIN32)
     // Both of the kernel handles an instance owns, released together because they have the same
     // lifetime - the process is gone, so neither the handle to it nor the event used to ask it
@@ -351,7 +361,15 @@ namespace Euclid::main {
         // down. An instance carrying a phantom count is one evaluateScaling() will not scale down
         // again, for the life of the installation.
         svc->backgroundTasks = 0;
-        Database::RepositoryFactory::instance().emmRepository()->clearInstanceReports(svc->config.name, svc->instanceId);
+
+        // Every module but the one holding the store. That one's reports lived inside the process
+        // that has just gone, and its store went with them - so there is nothing left to clear, and
+        // the attempt is made at the one moment it cannot succeed: before the replacement is
+        // listening. It failed on every single start, in a warning that read as though the store
+        // were broken rather than not up yet.
+        if (!holdsTheStore(svc->config.name)) {
+            Database::RepositoryFactory::instance().emmRepository()->clearInstanceReports(svc->config.name, svc->instanceId);
+        }
 
         // Only applications are given one - see allocateHttpPort(). An application binds it with
         // something like server.port=${EUCLID_HTTP_PORT:8080}, so the same artifact still runs
@@ -445,7 +463,15 @@ namespace Euclid::main {
         // down. An instance carrying a phantom count is one evaluateScaling() will not scale down
         // again, for the life of the installation.
         svc->backgroundTasks = 0;
-        Database::RepositoryFactory::instance().emmRepository()->clearInstanceReports(svc->config.name, svc->instanceId);
+
+        // Every module but the one holding the store. That one's reports lived inside the process
+        // that has just gone, and its store went with them - so there is nothing left to clear, and
+        // the attempt is made at the one moment it cannot succeed: before the replacement is
+        // listening. It failed on every single start, in a warning that read as though the store
+        // were broken rather than not up yet.
+        if (!holdsTheStore(svc->config.name)) {
+            Database::RepositoryFactory::instance().emmRepository()->clearInstanceReports(svc->config.name, svc->instanceId);
+        }
 
         // Only applications are given one - see allocateHttpPort(). An application binds it with
         // something like server.port=${EUCLID_HTTP_PORT:8080}, so the same artifact still runs
