@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.2.1](https://github.com/jensvogt/euclid/compare/1.2.0...v1.2.1) (2026-09-29)
+
+
+### Bug Fixes
+
+* add update message body command ([33b400f](https://github.com/jensvogt/euclid/commit/33b400f8274147cae7d49165a851e19816b18f9f))
+* add update message body command ([4ae5389](https://github.com/jensvogt/euclid/commit/4ae5389e1f470dc731fabb42801d56f16f75511d))
+* docker start errors ([f9ba110](https://github.com/jensvogt/euclid/commit/f9ba110a6c9bc9c0715894e04aac38063a8e85d1))
+* docker start errors ([b1dc387](https://github.com/jensvogt/euclid/commit/b1dc387030d73d2fcb04b45764730c0412e4025e))
+
 ## [1.2.0](https://github.com/jensvogt/euclid/compare/1.1.41...v1.2.0) (2026-09-27)
 
 
