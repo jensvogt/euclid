@@ -10,13 +10,40 @@ env:
   VCPKG_ROOT: "${{ github.workspace }}/vcpkg"
   VCPKG_DEFAULT_BINARY_CACHE: "${{ github.workspace }}/vcpkg-bincache"
   VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkg-bincache,readwrite"
-  BUILD_DIR: "${{ github.workspace }}/build-test"
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # One job description for both runs: the plain build and the sanitized one differed in four lines
+  # out of forty, and the other thirty-six - the toolchain, the vcpkg cache, g++-14 - were kept in
+  # step by hand. A matrix rather than two configurations in one job, because these are two full
+  # builds of everything: run one after the other they would roughly double how long a pull request
+  # waits, while sharing only an apt install and a cache restore.
   test:
-    name: Run Tests
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
+    strategy:
+      # Both answers, always. A sanitizer finding and an ordinary test failure are different
+      # information, and cancelling one because the other went first wastes the run.
+      fail-fast: false
+      matrix:
+        include:
+          - name: Run Tests
+            directory: build-test
+            sanitize: ""
+            fuzz: false
+            timeout: 300
+
+          # Slower, and given longer for it: the sanitized binaries are a few times the cost of the
+          # same test.
+          - name: AddressSanitizer and UndefinedBehaviorSanitizer
+            directory: build-asan
+            sanitize: address,undefined
+            fuzz: true
+            timeout: 600
+
+    env:
+      BUILD_DIR: "${{ github.workspace }}/${{ matrix.directory }}"
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4.2.2
@@ -53,84 +80,43 @@ jobs:
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 14
           sudo update-alternatives --set gcc /usr/bin/gcc-14
 
+      # An empty EUCLID_SANITIZE is the default the build already has (CMakeLists.txt:180), so the
+      # plain variant passes it and is configured exactly as it was.
       - name: Configure
         run: |
-          mkdir ${{ env.BUILD_DIR }}
-          cmake -B ${{ env.BUILD_DIR }} -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake
+          cmake -B ${{ env.BUILD_DIR }} -G Ninja \
+                -DCMAKE_BUILD_TYPE=Debug \
+                -DEUCLID_SANITIZE=${{ matrix.sanitize }} \
+                -DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake
 
       # Everything, not one target. "--target euclid-tests" built and ran a single suite - the
       # SigV4 one - and left the other sixty-five neither compiled nor run, so a pull request
       # could break any of them and go green.
-      - name: Build tests
+      - name: Build
         run: cmake --build ${{ env.BUILD_DIR }} --parallel 2
 
-      - name: Run tests
-        run: ctest --test-dir ${{ env.BUILD_DIR }} --output-on-failure --timeout 300
-
-  sanitizers:
-    name: AddressSanitizer and UndefinedBehaviorSanitizer
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4.2.2
-        with:
-          fetch-depth: 0
-
-      - name: Install system dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y ninja-build linux-libc-dev autoconf autoconf-archive automake libtool g++-14 libmagic-dev libgoogle-perftools-dev
-
-      - name: Create vcpkg binary cache dir
-        run: mkdir -p ${{ github.workspace }}/vcpkg-bincache
-
-      - name: Cache vcpkg binary packages
-        uses: actions/cache@v4
-        with:
-          path: ${{ github.workspace }}/vcpkg-bincache
-          key: vcpkg-v1-${{ runner.os }}-${{ hashFiles('**/vcpkg.json') }}
-          restore-keys: |
-            vcpkg-v1-${{ runner.os }}-
-
-      - name: Setup vcpkg
-        uses: lukka/run-vcpkg@v11
-        with:
-          vcpkgDirectory: "${{ github.workspace }}/vcpkg"
-          vcpkgJsonGlob: 'vcpkg.json'
-          runVcpkgInstall: false
-
-      - name: Set g++-14 as default
-        run: |
-          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 14
-          sudo update-alternatives --set g++ /usr/bin/g++-14
-          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 14
-          sudo update-alternatives --set gcc /usr/bin/gcc-14
-
-      - name: Configure
-        run: |
-          cmake -B ${{ github.workspace }}/build-asan -G Ninja \
-                -DCMAKE_BUILD_TYPE=Debug \
-                -DEUCLID_SANITIZE=address,undefined \
-                -DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake
-
-      - name: Build
-        run: cmake --build ${{ github.workspace }}/build-asan --parallel 2
-
-      # halt_on_error so a finding fails the job rather than being printed and passed over.
-      # Leak detection is off: it reports what a process still holds at exit, which for a test
-      # that never shuts a singleton down is noise rather than a bug.
       # Not a campaign: twenty thousand executions per target, over the seeds somebody thought
       # worth writing down. Long enough to catch an input that used to be handled and now
       # crashes; short enough to sit in a pull request. A real campaign runs for hours and keeps
       # what it finds, which is a different job on a different schedule.
+      #
+      # Only on the sanitized build, which is the point of fuzzing at all: without ASan a fuzzer
+      # finds the inputs that crash and misses the ones that quietly read past a buffer.
       - name: Build and smoke the fuzz targets
+        if: matrix.fuzz
         run: |
           sudo apt install -y clang
-          ./fuzz/build.sh -b ${{ github.workspace }}/build-asan
-          ./fuzz/smoke.sh -b ${{ github.workspace }}/build-asan
+          ./fuzz/build.sh -b ${{ env.BUILD_DIR }}
+          ./fuzz/smoke.sh -b ${{ env.BUILD_DIR }}
 
-      - name: Run tests under the sanitizers
+      # halt_on_error so a finding fails the job rather than being printed and passed over.
+      # Leak detection is off: it reports what a process still holds at exit, which for a test
+      # that never shuts a singleton down is noise rather than a bug.
+      #
+      # Set for both variants. Without the sanitizer runtimes linked in they are read by nothing,
+      # which is cheaper than a second step that differs only in having them.
+      - name: Run tests
         env:
           ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
-        run: ctest --test-dir ${{ github.workspace }}/build-asan --output-on-failure --timeout 600
+        run: ctest --test-dir ${{ env.BUILD_DIR }} --output-on-failure --timeout ${{ matrix.timeout }}

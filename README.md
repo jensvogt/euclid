@@ -61,7 +61,7 @@ Nothing to install and nothing to configure. The image runs on an in-memory stor
 EMD module, so there is no database to set up and nothing is left behind when the container goes:
 
 ```bash
-docker run --name euclid -p 5566:5566 -p 4567:4567 -p 8080:8080 jensvogt/euclid:latest
+docker run --name euclid -p 5566:5566 -p 2121:2121 -p 8080:8080 jensvogt/euclid:latest
 ```
 
 The CLI ships inside the image. The gateway serves HTTPS with a self-signed certificate, so point the
