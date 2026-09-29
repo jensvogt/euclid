@@ -284,6 +284,15 @@ target_link_libraries(${QUEUE_COUNTER_BINARY} PRIVATE eucliddb Boost::unit_test_
 
 add_test(NAME ${QUEUE_COUNTER_BINARY} COMMAND ${QUEUE_COUNTER_BINARY})
 
+set(UPDATE_MESSAGE_BODY_BINARY euclid-update-message-body-tests)
+
+add_executable(${UPDATE_MESSAGE_BODY_BINARY} UpdateMessageBodyTest.cpp)
+set_target_properties(${UPDATE_MESSAGE_BODY_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${UPDATE_MESSAGE_BODY_BINARY} PRIVATE eucliddb eucliddto Boost::unit_test_framework Boost::thread)
+
+add_test(NAME ${UPDATE_MESSAGE_BODY_BINARY} COMMAND ${UPDATE_MESSAGE_BODY_BINARY})
+
 set(INFRASTRUCTURE_BINARY euclid-eap-infrastructure-tests)
 
 add_executable(${INFRASTRUCTURE_BINARY} InfrastructureDeclarationTest.cpp)

@@ -802,6 +802,55 @@ namespace Euclid::Database {
         }
     }
 
+    std::optional<Entity::EQS::Message> MongoEqsRepository::updateMessageBody(const std::string &messageId, const std::string &body) {
+        Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "updateMessageBody");
+
+        try {
+            const auto newSize = static_cast<int64_t>(body.size());
+
+            // The three that move together. contentType is derived from the body here exactly as
+            // sendMessage() derives it, so a message that was JSON and becomes plain text says so -
+            // a stored content type describing what the message used to hold is worse than none.
+            const auto update = make_document(
+                    kvp("$set", make_document(
+                                kvp("body", body),
+                                kvp("size", newSize),
+                                kvp("contentType", Core::ContentTypeUtils::fromContent(body)))),
+                    kvp("$currentDate", make_document(kvp("modified", true))));
+
+            const auto filter = make_document(kvp("messageId", messageId));
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
+
+            // The document as it was, because its size is what the queue's byte total was built
+            // from and there is no reading it once the swap has happened. One atomic operation, so
+            // two callers rewriting the same message cannot both adjust from the same old size and
+            // leave the queue counting a body neither of them stored.
+            mongocxx::options::find_one_and_update opts;
+            opts.return_document(mongocxx::options::return_document::k_before);
+
+            const auto before = messageCollection.find_one_and_update(filter.view(), update.view(), opts);
+            if (!before) return {};
+
+            Entity::EQS::Message previous;
+            previous.FromDocument(before->view());
+
+            // Nothing to adjust when a correction is the same length as what it replaces, which is
+            // the common case - and adjustQueueCounters coalesces, so the call is not free.
+            if (const auto delta = static_cast<long>(newSize) - previous.size; delta != 0) {
+                adjustQueueCounters(previous.queueErn, 0, 0, 0, delta);
+            }
+
+            // Read back rather than assembled from `previous`: `modified` was stamped by the
+            // server, and a caller told a timestamp this process invented would be told one that
+            // does not match what any other reader sees.
+            return findMessageByName(messageId);
+
+        } catch (const std::exception &e) {
+            log_error << "Update message body failed, messageId: " << messageId << ", error: " << e.what();
+        }
+        return {};
+    }
+
     Entity::EQS::Message MongoEqsRepository::sendMessage(const std::string &messageId, const std::string &ern, const std::string &queueErn, const std::string &body, const std::map<std::string, Entity::COM::Variant> &attributes, const std::map<std::string, Entity::COM::Variant> &systemAttributes, const Entity::EQS::MessagePriority priority) {
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "sendMessage");
 
