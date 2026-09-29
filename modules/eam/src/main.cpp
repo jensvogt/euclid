@@ -223,7 +223,7 @@ static void ensureDefaultObjects(const Euclid::Core::Configuration &cfg) {
             userGroup.modified = std::chrono::system_clock::now();
             userGroup = repo->upsertUserGroup(userGroup);
 
-            log_warning << "No administrator user group existed; created it (name: '" << userGroup.name
+            log_info << "No administrator user group existed; created it (name: '" << userGroup.name
                         << "', region: '" << userGroup.region << "', accountId: '" << accountId
                         << "', members: " << userGroup.userIds.size() << ")";
         }
@@ -300,7 +300,8 @@ int main(const int argc, char *argv[]) {
     // federation that was configured wrongly into an installation nobody can log into at all.
     if (const auto oidc = Euclid::Core::OidcConfiguration::FromConfiguration("eam"); oidc.enabled) {
         const auto problems = oidc.Validate();
-        for (const auto &problem: problems) log_error << "OIDC login is enabled but not usable: " << problem;
+        for (const auto &problem: problems)
+            log_error << "OIDC login is enabled but not usable: " << problem;
         if (problems.empty()) {
             log_info << "OIDC login enabled, issuer: " << oidc.issuer << ", clientId: " << oidc.clientId
                      << ", jitProvisioning: " << std::boolalpha << oidc.jitProvisioning;
@@ -310,7 +311,8 @@ int main(const int argc, char *argv[]) {
     // ── Report the SAML configuration ───────────────────
     if (const auto saml = Euclid::Core::SamlConfiguration::FromConfiguration("eam"); saml.enabled) {
         const auto problems = saml.Validate();
-        for (const auto &problem: problems) log_error << "SAML login is enabled but not usable: " << problem;
+        for (const auto &problem: problems)
+            log_error << "SAML login is enabled but not usable: " << problem;
         if (problems.empty()) {
             log_info << "SAML login enabled, idpEntityId: " << saml.idpEntityId << ", entityId: " << saml.entityId
                      << ", jitProvisioning: " << std::boolalpha << saml.jitProvisioning

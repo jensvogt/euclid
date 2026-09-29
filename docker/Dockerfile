@@ -49,22 +49,53 @@ RUN --mount=type=cache,target=/vcpkg-cache \
     cmake --build build && \
     rm -f build/bin/*-tests
 
-FROM node:24-alpine AS buildfrontend
+# Debian rather than alpine, for a stage that is discarded anyway: this is the libc and the node
+# that the release pipeline builds euclid-web on (actions/setup-node on ubuntu), so a frontend that
+# builds for a release builds here. euclid-web's lockfile does carry the musl binaries that
+# Angular's esbuild and rollup need, so alpine would very likely work too - this is about building
+# on the toolchain the frontend is actually tested on, not about alpine being unable to.
+#
+# Nothing from this stage but the compiled bundle reaches the runtime image, so its base costs
+# nothing in what ships.
+FROM node:24 AS buildfrontend
 
-RUN apk update && apk upgrade && apk add --no-cache git
-
-# Build euclid-ui, if it exists yet - falls back to an empty storage so the runtime
-# image still builds with no bundled frontend until that repo is created.
+# The frontend the gateway serves. It lives in its own repository - a separate Angular project,
+# released on its own schedule - so the image fetches and compiles it rather than carrying a built
+# copy that would go stale silently.
+#
+# euclid-web's default branch is master. Override to pin a tag or another branch; changing it is
+# also what invalidates this layer, since Docker cannot see that the remote has moved.
+ARG FRONTEND_VERSION=master
 WORKDIR /usr/src
-RUN if git ls-remote https://github.com/jensvogt/euclid-ui.git >/dev/null 2>&1; then \
-      git clone https://github.com/jensvogt/euclid-ui.git && \
-      cd euclid-ui && \
-      npm install -g @angular/cli && \
-      npm install --force && \
-      npm run build --prod; \
-    else \
-      mkdir -p euclid-ui/dist/euclid-ui/browser; \
-    fi
+RUN git clone --depth 1 --branch "$FRONTEND_VERSION" https://github.com/jensvogt/euclid-web.git
+
+# npm ci, not "npm install --force": the lockfile is what CI builds from, and --force resolved a
+# fresh tree every build - so the image could ship a dependency set nobody had tested. The Angular
+# CLI is a devDependency, so "npm run build" uses that pinned copy; installing one globally was a
+# second version to disagree with it.
+#
+# --configuration docker, because euclid-web's angular.json sets defaultConfiguration to
+# "development": a plain "ng build" leaves optimization off and source maps on, which is a bundle
+# several times the size it needs to be and an environment that still says production: false. The
+# "docker" configuration is the one that project keeps for being served from a container - it
+# swaps in environment.docker.ts and turns on output hashing - so the image follows whatever it
+# decides that should mean rather than pinning a guess here.
+#
+# What makes it work without the nginx that configuration was written around: euclidEndpoint is the
+# same-origin path /euclid, and euclid's own gateway routes a request by its x-euclid-target header
+# rather than by path (see detectEuclidService in GatewayServer.cpp). The gateway serving both the
+# bundle and the API on one port is what the path was chosen to avoid a CORS preflight for.
+WORKDIR /usr/src/euclid-web
+RUN npm ci && npm run build -- --configuration docker
+
+# Angular's "application" builder writes to <outputPath>/browser, and euclid-web's angular.json sets
+# outputPath to "dist/euclid-web". Checked here rather than found in a browser: for as long as this
+# image has existed it shipped an empty frontend directory, because the stage cloned a repository
+# that does not exist (euclid-ui) and fell back to creating the empty output path it was looking
+# for. A missing frontend and a broken one both answer 404, and the gateway's line saying which is
+# logged at info - below the "warning" this image's configuration sets - so nothing said so.
+RUN test -f dist/euclid-web/browser/index.html \
+    || (echo "euclid-web produced no dist/euclid-web/browser/index.html" && exit 1)
 
 # Stick to alpine:latest
 FROM alpine:latest
@@ -85,8 +116,9 @@ RUN mkdir -p /usr/local/euclid/data/tmp && \
     mkdir -p /usr/local/euclid/frontend && \
     mkdir -p /var/run/euclid
 
-# Install frontend
-COPY --from=buildfrontend /usr/src/euclid-ui/dist/euclid-ui/browser/ /usr/local/euclid/frontend/
+# Install frontend. The bundle alone - not the checkout around it, not node_modules, not the
+# sources - into the directory euclid.gateway.frontend.directory names.
+COPY --from=buildfrontend /usr/src/euclid-web/dist/euclid-web/browser/ /usr/local/euclid/frontend/
 
 # Install euclid.
 #
