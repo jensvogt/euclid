@@ -1105,6 +1105,74 @@ namespace Euclid::EQS {
         return EqsServer::JsonResponse(req, status::ok, response.toJson());
     }
 
+    // Rewrites the body of a message already on a queue.
+    //
+    // A message is not a resource anybody is granted, so this is guarded by the queue the message
+    // is in - the same reading get-message and delete-message take, and for the same reason: doing
+    // anything to a message is doing it to its queue's contents.
+    //
+    // The queue's length limit applies here exactly as it does to a send. A body that could not
+    // have been sent must not be reachable by sending something short and then growing it, which is
+    // what leaving it out would mean - and the limit is read from the queue as it stands now rather
+    // than as it stood when the message arrived, because what this writes is a message the queue is
+    // accepting today.
+    static response<string_body> handleUpdateMessageBody(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "update-message-body");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EQS::UpdateMessageBodyRequest>(jv);
+        if (request.messageId.empty()) {
+            return EqsServer::ErrorResponse(req, status::bad_request, "messageId is required");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().eqsRepository();
+        const auto message = repo->findMessageByName(request.messageId);
+        if (!message.has_value()) {
+            return EqsServer::ErrorResponse(req, status::not_found, "Message not found, messageId: " + request.messageId);
+        }
+
+        if (const auto denied = denyUngrantedQueue(req, auth, message->queueErn)) return *denied;
+
+        // Asked after the grant, so a caller with no business here learns that and not the size of
+        // somebody else's queue. A queue that has gone missing under its messages is not a reason
+        // to refuse - the limit is the queue's to set, and the default is what a queue carrying no
+        // figure of its own is measured against anyway.
+        const auto queue = repo->findQueueByErn(message->queueErn);
+        const auto maxMessageLength = Database::Entity::EQS::EffectiveMaxMessageLength(
+                queue.has_value() ? queue->maxMessageLength : 0);
+        if (const auto length = static_cast<long>(request.body.size()); length > maxMessageLength) {
+            return EqsServer::ErrorResponse(req, status::bad_request,
+                                            "message is " + std::to_string(length) + " bytes, and this queue accepts " +
+                                                    std::to_string(maxMessageLength));
+        }
+
+        const auto updated = repo->updateMessageBody(request.messageId, request.body);
+        if (!updated.has_value()) {
+            // Between the read above and the write, which is a delete or a retention sweep rather
+            // than anything the caller did wrong.
+            return EqsServer::ErrorResponse(req, status::not_found, "Message not found, messageId: " + request.messageId);
+        }
+
+        log_info << "EQS UpdateMessageBody, messageId: " << request.messageId
+                 << ", queueErn: " << updated->queueErn
+                 << ", size: " << message->size << " -> " << updated->size;
+
+        return EqsServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                               {"messageId", updated->messageId},
+                                               {"queueErn", updated->queueErn},
+                                               {"size", updated->size},
+                                               // What it was, because the one thing a caller cannot
+                                               // check afterwards is what they replaced.
+                                               {"previousSize", message->size},
+                                               {"contentType", updated->contentType}}));
+    }
+
     static response<string_body> handleGetMessageMetadata(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-message-metadata");
@@ -1440,6 +1508,7 @@ namespace Euclid::EQS {
             GetQueueMetadata,
             GetMessageAttribute,
             SetMessageAttribute,
+            UpdateMessageBody,
             GetMessageMetadata,
             ListQueues,
             ListMessages,
@@ -1494,6 +1563,7 @@ namespace Euclid::EQS {
         if (action == "get-queue-metadata") return Command::GetQueueMetadata;
         if (action == "get-message-attribute") return Command::GetMessageAttribute;
         if (action == "set-message-attribute") return Command::SetMessageAttribute;
+        if (action == "update-message-body") return Command::UpdateMessageBody;
         if (action == "get-message-metadata") return Command::GetMessageMetadata;
         if (action == "get-metadata") return Command::GetMetadata;
         if (action == "add-metadata") return Command::AddMetadata;
@@ -1591,6 +1661,8 @@ namespace Euclid::EQS {
 
             case Command::SetMessageAttribute:
                 return handleSetMessageAttribute(req);
+            case Command::UpdateMessageBody:
+                return handleUpdateMessageBody(req);
 
             case Command::GetMessageMetadata:
                 return handleGetMessageMetadata(req);

@@ -58,6 +58,38 @@ namespace Euclid::Core {
         static const std::vector<std::string> &UnbindableModules();
 
         /**
+         * @brief The actions the role gate does not decide, sorted, `<module>:<action>`.
+         *
+         * @par
+         * Not "anybody may do these". They are the actions whose subject is the caller's own
+         * session, where the gate is structurally unable to ask the right question and the handler
+         * asks it instead - a narrower one, against the same grants.
+         *
+         * @par
+         * `eam:change-namespace` is the case that named this. The gate decides a request from
+         * `x-euclid-target`, `x-euclid-action` and `x-euclid-namespace`, and the namespace a caller
+         * is asking to move to is in the body, which the gate does not read. So it was matching the
+         * caller's grants against the namespace they are leaving - empty, on the change that follows
+         * a login - and the question it answered, "may you act in the namespace you are already in",
+         * is not the one being asked. Held to it, a namespace switch was possible only for a caller
+         * granted `*`, and only if their role held an `eam:` permission at all: `operator` excludes
+         * the whole module by design and `reader` keeps only the reads, so in practice nobody but an
+         * account administrator could choose a namespace to work in.
+         *
+         * @par
+         * What decides it instead is handleChangeNamespace(), which requires the namespace to exist
+         * and the caller to be an account admin or to hold a grant naming it. That is the check the
+         * gate was standing in front of, and it reads the body, so it can make it.
+         *
+         * @par
+         * These stay in All(). The action is dispatched, so the vocabulary has to name it - see
+         * PermissionVocabularyTest - and a role may hold it; it simply is not what admits the
+         * request. Adding to this list moves a decision from the gate to a handler, so nothing
+         * belongs here whose handler does not already make one.
+         */
+        static const std::vector<std::string> &UngatedActions();
+
+        /**
          * @brief The permission that grants every action of every bindable module.
          */
         static constexpr std::string_view Everything = "*:*";

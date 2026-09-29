@@ -159,6 +159,8 @@ namespace Euclid::Database {
          */
         void upsertMessage(const Entity::ENS::Message &message) override;
 
+        std::optional<Entity::ENS::Message> updateMessageBody(const std::string &messageId, const std::string &body) override;
+
         /**
          * @brief Publish a message to a topic
          *

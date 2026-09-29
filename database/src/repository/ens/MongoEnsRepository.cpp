@@ -598,6 +598,59 @@ namespace Euclid::Database {
         }
     }
 
+    std::optional<Entity::ENS::Message> MongoEnsRepository::updateMessageBody(const std::string &messageId, const std::string &body) {
+
+        try {
+            const auto newSize = static_cast<int64_t>(body.size());
+
+            // contentType is derived from the body here exactly as publishMessage() derives it, so
+            // a message that was JSON and becomes plain text says so rather than describing what it
+            // used to hold.
+            const auto update = make_document(
+                    kvp("$set", make_document(
+                                kvp("body", body),
+                                kvp("size", newSize),
+                                kvp("contentType", Core::ContentTypeUtils::fromContent(body)))),
+                    kvp("$currentDate", make_document(
+                                kvp("modified", true))));
+
+            const auto filter = make_document(kvp("messageId", messageId));
+            auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
+
+            // The document as it was: its size is what the topic's byte total was built from, and
+            // there is no reading it once the swap has happened. One atomic operation, so two
+            // callers rewriting the same message cannot both adjust from the same old size.
+            mongocxx::options::find_one_and_update opts;
+            opts.return_document(mongocxx::options::return_document::k_before);
+
+            const auto before = messageCollection.find_one_and_update(filter.view(), update.view(), opts);
+            if (!before) return {};
+
+            Entity::ENS::Message previous;
+            previous.FromDocument(before->view());
+
+            // The same $inc on the topic row that publishMessage makes, by the difference rather
+            // than the whole - the message is already counted, only its length changed. `available`
+            // is left alone: rewriting a body neither publishes nor consumes anything.
+            if (const auto delta = newSize - static_cast<int64_t>(previous.size); delta != 0) {
+                auto topicCollection = Database::instance().collection(TOPIC_COLLECTION);
+                const auto topicUpdate = make_document(
+                        kvp("$inc", make_document(kvp("size", delta))),
+                        kvp("$currentDate", make_document(kvp("modified", true))));
+                topicCollection.update_one(make_document(kvp("ern", previous.topicErn)).view(), topicUpdate.view());
+            }
+
+            // Read back rather than assembled from `previous`: `modified` was stamped by the
+            // server, and a caller told a timestamp this process invented would be told one that
+            // does not match what any other reader sees.
+            return findMessageById(messageId);
+
+        } catch (const std::exception &e) {
+            log_error << "Update message body failed, messageId: " << messageId << ", error: " << e.what();
+        }
+        return {};
+    }
+
     std::vector<Entity::ENS::Message> MongoEnsRepository::listHeldMessages(const std::string &topicErn, const long limit) const {
 
         std::vector<Entity::ENS::Message> messages;

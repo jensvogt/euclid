@@ -62,6 +62,7 @@
 #include <euclid/dto/ens/SubscribeRequest.h>
 #include <euclid/dto/ens/SubscribeResponse.h>
 #include <euclid/dto/ens/UnsubscribeRequest.h>
+#include <euclid/dto/ens/UpdateMessageBodyRequest.h>
 
 namespace Euclid::ENS {
 

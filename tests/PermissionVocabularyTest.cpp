@@ -203,6 +203,27 @@ BOOST_AUTO_TEST_CASE(EveryPermissionNamesADispatchedAction) {
                "grants nothing - remove from core/src/Permissions.cpp:" + joined(stale));
 }
 
+// The ungated actions are exempt from the gate, not from the vocabulary: the module dispatches
+// them, so All() has to name them like any other action. An entry here that no module answers would
+// be an exemption for a request nobody can make - and, worse, one that reads as deliberate.
+BOOST_AUTO_TEST_CASE(EveryUngatedActionIsADispatchedActionInTheVocabulary) {
+
+    const auto dispatched = vocabularyFromSources();
+
+    BOOST_REQUIRE(!Permissions::UngatedActions().empty());
+
+    for (const auto &permission: Permissions::UngatedActions()) {
+        BOOST_TEST(dispatched.contains(permission),
+                   permission + " is exempt from the gate and no module dispatches it");
+        BOOST_TEST(Permissions::Exists(permission),
+                   permission + " is exempt from the gate and is not in the vocabulary");
+    }
+
+    // Sorted for the same reason All() is - this is searched, and the list is read by people
+    // deciding whether something belongs on it.
+    BOOST_TEST(std::ranges::is_sorted(Permissions::UngatedActions()));
+}
+
 BOOST_AUTO_TEST_CASE(TheVocabularyIsSortedAndUnique) {
 
     // Exists() binary-searches it, which is wrong on an unsorted vector and would answer false for

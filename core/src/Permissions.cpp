@@ -153,7 +153,7 @@ namespace Euclid::Core {
                 "emo:list",
                 "emo:push-metrics",
 
-                // ens - 24 actions
+                // ens - 25 actions
                 "ens:add-topic-tag",
                 "ens:create-topic",
                 "ens:delete-topic",
@@ -179,8 +179,9 @@ namespace Euclid::Core {
                 "ens:stop-topic",
                 "ens:subscribe",
                 "ens:unsubscribe",
+                "ens:update-message-body",
 
-                // eqs - 32 actions
+                // eqs - 33 actions
                 "eqs:add-metadata",
                 "eqs:add-queue-tag",
                 "eqs:create-queue",
@@ -213,6 +214,7 @@ namespace Euclid::Core {
                 "eqs:set-visibility",
                 "eqs:start-queue",
                 "eqs:stop-queue",
+                "eqs:update-message-body",
 
                 // esm - 41 actions
                 "esm:abort-upload",
@@ -317,6 +319,16 @@ namespace Euclid::Core {
         // either would hand over what every other permission exists to gate. See Permissions.h.
         static const std::vector<std::string> kUnbindable = {"emd", "emm"};
         return kUnbindable;
+    }
+
+    const std::vector<std::string> &Permissions::UngatedActions() {
+
+        // The gate cannot ask the right question about this one: the namespace being moved to is in
+        // the request body, and the gate sees only the headers - so it was checking the caller's
+        // grants against the namespace they are leaving. handleChangeNamespace() makes the real
+        // check, against the same grants, having read the body. See Permissions.h.
+        static const std::vector<std::string> kUngated = {"eam:change-namespace"};
+        return kUngated;
     }
 
     bool Permissions::IsBindable(const std::string_view module) {

@@ -64,6 +64,7 @@ namespace Euclid::CLI {
                 {"send-message", "Send a message to a queue"},
                 {"send-message-batch", "Send several messages to a queue in one call"},
                 {"set-message-attribute", "Sets the value of a message attribute"},
+                {"update-message-body", "Replaces the body of a message already on a queue"},
                 {"set-message-visibility", "Sets the visibility timeout of a single message"},
                 {"set-queue-tag", "Sets the value of an existing queue tag"},
                 {"set-queue-visibility", "Sets a queue's default visibility timeout"},
@@ -228,6 +229,9 @@ namespace Euclid::CLI {
         }
         if (action == "get-message-attribute") {
             return getMessageAttribute(args);
+        }
+        if (action == "update-message-body") {
+            return updateMessageBody(args);
         }
         if (action == "set-message-attribute") {
             return setMessageAttribute(args);
@@ -1166,6 +1170,52 @@ namespace Euclid::CLI {
             const HttpResponse response = client.Post("eqs", "set-message-attribute", boost::json::value_from(request));
             if (!response.IsSuccess()) {
                 std::cerr << "error: set-message-attribute failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EqsCli::updateMessageBody(const std::vector<std::string> &args) const {
+        po::options_description desc("update message body options");
+        desc.add_options()
+                ("message-id,m", po::value<std::string>()->required(), "message ID")
+                ("body,b", po::value<std::string>()->required(), "new message body");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eqs", "update-message-body", "--message-id <messageId> --body <body|file://path>",
+                                   "Replaces the body of a message already on a queue. The whole body is replaced, not part of it. "
+                                   "If --body starts with 'file://', the new body is read from the referenced file instead of being "
+                                   "taken literally, which is how a body that does not fit on a command line is given. "
+                                   "The message keeps its ID, status, priority, visibility and attributes; only the body, its size and "
+                                   "its content type change. The queue's maximum message length applies as it does to send-message. "
+                                   "Answers with the message ID, the queue, the new size, the size it replaced and the new content type.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EQS::UpdateMessageBodyRequest request;
+        request.messageId = vm["message-id"].as<std::string>();
+
+        try {
+            request.body = ResolveFileOrLiteral(vm["body"].as<std::string>());
+
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eqs", "update-message-body", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: update-message-body failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);
