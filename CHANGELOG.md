@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.2](https://github.com/jensvogt/euclid/compare/v1.2.1...v1.2.2) (2026-09-29)
+
+
+### Bug Fixes
+
+* docker add frontend ([cc8097f](https://github.com/jensvogt/euclid/commit/cc8097fce2ea246628a77295659d0b33ae070e8c))
+
 ## [1.2.1](https://github.com/jensvogt/euclid/compare/1.2.0...v1.2.1) (2026-09-29)
 
 
