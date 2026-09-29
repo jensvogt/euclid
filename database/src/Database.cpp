@@ -33,6 +33,10 @@ namespace Euclid::Database {
 
             ping();
 
+            // It answered a ping, so anything waiting for a reachable backend can run now - which
+            // on this backend is what it always did, from the repository's own constructor.
+            markReachable();
+
         } catch (const mongocxx::exception &e) {
             log_error << "MongoDB initialization failed: " << e.what();
             throw std::runtime_error(std::string("MongoDB initialization failed: ") + e.what());
@@ -83,12 +87,56 @@ namespace Euclid::Database {
         _store = std::make_shared<Emd::DocumentStore>();
         _databaseName = "euclid";
         log_info << "Using the in-memory document store";
+
+        // In this process, so up the moment it exists.
+        markReachable();
     }
 
     void Database::initializeRemote(const std::string &socketPath) {
-        _store = std::make_shared<Emd::RemoteDocumentStore>(socketPath);
+
+        auto store = std::make_shared<Emd::RemoteDocumentStore>(socketPath);
+
+        // Deliberately not marked reachable here: EMD is another process, and on the installation
+        // this backend exists for the manager initializes this before it has started it. The store
+        // says when it has actually been answered, which is what anything deferred is waiting for.
+        store->OnReply([this] { markReachable(); });
+
+        _store = std::move(store);
         _databaseName = "euclid";
         log_info << "Using the memory database, socket: " << socketPath;
+    }
+
+    void Database::onReachable(std::function<void()> work) {
+
+        {
+            std::lock_guard lock(_reachableMutex);
+            if (!_reachable.load(std::memory_order_relaxed)) {
+                _deferred.push_back(std::move(work));
+                return;
+            }
+        }
+
+        // Outside the lock: the work makes store calls, and one of those answering re-enters
+        // markReachable() - which wants this same mutex.
+        work();
+    }
+
+    void Database::markReachable() {
+
+        // The steady state, and the reason this is cheap enough to call on every reply.
+        if (_reachable.load(std::memory_order_acquire)) return;
+
+        std::vector<std::function<void()> > deferred;
+        {
+            std::lock_guard lock(_reachableMutex);
+            if (_reachable.exchange(true, std::memory_order_release)) return;
+            deferred.swap(_deferred);
+        }
+
+        if (!deferred.empty()) {
+            log_debug << "The backend answered; running " << deferred.size() << " deferred initialisation(s)";
+        }
+        for (const auto &work: deferred) work();
     }
 
     Collection Database::collection(const std::string &name) const {

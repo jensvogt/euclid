@@ -10,6 +10,7 @@
 
 // C++ includes
 #include <chrono>
+#include <functional>
 #include <string>
 
 // Euclid includes
@@ -46,6 +47,24 @@ namespace Euclid::Database::Emd {
          * @param socketPath Unix domain socket the EMD process listens on.
          */
         explicit RemoteDocumentStore(std::string socketPath);
+
+        /**
+         * @brief Called after every request the store answers.
+         *
+         * @par
+         * How a caller learns that EMD is up, which a connect alone does not prove: a socket that
+         * accepts and then says nothing useful is not a store to run anything against. Called on
+         * every reply rather than only the first, so it must be cheap and must not mind being
+         * called again - Database::markReachable() is an atomic read after the first time.
+         *
+         * @par
+         * Not called when the store answers with an error it raised itself - a duplicate key, an
+         * operator it does not implement. Those mean it is up, so this is conservative by a request:
+         * the next one that succeeds calls it.
+         *
+         * @param callback what to call, or empty to stop.
+         */
+        void OnReply(std::function<void()> callback) { _onReply = std::move(callback); }
 
         [[nodiscard]]
         std::optional<bsoncxx::document::value> FindOne(const std::string &collection, bsoncxx::document::view filter) const override;
@@ -126,6 +145,11 @@ namespace Euclid::Database::Emd {
          * it.
          */
         std::chrono::milliseconds _connectTimeout{std::chrono::seconds(1)};
+
+        /**
+         * @brief What OnReply() registered, or empty.
+         */
+        std::function<void()> _onReply;
     };
 
 }// namespace Euclid::Database::Emd
