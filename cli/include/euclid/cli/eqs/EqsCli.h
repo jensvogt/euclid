@@ -47,6 +47,7 @@
 #include <euclid/dto/eqs/SetMessageVisibilityRequest.h>
 #include <euclid/dto/eqs/SetQueueVisibilityRequest.h>
 #include <euclid/dto/eqs/SetQueueTagRequest.h>
+#include <euclid/dto/eqs/UpdateMessageBodyRequest.h>
 
 namespace Euclid::CLI {
 
@@ -306,6 +307,15 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int setMessageAttribute(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Replaces the body of a message already on a queue
+         *
+         * @param args action arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int updateMessageBody(const std::vector<std::string> &args) const;
 
         /**
          * @brief Returns a message's metadata, i.e. queueErn, size, status, etc.

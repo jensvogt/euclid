@@ -667,6 +667,69 @@ namespace Euclid::ENS {
         return EnsServer::JsonResponse(req, status::ok, response.toJson());
     }
 
+    // Rewrites the body of a message already published to a topic.
+    //
+    // What it reaches is the copy ENS still holds - what list-messages and get-message answer with,
+    // and what resend-messages would send. The copies a subscriber already received left when the
+    // message was published and are past changing, so this corrects the record rather than the
+    // delivery. Said plainly here because the opposite is the natural thing to assume.
+    //
+    // The topic's length limit applies exactly as it does to a publish: a body that could not have
+    // been published must not be reachable by publishing something short and then growing it.
+    static response<string_body> handleUpdateMessageBody(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "update-message-body");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::ENS::UpdateMessageBodyRequest>(jv);
+        if (request.messageId.empty()) {
+            return EnsServer::ErrorResponse(req, status::bad_request, "messageId is required");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().ensRepository();
+        const auto message = repo->findMessageById(request.messageId);
+        if (!message.has_value()) {
+            return EnsServer::ErrorResponse(req, status::not_found, "Message not found, messageId: " + request.messageId);
+        }
+
+        // A topic that has gone missing under its messages is not a reason to refuse - the limit is
+        // the topic's to set, and the default is what a topic carrying no figure of its own is
+        // measured against anyway.
+        const auto topic = repo->findTopicByErn(message->topicErn);
+        const auto maxMessageLength = Database::Entity::ENS::EffectiveMaxMessageLength(
+                topic.has_value() ? topic->maxMessageLength : 0);
+        if (const auto length = static_cast<long>(request.body.size()); length > maxMessageLength) {
+            return EnsServer::ErrorResponse(req, status::bad_request,
+                                            "message is " + std::to_string(length) + " bytes, and this topic accepts " +
+                                                    std::to_string(maxMessageLength) + " - see set-topic-max-message-length");
+        }
+
+        const auto updated = repo->updateMessageBody(request.messageId, request.body);
+        if (!updated.has_value()) {
+            // Between the read above and the write, which is a purge or a retention sweep rather
+            // than anything the caller did wrong.
+            return EnsServer::ErrorResponse(req, status::not_found, "Message not found, messageId: " + request.messageId);
+        }
+
+        log_info << "ENS UpdateMessageBody, messageId: " << request.messageId
+                 << ", topicErn: " << updated->topicErn
+                 << ", size: " << message->size << " -> " << updated->size;
+
+        return EnsServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                               {"messageId", updated->messageId},
+                                               {"topicErn", updated->topicErn},
+                                               {"size", updated->size},
+                                               // What it was, because the one thing a caller cannot
+                                               // check afterwards is what they replaced.
+                                               {"previousSize", message->size},
+                                               {"contentType", updated->contentType}}));
+    }
+
     static response<string_body> handleSetMessageAttribute(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-message-attribute");
@@ -1338,6 +1401,7 @@ namespace Euclid::ENS {
             GetQueueMetadata,
             GetMessageAttribute,
             SetMessageAttribute,
+            UpdateMessageBody,
             GetMessageMetadata,
             ListTopics,
             ListMessages,
@@ -1378,6 +1442,7 @@ namespace Euclid::ENS {
         if (action == "get-message-count") return Command::GetMessageCount;
         if (action == "get-message-attribute") return Command::GetMessageAttribute;
         if (action == "set-message-attribute") return Command::SetMessageAttribute;
+        if (action == "update-message-body") return Command::UpdateMessageBody;
         if (action == "get-topic-metadata") return Command::GetMetadata;
         if (action == "add-topic-tag") return Command::AddTopicTag;
         if (action == "set-topic-tag") return Command::SetTopicTag;
@@ -1446,6 +1511,8 @@ namespace Euclid::ENS {
 
             case Command::SetMessageAttribute:
                 return handleSetMessageAttribute(req);
+            case Command::UpdateMessageBody:
+                return handleUpdateMessageBody(req);
 
             // case Command::GetMessageMetadata:
             //     return handleGetMessageMetadata(req);

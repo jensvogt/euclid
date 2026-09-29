@@ -1664,6 +1664,12 @@ namespace Euclid::EAM {
     // be an account admin or hold an explicit grant for it (see handleGrantNamespaceAccess) -
     // otherwise a user could silently point every future command at a namespace they have no
     // business touching.
+    //
+    // This is the only check on the switch: the action is in Permissions::UngatedActions(), because
+    // the role gate decides from the headers and the namespace being asked for is in the body. The
+    // gate was therefore matching grants against the namespace being *left* - empty, on the switch
+    // that follows a login - and refusing everybody but an account administrator for it. What it
+    // could not ask is what is asked here, against the same grants.
     static response<string_body> handleChangeNamespace(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "change-namespace");
@@ -1694,7 +1700,12 @@ namespace Euclid::EAM {
                                                              std::ranges::contains(grant.namespaces, std::string("*")));
                                                  });
         if (!granted) {
-            return EamServer::ErrorResponse(req, status::forbidden, "Namespace access not granted");
+            // Names the namespace and what would fix it. This is the refusal a user meets at login
+            // - "logged in, but setting namespace failed" - and "Namespace access not granted" left
+            // them nothing to ask for.
+            return EamServer::ErrorResponse(req, status::forbidden,
+                                            "No role granted to you covers namespace '" + request.ns +
+                                                    "' - ask an account administrator for a grant in it");
         }
 
         log_info << "EAM ChangeNamespace, userId: " << auth.user->userId << ", namespace: " << request.ns;

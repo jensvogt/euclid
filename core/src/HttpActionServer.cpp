@@ -286,6 +286,13 @@ namespace Euclid::Core {
         // for either.
         if (std::ranges::contains(Permissions::UnbindableModules(), target)) return std::nullopt;
 
+        // And the handful of actions whose subject is the caller's own session. The gate decides
+        // from the headers alone, which for these is the wrong material - a namespace switch names
+        // where it is going in the body, so asking the grants about x-euclid-namespace asks about
+        // the namespace being left. The handler makes the check instead, against the same grants and
+        // with the body in hand. See Permissions::UngatedActions().
+        if (std::ranges::contains(Permissions::UngatedActions(), Permissions::Of(target, action))) return std::nullopt;
+
         const auto decision = g_authorizationLookup(req, target, action);
         if (decision.allowed) return std::nullopt;
 
