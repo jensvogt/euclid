@@ -366,6 +366,15 @@ target_link_libraries(${DELETE_IF_EMPTY_BINARY} PRIVATE eucliddb eucliddto eucli
 
 add_test(NAME ${DELETE_IF_EMPTY_BINARY} COMMAND ${DELETE_IF_EMPTY_BINARY})
 
+set(DEFERRED_INDEX_BINARY euclid-deferred-index-tests)
+
+add_executable(${DEFERRED_INDEX_BINARY} DeferredIndexTest.cpp)
+set_target_properties(${DEFERRED_INDEX_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${DEFERRED_INDEX_BINARY} PRIVATE eucliddb eucliddto euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${DEFERRED_INDEX_BINARY} COMMAND ${DEFERRED_INDEX_BINARY})
+
 set(MODULE_CALL_HEADER_BINARY euclid-module-call-header-tests)
 
 add_executable(${MODULE_CALL_HEADER_BINARY} ModuleCallHeaderTest.cpp ${CMAKE_SOURCE_DIR}/extern/common/src/TransferContext.cpp)

@@ -131,6 +131,12 @@ namespace Euclid::Database::Emd {
         if (const auto error = reply.view()[P::kError]; error && error.type() == bsoncxx::type::k_string) {
             throw std::runtime_error(std::string(error.get_string().value));
         }
+
+        // Here rather than at the connect above: whoever is waiting to hear that the store answers
+        // wants to run store calls of their own, and this one has only just finished with its
+        // socket. Every reply, not only the first - the callback is what decides it has heard.
+        if (_onReply) _onReply();
+
         return reply;
     }
 

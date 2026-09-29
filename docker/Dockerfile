@@ -46,7 +46,8 @@ RUN --mount=type=cache,target=/vcpkg-cache \
     mkdir build && \
     cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake \
     -DCMAKE_BUILD_TYPE=Release -Wno-dev && \
-    cmake --build build
+    cmake --build build && \
+    rm -f build/bin/*-tests
 
 FROM node:24-alpine AS buildfrontend
 
@@ -89,29 +90,17 @@ COPY --from=buildfrontend /usr/src/euclid-ui/dist/euclid-ui/browser/ /usr/local/
 
 # Install euclid.
 #
-# Every module the shipped configuration activates, plus the two transfer executables ETS spawns -
-# a module whose binary is missing is one the manager reports as failing to start for the life of
-# the container, which is a poor first impression of an image meant to need no setup at all.
-COPY --from=build /usr/src/euclid/build/bin/euclid-mgr /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-cli /usr/local/euclid/bin/
-# The document store. The image runs on it rather than on MongoDB - see euclid.database.backend
-# in the bundled configuration - so nothing else here starts without it.
-COPY --from=build /usr/src/euclid/build/bin/euclid-emd /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-eam /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-eqs /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-ens /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-ees /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-emo /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-esm /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-eap /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-ekm /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-ekv /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-ess /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-emm /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-eag /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-ets /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-ftp /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-sftp /usr/local/euclid/bin/
+# Everything the build produced, rather than a list that has to be extended by hand whenever a
+# module is added - which is how euclid-ead came to be missing while euclid.json still pointed at
+# it, leaving the manager restart-looping for the life of the container on a binary that was never
+# installed. The same drift the macOS package hit, fixed the same way. The test executables land in
+# this directory too and are removed in the build stage above, so they are gone before the layer
+# that would otherwise carry them: deleting them here would leave them in the image.
+#
+# Includes euclid-mgr and euclid-cli, the document store euclid-emd - the image runs on it rather
+# than on MongoDB, see euclid.database.backend in the bundled configuration, so nothing else here
+# starts without it - and the two transfer executables ETS spawns.
+COPY --from=build /usr/src/euclid/build/bin/ /usr/local/euclid/bin/
 COPY --from=build /usr/src/euclid/build/vcpkg_installed/x64-linux/share/libmagic/misc/magic.mgc /usr/local/euclid/etc/magic.mgc
 COPY --from=build /usr/src/euclid/dist/docker/etc/ssh_host_key /usr/local/euclid/etc/ssh_host_key
 COPY --from=build /usr/src/euclid/dist/docker/etc/euclid_cert.crt /usr/local/euclid/etc/euclid_cert.crt

@@ -52,7 +52,9 @@ namespace Euclid::Database {
     }
 
     MongoEqsRepository::MongoEqsRepository() {
-        ensureIndexes();
+        // Deferred rather than done here: on the EMD backend a repository can be constructed before
+        // the module that holds the store is listening, and a constructor gets no second chance.
+        Database::instance().onReachable(&ensureIndexes);
     }
 
     std::optional<MongoEqsRepository::QueueConfig> MongoEqsRepository::queueConfig(const std::string &ern) {
