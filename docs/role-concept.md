@@ -656,6 +656,7 @@ Worth knowing before reading a log and wondering:
 | Unauthenticated requests | Left to the handler, so it can answer 401 rather than the gate answering 403 about permissions that were never going to be asked for. euclid's own `MetricsPusher` depends on this. |
 | Installation administrators | Bypass the gate and hold no grants. This is the way back in. |
 | Inter-module domain events | Not HTTP at all — EventBus is a collection, so it never reaches a gate. |
+| `eam:change-namespace` | The namespace being moved to is in the body, and the gate reads headers — so it was matching grants against `x-euclid-namespace`, the namespace being *left*, which is empty on the switch that follows a login. `handleChangeNamespace` makes the check that was meant, against the same grants: the namespace must exist and the caller must be an account admin or hold a grant naming it. `Permissions::UngatedActions()` is the list, and it is the whole list. |
 
 ### 4. Afterwards
 

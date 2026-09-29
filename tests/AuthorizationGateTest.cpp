@@ -121,6 +121,50 @@ BOOST_AUTO_TEST_CASE(TheUnbindableModulesAreNotGatedAtAll) {
     BOOST_TEST(!recorder.asked, "the unbindable modules must not even be evaluated");
 }
 
+// The actions whose subject is the caller's own session. The gate sees the headers and nothing
+// else, and a namespace switch names the namespace it is moving to in the body - so the grants were
+// being matched against x-euclid-namespace, which is the namespace being left, and is empty on the
+// switch that follows a login. Held to that, choosing a namespace to work in needed a grant on `*`
+// and a role holding an eam: permission, which between `operator` excluding the module and `reader`
+// keeping only reads left it to account administrators.
+//
+// handleChangeNamespace() makes the check that was meant, against the same grants, with the body in
+// hand: the namespace must exist and the caller must be an admin or hold a grant naming it.
+BOOST_AUTO_TEST_CASE(TheUngatedActionsAreLeftToTheirHandler) {
+
+    const ConfiguredMode mode("enforce");
+    Recorder recorder;
+    recorder.allow = false;
+    HttpActionServer::SetAuthorizationLookup(recorder.lookup());
+
+    BOOST_REQUIRE(!Permissions::UngatedActions().empty());
+
+    for (const auto &permission: Permissions::UngatedActions()) {
+        const auto colon = permission.find(':');
+        BOOST_REQUIRE(colon != std::string::npos);
+        const auto target = permission.substr(0, colon);
+        const auto action = permission.substr(colon + 1);
+
+        BOOST_TEST(!HttpActionServer::Authorize(requestFor(target, action)).has_value(),
+                   permission + " must be left to its handler");
+    }
+    BOOST_TEST(!recorder.asked, "an ungated action must not even be evaluated");
+}
+
+// Only the named action, not the module it belongs to: eam:change-namespace being left to its
+// handler must not take eam:create-namespace with it.
+BOOST_AUTO_TEST_CASE(BeingUngatedDoesNotSpreadToTheRestOfTheModule) {
+
+    const ConfiguredMode mode("enforce");
+    Recorder recorder;
+    recorder.allow = false;
+    HttpActionServer::SetAuthorizationLookup(recorder.lookup());
+
+    BOOST_TEST(HttpActionServer::Authorize(requestFor("eam", "create-namespace")).has_value());
+    BOOST_TEST(HttpActionServer::Authorize(requestFor("eam", "delete-namespace")).has_value());
+    BOOST_TEST(recorder.asked);
+}
+
 // A target nobody recognises is *not* waved through: the request still reached a module, which will
 // handle it by action alone, so skipping the gate would be a way past it.
 BOOST_AUTO_TEST_CASE(AnUnknownTargetIsStillEvaluated) {

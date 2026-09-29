@@ -155,6 +155,8 @@ namespace Euclid::Database {
          */
         void upsertMessage(const Entity::EQS::Message &message) override;
 
+        std::optional<Entity::EQS::Message> updateMessageBody(const std::string &messageId, const std::string &body) override;
+
         /**
          * @brief Sends a message to a queue
          *

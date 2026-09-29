@@ -189,6 +189,29 @@ namespace Euclid::Database {
         virtual void upsertMessage(const Entity::ENS::Message &message) = 0;
 
         /**
+         * @brief Replaces a message's body, keeping everything the body decides in step with it.
+         *
+         * @par
+         * The body, @ref Entity::ENS::Message::size and @ref Entity::ENS::Message::contentType move
+         * together: the size is what the topic's stored byte total is made of, and the content type
+         * was derived from the body when the message was published. Writing the body alone through
+         * @ref upsertMessage would leave a message reporting the length of what it used to hold, and
+         * a topic counting it.
+         *
+         * @par
+         * What this reaches is the copy ENS still holds - what list-messages and get-message answer
+         * with, and what resend-messages would send. A topic fans a message out to its subscribers
+         * when it is published, so the copies that already left are past changing. That is the whole
+         * difference between this and correcting something before it is sent, and it is why this is
+         * worth being explicit about rather than leaving a caller to assume either.
+         *
+         * @param messageId message to rewrite.
+         * @param body the new body, which may be empty.
+         * @return the message as stored afterwards, or nothing if no message has that ID.
+         */
+        virtual std::optional<Entity::ENS::Message> updateMessageBody(const std::string &messageId, const std::string &body) = 0;
+
+        /**
          * @brief Publish a message to a topic.
          *
          * Builds a new message entity for the topic identified by its ERN, assigns it

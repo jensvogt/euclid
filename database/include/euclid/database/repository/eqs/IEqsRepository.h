@@ -200,6 +200,33 @@ namespace Euclid::Database {
         virtual void upsertMessage(const Entity::EQS::Message &message) = 0;
 
         /**
+         * @brief Replaces a message's body, keeping everything the body decides in step with it.
+         *
+         * @par
+         * Three fields move together and are not the caller's to set separately: the body itself,
+         * @ref Entity::EQS::Message::size, which is what the queue's byte total is made of and what
+         * a send is measured against, and @ref Entity::EQS::Message::contentType, which was derived
+         * from the body when the message was sent. A handler that wrote the body through
+         * @ref upsertMessage would leave a message reporting the length of what it used to hold.
+         *
+         * @par
+         * The queue's stored byte total is adjusted by the difference here rather than by the
+         * caller, for the same reason: the old size is known at this point and is gone by the time
+         * anybody else could read it. A body that is the same length as the one it replaces adjusts
+         * nothing, which is the common case for a correction.
+         *
+         * @par
+         * The message's status, priority, visibility, receive count and attributes are untouched. A
+         * body correction is not a redelivery, and a message in flight stays in flight - what the
+         * consumer holding it already received is past changing either way.
+         *
+         * @param messageId message to rewrite.
+         * @param body the new body, which may be empty.
+         * @return the message as stored afterwards, or nothing if no message has that ID.
+         */
+        virtual std::optional<Entity::EQS::Message> updateMessageBody(const std::string &messageId, const std::string &body) = 0;
+
+        /**
          * @brief Sends a message to a queue.
          *
          * Builds a new message entity for the queue identified by its ERN, assigns it
