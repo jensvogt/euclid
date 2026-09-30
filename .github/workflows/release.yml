@@ -476,9 +476,12 @@ jobs:
     # buildx - runs a full vcpkg build of Boost and friends under emulation, which does not finish
     # inside the six-hour job limit.
     #
-    # The two names each architecture goes by are both carried, because dpkg and rpm disagree:
-    # dpkg says amd64/arm64 and rpm says x86_64/aarch64, and fpm writes the package name from
-    # whichever convention its output format uses.
+    # All three names each architecture goes by are carried, because nothing here agrees with
+    # anything else: dpkg says amd64/arm64, rpm says x86_64/aarch64 - fpm writes the package name
+    # from whichever convention its output format uses - and vcpkg names its installed tree
+    # x64-linux/arm64-linux. The vcpkg one was the name left hardcoded when this job gained a second
+    # architecture, so the arm64 leg built everything and then failed to find magic.mgc under a
+    # triplet directory that only exists on amd64.
     strategy:
       # A failure on one architecture must not cancel the other mid-build: the one that was going
       # to succeed finishes and uploads, which is what leaves something to inspect when the new
@@ -493,9 +496,11 @@ jobs:
         include:
           - arch: amd64
             rpm_arch: x86_64
+            vcpkg_triplet: x64-linux
             runner: ubuntu-latest
           - arch: arm64
             rpm_arch: aarch64
+            vcpkg_triplet: arm64-linux
             runner: ubuntu-24.04-arm
     env:
       CXX: g++-14
@@ -632,7 +637,7 @@ jobs:
           # isn't guaranteed compatible with the system's /usr/lib/file/magic.mgc (see
           # Core::ContentTypeUtils) - bundle the one this exact build produced instead, at the
           # path "magic-file" in euclid.json points to.
-          cp ${{ env.BUILD_DIR }}/vcpkg_installed/x64-linux/share/libmagic/misc/magic.mgc ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/etc/magic.mgc
+          cp ${{ env.BUILD_DIR }}/vcpkg_installed/${{ matrix.vcpkg_triplet }}/share/libmagic/misc/magic.mgc ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/etc/magic.mgc
           cp dist/linux/systemd/system/euclid.service ${{ env.PACKAGE_DIR_DEB }}/etc/systemd/system/
           # /usr/local/share/man is a mandatory manpath entry on Debian and Ubuntu, so the pages
           # are found without any configuration. Compressed, as Debian policy requires, and not
@@ -808,7 +813,7 @@ jobs:
           strip --strip-unneeded ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/euclid-*
           cp dist/linux/etc/* ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc/
           # See the DEB step above for why this is bundled rather than relying on the system's.
-          cp ${{ env.BUILD_DIR }}/vcpkg_installed/x64-linux/share/libmagic/misc/magic.mgc ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc/magic.mgc
+          cp ${{ env.BUILD_DIR }}/vcpkg_installed/${{ matrix.vcpkg_triplet }}/share/libmagic/misc/magic.mgc ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc/magic.mgc
           cp dist/linux/systemd/system/euclid.service ${{ env.PACKAGE_DIR_RPM }}/etc/systemd/system
           # Same placement and compression as the DEB above; rpmbuild would compress man pages by
           # itself, but fpm packs the tree verbatim, so it is done here.
