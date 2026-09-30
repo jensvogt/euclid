@@ -1304,7 +1304,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_AUTH_TOKEN }}
 
   deploy:
+    # release-please is needed for its outputs, not its ordering - publish already waits for it.
+    # needs.<job> is only populated for jobs named here, so without it the SEMVER below evaluated to
+    # the empty string: nothing in this job reads it today, which is the only reason that has not
+    # shown up as a file named "euclid--amd64.deb".
     needs:
+      - release-please
       - publish
       - build-apt-repo
     runs-on: ubuntu-latest
@@ -1326,14 +1331,26 @@ jobs:
       - name: Create site folder
         run: |
           mkdir public
-          cp ./artifacts/installer-windows/*.msi public/ || true
-          cp ./artifacts/installer-macos/*.tgz public/ || true
-          cp ./artifacts/cli-installer-windows/*.msi public/ || true
-          cp ./artifacts/cli-installer-macos/*.tgz public/ || true
-          cp ./artifacts/deb-package-linux/*.deb public/ || true
-          cp ./artifacts/rpm-package-linux/*.rpm public/ || true
-          cp ./artifacts/cli-deb-package-linux/*.deb public/ || true
-          cp ./artifacts/cli-rpm-package-linux/*.rpm public/ || true
+
+          # Not "|| true". Every one of these is a platform the page promises, and a copy that
+          # silently did nothing is how the Linux packages went missing: the artifacts gained an
+          # architecture suffix when the Linux job was matrixed, these paths did not, and the
+          # failure surfaced two steps later as "the download page would ship without: *.deb *.rpm"
+          # with nothing to say which copy had not happened. A glob that matches nothing fails the
+          # step here, next to the name that is wrong.
+          cp ./artifacts/installer-windows/*.msi public/
+          cp ./artifacts/installer-macos/*.tgz public/
+          cp ./artifacts/cli-installer-windows/*.msi public/
+          cp ./artifacts/cli-installer-macos/*.tgz public/
+
+          # One artifact per architecture: deb-package-linux-amd64, deb-package-linux-arm64, and the
+          # same for rpm and for both CLI packages. Globbed rather than named, so a third
+          # architecture needs nothing here. "deb-package-linux-*" does not also match
+          # "cli-deb-package-linux-*" - the glob is anchored at the start of the directory name.
+          cp ./artifacts/deb-package-linux-*/*.deb public/
+          cp ./artifacts/rpm-package-linux-*/*.rpm public/
+          cp ./artifacts/cli-deb-package-linux-*/*.deb public/
+          cp ./artifacts/cli-rpm-package-linux-*/*.rpm public/
           cp .github/pages/index.html public/index.html || true
           mkdir -p public/apt
           cp -R ./artifacts/apt-repo-site/dists public/apt/
