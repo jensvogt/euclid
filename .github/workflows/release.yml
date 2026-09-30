@@ -466,10 +466,37 @@ jobs:
           overwrite: true
 
   build-linux:
-    name: Build & Package (Linux DEB + RPM)
-    runs-on: ubuntu-latest
+    name: Build & Package (Linux DEB + RPM, ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
     needs: [ release-please ]
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
+
+    # Built natively on each architecture rather than cross-compiled or emulated. GitHub's arm64
+    # Linux runners are free for public repositories, which this is; the alternative - QEMU under
+    # buildx - runs a full vcpkg build of Boost and friends under emulation, which does not finish
+    # inside the six-hour job limit.
+    #
+    # The two names each architecture goes by are both carried, because dpkg and rpm disagree:
+    # dpkg says amd64/arm64 and rpm says x86_64/aarch64, and fpm writes the package name from
+    # whichever convention its output format uses.
+    strategy:
+      # A failure on one architecture must not cancel the other mid-build: the one that was going
+      # to succeed finishes and uploads, which is what leaves something to inspect when the new
+      # architecture is the one that broke.
+      #
+      # It does not make the release partial, and is not meant to. publish and build-apt-repo both
+      # need this job, and a matrix job is finished only when every leg is - so a failed arm64
+      # build stops the release rather than quietly shipping an amd64-only one that an apt client
+      # on a Pi would then resolve to nothing.
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            rpm_arch: x86_64
+            runner: ubuntu-latest
+          - arch: arm64
+            rpm_arch: aarch64
+            runner: ubuntu-24.04-arm
     env:
       CXX: g++-14
       CC: gcc-14
@@ -510,9 +537,16 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/vcpkg-bincache
-          key: vcpkg-${{ runner.os }}-${{ hashFiles('**/vcpkg.json') }}
+          # The architecture is part of the key, and has to be: runner.os is "Linux" on both
+          # runners, so without it the two jobs share one cache and whichever built first hands
+          # the other its object code. That does not fail the build - vcpkg restores the binaries,
+          # the link succeeds, and the package ships holding libraries for the wrong machine.
+          #
+          # The restore-keys prefix is narrowed for the same reason. A bare "vcpkg-Linux-" would
+          # fall back across architectures on the first build after a vcpkg.json change.
+          key: vcpkg-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('**/vcpkg.json') }}
           restore-keys: |
-            vcpkg-${{ runner.os }}-
+            vcpkg-${{ runner.os }}-${{ matrix.arch }}-
 
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
@@ -710,7 +744,7 @@ jobs:
           fpm -s dir -t deb --name "${{ env.APP_NAME }}" \
           --deb-compression xz \
           --version "${{ env.SEMVER }}" \
-          --architecture amd64 \
+          --architecture ${{ matrix.arch }} \
           --license "MPL-2.0" \
           --maintainer "Jens Vogt <jensvogt47@gmail.com>" \
           --description "Euclid Cloud Services" \
@@ -722,14 +756,17 @@ jobs:
           --depends liblzma5 \
           --after-install ${{ github.workspace }}/deb-scripts/postinstall.sh \
           --after-remove ${{ github.workspace }}/deb-scripts/postremove.sh \
-          --package "${{ env.APP_NAME }}-${{ env.SEMVER }}-amd64.deb" \
+          --package "${{ env.APP_NAME }}-${{ env.SEMVER }}-${{ matrix.arch }}.deb" \
           ${{ env.PACKAGE_DIR_DEB }}/=/
 
+      # The artifact name carries the architecture because upload-artifact refuses to write the
+      # same name twice within a run - two matrix jobs uploading "deb-package-linux" is an error,
+      # not a merge. The downloads that consume these match on a pattern instead of a name.
       - name: Upload .deb
         uses: actions/upload-artifact@v7
         with:
-          name: deb-package-linux
-          path: ${{ env.APP_NAME }}-${{ env.SEMVER }}-amd64.deb
+          name: deb-package-linux-${{ matrix.arch }}
+          path: ${{ env.APP_NAME }}-${{ env.SEMVER }}-${{ matrix.arch }}.deb
           overwrite: true
 
       # ── RPM ────────────────────────────────────────────────────────────────
@@ -872,9 +909,13 @@ jobs:
 
       - name: Build RPM with fpm
         run: |
+          # --architecture stated rather than left to fpm's default. fpm would take the build
+          # host's architecture, which is right here, but it writes that name into the file name
+          # this step's upload then has to predict - so the two are driven from one value.
           fpm -s dir -t rpm \
           -n euclid \
           -v ${SEMVER} \
+          --architecture ${{ matrix.rpm_arch }} \
           --description "Euclid - Euclid Cloud Service" \
           --url "https://github.com/jensvogt/euclid" \
           --vendor "Euclid Project" \
@@ -892,8 +933,8 @@ jobs:
       - name: Upload .rpm
         uses: actions/upload-artifact@v7
         with:
-          name: rpm-package-linux
-          path: ${{ env.APP_NAME }}-${{ env.SEMVER }}-1.x86_64.rpm
+          name: rpm-package-linux-${{ matrix.arch }}
+          path: ${{ env.APP_NAME }}-${{ env.SEMVER }}-1.${{ matrix.rpm_arch }}.rpm
           overwrite: true
 
       # ── CLI-only packages ──────────────────────────────────────────────────
@@ -1007,7 +1048,7 @@ jobs:
           fpm -s dir -t deb --name "${{ env.CLI_NAME }}" \
           --deb-compression xz \
           --version "${{ env.SEMVER }}" \
-          --architecture amd64 \
+          --architecture ${{ matrix.arch }} \
           --license "MPL-2.0" \
           --maintainer "Jens Vogt <jensvogt47@gmail.com>" \
           --description "Euclid command line interface" \
@@ -1020,14 +1061,14 @@ jobs:
           --replaces "${{ env.APP_NAME }}" \
           --after-install ${{ github.workspace }}/cli-scripts/postinstall.sh \
           --after-remove ${{ github.workspace }}/cli-scripts/postremove-deb.sh \
-          --package "${{ env.CLI_NAME }}-${{ env.SEMVER }}-amd64.deb" \
+          --package "${{ env.CLI_NAME }}-${{ env.SEMVER }}-${{ matrix.arch }}.deb" \
           ${{ env.PACKAGE_DIR_CLI }}/=/
 
       - name: Upload CLI .deb
         uses: actions/upload-artifact@v7
         with:
-          name: cli-deb-package-linux
-          path: ${{ env.CLI_NAME }}-${{ env.SEMVER }}-amd64.deb
+          name: cli-deb-package-linux-${{ matrix.arch }}
+          path: ${{ env.CLI_NAME }}-${{ env.SEMVER }}-${{ matrix.arch }}.deb
           overwrite: true
 
       - name: Build CLI RPM with fpm
@@ -1037,6 +1078,7 @@ jobs:
           fpm -s dir -t rpm \
           -n "${{ env.CLI_NAME }}" \
           -v ${SEMVER} \
+          --architecture ${{ matrix.rpm_arch }} \
           --description "Euclid command line interface" \
           --url "https://github.com/jensvogt/euclid" \
           --vendor "Euclid Project" \
@@ -1053,8 +1095,8 @@ jobs:
       - name: Upload CLI .rpm
         uses: actions/upload-artifact@v7
         with:
-          name: cli-rpm-package-linux
-          path: ${{ env.CLI_NAME }}-${{ env.SEMVER }}-1.x86_64.rpm
+          name: cli-rpm-package-linux-${{ matrix.arch }}
+          path: ${{ env.CLI_NAME }}-${{ env.SEMVER }}-1.${{ matrix.rpm_arch }}.rpm
           overwrite: true
 
   build-apt-repo:
@@ -1068,20 +1110,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4.2.2
 
-      - name: Download .deb package
-        uses: actions/download-artifact@v7
-        with:
-          name: deb-package-linux
-          path: artifacts
-
+      # Every architecture's server and CLI package, in one step. Matched on a pattern rather than
+      # named one by one so that adding an architecture to the build matrix needs no change here;
+      # merge-multiple puts them all in one directory, which is what reprepro is pointed at.
+      #
       # Into the same repository and the same distribution as the server package: "apt install
       # euclid-cli" on a workstation is the point of it, and it is the same archive and the same
-      # signing key that already has to be trusted for "apt install euclid".
-      - name: Download CLI .deb package
+      # signing key that already has to be trusted for "apt install euclid". apt picks the build
+      # matching the machine's own architecture out of the one archive.
+      - name: Download .deb packages (every architecture)
         uses: actions/download-artifact@v7
         with:
-          name: cli-deb-package-linux
+          pattern: '*deb-package-linux-*'
           path: artifacts
+          merge-multiple: true
 
       - name: Import GPG signing key
         id: import_gpg
@@ -1118,10 +1160,17 @@ jobs:
           # What ends up in the pool is what gets published, so that is what is checked - both
           # packages went in, or the archive ships missing one and an installed client finds out
           # rather than the release does.
+          # Two packages - euclid and euclid-cli - for each architecture the matrix builds. The
+          # count is derived from what was downloaded rather than written as a literal, so an
+          # architecture added to the build matrix does not silently fail this check, and one that
+          # failed to build is still caught: reprepro must have taken everything that arrived.
           reprepro -b apt-repo-work list stable
+          expected=$(find artifacts -name '*.deb' | wc -l)
           packages=$(find apt-repo-work/pool -name '*.deb' | wc -l)
-          [ "$packages" -eq 2 ] \
-            || { echo "::error::expected euclid and euclid-cli in the APT pool, found ${packages} package(s)"; exit 1; }
+          [ "$expected" -ge 2 ] \
+            || { echo "::error::expected at least euclid and euclid-cli to have been built, found ${expected} .deb(s)"; exit 1; }
+          [ "$packages" -eq "$expected" ] \
+            || { echo "::error::${expected} .deb(s) were built but ${packages} reached the APT pool"; exit 1; }
 
       - name: Upload APT repo artifact
         uses: actions/upload-artifact@v7
@@ -1217,29 +1266,16 @@ jobs:
           name: cli-installer-windows
           path: artifacts/windows
 
-      - name: Download Linux Debian package
+      # Every Linux package of every architecture: server and CLI, .deb and .rpm, amd64 and arm64.
+      # One pattern rather than eight named downloads, for the reason the globs below give - a
+      # package that exists but is not named here is one that quietly does not get released, and
+      # that is exactly how the Windows MSI came to be left off a release once already.
+      - name: Download Linux packages (every architecture)
         uses: actions/download-artifact@v7
         with:
-          name: deb-package-linux
+          pattern: '*-package-linux-*'
           path: artifacts/linux
-
-      - name: Download Linux RPM package
-        uses: actions/download-artifact@v7
-        with:
-          name: rpm-package-linux
-          path: artifacts/linux
-
-      - name: Download Linux CLI Debian package
-        uses: actions/download-artifact@v7
-        with:
-          name: cli-deb-package-linux
-          path: artifacts/linux
-
-      - name: Download Linux CLI RPM package
-        uses: actions/download-artifact@v7
-        with:
-          name: cli-rpm-package-linux
-          path: artifacts/linux
+          merge-multiple: true
 
       # The CLI packages land in artifacts/linux alongside the server ones, so the globs below
       # pick them up without naming each file - which is also what keeps a future package from
