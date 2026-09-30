@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.5](https://github.com/jensvogt/euclid/compare/1.2.4...v1.2.5) (2026-09-30)
+
+
+### Bug Fixes
+
+* ARM64 support ([82dc026](https://github.com/jensvogt/euclid/commit/82dc0269ec73d7a01181e6c1e618f58547919737))
+
 ## [1.2.4](https://github.com/jensvogt/euclid/compare/v1.2.3...v1.2.4) (2026-09-30)
 
 
