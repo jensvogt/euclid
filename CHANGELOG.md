@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.2.6](https://github.com/jensvogt/euclid/compare/1.2.5...v1.2.6) (2026-10-01)
+
+
+### Bug Fixes
+
+* add worker-nodes.md ([1343b53](https://github.com/jensvogt/euclid/commit/1343b535fd1b22fddd57247b2e8759455faf7094))
+* add worker-nodes.md ([69545db](https://github.com/jensvogt/euclid/commit/69545db63717db40c9fd202983fa0d5c90cb8760))
+* add worker-nodes.md ([9af5d40](https://github.com/jensvogt/euclid/commit/9af5d4035a9fa362fd546066300df84a01968220))
+* add worker-nodes.md ([baa2a7e](https://github.com/jensvogt/euclid/commit/baa2a7e0b18b3142bae163e91b5ae19d45b25081))
+
 ## [1.2.5](https://github.com/jensvogt/euclid/compare/1.2.4...v1.2.5) (2026-09-30)
 
 
