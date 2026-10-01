@@ -1,0 +1,13 @@
+{
+  "euclid": {
+    "worker": {
+      "endpoint": "https://euclid.example:5566",
+      "java": "java"
+    },
+    "logging": {
+      "level": "info",
+      "dir": "/var/lib/euclid-worker/log",
+      "prefix": "euclid-worker"
+    }
+  }
+}
