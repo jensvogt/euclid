@@ -1906,7 +1906,15 @@ namespace Euclid::EAP {
         const auto repository = Database::RepositoryFactory::instance().eapRepository();
         const auto modules = Database::RepositoryFactory::instance().emmRepository();
 
-        std::ignore = repository->touchNode(auth.user->accountId, claim.node->name, now);
+        // The load average travels with the heartbeat because it is the same call and the same
+        // tick - a separate action for one number would be a second request per node per tick.
+        // Absent reads as zero, which is idle: optimistic, and the right direction, because this
+        // only ever breaks a tie between nodes already running the same number of instances.
+        const auto loadAverage = jv.as_object().contains("loadAverage")
+                                         ? jv.as_object().at("loadAverage").to_number<double>()
+                                         : 0.0;
+
+        std::ignore = repository->touchNode(auth.user->accountId, claim.node->name, now, loadAverage);
 
         // Only slots still assigned to this node, which is what makes a partition safe with no
         // extra rule: a worker whose lease lapsed and whose slot was re-placed extends nothing,
@@ -1924,6 +1932,15 @@ namespace Euclid::EAP {
                 const auto application = repository->findApplicationByRuntimeName(module.name);
                 if (!application.has_value()) continue;
 
+                boost::json::array arguments;
+                for (const auto &argument: application->arguments) arguments.push_back(boost::json::value(argument));
+
+                // §7 describes this as the tuple (instanceId, applicationId, revision), which is
+                // what a worker needs to *decide*. What it needs to *act* is everything below: the
+                // artifact to fetch and the runtime to hand it to. Sent here rather than fetched
+                // per instance with get-application, because the master has already read the
+                // definition to get this far and a worker asking again would be one extra round
+                // trip per instance per tick for data that cannot have changed in between.
                 assigned.push_back(boost::json::object{
                         {"instanceId", instance.instanceId},
                         {"applicationId", application->applicationId},
@@ -1933,6 +1950,10 @@ namespace Euclid::EAP {
                         // restart rather than a re-download that nothing acts on.
                         {"revision", Core::DateTimeUtils::ToISO8601(application->modified)},
                         {"leaseExpiresAt", Core::DateTimeUtils::ToISO8601(expiry)},
+                        {"bucketErn", application->bucketErn},
+                        {"artifactKey", application->artifactKey},
+                        {"runtime", RuntimeToString(application->runtime)},
+                        {"arguments", arguments},
                 });
             }
         }

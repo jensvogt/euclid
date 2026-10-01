@@ -384,7 +384,8 @@ namespace Euclid::Database {
     }
 
     bool MongoEapRepository::touchNode(const std::string &accountId, const std::string &name,
-                                       const std::chrono::system_clock::time_point seenAt) {
+                                       const std::chrono::system_clock::time_point seenAt,
+                                       const double loadAverage) {
 
         try {
             auto collection = Database::instance().collection(NODE_COLLECTION);
@@ -394,7 +395,8 @@ namespace Euclid::Database {
             // put `drained` back to whatever the worker last registered with.
             const auto update = make_document(
                     kvp("$set", make_document(kvp("lastSeen", bsoncxx::types::b_date{
-                                                                      std::chrono::duration_cast<std::chrono::milliseconds>(seenAt.time_since_epoch())}))),
+                                                                      std::chrono::duration_cast<std::chrono::milliseconds>(seenAt.time_since_epoch())}),
+                                              kvp("loadAverage", loadAverage))),
                     kvp("$currentDate", make_document(kvp("modified", true))));
 
             const auto result = collection.update_one(nodeFilter(accountId, name).view(), update.view());

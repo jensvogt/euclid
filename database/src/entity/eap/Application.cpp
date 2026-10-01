@@ -37,6 +37,12 @@ namespace Euclid::Database::Entity::EAP {
         bsoncxx::builder::basic::array resourcesArray;
         for (const auto &resource: resources) resourcesArray.append(resource);
 
+        bsoncxx::builder::basic::array nodesArray;
+        for (const auto &node: nodes) nodesArray.append(node);
+
+        bsoncxx::builder::basic::document nodeLabelsDoc;
+        for (const auto &[key, value]: nodeLabels) nodeLabelsDoc.append(bsoncxx::builder::basic::kvp(key, value));
+
         bsoncxx::builder::basic::array infrastructureArray;
         for (const auto &owned: infrastructure) infrastructureArray.append(owned);
 
@@ -67,6 +73,11 @@ namespace Euclid::Database::Entity::EAP {
                 bsoncxx::builder::basic::kvp("arguments", argumentsArray),
                 bsoncxx::builder::basic::kvp("environment", environmentDoc.extract()),
                 bsoncxx::builder::basic::kvp("resources", resourcesArray),
+                // Where this application may be placed - see worker-nodes.md §6. Absent on every
+                // application defined before workers existed, which reads as "anywhere" and is
+                // what they have always had.
+                bsoncxx::builder::basic::kvp("nodes", nodesArray),
+                bsoncxx::builder::basic::kvp("nodeLabels", nodeLabelsDoc.extract()),
                 bsoncxx::builder::basic::kvp("infrastructure", infrastructureArray),
                 bsoncxx::builder::basic::kvp("userId", userId),
                 bsoncxx::builder::basic::kvp("minInstances", static_cast<std::int64_t>(minInstances)),
@@ -111,6 +122,10 @@ namespace Euclid::Database::Entity::EAP {
                 for (const auto &elem: field.get_document().value) application.environment[std::string(elem.key())] = std::string(elem.get_string().value);
             } else if (key == "resources") {
                 for (const auto &elem: field.get_array().value) application.resources.emplace_back(elem.get_string().value);
+            } else if (key == "nodes") {
+                for (const auto &elem: field.get_array().value) application.nodes.emplace_back(elem.get_string().value);
+            } else if (key == "nodeLabels") {
+                for (const auto &elem: field.get_document().value) application.nodeLabels[std::string(elem.key())] = std::string(elem.get_string().value);
             } else if (key == "infrastructure") {
                 for (const auto &elem: field.get_array().value) application.infrastructure.emplace_back(elem.get_string().value);
             } else if (key == "userId") application.userId = std::string(field.get_string().value);

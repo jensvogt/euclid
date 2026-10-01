@@ -9,14 +9,14 @@
 #include <string>
 
 // Euclid includes
-#include <ArtifactFetcher.h>
+#include <euclid/core/ArtifactFetcher.h>
 #include <euclid/core/ModuleClient.h>
 #include <euclid/core/Permissions.h>
 
 namespace http = boost::beast::http;
 
-using Euclid::Manager::Artifact::Detail::FitsInOneCall;
-using Euclid::Manager::Artifact::Detail::PartCount;
+using Euclid::Core::Artifact::Detail::FitsInOneCall;
+using Euclid::Core::Artifact::Detail::PartCount;
 
 // The manager used to read an application's artifact straight off ESM's data directory. A worker
 // has no such directory and no database, so that could never be the path a worker takes - and two

@@ -270,4 +270,6 @@ add_subdirectory(extern/common)
 add_subdirectory(extern/ftp)
 add_subdirectory(extern/sftp)
 add_subdirectory(cli)
+# After cli, which is where euclidclient - the transport a euclid client speaks - is defined.
+add_subdirectory(worker)
 add_subdirectory(tests)
