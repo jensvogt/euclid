@@ -95,6 +95,22 @@ namespace Euclid::Database::Entity::EAP {
         std::string version;
 
         /**
+         * @brief One-minute load average as the node last reported it.
+         *
+         * @par
+         * Placement's third tie-break, normalised by @ref cpuCount - see §6. Reported by the
+         * worker on every renewal rather than collected: the worker is the only thing that can
+         * read this machine's /proc, and it is already making that call every tick.
+         *
+         * @par
+         * Zero for a node that has never said, which reads as idle. That is the optimistic
+         * direction and it is the right one: the figure only ever breaks a tie between nodes
+         * already running the same number of instances of the application, so being wrong about it
+         * costs one instance landing on a busier machine than it might have.
+         */
+        double loadAverage{};
+
+        /**
          * @brief Whether this node still accepts new instances.
          *
          * @par

@@ -6,9 +6,15 @@
 
 // C++ includes
 #include <filesystem>
+#include <functional>
 #include <string>
+#include <utility>
+#include <vector>
 
-namespace Euclid::Manager {
+// Euclid includes
+#include <euclid/core/ModuleClient.h>
+
+namespace Euclid::Core {
 
     /**
      * @brief Fetches an application's artifact out of ESM's object storage.
@@ -31,14 +37,43 @@ namespace Euclid::Manager {
      * ObjectCipher to run an application out of an encrypted bucket. The bytes that arrive are the
      * bytes the runtime has to exec.
      *
-     * @par Where this belongs eventually
-     * In whatever library euclid-worker shares with the manager, once there is one (§10 step 4).
-     * It is here because the manager is the only caller today, and inventing a library for one
-     * user ahead of the second is how a shared layer ends up shaped around nothing.
+     * @par The protocol is shared; the transport is not
+     * Which is why @ref Download takes the call rather than making it. The manager reaches ESM
+     * over its Unix socket, resolving it out of the module repository it already has. A worker has
+     * neither a module socket nor a database, so it goes through the gateway as a signed client -
+     * the same four actions, a different way of getting them there. Choosing one here would have
+     * made this the manager's fetcher with the worker's one written beside it, which is precisely
+     * the two-paths problem step 3 existed to remove.
+     *
+     * @par
+     * That parameter is also what lets this live in core at all: with the call supplied, nothing
+     * here needs the database, and core does not depend on it.
      *
      * @author jensvogt47\@gmail.com
      */
     namespace Artifact {
+
+        /**
+         * @brief How this reaches ESM: one action, some headers, a body, and whatever came back.
+         *
+         * @par
+         * Deliberately the shape of ModuleClient::CallAt() minus the socket, because that is the
+         * shape both callers already have. A manager binds the socket it resolved; a worker binds
+         * its gateway client and its signing credentials.
+         */
+        using Call = std::function<ModuleClient::ModuleResponse(const std::string &action,
+                                                                const std::vector<std::pair<std::string, std::string> > &headers,
+                                                                const std::string &body)>;
+
+        /**
+         * @brief How much of an object one call carries, and the line between a single-shot
+         * download and a sequence of parts.
+         *
+         * @par
+         * Read from `euclid.modules.eap.artifact-part-size`, defaulting to eight megabytes -
+         * matching the transfer servers, for the same reasons.
+         */
+        [[nodiscard]] long PartSize();
 
         /**
          * @brief What one object is, and who is asking for it.
@@ -116,10 +151,11 @@ namespace Euclid::Manager {
          *
          * @param request what to fetch.
          * @param target where to put it.
+         * @param call how to reach ESM - see @ref Call.
          * @return true when `target` holds the object.
          */
-        [[nodiscard]] bool Download(const Request &request, const std::filesystem::path &target);
+        [[nodiscard]] bool Download(const Request &request, const std::filesystem::path &target, const Call &call);
 
     }// namespace Artifact
 
-}// namespace Euclid::Manager
+}// namespace Euclid::Core
