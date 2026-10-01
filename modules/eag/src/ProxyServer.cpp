@@ -106,6 +106,15 @@ namespace Euclid::EAG {
             // its own issuer - so loading it here is what makes verify_peer able to succeed at
             // all. Hostname checking is deliberately not added on top: this connects to 127.0.0.1
             // and a certificate issued for a host name would never match that.
+            //
+            // That reasoning is about *this* context, and it still holds: _euclidGatewayCtx is
+            // only ever used by proxyToTls(), which only ever reaches euclid's own gateway on this
+            // machine - Backend::loopback(_euclidGatewayPort). It does not extend to an
+            // application instance on another host, which proxyTo() reaches in clear text over
+            // whatever network lies between. See docs/worker-nodes.md §8: a first version assumes
+            // that network is itself trusted - a private subnet or a VPN - and terminating TLS on
+            // the far end with a certificate this gateway verifies is the follow-up, not something
+            // already in place.
             if (!euclidGatewayCert.empty()) {
                 boost::system::error_code ec;
                 _euclidGatewayCtx.load_verify_file(euclidGatewayCert, ec);
@@ -856,15 +865,18 @@ namespace Euclid::EAG {
             if (_euclidGatewayTls) {
                 proxyToTls(stream, request, _euclidGatewayPort, match.routeId, match.moduleTarget, match.moduleAction);
             } else {
-                proxyTo(stream, request, _euclidGatewayPort, match.routeId, match.moduleTarget, match.moduleAction);
+                // euclid's own gateway, which is this process's sibling on this machine - the one
+                // backend that is loopback by construction rather than by where it happened to be
+                // started.
+                proxyTo(stream, request, Backend::loopback(_euclidGatewayPort), match.routeId, match.moduleTarget, match.moduleAction);
             }
             return;
         }
 
-        const auto port = _backends.next(ApplicationRef{.accountId = match.accountId,
-                                                        .nameSpace = match.nameSpace,
-                                                        .applicationId = match.applicationId});
-        if (!port.has_value()) {
+        const auto backend = _backends.next(ApplicationRef{.accountId = match.accountId,
+                                                           .nameSpace = match.nameSpace,
+                                                           .applicationId = match.applicationId});
+        if (!backend.has_value()) {
             // The route is configured and the application is simply not there: scaled to zero,
             // still starting, or never given a port. Said as 503 rather than 404, because the
             // resource exists and the caller may reasonably try again.
@@ -875,7 +887,7 @@ namespace Euclid::EAG {
             return;
         }
 
-        proxyTo(stream, request, *port, match.routeId, {}, {});
+        proxyTo(stream, request, *backend, match.routeId, {}, {});
     }
 
     // The request as the backend should see it: the caller's own, with the hop rewritten and -
@@ -884,10 +896,15 @@ namespace Euclid::EAG {
     static std::shared_ptr<http::request<http::string_body> > forwardedRequest(
             const std::shared_ptr<ClientStream> &stream,
             const std::shared_ptr<http::request<http::string_body> > &request,
-            const int port, const std::string &euclidTarget, const std::string &euclidAction) {
+            const std::string &authority, const std::string &euclidTarget, const std::string &euclidAction) {
 
         auto forwarded = std::make_shared<http::request<http::string_body> >(*request);
-        forwarded->set(http::field::host, "127.0.0.1:" + std::to_string(port));
+
+        // The name the backend was reached by, which for an instance on another machine is that
+        // machine rather than this one's loopback. An application that builds an absolute URL from
+        // the Host header, or that serves more than one name, would otherwise be told it is
+        // 127.0.0.1 whatever it is.
+        forwarded->set(http::field::host, authority);
 
         // What the caller spoke, not what this hop speaks. An application that builds an absolute
         // URL - a redirect, a link in a response - would otherwise send an https caller back to
@@ -915,7 +932,7 @@ namespace Euclid::EAG {
                                  const int port, const std::string &routeId,
                                  const std::string &euclidTarget, const std::string &euclidAction) {
 
-        const auto forwarded = forwardedRequest(stream, request, port, euclidTarget, euclidAction);
+        const auto forwarded = forwardedRequest(stream, request, Backend::loopback(port).authority(), euclidTarget, euclidAction);
 
         struct Exchange {
             Exchange(asio::io_context &ioc, asio::ssl::context &ctx) : backend(ioc, ctx) {}
@@ -976,12 +993,17 @@ namespace Euclid::EAG {
 
     void ProxyServer::proxyTo(const std::shared_ptr<ClientStream> &stream,
                               const std::shared_ptr<http::request<http::string_body> > &request,
-                              const int port, const std::string &routeId,
+                              const Backend &backend, const std::string &routeId,
                               const std::string &euclidTarget, const std::string &euclidAction) {
 
         // The application is told who really called and over what, because after this it cannot
-        // tell: every request it sees arrives from this process, on the loopback interface.
-        const auto forwarded = forwardedRequest(stream, request, port, euclidTarget, euclidAction);
+        // tell: every request it sees arrives from this process.
+        const auto forwarded = forwardedRequest(stream, request, backend.authority(), euclidTarget, euclidAction);
+
+        // Named for the log lines below, which are the only thing that says which of an
+        // application's instances refused a request - and "port 9000" is not an answer to that
+        // once two machines each have one.
+        const auto where = backend.authority();
 
         struct Exchange {
             explicit Exchange(asio::io_context &ioc) : backend(ioc) {}
@@ -996,24 +1018,27 @@ namespace Euclid::EAG {
         auto exchange = std::make_shared<Exchange>(_ioc);
         exchange->backend.expires_after(kBackendTimeout);
 
-        const tcp::endpoint endpoint{asio::ip::make_address("127.0.0.1"), static_cast<unsigned short>(port)};
-        exchange->backend.async_connect(endpoint, [this, exchange, stream, request, forwarded, port, routeId](const beast::error_code &ec) {
+        // Resolved when the backend list was refreshed, not here: a name lookup in front of every
+        // proxied request would cost every request, and the answer changes on the timescale the
+        // manager starts and stops instances on rather than the one requests arrive on.
+        const tcp::endpoint endpoint{backend.address, static_cast<unsigned short>(backend.port)};
+        exchange->backend.async_connect(endpoint, [this, exchange, stream, request, forwarded, where, routeId](const beast::error_code &ec) {
             if (ec) {
-                log_warning << "Could not reach backend on port " << port << ", route: " << routeId << ", error: " << ec.message();
+                log_warning << "Could not reach backend " << where << ", route: " << routeId << ", error: " << ec.message();
                 respond(stream, std::make_shared<http::response<http::string_body> >(
                                         errorResponse(*request, http::status::bad_gateway, ec.message())));
                 return;
             }
-            http::async_write(exchange->backend, *forwarded, [this, exchange, stream, request, forwarded, port, routeId](const beast::error_code &writeEc, std::size_t) {
+            http::async_write(exchange->backend, *forwarded, [this, exchange, stream, request, forwarded, where, routeId](const beast::error_code &writeEc, std::size_t) {
                 if (writeEc) {
                     respond(stream, std::make_shared<http::response<http::string_body> >(
                                             errorResponse(*request, http::status::bad_gateway, writeEc.message())));
                     return;
                 }
                 http::async_read(exchange->backend, exchange->buffer, exchange->response,
-                                 [this, exchange, stream, request, port, routeId](const beast::error_code &readEc, std::size_t) {
+                                 [this, exchange, stream, request, where, routeId](const beast::error_code &readEc, std::size_t) {
                                      if (readEc) {
-                                         log_warning << "Backend on port " << port << " did not answer, route: " << routeId << ", error: " << readEc.message();
+                                         log_warning << "Backend " << where << " did not answer, route: " << routeId << ", error: " << readEc.message();
                                          respond(stream, std::make_shared<http::response<http::string_body> >(
                                                                  errorResponse(*request, http::status::bad_gateway, readEc.message())));
                                          return;

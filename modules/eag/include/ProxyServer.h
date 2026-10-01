@@ -308,11 +308,16 @@ namespace Euclid::EAG {
         void finishUpload(const std::shared_ptr<Upload> &upload);
 
         /**
-         * @brief Forwards one request to a backend port and returns whatever comes back.
+         * @brief Forwards one request to a backend and returns whatever comes back.
+         *
+         * @par
+         * Takes a Backend rather than a port because an application instance need not be on this
+         * machine - see Entity::ModuleInstance::host. euclid's own gateway always is, and is
+         * passed Backend::loopback().
          */
         void proxyTo(const std::shared_ptr<ClientStream> &stream,
                      const std::shared_ptr<boost::beast::http::request<boost::beast::http::string_body> > &request,
-                     int port, const std::string &routeId,
+                     const Backend &backend, const std::string &routeId,
                      const std::string &euclidTarget, const std::string &euclidAction);
 
         /**
