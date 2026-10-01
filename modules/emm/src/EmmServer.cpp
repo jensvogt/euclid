@@ -236,6 +236,10 @@ namespace Euclid::EMM {
                 instances.push_back(boost::json::object{
                         {"instanceId", i.instanceId},
                         {"pid", i.pid},
+                        // Which machine that pid is on. Empty on a record written before the
+                        // field existed, and on a single-host installation - where it says
+                        // nothing anybody did not already know.
+                        {"host", i.host},
                         {"state", Database::Entity::ModuleStateToString(i.state)},
                         {"socketPath", i.socketPath},
                         // The port this instance was given for its own HTTP listener, 0 for a

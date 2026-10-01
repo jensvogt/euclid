@@ -1,6 +1,28 @@
 # Worker nodes
 
-**Status:** proposal. Nothing built. Written 2026-09-24.
+**Status:** proposal. Steps 1 to 3 of §10 are built; the rest is not. Written 2026-09-24.
+
+`ModuleInstance::host` exists, is written by every manager, and is honoured by the two operations
+that were destructive across hosts — the start-up leftover sweep and the start-up clear. A backend
+is now a host and a port: `Backends` resolves the recorded host when it refreshes and `ProxyServer`
+connects to that address rather than to `127.0.0.1`.
+
+An artifact is fetched through `esm:get-object` (or `create-download`/`download-part` when it is
+larger than one call), by the manager as well — so the path a worker will take is the one that runs
+today. The transport that makes that possible, `Core::ModuleClient`, moved out of the transfer
+servers' library into core, which is the lowest layer the manager, the transfer servers and a future
+worker share.
+
+So the records can express a second machine, the gateway can reach one, and the bytes an application
+needs no longer come off a local disk. What is still missing is anything that *puts* an application
+there: the manager has no notion of a node, no placement, and no lease, and every manager still runs
+every application whose desired state is RUNNING. Running more than one manager remains the wrong
+thing to do — it is now merely non-destructive rather than safe. Steps 4 to 6 are what make it
+useful.
+
+One behaviour change worth knowing about, since §3.1 traded it away deliberately: an application
+whose artifact is missing or whose build changed cannot start while ESM is down. It was previously
+readable off ESM's data directory whether ESM was running or not.
 
 A second kind of host that runs EAP applications but not euclid. The manager stays the only thing
 that decides what runs and how much of it; a worker is the thing that carries the decision out on
@@ -222,6 +244,23 @@ apply without a new mechanism.
 Plus, for operators: `eap:list-nodes`, and `eap:drain-node` to stop placing on a node and let its
 instances move off as they are replaced.
 
+And `eap:assign-instance`, which this list missed. Step 4 has no placement — "the master is told by
+hand" — and there has to be something that tells it. It gives one slot to a node with a lease on the
+claim, or takes it back to the manager by naming no node. It is what placement will call in step 5
+rather than something step 5 replaces.
+
+### One thing §7 left open, and should not have
+
+A worker announces a node name of its own choosing. On its own that means any principal holding
+`eap:register-node` can register under a name another worker already uses — and then receive that
+worker's instance assignments and, through `issue-instance-credentials`, the application credentials
+that go with them. One worker reading another's secrets is a larger hole than anything the lease
+protects against.
+
+So the first registration of a name binds it to the principal that made it
+(`Entity::EAP::Node::principal`), and every worker action checks the caller against it. Moving a node
+name means deleting the registration first, which is a deliberate act and leaves the leases alone.
+
 `report-load` is unchanged and is still sent by the **application**, not by the worker. The worker
 does not know how busy an application is; that was the whole point of the application reporting it.
 
@@ -280,10 +319,13 @@ Each step is independently useful and independently revertible.
 
 | Step | Scope | Proves |
 |---|---|---|
-| 1 | `host` on `ModuleInstance`, empty meaning "here"; host check in `killLeftoverInstances` and everywhere a pid is read | the record can express a second host, with no behaviour change on a single one |
-| 2 | `Backends` and `ProxyServer` carry host + port | the gateway can reach a backend that is not loopback — testable with a fake backend on a second address on the same machine |
-| 3 | artifact by download instead of by filesystem, with the md5 cache; used by the manager too | one code path for fetching an artifact, exercised on the host where it is easy to debug |
+| 1 ✅ | `host` on `ModuleInstance`, empty meaning "here"; host check in `killLeftoverInstances` and everywhere a pid is read | the record can express a second host, with no behaviour change on a single one |
+| 2 ✅ | `Backends` and `ProxyServer` carry host + port | the gateway can reach a backend that is not loopback — testable with a fake backend on a second address on the same machine |
+| 3 ✅ | artifact by download instead of by filesystem, with the md5 cache; used by the manager too | one code path for fetching an artifact, exercised on the host where it is easy to debug |
 | 4 | `euclid-worker` with register/renew/report and the lease, no placement — it runs what it is told, and the master is told by hand | the loop, the lease, and the safety argument in §5 |
+| 4a ✅ | the records: `Entity::EAP::Node`, `assignedTo` and `leaseExpiresAt` on `ModuleInstance`, the lease and liveness rules, node storage on the EAP repository | the lease arithmetic and the drain/renew race, without a worker to run them |
+| 4b ✅ | the EAP actions: `register-node`, `renew-node`, `issue-instance-credentials`, `report-node-instance`, `list-nodes`, `drain-node`, plus `assign-instance` which "told by hand" needs and §7 does not name. No CLI yet. | a node can be registered, renewed and assigned to by hand |
+| 4c | `euclid-worker` itself: the reconcile loop, lease renewal, and stopping its own instances when the lease runs out | §5 end to end |
 | 5 | placement in the master; `eap:list-nodes`, `eap:drain-node` | end to end |
 | 6 | credentials issued rather than minted locally | the secret stays on the master |
 

@@ -21,13 +21,13 @@
 
 // Euclid includes
 #include <euclid/core/Configuration.h>
+#include <ArtifactFetcher.h>
 #include <euclid/core/CryptoUtils.h>
 #include <euclid/core/DateTimeUtils.h>
 #include <euclid/core/DirUtils.h>
 #include <euclid/core/HttpActionServer.h>
 #include <euclid/core/JwtUtils.h>
 #include <euclid/core/LogStream.h>
-#include <euclid/core/ObjectCipher.h>
 #include <euclid/database/entity/RuntimeName.h>
 #include <euclid/database/Database.h>
 #include <euclid/database/RepositoryFactory.h>
@@ -808,13 +808,27 @@ namespace Euclid::main {
             log_info << "Removed application directory, path: " << directory.string() << ", entries: " << removed;
         }
 
-        // Copies the artifact out of ESM's object storage next to where the application will run.
+        // Puts the artifact next to where the application will run, downloading it from ESM when
+        // what is already there is not the object.
         //
-        // Read straight off ESM's data directory rather than through the module: the manager is
-        // on the same host and already has the database, so going out over the gateway to fetch
-        // bytes it can see would only add a dependency on ESM being up at spawn time. The object
-        // row is still the source of truth for which file that is - a key is resolved to an
-        // internal name only there.
+        // Fetched through the module rather than read off its data directory, which is what this
+        // did until worker-nodes.md §10 step 3. The filesystem was cheaper and worked because the
+        // two are on one host - but a worker is not on that host, has no such directory and no
+        // database, so the filesystem cannot be the path a worker takes. Two paths would mean the
+        // one that matters is the one nobody exercises; this is the one, and the manager runs it
+        // on the host where it is easy to debug.
+        //
+        // What it costs: an application whose artifact changed cannot start while ESM is down.
+        // Narrow, because the freshness check below means a download happens on a first deploy or
+        // a new build and not on a restart - and the manager starts ESM before it reconciles
+        // applications at all.
+        //
+        // What it saves: ESM decrypts on the way out, so an artifact in an encrypted bucket no
+        // longer needs the manager to find the key, reach EKM and transcode the file itself. The
+        // md5Sum compared below is over the plaintext either way, which is what let that branch go
+        // without changing what the check means.
+        //
+        // The object row is still the source of truth for size and content hash.
         std::optional<std::filesystem::path> materializeArtifact(const Database::Entity::EAP::Application &application) {
 
             const auto object = Database::RepositoryFactory::instance().esmRepository()->findObjectByBucketAndKey(application.bucketErn, application.artifactKey);
@@ -823,23 +837,7 @@ namespace Euclid::main {
                 return std::nullopt;
             }
 
-#ifdef _WIN32
-            constexpr auto kDefaultStorageDir = R"(C:\Program Files\euclid\data\esm)";
-#else
-            constexpr auto kDefaultStorageDir = "/usr/local/euclid/data/esm";
-#endif
-            const auto storageDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultStorageDir);
-
-            // Wherever ESM put it: objects written since the storage was fanned out live a couple
-            // of directories down, older ones are still flat - see Core::DirUtils.
-            const auto source = Core::DirUtils::FindFilePath(storageDir, object->internalName);
-
             std::error_code ec;
-            if (!std::filesystem::exists(source, ec)) {
-                log_error << "Application artifact file missing, applicationId: " << application.applicationId << ", path: " << source.string();
-                return std::nullopt;
-            }
-
             const auto directory = applicationDir(Database::Entity::EAP::RuntimeName(application));
             std::filesystem::create_directories(directory, ec);
             if (ec) {
@@ -872,33 +870,20 @@ namespace Euclid::main {
                 }
             }
             if (!current) {
-                // An artifact stored in a bucket with encryption at rest is on disk as ciphertext,
-                // and what has to end up here is something the runtime can exec() or hand to a JVM.
-                // The object names the key it was written under (empty for one written in the
-                // clear), so this decrypts exactly the artifacts that need it - and the md5Sum
-                // compared above is over the plaintext either way, which is what makes the check
-                // mean the same thing for both.
-                if (object->encryptionKeyErn.empty()) {
-                    std::filesystem::copy_file(source, target, std::filesystem::copy_options::overwrite_existing, ec);
-                    if (ec) {
-                        log_error << "Could not materialize application artifact, applicationId: " << application.applicationId << ", error: " << ec.message();
-                        return std::nullopt;
-                    }
-                } else {
-                    const auto key = Database::RepositoryFactory::instance().ekmRepository()->findKeyByErn(object->encryptionKeyErn);
-                    if (!key.has_value() || key->keyMaterial.empty()) {
-                        log_error << "Application artifact is encrypted under a key that is gone, applicationId: " << application.applicationId
-                                << ", keyErn: " << object->encryptionKeyErn;
-                        return std::nullopt;
-                    }
-                    try {
-                        Core::ObjectCipher::Transcode(Core::CryptoUtils::Base64Decode(key->keyMaterial), source, {}, target);
-                    } catch (const std::exception &e) {
-                        log_error << "Could not decrypt application artifact, applicationId: " << application.applicationId << ", error: " << e.what();
-                        std::error_code partialEc;
-                        std::filesystem::remove(target, partialEc);
-                        return std::nullopt;
-                    }
+                // Whatever the bucket's encryption says: ESM hands back plaintext either way, so
+                // there is one branch here where there used to be two and the manager needs no
+                // key material of its own.
+                const Manager::Artifact::Request fetch{.bucketErn = application.bucketErn,
+                                                       .key = application.artifactKey,
+                                                       .size = object->size,
+                                                       .accountId = application.accountId,
+                                                       .nameSpace = application.nameSpace,
+                                                       .region = application.region};
+
+                if (!Manager::Artifact::Download(fetch, target)) {
+                    log_error << "Could not materialize application artifact, applicationId: " << application.applicationId
+                            << ", key: " << application.artifactKey;
+                    return std::nullopt;
                 }
                 log_info << "Application artifact materialized, applicationId: " << application.applicationId << ", path: " << target.string()
                         << ", size: " << object->size;
