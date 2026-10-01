@@ -20,6 +20,7 @@
 #include <euclid/core/Configuration.h>
 #include <euclid/core/CryptoUtils.h>
 #include <euclid/core/DateTimeUtils.h>
+#include <euclid/core/JwtUtils.h>
 #include <euclid/core/DirUtils.h>
 #include <euclid/core/ErnUtils.h>
 #include <euclid/core/monitoring/MonitoringTimer.h>
@@ -223,6 +224,7 @@ namespace Euclid::EAP {
                     instances.push_back(boost::json::object{
                             {"instanceId", instance.instanceId},
                             {"pid", instance.pid},
+                            {"host", instance.host},
                             {"httpPort", instance.httpPort}});
                 }
             }
@@ -1754,6 +1756,426 @@ namespace Euclid::EAP {
     // identity rather than from the body: an application deployed without a named user runs as
     // "app-<runtimeName>", which says which pool it is; one deployed with a user of its own has to
     // name the application, and that application has to be the one that runs as the caller.
+    // ── Worker nodes ────────────────────────────────────────────────────────────────────────────
+    //
+    // The four a worker calls, and the three an operator does. See docs/worker-nodes.md §7.
+    //
+    // All of them are ordinary signed requests through the gateway, which is the point: the audit
+    // trail, the role concept and the permission vocabulary apply without a new mechanism, and a
+    // worker is a euclid client rather than a module.
+
+    namespace {
+
+        // How long a lease is good for, and how long silence before a node is not considered live.
+        //
+        // Forty-five seconds against a ten-second tick gives a worker three chances to renew
+        // before it gives up, and matches the freshness window the autoscaler already uses for
+        // load reports. Both are the master's to decide - a worker is told the deadline, it does
+        // not choose one.
+        std::chrono::seconds leasePeriod() {
+            return std::chrono::seconds{std::max(1L, Core::Configuration::instance().getOr<long>("euclid.modules.eap.node-lease-seconds", 45))};
+        }
+
+        // The node a worker is calling about, checked against who is calling.
+        //
+        // Every worker action names its node, and every one of them has to establish that the
+        // caller is the principal that registered it - otherwise a worker could renew another
+        // node's leases, report on its instances, or ask for its credentials. See
+        // Entity::EAP::Node::principal.
+        struct NodeClaim {
+            std::optional<Database::Entity::EAP::Node> node;
+            std::optional<response<string_body> > refusal;
+        };
+
+        NodeClaim claimNode(const request<string_body> &req, const AuthResult &auth, const boost::json::object &obj) {
+
+            const auto name = stringField(obj, "node");
+            if (name.empty()) {
+                return {.node = std::nullopt,
+                        .refusal = EapServer::ErrorResponse(req, status::bad_request, "node is required")};
+            }
+
+            const auto repository = Database::RepositoryFactory::instance().eapRepository();
+            const auto node = repository->findNodeByName(auth.user->accountId, name);
+            if (!node.has_value()) {
+                // A worker whose registration is gone has to register again rather than carry on
+                // renewing into nothing, so this is worth distinguishing from a refusal.
+                return {.node = std::nullopt,
+                        .refusal = EapServer::ErrorResponse(req, status::not_found, "Node is not registered, node: " + name)};
+            }
+            if (!node->principal.empty() && node->principal != auth.user->userId) {
+                return {.node = std::nullopt,
+                        .refusal = EapServer::ErrorResponse(req, status::forbidden,
+                                                            "Node '" + name + "' is registered to another principal")};
+            }
+            return {.node = node, .refusal = std::nullopt};
+        }
+
+        boost::json::object nodeToJson(const Database::Entity::EAP::Node &node) {
+
+            boost::json::object labels;
+            for (const auto &[key, value]: node.labels) labels[key] = value;
+
+            return boost::json::object{
+                    {"name", node.name},
+                    {"principal", node.principal},
+                    {"labels", labels},
+                    {"cpuCount", node.cpuCount},
+                    {"version", node.version},
+                    {"drained", node.drained},
+                    {"live", node.isLive(leasePeriod())},
+                    {"lastSeen", Core::DateTimeUtils::ToISO8601(node.lastSeen)},
+            };
+        }
+
+    }// namespace
+
+    // Announces a node. Idempotent: this is what a worker does every time it starts, and a
+    // restarted worker has to come back as the node it was or it abandons the instances it is
+    // still running.
+    static response<string_body> handleRegisterNode(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "register-node");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EapServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+
+        const auto &obj = jv.as_object();
+        const auto name = stringField(obj, "node");
+        if (name.empty()) return EapServer::ErrorResponse(req, status::bad_request, "node is required");
+
+        const auto repository = Database::RepositoryFactory::instance().eapRepository();
+
+        // The name is bound to whoever registered it first. Taking it over would hand this caller
+        // the other node's assignments and, through issue-instance-credentials, the application
+        // credentials that go with them.
+        if (const auto existing = repository->findNodeByName(auth.user->accountId, name);
+            existing.has_value() && !existing->principal.empty() && existing->principal != auth.user->userId) {
+            return EapServer::ErrorResponse(req, status::conflict,
+                                            "Node '" + name + "' is registered to another principal; delete the registration to move the name");
+        }
+
+        Database::Entity::EAP::Node node;
+        node.name = name;
+        node.accountId = auth.user->accountId;
+        node.principal = auth.user->userId;
+        node.cpuCount = obj.contains("cpuCount") ? obj.at("cpuCount").to_number<long>() : 0;
+        node.version = stringField(obj, "version");
+        node.lastSeen = std::chrono::system_clock::now();
+
+        if (const auto labels = obj.if_contains("labels"); labels != nullptr && labels->is_object()) {
+            for (const auto &label: labels->as_object()) {
+                if (label.value().is_string()) node.labels.emplace(label.key(), std::string(label.value().as_string()));
+            }
+        }
+
+        const auto stored = repository->upsertNode(node);
+        log_info << "EAP RegisterNode, node: " << stored.name << ", principal: " << stored.principal
+                 << ", cpus: " << stored.cpuCount << ", version: " << stored.version;
+
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"node", nodeToJson(stored)},
+                                                                {"leaseSeconds", leasePeriod().count()}}));
+    }
+
+    // Renews every lease this node holds and answers with what it should be running.
+    //
+    // One call on purpose: the heartbeat and the "what should I be running" poll are the same
+    // request, so there is no way to be heartbeating and not reconciling.
+    static response<string_body> handleRenewNode(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "renew-node");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EapServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+
+        auto claim = claimNode(req, auth, jv.as_object());
+        if (claim.refusal.has_value()) return *claim.refusal;
+
+        const auto now = std::chrono::system_clock::now();
+        const auto expiry = now + leasePeriod();
+
+        const auto repository = Database::RepositoryFactory::instance().eapRepository();
+        const auto modules = Database::RepositoryFactory::instance().emmRepository();
+
+        std::ignore = repository->touchNode(auth.user->accountId, claim.node->name, now);
+
+        // Only slots still assigned to this node, which is what makes a partition safe with no
+        // extra rule: a worker whose lease lapsed and whose slot was re-placed extends nothing,
+        // finds the slot absent below, and stops the process.
+        const auto renewed = modules->renewInstanceLeases(claim.node->name, expiry);
+
+        boost::json::array assigned;
+        for (const auto &module: modules->findAll()) {
+            for (const auto &instance: module.instances) {
+                if (instance.assignedTo != claim.node->name) continue;
+
+                // The application behind the pool, so the worker has something to fetch and run.
+                // A slot whose application is gone is left out rather than reported: the worker
+                // would have nothing to do with it but stop it, which is what its absence says.
+                const auto application = repository->findApplicationByRuntimeName(module.name);
+                if (!application.has_value()) continue;
+
+                assigned.push_back(boost::json::object{
+                        {"instanceId", instance.instanceId},
+                        {"applicationId", application->applicationId},
+                        {"runtimeName", module.name},
+                        // What the manager compares to decide an instance is running the wrong
+                        // build - see touchApplication. The worker carries it so a redeploy is a
+                        // restart rather than a re-download that nothing acts on.
+                        {"revision", Core::DateTimeUtils::ToISO8601(application->modified)},
+                        {"leaseExpiresAt", Core::DateTimeUtils::ToISO8601(expiry)},
+                });
+            }
+        }
+
+        log_debug << "EAP RenewNode, node: " << claim.node->name << ", renewed: " << renewed
+                  << ", assigned: " << assigned.size();
+
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"node", claim.node->name},
+                                                                {"leaseSeconds", leasePeriod().count()},
+                                                                {"leaseExpiresAt", Core::DateTimeUtils::ToISO8601(expiry)},
+                                                                {"instances", assigned}}));
+    }
+
+    // What a node reports about one slot it is running: where the process is, its pid, its port
+    // and its state. The worker's half of what spawnInstance writes locally.
+    static response<string_body> handleReportNodeInstance(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "report-node-instance");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EapServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+
+        const auto &obj = jv.as_object();
+        auto claim = claimNode(req, auth, obj);
+        if (claim.refusal.has_value()) return *claim.refusal;
+
+        const auto instanceId = stringField(obj, "instanceId");
+        const auto runtimeName = stringField(obj, "runtimeName");
+        if (instanceId.empty() || runtimeName.empty()) {
+            return EapServer::ErrorResponse(req, status::bad_request, "instanceId and runtimeName are required");
+        }
+
+        const auto state = Database::Entity::ModuleStateFromString(stringField(obj, "state", "RUNNING"));
+
+        const auto modules = Database::RepositoryFactory::instance().emmRepository();
+        if (!modules->reportInstanceFromNode(runtimeName, instanceId, claim.node->name,
+                                             stringField(obj, "host"),
+                                             obj.contains("pid") ? static_cast<int>(obj.at("pid").to_number<long>()) : -1,
+                                             obj.contains("httpPort") ? static_cast<int>(obj.at("httpPort").to_number<long>()) : 0,
+                                             state)) {
+            // Refused rather than silently dropped: a worker reporting on a slot that is not its
+            // own is a worker whose lease lapsed and whose work was re-placed, and it needs to
+            // learn that from the answer rather than carry on.
+            return EapServer::ErrorResponse(req, status::conflict,
+                                            "Instance '" + instanceId + "' is not assigned to node '" + claim.node->name + "'");
+        }
+
+        return EapServer::JsonResponse(req, status::ok);
+    }
+
+    // The credentials for one instance this node has been assigned.
+    //
+    // The master mints and the worker receives, which is the whole of §3.2. A worker must never
+    // hold HttpActionServer::JwtSecret(): anything holding it can mint a token for any principal
+    // in the installation, including admin, offline and unloggably - so distributing it would make
+    // every worker host a full compromise of the control plane.
+    static response<string_body> handleIssueInstanceCredentials(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "issue-instance-credentials");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EapServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+
+        const auto &obj = jv.as_object();
+        auto claim = claimNode(req, auth, obj);
+        if (claim.refusal.has_value()) return *claim.refusal;
+
+        const auto instanceId = stringField(obj, "instanceId");
+        const auto runtimeName = stringField(obj, "runtimeName");
+        if (instanceId.empty() || runtimeName.empty()) {
+            return EapServer::ErrorResponse(req, status::bad_request, "instanceId and runtimeName are required");
+        }
+
+        const auto modules = Database::RepositoryFactory::instance().emmRepository();
+        const auto module = modules->findByName(runtimeName);
+        if (!module.has_value()) {
+            return EapServer::ErrorResponse(req, status::not_found, "No such pool, runtimeName: " + runtimeName);
+        }
+
+        // The slot has to be this node's, and its lease has to be live. Both, because the first
+        // alone would let a worker whose lease lapsed keep minting fresh credentials for work that
+        // has been re-placed - and a credential outliving the claim it was issued under is exactly
+        // what a lease is for.
+        const auto slot = std::ranges::find_if(module->instances, [&instanceId](const auto &candidate) {
+            return candidate.instanceId == instanceId;
+        });
+        if (slot == module->instances.end() || slot->assignedTo != claim.node->name) {
+            return EapServer::ErrorResponse(req, status::forbidden,
+                                            "Instance '" + instanceId + "' is not assigned to node '" + claim.node->name + "'");
+        }
+        if (slot->leaseHasExpired()) {
+            return EapServer::ErrorResponse(req, status::conflict,
+                                            "The lease on instance '" + instanceId + "' has expired; renew before asking for credentials");
+        }
+
+        const auto repository = Database::RepositoryFactory::instance().eapRepository();
+        const auto application = repository->findApplicationByRuntimeName(runtimeName);
+        if (!application.has_value()) {
+            return EapServer::ErrorResponse(req, status::not_found, "No application behind pool " + runtimeName);
+        }
+
+        const auto ttl = std::chrono::seconds{
+                std::max(1L, Core::Configuration::instance().getOr<long>("euclid.modules.eap.credentials-ttl-seconds", 3600))};
+        const auto expiresAt = std::chrono::system_clock::now() + ttl;
+
+        const auto &configuration = Core::Configuration::instance();
+        const auto host = configuration.getOr<std::string>("euclid.gateway.http.host", "localhost");
+        const auto port = configuration.getOr<long>("euclid.gateway.http.port", 5566);
+        const auto scheme = configuration.getOr<bool>("euclid.gateway.tls.enabled", true) ? "https" : "http";
+
+        // Exactly the blob the manager writes to disk itself - see writeApplicationCredentials -
+        // so a worker writes the same file an application already expects to read, and the
+        // refresh rule carries over unchanged.
+        const boost::json::object credentials{
+                {"token", Core::JwtUtils::CreateToken(application->userId, Core::HttpActionServer::JwtSecret(), ttl)},
+                {"expiresAt", Core::DateTimeUtils::ToISO8601(expiresAt)},
+                {"userId", application->userId},
+                {"accountId", application->accountId},
+                {"region", application->region},
+                {"namespace", application->nameSpace},
+                {"endpoint", scheme + std::string("://") + host + ":" + std::to_string(port)},
+        };
+
+        log_info << "EAP IssueInstanceCredentials, node: " << claim.node->name << ", instance: " << instanceId
+                 << ", application: " << application->applicationId;
+
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(credentials));
+    }
+
+    // Gives one slot to a node, with a deadline on the claim. The operator's half of step 4: there
+    // is no placement yet, so the master is told by hand.
+    static response<string_body> handleAssignInstance(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "assign-instance");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EapServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+
+        const auto &obj = jv.as_object();
+        const auto instanceId = stringField(obj, "instanceId");
+        const auto runtimeName = stringField(obj, "runtimeName");
+        if (instanceId.empty() || runtimeName.empty()) {
+            return EapServer::ErrorResponse(req, status::bad_request, "instanceId and runtimeName are required");
+        }
+
+        // Empty takes the slot back to the manager's own host, which is a legitimate thing to ask
+        // for - so absent and empty mean different things here, as they do for a namespace.
+        const auto nodeName = stringField(obj, "node");
+
+        const auto repository = Database::RepositoryFactory::instance().eapRepository();
+        if (!nodeName.empty()) {
+            const auto node = repository->findNodeByName(auth.user->accountId, nodeName);
+            if (!node.has_value()) {
+                return EapServer::ErrorResponse(req, status::not_found, "Node is not registered, node: " + nodeName);
+            }
+            // A drained node is refused a *new* assignment and keeps what it has, which is the
+            // whole difference between draining and stopping.
+            if (node->drained) {
+                return EapServer::ErrorResponse(req, status::conflict, "Node '" + nodeName + "' is drained");
+            }
+        }
+
+        const auto expiry = std::chrono::system_clock::now() + leasePeriod();
+
+        const auto modules = Database::RepositoryFactory::instance().emmRepository();
+        if (!modules->assignInstance(runtimeName, instanceId, nodeName, expiry)) {
+            return EapServer::ErrorResponse(req, status::not_found,
+                                            "No such instance, runtimeName: " + runtimeName + ", instanceId: " + instanceId);
+        }
+
+        log_info << "EAP AssignInstance, runtimeName: " << runtimeName << ", instance: " << instanceId
+                 << ", node: " << (nodeName.empty() ? "(the manager)" : nodeName);
+
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"runtimeName", runtimeName},
+                                                                {"instanceId", instanceId},
+                                                                {"node", nodeName},
+                                                                {"leaseExpiresAt", Core::DateTimeUtils::ToISO8601(expiry)}}));
+    }
+
+    static response<string_body> handleListNodes(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-nodes");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::array nodes;
+        for (const auto &node: Database::RepositoryFactory::instance().eapRepository()->listNodes(auth.user->accountId)) {
+            nodes.push_back(nodeToJson(node));
+        }
+
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"nodes", nodes},
+                                                                {"total", nodes.size()}}));
+    }
+
+    // Stops new instances being placed on a node, and lets the ones it has leave as they are
+    // replaced. Not a stop: the node keeps running what it has and keeps renewing, because a node
+    // that downed tools on being drained would make draining an outage.
+    static response<string_body> handleDrainNode(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "drain-node");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EapServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+
+        const auto &obj = jv.as_object();
+        const auto name = stringField(obj, "node");
+        if (name.empty()) return EapServer::ErrorResponse(req, status::bad_request, "node is required");
+
+        // Absent means drain, because that is what the action is called. Sending false is how a
+        // node is put back into service.
+        const bool drained = !obj.contains("drained") || obj.at("drained").as_bool();
+
+        const auto repository = Database::RepositoryFactory::instance().eapRepository();
+        if (!repository->setNodeDrained(auth.user->accountId, name, drained)) {
+            return EapServer::ErrorResponse(req, status::not_found, "Node is not registered, node: " + name);
+        }
+
+        log_info << "EAP DrainNode, node: " << name << ", drained: " << (drained ? "true" : "false");
+
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"node", name}, {"drained", drained}}));
+    }
+
     static response<string_body> handleReportLoad(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "report-load");
@@ -1932,6 +2354,13 @@ namespace Euclid::EAP {
         if (action == "set-log-level") return handleSetLogLevel(req);
         if (action == "apply-infrastructure") return handleApplyInfrastructure(req);
         if (action == "report-load") return handleReportLoad(req);
+        if (action == "register-node") return handleRegisterNode(req);
+        if (action == "renew-node") return handleRenewNode(req);
+        if (action == "report-node-instance") return handleReportNodeInstance(req);
+        if (action == "issue-instance-credentials") return handleIssueInstanceCredentials(req);
+        if (action == "assign-instance") return handleAssignInstance(req);
+        if (action == "list-nodes") return handleListNodes(req);
+        if (action == "drain-node") return handleDrainNode(req);
         if (action == "get-metrics") return EapServer::MetricsResponse(req);
 
         return EapServer::ErrorResponse(req, status::not_found, "Action not implemented: " + action);

@@ -318,4 +318,121 @@ namespace Euclid::Database {
         return false;
     }
 
+    // ── Worker nodes ────────────────────────────────────────────────────────────────────────────
+
+    bsoncxx::document::value MongoEapRepository::nodeFilter(const std::string &accountId, const std::string &name) {
+        return make_document(kvp("accountId", accountId), kvp("name", name));
+    }
+
+    Entity::EAP::Node MongoEapRepository::upsertNode(Entity::EAP::Node &node) {
+
+        try {
+            auto collection = Database::instance().collection(NODE_COLLECTION);
+
+            node.modified = std::chrono::system_clock::now();
+
+            mongocxx::options::find_one_and_update opts;
+            opts.return_document(mongocxx::options::return_document::k_after);
+            opts.upsert(true);
+
+            // The document whole, which is right here and wrong for the two targeted writes below:
+            // registration is the worker stating everything about itself, so a label it no longer
+            // has should go. `created` is kept on insert only, so re-registering does not make a
+            // node look new.
+            const auto update = make_document(
+                    kvp("$set", node.toDocument()),
+                    kvp("$setOnInsert", make_document(kvp("created", bsoncxx::types::b_date{
+                                                                             std::chrono::duration_cast<std::chrono::milliseconds>(node.created.time_since_epoch())}))));
+
+            if (const auto result = collection.find_one_and_update(nodeFilter(node.accountId, node.name).view(), update.view(), opts)) {
+                return Entity::EAP::Node::fromDocument(result->view());
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Upsert node failed, node: " << node.name << ", error: " << e.what();
+        }
+        return node;
+    }
+
+    std::optional<Entity::EAP::Node> MongoEapRepository::findNodeByName(const std::string &accountId, const std::string &name) const {
+
+        try {
+            auto collection = Database::instance().collection(NODE_COLLECTION);
+            if (const auto result = collection.find_one(nodeFilter(accountId, name).view())) {
+                return Entity::EAP::Node::fromDocument(result->view());
+            }
+        } catch (const std::exception &e) {
+            log_error << "Find node failed, node: " << name << ", error: " << e.what();
+        }
+        return std::nullopt;
+    }
+
+    std::vector<Entity::EAP::Node> MongoEapRepository::listNodes(const std::string &accountId) const {
+
+        std::vector<Entity::EAP::Node> nodes;
+        try {
+            auto collection = Database::instance().collection(NODE_COLLECTION);
+            for (auto cursor = collection.find(make_document(kvp("accountId", accountId)).view()); const auto &document: cursor) {
+                nodes.push_back(Entity::EAP::Node::fromDocument(document));
+            }
+        } catch (const std::exception &e) {
+            log_error << "List nodes failed, accountId: " << accountId << ", error: " << e.what();
+        }
+        return nodes;
+    }
+
+    bool MongoEapRepository::touchNode(const std::string &accountId, const std::string &name,
+                                       const std::chrono::system_clock::time_point seenAt) {
+
+        try {
+            auto collection = Database::instance().collection(NODE_COLLECTION);
+
+            // Two fields, not the document: this runs on every tick of every worker, and a
+            // read-modify-write would race an operator draining the node at the same moment and
+            // put `drained` back to whatever the worker last registered with.
+            const auto update = make_document(
+                    kvp("$set", make_document(kvp("lastSeen", bsoncxx::types::b_date{
+                                                                      std::chrono::duration_cast<std::chrono::milliseconds>(seenAt.time_since_epoch())}))),
+                    kvp("$currentDate", make_document(kvp("modified", true))));
+
+            const auto result = collection.update_one(nodeFilter(accountId, name).view(), update.view());
+            return result && result->matched_count() > 0;
+
+        } catch (const std::exception &e) {
+            log_error << "Touch node failed, node: " << name << ", error: " << e.what();
+        }
+        return false;
+    }
+
+    bool MongoEapRepository::setNodeDrained(const std::string &accountId, const std::string &name, const bool drained) {
+
+        try {
+            auto collection = Database::instance().collection(NODE_COLLECTION);
+
+            const auto update = make_document(
+                    kvp("$set", make_document(kvp("drained", drained))),
+                    kvp("$currentDate", make_document(kvp("modified", true))));
+
+            const auto result = collection.update_one(nodeFilter(accountId, name).view(), update.view());
+            return result && result->matched_count() > 0;
+
+        } catch (const std::exception &e) {
+            log_error << "Set node drained failed, node: " << name << ", error: " << e.what();
+        }
+        return false;
+    }
+
+    bool MongoEapRepository::deleteNode(const std::string &accountId, const std::string &name) {
+
+        try {
+            auto collection = Database::instance().collection(NODE_COLLECTION);
+            const auto result = collection.delete_one(nodeFilter(accountId, name).view());
+            return result && result->deleted_count() > 0;
+
+        } catch (const std::exception &e) {
+            log_error << "Delete node failed, node: " << name << ", error: " << e.what();
+        }
+        return false;
+    }
+
 }// namespace Euclid::Database

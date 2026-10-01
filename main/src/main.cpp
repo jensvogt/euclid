@@ -618,8 +618,24 @@ static std::optional<std::chrono::system_clock::time_point> processStartTime(con
  */
 static void killLeftoverInstances() {
 #ifndef _WIN32
+
+    // Whose records these are. A Module document is keyed by module name, so when several hosts
+    // share a database every host's instances of "esm" are in one array - and a pid out of that
+    // array means nothing on a machine that did not write it.
+    //
+    // Without this filter the check below is actively dangerous rather than merely useless: the
+    // installation path is identical on every host, so `exe != recorded` does not reject another
+    // host's record, and pids collide across machines as a matter of course. The result is a
+    // manager SIGKILLing a healthy process because a different machine once had that pid.
+    const auto thisHost = Euclid::Core::SystemUtils::GetHostName();
+
     for (const auto modules = Euclid::Database::RepositoryFactory::instance().emmRepository()->findAll(); const auto &module: modules) {
         for (const auto &instance: module.instances) {
+            if (!instance.isOn(thisHost)) {
+                log_debug << "Leftover belongs to another host, ignoring, module: " << module.name
+                          << ", host: " << instance.host << ", pid: " << instance.pid;
+                continue;
+            }
             if (instance.pid <= 0 || kill(instance.pid, 0) != 0) {
                 continue;
             }
@@ -730,7 +746,12 @@ static int RunManager(const CliOptions &opts, [[maybe_unused]] const bool report
         // anything here would mean waiting out the client's connect retry before the thing being
         // waited for can possibly exist.
         if (!Euclid::Database::Database::instance().inMemory()) {
-            Euclid::Database::RepositoryFactory::instance().emmRepository()->clear();
+            // This host's instances, not the collection. A Module document is shared by every host
+            // that runs that module, so dropping the document would take another manager's live
+            // instances with it - and on a shared database that is not a stale record being
+            // tidied, it is a running process this manager then has no record of at all.
+            Euclid::Database::RepositoryFactory::instance().emmRepository()
+                    ->clearInstancesOn(Euclid::Core::SystemUtils::GetHostName());
         }
     } else {
         // A second manager against a running installation: it will not get far - the gateway port

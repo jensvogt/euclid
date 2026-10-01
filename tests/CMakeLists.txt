@@ -201,6 +201,36 @@ target_link_libraries(${UPLOAD_STREAM_BINARY} PRIVATE eucliddb euclidcore Boost:
 
 add_test(NAME ${UPLOAD_STREAM_BINARY} COMMAND ${UPLOAD_STREAM_BINARY})
 
+set(NODE_LEASE_BINARY euclid-node-lease-tests)
+
+add_executable(${NODE_LEASE_BINARY} NodeLeaseTest.cpp)
+set_target_properties(${NODE_LEASE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${NODE_LEASE_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${NODE_LEASE_BINARY} COMMAND ${NODE_LEASE_BINARY})
+
+set(ARTIFACT_FETCH_BINARY euclid-artifact-fetch-tests)
+
+add_executable(${ARTIFACT_FETCH_BINARY} ArtifactFetchTest.cpp)
+set_target_properties(${ARTIFACT_FETCH_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${ARTIFACT_FETCH_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/main/include)
+target_link_libraries(${ARTIFACT_FETCH_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${ARTIFACT_FETCH_BINARY} COMMAND ${ARTIFACT_FETCH_BINARY})
+
+set(BACKEND_HOST_BINARY euclid-eag-backend-host-tests)
+
+add_executable(${BACKEND_HOST_BINARY} BackendHostTest.cpp
+        ${CMAKE_SOURCE_DIR}/modules/eag/src/Backends.cpp)
+set_target_properties(${BACKEND_HOST_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${BACKEND_HOST_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/eag/include)
+target_link_libraries(${BACKEND_HOST_BINARY} PRIVATE eucliddb euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${BACKEND_HOST_BINARY} COMMAND ${BACKEND_HOST_BINARY})
+
 set(START_ORDER_BINARY euclid-module-start-order-tests)
 
 add_executable(${START_ORDER_BINARY} ModuleStartOrderTest.cpp)
@@ -449,6 +479,15 @@ set_target_properties(${APPLICATION_LOAD_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES
 target_link_libraries(${APPLICATION_LOAD_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
 
 add_test(NAME ${APPLICATION_LOAD_BINARY} COMMAND ${APPLICATION_LOAD_BINARY})
+
+set(INSTANCE_HOST_BINARY euclid-instance-host-tests)
+
+add_executable(${INSTANCE_HOST_BINARY} InstanceHostTest.cpp)
+set_target_properties(${INSTANCE_HOST_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${INSTANCE_HOST_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${INSTANCE_HOST_BINARY} COMMAND ${INSTANCE_HOST_BINARY})
 
 set(MODULE_DOCUMENT_BINARY euclid-module-document-tests)
 

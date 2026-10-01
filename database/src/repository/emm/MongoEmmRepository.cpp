@@ -6,6 +6,10 @@
 // Created by vogje01 on 29/05/2023.
 //
 
+// C++ includes
+#include <algorithm>
+#include <ranges>
+
 // Mongo Db includes
 #include <bsoncxx/builder/concatenate.hpp>
 
@@ -512,6 +516,217 @@ namespace Euclid::Database {
         } catch (const std::exception &e) {
             log_error << "Delete all module failed, error: " << e.what();
         }
+    }
+
+    void MongoEmmRepository::clearInstancesOn(const std::string &hostName) {
+
+        // Read the array, decide in C++, write back the survivors.
+        //
+        // Not a $pull carrying a predicate on the array elements, which is the form MongoDB wants
+        // and the form removeInstance() uses: the two backends do not evaluate it alike. EMD's
+        // $pull matches an array entry by whole-value equality (see DocumentStore.cpp), so a
+        // filter naming one field of a sub-document matches nothing there, and the branch handling
+        // it writes an empty array back - clearing every host's instances instead of this host's.
+        // On a shared database that is the precise failure this method exists to prevent.
+        //
+        // Deciding here also states "an empty host means mine" exactly once, in
+        // ModuleInstance::isOn, rather than restating it as a query that has to remember that a
+        // missing field, a null and an empty string are the same answer.
+        //
+        // The survivors are written back as the raw elements that were read, never rebuilt from
+        // ModuleInstance::toDocument(). toDocument() deliberately omits the load fields an
+        // instance writes about itself - utilisation, backlog, backgroundTasks, loadReportedAt -
+        // so rebuilding would silently erase another host's load reports, which is the same bug
+        // upsertInstance() documents at its positional $set.
+        //
+        // It runs once, at start-up, over a handful of module documents. Nothing here is worth
+        // being clever for.
+        try {
+            auto collection = Database::instance().collection(COLLECTION);
+
+            long removed = 0;
+            for (const auto &module: findAll()) {
+
+                const bool anyMine = std::ranges::any_of(module.instances,
+                                                         [&hostName](const auto &instance) { return instance.isOn(hostName); });
+                if (!anyMine) continue;
+
+                const auto filter = bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("name", module.name));
+
+                const auto existing = collection.find_one(filter.view());
+                if (!existing) continue;
+
+                const auto instancesField = existing->view()["instances"];
+                if (!instancesField || instancesField.type() != bsoncxx::type::k_array) continue;
+
+                bsoncxx::builder::basic::array survivors;
+                for (const auto &element: instancesField.get_array().value) {
+                    if (Entity::ModuleInstance::fromDocument(element.get_document().value).isOn(hostName)) {
+                        ++removed;
+                        continue;
+                    }
+                    survivors.append(element.get_value());
+                }
+
+                const auto update = bsoncxx::builder::basic::make_document(
+                        bsoncxx::builder::basic::kvp("$set", bsoncxx::builder::basic::make_document(
+                                                             bsoncxx::builder::basic::kvp("instances", survivors.extract()))));
+
+                std::ignore = collection.update_one(filter.view(), update.view());
+            }
+            log_debug << "Instances of this host dropped, host: " << hostName << ", count: " << removed;
+
+        } catch (const std::exception &e) {
+            log_error << "Clearing this host's instances failed, host: " << hostName << ", error: " << e.what();
+        }
+    }
+
+    // ── Worker nodes ────────────────────────────────────────────────────────────────────────────
+
+    namespace {
+
+        // A BSON date from a time point, which the three below all need.
+        bsoncxx::types::b_date asDate(const std::chrono::system_clock::time_point when) {
+            return bsoncxx::types::b_date{std::chrono::duration_cast<std::chrono::milliseconds>(when.time_since_epoch())};
+        }
+
+    }// namespace
+
+    bool MongoEmmRepository::assignInstance(const std::string &moduleName, const std::string &instanceId,
+                                            const std::string &nodeName,
+                                            const std::chrono::system_clock::time_point leaseExpiresAt) {
+
+        try {
+            auto collection = Database::instance().collection(COLLECTION);
+
+            const auto filter = bsoncxx::builder::basic::make_document(
+                    bsoncxx::builder::basic::kvp("name", moduleName),
+                    bsoncxx::builder::basic::kvp("instances.instanceId", instanceId));
+
+            // Two fields through the positional operator, for the reason upsertInstance spells
+            // out: replacing the whole array element deletes every field the replacement does not
+            // carry, and two of them - the load an instance reports about itself - are not the
+            // master's to carry.
+            const auto update = bsoncxx::builder::basic::make_document(
+                    bsoncxx::builder::basic::kvp("$set", bsoncxx::builder::basic::make_document(
+                                                         bsoncxx::builder::basic::kvp("instances.$.assignedTo", nodeName),
+                                                         bsoncxx::builder::basic::kvp("instances.$.leaseExpiresAt", asDate(leaseExpiresAt)))));
+
+            const auto result = collection.update_one(filter.view(), update.view());
+            return result && result->matched_count() > 0;
+
+        } catch (const std::exception &e) {
+            log_error << "Assign instance failed, module: " << moduleName << ", instance: " << instanceId
+                      << ", node: " << nodeName << ", error: " << e.what();
+        }
+        return false;
+    }
+
+    long MongoEmmRepository::renewInstanceLeases(const std::string &nodeName,
+                                                 const std::chrono::system_clock::time_point leaseExpiresAt) {
+
+        // An empty node name would match every instance the manager runs itself, and extend a
+        // lease onto slots that hold none. Refused rather than interpreted: nothing renews on
+        // behalf of the manager, because the manager does not hold leases.
+        if (nodeName.empty()) return 0;
+
+        // Read, decide here, write per slot - the shape clearInstancesOn() uses and for the same
+        // reason: a single update carrying a predicate on array elements needs arrayFilters, which
+        // EMD does not implement, and the fallback there writes something quite different.
+        //
+        // One update per slot a node holds, which is a handful: an instance is a process, and a
+        // node runs as many as it has cores rather than as many as the database has rows.
+        long renewed = 0;
+        try {
+            auto collection = Database::instance().collection(COLLECTION);
+
+            for (const auto &module: findAll()) {
+                for (const auto &instance: module.instances) {
+
+                    // Only what still names this node. A slot re-placed while the worker was away
+                    // names another node now, and extending its lease would be this worker
+                    // reclaiming work that is already running elsewhere.
+                    if (instance.assignedTo != nodeName) continue;
+
+                    const auto filter = bsoncxx::builder::basic::make_document(
+                            bsoncxx::builder::basic::kvp("name", module.name),
+                            bsoncxx::builder::basic::kvp("instances.instanceId", instance.instanceId));
+
+                    const auto update = bsoncxx::builder::basic::make_document(
+                            bsoncxx::builder::basic::kvp("$set", bsoncxx::builder::basic::make_document(
+                                                                 bsoncxx::builder::basic::kvp("instances.$.leaseExpiresAt", asDate(leaseExpiresAt)))));
+
+                    if (const auto result = collection.update_one(filter.view(), update.view());
+                        result && result->matched_count() > 0) {
+                        ++renewed;
+                    }
+                }
+            }
+        } catch (const std::exception &e) {
+            log_error << "Renewing instance leases failed, node: " << nodeName << ", error: " << e.what();
+        }
+        return renewed;
+    }
+
+    bool MongoEmmRepository::reportInstanceFromNode(const std::string &moduleName, const std::string &instanceId,
+                                                    const std::string &nodeName, const std::string &host,
+                                                    const int pid, const int httpPort, const Entity::ModuleState state) {
+
+        if (nodeName.empty()) return false;
+
+        try {
+            auto collection = Database::instance().collection(COLLECTION);
+
+            // The assignment is checked here rather than folded into the filter.
+            //
+            // $elemMatch is what would express "the element with this id, whose assignedTo is
+            // this node" in one query, and EMD does not implement it. Two plain conditions are not
+            // a substitute and would be worse than this: `{instances.instanceId: X,
+            // instances.assignedTo: Y}` matches a document where *some* element has the id and
+            // *some other* element names the node, and the positional $ then updates whichever
+            // matched first - so a node could report onto a sibling slot. That is a wrong write,
+            // where this is at worst a stale read.
+            //
+            // The window that leaves: the master re-places this slot between the check and the
+            // write. Reaching it needs this node's lease to have already expired - the master
+            // re-places no sooner - which is the state §5 bounds rather than prevents, and this
+            // check was never the thing that bounded it. What it does catch, exactly, is a node
+            // reporting on a slot that is somebody else's or nobody's, which is the mistake a
+            // worker can actually make.
+            const auto existing = findByName(moduleName);
+            if (!existing.has_value()) return false;
+
+            const auto slot = std::ranges::find_if(existing->instances, [&instanceId](const auto &candidate) {
+                return candidate.instanceId == instanceId;
+            });
+            if (slot == existing->instances.end() || slot->assignedTo != nodeName) return false;
+
+            const auto filter = bsoncxx::builder::basic::make_document(
+                    bsoncxx::builder::basic::kvp("name", moduleName),
+                    bsoncxx::builder::basic::kvp("instances.instanceId", instanceId));
+
+            const auto update = bsoncxx::builder::basic::make_document(
+                    bsoncxx::builder::basic::kvp("$set", bsoncxx::builder::basic::make_document(
+                                                         bsoncxx::builder::basic::kvp("instances.$.host", host),
+                                                         bsoncxx::builder::basic::kvp("instances.$.pid", pid),
+                                                         bsoncxx::builder::basic::kvp("instances.$.httpPort", httpPort),
+                                                         bsoncxx::builder::basic::kvp("instances.$.state", Entity::ModuleStateToString(state)),
+                                                         // An explicit date rather than $currentDate, which EMD does not
+                                                         // implement on a nested path - and which reportInstanceLoad
+                                                         // already avoids for its own timestamp. The clock is the
+                                                         // reporting node's, which matters nowhere: the one reader that
+                                                         // compares this against a local clock is killLeftoverInstances,
+                                                         // and it skips any instance whose host is not its own.
+                                                         bsoncxx::builder::basic::kvp("instances.$.modified", asDate(std::chrono::system_clock::now())))));
+
+            const auto result = collection.update_one(filter.view(), update.view());
+            return result && result->matched_count() > 0;
+
+        } catch (const std::exception &e) {
+            log_error << "Report instance from node failed, module: " << moduleName << ", instance: " << instanceId
+                      << ", node: " << nodeName << ", error: " << e.what();
+        }
+        return false;
     }
 
 }// namespace Euclid::Database
