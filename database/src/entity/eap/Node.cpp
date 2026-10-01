@@ -48,6 +48,7 @@ namespace Euclid::Database::Entity::EAP {
                 bsoncxx::builder::basic::kvp("labels", labelsDoc.extract()),
                 bsoncxx::builder::basic::kvp("cpuCount", static_cast<std::int64_t>(cpuCount)),
                 bsoncxx::builder::basic::kvp("version", version),
+                bsoncxx::builder::basic::kvp("loadAverage", loadAverage),
                 bsoncxx::builder::basic::kvp("drained", drained),
                 bsoncxx::builder::basic::kvp("lastSeen", bsoncxx::types::b_date{
                                                                  std::chrono::duration_cast<std::chrono::milliseconds>(lastSeen.time_since_epoch())}),
@@ -68,6 +69,11 @@ namespace Euclid::Database::Entity::EAP {
             else if (key == "principal") node.principal = getBsonString(field);
             else if (key == "cpuCount") node.cpuCount = getBsonInt(field);
             else if (key == "version") node.version = getBsonString(field);
+            // A double on the way in, but an installation that stored a whole number reads back
+            // as int32/64 - the same hazard the integer fields above have.
+            else if (key == "loadAverage") node.loadAverage = field.type() == bsoncxx::type::k_double
+                                                                      ? field.get_double().value
+                                                                      : static_cast<double>(getBsonInt(field));
             else if (key == "drained") node.drained = getBsonBool(field);
             else if (key == "lastSeen") node.lastSeen = getBsonDate(field);
             else if (key == "created") node.created = getBsonDate(field);

@@ -20,6 +20,7 @@
 
 // Euclid includes
 #include <euclid/core/Configuration.h>
+#include <euclid/database/entity/eap/Application.h>
 #include <euclid/database/entity/emm/Module.h>
 #include <euclid/dto/emm/ModuleProcess.h>
 
@@ -287,6 +288,50 @@ namespace Euclid::main {
          * one that should be stopped.
          */
         void reconcileApplicationLoad(const std::vector<Database::Entity::Module> &modules);
+
+        /**
+         * @brief Gives a slot whose lease has run out to another node, or leaves it and says so.
+         *
+         * @par
+         * The master's half of the safety argument in docs/worker-nodes.md §5. The asymmetry is
+         * the property: the worker stops its instances the moment its own deadline passes, with no
+         * margin, and this waits until that deadline *plus* a margin for clock skew before giving
+         * the work to anybody else. The gap is a window in which nobody runs the slot, which is
+         * the direction this is allowed to be wrong in.
+         *
+         * @par
+         * Kills nothing. It cannot - the process is on another machine and a pid from there means
+         * nothing here. All it moves is the claim; the worker that held it has already let go by
+         * its own clock, or is not executing at all.
+         *
+         * @par
+         * A slot no eligible node can take stays where it is rather than being forced somewhere or
+         * silently taken over by this host - which for an application that named a node or a label
+         * would be running it somewhere it said it must not.
+         */
+        void reconcileNodeLeases();
+
+        /**
+         * @brief Keeps a node application's slot records matching what its definition asks for.
+         *
+         * @par
+         * An application that names a node or a label is placed by the master rather than run by
+         * it - see docs/worker-nodes.md §6. This creates the slots and chooses who gets them; a
+         * worker starts them and reports back.
+         *
+         * @par
+         * Spawns nothing and writes nothing local: no artifact is materialised, no credentials
+         * file, no process. Those belong to the worker, on its own disk, and the manager doing any
+         * of them would be doing work for a host it does not own.
+         *
+         * @par
+         * An application that is stopped has its assignments withdrawn rather than its processes
+         * killed. The manager cannot kill them - they are on another machine - and does not need
+         * to: a slot no longer assigned to a node is absent from that node's next renewal, and the
+         * worker stops it without being told to.
+         */
+        void reconcileNodeApplication(const Database::Entity::EAP::Application &application,
+                                      const std::string &runtimeName);
 
         /**
          * @brief The pre-2026-09-14 load path, for applications that do not report directly yet.

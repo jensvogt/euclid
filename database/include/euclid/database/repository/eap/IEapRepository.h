@@ -276,11 +276,15 @@ namespace Euclid::Database {
          * @param accountId account the node belongs to.
          * @param name the node.
          * @param seenAt when it was heard from.
+         * @param loadAverage the one-minute load average the node reported, which placement's
+         * third tie-break reads. Travels with the heartbeat because it is the same call and the
+         * same tick; a separate action for it would be a second request per tick per node for one
+         * number.
          * @return false if no node of that name is registered, which is a worker that must
          * register before it renews.
          */
         virtual bool touchNode(const std::string &accountId, const std::string &name,
-                               std::chrono::system_clock::time_point seenAt) = 0;
+                               std::chrono::system_clock::time_point seenAt, double loadAverage) = 0;
 
         /**
          * @brief Takes a node out of, or back into, the set new instances may be placed on.

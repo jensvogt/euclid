@@ -373,12 +373,16 @@ BOOST_AUTO_TEST_CASE(RenewingDoesNotUndoADrain) {
     std::ignore = repo.upsertNode(node);
 
     BOOST_TEST_REQUIRE(repo.setNodeDrained(kAccount, kNode, true));
-    BOOST_TEST_REQUIRE(repo.touchNode(kAccount, kNode, kNow));
+    BOOST_TEST_REQUIRE(repo.touchNode(kAccount, kNode, kNow, 0.75));
 
     const auto stored = repo.findNodeByName(kAccount, kNode);
     BOOST_TEST_REQUIRE(stored.has_value());
     BOOST_TEST(stored->drained, "a renewal undid the drain");
     BOOST_TEST(stored->isLive(45s, kNow));
+
+    // And the load average the renewal carried, which placement's third tie-break reads. It
+    // travels on the heartbeat because that is the same call and the same tick.
+    BOOST_TEST(stored->loadAverage == 0.75);
 }
 
 BOOST_AUTO_TEST_CASE(RenewingANodeThatIsNotRegisteredSaysSo) {
@@ -387,7 +391,7 @@ BOOST_AUTO_TEST_CASE(RenewingANodeThatIsNotRegisteredSaysSo) {
     // into nothing.
     auto repo = freshRepository();
 
-    BOOST_TEST(!repo.touchNode(kAccount, "node-never-registered", kNow));
+    BOOST_TEST(!repo.touchNode(kAccount, "node-never-registered", kNow, 0.0));
 }
 
 BOOST_AUTO_TEST_CASE(NodesAreScopedToTheirAccount) {
