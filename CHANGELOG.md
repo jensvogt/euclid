@@ -1,5 +1,44 @@
 # Changelog
 
+## [1.2.5](https://github.com/jensvogt/euclid/compare/1.2.4...v1.2.5) (2026-09-30)
+
+
+### Bug Fixes
+
+* ARM64 support ([82dc026](https://github.com/jensvogt/euclid/commit/82dc0269ec73d7a01181e6c1e618f58547919737))
+
+## [1.2.4](https://github.com/jensvogt/euclid/compare/v1.2.3...v1.2.4) (2026-09-30)
+
+
+### Bug Fixes
+
+* ARM64 support ([b05783a](https://github.com/jensvogt/euclid/commit/b05783a1d036cda28440b7aaaf6aeec05e84f772))
+* ARM64 support ([04d9ad0](https://github.com/jensvogt/euclid/commit/04d9ad0073e636d641fddc20789c66b66c3e00d1))
+
+## [1.2.3](https://github.com/jensvogt/euclid/compare/1.2.2...v1.2.3) (2026-09-30)
+
+
+### Bug Fixes
+
+* add arm64 support ([5133fe9](https://github.com/jensvogt/euclid/commit/5133fe98a328f28dab0bf810f77fcc748d518fd9))
+
+## [1.2.2](https://github.com/jensvogt/euclid/compare/v1.2.1...v1.2.2) (2026-09-29)
+
+
+### Bug Fixes
+
+* docker add frontend ([cc8097f](https://github.com/jensvogt/euclid/commit/cc8097fce2ea246628a77295659d0b33ae070e8c))
+
+## [1.2.1](https://github.com/jensvogt/euclid/compare/1.2.0...v1.2.1) (2026-09-29)
+
+
+### Bug Fixes
+
+* add update message body command ([33b400f](https://github.com/jensvogt/euclid/commit/33b400f8274147cae7d49165a851e19816b18f9f))
+* add update message body command ([4ae5389](https://github.com/jensvogt/euclid/commit/4ae5389e1f470dc731fabb42801d56f16f75511d))
+* docker start errors ([f9ba110](https://github.com/jensvogt/euclid/commit/f9ba110a6c9bc9c0715894e04aac38063a8e85d1))
+* docker start errors ([b1dc387](https://github.com/jensvogt/euclid/commit/b1dc387030d73d2fcb04b45764730c0412e4025e))
+
 ## [1.2.0](https://github.com/jensvogt/euclid/compare/1.1.41...v1.2.0) (2026-09-27)
 
 
