@@ -21,7 +21,8 @@
 
 // Euclid includes
 #include <euclid/core/Configuration.h>
-#include <ArtifactFetcher.h>
+#include <Placement.h>
+#include <euclid/core/ArtifactFetcher.h>
 #include <euclid/core/CryptoUtils.h>
 #include <euclid/core/DateTimeUtils.h>
 #include <euclid/core/DirUtils.h>
@@ -808,6 +809,51 @@ namespace Euclid::main {
             log_info << "Removed application directory, path: " << directory.string() << ", entries: " << removed;
         }
 
+        // How the manager reaches ESM to fetch an artifact: straight down its Unix socket, with a
+        // token for euclid's own inter-module principal.
+        //
+        // The protocol is Core::Artifact's and is shared with the worker; this is the transport,
+        // which is not. A worker has neither a module socket nor a database to find one in, and
+        // goes through the gateway as a signed client instead.
+        //
+        // `system` bypasses authorization, and the manager minting a token for it widens nothing:
+        // it already holds the signing secret and mints every application's credentials with the
+        // same call. That is also exactly why a worker must never hold that secret, and is issued
+        // its credentials instead - worker-nodes.md §3.2.
+        Core::Artifact::Call esmTransport() {
+
+            return [](const std::string &action,
+                      const std::vector<std::pair<std::string, std::string> > &headers,
+                      const std::string &body) -> Core::ModuleClient::ModuleResponse {
+                // Resolved per call rather than held: an instance can go away between two fetches,
+                // and any running one will serve a download - the object is a file in the shared
+                // data directory, not something one instance holds.
+                std::string socketPath;
+                for (const auto &module: Database::RepositoryFactory::instance().emmRepository()->findAll()) {
+                    if (module.name != "esm") continue;
+                    for (const auto &instance: module.instances) {
+                        if (instance.state == Database::Entity::ModuleState::RUNNING && !instance.socketPath.empty()) {
+                            socketPath = instance.socketPath;
+                            break;
+                        }
+                    }
+                }
+                if (socketPath.empty()) {
+                    // The one failure this path has that reading the file off disk did not. Said
+                    // plainly, because "could not download the artifact" with no running ESM
+                    // behind it would send somebody looking at the bucket.
+                    log_error << "No running instance of ESM to fetch an application artifact from";
+                    return {};
+                }
+
+                constexpr std::chrono::seconds kShortLived{300};
+                const auto token = Core::JwtUtils::CreateToken(Database::kSystemPrincipal,
+                                                               Core::HttpActionServer::JwtSecret(), kShortLived);
+
+                return Core::ModuleClient::CallAt(socketPath, "esm", action, token, headers, body);
+            };
+        }
+
         // Puts the artifact next to where the application will run, downloading it from ESM when
         // what is already there is not the object.
         //
@@ -873,14 +919,14 @@ namespace Euclid::main {
                 // Whatever the bucket's encryption says: ESM hands back plaintext either way, so
                 // there is one branch here where there used to be two and the manager needs no
                 // key material of its own.
-                const Manager::Artifact::Request fetch{.bucketErn = application.bucketErn,
-                                                       .key = application.artifactKey,
-                                                       .size = object->size,
-                                                       .accountId = application.accountId,
-                                                       .nameSpace = application.nameSpace,
-                                                       .region = application.region};
+                const Core::Artifact::Request fetch{.bucketErn = application.bucketErn,
+                                                    .key = application.artifactKey,
+                                                    .size = object->size,
+                                                    .accountId = application.accountId,
+                                                    .nameSpace = application.nameSpace,
+                                                    .region = application.region};
 
-                if (!Manager::Artifact::Download(fetch, target)) {
+                if (!Core::Artifact::Download(fetch, target, esmTransport())) {
                     log_error << "Could not materialize application artifact, applicationId: " << application.applicationId
                             << ", key: " << application.artifactKey;
                     return std::nullopt;
@@ -1178,6 +1224,10 @@ namespace Euclid::main {
 
     }// namespace
 
+    // Defined with the rest of the node-placement code further down, declared here because the
+    // application reconcile is the first thing that asks.
+    static bool isNodeApplication(const Database::Entity::EAP::Application &application);
+
     void ServiceController::reconcileApplications() {
 
         // Every application in the installation: this host runs them all, whatever account or
@@ -1205,6 +1255,38 @@ namespace Euclid::main {
             defined.insert(runtimeName);
 
             applyApplicationLogLevel(application, channelLevels);
+
+            // An application that names a node or a label is placed rather than run here. Decided
+            // before anything else in this loop, because everything after it is about running a
+            // process on this host: an artifact on this disk, a credentials file in this directory,
+            // a pool in this process's memory. None of that is this host's to do for a slot that
+            // belongs to another machine.
+            if (isNodeApplication(application)) {
+
+                // A pool that was running locally when the constraint was added. Taken down here
+                // rather than left: it is running on the wrong host by the definition's own account,
+                // and leaving it would mean the application running both here and wherever it gets
+                // placed - which is the one outcome every part of this design exists to prevent.
+                //
+                // Asked once under the lock and acted on after it, because stop() and
+                // deregisterModule() take the lock themselves - and because _services is written by
+                // other threads, so reading it unguarded is a race whatever is done with the
+                // answer.
+                bool runningLocally;
+                {
+                    std::lock_guard lock(_mutex);
+                    runningLocally = _services.contains(runtimeName);
+                }
+
+                if (runningLocally) {
+                    log_info << "Application is now placed on nodes, stopping the local pool, applicationId: " << runtimeName;
+                    stop(runtimeName);
+                    deregisterModule(runtimeName);
+                }
+
+                reconcileNodeApplication(application, runtimeName);
+                continue;
+            }
 
             const bool wantRunning = application.desiredState == Database::Entity::EAP::ApplicationState::RUNNING;
             const auto revision = Core::DateTimeUtils::ToISO8601(application.modified);
@@ -1572,6 +1654,229 @@ namespace Euclid::main {
         // Both of the above only queue; this is the one that acts, so a thread change and a
         // restart asked for on the same tick cost one restart between them rather than two.
         rollQueuedInstance();
+    }
+
+    // Whether an application is a node application: one the master places rather than runs itself.
+    //
+    // Opt-in, by naming a node or a label, and that is deliberate. Making every application
+    // dual-mode would mean every existing pool changing the path it takes through this file on the
+    // strength of whether a worker happens to be registered - and an installation with no workers,
+    // which is every installation today, would be taking a new path to the same place. An
+    // application that names no constraint is run exactly as it was before any of this existed.
+    //
+    // The cost is that placing an application takes an edit to its definition. For a first version
+    // that is the right trade: it makes adopting workers a decision per application rather than a
+    // property of the installation, which is also how an operator would want to try one.
+    static bool isNodeApplication(const Database::Entity::EAP::Application &application) {
+        return !application.nodes.empty() || !application.nodeLabels.empty();
+    }
+
+    // Keeps the slot records of a node application matching what its definition asks for. The
+    // master creates and places them; a worker starts them and reports back.
+    //
+    // Nothing is spawned here, and nothing local is written: no artifact is materialised, no
+    // credentials file, no process. That is the whole point - those are the worker's, on its own
+    // disk, and the manager doing any of them would be doing work for a host it does not own.
+    void ServiceController::reconcileNodeApplication(const Database::Entity::EAP::Application &application,
+                                                     const std::string &runtimeName) {
+
+        const auto emm = Database::RepositoryFactory::instance().emmRepository();
+        const auto eap = Database::RepositoryFactory::instance().eapRepository();
+
+        const auto leaseSeconds = std::chrono::seconds{
+                std::max(1L, Core::Configuration::instance().getOr<long>("euclid.modules.eap.node-lease-seconds", 45))};
+        const auto now = std::chrono::system_clock::now();
+
+        const auto existing = emm->findByName(runtimeName);
+        const auto wantRunning = application.desiredState == Database::Entity::EAP::ApplicationState::RUNNING;
+
+        // Stopped, or undeployed: the assignment is withdrawn rather than the processes killed.
+        // The manager cannot kill them - they are on another machine - and it does not need to:
+        // a slot that is no longer assigned to a node disappears from that node's next renewal,
+        // and the worker stops it without being told to.
+        if (!wantRunning) {
+            if (!existing.has_value()) return;
+            for (const auto &instance: existing->instances) {
+                if (instance.assignedTo.empty()) continue;
+                log_info << "Withdrawing a node slot, application: " << runtimeName
+                         << ", instance: " << instance.instanceId << ", node: " << instance.assignedTo;
+                std::ignore = emm->assignInstance(runtimeName, instance.instanceId, {}, {});
+            }
+            return;
+        }
+
+        // How many to have. The floor only: growing past it is the autoscaler's business, and it
+        // works off these same records - see reconcileApplicationLoad.
+        const auto wanted = std::max(1L, application.minInstances);
+        const auto have = existing.has_value() ? static_cast<long>(existing->instances.size()) : 0;
+
+        if (have >= wanted) return;
+
+        // Who is already carrying how much of this application, which is what the spread rule
+        // reads. Counted before the loop so that placing two slots in one pass does not put both
+        // on the same node.
+        std::map<std::string, long> perNode;
+        if (existing.has_value()) {
+            for (const auto &instance: existing->instances) {
+                if (!instance.assignedTo.empty()) ++perNode[instance.assignedTo];
+            }
+        }
+
+        const Manager::Placement::Constraints constraints{.nodes = application.nodes,
+                                                          .labels = application.nodeLabels};
+
+        for (auto slot = have; slot < wanted; ++slot) {
+
+            std::vector<Manager::Placement::Candidate> candidates;
+            for (const auto &node: eap->listNodes(application.accountId)) {
+                candidates.push_back(Manager::Placement::Candidate{.name = node.name,
+                                                                   .labels = node.labels,
+                                                                   .cpuCount = node.cpuCount,
+                                                                   .loadAverage = node.loadAverage,
+                                                                   .instancesOfApplication = perNode[node.name],
+                                                                   .acceptsWork = node.acceptsWork(leaseSeconds, now)});
+            }
+
+            const auto chosen = Manager::Placement::Choose(candidates, constraints);
+            if (!chosen.has_value()) {
+                // Said once per pass rather than once per missing slot: an application constrained
+                // to a node that is not up yet would otherwise fill the log at every tick with the
+                // same sentence repeated as many times as the pool is short.
+                log_warning << "No node can take an instance of this application, application: " << runtimeName
+                            << ", have: " << have << ", wanted: " << wanted;
+                return;
+            }
+
+            // The slot itself. Deliberately carries no host and no pid: where it ends up running
+            // and what pid it gets are the worker's to report, and until it does, pid -1 is what
+            // keeps killLeftoverInstances from taking an interest in it.
+            Database::Entity::Module module;
+            module.name = runtimeName;
+            module.executable = Database::Entity::EAP::RuntimeCommandPrefix(application.runtime).empty()
+                                        ? application.command
+                                        : Database::Entity::EAP::RuntimeCommandPrefix(application.runtime).front();
+            module.active = true;
+            module.minInstances = application.minInstances;
+            module.maxInstances = application.maxInstances;
+
+            Database::Entity::ModuleInstance instance;
+            instance.instanceId = runtimeName + "-" + Core::UuidUtils::CreateRandomUuid();
+            instance.state = Database::Entity::ModuleState::STOPPED;
+            instance.assignedTo = *chosen;
+            instance.leaseExpiresAt = now + leaseSeconds;
+
+            emm->upsertInstance(module, instance);
+            ++perNode[*chosen];
+
+            log_info << "Placed an instance of a node application, application: " << runtimeName
+                     << ", instance: " << instance.instanceId << ", node: " << *chosen;
+        }
+    }
+
+    // Slots on a node whose lease has run out: given to another node, or left alone and said out
+    // loud. The master's half of docs/worker-nodes.md §5.
+    //
+    // The asymmetry with the worker is the safety property, and it is worth restating where the
+    // code is. The worker stops its instances the moment its own deadline passes, with no margin;
+    // the master waits until that deadline *plus* a margin for clock skew before giving the work to
+    // anybody else. The gap between the two is a window in which nobody is running the slot - which
+    // is the direction this is allowed to be wrong in. Two of something that must run once is worse
+    // than none of it for one lease period.
+    //
+    // Nothing here kills a process. It cannot: the process is on another machine, and a pid from
+    // there means nothing locally. All this does is move the claim, and the worker that still holds
+    // the slot - if it is executing at all - has already let go of it by its own clock.
+    void ServiceController::reconcileNodeLeases() {
+
+        const auto eap = Database::RepositoryFactory::instance().eapRepository();
+        const auto emm = Database::RepositoryFactory::instance().emmRepository();
+
+        const auto leaseSeconds = std::chrono::seconds{
+                std::max(1L, Core::Configuration::instance().getOr<long>("euclid.modules.eap.node-lease-seconds", 45))};
+
+        // How much clock skew between a node and this host is tolerated before its lease counts as
+        // past. Generous on purpose: the cost of waiting too long is an outage of one slot, and the
+        // cost of not waiting long enough is two processes doing one job.
+        const auto margin = std::chrono::seconds{
+                std::max(0L, Core::Configuration::instance().getOr<long>("euclid.modules.eap.node-lease-skew-seconds", 10))};
+
+        const auto modules = emm->findAll();
+
+        // Nodes, with how many instances of each application they already run - which is what
+        // placement's spread rule needs. Counted across the whole installation once rather than per
+        // slot, because an account with three nodes and twenty applications would otherwise read
+        // every module document twenty times.
+        std::map<std::string, std::map<std::string, long> > instancesPerNodePerModule;
+        for (const auto &module: modules) {
+            for (const auto &instance: module.instances) {
+                if (!instance.assignedTo.empty()) ++instancesPerNodePerModule[instance.assignedTo][module.name];
+            }
+        }
+
+        const auto now = std::chrono::system_clock::now();
+
+        for (const auto &module: modules) {
+            for (const auto &instance: module.instances) {
+
+                // Only slots given to a node. An instance the manager runs itself holds no lease,
+                // and leaseHasExpired() answers false for it - but checking the assignment first
+                // says why rather than relying on that.
+                if (instance.assignedTo.empty()) continue;
+                if (!instance.leaseHasExpired(margin, now)) continue;
+
+                const auto application = eap->findApplicationByRuntimeName(module.name);
+                if (!application.has_value()) {
+                    // The pool outlived its definition. Nothing to place, and the application
+                    // reconcile will take the pool down - so this says nothing and waits.
+                    continue;
+                }
+
+                std::vector<Manager::Placement::Candidate> candidates;
+                for (const auto &node: eap->listNodes(application->accountId)) {
+                    candidates.push_back(Manager::Placement::Candidate{
+                            .name = node.name,
+                            .labels = node.labels,
+                            .cpuCount = node.cpuCount,
+                            .loadAverage = node.loadAverage,
+                            .instancesOfApplication = instancesPerNodePerModule[node.name][module.name],
+                            // The node whose lease lapsed is excluded by this and needs no special
+                            // case: a lease only expires because the node stopped renewing, and a
+                            // node that stopped renewing is not live. If it comes back it will be
+                            // live again - and by then it has already stopped the slot itself.
+                            .acceptsWork = node.acceptsWork(leaseSeconds, now)});
+                }
+
+                const Manager::Placement::Constraints constraints{.nodes = application->nodes,
+                                                                  .labels = application->nodeLabels};
+
+                const auto chosen = Manager::Placement::Choose(candidates, constraints);
+                if (!chosen.has_value()) {
+                    // No eligible node. The slot stays where it is rather than being forced onto a
+                    // machine that cannot run it, or silently taken over by this host - which for
+                    // an application that named a node or a label would be running it somewhere it
+                    // said it must not.
+                    log_warning << "Lease expired and no node can take the slot, module: " << module.name
+                                << ", instance: " << instance.instanceId << ", was on: " << instance.assignedTo;
+                    continue;
+                }
+                if (*chosen == instance.assignedTo) {
+                    // The same node, which means it is live again and simply had not renewed in
+                    // time. Extending rather than moving: it is the node already holding the slot,
+                    // and it has stopped the process by its own clock, so it will start it again on
+                    // its next tick.
+                    log_info << "Lease expired but the node is back, extending, module: " << module.name
+                             << ", instance: " << instance.instanceId << ", node: " << *chosen;
+                } else {
+                    log_warning << "Lease expired, re-placing slot, module: " << module.name
+                                << ", instance: " << instance.instanceId
+                                << ", from: " << instance.assignedTo << ", to: " << *chosen;
+                }
+
+                if (emm->assignInstance(module.name, instance.instanceId, *chosen, now + leaseSeconds)) {
+                    ++instancesPerNodePerModule[*chosen][module.name];
+                }
+            }
+        }
     }
 
     void ServiceController::reconcileApplicationLoad(const std::vector<Database::Entity::Module> &modules) {
@@ -2344,6 +2649,14 @@ namespace Euclid::main {
                         reconcileModuleSettings();
                     } catch (const std::exception &e) {
                         log_error << "Module settings reconcile failed, error: " << e.what();
+                    }
+
+                    // And slots on a worker whose lease has run out, which is the master's half of
+                    // the safety argument in docs/worker-nodes.md §5.
+                    try {
+                        reconcileNodeLeases();
+                    } catch (const std::exception &e) {
+                        log_error << "Node lease reconcile failed, error: " << e.what();
                     }
                 }
 

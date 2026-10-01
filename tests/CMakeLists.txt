@@ -201,6 +201,26 @@ target_link_libraries(${UPLOAD_STREAM_BINARY} PRIVATE eucliddb euclidcore Boost:
 
 add_test(NAME ${UPLOAD_STREAM_BINARY} COMMAND ${UPLOAD_STREAM_BINARY})
 
+set(PLACEMENT_BINARY euclid-placement-tests)
+
+add_executable(${PLACEMENT_BINARY} PlacementTest.cpp)
+set_target_properties(${PLACEMENT_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${PLACEMENT_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/main/include)
+target_link_libraries(${PLACEMENT_BINARY} PRIVATE Boost::unit_test_framework)
+
+add_test(NAME ${PLACEMENT_BINARY} COMMAND ${PLACEMENT_BINARY})
+
+set(WORKER_RECONCILER_BINARY euclid-worker-reconciler-tests)
+
+add_executable(${WORKER_RECONCILER_BINARY} WorkerReconcilerTest.cpp)
+set_target_properties(${WORKER_RECONCILER_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${WORKER_RECONCILER_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/worker/include)
+target_link_libraries(${WORKER_RECONCILER_BINARY} PRIVATE Boost::unit_test_framework)
+
+add_test(NAME ${WORKER_RECONCILER_BINARY} COMMAND ${WORKER_RECONCILER_BINARY})
+
 set(NODE_LEASE_BINARY euclid-node-lease-tests)
 
 add_executable(${NODE_LEASE_BINARY} NodeLeaseTest.cpp)
@@ -215,7 +235,6 @@ set(ARTIFACT_FETCH_BINARY euclid-artifact-fetch-tests)
 add_executable(${ARTIFACT_FETCH_BINARY} ArtifactFetchTest.cpp)
 set_target_properties(${ARTIFACT_FETCH_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 
-target_include_directories(${ARTIFACT_FETCH_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/main/include)
 target_link_libraries(${ARTIFACT_FETCH_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
 
 add_test(NAME ${ARTIFACT_FETCH_BINARY} COMMAND ${ARTIFACT_FETCH_BINARY})
