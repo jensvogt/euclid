@@ -133,6 +133,19 @@ namespace Euclid::Database {
          */
         void clear() override;
 
+        void clearInstancesOn(const std::string &hostName) override;
+
+        bool assignInstance(const std::string &moduleName, const std::string &instanceId,
+                            const std::string &nodeName,
+                            std::chrono::system_clock::time_point leaseExpiresAt) override;
+
+        long renewInstanceLeases(const std::string &nodeName,
+                                 std::chrono::system_clock::time_point leaseExpiresAt) override;
+
+        bool reportInstanceFromNode(const std::string &moduleName, const std::string &instanceId,
+                                    const std::string &nodeName, const std::string &host,
+                                    int pid, int httpPort, Entity::ModuleState state) override;
+
     private:
 
         static constexpr auto COLLECTION = "emm_module";
