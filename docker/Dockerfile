@@ -46,24 +46,56 @@ RUN --mount=type=cache,target=/vcpkg-cache \
     mkdir build && \
     cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake \
     -DCMAKE_BUILD_TYPE=Release -Wno-dev && \
-    cmake --build build
+    cmake --build build && \
+    rm -f build/bin/*-tests
 
-FROM node:24-alpine AS buildfrontend
+# Debian rather than alpine, for a stage that is discarded anyway: this is the libc and the node
+# that the release pipeline builds euclid-web on (actions/setup-node on ubuntu), so a frontend that
+# builds for a release builds here. euclid-web's lockfile does carry the musl binaries that
+# Angular's esbuild and rollup need, so alpine would very likely work too - this is about building
+# on the toolchain the frontend is actually tested on, not about alpine being unable to.
+#
+# Nothing from this stage but the compiled bundle reaches the runtime image, so its base costs
+# nothing in what ships.
+FROM node:24 AS buildfrontend
 
-RUN apk update && apk upgrade && apk add --no-cache git
-
-# Build euclid-ui, if it exists yet - falls back to an empty storage so the runtime
-# image still builds with no bundled frontend until that repo is created.
+# The frontend the gateway serves. It lives in its own repository - a separate Angular project,
+# released on its own schedule - so the image fetches and compiles it rather than carrying a built
+# copy that would go stale silently.
+#
+# euclid-web's default branch is master. Override to pin a tag or another branch; changing it is
+# also what invalidates this layer, since Docker cannot see that the remote has moved.
+ARG FRONTEND_VERSION=master
 WORKDIR /usr/src
-RUN if git ls-remote https://github.com/jensvogt/euclid-ui.git >/dev/null 2>&1; then \
-      git clone https://github.com/jensvogt/euclid-ui.git && \
-      cd euclid-ui && \
-      npm install -g @angular/cli && \
-      npm install --force && \
-      npm run build --prod; \
-    else \
-      mkdir -p euclid-ui/dist/euclid-ui/browser; \
-    fi
+RUN git clone --depth 1 --branch "$FRONTEND_VERSION" https://github.com/jensvogt/euclid-web.git
+
+# npm ci, not "npm install --force": the lockfile is what CI builds from, and --force resolved a
+# fresh tree every build - so the image could ship a dependency set nobody had tested. The Angular
+# CLI is a devDependency, so "npm run build" uses that pinned copy; installing one globally was a
+# second version to disagree with it.
+#
+# --configuration docker, because euclid-web's angular.json sets defaultConfiguration to
+# "development": a plain "ng build" leaves optimization off and source maps on, which is a bundle
+# several times the size it needs to be and an environment that still says production: false. The
+# "docker" configuration is the one that project keeps for being served from a container - it
+# swaps in environment.docker.ts and turns on output hashing - so the image follows whatever it
+# decides that should mean rather than pinning a guess here.
+#
+# What makes it work without the nginx that configuration was written around: euclidEndpoint is the
+# same-origin path /euclid, and euclid's own gateway routes a request by its x-euclid-target header
+# rather than by path (see detectEuclidService in GatewayServer.cpp). The gateway serving both the
+# bundle and the API on one port is what the path was chosen to avoid a CORS preflight for.
+WORKDIR /usr/src/euclid-web
+RUN npm ci && npm run build -- --configuration docker
+
+# Angular's "application" builder writes to <outputPath>/browser, and euclid-web's angular.json sets
+# outputPath to "dist/euclid-web". Checked here rather than found in a browser: for as long as this
+# image has existed it shipped an empty frontend directory, because the stage cloned a repository
+# that does not exist (euclid-ui) and fell back to creating the empty output path it was looking
+# for. A missing frontend and a broken one both answer 404, and the gateway's line saying which is
+# logged at info - below the "warning" this image's configuration sets - so nothing said so.
+RUN test -f dist/euclid-web/browser/index.html \
+    || (echo "euclid-web produced no dist/euclid-web/browser/index.html" && exit 1)
 
 # Stick to alpine:latest
 FROM alpine:latest
@@ -84,34 +116,23 @@ RUN mkdir -p /usr/local/euclid/data/tmp && \
     mkdir -p /usr/local/euclid/frontend && \
     mkdir -p /var/run/euclid
 
-# Install frontend
-COPY --from=buildfrontend /usr/src/euclid-ui/dist/euclid-ui/browser/ /usr/local/euclid/frontend/
+# Install frontend. The bundle alone - not the checkout around it, not node_modules, not the
+# sources - into the directory euclid.gateway.frontend.directory names.
+COPY --from=buildfrontend /usr/src/euclid-web/dist/euclid-web/browser/ /usr/local/euclid/frontend/
 
 # Install euclid.
 #
-# Every module the shipped configuration activates, plus the two transfer executables ETS spawns -
-# a module whose binary is missing is one the manager reports as failing to start for the life of
-# the container, which is a poor first impression of an image meant to need no setup at all.
-COPY --from=build /usr/src/euclid/build/bin/euclid-mgr /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-cli /usr/local/euclid/bin/
-# The document store. The image runs on it rather than on MongoDB - see euclid.database.backend
-# in the bundled configuration - so nothing else here starts without it.
-COPY --from=build /usr/src/euclid/build/bin/euclid-emd /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-eam /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-eqs /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-ens /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-ees /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-emo /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-esm /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-eap /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-ekm /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-ekv /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-ess /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-emm /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-eag /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-ets /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-ftp /usr/local/euclid/bin/
-COPY --from=build /usr/src/euclid/build/bin/euclid-sftp /usr/local/euclid/bin/
+# Everything the build produced, rather than a list that has to be extended by hand whenever a
+# module is added - which is how euclid-ead came to be missing while euclid.json still pointed at
+# it, leaving the manager restart-looping for the life of the container on a binary that was never
+# installed. The same drift the macOS package hit, fixed the same way. The test executables land in
+# this directory too and are removed in the build stage above, so they are gone before the layer
+# that would otherwise carry them: deleting them here would leave them in the image.
+#
+# Includes euclid-mgr and euclid-cli, the document store euclid-emd - the image runs on it rather
+# than on MongoDB, see euclid.database.backend in the bundled configuration, so nothing else here
+# starts without it - and the two transfer executables ETS spawns.
+COPY --from=build /usr/src/euclid/build/bin/ /usr/local/euclid/bin/
 COPY --from=build /usr/src/euclid/build/vcpkg_installed/x64-linux/share/libmagic/misc/magic.mgc /usr/local/euclid/etc/magic.mgc
 COPY --from=build /usr/src/euclid/dist/docker/etc/ssh_host_key /usr/local/euclid/etc/ssh_host_key
 COPY --from=build /usr/src/euclid/dist/docker/etc/euclid_cert.crt /usr/local/euclid/etc/euclid_cert.crt

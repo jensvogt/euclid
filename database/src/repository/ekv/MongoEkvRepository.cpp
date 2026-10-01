@@ -28,7 +28,9 @@ namespace Euclid::Database {
     }// namespace
 
     MongoEkvRepository::MongoEkvRepository() {
-        ensureIndexes();
+        // Deferred rather than done here: on the EMD backend a repository can be constructed before
+        // the module that holds the store is listening, and a constructor gets no second chance.
+        Database::instance().onReachable([this] { ensureIndexes(); });
     }
 
     // NOTE: both indexes below gained "namespace", and replacing a pre-existing index requires

@@ -8,8 +8,12 @@
 #pragma once
 
 // C++ includes
-#include <string>
+#include <atomic>
+#include <functional>
 #include <memory>
+#include <mutex>
+#include <string>
+#include <vector>
 
 // Mongodb includes
 #include <mongocxx/instance.hpp>
@@ -76,6 +80,29 @@ namespace Euclid::Database {
         Collection collection(const std::string &name) const;
 
         /**
+         * @brief Runs work as soon as the backend answers, immediately if it already does.
+         *
+         * @par
+         * What a repository's index creation goes through. On MongoDB and the in-process store the
+         * backend is up by the time this process is initialized, so the work runs inline and this
+         * is the call it always was. On the EMD backend it need not be: the manager constructs its
+         * repositories before it starts the module that holds the store, so the indexes were
+         * attempted against a socket that did not exist yet, failed, and - being a constructor -
+         * were never attempted again. A missing index is silent afterwards, which is the worst
+         * shape for this to fail in: one error line at startup and no uniqueness for the life of
+         * the process.
+         *
+         * @par
+         * Runs at most once. Deferred work is run on whichever thread first gets an answer out of
+         * the store, after that request has finished with its own connection - so the work is free
+         * to make store calls of its own, which index creation does.
+         *
+         * @param work what to run. Anything it throws is caught and logged by the caller's own
+         * handler as it would have been inline; it is not retried again after it has run.
+         */
+        void onReachable(std::function<void()> work);
+
+        /**
          * @brief Whether this process is served by the in-memory store rather than MongoDB.
          *
          * @par
@@ -111,10 +138,26 @@ namespace Euclid::Database {
     private:
         Database() = default;
 
+        /**
+         * @brief Records that the backend is answering, and runs whatever waited for that.
+         *
+         * @par
+         * Called on every successful store reply, so the first line is the one that matters: after
+         * the first it is a single atomic read, which is what keeps it off the hot path.
+         */
+        void markReachable();
+
         // mongocxx::instance must be created exactly once per process
         mongocxx::instance _instance{};
         std::unique_ptr<mongocxx::pool> _pool{};
         std::string _databaseName;
+
+        /**
+         * @brief Whether the backend has answered, and what is waiting for it to.
+         */
+        std::atomic_bool _reachable{false};
+        std::mutex _reachableMutex;
+        std::vector<std::function<void()> > _deferred;
 
         /**
          * @brief The in-memory store, when this process was initialized with one; null when it

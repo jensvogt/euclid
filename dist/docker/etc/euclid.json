@@ -219,7 +219,7 @@
           "schedule": "0 1 * * *",
           "directory": "/usr/local/euclid/data/backup",
           "keep": 7,
-          "passphrase": ""
+          "passphrase": "use_your_own_passphrase"
         }
       },
       "ees": {
@@ -342,8 +342,8 @@
     },
     "logging": {
       "format": "text",
-      "file-active": true,
-      "file-format": "json",
+      "file-active": false,
+      "file-format": "text",
       "file-level": "info",
       "console-active": true,
       "console-level": "info",

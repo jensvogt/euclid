@@ -33,21 +33,21 @@ is the *shape* of the services and the way resources are named, because those id
 widely understood. If what you want is to point an existing AWS SDK somewhere local, you want
 LocalStack, not this.
 
-| Module  | What it does                                                                                    | Familiar as     | Status |
-|---------|-------------------------------------------------------------------------------------------------|-----------------|--------|
-| **eam** | Users, user groups, accounts, namespaces, JWT login sessions and access keys                    | IAM             | ✅      |
-| **eqs** | Queues: delayed and dead-letter delivery, priority-weighted receive, long polling               | SQS             | ✅      |
-| **ens** | Notifications: publish/subscribe topics fanning out to queues                                   | SNS             | ✅      |
-| **esm** | Storage: buckets and objects, multipart transfer, encryption at rest                            | S3              | ✅      |
-| **ekv** | Key/value store: tables of JSON items, looked up by key and queried by sort-key range           | DynamoDB        | ✅      |
-| **ess** | Secrets store: passwords and connection details, encrypted under an EKM key                     | Secrets Manager | ✅      |
-| **ekm** | Key management: cryptographic keys, encrypt/decrypt, TLS certificates                           | KMS             | ✅      |
-| **eap** | Applications: Java, Python, Node.js, Rust or C++ processes euclid runs, scales and supervises   | ECS / App Runner| ✅      |
-| **eag** | API gateway: publishes paths to the outside world and proxies them to EAP application instances | API Gateway     | ✅      |
-| **ets** | Transfer servers: FTP and SFTP endpoints onto ESM buckets                                       | Transfer Family | ✅      |
-| **ees** | Events: subscribe to what the other modules publish                                             | EventBridge     | ✅      |
-| **emo** | Monitoring: metric collection, rollup and retention behind the other modules                    | CloudWatch      | ✅      |
-| **emm** | Module management: start, stop, restart, instance and thread limits, export/import              | -               | ✅      |
+| Module  | What it does                                                                                    | Familiar as      | Status |
+|---------|-------------------------------------------------------------------------------------------------|------------------|--------|
+| **eam** | Users, user groups, accounts, namespaces, JWT login sessions and access keys                    | IAM              | ✅     |
+| **eqs** | Queues: delayed and dead-letter delivery, priority-weighted receive, long polling               | SQS              | ✅     |
+| **ens** | Notifications: publish/subscribe topics fanning out to queues                                   | SNS              | ✅     |
+| **esm** | Storage: buckets and objects, multipart transfer, encryption at rest                            | S3               | ✅     |
+| **ekv** | Key/value store: tables of JSON items, looked up by key and queried by sort-key range           | DynamoDB         | ✅     |
+| **ess** | Secrets store: passwords and connection details, encrypted under an EKM key                     | Secrets Manager  | ✅     |
+| **ekm** | Key management: cryptographic keys, encrypt/decrypt, TLS certificates                           | KMS              | ✅     |
+| **eap** | Applications: Java, Python, Node.js, Rust or C++ processes euclid runs, scales and supervises   | ECS / App Runner | ✅     |
+| **eag** | API gateway: publishes paths to the outside world and proxies them to EAP application instances | API Gateway      | ✅     |
+| **ets** | Transfer servers: FTP and SFTP endpoints onto ESM buckets                                       | Transfer Family  | ✅     |
+| **ees** | Events: subscribe to what the other modules publish                                             | EventBridge      | ✅     |
+| **emo** | Monitoring: metric collection, rollup and retention behind the other modules                    | CloudWatch       | ✅     |
+| **emm** | Module management: start, stop, restart, instance and thread limits, export/import              | -                | ✅     |
 
 Everything is driven through `euclid-cli`, a single client binary with one subcommand set per module
 (`euclid-cli eqs ...`, `euclid-cli eam ...`), through the desktop UI, or from a program through the
@@ -61,7 +61,7 @@ Nothing to install and nothing to configure. The image runs on an in-memory stor
 EMD module, so there is no database to set up and nothing is left behind when the container goes:
 
 ```bash
-docker run -d --name euclid -p 5566:5566 -p 4567:4567 -p 8080:8080 jensvogt/euclid:latest
+docker run --name euclid -p 5566:5566 -p 2121:2121 -p 8080:8080 jensvogt/euclid:latest
 ```
 
 The CLI ships inside the image. The gateway serves HTTPS with a self-signed certificate, so point the
@@ -301,32 +301,32 @@ sudo ./build/bin/euclid-mgr --config dist/docker/etc/euclid.json
 Every process reads the same JSON config (`--config <path>`, default
 `/etc/euclid/euclid.json`; see `dist/linux/etc/euclid.json` for the full, commented reference). Key defaults:
 
-| Setting                                         | Default     | Purpose                                                                                                                                                                                 |
-|-------------------------------------------------|-------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `euclid.gateway.http.port`                      | 5566        | Gateway HTTP(S) entry point                                                                                                                                                             |
-| `euclid.gateway.websocket.enabled`              | true        | Accept websocket upgrades on the gateway HTTP(S) port                                                                                                                                   |
-| `euclid.gateway.websocket.max-message-size`     | 1048576     | Max inbound websocket frame size, in bytes                                                                                                                                              |
-| `euclid.gateway.websocket.idle-timeout-seconds` | 300         | Websocket ping/pong idle timeout                                                                                                                                                        |
-| `euclid.gateway.event-socket-path`              | (none)      | Unix domain socket modules push business events to, for websocket clients (`Core::EventPusher`)                                                                                         |
-| `euclid.gateway.frontend.enabled`               | true        | Serve the [euclid-web](https://github.com/jensvogt/euclid-web) admin UI from the gateway port - see [The web UI](#the-web-ui)                                                           |
-| `euclid.gateway.frontend.directory`             | `/usr/local/euclid/frontend` | Directory the euclid-web build was installed into; nothing is served if it does not exist                                                                               |
-| `euclid.gateway.frontend.cache-seconds`         | 3600        | How long a browser may keep an asset; `index.html` is never cached, so a deploy is picked up on the next reload                                                                         |
-| `euclid.database.backend`                       | mongodb     | `mongodb`, `emd` (the shared in-memory store) or `memory` (in-process) - see [Running without a database](#running-without-a-database)                                                  |
-| `euclid.modules.emd.socketPath`                 | (none)      | Socket the memory database listens on; every module reaches the store here                                                                                                              |
-| `euclid.modules.emd.connect-timeout-ms`         | 1000        | How long a module retries reaching the store before a query fails                                                                                                                       |
-| `euclid.logging.level`                          | info        | Level every channel logs at unless it says otherwise                                                                                                                                    |
-| `euclid.logging.channels`                       | (none)      | Per-channel levels, e.g. `{"app.parser": "off"}` - see [Logging channels](#logging-channels)                                                                                            |
-| `euclid.modules.eqs.priority-weights`           | 4:2:1       | HIGH:MEDIUM:LOW receive weighting                                                                                                                                                       |
-| `euclid.modules.ens.retention-period`           | 1209600     | How long a published message is kept, in seconds (14 days); a topic can override it with `ens set-topic-retention`                                                                      |
-| `euclid.modules.eag.port`                       | 8080        | API gateway listener; ignored when `listeners` is set                                                                                                                                   |
-| `euclid.modules.eag.listeners`                  | (none)      | One listener per namespace, keyed by namespace - for an installation serving more than one environment. Each takes `port`, and optionally `protocol` (`http`/`https`) and `certificate` |
-| `euclid.modules.eag.protocol`                   | http        | What the single listener speaks, when `listeners` is not set                                                                                                                            |
-| `euclid.modules.eag.certificate`                | (none)      | Name of the EKM certificate an HTTPS listener serves; a self-signed one is generated under that name if it does not exist                                                               |
-| `euclid.modules.eag.basic-auth-cache-seconds`   | 60          | How long a verified Basic credential stays verified; 0 checks every request                                                                                                             |
-| `euclid.modules.eap.http-port-min` / `-max`     | 9000 / 9999 | Range the manager hands application instances their own HTTP port from                                                                                                                  |
-| `euclid.modules.eap.bucket`                     | apps        | Bucket applications are deployed from. EAP creates it when it starts, in each configured account and in each of its namespaces, unless it is there already. Set empty to create none      |
-| `euclid.modules.eam.oidc.enabled`               | false       | Offer login through an OpenID Connect provider alongside passwords - see [Signing in with an identity provider](#signing-in-with-an-identity-provider)                                  |
-| `euclid.modules.eam.saml.enabled`               | false       | Offer login through a SAML 2.0 identity provider, the same way                                                                                                                          |
+| Setting                                         | Default                      | Purpose                                                                                                                                                                                 |
+|-------------------------------------------------|------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `euclid.gateway.http.port`                      | 5566                         | Gateway HTTP(S) entry point                                                                                                                                                             |
+| `euclid.gateway.websocket.enabled`              | true                         | Accept websocket upgrades on the gateway HTTP(S) port                                                                                                                                   |
+| `euclid.gateway.websocket.max-message-size`     | 1048576                      | Max inbound websocket frame size, in bytes                                                                                                                                              |
+| `euclid.gateway.websocket.idle-timeout-seconds` | 300                          | Websocket ping/pong idle timeout                                                                                                                                                        |
+| `euclid.gateway.event-socket-path`              | (none)                       | Unix domain socket modules push business events to, for websocket clients (`Core::EventPusher`)                                                                                         |
+| `euclid.gateway.frontend.enabled`               | true                         | Serve the [euclid-web](https://github.com/jensvogt/euclid-web) admin UI from the gateway port - see [The web UI](#the-web-ui)                                                           |
+| `euclid.gateway.frontend.directory`             | `/usr/local/euclid/frontend` | Directory the euclid-web build was installed into; nothing is served if it does not exist                                                                                               |
+| `euclid.gateway.frontend.cache-seconds`         | 3600                         | How long a browser may keep an asset; `index.html` is never cached, so a deploy is picked up on the next reload                                                                         |
+| `euclid.database.backend`                       | mongodb                      | `mongodb`, `emd` (the shared in-memory store) or `memory` (in-process) - see [Running without a database](#running-without-a-database)                                                  |
+| `euclid.modules.emd.socketPath`                 | (none)                       | Socket the memory database listens on; every module reaches the store here                                                                                                              |
+| `euclid.modules.emd.connect-timeout-ms`         | 1000                         | How long a module retries reaching the store before a query fails                                                                                                                       |
+| `euclid.logging.level`                          | info                         | Level every channel logs at unless it says otherwise                                                                                                                                    |
+| `euclid.logging.channels`                       | (none)                       | Per-channel levels, e.g. `{"app.parser": "off"}` - see [Logging channels](#logging-channels)                                                                                            |
+| `euclid.modules.eqs.priority-weights`           | 4:2:1                        | HIGH:MEDIUM:LOW receive weighting                                                                                                                                                       |
+| `euclid.modules.ens.retention-period`           | 1209600                      | How long a published message is kept, in seconds (14 days); a topic can override it with `ens set-topic-retention`                                                                      |
+| `euclid.modules.eag.port`                       | 8080                         | API gateway listener; ignored when `listeners` is set                                                                                                                                   |
+| `euclid.modules.eag.listeners`                  | (none)                       | One listener per namespace, keyed by namespace - for an installation serving more than one environment. Each takes `port`, and optionally `protocol` (`http`/`https`) and `certificate` |
+| `euclid.modules.eag.protocol`                   | http                         | What the single listener speaks, when `listeners` is not set                                                                                                                            |
+| `euclid.modules.eag.certificate`                | (none)                       | Name of the EKM certificate an HTTPS listener serves; a self-signed one is generated under that name if it does not exist                                                               |
+| `euclid.modules.eag.basic-auth-cache-seconds`   | 60                           | How long a verified Basic credential stays verified; 0 checks every request                                                                                                             |
+| `euclid.modules.eap.http-port-min` / `-max`     | 9000 / 9999                  | Range the manager hands application instances their own HTTP port from                                                                                                                  |
+| `euclid.modules.eap.bucket`                     | apps                         | Bucket applications are deployed from. EAP creates it when it starts, in each configured account and in each of its namespaces, unless it is there already. Set empty to create none    |
+| `euclid.modules.eam.oidc.enabled`               | false                        | Offer login through an OpenID Connect provider alongside passwords - see [Signing in with an identity provider](#signing-in-with-an-identity-provider)                                  |
+| `euclid.modules.eam.saml.enabled`               | false                        | Offer login through a SAML 2.0 identity provider, the same way                                                                                                                          |
 
 ### Signing in with an identity provider
 
@@ -373,7 +373,9 @@ the token in the URL fragment. Because that redirect carries the token, where it
 chosen by whoever built the link - a path on the gateway is always allowed, and anywhere else has to be listed:
 
 ```json
-"return-to-prefixes": ["https://console.example.com/"]
+"return-to-prefixes": [
+  "https://console.example.com/"
+]
 ```
 
 A front end that would rather drive the flow itself posts to the `oidc-authorize` and `oidc-login` actions, the same two
@@ -428,7 +430,8 @@ OIDC. `allow-idp-initiated` decides whether an assertion that answers no request
 euclid tile in the provider's portal - is accepted; it is off by default, because such an assertion cannot be tied to a
 login euclid started.
 
-The same `jit-provisioning` and `link-existing-users` rules apply as for OIDC, and a person is matched on the assertion's
+The same `jit-provisioning` and `link-existing-users` rules apply as for OIDC, and a person is matched on the
+assertion's
 NameID for the same reason. Each assertion is accepted once: its ID is recorded against the user until it expires, so a
 captured assertion cannot be replayed - including at a different eam instance.
 
@@ -454,14 +457,18 @@ browser. The password and the one-time code go to OneLogin and nowhere else.
     "client-id": "...",
     "client-secret": "...",
     "user": "you@example.com",
-    "app-ids": { "int": "111111", "prod": "222222" },
+    "app-ids": {
+      "int": "111111",
+      "prod": "222222"
+    },
     "otp-key": ""
   }
 }
 ```
 
 Every value can come from the file or from the environment (`EUCLID_ONELOGIN_PASSWORD`, `EUCLID_ONELOGIN_OTP_KEY`,
-`EUCLID_ONELOGIN_CLIENT_ID`, ...), and the environment wins over the file. `--password` and `--otp` win over both, at the
+`EUCLID_ONELOGIN_CLIENT_ID`, ...), and the environment wins over the file. `--password` and `--otp` win over both, at
+the
 cost of standing in the shell history and the process list. The two personal ones can also be left out
 entirely and typed instead:
 
@@ -472,7 +479,8 @@ OneLogin one-time code (OneLogin Protect): 424242
 ```
 
 The password is asked for without echo; the code is asked for only if OneLogin actually wants one and no seed is
-configured, and at the moment it is wanted rather than up front, so what you type has its full thirty seconds. A code the
+configured, and at the moment it is wanted rather than up front, so what you type has its full thirty seconds. A code
+the
 provider refuses is asked for again rather than throwing the login away.
 
 With more than one second factor enrolled, the CLI lists them and asks which one - because a code from the wrong
@@ -487,7 +495,7 @@ Which one? [1] 2
 
 `--device "Google Authenticator"` (or just `--device google`, or the numeric ID, or `onelogin.device` in the file) skips
 the question. Where
-there is no terminal - a scheduled job - the login says so instead of waiting, and `otp-key` or `EUCLID_ONELOGIN_OTP_KEY`
+there is no terminal - a scheduled job - the login says so instead of waiting, and `otp-key` or`EUCLID_ONELOGIN_OTP_KEY`
 is what makes it unattended. Keeping a TOTP seed beside the password turns two factors back into one, so it is worth
 supplying the seed only where nobody can be asked.
 
@@ -512,7 +520,9 @@ One consequence is unavoidable: an assertion fetched this way answers no authent
 **unsolicited** as far as the service provider is concerned. The installation has to allow those:
 
 ```json
-"saml": { "allow-idp-initiated": true }
+"saml": {
+  "allow-idp-initiated": true
+}
 ```
 
 An installation that only ever consumes assertions this way needs no `idp-sso-url`: that is where a browser would be
@@ -561,7 +571,8 @@ query mean what it should: a `number` sort key orders 2, 9, 10, 100 rather than 
 
 Four things are worth knowing before you model against it:
 
-- **`put-item` replaces**, it does not merge. Writing `{"supplierId":"4711","name":"x"}` over a fuller record leaves that
+- **`put-item` replaces**, it does not merge. Writing `{"supplierId":"4711","name":"x"}` over a fuller record leaves
+  that
   record with two attributes. Read-modify-write until `update-item` exists.
 - **Attribute names** may not be empty, start with `$` or contain `.` - refused at the door rather than escaped, so what
   you read back is exactly what you wrote.
