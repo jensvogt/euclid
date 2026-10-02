@@ -42,8 +42,12 @@ namespace Euclid::CLI {
     }
 
     std::optional<Credentials::Entry> Credentials::Load() {
+        return Load(FilePath());
+    }
 
-        std::ifstream in(FilePath());
+    std::optional<Credentials::Entry> Credentials::Load(const std::string &path) {
+
+        std::ifstream in(path);
         if (!in) return std::nullopt;
 
         std::ostringstream buffer;

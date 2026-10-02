@@ -210,6 +210,16 @@ target_link_libraries(${COMMAND_LINE_QUOTING_BINARY} PRIVATE euclidcore Boost::u
 
 add_test(NAME ${COMMAND_LINE_QUOTING_BINARY} COMMAND ${COMMAND_LINE_QUOTING_BINARY})
 
+set(CREDENTIALS_FILE_BINARY euclid-credentials-file-tests)
+
+add_executable(${CREDENTIALS_FILE_BINARY} CredentialsFileTest.cpp)
+set_target_properties(${CREDENTIALS_FILE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+# euclidclient for Credentials, euclidcore for the JSON helpers underneath it.
+target_link_libraries(${CREDENTIALS_FILE_BINARY} PRIVATE euclidclient euclidcore Boost::unit_test_framework Boost::json OpenSSL::SSL OpenSSL::Crypto)
+
+add_test(NAME ${CREDENTIALS_FILE_BINARY} COMMAND ${CREDENTIALS_FILE_BINARY})
+
 set(PLACEMENT_BINARY euclid-placement-tests)
 
 add_executable(${PLACEMENT_BINARY} PlacementTest.cpp)
