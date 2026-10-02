@@ -22,7 +22,7 @@ namespace Euclid::Database::Entity::EAP {
      * @brief A host that runs applications euclid placed there, and is not the manager's own.
      *
      * @par
-     * Registered by a `euclid-worker` rather than created by anybody: a worker announces itself,
+     * Registered by a `euclid-wrk` rather than created by anybody: a worker announces itself,
      * renews, and goes quiet. The record is what the master has to go on in between, and what
      * `eap list-nodes` shows an operator. See docs/worker-nodes.md.
      *

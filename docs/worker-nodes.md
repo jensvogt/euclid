@@ -7,7 +7,7 @@ against a live installation. Treat the first one as an experiment on a host noth
 things a test cannot reach are exactly the ones a first run finds, and one of them has already
 turned up (see below).
 
-**Found by running it rather than testing it.** `euclid-worker` died with a stack-buffer-overrun
+**Found by running it rather than testing it.** `euclid-wrk` died with a stack-buffer-overrun
 fast-fail the first time it was pointed at a gateway it could not verify: `CLI::HttpClient` throws
 when it cannot reach an endpoint, and nothing in the worker caught it. That is the one failure the
 lease exists to survive, and the crash would have left the worker's instances orphaned — running,
@@ -16,7 +16,7 @@ make impossible. Every call a worker makes now goes through a POST that cannot t
 unreachable master is status 0 rather than a terminated process. Worth remembering when reading the
 rest of this: the tests were green through all of it.
 
-Two things are deliberately missing, both from §11: Windows workers (`euclid-worker` builds there and
+Two things are deliberately missing, both from §11: Windows workers (`euclid-wrk` builds there and
 refuses to start a process rather than half-doing it), and any CLI for the operator actions —
 `assign-instance`, `list-nodes` and `drain-node` are reachable over the API only.
 
@@ -27,7 +27,7 @@ matters — but a first real run will find things a test could not: the shape of
 what a JVM does with the credentials file, how a renewal behaves across a gateway restart. Treat the
 first worker as an experiment on a host nothing depends on.
 
-Two things are deliberately missing, both out of §11: Windows workers (`euclid-worker` builds there
+Two things are deliberately missing, both out of §11: Windows workers (`euclid-wrk` builds there
 and refuses to start a process, rather than half-doing it) and any CLI for the operator actions —
 `assign-instance`, `list-nodes` and `drain-node` are reachable over the API only.
 
@@ -90,7 +90,7 @@ because there was.
 
 ## 2. What a worker is
 
-A new executable, `euclid-worker`, which:
+A new executable, `euclid-wrk`, which:
 
 - is **a euclid client**, not a euclid module. It authenticates through the gateway like any
   application does, signs with RFC 9421, and holds a role. It has no MongoDB credentials, no EMD, no
@@ -382,10 +382,10 @@ Each step is independently useful and independently revertible.
 | 1 ✅ | `host` on `ModuleInstance`, empty meaning "here"; host check in `killLeftoverInstances` and everywhere a pid is read | the record can express a second host, with no behaviour change on a single one |
 | 2 ✅ | `Backends` and `ProxyServer` carry host + port | the gateway can reach a backend that is not loopback — testable with a fake backend on a second address on the same machine |
 | 3 ✅ | artifact by download instead of by filesystem, with the md5 cache; used by the manager too | one code path for fetching an artifact, exercised on the host where it is easy to debug |
-| 4 ✅ | `euclid-worker` with register/renew/report and the lease, no placement — split into 4a/4b/4c below, because one step turned out to be three | the loop, the lease, and the safety argument in §5 |
+| 4 ✅ | `euclid-wrk` with register/renew/report and the lease, no placement — split into 4a/4b/4c below, because one step turned out to be three | the loop, the lease, and the safety argument in §5 |
 | 4a ✅ | the records: `Entity::EAP::Node`, `assignedTo` and `leaseExpiresAt` on `ModuleInstance`, the lease and liveness rules, node storage on the EAP repository | the lease arithmetic and the drain/renew race, without a worker to run them |
 | 4b ✅ | the EAP actions: `register-node`, `renew-node`, `issue-instance-credentials`, `report-node-instance`, `list-nodes`, `drain-node`, plus `assign-instance` which "told by hand" needs and §7 does not name. No CLI yet. | a node can be registered, renewed and assigned to by hand |
-| 4c ✅ | `euclid-worker`: the decision rule (`Worker::Reconciler::Decide`), the tick, the four gateway calls, the credentials file, spawning and reaping. POSIX only — see §11. Never run against a live installation. | §5 as a decision over four inputs, including the partition case a live installation cannot easily be made to reproduce |
+| 4c ✅ | `euclid-wrk`: the decision rule (`Worker::Reconciler::Decide`), the tick, the four gateway calls, the credentials file, spawning and reaping. POSIX only — see §11. Never run against a live installation. | §5 as a decision over four inputs, including the partition case a live installation cannot easily be made to reproduce |
 | 5 ✅ | placement: the rule (`Manager::Placement::Choose`), the node load average it reads, the application's `nodes`/`nodeLabels` constraints, placement when a slot is created (`reconcileNodeApplication`) and re-placement when a lease lapses (`reconcileNodeLeases`). `list-nodes` and `drain-node` landed with 4b. | §6 in order, that the answer does not depend on iteration order, and that an expired lease needs no "exclude the previous holder" branch |
 | 6 ✅ | credentials issued rather than minted locally; the worker refuses to start if it finds the signing secret, and replaces each instance's credentials halfway through their life | the secret stays on the master |
 

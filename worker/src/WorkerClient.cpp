@@ -313,7 +313,7 @@ namespace Euclid::Worker {
         // real care to get right - see Controller::spawnInstance. worker-nodes.md §11 puts Windows
         // workers out of scope for a first version, and a half-done one that leaks processes would
         // be worse than none.
-        log_error << "euclid-worker does not run applications on Windows - see docs/worker-nodes.md §11";
+        log_error << "euclid-wrk does not run applications on Windows - see docs/worker-nodes.md §11";
         return false;
 #else
         const auto executable = assignment.runtime == "BINARY"
