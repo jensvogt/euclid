@@ -234,6 +234,33 @@ jobs:
           path: ${{ env.CLI_NAME }}-${{ env.SEMVER }}-amd64.msi
           overwrite: true
 
+      # The worker on its own, the Windows counterpart of the euclid-wrk DEB and RPM. Its own
+      # product rather than part of APP_NAME's, for the reason WORKER_NAME exists at all: a worker
+      # host is not a euclid host. See dist/win32/msi/euclid-wrk.wxs.
+      - name: Build worker MSI
+        run: |
+          wix build dist\win32\msi\euclid-wrk.wxs -arch x64 -ext WixToolset.UI.wixext `
+            -d Version=${{ env.SEMVER }} `
+            -d BuildDir="${{ env.BUILD_DIR }}" `
+            -d SrcDir="${{ github.workspace }}" `
+            -o "${{ env.WORKER_NAME }}-${{ env.SEMVER }}-amd64.msi"
+
+      - name: Validate worker MSI
+        run: wix msi validate -sice ICE61 "${{ env.WORKER_NAME }}-${{ env.SEMVER }}-amd64.msi"
+
+      - name: Sign worker MSI
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: pwsh dist\win32\msi\sign.ps1 -Path "${{ env.WORKER_NAME }}-${{ env.SEMVER }}-amd64.msi"
+
+      - name: Upload Windows worker installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: worker-installer-windows
+          path: ${{ env.WORKER_NAME }}-${{ env.SEMVER }}-amd64.msi
+          overwrite: true
+
   build-macos:
     name: Build & Package (macOS)
     runs-on: macos-15
@@ -1482,6 +1509,12 @@ jobs:
           name: cli-installer-windows
           path: artifacts/windows
 
+      - name: Download Windows worker installer
+        uses: actions/download-artifact@v7
+        with:
+          name: worker-installer-windows
+          path: artifacts/windows
+
       # Every Linux package of every architecture: server, CLI and worker, .deb and .rpm, amd64
       # and arm64.
       # One pattern rather than eight named downloads, for the reason the globs below give - a
@@ -1554,6 +1587,7 @@ jobs:
           cp ./artifacts/installer-macos/*.tgz public/
           cp ./artifacts/cli-installer-windows/*.msi public/
           cp ./artifacts/cli-installer-macos/*.tgz public/
+          cp ./artifacts/worker-installer-windows/*.msi public/
 
           # One artifact per architecture: deb-package-linux-amd64, deb-package-linux-arm64, and the
           # same for rpm and for both CLI packages. Globbed rather than named, so a third
