@@ -6,8 +6,8 @@
     },
     "logging": {
       "level": "info",
-      "dir": "/var/lib/euclid-worker/log",
-      "prefix": "euclid-worker"
+      "dir": "/var/lib/euclid-wrk/log",
+      "prefix": "euclid-wrk"
     }
   }
 }

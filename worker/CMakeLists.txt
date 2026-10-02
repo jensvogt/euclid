@@ -1,5 +1,5 @@
 
-set(BINARY euclid-worker)
+set(BINARY euclid-wrk)
 
 add_executable(${BINARY} src/main.cpp src/WorkerClient.cpp)
 set_target_properties(${BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)

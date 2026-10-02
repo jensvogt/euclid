@@ -1,7 +1,7 @@
 
 # The transport a euclid client speaks, on its own so more than one client can speak it.
 #
-# euclid-cli was the only one for a long time, so these two lived in its executable. euclid-worker
+# euclid-cli was the only one for a long time, so these two lived in its executable. euclid-wrk
 # is the second (docs/worker-nodes.md §2: a worker is a euclid client, not a module - it reaches
 # euclid through the gateway, signs with RFC 9421, and has no database and no module sockets), and
 # compiling the same two files into two executables is how two copies of a signing implementation

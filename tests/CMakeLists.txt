@@ -109,7 +109,7 @@ target_link_libraries(${WS_FRAME_BINARY} PRIVATE euclidcore Boost::unit_test_fra
 
 add_test(NAME ${WS_FRAME_BINARY} COMMAND ${WS_FRAME_BINARY})
 
-set(WORKER_THREADS_BINARY euclid-worker-threads-config-tests)
+set(WORKER_THREADS_BINARY euclid-wrk-threads-config-tests)
 
 add_executable(${WORKER_THREADS_BINARY} WorkerThreadsConfigTest.cpp)
 set_target_properties(${WORKER_THREADS_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
@@ -201,6 +201,15 @@ target_link_libraries(${UPLOAD_STREAM_BINARY} PRIVATE eucliddb euclidcore Boost:
 
 add_test(NAME ${UPLOAD_STREAM_BINARY} COMMAND ${UPLOAD_STREAM_BINARY})
 
+set(COMMAND_LINE_QUOTING_BINARY euclid-command-line-quoting-tests)
+
+add_executable(${COMMAND_LINE_QUOTING_BINARY} CommandLineQuotingTest.cpp)
+set_target_properties(${COMMAND_LINE_QUOTING_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${COMMAND_LINE_QUOTING_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${COMMAND_LINE_QUOTING_BINARY} COMMAND ${COMMAND_LINE_QUOTING_BINARY})
+
 set(PLACEMENT_BINARY euclid-placement-tests)
 
 add_executable(${PLACEMENT_BINARY} PlacementTest.cpp)
@@ -211,7 +220,7 @@ target_link_libraries(${PLACEMENT_BINARY} PRIVATE Boost::unit_test_framework)
 
 add_test(NAME ${PLACEMENT_BINARY} COMMAND ${PLACEMENT_BINARY})
 
-set(WORKER_RECONCILER_BINARY euclid-worker-reconciler-tests)
+set(WORKER_RECONCILER_BINARY euclid-wrk-reconciler-tests)
 
 add_executable(${WORKER_RECONCILER_BINARY} WorkerReconcilerTest.cpp)
 set_target_properties(${WORKER_RECONCILER_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
