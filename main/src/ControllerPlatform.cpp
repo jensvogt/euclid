@@ -15,6 +15,7 @@
 
 // Euclid includes
 #include <euclid/core/LogStream.h>
+#include <euclid/core/SystemUtils.h>
 #include <euclid/core/UnixSocketServer.h>
 #include <euclid/manager/ControllerPlatform.h>
 
@@ -42,36 +43,12 @@ namespace Euclid::main::Platform {
         }
     }// namespace
 
-    // Standard MSVC/CommandLineToArgvW quoting algorithm: only quotes when needed, and
-    // doubles up backslashes that immediately precede either a literal quote or the
-    // closing quote, so the child's own argv parser recovers exactly the original string.
+    // Core::SystemUtils::QuoteCommandLineArg() under its original name. The rule moved to core
+    // when euclid-wrk came to need it too - it spawns the applications placed on its host, and
+    // links none of this. Two copies of the backslash-doubling rule is how two copies come to
+    // disagree about a path with a space in it.
     std::string QuoteArg(const std::string &arg) {
-        if (!arg.empty() && arg.find_first_of(" \t\n\v\"") == std::string::npos) {
-            return arg;
-        }
-
-        std::string result = "\"";
-        for (auto it = arg.begin();; ++it) {
-            unsigned backslashes = 0;
-            while (it != arg.end() && *it == '\\') {
-                ++it;
-                ++backslashes;
-            }
-
-            if (it == arg.end()) {
-                result.append(backslashes * 2, '\\');
-                break;
-            }
-            if (*it == '"') {
-                result.append(backslashes * 2 + 1, '\\');
-                result.push_back('"');
-            } else {
-                result.append(backslashes, '\\');
-                result.push_back(*it);
-            }
-        }
-        result.push_back('"');
-        return result;
+        return Core::SystemUtils::QuoteCommandLineArg(arg);
     }
 
     namespace {

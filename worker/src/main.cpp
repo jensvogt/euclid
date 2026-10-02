@@ -3,7 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 //
-// euclid-worker: runs applications euclid placed on this host.
+// euclid-wrk: runs applications euclid placed on this host.
 //
 // A euclid client, not a module. It reaches the gateway over signed HTTP, holds a role, and has no
 // MongoDB credentials, no EMD, no Unix sockets anyone connects to, and nothing listening that the
@@ -58,13 +58,13 @@ namespace {
 
 int main(const int argc, char **argv) {
 
-    po::options_description options("euclid-worker options");
+    po::options_description options("euclid-wrk options");
     options.add_options()
             ("help,h", "show this help")
             ("endpoint,e", po::value<std::string>(), "gateway to reach euclid through, e.g. https://euclid.example:5566")
             ("node,n", po::value<std::string>(), "what this node calls itself; defaults to the host name")
             ("label,l", po::value<std::vector<std::string> >()->composing(), "a placement label, key=value; repeatable")
-            ("data-dir,d", po::value<std::string>()->default_value("/var/lib/euclid-worker"), "where artifacts, credentials and logs go")
+            ("data-dir,d", po::value<std::string>()->default_value("/var/lib/euclid-wrk"), "where artifacts, credentials and logs go")
             ("tick,t", po::value<long>()->default_value(10), "seconds between renewals")
             ("ca-cert", po::value<std::string>()->default_value(""), "a CA certificate to trust in addition to the system store")
             ("config,c", po::value<std::string>()->default_value(""), "configuration file");
@@ -157,7 +157,7 @@ int main(const int argc, char **argv) {
         return 1;
     }
 
-    log_info << "euclid-worker running, node: " << workerOptions.nodeName
+    log_info << "euclid-wrk running, node: " << workerOptions.nodeName
              << ", endpoint: " << workerOptions.endpoint << ", tick: " << workerOptions.tick.count() << "s";
 
     // What the worker knows between ticks. The lease deadline is the master's figure held locally
@@ -204,7 +204,7 @@ int main(const int argc, char **argv) {
     // Asked to stop, which is not the same as having lost the lease: the master has not re-placed
     // this work, so the instances are stopped and reported rather than abandoned. An operator
     // draining a node first is what avoids the gap this leaves.
-    log_info << "euclid-worker stopping, node: " << workerOptions.nodeName;
+    log_info << "euclid-wrk stopping, node: " << workerOptions.nodeName;
     worker.StopAll();
     return 0;
 }

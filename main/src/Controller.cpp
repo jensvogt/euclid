@@ -1756,8 +1756,10 @@ namespace Euclid::main {
                                         ? application.command
                                         : Database::Entity::EAP::RuntimeCommandPrefix(application.runtime).front();
             module.active = true;
-            module.minInstances = application.minInstances;
-            module.maxInstances = application.maxInstances;
+            // A definition counts instances in a long and a module row in an int, so the narrowing
+            // is explicit here as it is on the local path - see the registerModule() call above.
+            module.minInstances = static_cast<int>(application.minInstances);
+            module.maxInstances = static_cast<int>(application.maxInstances);
 
             Database::Entity::ModuleInstance instance;
             instance.instanceId = runtimeName + "-" + Core::UuidUtils::CreateRandomUuid();

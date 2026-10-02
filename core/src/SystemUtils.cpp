@@ -88,6 +88,48 @@ namespace Euclid::Core {
 #endif
     }
 
+    std::string SystemUtils::QuoteCommandLineArg(const std::string &arg) {
+
+        // The CommandLineToArgvW convention: only quote when quoting is needed, and double up the
+        // backslashes that immediately precede either a literal quote or the closing quote, so the
+        // child's own argv parser recovers exactly the bytes that went in.
+        if (!arg.empty() && arg.find_first_of(" \t\n\v\"") == std::string::npos) {
+            return arg;
+        }
+
+        std::string result = "\"";
+        for (auto it = arg.begin();; ++it) {
+
+            unsigned backslashes = 0;
+            while (it != arg.end() && *it == '\\') {
+                ++it;
+                ++backslashes;
+            }
+
+            if (it == arg.end()) {
+                // Before the closing quote, so doubled: otherwise the last one escapes that quote
+                // and runs this argument into the next. This is the case a Windows path ending in
+                // a separator hits.
+                result.append(backslashes * 2, '\\');
+                break;
+            }
+
+            if (*it == '"') {
+                // 2n+1 so the child reads n backslashes and a literal quote, rather than n-ish
+                // backslashes and a quote that closes the argument.
+                result.append(backslashes * 2 + 1, '\\');
+                result.push_back('"');
+            } else {
+                // Not touching a quote, so left exactly as written - doubling these
+                // unconditionally would change every Windows path that needed quoting for a space.
+                result.append(backslashes, '\\');
+                result.push_back(*it);
+            }
+        }
+        result.push_back('"');
+        return result;
+    }
+
     std::string SystemUtils::GetInstanceTempDir(const std::string &baseDir) {
         const std::string path = baseDir + "/" + std::to_string(GetPid());
         boost::system::error_code ec;

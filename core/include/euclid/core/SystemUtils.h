@@ -107,6 +107,33 @@ namespace Euclid::Core {
         static std::string GetInstanceTempDir(const std::string &baseDir);
 
         /**
+         * @brief Quotes one argv element the way CommandLineToArgvW reads it back.
+         *
+         * @par
+         * CreateProcess takes a flat command-line string where execvp() takes an array, so an
+         * argument containing a space or a quote has to be escaped such that the child's own argv
+         * parser recovers exactly the original bytes. The rule is not obvious - backslashes
+         * immediately before a quote, or before the closing quote, are doubled - and getting it
+         * wrong does not fail: it silently splits one argument into two, or swallows a quote, and
+         * the child receives something almost right.
+         *
+         * @par
+         * In core because two things spawn processes on Windows: euclid-mgr, through
+         * Manager::Platform, and euclid-wrk, which runs the applications placed on its host.
+         * They do not share a library otherwise, and two copies of this is how two copies come to
+         * disagree about a path with a space in it.
+         *
+         * @par
+         * Defined on POSIX too, where nothing calls it: a function that exists only inside an
+         * #ifdef cannot be tested on the machine most of this is written on, and the rule it
+         * implements is pure string manipulation with no platform in it.
+         *
+         * @param arg one argv element, unquoted.
+         * @return the element, quoted and escaped only if it needs to be.
+         */
+        [[nodiscard]] static std::string QuoteCommandLineArg(const std::string &arg);
+
+        /**
          * @brief Returns the number of CPU cores
          *
          * @return number of CPU cores
