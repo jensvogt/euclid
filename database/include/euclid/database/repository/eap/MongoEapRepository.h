@@ -161,7 +161,39 @@ namespace Euclid::Database {
         bool touchApplication(const std::string &accountId, const std::string &nameSpace,
                               const std::string &applicationId) override;
 
+        // ── Worker nodes ────────────────────────────────────────────────────────────────────────
+
+        Entity::EAP::Node upsertNode(Entity::EAP::Node &node) override;
+
+        [[nodiscard]]
+        std::optional<Entity::EAP::Node> findNodeByName(const std::string &accountId, const std::string &name) const override;
+
+        [[nodiscard]]
+        std::vector<Entity::EAP::Node> listNodes(const std::string &accountId) const override;
+
+        bool touchNode(const std::string &accountId, const std::string &name,
+                       std::chrono::system_clock::time_point seenAt, double loadAverage) override;
+
+        bool setNodeDrained(const std::string &accountId, const std::string &name, bool drained) override;
+
+        bool deleteNode(const std::string &accountId, const std::string &name) override;
+
     private:
+
+        /**
+         * @brief The filter that picks exactly one node.
+         */
+        [[nodiscard]]
+        static bsoncxx::document::value nodeFilter(const std::string &accountId, const std::string &name);
+
+        /**
+         * @brief Collection name for worker nodes.
+         *
+         * @par
+         * Its own collection rather than a field on the application: a node outlives every
+         * application placed on it, and is registered before any of them exists.
+         */
+        static constexpr auto NODE_COLLECTION = "eap_node";
 
         /**
          * @brief The filter that picks exactly one application.

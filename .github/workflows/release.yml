@@ -10,6 +10,11 @@ env:
   # The CLI ships twice: inside APP_NAME, for the machine that runs a euclid, and on its own
   # under this name for every machine that only talks to one.
   CLI_NAME: "euclid-cli"
+  # The worker ships *only* under this name, unlike the CLI. A worker host is deliberately not a
+  # euclid host - it runs no modules, holds no database credentials and has nothing listening - and
+  # a manager host has no use for the binary, since the manager already runs applications itself.
+  # So it is excluded from APP_NAME's payload rather than shipped twice. See docs/worker-nodes.md.
+  WORKER_NAME: "euclid-wrk"
   INSTALLER_ID: "de.jensvogt.euclid"
   VCPKG_BUILD_TYPE: release
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -251,6 +256,33 @@ jobs:
           path: ${{ env.CLI_NAME }}-${{ env.SEMVER }}-amd64.msi
           overwrite: true
 
+      # The worker on its own, the Windows counterpart of the euclid-wrk DEB and RPM. Its own
+      # product rather than part of APP_NAME's, for the reason WORKER_NAME exists at all: a worker
+      # host is not a euclid host. See dist/win32/msi/euclid-wrk.wxs.
+      - name: Build worker MSI
+        run: |
+          wix build dist\win32\msi\euclid-wrk.wxs -arch x64 -ext WixToolset.UI.wixext `
+            -d Version=${{ env.SEMVER }} `
+            -d BuildDir="${{ env.BUILD_DIR }}" `
+            -d SrcDir="${{ github.workspace }}" `
+            -o "${{ env.WORKER_NAME }}-${{ env.SEMVER }}-amd64.msi"
+
+      - name: Validate worker MSI
+        run: wix msi validate -sice ICE61 "${{ env.WORKER_NAME }}-${{ env.SEMVER }}-amd64.msi"
+
+      - name: Sign worker MSI
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: pwsh dist\win32\msi\sign.ps1 -Path "${{ env.WORKER_NAME }}-${{ env.SEMVER }}-amd64.msi"
+
+      - name: Upload Windows worker installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: worker-installer-windows
+          path: ${{ env.WORKER_NAME }}-${{ env.SEMVER }}-amd64.msi
+          overwrite: true
+
   build-macos:
     name: Build & Package (macOS)
     runs-on: macos-15
@@ -384,10 +416,16 @@ jobs:
           # whenever a module is added - which is how ekm, ens, emm, ets, eap, ftp and sftp came
           # to be missing from the macOS package while euclid.json still pointed at them, leaving
           # the manager restart-looping on binaries that were not installed. The test executables
-          # are built into the same directory and are the only thing skipped.
+          # are built into the same directory and are skipped, as is euclid-wrk - which ships in
+          # a package of its own. A worker host runs no modules and holds no database credentials,
+          # and a manager host has no use for the binary because the manager already runs
+          # applications itself; shipping it here would put it on every machine that needs it least
+          # and make two packages own one path. Excluding by name rather than listing what to
+          # include, so a module added tomorrow is still picked up.
           for binary in ${{ env.BUILD_DIR }}/bin/euclid-*; do
             case "$(basename "$binary")" in
               *-tests) continue ;;
+              euclid-wrk) continue ;;
             esac
             cp "$binary" ${{ env.PACKAGE_DIR }}/euclid/bin/
           done
@@ -549,6 +587,7 @@ jobs:
       PACKAGE_DIR_DEB: "${{ github.workspace }}/package-deb"
       PACKAGE_DIR_RPM: "${{ github.workspace }}/package-rpm"
       PACKAGE_DIR_CLI: "${{ github.workspace }}/package-cli"
+      PACKAGE_DIR_WORKER: "${{ github.workspace }}/package-worker"
       SEMVER: "${{ needs.release-please.outputs.tag_name }}"
     steps:
       - name: Checkout
@@ -670,10 +709,16 @@ jobs:
           # whenever a module is added - which is how ekm, ens, emm, ets, eap, ftp and sftp came
           # to be missing from the DEB package while euclid.json still pointed at them, leaving
           # the manager restart-looping on binaries that were not installed. The test executables
-          # are built into the same directory and are the only thing skipped.
+          # are built into the same directory and are skipped, as is euclid-wrk - which ships in
+          # a package of its own. A worker host runs no modules and holds no database credentials,
+          # and a manager host has no use for the binary because the manager already runs
+          # applications itself; shipping it here would put it on every machine that needs it least
+          # and make two packages own one path. Excluding by name rather than listing what to
+          # include, so a module added tomorrow is still picked up.
           for binary in ${{ env.BUILD_DIR }}/bin/euclid-*; do
             case "$(basename "$binary")" in
               *-tests) continue ;;
+              euclid-wrk) continue ;;
             esac
             cp "$binary" ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/
           done
@@ -849,10 +894,16 @@ jobs:
           # whenever a module is added - which is how ekm, ens, emm, ets, eap, ftp and sftp came
           # to be missing from the RPM package while euclid.json still pointed at them, leaving
           # the manager restart-looping on binaries that were not installed. The test executables
-          # are built into the same directory and are the only thing skipped.
+          # are built into the same directory and are skipped, as is euclid-wrk - which ships in
+          # a package of its own. A worker host runs no modules and holds no database credentials,
+          # and a manager host has no use for the binary because the manager already runs
+          # applications itself; shipping it here would put it on every machine that needs it least
+          # and make two packages own one path. Excluding by name rather than listing what to
+          # include, so a module added tomorrow is still picked up.
           for binary in ${{ env.BUILD_DIR }}/bin/euclid-*; do
             case "$(basename "$binary")" in
               *-tests) continue ;;
+              euclid-wrk) continue ;;
             esac
             cp "$binary" ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/
           done
@@ -1157,6 +1208,190 @@ jobs:
           path: ${{ env.CLI_NAME }}-${{ env.SEMVER }}-1.${{ matrix.rpm_arch }}.rpm
           overwrite: true
 
+      # ── Worker packages ────────────────────────────────────────────────────
+      # For the machine that runs applications and nothing else: no modules, no database
+      # credentials, nothing listening. See docs/worker-nodes.md §2.
+      #
+      # Unlike the CLI, this ships only here - it is excluded from the server package's payload
+      # above. A manager host has no use for the binary, because the manager already runs
+      # applications itself, and two packages owning /usr/local/euclid/bin/euclid-wrk would be
+      # a file conflict for no gain.
+      #
+      # Built from the same binary as everything else in this job, so a worker is byte for byte
+      # the build the release was cut from.
+
+      - name: Prepare worker package structure
+        run: |
+          # One tree for both the DEB and the RPM. The unit file is the only thing here a
+          # distribution might have an opinion about, and both of these take it at the same path.
+          mkdir -p ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid/bin
+          mkdir -p ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid/etc
+          mkdir -p ${{ env.PACKAGE_DIR_WORKER }}/etc/systemd/system
+
+          cp ${{ env.BUILD_DIR }}/bin/euclid-wrk ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid/bin/
+          # See the server package above: the symbol table is dead weight in a shipped binary.
+          strip --strip-unneeded ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid/bin/euclid-wrk
+
+          # Its own configuration file, and emphatically not euclid.json. The manager's
+          # configuration holds euclid.modules.eam.jwt-secret, and a worker refuses to start if it
+          # finds that key - anything holding it can mint a token for any principal in the
+          # installation, including admin, offline and unaudited. Shipping a separate file is what
+          # stops somebody pointing the unit at the one next to it.
+          cp dist/linux/etc/euclid-wrk.json ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid/etc/
+          cp dist/linux/systemd/system/euclid-wrk.service ${{ env.PACKAGE_DIR_WORKER }}/etc/systemd/system/
+
+          # Maintainer scripts live OUTSIDE PACKAGE_DIR_WORKER - see the matching comment in the
+          # server DEB step for why.
+          mkdir -p ${{ github.workspace }}/worker-scripts
+          cat << EOF > ${{ github.workspace }}/worker-scripts/postinstall.sh
+          #!/bin/bash
+          set -e
+          ln -sf /usr/local/euclid/bin/euclid-wrk /usr/local/bin/euclid-wrk
+
+          # Its own account, not euclid's. A worker host is deliberately not a euclid host, and if
+          # somebody later installs the server package here the two should not be able to read each
+          # other's files - least of all this one reading the manager's configuration.
+          if ! getent group euclid-wrk >/dev/null; then
+            groupadd --system euclid-wrk
+          fi
+          if ! getent passwd euclid-wrk >/dev/null; then
+            useradd --system --gid euclid-wrk --home-dir /var/lib/euclid-wrk \
+                    --shell /usr/sbin/nologin --comment "Euclid Worker Node" euclid-wrk
+          fi
+
+          # StateDirectory= in the unit creates this on start, but the configuration file has to be
+          # readable before that and the log directory it names has to exist.
+          mkdir -p /var/lib/euclid-wrk/log
+          chown -R euclid-wrk:euclid-wrk /var/lib/euclid-wrk
+          chown euclid-wrk:euclid-wrk /usr/local/euclid/etc/euclid-wrk.json
+          chmod 0640 /usr/local/euclid/etc/euclid-wrk.json
+
+          systemctl daemon-reload
+          # Enabled but deliberately NOT started. A worker cannot do anything until it has been
+          # given an endpoint and logged in as its own principal, and a service that restart-loops
+          # from the moment it is installed buries the one message saying so.
+          systemctl enable euclid-wrk.service
+          echo "euclid-wrk installed. Set euclid.worker.endpoint in"
+          echo "/usr/local/euclid/etc/euclid-wrk.json, log in as this node's principal with"
+          echo "'euclid-cli eam login', then: systemctl start euclid-wrk"
+          EOF
+
+          cat << EOF > ${{ github.workspace }}/worker-scripts/postremove-deb.sh
+          #!/bin/bash
+          set -e
+          # Only on a real removal - see the server package's postremove for why an upgrade must
+          # not reach this: dpkg runs the old package's postrm after the new one's unit file is
+          # already unpacked.
+          if [ "\$1" = "remove" ] || [ "\$1" = "purge" ]; then
+            systemctl stop euclid-wrk.service || true
+            systemctl disable euclid-wrk.service || true
+            rm -f /etc/systemd/system/euclid-wrk.service
+            rm -f /usr/local/bin/euclid-wrk
+          fi
+          EOF
+
+          cat << EOF > ${{ github.workspace }}/worker-scripts/postremove-rpm.sh
+          #!/bin/bash
+          # \$1 is the number of instances left installed after this action: >=1 during an upgrade,
+          # 0 only on a genuine removal. Same guard as the DEB above.
+          if [ "\$1" -eq 0 ]; then
+            systemctl stop euclid-wrk.service || true
+            systemctl disable euclid-wrk.service || true
+            rm -f /etc/systemd/system/euclid-wrk.service
+            rm -f /usr/local/bin/euclid-wrk
+          fi
+          EOF
+
+          chmod +x ${{ github.workspace }}/worker-scripts/postinstall.sh \
+                   ${{ github.workspace }}/worker-scripts/postremove-deb.sh \
+                   ${{ github.workspace }}/worker-scripts/postremove-rpm.sh
+
+      - name: Verify worker package contents
+        run: |
+          test -x ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid/bin/euclid-wrk \
+            || { echo "::error::euclid-wrk is missing or not executable in the worker package"; exit 1; }
+          test -s ${{ env.PACKAGE_DIR_WORKER }}/etc/systemd/system/euclid-wrk.service \
+            || { echo "::error::euclid-wrk.service is missing from the worker package"; exit 1; }
+          test -s ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid/etc/euclid-wrk.json \
+            || { echo "::error::euclid-wrk.json is missing from the worker package"; exit 1; }
+
+          # The one thing about this package that is a security property rather than a convenience:
+          # a worker refuses to start if its configuration names the signing secret, so shipping a
+          # file that does would make every installed worker fail to start - and the fix would look
+          # like a euclid bug rather than a packaging one. Checked here, where it is one grep.
+          if grep -q "jwt-secret" ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid/etc/euclid-wrk.json; then
+            echo "::error::the shipped euclid-wrk.json names jwt-secret; a worker refuses to start with it (see docs/worker-nodes.md §3.2)"
+            exit 1
+          fi
+
+          # The server package must not also carry this binary: two packages owning one path is a
+          # conflict dpkg reports at install time, on somebody else's machine.
+          if [ -e ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/euclid-wrk ]; then
+            echo "::error::euclid-wrk is in the server DEB payload as well as its own package"
+            exit 1
+          fi
+          if [ -e ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/euclid-wrk ]; then
+            echo "::error::euclid-wrk is in the server RPM payload as well as its own package"
+            exit 1
+          fi
+
+      - name: Build worker DEB with fpm
+        run: |
+          # systemd because this installs a unit; the other three are what every euclidcore-linking
+          # binary needs, the same set the CLI package names. No libmagic1: euclidcore links
+          # vcpkg's own statically, which is why the server package bundles magic.mgc rather than
+          # reading the system one.
+          fpm -s dir -t deb --name "${{ env.WORKER_NAME }}" \
+          --deb-compression xz \
+          --version "${{ env.SEMVER }}" \
+          --architecture ${{ matrix.arch }} \
+          --license "MPL-2.0" \
+          --maintainer "Jens Vogt <jensvogt47@gmail.com>" \
+          --description "Euclid worker node - runs euclid applications on a host that is not the manager" \
+          --url "https://github.com/jensvogt/euclid" \
+          --category utils \
+          --depends systemd \
+          --depends "libgoogle-perftools4 | libgoogle-perftools4t64" \
+          --depends libunwind8 \
+          --depends liblzma5 \
+          --after-install ${{ github.workspace }}/worker-scripts/postinstall.sh \
+          --after-remove ${{ github.workspace }}/worker-scripts/postremove-deb.sh \
+          --package "${{ env.WORKER_NAME }}-${{ env.SEMVER }}-${{ matrix.arch }}.deb" \
+          ${{ env.PACKAGE_DIR_WORKER }}/=/
+
+      - name: Upload worker .deb
+        uses: actions/upload-artifact@v7
+        with:
+          name: worker-deb-package-linux-${{ matrix.arch }}
+          path: ${{ env.WORKER_NAME }}-${{ env.SEMVER }}-${{ matrix.arch }}.deb
+          overwrite: true
+
+      - name: Build worker RPM with fpm
+        run: |
+          fpm -s dir -t rpm \
+          -n "${{ env.WORKER_NAME }}" \
+          -v ${SEMVER} \
+          --architecture ${{ matrix.rpm_arch }} \
+          --description "Euclid worker node - runs euclid applications on a host that is not the manager" \
+          --url "https://github.com/jensvogt/euclid" \
+          --vendor "Euclid Project" \
+          --license "MPL-2.0" \
+          --depends systemd \
+          --depends gperftools-libs \
+          --depends libunwind \
+          --depends xz-libs \
+          --prefix / \
+          --after-install ${{ github.workspace }}/worker-scripts/postinstall.sh \
+          --after-remove ${{ github.workspace }}/worker-scripts/postremove-rpm.sh \
+          ${{ env.PACKAGE_DIR_WORKER }}/=/
+
+      - name: Upload worker .rpm
+        uses: actions/upload-artifact@v7
+        with:
+          name: worker-rpm-package-linux-${{ matrix.arch }}
+          path: ${{ env.WORKER_NAME }}-${{ env.SEMVER }}-1.${{ matrix.rpm_arch }}.rpm
+          overwrite: true
+
   build-apt-repo:
     name: "Build & Sign APT Repository"
     runs-on: ubuntu-latest
@@ -1168,13 +1403,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4.2.2
 
-      # Every architecture's server and CLI package, in one step. Matched on a pattern rather than
+      # Every architecture's server, CLI and worker package, in one step. Matched on a pattern
+      # rather than
       # named one by one so that adding an architecture to the build matrix needs no change here;
       # merge-multiple puts them all in one directory, which is what reprepro is pointed at.
       #
       # Into the same repository and the same distribution as the server package: "apt install
-      # euclid-cli" on a workstation is the point of it, and it is the same archive and the same
-      # signing key that already has to be trusted for "apt install euclid". apt picks the build
+      # euclid-cli" on a workstation - and "apt install euclid-wrk" on a worker host - is the
+      # point of it, and it is the same archive and the same signing key that already has to be
+      # trusted for "apt install euclid". apt picks the build
       # matching the machine's own architecture out of the one archive.
       - name: Download .deb packages (every architecture)
         uses: actions/download-artifact@v7
@@ -1218,15 +1455,16 @@ jobs:
           # What ends up in the pool is what gets published, so that is what is checked - both
           # packages went in, or the archive ships missing one and an installed client finds out
           # rather than the release does.
-          # Two packages - euclid and euclid-cli - for each architecture the matrix builds. The
-          # count is derived from what was downloaded rather than written as a literal, so an
-          # architecture added to the build matrix does not silently fail this check, and one that
-          # failed to build is still caught: reprepro must have taken everything that arrived.
+          # Three packages - euclid, euclid-cli and euclid-wrk - for each architecture the
+          # matrix builds. The count is derived from what was downloaded rather than written as a
+          # literal, so neither an architecture nor a package added later silently fails this
+          # check, and one that failed to build is still caught: reprepro must have taken
+          # everything that arrived.
           reprepro -b apt-repo-work list stable
           expected=$(find artifacts -name '*.deb' | wc -l)
           packages=$(find apt-repo-work/pool -name '*.deb' | wc -l)
           [ "$expected" -ge 2 ] \
-            || { echo "::error::expected at least euclid and euclid-cli to have been built, found ${expected} .deb(s)"; exit 1; }
+            || { echo "::error::expected at least the server and CLI packages to have been built, found ${expected} .deb(s)"; exit 1; }
           [ "$packages" -eq "$expected" ] \
             || { echo "::error::${expected} .deb(s) were built but ${packages} reached the APT pool"; exit 1; }
 
@@ -1324,7 +1562,14 @@ jobs:
           name: cli-installer-windows
           path: artifacts/windows
 
-      # Every Linux package of every architecture: server and CLI, .deb and .rpm, amd64 and arm64.
+      - name: Download Windows worker installer
+        uses: actions/download-artifact@v7
+        with:
+          name: worker-installer-windows
+          path: artifacts/windows
+
+      # Every Linux package of every architecture: server, CLI and worker, .deb and .rpm, amd64
+      # and arm64.
       # One pattern rather than eight named downloads, for the reason the globs below give - a
       # package that exists but is not named here is one that quietly does not get released, and
       # that is exactly how the Windows MSI came to be left off a release once already.
@@ -1395,6 +1640,7 @@ jobs:
           cp ./artifacts/installer-macos/*.tgz public/
           cp ./artifacts/cli-installer-windows/*.msi public/
           cp ./artifacts/cli-installer-macos/*.tgz public/
+          cp ./artifacts/worker-installer-windows/*.msi public/
 
           # One artifact per architecture: deb-package-linux-amd64, deb-package-linux-arm64, and the
           # same for rpm and for both CLI packages. Globbed rather than named, so a third

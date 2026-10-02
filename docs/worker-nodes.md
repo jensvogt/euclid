@@ -1,6 +1,59 @@
 # Worker nodes
 
-**Status:** proposal. Nothing built. Written 2026-09-24.
+**Status:** all six steps of §10 are built. Written 2026-09-24.
+
+Built but **unproven**: all of it is covered by tests, and no worker has yet run an application
+against a live installation. Treat the first one as an experiment on a host nothing depends on — the
+things a test cannot reach are exactly the ones a first run finds, and one of them has already
+turned up (see below).
+
+**Found by running it rather than testing it.** `euclid-wrk` died with a stack-buffer-overrun
+fast-fail the first time it was pointed at a gateway it could not verify: `CLI::HttpClient` throws
+when it cannot reach an endpoint, and nothing in the worker caught it. That is the one failure the
+lease exists to survive, and the crash would have left the worker's instances orphaned — running,
+unsupervised, and holding a lease nobody would renew, which is precisely the state §5 is built to
+make impossible. Every call a worker makes now goes through a POST that cannot throw, and an
+unreachable master is status 0 rather than a terminated process. Worth remembering when reading the
+rest of this: the tests were green through all of it.
+
+Two things are deliberately missing, both from §11: running applications on a Windows worker
+(`euclid-wrk` installs as a service and registers there, and refuses to start a process rather than
+half-doing it), and any CLI for the operator actions — `assign-instance`, `list-nodes` and
+`drain-node` are reachable over the API only.
+
+Step 4 is built but **unproven**: every part of it is covered by tests, and none of it has run
+against a live installation. The lease arithmetic, the drain/renew race and the partition case are
+pinned as decisions over their inputs — which is the only practical way to test the case that
+matters — but a first real run will find things a test could not: the shape of a spawn that fails,
+what a JVM does with the credentials file, how a renewal behaves across a gateway restart. Treat the
+first worker as an experiment on a host nothing depends on.
+
+Two things are deliberately missing, both out of §11: running applications on a Windows worker
+(`euclid-wrk` installs as a service and registers there, and refuses to start a process rather than
+half-doing it) and any CLI for the operator actions — `assign-instance`, `list-nodes` and
+`drain-node` are reachable over the API only.
+
+`ModuleInstance::host` exists, is written by every manager, and is honoured by the two operations
+that were destructive across hosts — the start-up leftover sweep and the start-up clear. A backend
+is now a host and a port: `Backends` resolves the recorded host when it refreshes and `ProxyServer`
+connects to that address rather than to `127.0.0.1`.
+
+An artifact is fetched through `esm:get-object` (or `create-download`/`download-part` when it is
+larger than one call), by the manager as well — so the path a worker will take is the one that runs
+today. The transport that makes that possible, `Core::ModuleClient`, moved out of the transfer
+servers' library into core, which is the lowest layer the manager, the transfer servers and a future
+worker share.
+
+So the records can express a second machine, the gateway can reach one, and the bytes an application
+needs no longer come off a local disk. What is still missing is anything that *puts* an application
+there: the manager has no notion of a node, no placement, and no lease, and every manager still runs
+every application whose desired state is RUNNING. Running more than one manager remains the wrong
+thing to do — it is now merely non-destructive rather than safe. Steps 4 to 6 are what make it
+useful.
+
+One behaviour change worth knowing about, since §3.1 traded it away deliberately: an application
+whose artifact is missing or whose build changed cannot start while ESM is down. It was previously
+readable off ESM's data directory whether ESM was running or not.
 
 A second kind of host that runs EAP applications but not euclid. The manager stays the only thing
 that decides what runs and how much of it; a worker is the thing that carries the decision out on
@@ -39,7 +92,7 @@ because there was.
 
 ## 2. What a worker is
 
-A new executable, `euclid-worker`, which:
+A new executable, `euclid-wrk`, which:
 
 - is **a euclid client**, not a euclid module. It authenticates through the gateway like any
   application does, signs with RFC 9421, and holds a role. It has no MongoDB credentials, no EMD, no
@@ -76,6 +129,15 @@ would otherwise keep running the old build — and it matters more on a worker, 
 only copy.
 
 Needs: `esm:get-object` on the artifact bucket, granted to the worker's principal.
+
+**One thing step 3 could not finish, found when the worker came to need it.** The fetcher built
+there (`Manager::Artifact`) speaks the right *protocol* — `get-object`, or
+`create-download`/`download-part`/`complete-download` above one call — but over the wrong
+*transport*: it resolves ESM's Unix socket out of the module repository and calls it directly, and a
+worker has neither a module socket nor a database. The protocol is shared and the transport is not,
+so the fetcher has to take the call as a parameter — a module socket for the manager, a signed
+gateway request for the worker — rather than choosing one. That is a small change to a tested
+component, and it belongs with the rest of 4c rather than being a surprise inside it.
 
 ### 3.2 The credentials token is minted locally
 
@@ -206,6 +268,28 @@ One constraint is worth having from the start: an application may name `nodes: [
 selector, because the reason to add a worker is often that a particular application needs a
 particular machine — a GPU, a licence dongle, a network it can reach.
 
+### Naming one is also how an application opts in
+
+As built, that constraint does more than narrow the candidates: **it is what makes an application a
+node application at all.** One that names neither `nodes` nor `nodeLabels` is run by the manager on
+its own host, exactly as it was before any of this existed, and never reaches placement.
+
+This was not the original intent — §6 reads as though placement applies to everything — and the
+reason for the change is worth recording. Making every application dual-mode means every existing
+pool takes a new path through `reconcileApplications` on the strength of whether a worker happens to
+be registered, and an installation with no workers (which is every installation today) would be
+taking that new path to the same destination. Opting in per application makes adopting workers a
+decision about one application rather than a property of the installation, which is also how anybody
+would want to try the first one.
+
+What it costs: placing an application takes an edit to its definition. If that turns out to be the
+wrong trade, the condition is one function — `isNodeApplication` — and nothing else depends on the
+distinction.
+
+An application whose constraint is added while it is running locally has its local pool stopped
+first. Leaving it would mean the application running both on the manager and wherever it gets
+placed, which is the one outcome every part of this design exists to prevent.
+
 ## 7. The worker's side
 
 Four actions, on EAP, because everything here is about applications. Each is an ordinary signed
@@ -221,6 +305,23 @@ apply without a new mechanism.
 
 Plus, for operators: `eap:list-nodes`, and `eap:drain-node` to stop placing on a node and let its
 instances move off as they are replaced.
+
+And `eap:assign-instance`, which this list missed. Step 4 has no placement — "the master is told by
+hand" — and there has to be something that tells it. It gives one slot to a node with a lease on the
+claim, or takes it back to the manager by naming no node. It is what placement will call in step 5
+rather than something step 5 replaces.
+
+### One thing §7 left open, and should not have
+
+A worker announces a node name of its own choosing. On its own that means any principal holding
+`eap:register-node` can register under a name another worker already uses — and then receive that
+worker's instance assignments and, through `issue-instance-credentials`, the application credentials
+that go with them. One worker reading another's secrets is a larger hole than anything the lease
+protects against.
+
+So the first registration of a name binds it to the principal that made it
+(`Entity::EAP::Node::principal`), and every worker action checks the caller against it. Moving a node
+name means deleting the registration first, which is a deliberate act and leaves the leases alone.
 
 `report-load` is unchanged and is still sent by the **application**, not by the worker. The worker
 does not know how busy an application is; that was the whole point of the application reporting it.
@@ -280,15 +381,29 @@ Each step is independently useful and independently revertible.
 
 | Step | Scope | Proves |
 |---|---|---|
-| 1 | `host` on `ModuleInstance`, empty meaning "here"; host check in `killLeftoverInstances` and everywhere a pid is read | the record can express a second host, with no behaviour change on a single one |
-| 2 | `Backends` and `ProxyServer` carry host + port | the gateway can reach a backend that is not loopback — testable with a fake backend on a second address on the same machine |
-| 3 | artifact by download instead of by filesystem, with the md5 cache; used by the manager too | one code path for fetching an artifact, exercised on the host where it is easy to debug |
-| 4 | `euclid-worker` with register/renew/report and the lease, no placement — it runs what it is told, and the master is told by hand | the loop, the lease, and the safety argument in §5 |
-| 5 | placement in the master; `eap:list-nodes`, `eap:drain-node` | end to end |
-| 6 | credentials issued rather than minted locally | the secret stays on the master |
+| 1 ✅ | `host` on `ModuleInstance`, empty meaning "here"; host check in `killLeftoverInstances` and everywhere a pid is read | the record can express a second host, with no behaviour change on a single one |
+| 2 ✅ | `Backends` and `ProxyServer` carry host + port | the gateway can reach a backend that is not loopback — testable with a fake backend on a second address on the same machine |
+| 3 ✅ | artifact by download instead of by filesystem, with the md5 cache; used by the manager too | one code path for fetching an artifact, exercised on the host where it is easy to debug |
+| 4 ✅ | `euclid-wrk` with register/renew/report and the lease, no placement — split into 4a/4b/4c below, because one step turned out to be three | the loop, the lease, and the safety argument in §5 |
+| 4a ✅ | the records: `Entity::EAP::Node`, `assignedTo` and `leaseExpiresAt` on `ModuleInstance`, the lease and liveness rules, node storage on the EAP repository | the lease arithmetic and the drain/renew race, without a worker to run them |
+| 4b ✅ | the EAP actions: `register-node`, `renew-node`, `issue-instance-credentials`, `report-node-instance`, `list-nodes`, `drain-node`, plus `assign-instance` which "told by hand" needs and §7 does not name. No CLI yet. | a node can be registered, renewed and assigned to by hand |
+| 4c ✅ | `euclid-wrk`: the decision rule (`Worker::Reconciler::Decide`), the tick, the four gateway calls, the credentials file, spawning and reaping. POSIX only — see §11. Never run against a live installation. | §5 as a decision over four inputs, including the partition case a live installation cannot easily be made to reproduce |
+| 5 ✅ | placement: the rule (`Manager::Placement::Choose`), the node load average it reads, the application's `nodes`/`nodeLabels` constraints, placement when a slot is created (`reconcileNodeApplication`) and re-placement when a lease lapses (`reconcileNodeLeases`). `list-nodes` and `drain-node` landed with 4b. | §6 in order, that the answer does not depend on iteration order, and that an expired lease needs no "exclude the previous holder" branch |
+| 6 ✅ | credentials issued rather than minted locally; the worker refuses to start if it finds the signing secret, and replaces each instance's credentials halfway through their life | the secret stays on the master |
 
 Step 6 is last only because steps 4 and 5 can be tested with an application that never calls back
 into euclid. It is not optional, and a worker must refuse to start without it.
+
+As built, the refusal is on the *presence* of `euclid.modules.eam.jwt-secret` in the worker's
+configuration, whatever its value — because the realistic way that key arrives on a worker host is
+somebody copying the manager's configuration file, and that file holds a great deal more than this
+one secret. The error says so, so the operator checks the rest of it too.
+
+The refresh rule moved with the credentials, and had to: the worker wrote them once at start, which
+meant every placed application stopped working one TTL after it started. It now replaces them
+halfway through their life, on every tick, derived from the blob's own `expiresAt` rather than from a
+configured TTL — the TTL is the master's setting, and a copy of it on the worker would only be a
+second place for the two to disagree.
 
 ## 11. Not in scope
 
@@ -304,9 +419,17 @@ Said plainly, because each of these is a thing somebody will reasonably expect:
 - **moving a running instance.** Instances are replaced, not migrated.
 - **resource limits.** No cgroups, no memory caps. A worker that overcommits is an operator's problem
   until there is evidence it needs to be euclid's.
-- **Windows workers.** The design has nothing POSIX-specific in it, but `spawnInstance` already has
-  two implementations (`Controller.cpp:330` and `:419`) and the worker would need the same care. Not
-  in a first version.
+- **Running applications on a Windows worker.** The design has nothing POSIX-specific in it, but
+  `spawnInstance` already has two implementations (`Controller.cpp:330` and `:419`) and the worker
+  would need the same care. `WorkerClient::Apply` refuses on Windows and says so in the log rather
+  than half-doing it.
+
+  What *is* built there is everything around it: `euclid-wrk` runs as a Windows service, registers,
+  renews its lease, reports and stops cleanly, and ships as an MSI
+  (`dist/win32/msi/euclid-wrk.wxs`, `--install`/`--uninstall`/`--foreground` for a tree without a
+  package). So the remaining gap is exactly one function, and a Windows host can be deployed and
+  watched registering before anything is placed on it. Installing it on a host the master will
+  actually place work on is still premature.
 
 ## 12. Open questions
 

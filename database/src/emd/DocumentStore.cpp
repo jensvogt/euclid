@@ -480,7 +480,22 @@ namespace Euclid::Database::Emd {
 
                         bsoncxx::builder::basic::array array;
                         if (const auto existing = fields.find(name); existing != fields.end() && existing->second.view().type() == bsoncxx::type::k_array) {
-                            for (const auto &entry: existing->second.view().get_array().value) {
+
+                            // The view is named rather than used inline, and it has to be.
+                            // bson_value::value::view() returns *by value*, and .get_array()
+                            // answers with a reference to a b_array living inside that temporary;
+                            // .value is then an lvalue member of it. A range-for binds an lvalue
+                            // range by reference and extends nothing, so the temporary died at the
+                            // end of the range-init and the loop walked a dangling array view.
+                            //
+                            // It read correctly often enough to go unnoticed: the branch is only
+                            // reached when the field already holds an array, so a first $push -
+                            // which is what almost every caller does - skips it entirely. The
+                            // second push into one document is what reaches it, and ASan named it
+                            // stack-use-after-scope the first time a test did that.
+                            const auto existingValue = existing->second.view();
+
+                            for (const auto &entry: existingValue.get_array().value) {
                                 if (op == "$pull" && equals(entry.get_value(), field.get_value())) continue;
                                 appendValue(array, entry.get_value());
                             }

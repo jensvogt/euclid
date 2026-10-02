@@ -1,0 +1,203 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Windows package for a euclid worker node.
+
+  A worker host is deliberately not a euclid host - the same reasoning the systemd unit carries
+  (dist/linux/systemd/system/euclid-wrk.service). It runs no modules, holds no database credentials,
+  has nothing listening, and must never hold the installation's signing secret. So this is its own
+  product rather than a feature of the server package: installing a worker should not put nineteen
+  module binaries and a gateway on a machine whose job is to run somebody else's code.
+
+  Its own UpgradeCode, so this and the server package are separate products and neither upgrades or
+  uninstalls the other. Both can sit on one machine - which is what a single-host trial looks like -
+  because this installs into euclid-wrk\ and the server into euclid\.
+
+  What a worker can and cannot do on Windows, as of this package: it registers with the master,
+  renews its lease, reports, and stops cleanly. It does **not** yet run the applications placed on
+  it - WorkerClient::Apply refuses on Windows and says so in the log. See docs/worker-nodes.md §11.
+  This package is therefore the deployment half of a Windows worker, and installing it on a host the
+  master will actually place work on is premature.
+
+  Components carrying a file have no GUID of their own: WiX derives a stable one from the key path.
+  The ones that carry only a directory cannot be derived that way and are written out, as is the
+  UpgradeCode - the identifier that must never change for as long as a worker is installed anywhere.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+    <?ifndef Version ?>
+    <?define Version = "1.0.0" ?>
+    <?endif?>
+
+    <!-- Where the build put the binaries and where the repository is. Both are passed by the
+         release workflow; the defaults describe a local build, so "wix build" in this directory
+         produces the same package. -->
+    <?ifndef BuildDir ?>
+    <?define BuildDir = "..\..\..\cmake-build-release" ?>
+    <?endif?>
+    <?ifndef SrcDir ?>
+    <?define SrcDir = "..\..\.." ?>
+    <?endif?>
+
+    <!-- Generated from LICENSE by license-to-rtf.ps1, and drawn from the branding mark by
+         make-ui-images.ps1 - see euclid.wxs. -->
+    <?ifndef BannerBmp ?>
+    <?define BannerBmp = "$(SrcDir)\dist\win32\msi\banner.bmp" ?>
+    <?endif?>
+    <?ifndef DialogBmp ?>
+    <?define DialogBmp = "$(SrcDir)\dist\win32\msi\dialog.bmp" ?>
+    <?endif?>
+    <?ifndef LicenseRtf ?>
+    <?define LicenseRtf = "$(SrcDir)\dist\win32\msi\license.rtf" ?>
+    <?endif?>
+
+    <Package Name="Euclid Worker Node"
+             Manufacturer="Jens Vogt"
+             Version="$(Version)"
+             Language="1033"
+             Scope="perMachine"
+             Compressed="yes"
+             InstallerVersion="500"
+             UpgradeCode="c16b9258-36ae-415d-9421-559d9da01e38">
+
+        <SummaryInformation Description="Euclid Worker Node" Manufacturer="Jens Vogt" />
+
+        <MajorUpgrade AllowSameVersionUpgrades="yes"
+                      DowngradeErrorMessage="A newer version of the Euclid Worker Node is already installed. Uninstall it first if you mean to go back." />
+
+        <!-- Administrators only, stated rather than discovered: this installs a Windows service and
+             writes to Program Files. Scope="perMachine" already means Windows elevates, so a
+             standard user cannot install it either way - but without the condition they find that
+             out at the end of the wizard, after a UAC prompt they cannot answer, as error 1730. -->
+        <Launch Condition="Privileged"
+                Message="The Euclid Worker Node installs a Windows service and writes to Program Files, so it has to be installed by an administrator. Right-click the package and choose Install, or run msiexec from an elevated command prompt." />
+
+        <MediaTemplate EmbedCab="yes" />
+
+        <!-- An install-directory page, as the server package has and the CLI one does not: this
+             installs a service and a data tree that fills up with fetched artifacts, and which
+             volume those go on is a decision a worker-host operator legitimately makes.
+             INSTALLFOLDER is what the dialog writes to, and the service's own command line is built
+             from it below. -->
+        <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+        <WixVariable Id="WixUILicenseRtf" Value="$(LicenseRtf)" />
+        <WixVariable Id="WixUIBannerBmp" Value="$(BannerBmp)" />
+        <WixVariable Id="WixUIDialogBmp" Value="$(DialogBmp)" />
+
+        <Icon Id="euclid.ico" SourceFile="$(SrcDir)\dist\branding\favicon.ico" />
+        <Property Id="ARPPRODUCTICON" Value="euclid.ico" />
+        <Property Id="ARPURLINFOABOUT" Value="https://github.com/jensvogt/euclid" />
+
+        <StandardDirectory Id="ProgramFiles64Folder">
+            <Directory Id="INSTALLFOLDER" Name="euclid-wrk">
+
+                <!-- ── The worker and its service ────────────────────────────────────────────
+                     One binary, listed by name rather than harvested. The server package harvests
+                     because it ships nineteen of them and a hand-maintained list is how modules
+                     came to be missing from it; here a glob would be a way to accidentally ship the
+                     manager. -->
+                <Directory Id="BINFOLDER" Name="bin">
+                    <Component Id="WorkerService">
+                        <File Id="euclid_wrk.exe" Source="$(BuildDir)\bin\euclid-wrk.exe" KeyPath="yes" />
+
+                        <!-- Declared rather than run as a command, so Windows owns it: installing,
+                             stopping and removing the service are steps of the transaction and are
+                             rolled back with it. euclid-wrk also has an "install" switch for a
+                             hand-built tree (see Worker::Service::Install), and the two produce the
+                             same service - same name, same start type, same shape of command line.
+
+                             Every path is built from INSTALLFOLDER rather than assumed, because the
+                             wizard above lets it be changed. The data-dir and credentials switches
+                             are passed explicitly for that reason: the worker's own defaults are the
+                             default install location, which is wrong the moment somebody picks
+                             another volume. The one path that cannot be handled this way is the log
+                             directory inside euclid-wrk.json, which is a file and not a command
+                             line - an operator who relocates the install edits that line. -->
+                        <ServiceInstall Id="EuclidWorkerService"
+                                        Name="euclid-wrk"
+                                        DisplayName="Euclid Worker Node"
+                                        Description="Runs the applications euclid places on this host."
+                                        Type="ownProcess"
+                                        Start="auto"
+                                        ErrorControl="normal"
+                                        Arguments="--config &quot;[INSTALLFOLDER]etc\euclid-wrk.json&quot; --data-dir &quot;[INSTALLFOLDER]data&quot; --credentials &quot;[INSTALLFOLDER]etc\credentials&quot;"
+                                        Vital="yes" />
+
+                        <!-- Stopped before the binary under it is replaced, and removed with the
+                             product - but deliberately **not** started by the install.
+
+                             A worker refuses to start without credentials, and a fresh install has
+                             none: §3.2 means the token comes from a login an operator performs, and
+                             there is nothing this package could ship instead. Start="install" would
+                             make that refusal an error inside the transaction, and Vital="yes"
+                             would then roll the whole install back - so a first install of a
+                             correctly-built package would fail, with the reason buried in an
+                             installer log rather than said out loud.
+
+                             This matches what the Debian package does: postinst runs "systemctl
+                             enable" and not "systemctl start", for exactly this reason. Start="auto"
+                             above means the service comes up on the next boot once the credentials
+                             are in place, and "sc start euclid-wrk" brings it up now.
+
+                             The cost is that an upgrade leaves a configured worker stopped until it
+                             is started again or the host reboots, where the server package's
+                             Start="install" leaves the manager running. That is the right way round
+                             for a worker: the master re-places work from a node that stops
+                             reporting after one lease period (§5), so a worker being down for a
+                             minute is a thing the design already handles, and an install that fails
+                             outright is not. -->
+                        <ServiceControl Id="EuclidWorkerServiceControl"
+                                        Name="euclid-wrk"
+                                        Stop="both"
+                                        Remove="uninstall"
+                                        Wait="yes" />
+                    </Component>
+                </Directory>
+
+                <!-- ── Configuration ─────────────────────────────────────────────────────────
+                     NeverOverwrite and Permanent, for the reason euclid.json is both in the server
+                     package - and that pairing is not belt-and-braces. NeverOverwrite alone deletes
+                     exactly what it is there to protect: component states are decided at
+                     CostFinalize while the old version's file is still on disk, NeverOverwrite marks
+                     the component "do not install", RemoveExistingProducts then deletes it as part
+                     of uninstalling the old product, and the upgrade ends with no euclid-wrk.json
+                     and a service that exits 1 because it has no configuration to load. Permanent
+                     components survive the uninstall inside an upgrade. See euclid.wxs for the full
+                     sequence.
+
+                     The endpoint a worker reports to lives in this file, so replacing it on upgrade
+                     would point a worker at euclid.example and leave it there.
+
+                     There is deliberately no credentials file in this package. It holds a bearer
+                     token for this node's principal, it is created by "euclid-cli eam login", and a
+                     shipped placeholder would be a file an operator might mistake for a working
+                     one. etc\ is created by this component; the operator puts the credentials in
+                     it. -->
+                <Directory Id="ETCFOLDER" Name="etc">
+                    <Component Id="WorkerJson" NeverOverwrite="yes" Permanent="yes">
+                        <File Id="euclid_wrk.json" Source="$(SrcDir)\dist\win32\euclid-wrk.json" KeyPath="yes" />
+                    </Component>
+                </Directory>
+
+                <!-- ── Directories the worker writes into ────────────────────────────────────
+                     Created empty, and this is the whole of what the package says about them.
+                     Nothing a worker writes here is durable - an artifact is re-fetched when its
+                     content hash differs from the object's, and credentials are re-issued by the
+                     master every half life - but it is also not the package's, so it is not in the
+                     file table and an uninstall leaves it where it is. -->
+                <Directory Id="LOGFOLDER" Name="log">
+                    <Component Id="LogFolder" Guid="8a404a45-4c61-4f5b-a228-348b5dda0508">
+                        <CreateFolder />
+                    </Component>
+                </Directory>
+                <Directory Id="DATAFOLDER" Name="data">
+                    <Component Id="DataFolder" Guid="03d2c25d-a93e-428b-b87c-be63e87a8166">
+                        <CreateFolder />
+                    </Component>
+                </Directory>
+
+            </Directory>
+        </StandardDirectory>
+
+    </Package>
+</Wix>

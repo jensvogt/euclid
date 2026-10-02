@@ -10,6 +10,7 @@
 
 // C++ includes
 #include <string>
+#include <string_view>
 #include <chrono>
 #include <vector>
 
@@ -39,8 +40,122 @@ namespace Euclid::Database::Entity {
 
         /**
          * @brief Process ID of the running instance, or -1 while not running.
+         *
+         * @par
+         * Only ever meaningful together with @ref host. A pid identifies a process on one machine
+         * and nothing at all on any other, so every piece of code that acts on this - signalling
+         * it, reading /proc for it, deciding it is a leftover - has to establish that the record
+         * is about the machine it is running on. @ref isOn is that question.
          */
         int pid = -1;
+
+        /**
+         * @brief Which machine this instance is on. Empty means the host reading it.
+         *
+         * @par
+         * A Module document is keyed by module name, so every host running a module called "esm"
+         * shares one document and its instances all sit in the same array. Without this field
+         * there is nothing in a record to say whose process it describes, and a manager sweeping
+         * leftovers on start-up will find a live local pid that matches another host's record -
+         * same installation path, same executable, pids colliding freely across machines - and
+         * kill a healthy process on the strength of it.
+         *
+         * @par Why empty means "mine" rather than "unknown"
+         * Every record written before this field existed has no host, and an installation that
+         * upgrades must not have its own instances suddenly read as somebody else's: they would be
+         * neither swept nor managed, and would survive as orphans the manager no longer touches.
+         * Reading an absent host as the local one keeps a single-host installation behaving
+         * exactly as it did, with no migration.
+         *
+         * @par
+         * The cost of that choice is the mirror image: on a multi-host installation a record
+         * written by an older manager is claimed by whichever host looks first. That is the
+         * transitional case, it ends as soon as every manager writes the field, and it is strictly
+         * better than the current behaviour, where *every* record is claimed by every host.
+         */
+        std::string host;
+
+        /**
+         * @brief Whether this record describes a process on the given host.
+         *
+         * @param hostName the machine asking, normally SystemUtils::GetHostName().
+         * @return true when the record names that host, or names none at all.
+         */
+        [[nodiscard]] bool isOn(const std::string_view hostName) const noexcept {
+            return host.empty() || host == hostName;
+        }
+
+        /**
+         * @brief Which node has been told to run this slot, as distinct from where it is running.
+         *
+         * @par
+         * Empty means the manager's own host, which is every instance on an installation with no
+         * workers. The difference from @ref host is the whole point of having both: `assignedTo`
+         * is a decision the master made and `host` is a fact a worker reported, and between the
+         * two is the window where a slot has been given to a node that has not started it yet -
+         * or has stopped it and not yet said so.
+         */
+        std::string assignedTo;
+
+        /**
+         * @brief When the node's claim on this slot stops being valid.
+         *
+         * @par
+         * The safety argument in docs/worker-nodes.md §5, and the reason assignment is a lease
+         * rather than a flag. The obvious design - the master notices a worker has gone quiet and
+         * starts the instances somewhere else - is the classic way to end up running two of
+         * something that must only run once, because a worker that lost its connection has not
+         * necessarily lost its processes. The network broke; the JVM is still consuming the queue.
+         *
+         * @par
+         * So the guarantee runs the other way. The worker renews on every tick, and **a worker
+         * that cannot renew stops its instances itself** - not when it decides the master is gone,
+         * but when its own lease runs out, which is a local clock against a local deadline and
+         * needs nobody's agreement. The master re-places a slot only after this has passed, plus a
+         * margin for clock skew.
+         *
+         * @par
+         * What that buys: at any moment after expiry, either the worker has already stopped the
+         * instances or the worker is not executing at all. Both are safe to re-place on top of.
+         * What it costs is an outage of one lease period for work on a partitioned worker, which
+         * is the right trade for a queue consumer and the wrong one for anything that must never
+         * stop - see §11.
+         *
+         * @par
+         * Zero means no lease was ever written, which is an unassigned slot on the manager's own
+         * host rather than one whose lease has lapsed. @ref leaseHasExpired says so.
+         */
+        std::chrono::system_clock::time_point leaseExpiresAt{};
+
+        /**
+         * @brief Whether this slot's lease has run out, by the asking clock.
+         *
+         * @par
+         * False for a slot that never had one - an instance the manager runs itself holds no
+         * lease, and reading "no deadline" as "deadline passed" would make every ordinary instance
+         * look re-placeable.
+         *
+         * @param margin added to the deadline before it counts as passed, for clock skew between
+         * the node that wrote it and whoever is asking.
+         * @param now the clock to compare against.
+         */
+        [[nodiscard]] bool leaseHasExpired(const std::chrono::seconds margin = std::chrono::seconds{0},
+                                           const std::chrono::system_clock::time_point now = std::chrono::system_clock::now()) const noexcept {
+            if (leaseExpiresAt.time_since_epoch().count() == 0) return false;
+            return now > leaseExpiresAt + margin;
+        }
+
+        /**
+         * @brief Whether this slot is the given node's to run.
+         *
+         * @par
+         * Empty `assignedTo` is the manager's own, for the reason an empty @ref host is: it is
+         * what every record written before workers existed carries, and what an installation
+         * running no workers writes today.
+         */
+        [[nodiscard]] bool isAssignedTo(const std::string_view nodeName) const noexcept {
+            return assignedTo.empty() ? nodeName.empty() : assignedTo == nodeName;
+        }
 
         /**
          * @brief Current lifecycle state of this instance.

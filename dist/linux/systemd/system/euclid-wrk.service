@@ -1,0 +1,52 @@
+[Unit]
+Description=Euclid Worker Node
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+
+# Its own user, not euclid's. A worker host is deliberately not a euclid host - it runs no modules,
+# holds no database credentials and has nothing listening - so it has no /usr/local/euclid tree to
+# own and no reason to be able to read one if somebody later installs the server package here.
+User=euclid-wrk
+Group=euclid-wrk
+
+# Everything a worker writes: fetched artifacts, each instance's credentials file, and the
+# applications' own output. Nothing here is durable - an artifact is re-fetched when its content
+# hash differs from the object's, and credentials are re-issued by the master every half life - so
+# this directory can be thrown away without losing anything.
+StateDirectory=euclid-wrk
+StateDirectoryMode=0750
+
+# The applications a worker runs are somebody else's code, forked from this process, and they
+# inherit what is allowed here. ProtectSystem=strict makes the filesystem read-only apart from the
+# state directory, which is the one place a worker - or anything it starts - has any business
+# writing.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/euclid-wrk
+
+# The endpoint, the node name and the labels belong in the configuration file rather than here, so
+# that changing where this worker reports to is not an edit to a unit file that the next package
+# upgrade would overwrite.
+#
+# Deliberately *not* --config /usr/local/euclid/etc/euclid.json. That is the manager's
+# configuration and it holds euclid.modules.eam.jwt-secret; a worker refuses to start if it finds
+# that key, because anything holding it can mint a token for any principal in the installation.
+# See docs/worker-nodes.md §3.2.
+ExecStart=/usr/local/euclid/bin/euclid-wrk --config /usr/local/euclid/etc/euclid-wrk.json
+KillSignal=SIGTERM
+
+# A worker stops its own instances when its lease runs out, and stops them on an orderly shutdown
+# too - but a JVM given SIGTERM may take a moment to finish what it is doing. Long enough for that,
+# short enough that a stuck instance does not hold up a reboot; the master re-places the work after
+# one lease period either way.
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

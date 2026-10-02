@@ -4,7 +4,21 @@
 
 #include <euclid/dto/emm/EmmMapper.h>
 
+#include <euclid/core/SystemUtils.h>
+
 namespace Euclid::Dto {
+
+    namespace {
+
+        // Resolved once. boost::asio::ip::host_name() asks the OS on every call, and this runs on
+        // every instance state change of every module; the name cannot change under a running
+        // process in any way that matters here.
+        const std::string &hostName() {
+            static const std::string name = Core::SystemUtils::GetHostName();
+            return name;
+        }
+
+    }// namespace
 
     Database::Entity::Module EmmMapper::toModuleEntity(const ModuleProcess &svc) {
         Database::Entity::Module m;
@@ -26,6 +40,13 @@ namespace Euclid::Dto {
         Database::Entity::ModuleInstance instance;
         instance.instanceId = svc.instanceId;
         instance.pid = svc.pid;
+
+        // The one place an instance record is written, so the one place the host has to be
+        // stamped - every record this manager writes says which machine the pid belongs to.
+        //
+        // Read once: the name cannot change while the process runs, and this is called on every
+        // state transition of every instance.
+        instance.host = hostName();
         instance.state = svc.state;
         instance.socketPath = svc.instanceSocketPath;
         instance.httpPort = svc.httpPort;
