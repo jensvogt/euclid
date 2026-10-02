@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.8](https://github.com/jensvogt/euclid/compare/1.2.7...v1.2.8) (2026-10-02)
+
+
+### Bug Fixes
+
+* rename worker package ([40fc9a9](https://github.com/jensvogt/euclid/commit/40fc9a95fcd3cdc805e4c096b10ef1a7ff77576a))
+
 ## [1.2.7](https://github.com/jensvogt/euclid/compare/v1.2.6...v1.2.7) (2026-10-01)
 
 
