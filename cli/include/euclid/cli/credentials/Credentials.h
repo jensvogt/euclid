@@ -86,6 +86,26 @@ namespace Euclid::CLI {
         static std::optional<Entry> Load();
 
         /**
+         * @brief Reads the full session from a named file rather than the one belonging to the
+         * invoking user.
+         *
+         * For a process whose $HOME is not where an operator can reasonably log in. The Windows
+         * worker service is the case this exists for: it runs as Local System, whose USERPROFILE is
+         * C:\Windows\system32\config\systemprofile, so credentials written by "euclid-cli eam login"
+         * at an administrator's own prompt are in a directory the service never looks at. The
+         * service is given an explicit path instead - see euclid-wrk's --credentials.
+         *
+         * Deliberately read-only: there is no Save() counterpart, because the thing that writes
+         * credentials is a login and a login happens as a user, not as a service.
+         *
+         * @param path the credentials file to read
+         * @return the stored session, or std::nullopt if the file doesn't exist, isn't readable,
+         * or doesn't contain a token.
+         */
+        [[nodiscard]]
+        static std::optional<Entry> Load(const std::string &path);
+
+        /**
          * @brief Reads just the bearer token from the credentials file.
          *
          * @return the stored token, or std::nullopt if the file doesn't exist, isn't readable,
