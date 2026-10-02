@@ -194,10 +194,29 @@ Or add the signed APT repository once, then install/upgrade via `apt`:
 
 ```bash
 curl -fsSL https://jensvogt.github.io/euclid/apt/euclid-archive-keyring.asc | sudo gpg --dearmor -o /usr/share/keyrings/euclid-archive-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/euclid-archive-keyring.gpg] https://jensvogt.github.io/euclid/apt stable main" | sudo tee /etc/apt/sources.list.d/euclid.list
+echo "deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/euclid-archive-keyring.gpg] https://jensvogt.github.io/euclid/apt stable main" | sudo tee /etc/apt/sources.list.d/euclid.list
 sudo apt update
 sudo apt install euclid
 ```
+
+`arch=amd64,arm64` names what the repository actually publishes. Without it, `apt` asks this
+repository for every architecture the machine has enabled and reports each one it does not find:
+
+```
+Notice: Skipping acquire of configured file 'main/binary-armhf/Packages' as repository
+'https://jensvogt.github.io/euclid/apt stable InRelease' doesn't support architecture 'armhf'
+```
+
+That is a notice rather than an error - the packages for the machine's own architecture are still
+fetched and installed - but it appears on every `apt update`. It is most often seen on 64-bit
+Raspberry Pi OS, which enables `armhf` alongside `arm64` for compatibility, and on `amd64` machines
+with `i386` enabled. Pinning the architectures stops `apt` asking for what was never there.
+
+**32-bit is not published.** The release builds `amd64` and `arm64` and nothing else, so there is no
+`armhf` or `i386` package to install. Nor has euclid been built or tested on a 32-bit target: sizes
+and counters are carried as `long` in places, which is 64-bit on both published architectures and
+would not be on either 32-bit one, and nothing in the build asserts otherwise. On a Raspberry Pi,
+install the 64-bit Raspberry Pi OS and use `arm64`.
 
 ### RPM (RHEL / Fedora)
 

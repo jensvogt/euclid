@@ -87,12 +87,34 @@ jobs:
         shell: bash
         run: mkdir -p ${{ github.workspace }}/vcpkg-bincache
 
+      # Which runner image built the cache, because that is what decides whether its contents are
+      # usable at all: a vcpkg package's ABI hash includes the compiler, and the compiler comes from
+      # the image. Read into the environment rather than written as ${{ env.ImageVersion }} in the
+      # key below - the env context holds what the workflow sets, not the machine's own variables.
+      - name: Record the runner image version
+        shell: bash
+        run: |
+          # Echoed as well as recorded: if this is ever empty the key silently stops
+          # distinguishing toolchains, which is the failure being fixed here.
+          echo "runner image: ${ImageVersion:-unknown}"
+          echo "IMAGE_VERSION=${ImageVersion:-unknown}" >> "$GITHUB_ENV"
+
       - name: Cache vcpkg binary packages
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/vcpkg-bincache
-          key: vcpkg-${{ runner.os }}-${{ hashFiles('**/vcpkg.json') }}
+          # The image version is in the key so that a cache built by a different toolchain misses.
+          # actions/cache only uploads when the primary key missed, so a key that never changes is a
+          # cache that is never refreshed: vcpkg.json had not changed since September, the Windows
+          # entry from then was restored on every run, its package ABIs no longer matched the MSVC
+          # the image now ships, every package was rebuilt - and none of it was saved, because the
+          # key had hit. Every run paid for the whole tree and left the stale copy in place.
+          #
+          # The restore-keys still name the older prefixes, so the first run after an image update
+          # starts from the previous cache rather than from nothing.
+          key: vcpkg-${{ runner.os }}-${{ env.IMAGE_VERSION }}-${{ hashFiles('vcpkg.json') }}
           restore-keys: |
+            vcpkg-${{ runner.os }}-${{ env.IMAGE_VERSION }}-
             vcpkg-${{ runner.os }}-
 
       - name: Setup vcpkg
@@ -273,12 +295,27 @@ jobs:
       - name: Create vcpkg binary cache dir
         run: mkdir -p ${{ github.workspace }}/vcpkg-bincache
 
+      # Which runner image built the cache, because that is what decides whether its contents are
+      # usable at all: a vcpkg package's ABI hash includes the compiler, and the compiler comes from
+      # the image. Read into the environment rather than written as ${{ env.ImageVersion }} in the
+      # key below - the env context holds what the workflow sets, not the machine's own variables.
+      - name: Record the runner image version
+        shell: bash
+        run: |
+          # Echoed as well as recorded: if this is ever empty the key silently stops
+          # distinguishing toolchains, which is the failure being fixed here.
+          echo "runner image: ${ImageVersion:-unknown}"
+          echo "IMAGE_VERSION=${ImageVersion:-unknown}" >> "$GITHUB_ENV"
+
       - name: Cache vcpkg binary packages
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/vcpkg-bincache
-          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/vcpkg.json') }}
+          # See the Windows job: the image version is what makes a stale cache miss, so that a
+          # rebuilt tree is saved instead of thrown away.
+          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.IMAGE_VERSION }}-${{ hashFiles('vcpkg.json') }}
           restore-keys: |
+            vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.IMAGE_VERSION }}-
             vcpkg-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Setup vcpkg
@@ -538,6 +575,18 @@ jobs:
       - name: Create vcpkg binary cache dir
         run: mkdir -p ${{ github.workspace }}/vcpkg-bincache
 
+      # Which runner image built the cache, because that is what decides whether its contents are
+      # usable at all: a vcpkg package's ABI hash includes the compiler, and the compiler comes from
+      # the image. Read into the environment rather than written as ${{ env.ImageVersion }} in the
+      # key below - the env context holds what the workflow sets, not the machine's own variables.
+      - name: Record the runner image version
+        shell: bash
+        run: |
+          # Echoed as well as recorded: if this is ever empty the key silently stops
+          # distinguishing toolchains, which is the failure being fixed here.
+          echo "runner image: ${ImageVersion:-unknown}"
+          echo "IMAGE_VERSION=${ImageVersion:-unknown}" >> "$GITHUB_ENV"
+
       - name: Cache vcpkg binary packages
         uses: actions/cache@v4
         with:
@@ -549,8 +598,12 @@ jobs:
           #
           # The restore-keys prefix is narrowed for the same reason. A bare "vcpkg-Linux-" would
           # fall back across architectures on the first build after a vcpkg.json change.
-          key: vcpkg-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('**/vcpkg.json') }}
+          # The image version is the third part, for the reason given in the Windows job: without
+          # it the key never changes, so a cache whose ABIs no longer match is restored forever and
+          # the rebuild is never saved.
+          key: vcpkg-${{ runner.os }}-${{ matrix.arch }}-${{ env.IMAGE_VERSION }}-${{ hashFiles('vcpkg.json') }}
           restore-keys: |
+            vcpkg-${{ runner.os }}-${{ matrix.arch }}-${{ env.IMAGE_VERSION }}-
             vcpkg-${{ runner.os }}-${{ matrix.arch }}-
 
       - name: Setup vcpkg
