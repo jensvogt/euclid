@@ -1,0 +1,14 @@
+{
+  "euclid": {
+    "worker": {
+      "endpoint": "https://euclid.example:5566",
+      "java": "java",
+      "credentials": "C:\\Program Files\\euclid-wrk\\etc\\credentials"
+    },
+    "logging": {
+      "level": "info",
+      "dir": "C:\\Program Files\\euclid-wrk\\log",
+      "prefix": "euclid-wrk"
+    }
+  }
+}

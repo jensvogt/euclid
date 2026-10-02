@@ -16,9 +16,10 @@ make impossible. Every call a worker makes now goes through a POST that cannot t
 unreachable master is status 0 rather than a terminated process. Worth remembering when reading the
 rest of this: the tests were green through all of it.
 
-Two things are deliberately missing, both from §11: Windows workers (`euclid-wrk` builds there and
-refuses to start a process rather than half-doing it), and any CLI for the operator actions —
-`assign-instance`, `list-nodes` and `drain-node` are reachable over the API only.
+Two things are deliberately missing, both from §11: running applications on a Windows worker
+(`euclid-wrk` installs as a service and registers there, and refuses to start a process rather than
+half-doing it), and any CLI for the operator actions — `assign-instance`, `list-nodes` and
+`drain-node` are reachable over the API only.
 
 Step 4 is built but **unproven**: every part of it is covered by tests, and none of it has run
 against a live installation. The lease arithmetic, the drain/renew race and the partition case are
@@ -27,9 +28,10 @@ matters — but a first real run will find things a test could not: the shape of
 what a JVM does with the credentials file, how a renewal behaves across a gateway restart. Treat the
 first worker as an experiment on a host nothing depends on.
 
-Two things are deliberately missing, both out of §11: Windows workers (`euclid-wrk` builds there
-and refuses to start a process, rather than half-doing it) and any CLI for the operator actions —
-`assign-instance`, `list-nodes` and `drain-node` are reachable over the API only.
+Two things are deliberately missing, both out of §11: running applications on a Windows worker
+(`euclid-wrk` installs as a service and registers there, and refuses to start a process rather than
+half-doing it) and any CLI for the operator actions — `assign-instance`, `list-nodes` and
+`drain-node` are reachable over the API only.
 
 `ModuleInstance::host` exists, is written by every manager, and is honoured by the two operations
 that were destructive across hosts — the start-up leftover sweep and the start-up clear. A backend
@@ -417,9 +419,17 @@ Said plainly, because each of these is a thing somebody will reasonably expect:
 - **moving a running instance.** Instances are replaced, not migrated.
 - **resource limits.** No cgroups, no memory caps. A worker that overcommits is an operator's problem
   until there is evidence it needs to be euclid's.
-- **Windows workers.** The design has nothing POSIX-specific in it, but `spawnInstance` already has
-  two implementations (`Controller.cpp:330` and `:419`) and the worker would need the same care. Not
-  in a first version.
+- **Running applications on a Windows worker.** The design has nothing POSIX-specific in it, but
+  `spawnInstance` already has two implementations (`Controller.cpp:330` and `:419`) and the worker
+  would need the same care. `WorkerClient::Apply` refuses on Windows and says so in the log rather
+  than half-doing it.
+
+  What *is* built there is everything around it: `euclid-wrk` runs as a Windows service, registers,
+  renews its lease, reports and stops cleanly, and ships as an MSI
+  (`dist/win32/msi/euclid-wrk.wxs`, `--install`/`--uninstall`/`--foreground` for a tree without a
+  package). So the remaining gap is exactly one function, and a Windows host can be deployed and
+  watched registering before anything is placed on it. Installing it on a host the master will
+  actually place work on is still premature.
 
 ## 12. Open questions
 

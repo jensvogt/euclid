@@ -1,14 +1,62 @@
 # The Windows packages
 
-Two MSIs, built by the `build-windows-msi` job in `.github/workflows/release.yml`:
+Three MSIs, built by the `build-windows-msi` job in `.github/workflows/release.yml`:
 
 | File | Source | What it installs |
 | --- | --- | --- |
 | `euclid-<version>-amd64.msi` | `euclid.wxs` | The manager, the modules, the web frontend, the CLI, and the Windows service |
 | `euclid-cli-<version>-amd64.msi` | `euclid-cli.wxs` | `euclid-cli.exe` alone, on the machine PATH |
+| `euclid-wrk-<version>-amd64.msi` | `euclid-wrk.wxs` | `euclid-wrk.exe` and the `euclid-wrk` service, on a worker host |
 
-They have separate `UpgradeCode`s, so neither upgrades or uninstalls the other and both can be
-installed on one machine.
+They have separate `UpgradeCode`s, so none of them upgrades or uninstalls another and all three can
+be installed on one machine.
+
+## The worker package
+
+The Windows counterpart of the `euclid-wrk` DEB and RPM, and its own product for the same reason
+those are: a worker host is deliberately not a euclid host, and a manager host has no use for the
+binary because the manager already runs applications itself. See `docs/worker-nodes.md`.
+
+Two things about it are worth knowing before deploying one.
+
+**It does not yet run applications.** `WorkerClient::Apply` refuses to spawn a process on Windows
+and logs that it did (`worker/src/WorkerClient.cpp`), so a Windows worker registers, renews its
+lease, reports and stops cleanly — and runs nothing it is assigned. §11 of `worker-nodes.md` is
+still the reference. This package is the deployment half; a host the master will actually place work
+on needs the other half first.
+
+**The service is installed but not started.** A worker refuses to start without credentials, and
+§3.2 means those come from a login an operator performs — there is nothing the package could ship
+instead. `Start="install"` would make that refusal an error inside the install transaction and
+`Vital="yes"` would roll the whole thing back, so a first install of a correct package would fail.
+The service is `Start="auto"` and left stopped, which is exactly what the Debian package does
+(`systemctl enable`, not `systemctl start`). To bring a worker up:
+
+```powershell
+# as the principal this node acts as
+euclid-cli eam login
+copy "$env:USERPROFILE\.euclid\credentials" "C:\Program Files\euclid-wrk\etc\credentials"
+
+# then point it at the installation and start it
+notepad "C:\Program Files\euclid-wrk\etc\euclid-wrk.json"   # euclid.worker.endpoint
+sc start euclid-wrk
+```
+
+The copy is the part that is easy to get wrong and is why `euclid-wrk` has a `--credentials` switch
+at all: the service runs as Local System, whose `USERPROFILE` is
+`C:\Windows\system32\config\systemprofile`, so credentials written by `euclid-cli` at an
+administrator's own prompt are in a directory the service never reads. The MSI passes
+`--credentials "[INSTALLFOLDER]etc\credentials"` so there is one path to put the file at, and it
+moves with a relocated install.
+
+`euclid-wrk.exe` can also register the service itself — `--install`, `--uninstall`, and
+`--foreground` to run it as an ordinary console process — for a hand-built tree with no package.
+The service it creates is the same one: same name, same start type, same shape of command line.
+
+An upgrade leaves a configured worker stopped until it is started again or the host reboots, where
+the server package leaves the manager running. That is the right way round here: the master
+re-places work from a node that stops reporting after one lease period, so a worker being down for a
+minute is something the design already handles, and an install that fails outright is not.
 
 WiX is pinned to **5.0.2**, including `WixToolset.UI.wixext`. WiX 6 and 7 require accepting the Open
 Source Maintenance Fee EULA, and an unpinned `wix extension add` installs a 7.x extension that 5
@@ -32,6 +80,19 @@ wix build dist\win32\msi\euclid.wxs -arch x64 -ext WixToolset.UI.wixext `
   -o euclid-1.2.3-amd64.msi
 
 wix msi validate -sice ICE61 euclid-1.2.3-amd64.msi
+```
+
+The CLI and worker packages take the same arguments without `FrontendDir`, which neither of them
+contains:
+
+```powershell
+wix build dist\win32\msi\euclid-wrk.wxs -arch x64 -ext WixToolset.UI.wixext `
+  -d Version=1.2.3 `
+  -d BuildDir="$PWD\cmake-build-release" `
+  -d SrcDir="$PWD" `
+  -o euclid-wrk-1.2.3-amd64.msi
+
+wix msi validate -sice ICE61 euclid-wrk-1.2.3-amd64.msi
 ```
 
 `-arch x64` is not optional: without it every component is packaged as 32-bit while the directories
