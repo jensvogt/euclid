@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.7](https://github.com/jensvogt/euclid/compare/v1.2.6...v1.2.7) (2026-10-01)
+
+
+### Bug Fixes
+
+* own worker package ([ec6f9cd](https://github.com/jensvogt/euclid/commit/ec6f9cd825cc425edb69e21d43ec8fff885f9f58))
+
 ## [1.2.6](https://github.com/jensvogt/euclid/compare/1.2.5...v1.2.6) (2026-10-01)
 
 
