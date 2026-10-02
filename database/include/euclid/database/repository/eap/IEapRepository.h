@@ -15,6 +15,7 @@
 
 // Euclid includes
 #include <euclid/database/entity/eap/Application.h>
+#include <euclid/database/entity/eap/Node.h>
 
 namespace Euclid::Database {
 
@@ -230,6 +231,83 @@ namespace Euclid::Database {
          */
         virtual bool touchApplication(const std::string &accountId, const std::string &nameSpace,
                                       const std::string &applicationId) = 0;
+
+        // ── Worker nodes ────────────────────────────────────────────────────────────────────────
+        //
+        // A node is a host that runs applications euclid placed there and is not the manager's
+        // own. These live on the EAP repository because a worker only ever runs EAP applications -
+        // see docs/worker-nodes.md §12, which leaves open whether the instance-level half belongs
+        // to EMM instead, and says that splitting them later is a rename.
+
+        /**
+         * @brief Records a node, or updates the one already registered under that name.
+         *
+         * @par
+         * Idempotent, because registration is what a worker does every time it starts and there is
+         * nothing to be gained from a restarted worker being a different node. Its name is what
+         * every assignment is written against, so a worker that came back under a new identity
+         * would abandon the instances it is still running.
+         *
+         * @param node the node, identified by accountId and name.
+         * @return the node as stored.
+         */
+        virtual Entity::EAP::Node upsertNode(Entity::EAP::Node &node) = 0;
+
+        /**
+         * @brief One node by name, within an account.
+         */
+        [[nodiscard]]
+        virtual std::optional<Entity::EAP::Node> findNodeByName(const std::string &accountId, const std::string &name) const = 0;
+
+        /**
+         * @brief Every node of an account, for `eap list-nodes` and for placement.
+         */
+        [[nodiscard]]
+        virtual std::vector<Entity::EAP::Node> listNodes(const std::string &accountId) const = 0;
+
+        /**
+         * @brief Stamps a node as having been heard from, without rewriting the rest of it.
+         *
+         * @par
+         * The heartbeat half of a renewal. Separate from upsertNode() because it happens on every
+         * tick of every worker and must not be a read-modify-write of a document an operator may
+         * be draining at the same moment.
+         *
+         * @param accountId account the node belongs to.
+         * @param name the node.
+         * @param seenAt when it was heard from.
+         * @param loadAverage the one-minute load average the node reported, which placement's
+         * third tie-break reads. Travels with the heartbeat because it is the same call and the
+         * same tick; a separate action for it would be a second request per tick per node for one
+         * number.
+         * @return false if no node of that name is registered, which is a worker that must
+         * register before it renews.
+         */
+        virtual bool touchNode(const std::string &accountId, const std::string &name,
+                               std::chrono::system_clock::time_point seenAt, double loadAverage) = 0;
+
+        /**
+         * @brief Takes a node out of, or back into, the set new instances may be placed on.
+         *
+         * @par
+         * Draining is not stopping: the node keeps running what it has and keeps renewing, and its
+         * instances leave as they are replaced. A node that stopped its work the moment it was
+         * drained would make draining an outage, which is the thing it exists to avoid.
+         *
+         * @return false if no node of that name is registered.
+         */
+        virtual bool setNodeDrained(const std::string &accountId, const std::string &name, bool drained) = 0;
+
+        /**
+         * @brief Removes a node's registration.
+         *
+         * @par
+         * Does not touch the instances assigned to it. They are the lease's business: a node whose
+         * record is gone still holds whatever leases it holds until they expire, and removing the
+         * registration must not be a way to re-place work on top of processes that are still
+         * running. See worker-nodes.md §5.
+         */
+        virtual bool deleteNode(const std::string &accountId, const std::string &name) = 0;
     };
 
 }// namespace Euclid::Database

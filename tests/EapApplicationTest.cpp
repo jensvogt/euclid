@@ -584,3 +584,39 @@ BOOST_AUTO_TEST_CASE(OnlyARunningApplicationCanBeRestarted) {
     BOOST_TEST(refusal.find("orders") != std::string::npos);
     BOOST_TEST(refusal.find("start-application") != std::string::npos);
 }
+
+// -- Placement constraints ---------------------------------------------------
+
+BOOST_AUTO_TEST_CASE(PlacementConstraintsSurviveARoundTrip) {
+
+    // Where an application may be placed - docs/worker-nodes.md section 6. Absent on every
+    // application defined before workers existed, which reads as "anywhere" and is what they have
+    // always had - so what matters is that one which does name a constraint keeps it.
+    Application application;
+    application.accountId = "000000000000";
+    application.nameSpace = "production";
+    application.applicationId = "rendering";
+    application.nodes = {"node-b", "node-c"};
+    application.nodeLabels = {{"gpu", "true"}, {"rack", "7"}};
+
+    const auto stored = Application::fromDocument(application.toDocument().view());
+
+    BOOST_TEST_REQUIRE(stored.nodes.size() == 2U);
+    BOOST_TEST(stored.nodes.front() == "node-b");
+    BOOST_TEST_REQUIRE(stored.nodeLabels.contains("gpu"));
+    BOOST_TEST(stored.nodeLabels.at("gpu") == "true");
+    BOOST_TEST(stored.nodeLabels.at("rack") == "7");
+}
+
+BOOST_AUTO_TEST_CASE(AnApplicationThatNamesNoConstraintGoesAnywhere) {
+
+    // Which placement reads as "any node, including the manager's own host" - what every
+    // application on an installation with no workers has, and must go on meaning.
+    Application application;
+    application.applicationId = "billing";
+
+    const auto stored = Application::fromDocument(application.toDocument().view());
+
+    BOOST_TEST(stored.nodes.empty());
+    BOOST_TEST(stored.nodeLabels.empty());
+}

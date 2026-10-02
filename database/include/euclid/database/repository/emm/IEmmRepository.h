@@ -262,9 +262,98 @@ namespace Euclid::Database {
          *
          * This method is intended to clear all stored data, and the repository will contain no entities after its execution.
          *
+         * @par
+         * Every module of every host. A manager clearing stale records of its own at start-up
+         * wants @ref clearInstancesOn instead - this one takes the other hosts' records with it.
+         *
          * This is a pure virtual function and must be implemented by derived classes.
          */
         virtual void clear() = 0;
+
+        /**
+         * @brief Drops the instance records belonging to one host, leaving every other host's.
+         *
+         * @par
+         * What a manager does at start-up: the instances it recorded last run are stale - the
+         * processes are gone, and the pids in them will be reused by something else - but the same
+         * is not true of records written by a different machine, which may describe processes that
+         * are running right now.
+         *
+         * @par
+         * The module documents themselves are left alone. They are keyed by module name and shared
+         * by every host, so deleting one would delete another host's instances with it; and the
+         * module's own fields are rewritten as it starts anyway.
+         *
+         * @par
+         * A record with no host is dropped too, for the reason @ref Entity::ModuleInstance::host
+         * gives: on a single-host installation that is every record there is, and reading it as
+         * somebody else's would leave it behind for good.
+         *
+         * @param hostName the machine whose instances to drop, normally SystemUtils::GetHostName().
+         */
+        virtual void clearInstancesOn(const std::string &hostName) = 0;
+
+        // ── Worker nodes ────────────────────────────────────────────────────────────────────────
+
+        /**
+         * @brief Gives one slot to a node, with a deadline on the claim.
+         *
+         * @par
+         * The master's decision, and the only thing that creates a lease. Writes
+         * @ref Entity::ModuleInstance::assignedTo and @ref Entity::ModuleInstance::leaseExpiresAt
+         * and nothing else: where the instance actually is, and what it is doing, are the worker's
+         * to report afterwards.
+         *
+         * @param moduleName the pool, which for an application is its runtime name.
+         * @param instanceId the slot.
+         * @param nodeName the node to give it to. Empty takes it back to the manager's own host.
+         * @param leaseExpiresAt when the claim stops being valid.
+         * @return false if no such slot exists.
+         */
+        virtual bool assignInstance(const std::string &moduleName, const std::string &instanceId,
+                                    const std::string &nodeName,
+                                    std::chrono::system_clock::time_point leaseExpiresAt) = 0;
+
+        /**
+         * @brief Extends the lease on every slot a node holds.
+         *
+         * @par
+         * What a renewal does, and the reason the heartbeat and the "what should I be running"
+         * poll are one call: there is no way to be renewing and not reconciling.
+         *
+         * @par
+         * Only slots still assigned to this node are extended, which is what makes a partition
+         * safe without any extra rule. A worker that went away long enough for its lease to lapse
+         * and be re-placed comes back, renews, and extends nothing - the slots now name another
+         * node - so it finds them absent from its desired set and stops them, which is exactly
+         * what it should do.
+         *
+         * @param nodeName the node renewing.
+         * @param leaseExpiresAt the new deadline.
+         * @return how many slots were extended.
+         */
+        virtual long renewInstanceLeases(const std::string &nodeName,
+                                         std::chrono::system_clock::time_point leaseExpiresAt) = 0;
+
+        /**
+         * @brief Writes what a node reports about one slot it is running.
+         *
+         * @par
+         * The worker's half of @ref upsertInstance: the manager writes its own instances whole,
+         * and a worker can only say the four things it knows - where the process is, what pid it
+         * has, which port it was given, and what state it is in.
+         *
+         * @par
+         * Refused for a slot that is not assigned to the reporting node. Not a formality: a worker
+         * whose lease lapsed and whose slot was re-placed elsewhere must not be able to overwrite
+         * the record of the process that replaced it, which would leave the master pointing at a
+         * pid on the wrong machine.
+         *
+         * @return false if no such slot exists or it is not assigned to that node.
+         */
+        virtual bool reportInstanceFromNode(const std::string &moduleName, const std::string &instanceId,
+                                            const std::string &nodeName, const std::string &host,
+                                            int pid, int httpPort, Entity::ModuleState state) = 0;
     };
 
 } // namespace Euclid::Database

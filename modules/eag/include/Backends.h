@@ -16,7 +16,60 @@
 #include <string>
 #include <vector>
 
+// Boost includes
+#include <boost/asio/ip/address.hpp>
+
 namespace Euclid::EAG {
+
+    /**
+     * @brief One instance a request can be sent to: where it is, and on which port.
+     *
+     * @par
+     * A port alone was enough while every instance was on this machine. It stopped being enough
+     * when an instance record gained a host - see Entity::ModuleInstance::host - because the port
+     * is then only meaningful together with the machine it was allocated on, and two instances on
+     * two hosts may hold the same number.
+     */
+    struct Backend {
+
+        /**
+         * @brief The host as the instance record names it. Empty means the gateway's own machine.
+         *
+         * @par
+         * Kept beside the resolved address because it is what the backend should be told it was
+         * called as. An application behind a name-based virtual host, or one that builds absolute
+         * URLs from the Host header, needs the name rather than whatever the name resolved to.
+         */
+        std::string host;
+
+        /**
+         * @brief Where to connect, resolved when the backend list was refreshed.
+         *
+         * @par
+         * Resolved there rather than here, for the reason the list is refreshed on a timer at all:
+         * a name lookup in front of every proxied request costs every request, and the answer
+         * changes far more slowly than requests arrive. A host that cannot be resolved never
+         * becomes a Backend.
+         */
+        boost::asio::ip::address address;
+
+        int port{};
+
+        /**
+         * @brief What to put in the Host header: "host:port", or "127.0.0.1:port" when the record
+         * names no host.
+         */
+        [[nodiscard]] std::string authority() const {
+            return (host.empty() ? std::string("127.0.0.1") : host) + ":" + std::to_string(port);
+        }
+
+        /**
+         * @brief A backend on this machine, which is what euclid's own gateway always is.
+         */
+        [[nodiscard]] static Backend loopback(const int port) {
+            return {.host = {}, .address = boost::asio::ip::make_address("127.0.0.1"), .port = port};
+        }
+    };
 
     /**
      * @brief An application as a route names it: the three fields that identify one.
@@ -85,10 +138,10 @@ namespace Euclid::EAG {
          * instance the other just used.
          *
          * @param application application to reach.
-         * @return the port of the instance whose turn it is.
+         * @return where the instance whose turn it is can be reached.
          */
         [[nodiscard]]
-        std::optional<int> next(const ApplicationRef &application);
+        std::optional<Backend> next(const ApplicationRef &application);
 
         /**
          * @brief How many instances an application currently has, for reporting.
@@ -101,9 +154,9 @@ namespace Euclid::EAG {
         mutable std::mutex _mutex;
 
         /**
-         * @brief Ports of the running instances of each application.
+         * @brief Where the running instances of each application can be reached.
          */
-        std::map<std::string, std::vector<int> > _ports;
+        std::map<std::string, std::vector<Backend> > _backends;
 
         /**
          * @brief Whose turn it is, per application. Never reset by a refresh: an application whose

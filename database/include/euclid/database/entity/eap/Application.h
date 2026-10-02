@@ -186,6 +186,35 @@ namespace Euclid::Database::Entity::EAP {
         std::vector<std::string> resources;
 
         /**
+         * @brief Node names this application may be placed on. Empty means any.
+         *
+         * @par
+         * Worth having from the start, because the reason to add a worker is often that one
+         * particular application needs one particular machine - a GPU, a licence dongle, a network
+         * it can reach. See docs/worker-nodes.md §6.
+         *
+         * @par
+         * Naming a node is not an override: a node that is drained, or that has not been heard
+         * from, is still not placed on. A constraint narrows the candidates; it does not promote
+         * one past the checks every candidate faces.
+         *
+         * @par
+         * Empty means any node *including the manager's own host*, which is what every application
+         * on an installation with no workers has and must go on meaning.
+         */
+        std::vector<std::string> nodes;
+
+        /**
+         * @brief Labels a node must carry, all of them, for this application to be placed there.
+         *
+         * @par
+         * The other half of the same constraint, and the one that scales: naming nodes means
+         * editing every application when a machine is replaced, where a label follows whichever
+         * machine carries it.
+         */
+        std::map<std::string, std::string> nodeLabels;
+
+        /**
          * @brief ERNs of the resources this application's declaration created, as it last stood.
          *
          * @par

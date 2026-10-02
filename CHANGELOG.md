@@ -1,5 +1,51 @@
 # Changelog
 
+## [1.2.9](https://github.com/jensvogt/euclid/compare/1.2.8...v1.2.9) (2026-10-02)
+
+
+### Bug Fixes
+
+* rename worker package ([41c0d31](https://github.com/jensvogt/euclid/commit/41c0d31cb5e259067384ab19f71a312a0e1e1e95))
+
+## [1.2.8](https://github.com/jensvogt/euclid/compare/1.2.7...v1.2.8) (2026-10-02)
+
+
+### Bug Fixes
+
+* rename worker package ([40fc9a9](https://github.com/jensvogt/euclid/commit/40fc9a95fcd3cdc805e4c096b10ef1a7ff77576a))
+
+## [1.2.7](https://github.com/jensvogt/euclid/compare/v1.2.6...v1.2.7) (2026-10-01)
+
+
+### Bug Fixes
+
+* own worker package ([ec6f9cd](https://github.com/jensvogt/euclid/commit/ec6f9cd825cc425edb69e21d43ec8fff885f9f58))
+
+## [1.2.6](https://github.com/jensvogt/euclid/compare/1.2.5...v1.2.6) (2026-10-01)
+
+
+### Bug Fixes
+
+* add worker-nodes.md ([1343b53](https://github.com/jensvogt/euclid/commit/1343b535fd1b22fddd57247b2e8759455faf7094))
+* add worker-nodes.md ([69545db](https://github.com/jensvogt/euclid/commit/69545db63717db40c9fd202983fa0d5c90cb8760))
+* add worker-nodes.md ([9af5d40](https://github.com/jensvogt/euclid/commit/9af5d4035a9fa362fd546066300df84a01968220))
+* add worker-nodes.md ([baa2a7e](https://github.com/jensvogt/euclid/commit/baa2a7e0b18b3142bae163e91b5ae19d45b25081))
+
+## [1.2.5](https://github.com/jensvogt/euclid/compare/1.2.4...v1.2.5) (2026-09-30)
+
+
+### Bug Fixes
+
+* ARM64 support ([82dc026](https://github.com/jensvogt/euclid/commit/82dc0269ec73d7a01181e6c1e618f58547919737))
+
+## [1.2.4](https://github.com/jensvogt/euclid/compare/v1.2.3...v1.2.4) (2026-09-30)
+
+
+### Bug Fixes
+
+* ARM64 support ([b05783a](https://github.com/jensvogt/euclid/commit/b05783a1d036cda28440b7aaaf6aeec05e84f772))
+* ARM64 support ([04d9ad0](https://github.com/jensvogt/euclid/commit/04d9ad0073e636d641fddc20789c66b66c3e00d1))
+
 ## [1.2.3](https://github.com/jensvogt/euclid/compare/1.2.2...v1.2.3) (2026-09-30)
 
 

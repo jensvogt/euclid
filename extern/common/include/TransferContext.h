@@ -15,6 +15,7 @@
 #include <boost/beast/http.hpp>
 
 // Euclid includes
+#include <euclid/core/ModuleClient.h>
 #include <euclid/database/entity/ets/TransferServer.h>
 
 namespace Euclid::Transfer {
@@ -60,55 +61,15 @@ namespace Euclid::Transfer {
 
     /**
      * @brief Result of one call to a module over its Unix domain socket.
+     *
+     * @par
+     * Core::ModuleClient::ModuleResponse under its original name. The type and the transport moved
+     * to core when the manager came to need them too - it fetches an application's artifact through
+     * ESM rather than off ESM's disk, see docs/worker-nodes.md §3.1 - and core is the lowest layer
+     * all three callers share. The alias keeps every `Transfer::ModuleResponse` in the FTP and SFTP
+     * servers meaning what it always did.
      */
-    struct ModuleResponse {
-
-        /**
-         * @brief HTTP status returned by the module, or 0 if the call never got that far.
-         */
-        int status{};
-
-        /**
-         * @brief Response body, which for ESM's object actions is the object's raw bytes.
-         */
-        std::string body;
-
-        /**
-         * @brief Whether the call succeeded.
-         */
-        [[nodiscard]] bool ok() const { return status >= 200 && status < 300; }
-
-        /**
-         * @brief The status and, when there is one, what the module said about it - for logging a
-         * call that failed.
-         *
-         * @par
-         * A refusal explains itself in its body: the authorization gate answers 403 with the
-         * permission it wanted or the grant it could not find, and every other module error says
-         * what was wrong with the request. Logging the bare status throws all of that away, which
-         * is how "status: 403" on every transfer call read for two weeks as a missing grant when
-         * the requests were in fact asking for a permission that cannot exist.
-         *
-         * @par
-         * Truncated, because an object action's body is the object: a failed download would
-         * otherwise put a megabyte of file into the log. A module's error is a sentence.
-         */
-        [[nodiscard]] std::string describe() const {
-
-            constexpr std::size_t kMaxReason = 512;
-            if (body.empty()) return std::to_string(status);
-
-            auto reason = body.substr(0, kMaxReason);
-            if (body.size() > kMaxReason) reason += "...";
-
-            // Control characters mean the body is bytes rather than a message - an object, not an
-            // explanation - and those belong nowhere near a log line.
-            if (std::ranges::any_of(reason, [](const unsigned char c) { return c < 0x20 && c != '\t'; })) {
-                return std::to_string(status) + " (" + std::to_string(body.size()) + " bytes)";
-            }
-            return std::to_string(status) + ", reason: " + reason;
-        }
-    };
+    using ModuleResponse = Core::ModuleClient::ModuleResponse;
 
     /**
      * @brief Socket paths of every currently running instance of a module.
@@ -190,30 +151,15 @@ namespace Euclid::Transfer {
          * @brief Builds the request CallModuleAt() puts on a module socket.
          *
          * @par
-         * Separated so the wire contract can be asserted without a socket: a module is reached over
-         * AF_UNIX, and Boost.Asio cannot bind one of those on Windows at all, so a test that needed
-         * a listener would not run on the platform this was found on.
-         *
-         * @par
-         * What is worth pinning is that both halves of the permission are sent. The authorization
-         * gate requires "<x-euclid-target>:<x-euclid-action>", and a request missing the target
-         * asks to be allowed ":list-objects" - which is not a permission the vocabulary holds, so
-         * it is refused before any grant is read, by every role including one granted everything.
+         * Core::ModuleClient::BuildRequest() under its original name - see the note on
+         * ModuleResponse above for why the transport moved. Kept as an alias because what it is
+         * for is unchanged: the wire contract can be asserted without a socket, since a module is
+         * reached over AF_UNIX and Boost.Asio cannot bind one of those on Windows at all, so a
+         * test that needed a listener would not run on the platform this was found on.
          */
-        inline boost::beast::http::request<boost::beast::http::string_body>
-        BuildModuleRequest(const std::string &moduleName, const std::string &action, const std::string &token,
-                           const std::vector<std::pair<std::string, std::string> > &headers, const std::string &body) {
-
-            boost::beast::http::request<boost::beast::http::string_body> req{boost::beast::http::verb::post, "/", 11};
-
-            req.set("x-euclid-target", moduleName);
-            req.set("x-euclid-action", action);
-            if (!token.empty()) req.set(boost::beast::http::field::authorization, "Bearer " + token);
-            for (const auto &[name, value]: headers) req.set(name, value);
-            req.body() = body;
-            req.prepare_payload();
-
-            return req;
+        inline auto BuildModuleRequest(const std::string &moduleName, const std::string &action, const std::string &token,
+                                       const std::vector<std::pair<std::string, std::string> > &headers, const std::string &body) {
+            return Core::ModuleClient::BuildRequest(moduleName, action, token, headers, body);
         }
 
         /**

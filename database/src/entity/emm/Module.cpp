@@ -56,6 +56,16 @@ namespace Euclid::Database::Entity {
         return bsoncxx::builder::basic::make_document(
                 bsoncxx::builder::basic::kvp("instanceId", instanceId),
                 bsoncxx::builder::basic::kvp("pid", pid),
+                // Written beside the pid it qualifies, and always - including when it is empty -
+                // so that a record this manager wrote is never mistaken for one from before the
+                // field existed.
+                bsoncxx::builder::basic::kvp("host", host),
+                // The master's decision and the deadline on it. Written by whoever writes the
+                // instance - the manager for its own, and the master when it places a slot on a
+                // node - and read by the worker that has to decide whether it may still run it.
+                bsoncxx::builder::basic::kvp("assignedTo", assignedTo),
+                bsoncxx::builder::basic::kvp("leaseExpiresAt", bsoncxx::types::b_date{
+                                                                       std::chrono::duration_cast<std::chrono::milliseconds>(leaseExpiresAt.time_since_epoch())}),
                 bsoncxx::builder::basic::kvp("state", ModuleStateToString(state)),
                 bsoncxx::builder::basic::kvp("socketPath", socketPath),
                 bsoncxx::builder::basic::kvp("httpPort", httpPort),
@@ -69,6 +79,11 @@ namespace Euclid::Database::Entity {
         for (const auto &field: doc) {
             if (const auto key = field.key(); key == "instanceId") instance.instanceId = getBsonString(field);
             else if (key == "pid") instance.pid = static_cast<int>(getBsonInt(field));
+            // Absent on every record written before this field existed, which reads as empty -
+            // and empty is "the host reading it". See ModuleInstance::host.
+            else if (key == "host") instance.host = getBsonString(field);
+            else if (key == "assignedTo") instance.assignedTo = getBsonString(field);
+            else if (key == "leaseExpiresAt") instance.leaseExpiresAt = getBsonDate(field);
             else if (key == "state") instance.state = ModuleStateFromString(getBsonString(field));
             else if (key == "socketPath") instance.socketPath = getBsonString(field);
             else if (key == "httpPort") instance.httpPort = static_cast<int>(getBsonInt(field));

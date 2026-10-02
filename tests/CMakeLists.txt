@@ -109,7 +109,7 @@ target_link_libraries(${WS_FRAME_BINARY} PRIVATE euclidcore Boost::unit_test_fra
 
 add_test(NAME ${WS_FRAME_BINARY} COMMAND ${WS_FRAME_BINARY})
 
-set(WORKER_THREADS_BINARY euclid-worker-threads-config-tests)
+set(WORKER_THREADS_BINARY euclid-wrk-threads-config-tests)
 
 add_executable(${WORKER_THREADS_BINARY} WorkerThreadsConfigTest.cpp)
 set_target_properties(${WORKER_THREADS_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
@@ -200,6 +200,74 @@ target_include_directories(${UPLOAD_STREAM_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/m
 target_link_libraries(${UPLOAD_STREAM_BINARY} PRIVATE eucliddb euclidcore Boost::unit_test_framework OpenSSL::SSL OpenSSL::Crypto)
 
 add_test(NAME ${UPLOAD_STREAM_BINARY} COMMAND ${UPLOAD_STREAM_BINARY})
+
+set(COMMAND_LINE_QUOTING_BINARY euclid-command-line-quoting-tests)
+
+add_executable(${COMMAND_LINE_QUOTING_BINARY} CommandLineQuotingTest.cpp)
+set_target_properties(${COMMAND_LINE_QUOTING_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${COMMAND_LINE_QUOTING_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${COMMAND_LINE_QUOTING_BINARY} COMMAND ${COMMAND_LINE_QUOTING_BINARY})
+
+set(CREDENTIALS_FILE_BINARY euclid-credentials-file-tests)
+
+add_executable(${CREDENTIALS_FILE_BINARY} CredentialsFileTest.cpp)
+set_target_properties(${CREDENTIALS_FILE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+# euclidclient for Credentials, euclidcore for the JSON helpers underneath it.
+target_link_libraries(${CREDENTIALS_FILE_BINARY} PRIVATE euclidclient euclidcore Boost::unit_test_framework Boost::json OpenSSL::SSL OpenSSL::Crypto)
+
+add_test(NAME ${CREDENTIALS_FILE_BINARY} COMMAND ${CREDENTIALS_FILE_BINARY})
+
+set(PLACEMENT_BINARY euclid-placement-tests)
+
+add_executable(${PLACEMENT_BINARY} PlacementTest.cpp)
+set_target_properties(${PLACEMENT_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${PLACEMENT_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/main/include)
+target_link_libraries(${PLACEMENT_BINARY} PRIVATE Boost::unit_test_framework)
+
+add_test(NAME ${PLACEMENT_BINARY} COMMAND ${PLACEMENT_BINARY})
+
+set(WORKER_RECONCILER_BINARY euclid-wrk-reconciler-tests)
+
+add_executable(${WORKER_RECONCILER_BINARY} WorkerReconcilerTest.cpp)
+set_target_properties(${WORKER_RECONCILER_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${WORKER_RECONCILER_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/worker/include)
+target_link_libraries(${WORKER_RECONCILER_BINARY} PRIVATE Boost::unit_test_framework)
+
+add_test(NAME ${WORKER_RECONCILER_BINARY} COMMAND ${WORKER_RECONCILER_BINARY})
+
+set(NODE_LEASE_BINARY euclid-node-lease-tests)
+
+add_executable(${NODE_LEASE_BINARY} NodeLeaseTest.cpp)
+set_target_properties(${NODE_LEASE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${NODE_LEASE_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${NODE_LEASE_BINARY} COMMAND ${NODE_LEASE_BINARY})
+
+set(ARTIFACT_FETCH_BINARY euclid-artifact-fetch-tests)
+
+add_executable(${ARTIFACT_FETCH_BINARY} ArtifactFetchTest.cpp)
+set_target_properties(${ARTIFACT_FETCH_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${ARTIFACT_FETCH_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${ARTIFACT_FETCH_BINARY} COMMAND ${ARTIFACT_FETCH_BINARY})
+
+set(BACKEND_HOST_BINARY euclid-eag-backend-host-tests)
+
+add_executable(${BACKEND_HOST_BINARY} BackendHostTest.cpp
+        ${CMAKE_SOURCE_DIR}/modules/eag/src/Backends.cpp)
+set_target_properties(${BACKEND_HOST_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${BACKEND_HOST_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/eag/include)
+target_link_libraries(${BACKEND_HOST_BINARY} PRIVATE eucliddb euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${BACKEND_HOST_BINARY} COMMAND ${BACKEND_HOST_BINARY})
 
 set(START_ORDER_BINARY euclid-module-start-order-tests)
 
@@ -458,6 +526,15 @@ set_target_properties(${APPLICATION_LOAD_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES
 target_link_libraries(${APPLICATION_LOAD_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
 
 add_test(NAME ${APPLICATION_LOAD_BINARY} COMMAND ${APPLICATION_LOAD_BINARY})
+
+set(INSTANCE_HOST_BINARY euclid-instance-host-tests)
+
+add_executable(${INSTANCE_HOST_BINARY} InstanceHostTest.cpp)
+set_target_properties(${INSTANCE_HOST_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${INSTANCE_HOST_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${INSTANCE_HOST_BINARY} COMMAND ${INSTANCE_HOST_BINARY})
 
 set(MODULE_DOCUMENT_BINARY euclid-module-document-tests)
 

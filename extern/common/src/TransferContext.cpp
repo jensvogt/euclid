@@ -49,43 +49,23 @@ namespace Euclid::Transfer {
         return sockets;
     }
 
+    // The transport itself is Core::ModuleClient::CallAt(). It lived here while the transfer
+    // servers were the only thing that called a module directly; the manager now does it too, to
+    // fetch an application's artifact through ESM rather than off ESM's disk (worker-nodes.md
+    // §3.1), and core is the lowest layer the two share.
+    //
+    // Both halves of the permission go on the wire there, and the target half was missing until
+    // 2026-09-26. Core::HttpActionServer's gate builds what it requires as "<target>:<action>", so
+    // without it every call a transfer server made asked for ":list-objects" or ":put-object" -
+    // not permissions the vocabulary has, so refused before a single grant was read. The symptom
+    // was an FTP or SFTP session that logged in and then got 403 on everything, with no grant able
+    // to fix it: the reason names a permission that cannot be held. Requests through the gateway
+    // were unaffected, because ProxyServer sets the header itself, which is what made this look
+    // like a grant problem.
     ModuleResponse CallModuleAt(const std::string &socketPath, const std::string &moduleName, const std::string &action,
                                 const std::string &token, const std::vector<std::pair<std::string, std::string> > &headers,
                                 const std::string &body) {
-
-        try {
-            boost::asio::io_context ioc;
-            local::stream_protocol::socket sock(ioc);
-            sock.connect(local::stream_protocol::endpoint(socketPath));
-
-            // Both halves of the permission, and the target half was missing until 2026-09-26.
-            // Core::HttpActionServer's gate builds what it requires as "<target>:<action>", so
-            // without it every call a transfer server made asked for ":list-objects" or
-            // ":put-object" - not permissions the vocabulary has, so refused before a single grant
-            // was read. The symptom was an FTP or SFTP session that logged in and then got 403 on
-            // everything, with no grant able to fix it: the reason names a permission that cannot
-            // be held. Requests through the gateway were unaffected, because ProxyServer sets the
-            // header itself, which is what made this look like a grant problem.
-            auto req = Detail::BuildModuleRequest(moduleName, action, token, headers, body);
-
-            write(sock, req);
-
-            // Beast caps a response body at 1MB unless told otherwise, which an object download
-            // passes as soon as the file is bigger than a text file - the read then fails and the
-            // call looks like an unreachable module. The peer is a local module answering over a
-            // Unix socket with a size it has already bounded itself, so there is nothing left for
-            // a limit here to protect against.
-            beast::flat_buffer buffer;
-            http::response_parser<http::string_body> parser;
-            parser.body_limit(boost::none);
-            read(sock, buffer, parser);
-
-            return {.status = static_cast<int>(parser.get().result_int()), .body = std::move(parser.get().body())};
-
-        } catch (const std::exception &e) {
-            log_warning << "Call to action '" << action << "' at " << socketPath << " failed, error: " << e.what();
-            return {};
-        }
+        return Core::ModuleClient::CallAt(socketPath, moduleName, action, token, headers, body);
     }
 
     ModuleResponse CallModuleSticky(std::string &socketPath, const std::string &moduleName, const std::string &action,
