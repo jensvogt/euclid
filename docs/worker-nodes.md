@@ -461,3 +461,74 @@ Said plainly, because each of these is a thing somebody will reasonably expect:
 5. **Draining on shutdown.** A worker asked to stop should let long polls finish, the way the
    autoscaler's scale-down deliberately does not kill an instance mid-long-poll
    (`Controller.cpp:2497`). What is the bound?
+
+## 13. Proposal: every application on a worker
+
+*Status: proposed, not started.*
+
+### The problem
+
+There are two ways an application gets run, and they are two implementations of the same thing.
+The manager runs an application itself unless it names a node or a label (`isNodeApplication`), in
+which case it is placed and a worker runs it. Both paths fetch the artifact, build the command
+line, write the credentials file and spawn the process — separately.
+
+The cost has been concrete. In one pass over the worker path, every defect found was the worker's
+copy having drifted from the manager's: `PYTHON` and `NODEJS` started as `java -jar`, a `BINARY`
+never made executable, a redeploy that went on running the old build, no working directory. And
+the split itself needs code of its own: a hand-over in each direction (a local pool stopped when a
+constraint is added, node slots removed when it is cleared), each a place for an application to
+end up running twice.
+
+There is also a security cost the worker was designed to avoid and the manager's path does not.
+`euclid.service` runs as `euclid` with `ReadWritePaths=/usr/local/euclid`, and the manager drops no
+privileges when it spawns — so an application it runs can read, and write, `euclid.json`: the
+signing secret, the database credentials. §3.2 exists so that code euclid runs on somebody's
+behalf never holds that secret. Today that holds on every host except the manager's.
+
+### The proposal
+
+The manager's host runs a worker too, and every application is run by a worker:
+
+- **EMM** supervises euclid's own modules, and nothing else. The manager's application code goes.
+- **EAP** holds the application definitions, places instances and grants leases — all of them.
+- **`euclid-wrk`** runs applications, on every host that runs any, the manager's included.
+
+`isNodeApplication` disappears with it. `nodes` and `nodeLabels` become constraints only: an
+application naming neither may be placed on any node, the manager's host's among them. A single-host
+installation is a manager and one worker on the same machine, and the worker path stops being the
+one that is only exercised by installations with a second machine.
+
+### What the worker has to do first
+
+Moving an application onto the worker must not lose anything it has on the manager. Today the
+worker lacks:
+
+| Gap | On the manager today |
+|---|---|
+| Running applications on Windows (§11) | `spawnInstance`'s Windows implementation |
+| An HTTP port per instance, and routing to it — the worker reports `httpPort: 0` | port allocation, `applicationEndpoints`, the gateway's backends |
+| Supervision: readiness, restart on crash, `maxRestarts` | `ServiceController`'s module supervision |
+| Application output on `app.<runtimeName>`, and `set-log-level` while it runs (§9) | captured and re-emitted by the manager |
+| Zero-touch setup on the manager's host | nothing to set up |
+
+The last one matters most for adoption: a single-host install must not need a worker installed and
+logged in by hand. The server package would ship and start a local worker, provisioned with a
+principal of its own at first start, running as its own user — never as `euclid`.
+
+### What changes in behaviour
+
+The lease applies to every application. An application on the manager's host stops when its worker
+cannot reach the gateway for a lease period, where today it would keep running. In exchange it
+survives a manager restart — today it is a child of the manager and goes with it.
+
+### Phasing
+
+| Step | Scope | Proves |
+|---|---|---|
+| 13.1 | One implementation of "start an application" in `euclidcore`, which both the manager and the worker link: the command line (`Worker::CommandLine`, today checked against `Runtime.h` by a test), artifact freshness, the exec bit, the credentials file. The manager's path uses it too. | the two paths cannot drift — useful even if nothing below happens |
+| 13.2 | worker parity: the table above, Windows first | an application loses nothing by moving onto a worker |
+| 13.3 | a local worker shipped and provisioned by the server package | a single-host install runs its applications through a worker with no setup |
+| 13.4 | the split removed: unconstrained applications placed on any node, `isNodeApplication` and the manager's application code deleted; existing installations migrate through the hand-over that already stops a local pool | one path |
+
+13.2 is the real work, and the step that decides whether the rest is worth doing.
