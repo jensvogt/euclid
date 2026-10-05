@@ -94,15 +94,42 @@ directory, and fetched again whenever the application's definition
 changes, so a redeploy starts the new build.
 .PP
 Each instance runs in its own process group, in its application's
-directory, as the worker's own user, with the
+directory, as the worker's own user. Its environment is the one the
+manager would give it: the application's own variables, the
 .I EUCLID_*
-environment and a credentials file the manager issues for it. The
-credentials are renewed halfway through their life on every tick, so a
-long-running instance never holds an expired token.
+variables describing it, and the gateway, CA certificate and credentials
+file as this node sees them. The credentials are issued by the manager
+and renewed halfway through their life on every tick, so a long-running
+instance never holds an expired token. An application running as an
+operator's own user is also given that user's access key, as on the
+manager \- so that key reaches every node the application is placed on.
 .PP
-A worker on Windows installs and registers as a service but does not yet
-start applications; an assignment it receives fails rather than being
-half-run.
+An instance whose process exits on its own is reported as crashed and
+started again after a second, doubling on each crash in a row up to
+thirty, and back to a second once it has run for a minute.
+.PP
+Its standard output and error are recorded in the worker's log on the
+channel
+.BI app. runtime-name\fR,
+at the level a JSON line names or, otherwise, info for stdout and error
+for stderr. The level set with
+.B euclid-cli eap set-log-level
+applies to that channel here as it does on the manager.
+.PP
+When the node sets a port range aside, each instance is given its own
+port in it as
+.I EUCLID_HTTP_PORT
+and keeps it across restarts. The worker reports that port with the
+node's address, and the gateway routes the application's traffic there,
+so the gateway has to be able to reach that address and range.
+.PP
+On Windows an instance is started the way the manager starts its own:
+suspended, inside a job object, with only its two output pipes
+inherited. The job ends with the worker, so a worker that is killed takes
+its instances with it rather than leaving them running while the manager
+places the same work elsewhere. Asked to stop, an instance is signalled
+through its stop event and killed after ten seconds if it is still
+there \- which, for a JVM, which does not watch the event, it will be.
 .SH OPTIONS
 Every option can be given on the command line. Those marked
 .I (config)
@@ -125,22 +152,18 @@ principal to register a name owns it: a worker logged in as anybody else
 is refused that name until an administrator deletes the registration
 with
 .BR euclid-cli-eap-delete-node (1).
+.I (config:
+.IR euclid.worker.node )
 .TP
 .BR \-l ", " \-\-label " " \fIKEY\fR[=\fIVALUE\fR]
 A label for placement to match an application's
 .I nodeLabels
 against \- a GPU, a licence dongle, a network the node can reach.
 Repeatable. A bare \fIKEY\fR means \fIKEY\fR=\fItrue\fR.
-.PP
-.B \-\-node
-and
-.B \-\-label
-are read from the command line only. For the packaged service, add them
-to the unit's
-.B ExecStart
-with
-.BR "systemctl edit euclid-wrk" ,
-which writes an override an upgrade leaves alone.
+.I (config:
+.IR euclid.worker.labels ,
+an object of key/value strings; a label on the command line wins over
+one of the same key there.)
 .TP
 .BR \-a ", " \-\-address " " \fIIP\fR
 The IP address to report for this node. By default the worker asks the
@@ -175,6 +198,13 @@ Credentials file to read instead of the invoking user's own
 .IR $HOME/.euclid/credentials .
 .I (config:
 .IR euclid.worker.credentials )
+A login's token, or an access key and its secret \- which is what the
+local node is given; everything a worker sends is signed with the key.
+.TP
+.B \-\-wait\-for\-config
+Wait for the configuration file, and then the credentials file it names,
+to exist, rather than fail without them. What the local node is started
+with, since the manager writes both when it starts.
 .TP
 .BR \-h ", " \-\-help
 Print the options and exit.
@@ -202,7 +232,11 @@ A JSON file, by default
     "worker": {
       "endpoint": "https://euclid.example:5566",
       "ca-cert": "",
+      "node": "raspi-01",
+      "labels": { "gpu": "true" },
       "address": "",
+      "http-port-min": 9100,
+      "http-port-max": 9199,
       "runtimes": {
         "java": "java",
         "java21": "/usr/lib/jvm/java-21-openjdk/bin/java",
@@ -230,6 +264,11 @@ application asking for a Java version the node was never told about
 fails to start with that name in the log, rather than running under
 another JDK.
 .TP
+.IR euclid.worker.http-port-min ", " euclid.worker.http-port-max
+The range, inclusive, instances on this node are given their HTTP ports
+from. Unset, they are given none, and the gateway has nothing to route
+to here.
+.TP
 .I euclid.worker.java
 The older name for
 .IR euclid.worker.runtimes.java ,
@@ -243,12 +282,27 @@ and anything holding it can mint a token for any principal, administrator
 included, offline and unaudited. A worker refuses to start if its
 configuration contains that key at all.
 .SH AUTHENTICATION
-A worker is logged in like any other client, as a principal of its own:
+A worker is an ordinary client with a principal of its own. An
+administrator creates it once, with the built-in
+.I node
+role \- exactly what a worker calls as itself, and nothing an operator
+does to a node:
+.PP
+.RS
+.nf
+euclid-cli eam register --user raspi-01 --email raspi-01@example.invalid \e
+    --password <secret> --region eu-central-1 --account-id 000000000000
+euclid-cli eam grant-role --role node \e
+    --principal ern:eam:eu-central-1:000000000000:user:raspi-01
+.fi
+.RE
+.PP
+The worker is then logged in as it, once, on its own host:
 .PP
 .RS
 .nf
 sudo -H -u euclid-wrk euclid-cli --endpoint https://euclid.example:5566 \e
-    eam login --user <this node's principal> --password <secret>
+    eam login --user raspi-01 --password <secret>
 .fi
 .RE
 .PP
@@ -257,14 +311,51 @@ puts the credentials in the
 .I euclid-wrk
 account's home,
 .IR /var/lib/euclid-wrk ,
-which is where the service reads them. The principal needs the
-.I eap:register-node
-and
-.I eap:renew-node
-actions, and the others a node calls on its own behalf:
-.IR eap:issue-instance-credentials ,
-.I eap:report-node-instance
-and the ESM reads that fetch an application's artifact.
+which is where the service reads them. A login leaves a session token
+and a long-lived access key there; the worker signs every request with
+the key, so the session expiring does not stop it.
+.PP
+Registering is not a step of its own: it is the worker's first signed
+request. The node name is bound to the principal that registers it
+first, and refused to any other until an administrator frees it with
+.BR euclid-cli-eap-delete-node (1).
+.PP
+The applications a node runs have credentials of their own, not the
+node's. For each instance assigned to it the worker asks the manager for
+that instance's credentials, which the manager issues only for an
+instance assigned to this node under a live lease: a short-lived token
+for the application's principal, which the worker writes where the
+instance reads it and replaces halfway through its life. The
+installation's signing secret never reaches a worker.
+.SH THE LOCAL NODE
+On Linux the server package depends on this one, and the manager's own
+host runs a worker too: the local node. Nothing is set up by hand. When
+the manager's EAP starts, it makes sure a
+.I local-node
+principal exists \- no login, one access key, the
+.I node
+role \- and writes the worker's credentials and its whole configuration
+to
+.IR /usr/local/euclid/data/local-node/ ,
+generated from the manager's: the gateway's port and certificate, this
+host's runtimes, and a port range of its own. Both files are readable by
+the
+.I euclid-wrk
+group only, and nothing else from the manager's configuration reaches
+them. A systemd drop-in from the server package,
+.IR /etc/systemd/system/euclid-wrk.service.d/local-node.conf ,
+starts the worker with that configuration and
+.BR \-\-wait\-for\-config .
+.PP
+The node registers as
+.IR local ,
+labelled
+.IR local=true .
+It is configured in the manager's
+.I euclid.json
+under
+.IR euclid.modules.eap.local-node ,
+and removed with the server package.
 .SH EXIT STATUS
 .TP
 .B 0

@@ -116,9 +116,26 @@ namespace Euclid::Worker {
         void Apply(const Reconciler::Plan &plan);
 
         /**
+         * @brief Notices the instances whose process exited on its own, and gives each up.
+         *
+         * @par
+         * Called every tick, before Running(), so the next decision sees what is actually alive. An
+         * exited instance is reaped - it would otherwise stay a zombie - reported to the master as
+         * CRASHED, and held off from restarting by Reconciler::RestartDelay(). Without this a
+         * process that died went on being counted as running, kept having its credentials
+         * refreshed, showed as RUNNING to the master, and was never started again.
+         */
+        void Reap();
+
+        /**
          * @brief What this worker currently has running, for the next decision.
          */
         [[nodiscard]] std::vector<Reconciler::Running> Running() const;
+
+        /**
+         * @brief The crashed slots not yet due to be started again - see Reconciler::State::holdOff.
+         */
+        [[nodiscard]] std::map<std::string, std::chrono::system_clock::time_point> HoldOff() const;
 
         /**
          * @brief Replaces the credentials of any running instance that is halfway through theirs.
@@ -161,6 +178,34 @@ namespace Euclid::Worker {
              * of it - it would only be a second place for the two to disagree.
              */
             std::chrono::system_clock::time_point credentialsRefreshAt{};
+
+            /**
+             * @brief When the process was started, so a crash can say how long it ran - which is
+             * what decides whether the backoff grows or starts again.
+             */
+            std::chrono::system_clock::time_point startedAt{};
+
+            /**
+             * @brief On Windows, the process and its stop event - see Core::WindowsProcess::Spawned.
+             * A pid is not something to wait on or signal there. Held as void * so this header
+             * does not pull <windows.h> into everything that includes it; both are HANDLEs, closed
+             * when the instance is stopped or reaped. Unused elsewhere.
+             */
+            void *processHandle{};
+            void *stopEvent{};
+        };
+
+        /**
+         * @brief A slot whose process exited on its own: the delay its restart was held off by,
+         * and when that runs out.
+         *
+         * @par
+         * Kept past the restart, so a slot that crashes again straight away has its delay doubled
+         * rather than started over - and dropped once the slot is no longer assigned here.
+         */
+        struct Crash {
+            std::chrono::seconds delay{};
+            std::chrono::system_clock::time_point notBefore{};
         };
 
         /**
@@ -189,7 +234,17 @@ namespace Euclid::Worker {
         [[nodiscard]] Core::Artifact::Call artifactTransport() const;
 
         [[nodiscard]] bool start(const Reconciler::Assignment &assignment);
-        void stop(const Reconciler::Running &running);
+
+        /**
+         * @brief Asks an instance to stop - SIGTERM to its process group, or its stop event on
+         * Windows - without waiting. Safe to ask twice.
+         */
+        void askToStop(const Instance &instance);
+
+        /**
+         * @brief Stops an instance: asks, waits until @p deadline, then kills. Reaps and reports it.
+         */
+        void stop(const Reconciler::Running &running, std::chrono::steady_clock::time_point deadline);
         void report(const Reconciler::Assignment &assignment, int pid, int httpPort, const std::string &state) const;
 
         /**
@@ -207,6 +262,12 @@ namespace Euclid::Worker {
 
         [[nodiscard]] std::filesystem::path applicationDir(const std::string &runtimeName) const;
 
+        /**
+         * @brief Holds each application's output channel at the level eap set-log-level gave it,
+         * as the manager does for the applications it runs - see Reconciler::Assignment::logLevel.
+         */
+        void applyLogLevels(const std::vector<Reconciler::Assignment> &assigned);
+
         Options _options;
         CLI::Credentials::Entry _credentials;
         CLI::HttpClient _client;
@@ -215,6 +276,32 @@ namespace Euclid::Worker {
          * @brief What this worker has started, by instance id.
          */
         std::map<std::string, Instance> _instances;
+
+        /**
+         * @brief Slots whose process exited on its own, by instance id.
+         */
+        std::map<std::string, Crash> _crashes;
+
+        /**
+         * @brief The HTTP port each slot was given, by instance id - see Core::Launch::PickHttpPort.
+         *
+         * @par
+         * Held for as long as the slot is assigned here, not only while its process runs, so a
+         * restart after a crash lands on the same port and the gateway's backend does not move.
+         */
+        std::map<std::string, int> _ports;
+
+        /**
+         * @brief The level applied to each application output channel, so an unchanged one is not
+         * applied again every tick; empty for "the configuration's".
+         */
+        std::map<std::string, std::string> _channelLevels;
+
+        /**
+         * @brief The address this node registered with, which is what it reports as an instance's
+         * host - the gateway connects to it, and an address needs no DNS where a host name does.
+         */
+        std::string _address;
     };
 
 }// namespace Euclid::Worker

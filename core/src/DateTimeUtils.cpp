@@ -8,6 +8,10 @@
 
 #include <euclid/core/DateTimeUtils.h>
 
+#include <cctype>
+#include <cstdio>
+#include <string_view>
+
 #ifdef _WIN32
 #include <clocale>
 #include <ctime>
@@ -35,11 +39,56 @@ namespace Euclid::Core {
         return std::format("{:%FT%TZ}", timePoint);
     }
 
+    // Parsed by hand and as UTC, which is what ToISO8601 writes. What this replaced read the string
+    // as *local* time through mktime() and then added an hour - right only on a host in CET in
+    // winter, an hour out in summer, more elsewhere - and on Windows parsed nothing at all, because
+    // the strptime shim above sits on std::get_time, which does not know %F or %T. Lease deadlines
+    // and credential expiries go through here, so "an hour early" meant a worker that thought every
+    // lease it held had already run out.
+    //
+    // Accepts "YYYY-MM-DDTHH:MM:SS", optional fractional seconds of any length, then "Z", a
+    // "+HH:MM"/"-HH:MM" offset, or nothing - which is taken as UTC, since nothing euclid writes
+    // omits the zone. Answers the epoch for a string it cannot read, as the old code effectively did.
     system_clock::time_point DateTimeUtils::FromISO8601(const std::string &dateString) {
-        std::tm t = {};
-        strptime(dateString.c_str(), "%FT%T", &t);
-        t.tm_hour = t.tm_hour + 1;
-        return system_clock::from_time_t(mktime(&t));
+
+        int year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0;
+        int consumed = 0;
+        if (std::sscanf(dateString.c_str(), "%4d-%2d-%2dT%2d:%2d:%2d%n", &year, &month, &day, &hour, &minute, &second, &consumed) != 6) {
+            return system_clock::time_point{};
+        }
+
+        const std::chrono::year_month_day date{std::chrono::year{year}, std::chrono::month{static_cast<unsigned>(month)},
+                                               std::chrono::day{static_cast<unsigned>(day)}};
+        if (!date.ok()) return system_clock::time_point{};
+
+        auto point = std::chrono::sys_days{date} + std::chrono::hours{hour} + std::chrono::minutes{minute} + std::chrono::seconds{second};
+
+        auto rest = std::string_view(dateString).substr(static_cast<std::size_t>(consumed));
+
+        // Fractional seconds, to whatever precision the writer used: MSVC formats system_clock in
+        // 100ns ticks, libstdc++ in nanoseconds. Kept to nanoseconds.
+        std::chrono::nanoseconds fraction{0};
+        if (!rest.empty() && (rest.front() == '.' || rest.front() == ',')) {
+            rest.remove_prefix(1);
+            long long scale = 100000000;
+            while (!rest.empty() && std::isdigit(static_cast<unsigned char>(rest.front()))) {
+                fraction += std::chrono::nanoseconds{(rest.front() - '0') * scale};
+                scale /= 10;
+                rest.remove_prefix(1);
+            }
+        }
+
+        // The zone: a time written as 14:00+02:00 is 12:00 UTC.
+        std::chrono::minutes offset{0};
+        if (!rest.empty() && (rest.front() == '+' || rest.front() == '-')) {
+            int offsetHours = 0, offsetMinutes = 0;
+            if (std::sscanf(std::string(rest.substr(1)).c_str(), "%2d:%2d", &offsetHours, &offsetMinutes) >= 1) {
+                offset = std::chrono::hours{offsetHours} + std::chrono::minutes{offsetMinutes};
+                if (rest.front() == '-') offset = -offset;
+            }
+        }
+
+        return std::chrono::time_point_cast<system_clock::duration>(point - offset + fraction);
     }
 
     system_clock::time_point DateTimeUtils::FromUnixTimestamp(const long timestamp) {

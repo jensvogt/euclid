@@ -22,6 +22,7 @@
 // Euclid includes
 #include <euclid/core/Configuration.h>
 #include <Placement.h>
+#include <euclid/core/ApplicationLaunch.h>
 #include <euclid/core/ArtifactFetcher.h>
 #include <euclid/core/CryptoUtils.h>
 #include <euclid/core/DateTimeUtils.h>
@@ -30,6 +31,7 @@
 #include <euclid/core/JwtUtils.h>
 #include <euclid/core/LogStream.h>
 #include <euclid/database/entity/RuntimeName.h>
+#include <euclid/database/entity/eap/ApplicationIdentity.h>
 #include <euclid/database/Database.h>
 #include <euclid/database/RepositoryFactory.h>
 #include <euclid/database/entity/ets/TransferServer.h>
@@ -60,88 +62,21 @@ namespace Euclid::main {
     // stopOrder().
     constexpr auto kApiGateway = "eag";
 
-    // Escapes ASCII control bytes (other than tab) as \xHH before a child's output is forwarded
-    // into the journal. A module's stdout/stderr isn't trusted content - it can carry raw bytes
-    // from a misbehaving dependency (e.g. libmagic's own fprintf warnings when handed a
-    // corrupt/mismatched magic database dump non-UTF8 garbage that happened to include a raw ESC
-    // byte). journalctl -o cat prints the MESSAGE field completely unescaped, so an unsanitized
-    // ESC byte here becomes an attacker-uncontrolled terminal escape sequence on whatever
-    // terminal later views the log - which is exactly the kind of thing that can hang or crash a
-    // terminal emulator. Every other log_* call in this codebase is formatted by Boost.Log, which
-    // escapes control characters on its way; a child's line is written verbatim by design - it
-    // arrives already formatted by whatever wrote it, see LogStream::LogVerbatim - so it is the
-    // one path that needs its own guard.
-    static std::string sanitizeForLog(const std::string &raw) {
-        std::string out;
-        out.reserve(raw.size());
-        for (const char ch: raw) {
-            // Unsigned deliberately: the >= 0x20 test has to reject control bytes, not accept
-            // every byte over 0x7f because it happened to be a negative char.
-            const auto c = static_cast<unsigned char>(ch);
-            if (c == '\t' || (c >= 0x20 && c != 0x7f)) {
-                out += static_cast<char>(c);
-            } else {
-                char buf[5];
-                std::snprintf(buf, sizeof(buf), "\\x%02x", c);
-                out += buf;
-            }
-        }
-        return out;
-    }
-
     // The channel a spawned process's own output is logged on. An application and a euclid module
     // are told apart because they are turned down for quite different reasons: an application is
-    // somebody else's program and its output is theirs, while a module's is euclid's own.
+    // somebody else's program and its output is theirs, while a module's is euclid's own. An
+    // application's is Core::Launch's, the channel a worker uses for the same application.
     static std::string outputChannel(const Dto::ModuleConfig &config) {
-        return std::string(config.application ? Core::LogStream::kApplicationChannel : Core::LogStream::kModuleChannel) + "." + config.name;
+        return config.application ? Core::Launch::OutputChannel(config.name)
+                                  : std::string(Core::LogStream::kModuleChannel) + "." + config.name;
     }
 
-    // What euclid knows about the process a line came from and the line itself does not say. One
-    // index holds every namespace of an installation, so this is what tells development's output
-    // from production's - an applicationId does not, being unique only within (account,
-    // namespace). Empty for a euclid module, which belongs to no namespace in particular.
+    // What euclid knows about the process a line came from and the line itself does not say - see
+    // Core::Launch::OutputFields. Empty for a euclid module, which belongs to no namespace in
+    // particular.
     static std::string outputFields(const Dto::ModuleConfig &config) {
         if (!config.application) return {};
-
-        boost::json::object fields{{"service.name", config.name}, {"application.id", config.name}};
-        if (!config.nameSpace.empty()) fields["namespace"] = config.nameSpace;
-        if (!config.accountId.empty()) fields["account.id"] = config.accountId;
-        return boost::json::serialize(fields);
-    }
-
-    // The severity a line is recorded at. An application that logs JSON has already said what its
-    // record means, and taking its word for it is what makes a channel level worth setting: until
-    // this existed every line from a program's stdout was "info" whatever it actually was, so
-    // turning a noisy application down to "error" silenced its errors along with everything else.
-    //
-    // The pipe is still the fallback, and still the answer for a program that logs plain text.
-    static boost::log::trivial::severity_level severityOf(const std::string &line, const bool isError) {
-
-        const auto fallback = isError ? boost::log::trivial::error : boost::log::trivial::info;
-
-        // Cheap enough to be worth doing before parsing: almost every line from a program that
-        // does not log JSON fails this, and parsing each of those would be the cost of the
-        // feature for everybody who does not use it.
-        if (line.size() < 2 || line.front() != '{') return fallback;
-
-        boost::system::error_code ec;
-        const auto parsed = boost::json::parse(line, ec);
-        if (ec || !parsed.is_object()) return fallback;
-
-        const auto *level = parsed.as_object().if_contains("level");
-        if (level == nullptr || !level->is_string()) return fallback;
-
-        auto name = std::string(level->as_string());
-        std::ranges::transform(name, name.begin(), [](const unsigned char c) { return static_cast<char>(std::tolower(c)); });
-
-        // Logback's names, and the two SLF4J spells differently from Boost.Log.
-        if (name == "trace") return boost::log::trivial::trace;
-        if (name == "debug") return boost::log::trivial::debug;
-        if (name == "info") return boost::log::trivial::info;
-        if (name == "warn" || name == "warning") return boost::log::trivial::warning;
-        if (name == "error" || name == "severe") return boost::log::trivial::error;
-        if (name == "fatal") return boost::log::trivial::fatal;
-        return fallback;
+        return Core::Launch::OutputFields(config.name, config.nameSpace, config.accountId);
     }
 
     // Reads lines from fd until EOF, re-emitting each on the channel of the process it came from -
@@ -156,14 +91,9 @@ namespace Euclid::main {
     static void drainPipe(const int fd, const bool isError, const std::string channel, const std::string fields) {
         std::string line;
         char ch;
-        auto emit = [&](const std::string &raw) {
-            // Sanitised first, and the severity read from what the program actually wrote: a
-            // control character in a line is not allowed to become a terminal escape in the
-            // journal, and a JSON line's own level is better than a guess from which pipe it
-            // came down.
-            const auto sanitized = sanitizeForLog(raw);
-            Core::LogStream::LogVerbatim(channel, severityOf(sanitized, isError), sanitized, fields);
-        };
+        // Sanitised, and recorded at the severity the program itself wrote where it said one - see
+        // Core::Launch::EmitOutput, which a worker records its instances' output with too.
+        auto emit = [&](const std::string &raw) { Core::Launch::EmitOutput(channel, raw, isError, fields); };
 #if defined(_WIN32)
         while (Platform::PipeRead(fd, &ch, 1) == 1) {
 #else
@@ -280,23 +210,17 @@ namespace Euclid::main {
         std::lock_guard lock(httpPortsMutex());
 
         // A restart of the same slot keeps the port it had, so anything pointed at this instance
-        // does not have to be told about a restart it never noticed.
-        if (const auto held = httpPorts().find(svc->instanceId); held != httpPorts().end()) return held->second;
-
-        for (long port = first; port <= last; ++port) {
-            const bool taken = std::ranges::any_of(httpPorts(), [port](const auto &entry) {
-                return entry.second == static_cast<int>(port);
-            });
-            if (!taken) {
-                httpPorts()[svc->instanceId] = static_cast<int>(port);
-                return static_cast<int>(port);
-            }
+        // does not have to be told about a restart it never noticed. The rule is Core::Launch's,
+        // the one a worker gives its own instances ports by.
+        const auto port = Core::Launch::PickHttpPort(httpPorts(), svc->instanceId, first, last);
+        if (port == 0) {
+            // Every port in the range is spoken for. Nothing is invented outside it: a port the
+            // operator did not set aside might belong to something else on this host.
+            log_warning << "No free HTTP port for " << svc->config.name << " in " << first << "-" << last;
+            return 0;
         }
-
-        // Every port in the range is spoken for. Nothing is invented outside it: a port the
-        // operator did not set aside might belong to something else on this host.
-        log_warning << "No free HTTP port for " << svc->config.name << " in " << first << "-" << last;
-        return 0;
+        httpPorts()[svc->instanceId] = port;
+        return port;
     }
 
     // Gives an instance's port back when the slot itself is gone, not when it merely stopped: a
@@ -894,28 +818,13 @@ namespace Euclid::main {
             const auto target = directory / std::filesystem::path(application.artifactKey).filename();
 
             // Re-copied whenever the local copy is not the object byte for byte, which is the case
-            // that matters here: a new build uploaded to the same key. Compared by content rather
-            // than by size, because a rebuild that happens to land on the same byte count - a
-            // changed string literal of equal length is enough - would otherwise go on running the
-            // previous build, with everything about the deployment looking correct.
+            // that matters here: a new build uploaded to the same key. The rule is Core::Launch's,
+            // and a worker applies the same one to the same md5 and size.
             //
             // ESM computes md5Sum over the assembled object for both the single-shot and the
             // multipart path, so it is a plain content hash rather than an S3-style etag; size is
             // the fallback for an object stored before it was recorded.
-            bool current = false;
-            if (std::filesystem::exists(target, ec)) {
-                try {
-                    current = object->md5Sum.empty()
-                                  ? static_cast<long>(std::filesystem::file_size(target, ec)) == object->size
-                                  : Core::CryptoUtils::md5SumFile(target.string()) == object->md5Sum;
-                } catch (const std::exception &e) {
-                    // Unreadable for whatever reason - copying over it is the safe answer, and the
-                    // copy reports its own failure.
-                    log_warning << "Could not check the artifact already on disk, applicationId: " << application.applicationId
-                            << ", path: " << target.string() << ", error: " << e.what();
-                }
-            }
-            if (!current) {
+            if (!Core::Launch::ArtifactIsCurrent(target, object->md5Sum, object->size)) {
                 // Whatever the bucket's encryption says: ESM hands back plaintext either way, so
                 // there is one branch here where there used to be two and the manager needs no
                 // key material of its own.
@@ -935,26 +844,12 @@ namespace Euclid::main {
                         << ", size: " << object->size;
             }
 
-            // A BINARY artifact arrives as a plain object with no mode bits worth speaking of, so
-            // it has to be made executable before anything can exec() it.
-            if (application.runtime == Database::Entity::EAP::Runtime::BINARY) {
-                std::filesystem::permissions(target, std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec,
-                                             std::filesystem::perm_options::add, ec);
-            }
+            Core::Launch::PrepareArtifact(target, Database::Entity::EAP::RuntimeToString(application.runtime), application.command);
             return target;
         }
 
-        // How long an application's credentials are good for, and how much of that has to be left
-        // before the reconciler bothers rewriting them. An hour is short enough that a token
-        // lifted out of a process is worth little, and long enough that the rewrite is a rare
-        // event rather than a per-request one.
-        std::chrono::seconds credentialsTtl() {
-            constexpr long kDefaultTtlSeconds = 3600;
-            return std::chrono::seconds(std::max(60L, Core::Configuration::instance().getOr<long>("euclid.modules.eap.credentials-ttl-seconds", kDefaultTtlSeconds)));
-        }
-
         std::filesystem::path credentialsPath(const std::string &runtimeName) {
-            return applicationDir(runtimeName) / "credentials";
+            return applicationDir(runtimeName) / Core::Launch::CredentialsFileName;
         }
 
         // Writes the application's current credentials: a bearer token for the identity it runs
@@ -966,32 +861,6 @@ namespace Euclid::main {
         // reason: a long-lived secret sitting in a process is the thing worth getting rid of.
         // The token is minted here rather than fetched from EAM: it is the same HMAC over the
         // same secret that a login would produce, and the manager already holds both.
-        // The namespace an application's own requests run in.
-        //
-        // Its own field when it has one. When it does not - every application deployed before
-        // applications carried one, and anything created by a client that does not set it yet -
-        // the application's EAM user is asked instead: a user granted exactly one namespace in
-        // this account leaves no room for doubt about which was meant. Several, or none, and it
-        // stays empty rather than guessing, which resolves names at the account root exactly as
-        // before.
-        std::string applicationNamespace(const Database::Entity::EAP::Application &application) {
-
-            if (!application.nameSpace.empty()) return application.nameSpace;
-
-            const auto user = Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(application.userId);
-            if (!user.has_value()) return {};
-
-            // The principal's role grants, which is where "granted exactly one namespace" lives
-            // now. Same rule as before: one namespace leaves no room for doubt, several or none
-            // leaves this empty rather than guessing.
-            for (const auto repository = Database::RepositoryFactory::instance().eamRepository();
-                 const auto &grant: repository->findGrantsByPrincipals({user->ern})) {
-                if (grant.accountId != application.accountId) continue;
-                if (grant.namespaces.size() == 1 && grant.namespaces.front() != "*") return grant.namespaces.front();
-            }
-            return {};
-        }
-
         /**
          * @brief Reports an application whose principal cannot be found, and reports it once.
          *
@@ -1049,105 +918,40 @@ namespace Euclid::main {
                 return false;
             }
 
-            const auto expiresAt = std::chrono::system_clock::now() + credentialsTtl();
-            const auto token = Core::JwtUtils::CreateToken(application.userId, Core::HttpActionServer::JwtSecret(), credentialsTtl());
+            // The same blob EAP issues to a worker for an application placed on a node, so the
+            // file an application reads is the same whichever host it runs on.
+            const auto credentials = Core::Launch::IssueCredentials({.userId = application.userId,
+                                                                     .accountId = application.accountId,
+                                                                     .region = application.region,
+                                                                     .nameSpace = Database::Entity::EAP::ApplicationNamespace(application)});
 
-            const auto &configuration = Core::Configuration::instance();
-            const auto host = configuration.getOr<std::string>("euclid.gateway.http.host", "localhost");
-            const auto port = configuration.getOr<long>("euclid.gateway.http.port", 5566);
-            const auto scheme = configuration.getOr<bool>("euclid.gateway.tls.enabled", true) ? "https" : "http";
-
-            const boost::json::value credentials = {
-                    {"token", token},
-                    {"expiresAt", Core::DateTimeUtils::ToISO8601(expiresAt)},
-                    {"userId", application.userId},
-                    {"accountId", application.accountId},
-                    {"region", application.region},
-                    // Sent by the client as x-euclid-namespace, which is what lets it name a
-                    // queue, topic or bucket rather than spell out a full ERN.
-                    {"namespace", applicationNamespace(application)},
-                    {"endpoint", scheme + std::string("://") + host + ":" + std::to_string(port)},
-            };
-
-            const auto path = credentialsPath(Database::Entity::EAP::RuntimeName(application));
-            std::error_code ec;
-            std::filesystem::create_directories(path.parent_path(), ec);
-
-            // Written beside the target and moved into place, so a process reading the file never
-            // sees half of one: rename() within a directory is atomic, a rewrite in place is not.
-            const auto temporary = path.string() + ".new";
-            {
-                std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
-                if (!out) {
-                    log_error << "Could not write application credentials, path: " << temporary;
-                    return false;
-                }
-                out << boost::json::serialize(credentials);
-            }
-            std::filesystem::permissions(temporary, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
-                                         std::filesystem::perm_options::replace, ec);
-            std::filesystem::rename(temporary, path, ec);
-            if (ec) {
-                log_error << "Could not install application credentials, path: " << path.string() << ", error: " << ec.message();
-                return false;
-            }
-            return true;
+            return Core::Launch::WriteCredentials(credentialsPath(Database::Entity::EAP::RuntimeName(application)), credentials);
         }
 
         // Whether the credentials on disk are missing, unreadable, or close enough to expiry to be
         // worth replacing. Half the lifetime is the threshold, so an application always has at
         // least that long left in hand however unluckily a reconcile tick lands.
         bool credentialsNeedRefresh(const std::string &runtimeName) {
-
-            std::ifstream in(credentialsPath(runtimeName));
-            if (!in) return true;
-
-            try {
-                std::ostringstream buffer;
-                buffer << in.rdbuf();
-                const auto parsed = boost::json::parse(buffer.str());
-                const auto expiresAt = Core::DateTimeUtils::FromISO8601(std::string(parsed.at("expiresAt").as_string()));
-                return expiresAt - std::chrono::system_clock::now() < credentialsTtl() / 2;
-            } catch (const std::exception &) {
-                return true;
-            }
+            const auto expiresAt = Core::Launch::ReadCredentialsExpiry(credentialsPath(runtimeName));
+            return !expiresAt.has_value() || *expiresAt - std::chrono::system_clock::now() < Core::Launch::CredentialsTtl() / 2;
         }
 
         // Everything the process needs to know about itself, and the credentials it needs to be
         // anyone. The application's own environment goes on first, so it cannot shadow these.
         std::map<std::string, std::string> applicationEnvironment(const Database::Entity::EAP::Application &application) {
 
-            auto environment = application.environment;
-            environment["EUCLID_APPLICATION_ID"] = application.applicationId;
-            // Which version of the definition this process was started from. Also what the
-            // reconciler compares to notice that the definition changed under a running pool -
-            // see reconcileApplications().
-            environment["EUCLID_APPLICATION_REVISION"] = Core::DateTimeUtils::ToISO8601(application.modified);
-            // Which build this is, as the deployment named it. An application that logs this on
-            // start-up answers "what is actually running?" from its own log, without anyone having
-            // to compare checksums.
-            environment["EUCLID_APPLICATION_VERSION"] = application.version;
-            environment["EUCLID_APPLICATION_ERN"] = application.ern;
-            environment["EUCLID_ACCOUNT_ID"] = application.accountId;
-            environment["EUCLID_REGION"] = application.region;
-            environment["EUCLID_USER_ID"] = application.userId;
+            // The definition's half, the same one EAP sends a worker - except that the manager
+            // also passes on an operator-named user's access key, as it always has.
+            auto environment = Database::Entity::EAP::ApplicationEnvironment(application, true);
+
+            if (!Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(application.userId).has_value()) {
+                // Not fatal: an application that only serves requests never has to prove who it
+                // is. One that calls back into euclid will get 401s, and this line is what
+                // explains them.
+                log_warning << "Application user not found, applicationId: " << application.applicationId << ", user: " << application.userId;
+            }
 
             const auto &configuration = Core::Configuration::instance();
-            const auto host = configuration.getOr<std::string>("euclid.gateway.http.host", "localhost");
-            const auto port = configuration.getOr<long>("euclid.gateway.http.port", 5566);
-            const auto scheme = configuration.getOr<bool>("euclid.gateway.tls.enabled", true) ? "https" : "http";
-            const auto endpoint = scheme + std::string("://") + host + ":" + std::to_string(port);
-            environment["EUCLID_ENDPOINT"] = endpoint;
-            // The same value under the name the SDKs bind: euclid-spring reads EUCLID_BASE_URL
-            // (euclid.base-url), and an application that finds neither concludes there is no
-            // euclid to talk to. Two names for one endpoint is a small price for an application
-            // that works whichever convention its framework follows.
-            environment["EUCLID_BASE_URL"] = endpoint;
-
-            // RFC 9421 rather than SigV4: an application is whatever language its author reached
-            // for, and HTTP Message Signatures is the one of the two schemes with off-the-shelf
-            // libraries in all of them.
-            environment["EUCLID_SIGNATURE"] = "rfc9421";
 
             // Which certificate to trust when that endpoint is https, which by default it is - and
             // served with a self-signed certificate, which no system trust store has heard of.
@@ -1164,9 +968,10 @@ namespace Euclid::main {
             // certificate means - it is its own authority. Exported only when it is there: a
             // variable naming a file that does not exist is how this failed in the first place, and
             // an SDK that finds nothing can still fall back to the system trust store.
+            std::string caCertPath;
             if (configuration.getOr<bool>("euclid.gateway.tls.enabled", true)) {
                 if (const auto certificate = configuration.getOr<std::string>("euclid.gateway.tls.cert-file", ""); !certificate.empty() && std::filesystem::exists(certificate)) {
-                    environment["EUCLID_CA_CERT_PATH"] = certificate;
+                    caCertPath = certificate;
                 } else {
                     // Not fatal, and worth a line: the gateway is serving TLS with a certificate
                     // this cannot find, so every application that calls back in is about to have a
@@ -1176,24 +981,10 @@ namespace Euclid::main {
                 }
             }
 
-            // Where the short-lived credentials are, and when the process should look again.
-            environment["EUCLID_CREDENTIALS_FILE"] = credentialsPath(Database::Entity::EAP::RuntimeName(application)).string();
-
-            const auto user = Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(application.userId);
-
-            // A technical principal deliberately gets no key: its long-lived secret stays in EAM,
-            // and the process holds nothing but a token that expires. A user the caller named is
-            // different - the operator owns that key and may well want an application signing
-            // with it, so it is passed through as before.
-            if (user.has_value() && user->loginEnabled && !user->accessKeys.empty()) {
-                environment["EUCLID_ACCESS_KEY_ID"] = user->accessKeys.front().accessKeyId;
-                environment["EUCLID_SECRET_ACCESS_KEY"] = user->accessKeys.front().secretAccessKey;
-            } else if (!user.has_value()) {
-                // Not fatal: an application that only serves requests never has to prove who it
-                // is. One that calls back into euclid will get 401s, and this line is what
-                // explains them.
-                log_warning << "Application user not found, applicationId: " << application.applicationId << ", user: " << application.userId;
-            }
+            // The host's half: the gateway as this host reaches it, that certificate, and where the
+            // short-lived credentials are.
+            Core::Launch::AddHostEnvironment(environment, Core::Launch::GatewayEndpoint(), caCertPath,
+                                             credentialsPath(Database::Entity::EAP::RuntimeName(application)).string());
             return environment;
         }
 
@@ -1382,32 +1173,25 @@ namespace Euclid::main {
                 if (!artifact.has_value()) continue;
 
                 // The runtime decides what actually gets exec'd: an interpreter with the artifact
-                // as its argument, or the artifact itself. An application that spells out its own
-                // command overrides all of it.
+                // as its argument, or the artifact itself, and an application that spells out its
+                // own command overrides all of it. The rule is Core::Launch's, the one a worker
+                // starts a placed instance with.
+                //
+                // Where this host keeps each interpreter is read here rather than decided in EAP,
+                // because the application records which version it needs and the host it lands on
+                // records where that version lives - a JDK 25 application is the same definition on
+                // every host and a different path on each of them.
                 Dto::ModuleConfig config;
                 config.name = runtimeName;
-                auto prefix = Database::Entity::EAP::RuntimeCommandPrefix(application.runtime);
 
-                // Where this host keeps that runtime, if it has been told. Decided here rather
-                // than in EAP because the application records which version it needs and the host
-                // it lands on records where that version lives - a JDK 25 application is the same
-                // definition on every host and a different path on each of them.
-                if (const auto setting = Database::Entity::EAP::RuntimeExecutableSetting(application.runtime);
-                    !prefix.empty() && !setting.empty()) {
-                    prefix.front() = Core::Configuration::instance().getOr<std::string>(setting, prefix.front());
-                }
-
-                if (!application.command.empty()) {
-                    config.executable = application.command;
-                    config.args = {artifact->string()};
-                } else if (!prefix.empty()) {
-                    config.executable = prefix.front();
-                    config.args.assign(prefix.begin() + 1, prefix.end());
-                    config.args.push_back(artifact->string());
-                } else {
-                    config.executable = artifact->string();
-                }
-                for (const auto &argument: application.arguments) config.args.push_back(argument);
+                const auto line = Core::Launch::CommandLine(
+                        RuntimeToString(application.runtime), application.command, artifact->string(), application.arguments,
+                        [&application](const std::string &, const std::string &fallback) {
+                            return Core::Configuration::instance().getOr<std::string>(
+                                    Database::Entity::EAP::RuntimeExecutableSetting(application.runtime), fallback);
+                        });
+                config.executable = line.front();
+                config.args.assign(line.begin() + 1, line.end());
 
                 config.environment = applicationEnvironment(application);
                 config.workingDir = applicationDir(runtimeName).string();

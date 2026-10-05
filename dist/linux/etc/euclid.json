@@ -256,6 +256,14 @@
         "threads": 2,
         "http-port-min": 9000,
         "http-port-max": 9999,
+        "local-node": {
+          "enabled": true,
+          "name": "local",
+          "dir": "/usr/local/euclid/data/local-node",
+          "group": "euclid-wrk",
+          "http-port-min": 10000,
+          "http-port-max": 10999
+        },
         "bucket": "apps",
         "runtimes": {
           "java": "java",

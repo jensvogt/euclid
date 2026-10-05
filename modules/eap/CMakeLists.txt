@@ -1,5 +1,5 @@
 set(BINARY euclid-eap)
-add_executable(${BINARY} src/main.cpp src/EapServer.cpp)
+add_executable(${BINARY} src/main.cpp src/EapServer.cpp src/LocalNode.cpp)
 set_target_properties(${BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 target_include_directories(${BINARY} PRIVATE include)
 target_link_libraries(${BINARY} PRIVATE euclidcore eucliddb eucliddto Boost::thread Boost::program_options)

@@ -142,6 +142,50 @@ BOOST_AUTO_TEST_CASE(AnAssignedSlotThatIsNotRunningIsStarted) {
     BOOST_TEST(plan.stop.empty());
 }
 
+// ── A crash, which is a restart rather than a give-up ──────────────────────
+
+BOOST_AUTO_TEST_CASE(ACrashedSlotIsHeldOffUntilItsDelayHasPassed) {
+
+    // Still assigned, not running because it exited: without the hold-off the next tick would fork
+    // it again at once, and a process failing on start-up would become a fork every tick.
+    const State held{.assigned = {assignment("i-1")}, .running = {}, .leaseExpiresAt = kNow + 45s, .renewed = true,
+                     .holdOff = {{"i-1", kNow + 4s}}};
+    BOOST_TEST(Decide(held, kNow).start.empty());
+
+    const State due{.assigned = {assignment("i-1")}, .running = {}, .leaseExpiresAt = kNow + 45s, .renewed = true,
+                    .holdOff = {{"i-1", kNow - 1s}}};
+    BOOST_TEST_REQUIRE(Decide(due, kNow).start.size() == 1U);
+}
+
+BOOST_AUTO_TEST_CASE(AHoldOffOnOneSlotDoesNotHoldBackAnother) {
+
+    const State state{.assigned = {assignment("i-1"), assignment("i-2")}, .running = {}, .leaseExpiresAt = kNow + 45s,
+                      .renewed = true, .holdOff = {{"i-1", kNow + 30s}}};
+
+    const auto plan = Decide(state, kNow);
+    BOOST_TEST_REQUIRE(plan.start.size() == 1U);
+    BOOST_TEST(plan.start.front().instanceId == "i-2");
+}
+
+BOOST_AUTO_TEST_CASE(TheRestartDelayDoublesUpToThirtySeconds) {
+
+    using Euclid::Worker::Reconciler::RestartDelay;
+
+    // The manager's backoff for its own instances: one second, doubled per crash in a row.
+    BOOST_TEST(RestartDelay(0s, 0s).count() == 1);
+    BOOST_TEST(RestartDelay(1s, 2s).count() == 2);
+    BOOST_TEST(RestartDelay(8s, 2s).count() == 16);
+    BOOST_TEST(RestartDelay(16s, 2s).count() == 30);
+    BOOST_TEST(RestartDelay(30s, 2s).count() == 30);
+}
+
+BOOST_AUTO_TEST_CASE(AProcessThatRanAMinuteStartsTheBackoffAgain) {
+
+    // Failing after a minute of running is a new problem, not the same one again.
+    BOOST_TEST(Euclid::Worker::Reconciler::RestartDelay(30s, 60s).count() == 1);
+    BOOST_TEST(Euclid::Worker::Reconciler::RestartDelay(30s, 59s).count() == 30);
+}
+
 BOOST_AUTO_TEST_CASE(AnAssignedSlotAlreadyRunningIsLeftAlone) {
 
     // The common case, every tick, for ever. A plan that is not empty here would restart the

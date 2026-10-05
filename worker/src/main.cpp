@@ -101,6 +101,10 @@ namespace {
         // per-user location, which is what a worker run by hand should use.
         std::string credentialsFile;
 
+        // Wait for the configuration file, and then the credentials it names, to exist rather than
+        // fail without them - the local node's case, whose files the manager writes when it starts.
+        bool waitForConfig{};
+
         Euclid::Worker::Options worker;
 
 #if defined(_WIN32)
@@ -176,7 +180,28 @@ static BOOL WINAPI consoleHandler(const DWORD ctrlType) {
 // only thing that changes: the loop, the lease and the stop are identical either way. A service
 // that took a different path through its own startup than the one a developer runs is a service
 // whose failures are only reproducible in production.
+// Waits until a file exists, for as long as nobody asks this process to stop. Said once, not once a
+// second: the wait is the expected state for as long as the manager has not started yet.
+static bool waitFor(const std::filesystem::path &path, const std::string &what) {
+
+    std::error_code ec;
+    if (std::filesystem::exists(path, ec)) return true;
+
+    std::cerr << "waiting for " << what << " at " << path.string() << std::endl;
+    while (!g_shutdownRequested) {
+        if (std::filesystem::exists(path, ec)) return true;
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+    return false;
+}
+
 static int RunWorker(const CliOptions &options, const bool reportServiceStatus) {
+
+    // The local node's case: its configuration and credentials are written by the manager on the
+    // same host when EAP starts (docs/worker-nodes.md §13.3), which on a boot or a first install is
+    // after this process does. Without waiting it would fail, be restarted, and fail again until
+    // they appear - burying the one line that says why under a restart loop's worth of them.
+    if (options.waitForConfig && !options.configFile.empty() && !waitFor(options.configFile, "the configuration")) return 0;
 
     if (!options.configFile.empty()) {
         try {
@@ -225,10 +250,17 @@ static int RunWorker(const CliOptions &options, const bool reportServiceStatus) 
     const auto credentialsFile = !options.credentialsFile.empty()
                                          ? options.credentialsFile
                                          : Euclid::Core::Configuration::instance().getOr<std::string>("euclid.worker.credentials", "");
+    if (options.waitForConfig && !credentialsFile.empty() && !waitFor(credentialsFile, "the credentials")) return 0;
+
     const auto credentials = credentialsFile.empty()
                                      ? Euclid::CLI::Credentials::Load()
                                      : Euclid::CLI::Credentials::Load(credentialsFile);
-    if (!credentials.has_value() || credentials->token.empty()) {
+
+    // A login's token, or an access key - which is what the local node is given rather than a login,
+    // and is enough: everything a worker sends goes to EAP or ESM, and those are signed with the key.
+    // Only EAM's own actions need the token, and a worker calls none of them.
+    const bool canSign = credentials.has_value() && !credentials->accessKeyId.empty() && !credentials->secretAccessKey.empty();
+    if (!credentials.has_value() || (credentials->token.empty() && !canSign)) {
         std::cerr << "error: not logged in - run 'euclid-cli eam login' as this node's principal first";
         if (!credentialsFile.empty()) std::cerr << "\n       and put the credentials file at " << credentialsFile;
         std::cerr << std::endl;
@@ -243,7 +275,25 @@ static int RunWorker(const CliOptions &options, const bool reportServiceStatus) 
         std::cerr << "error: --endpoint is required (or euclid.worker.endpoint in the configuration)" << std::endl;
         return 1;
     }
+    // The node's name and labels from the configuration too, under whatever the command line said:
+    // a node's identity belongs in the file an upgrade leaves alone, not in a unit file or a
+    // launchd job that it replaces. A label given on the command line wins over one of the same
+    // key in the file.
+    if (workerOptions.nodeName.empty()) {
+        workerOptions.nodeName = Euclid::Core::Configuration::instance().getOr<std::string>("euclid.worker.node", "");
+    }
     if (workerOptions.nodeName.empty()) workerOptions.nodeName = Euclid::Core::SystemUtils::GetHostName();
+    if (Euclid::Core::Configuration::instance().has("euclid.worker.labels")) {
+        try {
+            for (const auto &[key, value]: Euclid::Core::Configuration::instance().getObject("euclid.worker.labels")) {
+                if (const auto *text = std::get_if<std::string>(&value)) workerOptions.labels.try_emplace(key, *text);
+                else if (const auto *flag = std::get_if<bool>(&value)) workerOptions.labels.try_emplace(key, *flag ? "true" : "false");
+            }
+        } catch (const std::exception &e) {
+            std::cerr << "error: euclid.worker.labels has to be an object of key/value strings: " << e.what() << std::endl;
+            return 1;
+        }
+    }
     // From the configuration as well as the command line, for the reason the unit file gives for the
     // endpoint: a master with a self-signed certificate is the ordinary case on a LAN, and trusting
     // it should not need an edit to a unit file that the next package upgrade overwrites.
@@ -294,7 +344,12 @@ static int RunWorker(const CliOptions &options, const bool reportServiceStatus) 
     while (!g_shutdownRequested) {
 
         state.renewed = worker.Renew(state.assigned, state.leaseExpiresAt);
+
+        // What exited since the last tick is given up first, so the decision below sees only what
+        // is alive - and holds a crashed slot off rather than restarting it on the spot.
+        worker.Reap();
         state.running = worker.Running();
+        state.holdOff = worker.HoldOff();
 
         const auto plan = Euclid::Worker::Reconciler::Decide(state, std::chrono::system_clock::now());
         worker.Apply(plan);
@@ -373,6 +428,7 @@ int main(const int argc, char **argv) {
             ("ca-cert", po::value<std::string>()->default_value(""), "a CA certificate to trust in addition to the system store")
             ("address,a", po::value<std::string>(), "IP address to report for this node; defaults to the one the master is reached from")
             ("credentials", po::value<std::string>()->default_value(""), "credentials file to read instead of the invoking user's own")
+            ("wait-for-config", "wait for the configuration file and the credentials it names to exist, rather than fail")
             ("config,c", po::value<std::string>()->default_value(""), "configuration file");
 
 #if defined(_WIN32)
@@ -400,6 +456,7 @@ int main(const int argc, char **argv) {
     CliOptions cliOptions;
     cliOptions.configFile = vm["config"].as<std::string>();
     cliOptions.credentialsFile = vm["credentials"].as<std::string>();
+    cliOptions.waitForConfig = vm.contains("wait-for-config");
     if (vm.contains("endpoint")) cliOptions.worker.endpoint = vm["endpoint"].as<std::string>();
     if (vm.contains("node")) cliOptions.worker.nodeName = vm["node"].as<std::string>();
     if (vm.contains("data-dir")) cliOptions.worker.dataDir = vm["data-dir"].as<std::string>();

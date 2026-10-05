@@ -7,6 +7,7 @@
 // C++ includes
 #include <algorithm>
 #include <chrono>
+#include <map>
 #include <ranges>
 #include <string>
 #include <vector>
@@ -71,7 +72,13 @@ namespace Euclid::Worker {
              */
             std::string bucketErn;
             std::string artifactKey;
+            /**
+             * @brief The object's size and content hash, as ESM recorded them. The size decides
+             * whether the artifact is fetched in one call or in parts; the hash, whether the copy
+             * already on disk is the build to run - see Core::Launch::ArtifactIsCurrent().
+             */
             long artifactSize{};
+            std::string md5Sum;
             std::string runtime;
             /**
              * @brief The application's own command, when it names one instead of its runtime's
@@ -79,6 +86,26 @@ namespace Euclid::Worker {
              */
             std::string command;
             std::vector<std::string> arguments;
+
+            /**
+             * @brief The definition's half of the process environment, as the master sends it -
+             * see Database::Entity::EAP::ApplicationEnvironment(). The worker adds the host's half
+             * (Core::Launch::AddHostEnvironment) when it starts the process.
+             */
+            std::map<std::string, std::string> environment;
+
+            /**
+             * @brief What the instance's output is labelled with - see Core::Launch::OutputFields.
+             */
+            std::string accountId;
+            std::string nameSpace;
+
+            /**
+             * @brief The level the application's output channel is held at, as set with
+             * eap set-log-level; empty for "whatever euclid.logging.channels says". Applied by the
+             * worker on every renewal, and never a reason to restart anything.
+             */
+            std::string logLevel;
         };
 
         /**
@@ -159,7 +186,39 @@ namespace Euclid::Worker {
              * that would otherwise have cost an outage.
              */
             bool renewed{false};
+
+            /**
+             * @brief Slots whose process exited on its own, and when each may be started again.
+             *
+             * @par
+             * A crash is not a reason to give a slot up - it is still assigned here and the master
+             * still expects it - so the next tick would start it again at once. That is how a
+             * process that fails on start-up turns into a fork every ten seconds with nothing in
+             * between to let whatever it depends on come back. Held off by RestartDelay() instead,
+             * the same backoff the manager applies to its own instances.
+             */
+            std::map<std::string, std::chrono::system_clock::time_point> holdOff;
         };
+
+        /**
+         * @brief How long to wait before starting a crashed instance again.
+         *
+         * @par
+         * The manager's rule for its own instances (ModuleConfig::restartDelayMs and
+         * maxRestartDelayMs, the watchdog's doubling): a second the first time, doubled on each
+         * crash in a row up to thirty, and back to a second once the process has run for a minute -
+         * a process that ran that long and then failed is having a new problem, not the same one.
+         *
+         * @param previous the delay used for the last crash; zero when there was none.
+         * @param ranFor how long the process ran before it exited this time.
+         */
+        [[nodiscard]] inline std::chrono::seconds RestartDelay(const std::chrono::seconds previous, const std::chrono::seconds ranFor) {
+            constexpr auto kInitial = std::chrono::seconds{1};
+            constexpr auto kMaximum = std::chrono::seconds{30};
+            constexpr auto kStable = std::chrono::seconds{60};
+            if (previous.count() <= 0 || ranFor >= kStable) return kInitial;
+            return std::min(previous * 2, kMaximum);
+        }
 
         /**
          * @brief Decides what to do.
@@ -197,6 +256,11 @@ namespace Euclid::Worker {
                 });
 
                 if (found == state.running.end()) {
+                    // Not running because it crashed, and not yet due to be tried again.
+                    if (const auto held = state.holdOff.find(assignment.instanceId);
+                        held != state.holdOff.end() && now < held->second) {
+                        continue;
+                    }
                     plan.start.push_back(assignment);
                     continue;
                 }

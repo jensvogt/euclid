@@ -31,10 +31,12 @@ ProtectHome=true
 PrivateTmp=true
 ReadWritePaths=/var/lib/euclid-wrk
 
-# The endpoint, the address and the data directory belong in the configuration file rather than
-# here, so that changing where this worker reports to is not an edit to a unit file that the next
-# package upgrade would overwrite. The node name and the labels are command-line options only: add
-# them with "systemctl edit euclid-wrk", whose override an upgrade leaves alone.
+# The endpoint, the node name, the labels, the address and the data directory belong in the
+# configuration file rather than here, so that changing where this worker reports to is not an edit
+# to a unit file that the next package upgrade would overwrite.
+#
+# On a manager host the server package's drop-in (euclid-wrk.service.d/local-node.conf) replaces this
+# ExecStart with one reading the configuration the manager generates - see docs/worker-nodes.md §13.3.
 #
 # Deliberately *not* --config /usr/local/euclid/etc/euclid.json. That is the manager's
 # configuration and it holds euclid.modules.eam.jwt-secret; a worker refuses to start if it finds

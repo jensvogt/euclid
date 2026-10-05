@@ -44,6 +44,17 @@ target_link_libraries(${EAP_APPLICATION_BUCKET_BINARY} PRIVATE eucliddto Boost::
 
 add_test(NAME ${EAP_APPLICATION_BUCKET_BINARY} COMMAND ${EAP_APPLICATION_BUCKET_BINARY})
 
+# The worker on the manager's own host, as EAP provisions it - docs/worker-nodes.md §13.3.
+set(LOCAL_NODE_BINARY euclid-local-node-tests)
+
+add_executable(${LOCAL_NODE_BINARY} LocalNodeTest.cpp ${CMAKE_SOURCE_DIR}/modules/eap/src/LocalNode.cpp)
+set_target_properties(${LOCAL_NODE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${LOCAL_NODE_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/eap/include)
+target_link_libraries(${LOCAL_NODE_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${LOCAL_NODE_BINARY} COMMAND ${LOCAL_NODE_BINARY})
+
 set(HTTP_SIGNATURE_BINARY euclid-http-signature-tests)
 
 add_executable(${HTTP_SIGNATURE_BINARY} HttpSignatureTest.cpp)
@@ -240,17 +251,38 @@ target_link_libraries(${WORKER_RECONCILER_BINARY} PRIVATE Boost::unit_test_frame
 
 add_test(NAME ${WORKER_RECONCILER_BINARY} COMMAND ${WORKER_RECONCILER_BINARY})
 
-# Header-only on both sides: the worker's command-line rule, and the manager's Runtime.h it is
-# checked against. Neither needs a library, which is what lets the worker's stay out of eucliddb.
-set(WORKER_COMMAND_BINARY euclid-wrk-command-tests)
+# What both the manager and euclid-wrk start an application with - Core::Launch, which is in core
+# so that a worker, which does not link eucliddb, starts applications by the same rule.
+set(APPLICATION_LAUNCH_BINARY euclid-application-launch-tests)
 
-add_executable(${WORKER_COMMAND_BINARY} WorkerCommandTest.cpp)
-set_target_properties(${WORKER_COMMAND_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+add_executable(${APPLICATION_LAUNCH_BINARY} ApplicationLaunchTest.cpp)
+set_target_properties(${APPLICATION_LAUNCH_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 
-target_include_directories(${WORKER_COMMAND_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/worker/include ${CMAKE_SOURCE_DIR}/database/include)
-target_link_libraries(${WORKER_COMMAND_BINARY} PRIVATE Boost::unit_test_framework)
+target_link_libraries(${APPLICATION_LAUNCH_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
 
-add_test(NAME ${WORKER_COMMAND_BINARY} COMMAND ${WORKER_COMMAND_BINARY})
+add_test(NAME ${APPLICATION_LAUNCH_BINARY} COMMAND ${APPLICATION_LAUNCH_BINARY})
+
+# Starting a process on Windows, which the manager and euclid-wrk both do through Core::WindowsProcess.
+# Builds everywhere and asserts nothing off Windows.
+set(WINDOWS_PROCESS_BINARY euclid-windows-process-tests)
+
+add_executable(${WINDOWS_PROCESS_BINARY} WindowsProcessTest.cpp)
+set_target_properties(${WINDOWS_PROCESS_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${WINDOWS_PROCESS_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${WINDOWS_PROCESS_BINARY} COMMAND ${WINDOWS_PROCESS_BINARY})
+
+# The definition's half of the same: the environment and namespace an application is given, which
+# the manager and EAP's renewal both ask for.
+set(APPLICATION_IDENTITY_BINARY euclid-application-identity-tests)
+
+add_executable(${APPLICATION_IDENTITY_BINARY} ApplicationIdentityTest.cpp)
+set_target_properties(${APPLICATION_IDENTITY_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${APPLICATION_IDENTITY_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${APPLICATION_IDENTITY_BINARY} COMMAND ${APPLICATION_IDENTITY_BINARY})
 
 set(NODE_LEASE_BINARY euclid-node-lease-tests)
 
