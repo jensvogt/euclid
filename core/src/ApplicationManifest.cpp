@@ -34,9 +34,20 @@ namespace Euclid::Core {
             static const std::map<std::string, Kind> kSections{
                     {"buckets", Kind::Bucket},
                     {"queues", Kind::Queue},
+                    {"secrets", Kind::Secret},
                     {"topics", Kind::Topic},
             };
             return kSections;
+        }
+
+        // Which access levels mean anything on a kind. Only secrets are restricted, because they
+        // are the one kind with a single verb: a secret is read, and "write" or "subscribe" on one
+        // is not a narrower request but a misunderstanding of what the entry does. The other three
+        // are left to the module-side table in Infrastructure.h, which is where the queue/topic/
+        // bucket access pairs already live and the only place they should be enumerated.
+        bool accessApplies(const Kind kind, const Access access) {
+            if (kind != Kind::Secret) return true;
+            return access == Access::Read;
         }
 
         const std::map<std::string, Access> &accessLevels() {
@@ -171,6 +182,15 @@ namespace Euclid::Core {
                         fail("\"creates\" has an unknown section \"" + sectionName + "\"; expected one of: " + joinKeys(sections()));
                         continue;
                     }
+                    if (kind->second == Kind::Secret) {
+                        // Refused at the section rather than per entry: it is one mistake about what
+                        // a manifest is for, not one per secret. A secret's value would have to be
+                        // in the file to create it, and the file is in the artifact.
+                        fail("\"creates\" cannot hold secrets; a secret's value would have to travel in the "
+                             "manifest, so an operator writes it with \"ess create-secret\" and the manifest "
+                             "names it under \"uses\"");
+                        continue;
+                    }
                     if (!section.value().is_array()) {
                         fail("\"creates." + sectionName + "\" must be an array");
                         continue;
@@ -278,6 +298,12 @@ namespace Euclid::Core {
                             if (level == accessLevels().end()) {
                                 fail(describe(declaration.kind, declaration.name) + " has an unknown access \"" +
                                      std::string(entry.as_string()) + "\"; expected one or more of: " + joinKeys(accessLevels()));
+                                understood = false;
+                                break;
+                            }
+                            if (!accessApplies(declaration.kind, level->second)) {
+                                fail(describe(declaration.kind, declaration.name) + " has no \"" +
+                                     std::string(entry.as_string()) + "\" access; a secret is read, and only read");
                                 understood = false;
                                 break;
                             }

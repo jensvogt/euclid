@@ -71,8 +71,18 @@ namespace Euclid::Core {
 
         /**
          * @brief What kind of object a declaration is about.
+         *
+         * @par Why Secret is only ever used, never created
+         * The other three are objects an application owns and euclid can make for it. A secret is
+         * the one whose *value* is the point, and that value cannot travel in a manifest: the
+         * manifest ships in the artifact, so a `creates` entry for a secret would mean database
+         * credentials committed to the application's own repository. Writing one is an operator's
+         * job, done once with `euclid-cli ess create-secret`; the manifest's part is to say which
+         * of them this application reads, so the grant can name those and not every secret in the
+         * namespace. @ref ParseApplicationManifest refuses a secret under `creates` saying so, and
+         * `read` is the only access level it accepts for one.
          */
-        enum class Kind : std::uint8_t { Bucket, Queue, Topic };
+        enum class Kind : std::uint8_t { Bucket, Queue, Topic, Secret };
 
         /**
          * @brief One object this application owns and euclid should create.

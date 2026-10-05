@@ -194,10 +194,29 @@ Or add the signed APT repository once, then install/upgrade via `apt`:
 
 ```bash
 curl -fsSL https://jensvogt.github.io/euclid/apt/euclid-archive-keyring.asc | sudo gpg --dearmor -o /usr/share/keyrings/euclid-archive-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/euclid-archive-keyring.gpg] https://jensvogt.github.io/euclid/apt stable main" | sudo tee /etc/apt/sources.list.d/euclid.list
+echo "deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/euclid-archive-keyring.gpg] https://jensvogt.github.io/euclid/apt stable main" | sudo tee /etc/apt/sources.list.d/euclid.list
 sudo apt update
 sudo apt install euclid
 ```
+
+`arch=amd64,arm64` names what the repository actually publishes. Without it, `apt` asks this
+repository for every architecture the machine has enabled and reports each one it does not find:
+
+```
+Notice: Skipping acquire of configured file 'main/binary-armhf/Packages' as repository
+'https://jensvogt.github.io/euclid/apt stable InRelease' doesn't support architecture 'armhf'
+```
+
+That is a notice rather than an error - the packages for the machine's own architecture are still
+fetched and installed - but it appears on every `apt update`. It is most often seen on 64-bit
+Raspberry Pi OS, which enables `armhf` alongside `arm64` for compatibility, and on `amd64` machines
+with `i386` enabled. Pinning the architectures stops `apt` asking for what was never there.
+
+**32-bit is not published.** The release builds `amd64` and `arm64` and nothing else, so there is no
+`armhf` or `i386` package to install. Nor has euclid been built or tested on a 32-bit target: sizes
+and counters are carried as `long` in places, which is 64-bit on both published architectures and
+would not be on either 32-bit one, and nothing in the build asserts otherwise. On a Raspberry Pi,
+install the 64-bit Raspberry Pi OS and use `arm64`.
 
 ### RPM (RHEL / Fedora)
 
@@ -269,6 +288,97 @@ Then point it at the server:
 ```bash
 euclid-cli --endpoint https://euclid.example.com eam login --user jens --password <secret>
 ```
+
+### The worker on its own
+
+A worker node runs the applications a euclid places on it and nothing else — no modules, no
+database credentials, nothing listening. So it has its own package too, carrying `euclid-wrk`, its
+own configuration file and its own service definition, and deliberately not the manager's
+`euclid.json`: that file holds `euclid.modules.eam.jwt-secret`, and a worker **refuses to start** if
+it finds that key, because anything holding it can mint a bearer token for any principal in the
+installation. See [worker nodes](docs/worker-nodes.md) §3.2.
+
+```bash
+sudo apt install euclid-wrk          # from the APT repository added above
+```
+
+```bash
+wget https://jensvogt.github.io/euclid/euclid-wrk-<version>-amd64.deb
+sudo apt install ./euclid-wrk-<version>-amd64.deb
+```
+
+```bash
+wget https://jensvogt.github.io/euclid/euclid-wrk-<version>-1.x86_64.rpm
+sudo rpm -i euclid-wrk-<version>-1.x86_64.rpm
+```
+
+These create an unprivileged `euclid-wrk` account — not `euclid`'s, since a worker host is not a
+euclid host — and enable the service without starting it. A worker can do nothing until it has an
+endpoint and a login, and one that restart-loops from the moment it is installed buries the message
+saying so. So finish the configuration, then start it:
+
+```bash
+sudo apt install euclid-cli                           # the login below needs it; the worker
+                                                      # package does not carry it
+sudoedit /usr/local/euclid/etc/euclid-wrk.json        # euclid.worker.endpoint
+
+# -H so the credentials land in euclid-wrk's own home, which is where the service looks for them.
+sudo -H -u euclid-wrk euclid-cli --endpoint https://euclid.example.com \
+    eam login --user <this node's principal> --password <secret>
+
+sudo systemctl start euclid-wrk
+```
+
+A worker is an ordinary euclid client and logs in the way any other does — there is no separate
+worker identity mechanism, which is what keeps its role, its grants and its audit trail ordinary.
+
+macOS — unpacks under `/usr/local`, putting the binary on the same path the Linux packages use. A
+tarball cannot create an account or load a daemon, so those two steps are yours:
+
+```bash
+wget https://jensvogt.github.io/euclid/euclid-wrk-<version>-macos.tgz
+sudo tar -xzf euclid-wrk-<version>-macos.tgz -C /usr/local
+
+# The account the daemon runs as. Not root: the applications a worker starts are forked from it and
+# inherit what it may do, and macOS has no ProtectSystem=strict to fall back on. launchd refuses to
+# load the job until this exists.
+#
+# 399 is in the range macOS keeps for system accounts; check it is free on this machine first, since
+# a duplicate id makes two accounts one as far as the filesystem is concerned:
+#   dscl . -list /Users UniqueID | awk '$2 == 399'
+sudo dscl . -create /Groups/_euclid-wrk PrimaryGroupID 399
+sudo dscl . -create /Users/_euclid-wrk UserShell /usr/bin/false
+sudo dscl . -create /Users/_euclid-wrk UniqueID 399
+sudo dscl . -create /Users/_euclid-wrk PrimaryGroupID 399
+sudo dscl . -create /Users/_euclid-wrk NFSHomeDirectory /usr/local/var/euclid-wrk
+sudo dscl . -create /Users/_euclid-wrk RealName "Euclid Worker Node"
+
+# Everything a worker writes: fetched artifacts, each instance's credentials, the applications'
+# own output. Nothing here is durable, so it can be thrown away without losing anything.
+sudo mkdir -p /usr/local/var/euclid-wrk/log
+sudo chown -R _euclid-wrk:_euclid-wrk /usr/local/var/euclid-wrk
+sudo chmod 0750 /usr/local/var/euclid-wrk
+
+sudo vi /usr/local/euclid/etc/euclid-wrk.json          # euclid.worker.endpoint
+
+# The login needs euclid-cli, which this package does not carry - unpack the CLI tarball above if
+# it is not already here. -H puts the credentials in _euclid-wrk's own home, which is the state
+# directory created above and exactly the path euclid.worker.credentials names: the configuration
+# spells it out rather than relying on HOME, because launchd does not promise a daemon the one its
+# user record gives.
+sudo -H -u _euclid-wrk euclid-cli --endpoint https://euclid.example.com \
+    eam login --user <this node's principal> --password <secret>
+
+# /Library/LaunchDaemons is the only directory launchd reads system daemons from, and it will reject
+# a job file that is not root-owned 0644.
+sudo install -o root -g wheel -m 0644 \
+    /usr/local/euclid/etc/de.jensvogt.euclid-wrk.plist /Library/LaunchDaemons/
+sudo launchctl bootstrap system /Library/LaunchDaemons/de.jensvogt.euclid-wrk.plist
+```
+
+Windows — download and run `euclid-wrk-<version>-amd64.msi`, which installs the binary and registers
+the `euclid-wrk` service. See [the MSI notes](dist/win32/msi/README.md) for the credentials copy that
+step needs.
 
 ### Build from source
 

@@ -40,7 +40,9 @@ repository.
   },
   "uses": {
     "topics":  [ { "name": "artikel-updates", "access": "subscribe", "owner": "transformation" } ],
-    "buckets": [ { "name": "transfer-server", "access": ["subscribe", "read"] } ]
+    "buckets": [ { "name": "transfer-server", "access": ["subscribe", "read"] } ],
+    "secrets": [ { "name": "parsing-username", "access": "read" },
+                 { "name": "parsing-password", "access": "read" } ]
   }
 }
 ```
@@ -67,6 +69,33 @@ same object twice is still refused — two declarations of one object are two an
 | `consume` | receive and delete messages from a queue somebody else created. |
 | `produce` | send messages to a queue, or publish to a topic. |
 | `subscribe` | attach a queue of one's own to a topic, or to a bucket's events. |
+
+Not every level applies to every kind. A secret has one verb — `read` — so `write` on one is not a
+narrower request but somebody expecting an application to be able to rotate the credentials it uses,
+and it is refused saying so.
+
+### Secrets
+
+The one kind an application may name and can never own. A secret's value is the point of it, and the
+only place a manifest could carry one is the file itself — which ships inside the artifact, so a
+`creates` entry for a secret would mean database credentials committed to the application's own
+repository. A secret under `creates` is therefore refused, naming where the value goes instead:
+
+```
+euclid-cli ess create-secret --name parsing-password --value ... --description 'PIM database'
+```
+
+That is an operator's job, done once. The manifest's part is to say which secrets this application
+reads, so that its grant covers those and no others. This matters more than it looks: `ess:get-secret`
+is resource-checked, but a deployment that names no resources at all is granted `["*"]` — so an
+application that does not declare its secrets can read every secret in its namespace, and one that
+declares them can read exactly the ones it listed.
+
+Declared by name, like everything else here, and for a reason that is specific to secrets: a name is
+what a deployment's configuration can carry and what stays the same between environments, which is
+how `parsing-username` means the development credentials in development and the production ones in
+production. `ess:get-secret` takes that name and resolves it internally, so unlike the other kinds
+there is no ERN-lookup permission to grant alongside.
 
 Names are names, not ERNs. An ERN carries an account and a namespace, and a manifest is applied into
 whichever namespace the application is deployed to — accepting one would let a development
@@ -116,7 +145,8 @@ What is refused rather than ignored:
   knows and silently not the ones it does not;
 - the same object declared in two files, naming both;
 - an object that is created here and used here — an application owns an object or consumes one;
-- the same used object with two different `access` levels, which is two answers to one question.
+- the same used object with two different `access` levels, which is two answers to one question;
+- a secret under `creates`, or one used as anything but `read`.
 
 A `euclid/` directory that does not exist is not an error. Most applications declare nothing, and a
 deploy that started refusing them would be this breaking every existing deployment on arrival.
@@ -135,8 +165,16 @@ Application 'parsing' in namespace development:
   create  queue parsing-in  (queues.json)
   ok      bucket parsing-work - already there
   use     bucket transfer-server as read
+  use     secret parsing-username as read
   MISSING topic artikel-updates - used but does not exist; created by 'transformation'
+  MISSING secret parsing-password - used but does not exist
 ```
+
+A declared secret is checked like anything else used, and a missing one is `MISSING` rather than
+created — but note which half of the pair that is. `apply` looks a secret up through `ess
+list-secrets`, which carries the name and the ERN and nothing sensitive; `ess get-secret`, the only
+action that takes a name directly, decrypts and returns the value, which is not something a tool
+checking whether a declaration resolves should ever ask for.
 
 `adopt` is the one verb worth reading twice. An object that already exists and carries no owner tag
 predates the manifest, or was made by hand; applying claims it, because an object an application
@@ -164,7 +202,7 @@ euclid-cli eap create-application --application-id parsing --runtime JAVA25 \
 
 `--manifest` is the half of this that matters for security. Without it a deployment says nothing
 about what it needs, so EAP grants its principal the `application` role with `resources = ["*"]` —
-every bucket, queue and topic in the namespace. With it, the principal is granted exactly the
+every bucket, queue, topic and secret in the namespace. With it, the principal is granted exactly the
 objects the manifest names, owned and borrowed alike:
 
 ```
@@ -174,6 +212,8 @@ namespaces: ['development']
   resource: ern:esm:...:development:bucket:parsing-work
   resource: ern:esm:...:development:bucket:transfer-server
   resource: ern:eqs:...:development:queue:parsing-in
+  resource: ern:ess:...:development:secret:parsing-username
+  resource: ern:ess:...:development:secret:parsing-password
 ```
 
 Both halves count: an application reaches what it owns and what it borrows, and a grant naming only
@@ -181,8 +221,10 @@ the first would refuse it the second. `update-application --manifest` replaces t
 which is how a manifest that gained a queue becomes a principal that may use it.
 
 Apply first, deploy second. The names have to resolve to objects that exist, and the one that creates
-them is `apply`.
+them is `apply` — except for secrets, which `apply` only checks. A deployment naming a secret nobody
+has written is refused with `Not found: secret 'parsing-password'`, which is a better place to find
+out than the first datasource the application tries to build.
 
-A manifest declaring nothing leaves the deployment's own lists alone rather than sending three empty
+A manifest declaring nothing leaves the deployment's own lists alone rather than sending four empty
 ones — EAP reads "no resources named" as "every resource in the account", which is the opposite of
 what a manifest is for.

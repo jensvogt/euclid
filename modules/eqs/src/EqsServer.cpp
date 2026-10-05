@@ -25,6 +25,9 @@ namespace Euclid::EQS {
             std::optional<Database::Entity::EAM::User> user;
             bool tokenExpired{false};
             std::string denialReason;
+            // The subject verified but names nobody this installation knows - distinct from a
+            // credential that did not verify, which is what unauthorized() would otherwise report.
+            bool unknownSubject{false};
         };
 
         // Timer/counter names shared by every handler below - one series per action, labeled
@@ -90,11 +93,17 @@ namespace Euclid::EQS {
         if (!auth.subject.has_value()) {
             return {.user = std::nullopt, .tokenExpired = auth.tokenExpired, .denialReason = auth.denialReason};
         }
-        return {.user = Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(*auth.subject)};
+
+        // Resolved rather than looked up by user ID: kSystemPrincipal is a constant and not a row,
+        // so a lookup finds nothing for euclid's own inter-module traffic - which the gate has
+        // already allowed by the time this runs. See Database::ResolveCaller.
+        auto user = Database::ResolveCaller(*auth.subject, req);
+        const auto unknown = !user.has_value();
+        return {.user = std::move(user), .unknownSubject = unknown};
     }
 
     static response<string_body> unauthorized(const request<string_body> &req, const AuthResult &auth) {
-        return EqsServer::Unauthorized(req, {.subject = std::nullopt, .tokenExpired = auth.tokenExpired, .denialReason = auth.denialReason});
+        return EqsServer::Unauthorized(req, {.subject = std::nullopt, .tokenExpired = auth.tokenExpired, .denialReason = auth.denialReason, .unknownSubject = auth.unknownSubject});
     }
 
     // Whether this caller was given this queue - the counterpart of ESM's bucket check, and the
