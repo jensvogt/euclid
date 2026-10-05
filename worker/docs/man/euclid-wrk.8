@@ -1,0 +1,345 @@
+.TH EUCLID-WRK 8 "October 2026" "euclid 1.0.53" "Euclid System Manager's Manual"
+.SH NAME
+euclid-wrk \- Euclid worker node: runs the applications euclid places on this host
+.SH SYNOPSIS
+.B euclid-wrk
+[\fB\-\-config\fR|\fB\-c\fR \fIPATH\fR]
+[\fB\-\-endpoint\fR|\fB\-e\fR \fIURL\fR]
+[\fB\-\-node\fR|\fB\-n\fR \fINAME\fR]
+[\fB\-\-label\fR|\fB\-l\fR \fIKEY\fR[=\fIVALUE\fR]]...
+[\fB\-\-address\fR|\fB\-a\fR \fIIP\fR]
+[\fB\-\-data\-dir\fR|\fB\-d\fR \fIPATH\fR]
+[\fB\-\-tick\fR|\fB\-t\fR \fISECONDS\fR]
+[\fB\-\-ca\-cert\fR \fIPATH\fR]
+[\fB\-\-credentials\fR \fIPATH\fR]
+.SH DESCRIPTION
+.B euclid-wrk
+turns a host into a node that a Euclid installation can place
+applications on. It registers with the manager, renews its registration
+every tick, and on each renewal is told which application instances this
+node should be running. It starts the ones it is not running yet, stops
+the ones it should no longer run, and reports each one back.
+.PP
+It decides nothing itself. How many instances an application runs, and
+which node the next one goes on, are the manager's decisions; a worker
+reconciles toward what it is told. Nor is a worker host a Euclid host: it
+runs no modules, holds no database credentials and listens on nothing.
+It reaches the manager's gateway over signed HTTPS as an ordinary Euclid
+client, logged in as this node's own principal.
+.PP
+An application is only placed on nodes when its definition asks for it,
+by naming the labels a node has to carry \- see
+.I nodeLabels
+in
+.BR euclid-cli-eap-update-application (1).
+Every other application keeps running on the manager.
+.SS The lease
+Every instance a node runs is held on a lease, renewed by each successful
+tick. A worker that cannot reach the manager keeps its instances running
+until the lease runs out by its own clock \- 45 seconds by default \-
+and then stops all of them. The manager waits for the same deadline plus
+a margin before placing that work elsewhere, so for a short while nobody
+runs it, and never are two copies running. The worker stays up and keeps
+trying, and when contact comes back the next renewal says what it should
+be running now.
+.PP
+Asked to stop
+.RB ( SIGTERM ,
+.BR SIGINT ,
+or a service stop), a worker stops its instances and reports them before
+it exits, so the manager does not have to wait out a lease to know they
+are gone.
+.SS What the node reports
+On registration the worker reports its name, its labels, the IP address
+it reaches the manager from (or \fB\-\-address\fR), the number of CPUs,
+its euclid version, and the operating system and CPU architecture it was
+built for. The last two are matched by placement as the labels
+.I os
+\fR(\fIlinux\fR, \fIwindows\fR, \fImacos\fR) and
+.I arch
+\fR(\fIx86_64\fR, \fIaarch64\fR, \fIarm\fR, ...). They are taken from the
+binary rather than the configuration, so a node cannot be mislabelled
+into running a native build for another platform, and configured labels
+of those names are overridden.
+.PP
+With every renewal it also reports its one-minute load average, which
+placement uses to choose between otherwise equal nodes.
+.SS Runtimes
+An application starts on a node exactly as it would on the manager:
+.TP
+.IR JAVA ", " JAVA21 ", " JAVA25
+.BI "java -jar " artifact\fR,
+with the
+.B java
+configured for that version.
+.TP
+.I PYTHON
+.BI "python3 " artifact\fR.
+.TP
+.I NODEJS
+.BI "node " artifact\fR.
+.TP
+.I BINARY
+The artifact itself, made executable.
+.PP
+An application that names its own
+.I command
+is started with that instead, the artifact as its first argument. The
+application's arguments follow in every case. The interpreters have to be
+installed on the node; where each one is, is configured per node \- see
+.BR CONFIGURATION .
+.PP
+The artifact is fetched from the application's bucket into the data
+directory, and fetched again whenever the application's definition
+changes, so a redeploy starts the new build.
+.PP
+Each instance runs in its own process group, in its application's
+directory, as the worker's own user, with the
+.I EUCLID_*
+environment and a credentials file the manager issues for it. The
+credentials are renewed halfway through their life on every tick, so a
+long-running instance never holds an expired token.
+.PP
+A worker on Windows installs and registers as a service but does not yet
+start applications; an assignment it receives fails rather than being
+half-run.
+.SH OPTIONS
+Every option can be given on the command line. Those marked
+.I (config)
+can also be set in the configuration file, which is where the shipped
+service expects them: the unit file and the launchd job are overwritten
+by an upgrade, the configuration file is not. The command line wins.
+.TP
+.BR \-c ", " \-\-config " " \fIPATH\fR
+Configuration file to read. The packaged service uses
+.IR /usr/local/euclid/etc/euclid-wrk.json .
+.TP
+.BR \-e ", " \-\-endpoint " " \fIURL\fR
+The manager's gateway, e.g. \fIhttps://euclid.example:5566\fR. Required.
+.I (config:
+.IR euclid.worker.endpoint )
+.TP
+.BR \-n ", " \-\-node " " \fINAME\fR
+What this node calls itself. Defaults to the host name. The first
+principal to register a name owns it: a worker logged in as anybody else
+is refused that name until an administrator deletes the registration
+with
+.BR euclid-cli-eap-delete-node (1).
+.TP
+.BR \-l ", " \-\-label " " \fIKEY\fR[=\fIVALUE\fR]
+A label for placement to match an application's
+.I nodeLabels
+against \- a GPU, a licence dongle, a network the node can reach.
+Repeatable. A bare \fIKEY\fR means \fIKEY\fR=\fItrue\fR.
+.PP
+.B \-\-node
+and
+.B \-\-label
+are read from the command line only. For the packaged service, add them
+to the unit's
+.B ExecStart
+with
+.BR "systemctl edit euclid-wrk" ,
+which writes an override an upgrade leaves alone.
+.TP
+.BR \-a ", " \-\-address " " \fIIP\fR
+The IP address to report for this node. By default the worker asks the
+routing table which local address it reaches the manager from, again on
+every registration; set this when that is not the address the manager's
+side sees, e.g. behind NAT.
+.I (config:
+.IR euclid.worker.address )
+.TP
+.BR \-d ", " \-\-data\-dir " " \fIPATH\fR
+Where fetched artifacts, instance credentials and application output go.
+Defaults to
+.IR /var/lib/euclid-wrk ;
+the macOS package sets
+.IR /usr/local/var/euclid-wrk .
+Nothing in it is durable and it can be deleted while the worker is
+stopped.
+.I (config:
+.IR euclid.worker.data-dir )
+.TP
+.BR \-t ", " \-\-tick " " \fISECONDS\fR
+Seconds between renewals. Defaults to 10, against a 45 second lease.
+.TP
+.BR \-\-ca\-cert " " \fIPATH\fR
+A PEM CA certificate to trust in addition to the system store, for a
+gateway with a self-signed certificate.
+.I (config:
+.IR euclid.worker.ca-cert )
+.TP
+.BR \-\-credentials " " \fIPATH\fR
+Credentials file to read instead of the invoking user's own
+.IR $HOME/.euclid/credentials .
+.I (config:
+.IR euclid.worker.credentials )
+.TP
+.BR \-h ", " \-\-help
+Print the options and exit.
+.PP
+On Windows only:
+.TP
+.B \-\-install
+Register this executable as the Windows service \fIeuclid-wrk\fR
+(automatic start, not started) and exit.
+.TP
+.B \-\-uninstall
+Stop and remove the service and exit.
+.TP
+.B \-\-foreground
+Run as an ordinary console process instead of under the Service Control
+Manager.
+.SH CONFIGURATION
+A JSON file, by default
+.IR /usr/local/euclid/etc/euclid-wrk.json :
+.PP
+.RS
+.nf
+{
+  "euclid": {
+    "worker": {
+      "endpoint": "https://euclid.example:5566",
+      "ca-cert": "",
+      "address": "",
+      "runtimes": {
+        "java": "java",
+        "java21": "/usr/lib/jvm/java-21-openjdk/bin/java",
+        "java25": "/usr/lib/jvm/java-25-openjdk/bin/java",
+        "python": "python3",
+        "nodejs": "node"
+      }
+    },
+    "logging": {
+      "level": "info",
+      "dir": "/var/lib/euclid-wrk/log",
+      "prefix": "euclid-wrk"
+    }
+  }
+}
+.fi
+.RE
+.TP
+.IR euclid.worker.runtimes.java ", " .java21 ", " .java25 ", " .python ", " .nodejs
+The interpreter each runtime is started with on this node. Unset, they
+are \fIjava\fR, \fIpython3\fR and \fInode\fR on the
+.BR PATH ,
+and \fIjava21\fR and \fIjava25\fR \- names no distribution ships, so an
+application asking for a Java version the node was never told about
+fails to start with that name in the log, rather than running under
+another JDK.
+.TP
+.I euclid.worker.java
+The older name for
+.IR euclid.worker.runtimes.java ,
+still read when the newer one is not set.
+.PP
+Never point a worker at the manager's
+.IR euclid.json .
+That file holds
+.IR euclid.modules.eam.jwt-secret ,
+and anything holding it can mint a token for any principal, administrator
+included, offline and unaudited. A worker refuses to start if its
+configuration contains that key at all.
+.SH AUTHENTICATION
+A worker is logged in like any other client, as a principal of its own:
+.PP
+.RS
+.nf
+sudo -H -u euclid-wrk euclid-cli --endpoint https://euclid.example:5566 \e
+    eam login --user <this node's principal> --password <secret>
+.fi
+.RE
+.PP
+.B \-H
+puts the credentials in the
+.I euclid-wrk
+account's home,
+.IR /var/lib/euclid-wrk ,
+which is where the service reads them. The principal needs the
+.I eap:register-node
+and
+.I eap:renew-node
+actions, and the others a node calls on its own behalf:
+.IR eap:issue-instance-credentials ,
+.I eap:report-node-instance
+and the ESM reads that fetch an application's artifact.
+.SH EXIT STATUS
+.TP
+.B 0
+Stopped on request.
+.TP
+.B 1
+The configuration could not be loaded or contains the signing secret,
+there are no credentials, no endpoint was given, the CA certificate does
+not exist, or the first registration failed. The reason is printed to
+standard error.
+.TP
+.B 2
+The command line could not be parsed.
+.SH FILES
+.TP
+.I /usr/local/euclid/bin/euclid-wrk
+The executable, linked from
+.IR /usr/local/bin/euclid-wrk .
+.TP
+.I /usr/local/euclid/etc/euclid-wrk.json
+The configuration file the packaged service reads.
+.TP
+.I /var/lib/euclid-wrk
+The data directory and the
+.I euclid-wrk
+account's home: artifacts under
+.IR applications/ ,
+logs under
+.IR log/ ,
+and the worker's own credentials under
+.IR .euclid/ .
+.TP
+.I /usr/local/var/euclid-wrk
+On macOS, the
+.I _euclid-wrk
+account's home: its log, its credentials and launchd's capture of the
+worker's console output.
+.TP
+.I /etc/systemd/system/euclid-wrk.service
+The systemd unit. Installed enabled but not started, since a worker can
+do nothing until it has an endpoint and a login.
+.TP
+.I /Library/LaunchDaemons/de.jensvogt.euclid-wrk.plist
+The launchd job on macOS, running as
+.IR _euclid-wrk .
+.SH EXAMPLES
+Set up a node after installing the package:
+.PP
+.RS
+.nf
+sudoedit /usr/local/euclid/etc/euclid-wrk.json      # euclid.worker.endpoint
+sudo -H -u euclid-wrk euclid-cli --endpoint https://euclid.example:5566 \e
+    eam login --user raspi-01 --password <secret>
+sudo systemctl start euclid-wrk
+euclid-cli eap get-node --node raspi-01             # from any admin session
+.fi
+.RE
+.PP
+Run one by hand, with a label, against a gateway with a self-signed
+certificate:
+.PP
+.RS
+.nf
+euclid-wrk --endpoint https://euclid.example:5566 \e
+    --ca-cert ./euclid_cert.crt --label gpu --data-dir /tmp/wrk
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli (1),
+.BR euclid-cli-eam-login (1),
+.BR euclid-cli-eap (1),
+.BR euclid-cli-eap-list-nodes (1),
+.BR euclid-cli-eap-get-node (1),
+.BR euclid-cli-eap-delete-node (1),
+.BR euclid-cli-eap-update-application (1),
+.BR systemctl (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

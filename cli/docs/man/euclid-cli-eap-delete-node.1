@@ -1,0 +1,49 @@
+.TH EUCLID-CLI-EAP-DELETE-NODE 1 "October 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eap-delete-node \- remove a worker node's registration
+.SH SYNOPSIS
+.B euclid-cli eap delete-node
+.BR \-\-node | \-n
+.I NAME
+.SH DESCRIPTION
+Removes a worker node's registration.
+.PP
+A node name belongs to the principal that first registered it: a worker
+logged in as anybody else is refused that name, so that it cannot take
+over another node's assignments and the application credentials that go
+with them. Deleting the registration is how the name is freed, which is
+why this action needs an administrator even though the other node
+actions do not.
+.PP
+It does not stop the node. The instances assigned to it keep their
+leases until those run out, and a worker that is still running finds
+itself unregistered on its next renewal and registers again. To take a
+node out of service, stop its
+.B euclid-wrk
+first; its leases then expire and its instances are placed elsewhere.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-node " " \fINAME\fR
+Name of the node to delete. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The registration was removed.
+.TP
+.B 1
+Missing/invalid arguments, the caller is not an authenticated
+administrator, or no node of that name is registered.
+.SH EXAMPLES
+.RS
+.nf
+sudo systemctl stop euclid-wrk          # on the node
+euclid-cli eap delete-node --node raspi-01
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eap (1),
+.BR euclid-wrk (8),
+.BR euclid-cli-eap-list-nodes (1),
+.BR euclid-cli-eap-get-node (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

@@ -5,6 +5,7 @@
       "ca-cert": "",
       "address": "",
       "java": "java",
+      "data-dir": "/usr/local/var/euclid-wrk",
       "credentials": "/usr/local/var/euclid-wrk/.euclid/credentials"
     },
     "logging": {

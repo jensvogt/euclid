@@ -18,8 +18,9 @@ rest of this: the tests were green through all of it.
 
 Two things are deliberately missing, both from §11: running applications on a Windows worker
 (`euclid-wrk` installs as a service and registers there, and refuses to start a process rather than
-half-doing it), and any CLI for the operator actions — `assign-instance`, `list-nodes` and
-`drain-node` are reachable over the API only.
+half-doing it), and a CLI for some of the operator actions — `assign-instance` and `drain-node` are
+reachable over the API only. `list-nodes`, `get-node` and `delete-node` are `euclid-cli eap`
+commands.
 
 Step 4 is built but **unproven**: every part of it is covered by tests, and none of it has run
 against a live installation. The lease arithmetic, the drain/renew race and the partition case are
@@ -30,8 +31,8 @@ first worker as an experiment on a host nothing depends on.
 
 Two things are deliberately missing, both out of §11: running applications on a Windows worker
 (`euclid-wrk` installs as a service and registers there, and refuses to start a process rather than
-half-doing it) and any CLI for the operator actions — `assign-instance`, `list-nodes` and
-`drain-node` are reachable over the API only.
+half-doing it) and a CLI for some of the operator actions — `assign-instance` and `drain-node` are
+reachable over the API only.
 
 `ModuleInstance::host` exists, is written by every manager, and is honoured by the two operations
 that were destructive across hosts — the start-up leftover sweep and the start-up clear. A backend
@@ -296,6 +297,11 @@ An application whose constraint is added while it is running locally has its loc
 first. Leaving it would mean the application running both on the manager and wherever it gets
 placed, which is the one outcome every part of this design exists to prevent.
 
+The reverse holds too. `nodeLabels` is part of the application as `eap:list-applications` returns
+it, and `eap:update-application` replaces it whole — `{}` clears it. An application whose
+constraints are cleared is the manager's again: its slots on nodes are removed, each worker stops
+its share on the next renewal, and the manager starts the pool itself.
+
 ## 7. The worker's side
 
 Four actions, on EAP, because everything here is about applications. Each is an ordinary signed
@@ -309,7 +315,8 @@ apply without a new mechanism.
 | `eap:issue-instance-credentials` | worker → master | the credentials blob for one assigned instance. Refused for an instance not assigned to the caller. |
 | `eap:report-node-instance` | worker → master | the instance's state, pid, host and port, written onto its record — what `spawnInstance` writes locally today. |
 
-Plus, for operators: `eap:list-nodes`, and `eap:drain-node` to stop placing on a node and let its
+Plus, for operators: `eap:list-nodes` and `eap:get-node`, `eap:delete-node` (administrators only)
+to free a node name for another principal, and `eap:drain-node` to stop placing on a node and let its
 instances move off as they are replaced.
 
 And `eap:assign-instance`, which this list missed. Step 4 has no placement — "the master is told by

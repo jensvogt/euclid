@@ -207,6 +207,27 @@ namespace Euclid::EAP {
             return result;
         }
 
+        // An application's placement labels, checked rather than read the way stringMap() reads
+        // environment: a label silently dropped is a constraint silently dropped, and an empty set
+        // of them is what turns a node application back into one the manager runs itself.
+        //
+        // @return an explanation, if the field is present and not a flat object of non-empty strings.
+        std::optional<std::string> nodeLabelsField(const boost::json::object &obj, std::map<std::string, std::string> &labels) {
+            const auto *v = obj.if_contains("nodeLabels");
+            if (v == nullptr || v->is_null()) return std::nullopt;
+            if (!v->is_object()) return "nodeLabels must be an object of key/value strings";
+            std::map<std::string, std::string> result;
+            for (const auto &[key, value]: v->as_object()) {
+                if (key.empty()) return "nodeLabels: a label needs a key";
+                if (!value.is_string() || value.as_string().empty()) {
+                    return "nodeLabels: label '" + std::string(key) + "' needs a non-empty string value";
+                }
+                result[std::string(key)] = value.as_string().c_str();
+            }
+            labels = std::move(result);
+            return std::nullopt;
+        }
+
         // The manager publishes each module's live instances, so an application's *observed* state
         // is read from there rather than stored - the definition only ever carries what it should
         // be, which is why nothing here is written back into eap_application.
@@ -763,6 +784,9 @@ namespace Euclid::EAP {
             boost::json::array resources;
             for (const auto &resource: application.resources) resources.push_back(boost::json::string(resource));
 
+            boost::json::object nodeLabels;
+            for (const auto &[key, value]: application.nodeLabels) nodeLabels[key] = value;
+
             const auto endpoints = applicationEndpoints(Database::Entity::EAP::RuntimeName(application));
             const auto count = static_cast<long>(endpoints.size());
 
@@ -791,6 +815,9 @@ namespace Euclid::EAP {
                     {"arguments", arguments},
                     {"environment", environment},
                     {"resources", resources},
+                    // The labels a node has to carry for this application to be placed on it.
+                    // Empty is the ordinary case and means the manager runs it itself.
+                    {"nodeLabels", nodeLabels},
                     {"userId", application.userId},
                     // Whether that identity still exists, asked here rather than left to whoever
                     // reads the id. It is checked when the application is created and never again,
@@ -865,6 +892,12 @@ namespace Euclid::EAP {
 
         const auto applicationId = stringField(obj, "applicationId");
         if (applicationId.empty()) return EapServer::ErrorResponse(req, status::bad_request, "applicationId is required");
+
+        // Up front, before a principal or any infrastructure is provisioned for it.
+        std::map<std::string, std::string> nodeLabels;
+        if (const auto refused = nodeLabelsField(obj, nodeLabels)) {
+            return EapServer::ErrorResponse(req, status::bad_request, *refused);
+        }
 
         const auto ns = std::string(req["x-euclid-namespace"]);
 
@@ -975,6 +1008,7 @@ namespace Euclid::EAP {
         application.command = stringField(obj, "command");
         application.arguments = stringArray(obj, "arguments");
         application.environment = stringMap(obj, "environment");
+        application.nodeLabels = nodeLabels;
         application.resources = *resources;
         application.userId = userId;
         application.minInstances = std::max(1L, longField(obj, "minInstances", 1));
@@ -1263,6 +1297,14 @@ namespace Euclid::EAP {
             return EapServer::ErrorResponse(req, status::not_found, "Application not found: " + applicationId);
         }
 
+        // Checked before anything is touched, because some of what follows - a change of user -
+        // acts on other records straight away, and a request refused afterwards would have done
+        // half of what it asked.
+        std::map<std::string, std::string> nodeLabels;
+        if (const auto refused = nodeLabelsField(obj, nodeLabels)) {
+            return EapServer::ErrorResponse(req, status::bad_request, *refused);
+        }
+
         // Only what the caller actually sent is touched: an update that named a single field
         // would otherwise reset everything else to its default.
         if (obj.contains("runtime")) {
@@ -1373,6 +1415,15 @@ namespace Euclid::EAP {
         if (obj.contains("minInstances")) application->minInstances = std::max(1L, longField(obj, "minInstances", application->minInstances));
         if (obj.contains("maxInstances")) application->maxInstances = std::max(application->minInstances, longField(obj, "maxInstances", application->maxInstances));
         if (obj.contains("readyTimeoutMs")) application->readyTimeoutMs = std::max(1000L, longField(obj, "readyTimeoutMs", application->readyTimeoutMs));
+        // Replaced whole, like environment: the set sent is the set wanted, so {} clears it - which
+        // hands the application back to the manager, and the manager takes its node slots away.
+        if (obj.contains("nodeLabels")) {
+            if (application->nodeLabels != nodeLabels) {
+                log_info << "EAP changed application node labels, applicationId: " << applicationId
+                         << ", labels: " << nodeLabels.size();
+            }
+            application->nodeLabels = nodeLabels;
+        }
 
         if (obj.contains("buckets") || obj.contains("queues") || obj.contains("topics") || obj.contains("secrets")) {
             std::string unresolved;
@@ -1994,6 +2045,9 @@ namespace Euclid::EAP {
                         {"bucketErn", application->bucketErn},
                         {"artifactKey", application->artifactKey},
                         {"runtime", RuntimeToString(application->runtime)},
+                        // The application's own command, which overrides the runtime's
+                        // interpreter on a node exactly as it does on the manager.
+                        {"command", application->command},
                         {"arguments", arguments},
                 });
             }
@@ -2203,6 +2257,60 @@ namespace Euclid::EAP {
         return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
                                                                 {"nodes", nodes},
                                                                 {"total", nodes.size()}}));
+    }
+
+    static response<string_body> handleGetNode(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-node");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EapServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+
+        const auto name = stringField(jv.as_object(), "node");
+        if (name.empty()) return EapServer::ErrorResponse(req, status::bad_request, "node is required");
+
+        const auto node = Database::RepositoryFactory::instance().eapRepository()->findNodeByName(auth.user->accountId, name);
+        if (!node.has_value()) {
+            return EapServer::ErrorResponse(req, status::not_found, "Node is not registered, node: " + name);
+        }
+
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(nodeToJson(*node)));
+    }
+
+    // Removes a node's registration, which is how a node name is freed for another principal - see
+    // Node::principal. Administrators only, unlike the other node actions, for exactly that reason:
+    // a worker able to delete another's registration could re-register under its name and be
+    // handed its assignments and credentials, which is the hole binding the name closes.
+    //
+    // The leases are left alone - see IEapRepository::deleteNode. A worker that is still running
+    // finds itself unregistered on its next renewal and registers again, so this does not stop a
+    // node; drain-node, then stopping the worker, is how one is taken out of service.
+    static response<string_body> handleDeleteNode(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-node");
+
+        AuthResult auth;
+        if (const auto denied = requireAdmin(req, auth)) return *denied;
+
+        boost::json::value jv;
+        if (const auto err = EapServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+
+        const auto name = stringField(jv.as_object(), "node");
+        if (name.empty()) return EapServer::ErrorResponse(req, status::bad_request, "node is required");
+
+        if (!Database::RepositoryFactory::instance().eapRepository()->deleteNode(auth.user->accountId, name)) {
+            return EapServer::ErrorResponse(req, status::not_found, "Node is not registered, node: " + name);
+        }
+
+        log_info << "EAP DeleteNode, node: " << name << ", user: " << auth.user->userId;
+
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"node", name}, {"deleted", true}}));
     }
 
     // Stops new instances being placed on a node, and lets the ones it has leave as they are
@@ -2422,6 +2530,8 @@ namespace Euclid::EAP {
         if (action == "issue-instance-credentials") return handleIssueInstanceCredentials(req);
         if (action == "assign-instance") return handleAssignInstance(req);
         if (action == "list-nodes") return handleListNodes(req);
+        if (action == "get-node") return handleGetNode(req);
+        if (action == "delete-node") return handleDeleteNode(req);
         if (action == "drain-node") return handleDrainNode(req);
         if (action == "get-metrics") return EapServer::MetricsResponse(req);
 

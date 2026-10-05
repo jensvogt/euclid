@@ -1,0 +1,62 @@
+.TH EUCLID-CLI-EAP-LIST-NODES 1 "October 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eap-list-nodes \- list the registered worker nodes
+.SH SYNOPSIS
+.B euclid-cli eap list-nodes
+.SH DESCRIPTION
+Lists the worker nodes registered in the caller's account \- the hosts
+running
+.B euclid-wrk
+that euclid places applications on. For each node:
+.TP
+.I name
+What the node calls itself, and what assignments are written against.
+.TP
+.I address
+The IP address the worker reported: the one it reaches the master from,
+unless it was configured otherwise.
+.TP
+.IR os ", " arch
+The operating system and CPU architecture the worker was built for, e.g.
+\fIlinux\fR and \fIaarch64\fR. Placement matches them as the labels
+\fIos\fR and \fIarch\fR, and they cannot be overridden by configuration.
+.TP
+.I labels
+The labels from the worker's configuration that an application's
+\fInodeLabels\fR are matched against.
+.TP
+.IR cpuCount ", " version
+How many CPUs the node has, and the euclid version the worker is built
+from.
+.TP
+.I drained
+Whether the node has been taken out of placement. A drained node keeps
+running what it has.
+.TP
+.IR live ", " lastSeen
+Whether the node has renewed recently enough to be given work, and when
+it last did.
+.TP
+.I principal
+The principal that registered the node, and the only one allowed to
+renew it.
+.SH EXIT STATUS
+.TP
+.B 0
+The nodes are printed as JSON.
+.TP
+.B 1
+The caller is not an authenticated administrator, or the request failed.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli eap list-nodes
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eap (1),
+.BR euclid-wrk (8),
+.BR euclid-cli-eap-get-node (1),
+.BR euclid-cli-eap-delete-node (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

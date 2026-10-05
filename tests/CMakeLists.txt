@@ -240,6 +240,18 @@ target_link_libraries(${WORKER_RECONCILER_BINARY} PRIVATE Boost::unit_test_frame
 
 add_test(NAME ${WORKER_RECONCILER_BINARY} COMMAND ${WORKER_RECONCILER_BINARY})
 
+# Header-only on both sides: the worker's command-line rule, and the manager's Runtime.h it is
+# checked against. Neither needs a library, which is what lets the worker's stay out of eucliddb.
+set(WORKER_COMMAND_BINARY euclid-wrk-command-tests)
+
+add_executable(${WORKER_COMMAND_BINARY} WorkerCommandTest.cpp)
+set_target_properties(${WORKER_COMMAND_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${WORKER_COMMAND_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/worker/include ${CMAKE_SOURCE_DIR}/database/include)
+target_link_libraries(${WORKER_COMMAND_BINARY} PRIVATE Boost::unit_test_framework)
+
+add_test(NAME ${WORKER_COMMAND_BINARY} COMMAND ${WORKER_COMMAND_BINARY})
+
 set(NODE_LEASE_BINARY euclid-node-lease-tests)
 
 add_executable(${NODE_LEASE_BINARY} NodeLeaseTest.cpp)

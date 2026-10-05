@@ -553,8 +553,20 @@ jobs:
         run: |
           mkdir -p ${{ env.PACKAGE_DIR_WRK }}/euclid/bin
           mkdir -p ${{ env.PACKAGE_DIR_WRK }}/euclid/etc
+          # Tarball root, as in the server tarball: unpacked at /usr/local this is
+          # /usr/local/share/man/man8, which macOS's man already searches.
+          mkdir -p ${{ env.PACKAGE_DIR_WRK }}/share/man/man8
 
           cp ${{ env.BUILD_DIR }}/bin/${{ env.WORKER_NAME }} ${{ env.PACKAGE_DIR_WRK }}/euclid/bin/
+
+          # From worker/docs/man, not cli/docs/man, so the server tarball - which takes every
+          # cli/docs/man/*.8 - does not carry it too. Same stamping as the server tarball, with BSD
+          # sed's -i argument.
+          cp worker/docs/man/euclid-wrk.8 ${{ env.PACKAGE_DIR_WRK }}/share/man/man8/
+          MAN_VERSION="$(tr -d '[:space:]' < version.txt)"
+          sed -i '' -E "1s/(euclid(-cli)? )[0-9]+\.[0-9]+\.[0-9]+/\1${MAN_VERSION}/" \
+            ${{ env.PACKAGE_DIR_WRK }}/share/man/man8/euclid-wrk.8
+          gzip -9n ${{ env.PACKAGE_DIR_WRK }}/share/man/man8/euclid-wrk.8
 
           # Its own configuration file, and emphatically not euclid.json. The manager's
           # configuration holds euclid.modules.eam.jwt-secret, and a worker refuses to start if it
@@ -581,6 +593,8 @@ jobs:
             || { echo "::error::euclid-wrk.json is missing from the macOS worker package"; exit 1; }
           test -s ${{ env.PACKAGE_DIR_WRK }}/euclid/etc/de.jensvogt.euclid-wrk.plist \
             || { echo "::error::de.jensvogt.euclid-wrk.plist is missing from the macOS worker package"; exit 1; }
+          test -s ${{ env.PACKAGE_DIR_WRK }}/share/man/man8/euclid-wrk.8.gz \
+            || { echo "::error::the euclid-wrk(8) man page is missing from the macOS worker package"; exit 1; }
 
           # The same check the Linux worker package makes, for the same reason: a worker refuses to
           # start if its configuration names the signing secret, so shipping a file that does would
@@ -1306,11 +1320,22 @@ jobs:
           # distribution might have an opinion about, and both of these take it at the same path.
           mkdir -p ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid/bin
           mkdir -p ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid/etc
+          mkdir -p ${{ env.PACKAGE_DIR_WORKER }}/usr/local/share/man/man8
           mkdir -p ${{ env.PACKAGE_DIR_WORKER }}/etc/systemd/system
 
           cp ${{ env.BUILD_DIR }}/bin/euclid-wrk ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid/bin/
           # See the server package above: the symbol table is dead weight in a shipped binary.
           strip --strip-unneeded ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid/bin/euclid-wrk
+
+          # Section 8, like the other daemons' pages, and from worker/docs/man rather than
+          # cli/docs/man: the server packages copy every cli/docs/man/*.8, so a page kept there
+          # would ship in both packages and make two of them own one path. Stamped and compressed
+          # exactly as the server package's pages are - see there.
+          cp worker/docs/man/euclid-wrk.8 ${{ env.PACKAGE_DIR_WORKER }}/usr/local/share/man/man8/
+          MAN_VERSION="$(tr -d '[:space:]' < version.txt)"
+          sed -i -E "1s/(euclid(-cli)? )[0-9]+\.[0-9]+\.[0-9]+/\1${MAN_VERSION}/" \
+            ${{ env.PACKAGE_DIR_WORKER }}/usr/local/share/man/man8/euclid-wrk.8
+          gzip -9n ${{ env.PACKAGE_DIR_WORKER }}/usr/local/share/man/man8/euclid-wrk.8
 
           # Its own configuration file, and emphatically not euclid.json. The manager's
           # configuration holds euclid.modules.eam.jwt-secret, and a worker refuses to start if it
@@ -1394,6 +1419,8 @@ jobs:
             || { echo "::error::euclid-wrk.service is missing from the worker package"; exit 1; }
           test -s ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid/etc/euclid-wrk.json \
             || { echo "::error::euclid-wrk.json is missing from the worker package"; exit 1; }
+          test -s ${{ env.PACKAGE_DIR_WORKER }}/usr/local/share/man/man8/euclid-wrk.8.gz \
+            || { echo "::error::the euclid-wrk(8) man page is missing from the worker package"; exit 1; }
 
           # The one thing about this package that is a security property rather than a convenience:
           # a worker refuses to start if its configuration names the signing secret, so shipping a
@@ -1414,6 +1441,14 @@ jobs:
             echo "::error::euclid-wrk is in the server RPM payload as well as its own package"
             exit 1
           fi
+          # Its man page likewise - which is what keeping it out of cli/docs/man is for.
+          for page in ${{ env.PACKAGE_DIR_DEB }}/usr/local/share/man/man8/euclid-wrk.8* \
+                      ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man8/euclid-wrk.8*; do
+            if [ -e "$page" ]; then
+              echo "::error::euclid-wrk(8) is in a server package as well as the worker package: $page"
+              exit 1
+            fi
+          done
 
       - name: Build worker DEB with fpm
         run: |

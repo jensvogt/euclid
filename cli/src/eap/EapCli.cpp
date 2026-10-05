@@ -129,6 +129,9 @@ namespace Euclid::CLI {
                 {"copy-application", "Define the same application again in another namespace"},
                 {"scale-application", "Change how many instances an application runs, without restarting it"},
                 {"apply", "Create and check the objects an application's euclid/ manifest declares"},
+                {"list-nodes", "List the registered worker nodes and whether they are live"},
+                {"get-node", "Show one worker node's registration"},
+                {"delete-node", "Remove a worker node's registration, freeing its name"},
         };
         return kActions;
     }
@@ -167,6 +170,9 @@ namespace Euclid::CLI {
         if (action == "restart-application") return restartApplication(args);
         if (action == "set-log-level") return setLogLevel(args);
         if (action == "apply") return applyManifest(args);
+        if (action == "list-nodes") return listNodes(args);
+        if (action == "get-node") return getNode(args);
+        if (action == "delete-node") return deleteNode(args);
 
         std::cerr << "error: unknown eap action '" << action << "'\n";
         return 1;
@@ -864,6 +870,115 @@ namespace Euclid::CLI {
             const HttpResponse response = client.Post("eap", "delete-application", boost::json::object{{"applicationId", vm["application-id"].as<std::string>()}});
             if (!response.IsSuccess()) {
                 std::cerr << "error: delete-application failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EapCli::listNodes(const std::vector<std::string> &args) const {
+        po::options_description desc("list worker nodes");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eap", "list-nodes", "",
+                                   "Lists the worker nodes registered in this account: the address, operating system and "
+                                   "architecture each reported, its labels, cpu count and euclid version, whether it is drained, "
+                                   "and whether it has renewed recently enough to be given work.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eap", "list-nodes", boost::json::object{});
+            if (!response.IsSuccess()) {
+                std::cerr << "error: list-nodes failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EapCli::getNode(const std::vector<std::string> &args) const {
+        po::options_description desc("show a worker node");
+        desc.add_options()
+                ("node,n", po::value<std::string>()->required(), "name of the node");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eap", "get-node", "--node <name>",
+                                   "Shows one worker node's registration, as list-nodes shows each of them.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eap", "get-node", boost::json::object{{"node", vm["node"].as<std::string>()}});
+            if (!response.IsSuccess()) {
+                std::cerr << "error: get-node failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EapCli::deleteNode(const std::vector<std::string> &args) const {
+        po::options_description desc("delete a worker node");
+        desc.add_options()
+                ("node,n", po::value<std::string>()->required(), "name of the node to delete");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eap", "delete-node", "--node <name>",
+                                   "Removes a worker node's registration. A node name belongs to the principal that first "
+                                   "registered it, and this is how it is freed for another. It does not stop the node: the "
+                                   "instances assigned to it keep their leases, and a worker that is still running registers "
+                                   "again on its next renewal. To take a node out of service, stop its euclid-wrk first; its "
+                                   "leases then expire and its instances are placed elsewhere.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eap", "delete-node", boost::json::object{{"node", vm["node"].as<std::string>()}});
+            if (!response.IsSuccess()) {
+                std::cerr << "error: delete-node failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);
