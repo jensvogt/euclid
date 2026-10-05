@@ -268,6 +268,12 @@ One constraint is worth having from the start: an application may name `nodes: [
 selector, because the reason to add a worker is often that a particular application needs a
 particular machine — a GPU, a licence dongle, a network it can reach.
 
+Every node also carries an `os` label — `linux`, `windows` or `macos` — and an `arch` label —
+`x86_64`, `aarch64`, `arm`, … — that the worker reports when it registers rather than reads from its
+configuration, so a selector of `os=linux, arch=aarch64` cannot be satisfied by a mislabelled
+machine. Both are needed for a native build: a Raspberry Pi and a PC are both `linux`. Configured
+labels named `os` or `arch` are overridden.
+
 ### Naming one is also how an application opts in
 
 As built, that constraint does more than narrow the candidates: **it is what makes an application a
@@ -298,7 +304,7 @@ apply without a new mechanism.
 
 | Action | Direction | What it does |
 |---|---|---|
-| `eap:register-node` | worker → master | announces the node: name, labels, cpu count, euclid version. Idempotent; a restarted worker re-registers. |
+| `eap:register-node` | worker → master | announces the node: name, labels, cpu count, euclid version, operating system, architecture. Idempotent; a restarted worker re-registers. |
 | `eap:renew-node` | worker → master | one call that renews every lease this node holds and answers with the node's current assignment — the desired set of `(instanceId, applicationId, revision)`. The heartbeat and the poll are the same call on purpose. |
 | `eap:issue-instance-credentials` | worker → master | the credentials blob for one assigned instance. Refused for an instance not assigned to the caller. |
 | `eap:report-node-instance` | worker → master | the instance's state, pid, host and port, written onto its record — what `spawnInstance` writes locally today. |

@@ -1671,6 +1671,18 @@ namespace Euclid::main {
         return !application.nodes.empty() || !application.nodeLabels.empty();
     }
 
+    // The labels placement matches a node against: the operator's, plus the operating system and
+    // architecture the worker reported, under "os" and "arch". The reported values win over labels
+    // of the same name, because a label is configuration and can say anything, while the worker's
+    // binary knows what it was built for - a native aarch64 build must not land on an x86_64 box
+    // labelled wrong.
+    static std::map<std::string, std::string> placementLabels(const Database::Entity::EAP::Node &node) {
+        auto labels = node.labels;
+        if (!node.os.empty()) labels["os"] = node.os;
+        if (!node.arch.empty()) labels["arch"] = node.arch;
+        return labels;
+    }
+
     // Keeps the slot records of a node application matching what its definition asks for. The
     // master creates and places them; a worker starts them and reports back.
     //
@@ -1730,7 +1742,7 @@ namespace Euclid::main {
             std::vector<Manager::Placement::Candidate> candidates;
             for (const auto &node: eap->listNodes(application.accountId)) {
                 candidates.push_back(Manager::Placement::Candidate{.name = node.name,
-                                                                   .labels = node.labels,
+                                                                   .labels = placementLabels(node),
                                                                    .cpuCount = node.cpuCount,
                                                                    .loadAverage = node.loadAverage,
                                                                    .instancesOfApplication = perNode[node.name],
@@ -1837,7 +1849,7 @@ namespace Euclid::main {
                 for (const auto &node: eap->listNodes(application->accountId)) {
                     candidates.push_back(Manager::Placement::Candidate{
                             .name = node.name,
-                            .labels = node.labels,
+                            .labels = placementLabels(node),
                             .cpuCount = node.cpuCount,
                             .loadAverage = node.loadAverage,
                             .instancesOfApplication = instancesPerNodePerModule[node.name][module.name],
