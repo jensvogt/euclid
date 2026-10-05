@@ -62,6 +62,8 @@ namespace {
         node.accountId = kAccount;
         node.cpuCount = 4;
         node.version = "1.2.0";
+        node.os = "linux";
+        node.arch = "aarch64";
         node.labels = {{"gpu", "true"}};
         return node;
     }
@@ -342,6 +344,8 @@ BOOST_AUTO_TEST_CASE(ARegisteredNodeIsReadBackWhole) {
     BOOST_TEST(stored->name == kNode);
     BOOST_TEST(stored->cpuCount == 4L);
     BOOST_TEST(stored->version == "1.2.0");
+    BOOST_TEST(stored->os == "linux");
+    BOOST_TEST(stored->arch == "aarch64");
     BOOST_TEST_REQUIRE(stored->labels.contains("gpu"));
     BOOST_TEST(stored->labels.at("gpu") == "true");
 }
