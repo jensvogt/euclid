@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.12](https://github.com/jensvogt/euclid/compare/1.2.11...v1.2.12) (2026-10-05)
+
+
+### Bug Fixes
+
+* add OS and archci to worker ([900ec4c](https://github.com/jensvogt/euclid/commit/900ec4c147a2e699c5018d66c43deea763074dc8))
+* add OS and archci to worker ([c3cb66c](https://github.com/jensvogt/euclid/commit/c3cb66c93ceebf2c569f9ca301b4d17f0c90347a))
+* certificate problem on aarch64 ([726375c](https://github.com/jensvogt/euclid/commit/726375c263de2a42391e933f412354a186fb61a9))
+
 ## [1.2.11](https://github.com/jensvogt/euclid/compare/1.2.10...v1.2.11) (2026-10-05)
 
 
