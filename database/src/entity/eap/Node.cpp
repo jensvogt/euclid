@@ -52,8 +52,9 @@ namespace Euclid::Database::Entity::EAP {
                 bsoncxx::builder::basic::kvp("drained", drained),
                 bsoncxx::builder::basic::kvp("lastSeen", bsoncxx::types::b_date{
                                                                  std::chrono::duration_cast<std::chrono::milliseconds>(lastSeen.time_since_epoch())}),
-                bsoncxx::builder::basic::kvp("created", bsoncxx::types::b_date{
-                                                                std::chrono::duration_cast<std::chrono::milliseconds>(created.time_since_epoch())}),
+                // No "created": upsertNode() writes it with $setOnInsert, and MongoDB refuses an
+                // update that names the same path in $set and $setOnInsert - the registration then
+                // fails and the next renewal finds no node.
                 bsoncxx::builder::basic::kvp("modified", bsoncxx::types::b_date{
                                                                  std::chrono::duration_cast<std::chrono::milliseconds>(modified.time_since_epoch())}));
     }
