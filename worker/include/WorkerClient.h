@@ -53,6 +53,16 @@ namespace Euclid::Worker {
          * with a self-signed gateway.
          */
         std::string caCertPath;
+
+        /**
+         * @brief The IP address this node reports when it registers.
+         *
+         * @par
+         * Empty means found out at registration time: the local address of the route to the
+         * master, which is the address the master's network can reach this node on. Set it when
+         * that is not true - a node behind NAT, say - since nothing on this side can know that.
+         */
+        std::string address;
     };
 
     /**

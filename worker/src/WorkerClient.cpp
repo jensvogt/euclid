@@ -7,6 +7,9 @@
 #include <fstream>
 #include <utility>
 
+// Boost includes
+#include <boost/url.hpp>
+
 #ifndef _WIN32
 #include <csignal>
 #include <sys/types.h>
@@ -103,8 +106,20 @@ namespace Euclid::Worker {
         boost::json::object labels;
         for (const auto &[key, value]: _options.labels) labels[key] = value;
 
+        // Found out again on every registration rather than once at start-up: a worker that
+        // re-registers after losing the master may well have lost it because its address changed.
+        auto address = _options.address;
+        if (address.empty()) {
+            if (const auto parsed = boost::urls::parse_uri(_options.endpoint); parsed) {
+                const auto port = parsed->has_port() ? std::string(parsed->port()) : (parsed->scheme() == "http" ? "80" : "443");
+                address = Core::SystemUtils::GetOutboundAddress(std::string(parsed->host_address()), port).value_or("");
+            }
+            if (address.empty()) log_warning << "Could not determine this node's address, endpoint: " << _options.endpoint;
+        }
+
         const boost::json::value body{
                 {"node", _options.nodeName},
+                {"address", address},
                 {"labels", labels},
                 {"cpuCount", static_cast<long>(std::max(1U, std::thread::hardware_concurrency()))},
                 {"version", APP_VERSION},
@@ -120,7 +135,7 @@ namespace Euclid::Worker {
         }
 
         const auto lease = numberField(response.body, "leaseSeconds");
-        log_info << "Node registered, node: " << _options.nodeName << ", lease: " << lease << "s";
+        log_info << "Node registered, node: " << _options.nodeName << ", address: " << address << ", lease: " << lease << "s";
         return std::chrono::seconds{lease > 0 ? lease : 45};
     }
 
