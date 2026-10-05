@@ -54,9 +54,11 @@
              principal in the installation, including admin, offline and unaudited. See
              docs/worker-nodes.md section 3.2.
 
-             The endpoint, the node name and the labels belong in that configuration file rather than
-             here, so that changing where this worker reports to is not an edit to a file the next
-             upgrade overwrites. The log level too, which is why no loglevel option is passed. -->
+             The endpoint, the address and the data directory belong in that configuration file
+             rather than here, so that changing where this worker reports to is not an edit to a file
+             the next upgrade overwrites. The log level too, which is why no loglevel option is
+             passed. The node name and the labels are command-line options only, and go here as
+             -n/-l arguments - to be redone after an upgrade replaces this file. -->
         <key>ProgramArguments</key>
         <array>
             <string>/usr/local/euclid/bin/euclid-wrk</string>

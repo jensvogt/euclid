@@ -73,6 +73,11 @@ namespace Euclid::Worker {
             std::string artifactKey;
             long artifactSize{};
             std::string runtime;
+            /**
+             * @brief The application's own command, when it names one instead of its runtime's
+             * interpreter. Empty for the ordinary case - see Worker::CommandLine().
+             */
+            std::string command;
             std::vector<std::string> arguments;
         };
 
