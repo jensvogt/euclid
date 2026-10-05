@@ -95,6 +95,27 @@ namespace Euclid::Database::Entity::EAP {
         std::string version;
 
         /**
+         * @brief The operating system the worker runs on - "linux", "windows", "macos".
+         *
+         * @par
+         * A field of its own rather than a label, because labels are the operator's and are
+         * whatever the worker's configuration says. This one is the worker's binary saying what it
+         * was built for, and it is replaced on every registration like the rest of the record.
+         * Empty for a node registered by a worker older than the field.
+         */
+        std::string os;
+
+        /**
+         * @brief The CPU architecture the worker runs on - "x86_64", "aarch64", "arm".
+         *
+         * @par
+         * Next to @ref os because neither is enough alone: a native build runs on one operating
+         * system and one architecture, and a Raspberry Pi and a PC can both be "linux". Reported
+         * the same way and for the same reason - see @ref os.
+         */
+        std::string arch;
+
+        /**
          * @brief One-minute load average as the node last reported it.
          *
          * @par

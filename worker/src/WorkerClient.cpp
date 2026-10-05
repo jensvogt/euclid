@@ -108,6 +108,8 @@ namespace Euclid::Worker {
                 {"labels", labels},
                 {"cpuCount", static_cast<long>(std::max(1U, std::thread::hardware_concurrency()))},
                 {"version", APP_VERSION},
+                {"os", Core::SystemUtils::GetOperatingSystem()},
+                {"arch", Core::SystemUtils::GetArchitecture()},
         };
 
         const auto response = post("eap", "register-node", body);
