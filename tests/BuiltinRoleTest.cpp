@@ -307,6 +307,31 @@ BOOST_AUTO_TEST_CASE(ApplicationDoesNotReachWhatItSubscribesTo) {
     BOOST_TEST(!grants(BuiltinRoles::Application, "eqs:purge-queue"));
 }
 
+// An application reads the credentials of the database it talks to while its Spring context is
+// being built, which is the first thing it does and the reason ESS exists. Withholding this made
+// ESS unreachable by anything deployed - no role an application could hold named a single ess
+// permission - so every read was answered 403 before ESS saw the request and the application
+// terminated in the datasource it was trying to construct.
+BOOST_AUTO_TEST_CASE(ApplicationReadsTheSecretsItIsConfiguredWith) {
+
+    BOOST_TEST(grants(BuiltinRoles::Application, "ess:get-secret"));
+
+    // Reading, and nothing else. A principal that can rotate or destroy the credentials it uses is
+    // a different thing from one that uses them, and the manifest's secrets are declared by the
+    // application precisely so that an operator decides what the value is.
+    BOOST_TEST(!grants(BuiltinRoles::Application, "ess:create-secret"));
+    BOOST_TEST(!grants(BuiltinRoles::Application, "ess:update-secret"));
+    BOOST_TEST(!grants(BuiltinRoles::Application, "ess:delete-secret"));
+    BOOST_TEST(!grants(BuiltinRoles::Application, "ess:add-secret-tag"));
+    BOOST_TEST(!grants(BuiltinRoles::Application, "ess:delete-secret-tag"));
+
+    // Deliberately not the listing. An application needs the value of a secret whose name its
+    // deployment configured; the names of the ones it was not told about are reconnaissance, and
+    // ESS answers list-secrets by filtering rather than refusing - so holding it would turn a
+    // narrow grant into a map of everything the grant does not cover.
+    BOOST_TEST(!grants(BuiltinRoles::Application, "ess:list-secrets"));
+}
+
 // ── transfer ────────────────────────────────────────────────────────────────
 
 BOOST_AUTO_TEST_CASE(TransferGrantsEveryTransferCommandAndNoServerAdministration) {

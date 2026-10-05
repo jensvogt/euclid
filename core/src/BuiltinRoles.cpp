@@ -208,7 +208,26 @@ namespace Euclid::Core {
                                 // write samples labelled as anything. That is metric pollution and
                                 // nothing more - nothing reads EMO to make a decision, the
                                 // autoscaler least of all, which is exactly why it stopped.
-                                "emo:push-metrics"});
+                                "emo:push-metrics",
+                                // Its own configuration. An application reads the credentials of
+                                // the database it talks to while its context is being built, which
+                                // is the whole reason ESS exists and is as much a part of starting
+                                // up as the delivery queue below - an application that cannot do it
+                                // does not start, it throws out of the first datasource it tries to
+                                // make. Withholding it made ESS unreachable by anything deployed:
+                                // no application role held a single ess permission, so every read
+                                // was answered 403 before ESS saw the request.
+                                //
+                                // Reading only, and one secret at a time by the name the deployment
+                                // configured. The write actions stay out - a principal that can
+                                // rotate or delete the credentials it reads is a different thing
+                                // from one that uses them - and so does list-secrets, because
+                                // enumerating an account's secret names is reconnaissance an
+                                // application has no use for. get-secret is resource-checked
+                                // (EssServer::denyUngrantedSecret), so a manifest naming secrets
+                                // narrows this to exactly the ones declared; a deployment that
+                                // named nothing keeps the ["*"] it already had everywhere else.
+                                "ess:get-secret"});
 
                 built[std::string(BuiltinRoles::Transfer)] = transferPermissions();
 

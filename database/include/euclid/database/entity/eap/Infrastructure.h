@@ -67,6 +67,11 @@ namespace Euclid::Database::Entity::EAP {
                 std::string_view{"queues"},
                 std::string_view{"topics"},
                 std::string_view{"buckets"},
+                // Only ever under `uses`. A secret's value cannot travel in a declaration that
+                // ships inside the artifact, so euclid does not create one; naming it is how an
+                // application's grant comes to cover the secrets it reads and no others. Read()
+                // refuses one under `creates` saying so.
+                std::string_view{"secrets"},
         };
 
         /**
@@ -184,6 +189,15 @@ namespace Euclid::Database::Entity::EAP {
                                             "esm:set-object-attribute", "esm:add-object-attribute"}},
                     {{"buckets", "subscribe"}, {"esm:get-bucket-ern", "esm:subscribe", "esm:unsubscribe",
                                                 "esm:list-subscriptions"}},
+
+                    // A secret is read, and that is the whole of it. One permission and no ERN
+                    // lookup beside it: unlike every other kind here, ess:get-secret takes the
+                    // secret's *name*, which is what configuration can carry and what stays the
+                    // same between environments - so there is no name-to-ERN step for an access
+                    // level to have to grant. list-secrets stays out deliberately, because what
+                    // an application needs is the value of a secret it was told the name of, not
+                    // the names of the ones it was not.
+                    {{"secrets", "read"}, {"ess:get-secret"}},
             };
 
             const auto it = kTable.find({kind, access});
@@ -305,6 +319,14 @@ namespace Euclid::Database::Entity::EAP {
                         if (!read.error.empty()) return {{}, std::string(section) + ": " + read.error};
 
                         if (std::string(section) == "creates") {
+                            // Refused rather than attempted. Creating a secret means writing its
+                            // value, and the only place a declaration could carry one is the file
+                            // itself - which ships in the application's artifact. An operator
+                            // writes it once; the declaration says which ones are read.
+                            if (kindName == "secrets") {
+                                return {{}, "creates: " + read.resource.name + " is a secret; a secret's value cannot travel in a "
+                                                                               "declaration, so it is written once with \"ess create-secret\" and named under \"uses\""};
+                            }
                             // An access level on something the application owns is not wrong so much
                             // as meaningless, and quietly ignoring it would leave somebody believing
                             // they had narrowed their own access.
