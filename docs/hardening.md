@@ -1,8 +1,8 @@
 # Hardening
 
 **Status:** built. Warnings, hardening flags and a sanitizer build are in `CMakeLists.txt`; four
-fuzz targets are in `fuzz/`; CI runs every test suite twice, once normally and once under
-AddressSanitizer and UndefinedBehaviorSanitizer, and smokes the fuzz targets. Written 2026-09-20.
+fuzz targets are in `fuzz/`; CI runs every test suite; the AddressSanitizer and
+UndefinedBehaviorSanitizer run and the fuzz smoke are run locally. Written 2026-09-20.
 
 What the compiler, the loader and the test suite are asked to do about the mistakes a review
 misses. None of it replaces reading the code; all of it catches things reading the code did not.
@@ -197,7 +197,8 @@ ASAN_OPTIONS=detect_leaks=0 ctest --test-dir build-asan --output-on-failure
 
 Off by default, and not a build type of its own so that any build can be repeated with them on
 without a second configuration to keep in step. A sanitized build is slower and uses more memory,
-which is why it belongs in CI over the test suites rather than in anybody's working build.
+which is why it is a separate build directory, run locally before a release, rather than
+anybody's working build.
 
 `detect_leaks=0` because leak detection reports what a process still holds at exit, which for a
 test that never shuts a singleton down is noise rather than a bug.
@@ -244,7 +245,7 @@ caller reaches before anything has vouched for them:
 
 ```sh
 fuzz/build.sh                                    # clang + libFuzzer + ASan + UBSan
-fuzz/smoke.sh                                    # 20k runs each, what CI does
+fuzz/smoke.sh                                    # 20k runs each
 cmake-build-debug/fuzz/euclid-fuzz-upload-key fuzz/corpus/upload-key -runs=100000000
 ```
 
@@ -271,20 +272,17 @@ corpora in `fuzz/corpus/` are what a later run starts from.
 
 ## 5. CI
 
-`.github/workflows/test.yml` has two jobs:
-
-- **test** — builds and runs every suite.
-- **sanitizers** — the same, under `address,undefined`, with `halt_on_error=1` so a finding fails
-  the job rather than being printed and passed over.
+`.github/workflows/test.yml` builds and runs every suite on each pull request.
 
 Until this change CI built `--target euclid-tests` and ran `-R euclid-tests`: **one of the
 sixty-six suites.** The other sixty-five were neither compiled nor run, so a pull request could
 break any of them and still go green. Both of the memory errors above were in suites CI never
 touched.
 
-The sanitizer job roughly doubles CI time and builds a second copy of everything. If that is too
-slow for every pull request it is a reasonable candidate for a nightly schedule — but the
-"run every suite" change belongs on every pull request regardless.
+The sanitizer build and the fuzz smoke are not in CI: they roughly doubled CI time and built a
+second copy of everything, so they are run locally (sections 3 and 4) instead. When running them
+by hand, `UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1` makes a UBSan finding fail the test
+rather than being printed and passed over.
 
 ## 6. Not done
 
