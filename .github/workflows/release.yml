@@ -296,6 +296,7 @@ jobs:
       BUILD_DIR: "${{ github.workspace }}/build-macos"
       PACKAGE_DIR: "${{ github.workspace }}/package-macos"
       PACKAGE_DIR_CLI: "${{ github.workspace }}/package-macos-cli"
+      PACKAGE_DIR_WRK: "${{ github.workspace }}/package-macos-wrk"
       SEMVER: ${{ needs.release-please.outputs.tag_name }}
       SERVICE_NAME: de.jensvogt.euclid
       HOMEBREW_NO_AUTO_UPDATE: 1
@@ -538,6 +539,85 @@ jobs:
         with:
           name: cli-installer-macos
           path: ${{ env.CLI_NAME }}-${{ env.SEMVER }}-macos.tgz
+          overwrite: true
+
+      # ── worker-only tarball ────────────────────────────────────────────────
+      # The macOS counterpart of the euclid-wrk DEB, RPM and MSI, and its own product for the same
+      # reason they are: a worker host is deliberately not a euclid host. It runs no modules, holds
+      # no database credentials and has nothing listening, so the server tarball excludes this
+      # binary (see the loop in "Prepare package structure") and this is where it ships instead.
+      #
+      # Unpacks under /usr/local like the server tarball, so the binary lands on the same path the
+      # DEB and RPM put it on and the launchd job can name one path on every platform that has one.
+      - name: Prepare macOS worker package
+        run: |
+          mkdir -p ${{ env.PACKAGE_DIR_WRK }}/euclid/bin
+          mkdir -p ${{ env.PACKAGE_DIR_WRK }}/euclid/etc
+
+          cp ${{ env.BUILD_DIR }}/bin/${{ env.WORKER_NAME }} ${{ env.PACKAGE_DIR_WRK }}/euclid/bin/
+
+          # Its own configuration file, and emphatically not euclid.json. The manager's
+          # configuration holds euclid.modules.eam.jwt-secret, and a worker refuses to start if it
+          # finds that key - anything holding it can mint a token for any principal in the
+          # installation, including admin, offline and unaudited. Shipping a separate file is what
+          # stops somebody pointing the launchd job at the one next to it.
+          #
+          # From dist/macos/wrk/ rather than dist/macos/etc/, which the server package copies
+          # wholesale: a worker config under that directory would be installed on every manager host
+          # as well, which is the one machine that must never be pointed at it.
+          cp dist/macos/wrk/euclid-wrk.json ${{ env.PACKAGE_DIR_WRK }}/euclid/etc/
+
+          # Shipped where it can be read, not where launchd reads it. /Library/LaunchDaemons is
+          # outside this tarball's prefix and the file has to be root-owned 0644 there or launchd
+          # refuses the job, so copying it is one of the install steps rather than something
+          # unpacking does invisibly.
+          cp dist/macos/wrk/de.jensvogt.euclid-wrk.plist ${{ env.PACKAGE_DIR_WRK }}/euclid/etc/
+
+      - name: Verify macOS worker package contents
+        run: |
+          test -x ${{ env.PACKAGE_DIR_WRK }}/euclid/bin/${{ env.WORKER_NAME }} \
+            || { echo "::error::${{ env.WORKER_NAME }} is missing or not executable in the macOS worker package"; exit 1; }
+          test -s ${{ env.PACKAGE_DIR_WRK }}/euclid/etc/euclid-wrk.json \
+            || { echo "::error::euclid-wrk.json is missing from the macOS worker package"; exit 1; }
+          test -s ${{ env.PACKAGE_DIR_WRK }}/euclid/etc/de.jensvogt.euclid-wrk.plist \
+            || { echo "::error::de.jensvogt.euclid-wrk.plist is missing from the macOS worker package"; exit 1; }
+
+          # The same check the Linux worker package makes, for the same reason: a worker refuses to
+          # start if its configuration names the signing secret, so shipping a file that does would
+          # make every installed worker fail to start - and the fix would look like a euclid bug
+          # rather than a packaging one.
+          if grep -q "jwt-secret" ${{ env.PACKAGE_DIR_WRK }}/euclid/etc/euclid-wrk.json; then
+            echo "::error::the shipped euclid-wrk.json names jwt-secret; a worker refuses to start with it (see docs/worker-nodes.md §3.2)"
+            exit 1
+          fi
+
+          # The plist is the only thing here that decides what the node runs as, and the applications
+          # a worker starts inherit it. There is no ProtectSystem=strict on macOS to limit the damage
+          # if this regressed to root, and a plist with no UserName runs as root silently.
+          if ! grep -q "_euclid-wrk" ${{ env.PACKAGE_DIR_WRK }}/euclid/etc/de.jensvogt.euclid-wrk.plist; then
+            echo "::error::the worker plist does not name the _euclid-wrk account; the job would run as root"
+            exit 1
+          fi
+
+          # plutil is in the base system, so the plist is checked for being loadable rather than
+          # merely non-empty - launchd rejects a malformed job with nothing but a syslog line.
+          plutil -lint ${{ env.PACKAGE_DIR_WRK }}/euclid/etc/de.jensvogt.euclid-wrk.plist \
+            || { echo "::error::de.jensvogt.euclid-wrk.plist is not a valid property list"; exit 1; }
+
+          # Two packages owning one path is a conflict somebody finds on their own machine. On Linux
+          # dpkg reports it; here nothing would, so the tarballs are checked against each other.
+          if [ -e ${{ env.PACKAGE_DIR }}/euclid/bin/${{ env.WORKER_NAME }} ]; then
+            echo "::error::${{ env.WORKER_NAME }} is in the macOS server payload as well as its own package"
+            exit 1
+          fi
+
+          tar -czf ${{ env.WORKER_NAME }}-${{ env.SEMVER }}-macos.tgz -C ${{ env.PACKAGE_DIR_WRK }} .
+
+      - name: Upload macOS worker tarball
+        uses: actions/upload-artifact@v7
+        with:
+          name: worker-installer-macos
+          path: ${{ env.WORKER_NAME }}-${{ env.SEMVER }}-macos.tgz
           overwrite: true
 
   build-linux:
@@ -1556,6 +1636,12 @@ jobs:
           name: cli-installer-macos
           path: artifacts/macos
 
+      - name: Download macOS worker tarball
+        uses: actions/download-artifact@v7
+        with:
+          name: worker-installer-macos
+          path: artifacts/macos
+
       - name: Download Windows CLI installer
         uses: actions/download-artifact@v7
         with:
@@ -1641,15 +1727,25 @@ jobs:
           cp ./artifacts/cli-installer-windows/*.msi public/
           cp ./artifacts/cli-installer-macos/*.tgz public/
           cp ./artifacts/worker-installer-windows/*.msi public/
+          cp ./artifacts/worker-installer-macos/*.tgz public/
 
           # One artifact per architecture: deb-package-linux-amd64, deb-package-linux-arm64, and the
           # same for rpm and for both CLI packages. Globbed rather than named, so a third
           # architecture needs nothing here. "deb-package-linux-*" does not also match
           # "cli-deb-package-linux-*" - the glob is anchored at the start of the directory name.
+          #
+          # Which is also why the worker's two lines have to exist separately, and why they did not
+          # for several releases: anchoring means "deb-package-linux-*" does not match
+          # "worker-deb-package-linux-amd64" either, so euclid-wrk was built, checked, attached to
+          # the GitHub release and then left off the download page - the one place the README sends
+          # people to get it. The worker MSI was copied above and the two Linux ones were not, which
+          # is the asymmetry that hid it.
           cp ./artifacts/deb-package-linux-*/*.deb public/
           cp ./artifacts/rpm-package-linux-*/*.rpm public/
           cp ./artifacts/cli-deb-package-linux-*/*.deb public/
           cp ./artifacts/cli-rpm-package-linux-*/*.rpm public/
+          cp ./artifacts/worker-deb-package-linux-*/*.deb public/
+          cp ./artifacts/worker-rpm-package-linux-*/*.rpm public/
           cp .github/pages/index.html public/index.html || true
           mkdir -p public/apt
           cp -R ./artifacts/apt-repo-site/dists public/apt/
@@ -1672,6 +1768,26 @@ jobs:
           done
           if [ -n "$missing" ]; then
             echo "::error::the download page would ship without:$missing"
+            exit 1
+          fi
+
+          # By extension alone the check above passes while a whole product is absent: the server's
+          # own .deb satisfies "*.deb" whether or not euclid-cli's and euclid-wrk's are there, which
+          # is how the worker's Linux packages stayed off this page while every pattern reported a
+          # non-zero count. So each of the three products is counted by name as well.
+          for product in euclid euclid-cli euclid-wrk; do
+            case "$product" in
+              # The server's files are the ones that do not carry another product's prefix, so they
+              # are counted by excluding those rather than by a glob that would match all three.
+              euclid) count=$(find public -maxdepth 1 -type f \
+                        \( -name 'euclid-*' ! -name 'euclid-cli-*' ! -name 'euclid-wrk-*' \) | wc -l) ;;
+              *) count=$(find public -maxdepth 1 -type f -name "${product}-*" | wc -l) ;;
+            esac
+            echo "$product: $count"
+            [ "$count" -gt 0 ] || missing="$missing $product"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::the download page would ship without any package for:$missing"
             exit 1
           fi
 

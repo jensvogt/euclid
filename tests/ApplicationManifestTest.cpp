@@ -153,7 +153,56 @@ BOOST_AUTO_TEST_CASE(a_misspelt_section_is_refused_not_skipped) {
 
     BOOST_TEST(!result.ok());
     BOOST_TEST(mentions(result.errors, "unknown section \"queue\""));
-    BOOST_TEST(mentions(result.errors, "buckets, queues, topics"));
+    BOOST_TEST(mentions(result.errors, "buckets, queues, secrets, topics"));
+}
+
+// The one kind an application may name and must not own. A secret's value is the point of it, and
+// the only place a manifest could carry one is the file itself - which ships inside the artifact.
+// So euclid never creates a secret: an operator writes it once, and the manifest's part is to say
+// which of them this application reads, which is what narrows its grant to those and no others.
+BOOST_AUTO_TEST_CASE(a_secret_is_used_and_never_created) {
+
+    const auto result = ParseApplicationManifest(
+            R"({"version":1,"uses":{"secrets":[{"name":"suppliers-username","access":"read"}]}})", "secrets.json");
+
+    BOOST_REQUIRE(result.ok());
+    BOOST_REQUIRE(result.manifest.uses.size() == 1u);
+    BOOST_TEST((result.manifest.uses.front().kind == Kind::Secret));
+    BOOST_TEST(result.manifest.uses.front().name == "suppliers-username");
+    BOOST_TEST((result.manifest.uses.front().access == std::vector{Access::Read}));
+
+    // Refused rather than created empty, and refused at the section: it is one mistake about what a
+    // manifest is for, not one per secret. The message has to say where the value goes instead,
+    // because somebody who wrote this believed the manifest was the place for it.
+    const auto created = ParseApplicationManifest(
+            R"({"version":1,"creates":{"secrets":[{"name":"suppliers-password"}]}})", "secrets.json");
+
+    BOOST_TEST(!created.ok());
+    BOOST_TEST(mentions(created.errors, "cannot hold secrets"));
+    BOOST_TEST(mentions(created.errors, "ess create-secret"));
+}
+
+// Every other kind here has several verbs and the point of naming one is to ask for fewer. A secret
+// has exactly one, so "write" on a secret is not a narrower request - it is somebody expecting an
+// application to be able to rotate the credentials it reads.
+BOOST_AUTO_TEST_CASE(a_secret_is_read_and_only_read) {
+
+    for (const auto *access: {"write", "produce", "consume", "subscribe"}) {
+        BOOST_TEST_CONTEXT(access) {
+            const auto result = ParseApplicationManifest(
+                    R"({"version":1,"uses":{"secrets":[{"name":"suppliers-password","access":")" + std::string(access) + R"("}]}})",
+                    "secrets.json");
+            BOOST_TEST(!result.ok());
+            BOOST_TEST(mentions(result.errors, "a secret is read, and only read"));
+        }
+    }
+
+    // And an unknown one is still reported as unknown rather than as inapplicable: the vocabulary
+    // is checked first, so a typo reads as a typo.
+    const auto misspelt = ParseApplicationManifest(
+            R"({"version":1,"uses":{"secrets":[{"name":"x","access":"reed"}]}})", "secrets.json");
+    BOOST_TEST(!misspelt.ok());
+    BOOST_TEST(mentions(misspelt.errors, "unknown access \"reed\""));
 }
 
 BOOST_AUTO_TEST_CASE(one_object_can_be_reached_more_than_one_way) {

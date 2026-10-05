@@ -624,6 +624,53 @@ namespace Euclid::Database {
     inline constexpr auto kSystemPrincipal = "system";
 
     /**
+     * @brief The caller behind an already-verified subject, as a module handler needs it.
+     *
+     * @par
+     * kSystemPrincipal is a constant and not a row, so looking it up the way a user is looked up
+     * finds nothing - and a handler reading that as "no caller" refuses euclid's own inter-module
+     * traffic with "Missing or invalid bearer token", describing a token that verified perfectly.
+     * The gate above already waves the system principal through; this is the other half, so that
+     * the six module servers which resolve a subject to a user before doing anything agree with it.
+     *
+     * @par
+     * The account and region come off the request rather than out of a row, because a system call
+     * carries the account it is acting in - and a single-account installation's configured id
+     * stands in when the request names none, the same rule a handler applies to the header itself.
+     *
+     * @param subject the verified subject, from Core::HttpActionServer::Authenticate()
+     * @param req the request it was verified from, for the account and region it names
+     * @return the caller, or nothing when the subject names no user this installation knows
+     */
+    inline std::optional<Entity::EAM::User> ResolveCaller(const std::string &subject,
+                                                          const boost::beast::http::request<boost::beast::http::string_body> &req) {
+
+        if (subject != kSystemPrincipal) {
+            return RepositoryFactory::instance().eamRepository()->findUserByUserId(subject);
+        }
+
+        Entity::EAM::User system;
+        system.userId = kSystemPrincipal;
+        system.accountId = std::string(req["x-euclid-account-id"]);
+        system.region = std::string(req["x-euclid-region"]);
+
+        // has() first: getArray() throws on a missing key. Only when exactly one account is
+        // configured - with several there is no way to tell which was meant.
+        if (system.accountId.empty()) {
+            if (const auto &cfg = Core::Configuration::instance(); cfg.has("euclid.account-ids")) {
+                if (const auto configured = cfg.getArray<std::string>("euclid.account-ids"); configured.size() == 1) {
+                    system.accountId = configured.front();
+                }
+            }
+        }
+        if (system.region.empty()) {
+            system.region = Core::Configuration::instance().getOr<std::string>("euclid.region", "");
+        }
+
+        return system;
+    }
+
+    /**
      * @brief Registers the authorization lookup Core::HttpActionServer's gate consults.
      *
      * @par
