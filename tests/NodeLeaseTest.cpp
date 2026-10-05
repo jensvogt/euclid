@@ -64,6 +64,7 @@ namespace {
         node.version = "1.2.0";
         node.os = "linux";
         node.arch = "aarch64";
+        node.address = "192.168.1.20";
         node.labels = {{"gpu", "true"}};
         return node;
     }
@@ -346,6 +347,7 @@ BOOST_AUTO_TEST_CASE(ARegisteredNodeIsReadBackWhole) {
     BOOST_TEST(stored->version == "1.2.0");
     BOOST_TEST(stored->os == "linux");
     BOOST_TEST(stored->arch == "aarch64");
+    BOOST_TEST(stored->address == "192.168.1.20");
     BOOST_TEST_REQUIRE(stored->labels.contains("gpu"));
     BOOST_TEST(stored->labels.at("gpu") == "true");
 }

@@ -19,6 +19,9 @@
 #endif
 #include <fstream>
 #include <sstream>
+
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/ip/udp.hpp>
 #include <stdexcept>
 #include <string>
 
@@ -85,6 +88,24 @@ namespace Euclid::Core {
 #else
         return "unknown";
 #endif
+    }
+
+    std::optional<std::string> SystemUtils::GetOutboundAddress(const std::string &host, const std::string &port) {
+        try {
+            boost::asio::io_context ioc;
+            boost::asio::ip::udp::resolver resolver(ioc);
+            for (const auto &entry: resolver.resolve(host, port)) {
+                boost::system::error_code ec;
+                boost::asio::ip::udp::socket socket(ioc);
+                socket.connect(entry.endpoint(), ec);
+                if (ec) continue;
+                const auto local = socket.local_endpoint(ec);
+                if (!ec && !local.address().is_unspecified()) return local.address().to_string();
+            }
+        } catch (const std::exception &e) {
+            log_debug << "Could not determine the outbound address, host: " << host << ", error: " << e.what();
+        }
+        return std::nullopt;
     }
 
     std::string SystemUtils::GetArchitecture() {

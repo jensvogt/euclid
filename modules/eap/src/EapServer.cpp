@@ -1853,6 +1853,7 @@ namespace Euclid::EAP {
 
             return boost::json::object{
                     {"name", node.name},
+                    {"address", node.address},
                     {"principal", node.principal},
                     {"labels", labels},
                     {"cpuCount", node.cpuCount},
@@ -1904,6 +1905,7 @@ namespace Euclid::EAP {
         node.version = stringField(obj, "version");
         node.os = stringField(obj, "os");
         node.arch = stringField(obj, "arch");
+        node.address = stringField(obj, "address");
         node.lastSeen = std::chrono::system_clock::now();
 
         if (const auto labels = obj.if_contains("labels"); labels != nullptr && labels->is_object()) {
@@ -1913,7 +1915,7 @@ namespace Euclid::EAP {
         }
 
         const auto stored = repository->upsertNode(node);
-        log_info << "EAP RegisterNode, node: " << stored.name << ", principal: " << stored.principal
+        log_info << "EAP RegisterNode, node: " << stored.name << ", address: " << stored.address << ", principal: " << stored.principal
                  << ", cpus: " << stored.cpuCount << ", version: " << stored.version << ", os: " << stored.os << ", arch: " << stored.arch;
 
         return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
