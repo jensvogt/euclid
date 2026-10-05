@@ -17,6 +17,7 @@
 // C++ includes
 #include <atomic>
 #include <csignal>
+#include <filesystem>
 #include <iostream>
 #include <optional>
 #include <thread>
@@ -243,6 +244,16 @@ static int RunWorker(const CliOptions &options, const bool reportServiceStatus) 
         return 1;
     }
     if (workerOptions.nodeName.empty()) workerOptions.nodeName = Euclid::Core::SystemUtils::GetHostName();
+    // From the configuration as well as the command line, for the reason the unit file gives for the
+    // endpoint: a master with a self-signed certificate is the ordinary case on a LAN, and trusting
+    // it should not need an edit to a unit file that the next package upgrade overwrites.
+    if (workerOptions.caCertPath.empty()) {
+        workerOptions.caCertPath = Euclid::Core::Configuration::instance().getOr<std::string>("euclid.worker.ca-cert", "");
+    }
+    if (!workerOptions.caCertPath.empty() && !std::filesystem::exists(workerOptions.caCertPath)) {
+        std::cerr << "error: CA certificate '" << workerOptions.caCertPath << "' does not exist" << std::endl;
+        return 1;
+    }
 
     Euclid::Worker::WorkerClient worker(workerOptions, *credentials);
 
