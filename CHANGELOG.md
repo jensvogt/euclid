@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.11](https://github.com/jensvogt/euclid/compare/1.2.10...v1.2.11) (2026-10-05)
+
+
+### Bug Fixes
+
+* certificate problem on aarch64 ([050183d](https://github.com/jensvogt/euclid/commit/050183d32843948c7ac22576ec8cfab17c1091d3))
+* certificate problem on aarch64 ([a0e6b5a](https://github.com/jensvogt/euclid/commit/a0e6b5a53aac3f60833ae1184850e1ea2a860238))
+
 ## [1.2.10](https://github.com/jensvogt/euclid/compare/1.2.9...v1.2.10) (2026-10-05)
 
 
