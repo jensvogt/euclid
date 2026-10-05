@@ -1288,6 +1288,20 @@ namespace Euclid::main {
                 continue;
             }
 
+            // The other direction: a node application whose constraints were cleared, so it is the
+            // manager's to run again. Its slots on nodes are removed rather than withdrawn - the
+            // pool about to start here has no use for records that point at another host's pids -
+            // and a slot that is gone drops out of its node's next renewal, which is what makes
+            // the worker stop it. Without this the application would run both here and there.
+            if (const auto pool = Database::RepositoryFactory::instance().emmRepository()->findByName(runtimeName); pool.has_value()) {
+                for (const auto &instance: pool->instances) {
+                    if (instance.assignedTo.empty()) continue;
+                    log_info << "Application is no longer placed on nodes, removing a node slot, applicationId: " << runtimeName
+                             << ", instance: " << instance.instanceId << ", node: " << instance.assignedTo;
+                    Database::RepositoryFactory::instance().emmRepository()->removeInstance(runtimeName, instance.instanceId);
+                }
+            }
+
             const bool wantRunning = application.desiredState == Database::Entity::EAP::ApplicationState::RUNNING;
             const auto revision = Core::DateTimeUtils::ToISO8601(application.modified);
 

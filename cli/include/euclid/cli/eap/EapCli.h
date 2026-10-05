@@ -194,6 +194,33 @@ namespace Euclid::CLI {
         [[nodiscard]]
         int applyManifest(const std::vector<std::string> &args) const;
 
+        /**
+         * @brief Lists the worker nodes registered in the account.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int listNodes(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Shows one worker node's registration.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int getNode(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Removes a worker node's registration, freeing its name for another principal.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int deleteNode(const std::vector<std::string> &args) const;
+
         std::string _endpoint;
         Credentials::Entry _authentication;
         bool _pretty;

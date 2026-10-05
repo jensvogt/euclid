@@ -253,6 +253,13 @@ static int RunWorker(const CliOptions &options, const bool reportServiceStatus) 
     if (workerOptions.address.empty()) {
         workerOptions.address = Euclid::Core::Configuration::instance().getOr<std::string>("euclid.worker.address", "");
     }
+    // From the configuration too, and only then the built-in default, because the default is the
+    // Linux one: a macOS worker's account can write /usr/local/var/euclid-wrk and nothing under
+    // /var/lib, and the launchd job - like the unit file - is not the place to say so, since an
+    // upgrade overwrites it.
+    if (workerOptions.dataDir.empty()) {
+        workerOptions.dataDir = Euclid::Core::Configuration::instance().getOr<std::string>("euclid.worker.data-dir", defaultDataDir());
+    }
     if (!workerOptions.caCertPath.empty() && !std::filesystem::exists(workerOptions.caCertPath)) {
         std::cerr << "error: CA certificate '" << workerOptions.caCertPath << "' does not exist" << std::endl;
         return 1;
@@ -361,7 +368,7 @@ int main(const int argc, char **argv) {
             ("endpoint,e", po::value<std::string>(), "gateway to reach euclid through, e.g. https://euclid.example:5566")
             ("node,n", po::value<std::string>(), "what this node calls itself; defaults to the host name")
             ("label,l", po::value<std::vector<std::string> >()->composing(), "a placement label, key=value; repeatable")
-            ("data-dir,d", po::value<std::string>()->default_value(defaultDataDir()), "where artifacts, credentials and logs go")
+            ("data-dir,d", po::value<std::string>(), (std::string("where artifacts, credentials and logs go; defaults to ") + defaultDataDir()).c_str())
             ("tick,t", po::value<long>()->default_value(10), "seconds between renewals")
             ("ca-cert", po::value<std::string>()->default_value(""), "a CA certificate to trust in addition to the system store")
             ("address,a", po::value<std::string>(), "IP address to report for this node; defaults to the one the master is reached from")
@@ -395,7 +402,7 @@ int main(const int argc, char **argv) {
     cliOptions.credentialsFile = vm["credentials"].as<std::string>();
     if (vm.contains("endpoint")) cliOptions.worker.endpoint = vm["endpoint"].as<std::string>();
     if (vm.contains("node")) cliOptions.worker.nodeName = vm["node"].as<std::string>();
-    cliOptions.worker.dataDir = vm["data-dir"].as<std::string>();
+    if (vm.contains("data-dir")) cliOptions.worker.dataDir = vm["data-dir"].as<std::string>();
     cliOptions.worker.tick = std::chrono::seconds{std::max(1L, vm["tick"].as<long>())};
     cliOptions.worker.caCertPath = vm["ca-cert"].as<std::string>();
     if (vm.contains("address")) cliOptions.worker.address = vm["address"].as<std::string>();

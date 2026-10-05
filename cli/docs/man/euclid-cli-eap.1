@@ -333,6 +333,20 @@ changing anything about it. See
 Turns an application's own logging up, down or off, while it runs. See
 .BR euclid-cli-eap-set-log-level (1).
 .TP
+.B list-nodes
+Lists the registered worker nodes, what each reported about itself, and
+whether it is live. See
+.BR euclid-cli-eap-list-nodes (1).
+.TP
+.B get-node
+Shows one worker node's registration. See
+.BR euclid-cli-eap-get-node (1).
+.TP
+.B delete-node
+Removes a worker node's registration, freeing its name for another
+principal. See
+.BR euclid-cli-eap-delete-node (1).
+.TP
 .B report-load
 How busy an instance is and how much work is waiting, sent by the
 instance itself and read by the autoscaler \- see
@@ -452,6 +466,9 @@ euclid-cli eap update-application --application-id inbox --artifact inbox.jar
 .BR euclid-cli-eap-delete-application (1),
 .BR euclid-cli-eap-start-application (1),
 .BR euclid-cli-eap-stop-application (1),
-.BR euclid-cli-eap-restart-application (1)
+.BR euclid-cli-eap-restart-application (1),
+.BR euclid-cli-eap-list-nodes (1),
+.BR euclid-cli-eap-get-node (1),
+.BR euclid-cli-eap-delete-node (1)
 .SH AUTHOR
 Jens Vogt <jensvogt47@gmail.com>
