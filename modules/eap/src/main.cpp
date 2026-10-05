@@ -11,6 +11,7 @@
 
 // Euclid includes
 #include <EapServer.h>
+#include <LocalNode.h>
 #include <euclid/core/Configuration.h>
 #include <euclid/core/HttpActionServer.h>
 #include <euclid/core/LogStream.h>
@@ -167,6 +168,11 @@ int main(const int argc, char *argv[]) {
     Euclid::Database::WireAuthorizationLookup();
     // Every module records its own commands; see Core::HttpActionServer::Dispatch().
     Euclid::Database::WireAuditSink();
+
+    // The worker on this host, if the installation has one - its principal, its credentials, its
+    // configuration. Before the server starts, so the files are there by the time the worker,
+    // waiting for them, looks again.
+    Euclid::EAP::LocalNode::Provision();
 
     Euclid::Core::Monitoring::MetricsPusher metricsPusher("eap");
     try {

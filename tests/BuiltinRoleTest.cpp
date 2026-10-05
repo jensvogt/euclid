@@ -292,6 +292,37 @@ BOOST_AUTO_TEST_CASE(ApplicationMayReportItsOwnLoad) {
     BOOST_TEST(!grants(BuiltinRoles::Application, "eap:set-log-level"));
 }
 
+// ── node ────────────────────────────────────────────────────────────────────
+
+// What euclid-wrk calls as itself. Missing one of these is not a degraded worker, it is one that does
+// not work: no registration, no renewal, an instance it cannot give credentials to, or an artifact it
+// can fetch only while it is under the part size.
+BOOST_AUTO_TEST_CASE(NodeHoldsWhatAWorkerCallsAsItself) {
+
+    BOOST_TEST(grants(BuiltinRoles::Node, "eap:register-node"));
+    BOOST_TEST(grants(BuiltinRoles::Node, "eap:renew-node"));
+    BOOST_TEST(grants(BuiltinRoles::Node, "eap:issue-instance-credentials"));
+    BOOST_TEST(grants(BuiltinRoles::Node, "eap:report-node-instance"));
+
+    // The single-shot fetch and the three of a fetch in parts.
+    BOOST_TEST(grants(BuiltinRoles::Node, "esm:get-object"));
+    BOOST_TEST(grants(BuiltinRoles::Node, "esm:create-download"));
+    BOOST_TEST(grants(BuiltinRoles::Node, "esm:download-part"));
+    BOOST_TEST(grants(BuiltinRoles::Node, "esm:complete-download"));
+}
+
+// And nothing an operator does to a node, nor anything an application does. A node that could free
+// another node's name could take over its assignments and the credentials that go with them.
+BOOST_AUTO_TEST_CASE(NodeCannotManageNodesOrApplications) {
+
+    BOOST_TEST(!grants(BuiltinRoles::Node, "eap:delete-node"));
+    BOOST_TEST(!grants(BuiltinRoles::Node, "eap:drain-node"));
+    BOOST_TEST(!grants(BuiltinRoles::Node, "eap:assign-instance"));
+    BOOST_TEST(!grants(BuiltinRoles::Node, "eap:create-application"));
+    BOOST_TEST(!grants(BuiltinRoles::Node, "esm:put-object"));
+    BOOST_TEST(!grants(BuiltinRoles::Node, "esm:delete-object"));
+}
+
 // Owning a queue is not owning the thing it is fed from. An application may take down its own
 // delivery queue; it may not take down the topic other applications are also listening to, nor the
 // bucket whose events it subscribed to.

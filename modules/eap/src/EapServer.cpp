@@ -17,6 +17,7 @@
 
 // Euclid includes
 #include <EapServer.h>
+#include <euclid/core/ApplicationLaunch.h>
 #include <euclid/core/Configuration.h>
 #include <euclid/core/CryptoUtils.h>
 #include <euclid/core/DateTimeUtils.h>
@@ -26,6 +27,7 @@
 #include <euclid/core/monitoring/MonitoringTimer.h>
 #include <euclid/database/entity/RuntimeName.h>
 #include <euclid/database/entity/eam/User.h>
+#include <euclid/database/entity/eap/ApplicationIdentity.h>
 #include <euclid/database/entity/eap/Infrastructure.h>
 #include <euclid/database/entity/eqs/Queue.h>
 #include <euclid/database/entity/ens/Topic.h>
@@ -2027,6 +2029,17 @@ namespace Euclid::EAP {
                 boost::json::array arguments;
                 for (const auto &argument: application->arguments) arguments.push_back(boost::json::value(argument));
 
+                // The object's own size and content hash, read from ESM's row as the manager reads
+                // them for its own applications. The size is what decides whether the artifact is
+                // fetched in one call or in parts - a worker that did not know it fetched everything
+                // in one, which ESM refuses for anything at or above the part size - and the hash is
+                // what tells a worker its copy is already the build to run.
+                const auto object = Database::RepositoryFactory::instance().esmRepository()->findObjectByBucketAndKey(
+                        application->bucketErn, application->artifactKey);
+
+                boost::json::object environment;
+                for (const auto &[name, value]: Database::Entity::EAP::ApplicationEnvironment(*application, true)) environment[name] = value;
+
                 // §7 describes this as the tuple (instanceId, applicationId, revision), which is
                 // what a worker needs to *decide*. What it needs to *act* is everything below: the
                 // artifact to fetch and the runtime to hand it to. Sent here rather than fetched
@@ -2044,11 +2057,26 @@ namespace Euclid::EAP {
                         {"leaseExpiresAt", Core::DateTimeUtils::ToISO8601(expiry)},
                         {"bucketErn", application->bucketErn},
                         {"artifactKey", application->artifactKey},
+                        {"artifactSize", object.has_value() ? object->size : 0L},
+                        {"md5Sum", object.has_value() ? object->md5Sum : application->md5Sum},
                         {"runtime", RuntimeToString(application->runtime)},
                         // The application's own command, which overrides the runtime's
                         // interpreter on a node exactly as it does on the manager.
                         {"command", application->command},
                         {"arguments", arguments},
+                        // The definition's half of the process environment - exactly the one the
+                        // manager starts its own applications with, an operator-named user's access
+                        // key included, so an application behaves the same wherever it is placed.
+                        // The worker adds the host's half itself.
+                        {"environment", environment},
+                        // What the worker labels the instance's output with, so a line from a node
+                        // carries the same account and namespace a line from the manager would.
+                        {"accountId", application->accountId},
+                        {"nameSpace", application->nameSpace},
+                        // The level set with set-log-level, which the worker applies to the
+                        // instance's channel. Not part of the revision, so changing it restarts
+                        // nothing - here or on the manager.
+                        {"logLevel", application->logLevel},
                 });
             }
         }
@@ -2159,27 +2187,16 @@ namespace Euclid::EAP {
             return EapServer::ErrorResponse(req, status::not_found, "No application behind pool " + runtimeName);
         }
 
-        const auto ttl = std::chrono::seconds{
-                std::max(1L, Core::Configuration::instance().getOr<long>("euclid.modules.eap.credentials-ttl-seconds", 3600))};
-        const auto expiresAt = std::chrono::system_clock::now() + ttl;
-
-        const auto &configuration = Core::Configuration::instance();
-        const auto host = configuration.getOr<std::string>("euclid.gateway.http.host", "localhost");
-        const auto port = configuration.getOr<long>("euclid.gateway.http.port", 5566);
-        const auto scheme = configuration.getOr<bool>("euclid.gateway.tls.enabled", true) ? "https" : "http";
-
-        // Exactly the blob the manager writes to disk itself - see writeApplicationCredentials -
-        // so a worker writes the same file an application already expects to read, and the
-        // refresh rule carries over unchanged.
-        const boost::json::object credentials{
-                {"token", Core::JwtUtils::CreateToken(application->userId, Core::HttpActionServer::JwtSecret(), ttl)},
-                {"expiresAt", Core::DateTimeUtils::ToISO8601(expiresAt)},
-                {"userId", application->userId},
-                {"accountId", application->accountId},
-                {"region", application->region},
-                {"namespace", application->nameSpace},
-                {"endpoint", scheme + std::string("://") + host + ":" + std::to_string(port)},
-        };
+        // Exactly the blob the manager writes to disk itself - one function makes both, see
+        // Core::Launch::IssueCredentials - so a worker writes the same file an application already
+        // expects to read, and the refresh rule carries over unchanged.
+        // The namespace by the same fallback the manager uses, so an application resolves names
+        // the same way whichever host it is on. The endpoint in the blob is this host's view of the
+        // gateway; a worker replaces it with its own, which is the one that works from there.
+        const auto credentials = Core::Launch::IssueCredentials({.userId = application->userId,
+                                                                 .accountId = application->accountId,
+                                                                 .region = application->region,
+                                                                 .nameSpace = Database::Entity::EAP::ApplicationNamespace(*application)});
 
         log_info << "EAP IssueInstanceCredentials, node: " << claim.node->name << ", instance: " << instanceId
                  << ", application: " << application->applicationId;

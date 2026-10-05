@@ -14,6 +14,9 @@
 #include <string>
 #include <vector>
 
+// Euclid includes
+#include <euclid/core/ApplicationLaunch.h>
+
 namespace Euclid::Database::Entity::EAP {
 
     /**
@@ -96,22 +99,9 @@ namespace Euclid::Database::Entity::EAP {
      */
     [[maybe_unused]]
     static std::vector<std::string> RuntimeCommandPrefix(const Runtime &runtime) {
-        switch (runtime) {
-            case Runtime::JAVA:
-                return {"java", "-jar"};
-            case Runtime::JAVA21:
-                return {"java21", "-jar"};
-            case Runtime::JAVA25:
-                return {"java25", "-jar"};
-            case Runtime::PYTHON:
-                return {"python3"};
-            case Runtime::NODEJS:
-                return {"node"};
-            case Runtime::BINARY:
-            case Runtime::UNKNOWN:
-                break;
-        }
-        return {};
+        // The table itself is in core, where a worker - which does not link this library - starts
+        // applications from the same one. See Core::Launch.
+        return ::Euclid::Core::Launch::InterpreterPrefix(RuntimeToString(runtime));
     }
 
     /**

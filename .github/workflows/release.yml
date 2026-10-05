@@ -831,6 +831,11 @@ jobs:
           # path "magic-file" in euclid.json points to.
           cp ${{ env.BUILD_DIR }}/vcpkg_installed/${{ matrix.vcpkg_triplet }}/share/libmagic/misc/magic.mgc ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/etc/magic.mgc
           cp dist/linux/systemd/system/euclid.service ${{ env.PACKAGE_DIR_DEB }}/etc/systemd/system/
+          # The local node (docs/worker-nodes.md §13.3): a drop-in that points the euclid-wrk this
+          # package depends on at the configuration the manager generates for it. Shipped here, not
+          # in the worker package, so a worker host without a manager never has it.
+          mkdir -p ${{ env.PACKAGE_DIR_DEB }}/etc/systemd/system/euclid-wrk.service.d
+          cp dist/linux/systemd/system/euclid-wrk.service.d/local-node.conf ${{ env.PACKAGE_DIR_DEB }}/etc/systemd/system/euclid-wrk.service.d/
           # /usr/local/share/man is a mandatory manpath entry on Debian and Ubuntu, so the pages
           # are found without any configuration. Compressed, as Debian policy requires, and not
           # "|| true": these ship from the repository and a missing copy is a build problem.
@@ -876,9 +881,30 @@ jobs:
           fi
           chown -R euclid:euclid /usr/local/euclid
 
+          # The manager's configuration holds the signing secret and the database password, and the
+          # gateway's key is a private key: none of them is anybody's but the manager's account.
+          # Shipped as 0644 like every other file in the package, which on a host that also runs a
+          # worker - and the local node means every manager host does - would have it readable by
+          # the one account that must never hold the secret.
+          chmod 0640 /usr/local/euclid/etc/euclid.json
+          chmod 0640 /usr/local/euclid/etc/euclid_cert.key 2>/dev/null || true
+
+          # The local node: the manager hands it its credentials and configuration through files
+          # owned by the worker's group, so the manager's account has to be in it. euclid-wrk is a
+          # dependency, so the group exists by now. Before the restart below, which is what makes
+          # the manager pick the membership up.
+          if getent group euclid-wrk >/dev/null; then
+            usermod -a -G euclid-wrk euclid
+          fi
+
           systemctl daemon-reload
           systemctl enable euclid.service
           systemctl restart euclid.service || true
+
+          # After the manager, which writes what the worker waits for. Restarted rather than only
+          # started, so an upgrade picks up a changed drop-in or binary.
+          systemctl enable euclid-wrk.service || true
+          systemctl restart euclid-wrk.service || true
           EOF
 
           cat << EOF > ${{ github.workspace }}/deb-scripts/postremove.sh
@@ -896,6 +922,14 @@ jobs:
             systemctl disable euclid.service || true
             rm -f /etc/systemd/system/euclid.service
             rm -f /usr/local/bin/euclid-cli /usr/local/bin/euclid-mgr
+
+            # The local node goes with the manager it was the node of. Stopped and disabled rather
+            # than left: without the drop-in it is an unconfigured standalone worker, which would
+            # only restart-loop. The worker package stays installed for whoever wants one.
+            systemctl stop euclid-wrk.service || true
+            systemctl disable euclid-wrk.service || true
+            rm -f /etc/systemd/system/euclid-wrk.service.d/local-node.conf
+            systemctl daemon-reload || true
           fi
           EOF
 
@@ -951,6 +985,7 @@ jobs:
           --depends "libgoogle-perftools4 | libgoogle-perftools4t64" \
           --depends libunwind8 \
           --depends liblzma5 \
+          --depends "${{ env.WORKER_NAME }} (= ${{ env.SEMVER }})" \
           --after-install ${{ github.workspace }}/deb-scripts/postinstall.sh \
           --after-remove ${{ github.workspace }}/deb-scripts/postremove.sh \
           --package "${{ env.APP_NAME }}-${{ env.SEMVER }}-${{ matrix.arch }}.deb" \
@@ -1013,6 +1048,9 @@ jobs:
           # See the DEB step above for why this is bundled rather than relying on the system's.
           cp ${{ env.BUILD_DIR }}/vcpkg_installed/${{ matrix.vcpkg_triplet }}/share/libmagic/misc/magic.mgc ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc/magic.mgc
           cp dist/linux/systemd/system/euclid.service ${{ env.PACKAGE_DIR_RPM }}/etc/systemd/system
+          # The local node's drop-in - see the DEB step above.
+          mkdir -p ${{ env.PACKAGE_DIR_RPM }}/etc/systemd/system/euclid-wrk.service.d
+          cp dist/linux/systemd/system/euclid-wrk.service.d/local-node.conf ${{ env.PACKAGE_DIR_RPM }}/etc/systemd/system/euclid-wrk.service.d/
           # Same placement and compression as the DEB above; rpmbuild would compress man pages by
           # itself, but fpm packs the tree verbatim, so it is done here.
           cp cli/docs/man/*.1 ${{ env.PACKAGE_DIR_RPM }}/usr/local/share/man/man1/
@@ -1054,9 +1092,19 @@ jobs:
           fi
           chown -R euclid:euclid /usr/local/euclid
 
+          # The secret-holding files, and the local node's group - see the DEB postinstall above.
+          chmod 0640 /usr/local/euclid/etc/euclid.json
+          chmod 0640 /usr/local/euclid/etc/euclid_cert.key 2>/dev/null || true
+          if getent group euclid-wrk >/dev/null; then
+            usermod -a -G euclid-wrk euclid
+          fi
+
           systemctl daemon-reload
           systemctl enable euclid.service
           systemctl restart euclid.service || true
+
+          systemctl enable euclid-wrk.service || true
+          systemctl restart euclid-wrk.service || true
           EOF
 
           cat << EOF > ${{ github.workspace }}/rpm-scripts/postremove.sh
@@ -1072,6 +1120,11 @@ jobs:
             systemctl disable euclid.service || true
             rm -f /etc/systemd/system/euclid.service
             rm -f /usr/local/bin/euclid-cli /usr/local/bin/euclid-mgr
+
+            # The local node goes with its manager - see the DEB postremove above.
+            systemctl stop euclid-wrk.service || true
+            systemctl disable euclid-wrk.service || true
+            rm -f /etc/systemd/system/euclid-wrk.service.d/local-node.conf
             systemctl daemon-reload
           fi
           EOF
@@ -1128,6 +1181,7 @@ jobs:
           --depends gperftools-libs \
           --depends libunwind \
           --depends xz-libs \
+          --depends "${{ env.WORKER_NAME }} = ${SEMVER}" \
           --prefix / \
           --after-install ${{ github.workspace }}/rpm-scripts/postinstall.sh \
           --after-remove ${{ github.workspace }}/rpm-scripts/postremove.sh \
@@ -1428,6 +1482,20 @@ jobs:
           # like a euclid bug rather than a packaging one. Checked here, where it is one grep.
           if grep -q "jwt-secret" ${{ env.PACKAGE_DIR_WORKER }}/usr/local/euclid/etc/euclid-wrk.json; then
             echo "::error::the shipped euclid-wrk.json names jwt-secret; a worker refuses to start with it (see docs/worker-nodes.md §3.2)"
+            exit 1
+          fi
+
+          # The local node's drop-in ships in the server packages, and has to clear the worker unit's
+          # own ExecStart before setting its own - a second ExecStart= without the empty one first is
+          # refused by systemd for a Type=simple service, and the worker would not start at all.
+          for root in ${{ env.PACKAGE_DIR_DEB }} ${{ env.PACKAGE_DIR_RPM }}; do
+            dropin="$root/etc/systemd/system/euclid-wrk.service.d/local-node.conf"
+            test -s "$dropin" || { echo "::error::$dropin is missing from a server package"; exit 1; }
+            grep -qx "ExecStart=" "$dropin" || { echo "::error::$dropin does not clear ExecStart= first"; exit 1; }
+            grep -q -- "--wait-for-config" "$dropin" || { echo "::error::$dropin does not wait for the manager's files"; exit 1; }
+          done
+          if [ -e ${{ env.PACKAGE_DIR_WORKER }}/etc/systemd/system/euclid-wrk.service.d ]; then
+            echo "::error::the local node's drop-in is in the worker package; it belongs to the server's"
             exit 1
           fi
 

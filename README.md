@@ -186,9 +186,14 @@ filled in. The ports are the gateway (5566), the UI (4567) and the API gateway (
 ### Debian / Ubuntu
 
 ```bash
-wget https://jensvogt.github.io/euclid/euclid-<version>-amd64.deb
-sudo apt install ./euclid-<version>-amd64.deb
+wget https://jensvogt.github.io/euclid/euclid-<version>-amd64.deb \
+     https://jensvogt.github.io/euclid/euclid-wrk-<version>-amd64.deb
+sudo apt install ./euclid-<version>-amd64.deb ./euclid-wrk-<version>-amd64.deb
 ```
+
+The server package depends on the worker package of the same version: the manager's own host runs a
+worker too — the **local node**, which the manager configures and provisions itself, so there is
+nothing to set up. See [the local node](#the-local-node) below.
 
 Or add the signed APT repository once, then install/upgrade via `apt`:
 
@@ -221,8 +226,9 @@ install the 64-bit Raspberry Pi OS and use `arm64`.
 ### RPM (RHEL / Fedora)
 
 ```bash
-wget https://jensvogt.github.io/euclid/euclid-<version>-1.x86_64.rpm
-sudo rpm -i euclid-<version>-1.x86_64.rpm
+wget https://jensvogt.github.io/euclid/euclid-<version>-1.x86_64.rpm \
+     https://jensvogt.github.io/euclid/euclid-wrk-<version>-1.x86_64.rpm
+sudo rpm -i euclid-<version>-1.x86_64.rpm euclid-wrk-<version>-1.x86_64.rpm   # the local node needs both
 ```
 
 ### macOS
@@ -315,7 +321,19 @@ sudo rpm -i euclid-wrk-<version>-1.x86_64.rpm
 These create an unprivileged `euclid-wrk` account — not `euclid`'s, since a worker host is not a
 euclid host — and enable the service without starting it. A worker can do nothing until it has an
 endpoint and a login, and one that restart-loops from the moment it is installed buries the message
-saying so. So finish the configuration, then start it:
+saying so.
+
+First, once, from an administrator's session anywhere: a principal for the node, holding the
+built-in `node` role — exactly what a worker calls as itself, and nothing an operator does to a node:
+
+```bash
+euclid-cli eam register --user raspi-01 --email raspi-01@example.invalid --password <secret> \
+    --region eu-central-1 --account-id <account>
+# account-wide: neither --namespace nor --resource, so every bucket an artifact may be in
+euclid-cli eam grant-role --role node --principal ern:eam:eu-central-1:<account>:user:raspi-01
+```
+
+Then on the worker host, finish the configuration, log in as that principal, and start it:
 
 ```bash
 sudo apt install euclid-cli                           # the login below needs it; the worker
@@ -331,6 +349,46 @@ sudo systemctl start euclid-wrk
 
 A worker is an ordinary euclid client and logs in the way any other does — there is no separate
 worker identity mechanism, which is what keeps its role, its grants and its audit trail ordinary.
+How the credentials then work:
+
+- **The worker's own.** The login writes a session token *and* a long-lived access key (EAM creates
+  one on login if the user has none) to `~euclid-wrk/.euclid/credentials`. The worker signs every
+  request with the key, so the session expiring does not stop it, and the login is needed once.
+- **Registration is not a separate step.** It is the worker's first signed request. The node name
+  is bound to the principal that registers it first: another principal is refused that name until
+  an administrator frees it with `euclid-cli eap delete-node`.
+- **The applications' own.** Each renewal says which instances the node is to run, and for each one
+  the worker asks the master for that instance's credentials (`eap:issue-instance-credentials`) —
+  refused for an instance not assigned to this node under a live lease. The master mints a
+  short-lived token for the application's principal; the worker writes it where the instance reads
+  it and replaces it halfway through its life.
+- **Never the signing secret.** A worker refuses to start if its configuration holds
+  `euclid.modules.eam.jwt-secret`: anything holding it could mint a token for any principal.
+
+### The local node
+
+On Linux the manager's own host runs a worker too, installed with the server package and
+provisioned by the manager — there is nothing to log in or configure. When EAP starts it makes sure
+a `local-node` principal exists (no login, one access key, the `node` role), and writes the
+worker's credentials and its whole configuration to `/usr/local/euclid/data/local-node/`,
+generated from the manager's own: the gateway's port and certificate, this host's runtimes, a port
+range of its own. Both files are readable by the worker's group only, and nothing else from
+`euclid.json` reaches them. A systemd drop-in that comes with the server package points
+`euclid-wrk.service` at that configuration, and the worker waits for the files rather than failing
+without them.
+
+The node registers as `local`, labelled `local=true`. Until every application runs on a worker
+(see [worker nodes](docs/worker-nodes.md) §13.4), an application is placed on it by asking for that
+label:
+
+```bash
+euclid-cli eap list-nodes                       # local, live
+# in the application's definition:  "nodeLabels": {"local": "true"}
+```
+
+It is configured in `euclid.json` under `euclid.modules.eap.local-node` — `enabled`, `name`, its
+port range — and turned off by setting `enabled` to `false`. macOS, Windows and the Docker image do
+not set it up yet.
 
 macOS — unpacks under `/usr/local`, putting the binary on the same path the Linux packages use. A
 tarball cannot create an account or load a daemon, so those two steps are yours:

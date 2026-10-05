@@ -12,11 +12,9 @@
   uninstalls the other. Both can sit on one machine - which is what a single-host trial looks like -
   because this installs into euclid-wrk\ and the server into euclid\.
 
-  What a worker can and cannot do on Windows, as of this package: it registers with the master,
-  renews its lease, reports, and stops cleanly. It does **not** yet run the applications placed on
-  it - WorkerClient::Apply refuses on Windows and says so in the log. See docs/worker-nodes.md §11.
-  This package is therefore the deployment half of a Windows worker, and installing it on a host the
-  master will actually place work on is premature.
+  What a worker does on Windows, as of this package: it registers with the master, renews its lease,
+  runs the applications placed on it - through Core::WindowsProcess, the manager's own spawn - and
+  stops cleanly. See docs/worker-nodes.md §13.
 
   Components carrying a file have no GUID of their own: WiX derives a stable one from the key path.
   The ones that carry only a directory cannot be derived that way and are written out, as is the
