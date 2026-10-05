@@ -3,6 +3,7 @@
     "worker": {
       "endpoint": "https://euclid.example:5566",
       "ca-cert": "",
+      "address": "",
       "java": "java",
       "credentials": "/usr/local/var/euclid-wrk/.euclid/credentials"
     },

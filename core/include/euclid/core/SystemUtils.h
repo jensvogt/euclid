@@ -102,6 +102,21 @@ namespace Euclid::Core {
         static std::string GetArchitecture();
 
         /**
+         * @brief Returns the local IP address this host uses to reach another
+         *
+         * @par
+         * Asks the routing table rather than listing interfaces: a UDP socket is "connected" to
+         * the remote, which sends nothing, and its local endpoint is read back. On a machine with
+         * several interfaces - a LAN, a VPN, a container bridge - that is the one address the
+         * remote can be expected to reach this host on, which no interface listing can say.
+         *
+         * @param host name or address of the remote.
+         * @param port port on the remote; only used to pick an endpoint, nothing is sent.
+         * @return the local address, or nothing if the remote cannot be resolved or routed to.
+         */
+        static std::optional<std::string> GetOutboundAddress(const std::string &host, const std::string &port);
+
+        /**
          * @brief Returns a random port number between 32768 and 65536
          *
          * @return random port

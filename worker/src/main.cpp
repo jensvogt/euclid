@@ -250,6 +250,9 @@ static int RunWorker(const CliOptions &options, const bool reportServiceStatus) 
     if (workerOptions.caCertPath.empty()) {
         workerOptions.caCertPath = Euclid::Core::Configuration::instance().getOr<std::string>("euclid.worker.ca-cert", "");
     }
+    if (workerOptions.address.empty()) {
+        workerOptions.address = Euclid::Core::Configuration::instance().getOr<std::string>("euclid.worker.address", "");
+    }
     if (!workerOptions.caCertPath.empty() && !std::filesystem::exists(workerOptions.caCertPath)) {
         std::cerr << "error: CA certificate '" << workerOptions.caCertPath << "' does not exist" << std::endl;
         return 1;
@@ -361,6 +364,7 @@ int main(const int argc, char **argv) {
             ("data-dir,d", po::value<std::string>()->default_value(defaultDataDir()), "where artifacts, credentials and logs go")
             ("tick,t", po::value<long>()->default_value(10), "seconds between renewals")
             ("ca-cert", po::value<std::string>()->default_value(""), "a CA certificate to trust in addition to the system store")
+            ("address,a", po::value<std::string>(), "IP address to report for this node; defaults to the one the master is reached from")
             ("credentials", po::value<std::string>()->default_value(""), "credentials file to read instead of the invoking user's own")
             ("config,c", po::value<std::string>()->default_value(""), "configuration file");
 
@@ -394,6 +398,7 @@ int main(const int argc, char **argv) {
     cliOptions.worker.dataDir = vm["data-dir"].as<std::string>();
     cliOptions.worker.tick = std::chrono::seconds{std::max(1L, vm["tick"].as<long>())};
     cliOptions.worker.caCertPath = vm["ca-cert"].as<std::string>();
+    if (vm.contains("address")) cliOptions.worker.address = vm["address"].as<std::string>();
     if (vm.contains("label")) cliOptions.worker.labels = parseLabels(vm["label"].as<std::vector<std::string> >());
 
 #if defined(_WIN32)
