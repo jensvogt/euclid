@@ -19,6 +19,7 @@
 
 // Euclid includes
 #include <WorkerClient.h>
+#include <WorkerCommand.h>
 #include <euclid/core/Configuration.h>
 #include <euclid/core/Version.h>
 #include <euclid/core/CryptoUtils.h>
@@ -183,6 +184,7 @@ namespace Euclid::Worker {
                 assignment.bucketErn = textField(entry, "bucketErn");
                 assignment.artifactKey = textField(entry, "artifactKey");
                 assignment.runtime = textField(entry, "runtime");
+                assignment.command = textField(entry, "command");
 
                 if (const auto *arguments = entry.is_object() ? entry.as_object().if_contains("arguments") : nullptr;
                     arguments != nullptr && arguments->is_array()) {
@@ -299,15 +301,23 @@ namespace Euclid::Worker {
 
         const auto target = directory / std::filesystem::path(assignment.artifactKey).filename();
 
-        // The same freshness rule the manager uses, and the reason this is cheap: a worker that
-        // already ran this build downloads nothing. Compared by content rather than size, because
-        // a rebuild landing on the same byte count would otherwise go on running the old build.
+        // Fetched only when needed, which is the reason a restart is cheap: a worker that already
+        // ran this build downloads nothing.
         //
-        // The md5 is not known here - the master does not send it - so what this can check is
-        // whether a file is there at all. A revision change brings the worker through stop/start,
-        // and the download then overwrites. Less precise than the manager's check and in the safe
-        // direction: it re-fetches where the manager would have skipped.
-        if (!std::filesystem::exists(target, ec)) {
+        // The md5 is not known here - the master does not send it - so what this checks is the
+        // revision the file was fetched for, recorded beside it. A redeploy moves the revision, so
+        // the next start fetches the new build rather than restarting the old one; so does any
+        // other edit to the definition, which re-fetches where the manager would have skipped. Less
+        // precise than the manager's check, and in the safe direction.
+        const auto revisionFile = std::filesystem::path(target.string() + ".revision");
+        const auto fetchedRevision = [&revisionFile] {
+            std::ifstream in(revisionFile);
+            std::string revision;
+            std::getline(in, revision);
+            return revision;
+        }();
+
+        if (!std::filesystem::exists(target, ec) || fetchedRevision != assignment.revision) {
             const Core::Artifact::Request fetch{.bucketErn = assignment.bucketErn,
                                                 .key = assignment.artifactKey,
                                                 .size = assignment.artifactSize,
@@ -319,7 +329,20 @@ namespace Euclid::Worker {
                 log_error << "Could not fetch the artifact for instance " << assignment.instanceId;
                 return false;
             }
+            // Written after the download and only if it succeeded, so a fetch that failed halfway
+            // is retried rather than taken for the build it was meant to be.
+            std::ofstream(revisionFile, std::ios::trunc) << assignment.revision;
         }
+
+#ifndef _WIN32
+        // A BINARY artifact arrives as a plain object with no mode bits worth speaking of, so it has
+        // to be made executable before anything can exec() it - as the manager does for its own.
+        // A command the application names is what runs instead, and the artifact is its argument.
+        if (assignment.runtime == "BINARY" && assignment.command.empty()) {
+            std::filesystem::permissions(target, std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec,
+                                         std::filesystem::perm_options::add, ec);
+        }
+#endif
 
         const auto credentialsRefreshAt = writeCredentials(assignment);
         if (!credentialsRefreshAt.has_value()) return false;
@@ -333,16 +356,20 @@ namespace Euclid::Worker {
         log_error << "euclid-wrk does not run applications on Windows - see docs/worker-nodes.md §11";
         return false;
 #else
-        const auto executable = assignment.runtime == "BINARY"
-                                        ? target.string()
-                                        : Core::Configuration::instance().getOr<std::string>("euclid.worker.java", "java");
-
-        std::vector<std::string> arguments;
-        if (assignment.runtime != "BINARY") {
-            arguments.emplace_back("-jar");
-            arguments.push_back(target.string());
-        }
-        for (const auto &argument: assignment.arguments) arguments.push_back(argument);
+        // Built before the fork: the child should do nothing but exec, and reading the
+        // configuration takes a lock the parent may have been holding when it forked.
+        // Absolute, because the child changes into the application's directory before it execs,
+        // and a worker started with a relative --data-dir would otherwise exec a path that no
+        // longer leads anywhere.
+        const auto artifactPath = std::filesystem::absolute(target, ec);
+        const auto commandLine = CommandLine(assignment.runtime, assignment.command,
+                                             (ec ? target : artifactPath).string(), assignment.arguments,
+                                             [](const std::string &key, const std::string &fallback) {
+                                                 return Core::Configuration::instance().getOr<std::string>(key, fallback);
+                                             });
+        const auto workingDir = directory.string();
+        // Absolute for the same reason: the application reads it after the chdir.
+        const auto credentialsPath = std::filesystem::absolute(directory / "credentials.json", ec).string();
 
         const auto pid = fork();
         if (pid < 0) {
@@ -356,16 +383,18 @@ namespace Euclid::Worker {
             setpgid(0, 0);
 
             std::vector<char *> argv;
-            argv.push_back(const_cast<char *>(executable.c_str()));
-            for (auto &argument: arguments) argv.push_back(const_cast<char *>(argument.c_str()));
+            for (const auto &argument: commandLine) argv.push_back(const_cast<char *>(argument.c_str()));
             argv.push_back(nullptr);
 
-            const auto credentialsPath = (directory / "credentials.json").string();
+            // The application's own directory, as the manager starts its applications in: the one
+            // place under ProtectSystem=strict an application can write a relative path to.
+            if (chdir(workingDir.c_str()) != 0) _exit(126);
+
             setenv("EUCLID_CREDENTIALS_FILE", credentialsPath.c_str(), 1);
             setenv("EUCLID_INSTANCE_ID", assignment.instanceId.c_str(), 1);
             setenv("EUCLID_APPLICATION_ID", assignment.applicationId.c_str(), 1);
 
-            execvp(executable.c_str(), argv.data());
+            execvp(argv.front(), argv.data());
 
             // Only reachable when exec failed. _exit rather than exit: this is a forked child of a
             // process holding log sinks and sockets, and running their destructors here would
@@ -378,7 +407,7 @@ namespace Euclid::Worker {
                                                      .httpPort = 0,
                                                      .credentialsRefreshAt = *credentialsRefreshAt};
         log_info << "Started instance " << assignment.instanceId << ", application: " << assignment.applicationId
-                 << ", pid: " << pid;
+                 << ", pid: " << pid << ", command: " << commandLine.front();
 
         report(assignment, static_cast<int>(pid), 0, "RUNNING");
         return true;

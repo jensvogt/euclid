@@ -1,0 +1,36 @@
+.TH EUCLID-CLI-EAP-GET-NODE 1 "October 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eap-get-node \- show one worker node's registration
+.SH SYNOPSIS
+.B euclid-cli eap get-node
+.BR \-\-node | \-n
+.I NAME
+.SH DESCRIPTION
+Shows one worker node's registration: the same fields
+.BR euclid-cli-eap-list-nodes (1)
+shows for each node.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-node " " \fINAME\fR
+Name of the node. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The node is printed as JSON.
+.TP
+.B 1
+Missing/invalid arguments, the caller is not an authenticated
+administrator, or no node of that name is registered.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli eap get-node --node raspi-01
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eap (1),
+.BR euclid-wrk (8),
+.BR euclid-cli-eap-list-nodes (1),
+.BR euclid-cli-eap-delete-node (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>
