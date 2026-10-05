@@ -20,7 +20,7 @@ namespace Euclid::Core {
      *
      * @par
      * Nobody should have to write out 189 permissions to grant somebody the right to publish. These
-     * seven cover what an installation actually asks for, and a role of an account's own is for the
+     * eight cover what an installation actually asks for, and a role of an account's own is for the
      * cases they do not.
      *
      * @par Why they are not stored
@@ -130,6 +130,23 @@ namespace Euclid::Core {
          * (say, read-only) is to grant fewer than these.
          */
         static constexpr std::string_view Transfer = "transfer";
+
+        /**
+         * @brief What a euclid-wrk node does on its own behalf: register, renew, ask for an
+         * instance's credentials, report on its instances, and fetch their artifacts.
+         *
+         * @par
+         * A short list, and deliberately nothing else: no application actions, no listing of nodes,
+         * no draining or deleting one - those are an operator's. Everything a node does for an
+         * instance it does with credentials issued for that instance, not with these.
+         *
+         * @par
+         * What bounds it is EAP, not the role. A node may only renew, report on and be given
+         * credentials for the slots assigned to it, and only under the node name it registered
+         * first - see Entity::EAP::Node::principal. The esm: half is the four calls an artifact
+         * fetch makes (Core::Artifact), on the buckets the grant's resources name.
+         */
+        static constexpr std::string_view Node = "node";
 
         /**
          * @brief Every built-in role's name, sorted.
