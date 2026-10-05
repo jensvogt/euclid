@@ -75,6 +75,34 @@ namespace Euclid::Core {
         return boost::asio::ip::host_name();
     }
 
+    std::string SystemUtils::GetOperatingSystem() {
+#if defined(_WIN32)
+        return "windows";
+#elif defined(__APPLE__)
+        return "macos";
+#elif defined(__linux__)
+        return "linux";
+#else
+        return "unknown";
+#endif
+    }
+
+    std::string SystemUtils::GetArchitecture() {
+#if defined(__x86_64__) || defined(_M_X64)
+        return "x86_64";
+#elif defined(__aarch64__) || defined(_M_ARM64)
+        return "aarch64";
+#elif defined(__arm__) || defined(_M_ARM)
+        return "arm";
+#elif defined(__i386__) || defined(_M_IX86)
+        return "x86";
+#elif defined(__riscv) && __riscv_xlen == 64
+        return "riscv64";
+#else
+        return "unknown";
+#endif
+    }
+
     //
     // int SystemUtils::GetRandomPort() {
     //     return RandomUtils::NextInt(RANDOM_PORT_MIN, RANDOM_PORT_MAX);

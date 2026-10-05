@@ -80,6 +80,28 @@ namespace Euclid::Core {
         static std::string GetHostName();
 
         /**
+         * @brief Returns the operating system this binary was built for
+         *
+         * @par
+         * Decided at compile time, so it cannot be configured away: "linux", "windows", "macos",
+         * or "unknown" for anything else.
+         *
+         * @return operating system name
+         */
+        static std::string GetOperatingSystem();
+
+        /**
+         * @brief Returns the CPU architecture this binary was built for
+         *
+         * @par
+         * Decided at compile time, like GetOperatingSystem(), and named as uname -m names it:
+         * "x86_64", "aarch64", "arm", "x86", "riscv64", or "unknown" for anything else.
+         *
+         * @return architecture name
+         */
+        static std::string GetArchitecture();
+
+        /**
          * @brief Returns a random port number between 32768 and 65536
          *
          * @return random port
