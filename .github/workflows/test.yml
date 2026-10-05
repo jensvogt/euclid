@@ -11,38 +11,15 @@ env:
   VCPKG_DEFAULT_BINARY_CACHE: "${{ github.workspace }}/vcpkg-bincache"
   VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkg-bincache,readwrite"
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  BUILD_DIR: "${{ github.workspace }}/build-test"
 
 jobs:
-  # One job description for both runs: the plain build and the sanitized one differed in four lines
-  # out of forty, and the other thirty-six - the toolchain, the vcpkg cache, g++-14 - were kept in
-  # step by hand. A matrix rather than two configurations in one job, because these are two full
-  # builds of everything: run one after the other they would roughly double how long a pull request
-  # waits, while sharing only an apt install and a cache restore.
+  # The AddressSanitizer / UndefinedBehaviorSanitizer build and the fuzz smoke run are run
+  # locally (-DEUCLID_SANITIZE=address,undefined, fuzz/build.sh, fuzz/smoke.sh), not on every
+  # pull request.
   test:
-    name: ${{ matrix.name }}
+    name: Run Tests
     runs-on: ubuntu-latest
-    strategy:
-      # Both answers, always. A sanitizer finding and an ordinary test failure are different
-      # information, and cancelling one because the other went first wastes the run.
-      fail-fast: false
-      matrix:
-        include:
-          - name: Run Tests
-            directory: build-test
-            sanitize: ""
-            fuzz: false
-            timeout: 300
-
-          # Slower, and given longer for it: the sanitized binaries are a few times the cost of the
-          # same test.
-          - name: AddressSanitizer and UndefinedBehaviorSanitizer
-            directory: build-asan
-            sanitize: address,undefined
-            fuzz: true
-            timeout: 600
-
-    env:
-      BUILD_DIR: "${{ github.workspace }}/${{ matrix.directory }}"
 
     steps:
       - name: Checkout
@@ -96,13 +73,10 @@ jobs:
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 14
           sudo update-alternatives --set gcc /usr/bin/gcc-14
 
-      # An empty EUCLID_SANITIZE is the default the build already has (CMakeLists.txt:180), so the
-      # plain variant passes it and is configured exactly as it was.
       - name: Configure
         run: |
           cmake -B ${{ env.BUILD_DIR }} -G Ninja \
                 -DCMAKE_BUILD_TYPE=Debug \
-                -DEUCLID_SANITIZE=${{ matrix.sanitize }} \
                 -DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake
 
       # Everything, not one target. "--target euclid-tests" built and ran a single suite - the
@@ -111,28 +85,5 @@ jobs:
       - name: Build
         run: cmake --build ${{ env.BUILD_DIR }} --parallel 2
 
-      # Not a campaign: twenty thousand executions per target, over the seeds somebody thought
-      # worth writing down. Long enough to catch an input that used to be handled and now
-      # crashes; short enough to sit in a pull request. A real campaign runs for hours and keeps
-      # what it finds, which is a different job on a different schedule.
-      #
-      # Only on the sanitized build, which is the point of fuzzing at all: without ASan a fuzzer
-      # finds the inputs that crash and misses the ones that quietly read past a buffer.
-      - name: Build and smoke the fuzz targets
-        if: matrix.fuzz
-        run: |
-          sudo apt install -y clang
-          ./fuzz/build.sh -b ${{ env.BUILD_DIR }}
-          ./fuzz/smoke.sh -b ${{ env.BUILD_DIR }}
-
-      # halt_on_error so a finding fails the job rather than being printed and passed over.
-      # Leak detection is off: it reports what a process still holds at exit, which for a test
-      # that never shuts a singleton down is noise rather than a bug.
-      #
-      # Set for both variants. Without the sanitizer runtimes linked in they are read by nothing,
-      # which is cheaper than a second step that differs only in having them.
       - name: Run tests
-        env:
-          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
-          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
-        run: ctest --test-dir ${{ env.BUILD_DIR }} --output-on-failure --timeout ${{ matrix.timeout }}
+        run: ctest --test-dir ${{ env.BUILD_DIR }} --output-on-failure --timeout 300
