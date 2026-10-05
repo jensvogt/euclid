@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.10](https://github.com/jensvogt/euclid/compare/1.2.9...v1.2.10) (2026-10-05)
+
+
+### Bug Fixes
+
+* ARM64 support ([c69fd12](https://github.com/jensvogt/euclid/commit/c69fd12c01886398cba03566c91b26e345267fe9))
+* worker DEB und RPMs ([fe2e2bc](https://github.com/jensvogt/euclid/commit/fe2e2bc9810e443b824b3138f351403f6a4e95b0))
+
 ## [1.2.9](https://github.com/jensvogt/euclid/compare/1.2.8...v1.2.9) (2026-10-02)
 
 
