@@ -16,11 +16,10 @@ make impossible. Every call a worker makes now goes through a POST that cannot t
 unreachable master is status 0 rather than a terminated process. Worth remembering when reading the
 rest of this: the tests were green through all of it.
 
-Two things are deliberately missing, both from §11: running applications on a Windows worker
-(`euclid-wrk` installs as a service and registers there, and refuses to start a process rather than
-half-doing it), and a CLI for some of the operator actions — `assign-instance` and `drain-node` are
-reachable over the API only. `list-nodes`, `get-node` and `delete-node` are `euclid-cli eap`
-commands.
+One thing is deliberately missing: a CLI for some of the operator actions — `assign-instance` and
+`drain-node` are reachable over the API only. `list-nodes`, `get-node` and `delete-node` are
+`euclid-cli eap` commands. A Windows worker now runs applications too, through the same
+`Core::WindowsProcess` the manager uses — see §13.
 
 Step 4 is built but **unproven**: every part of it is covered by tests, and none of it has run
 against a live installation. The lease arithmetic, the drain/renew race and the partition case are
@@ -29,10 +28,6 @@ matters — but a first real run will find things a test could not: the shape of
 what a JVM does with the credentials file, how a renewal behaves across a gateway restart. Treat the
 first worker as an experiment on a host nothing depends on.
 
-Two things are deliberately missing, both out of §11: running applications on a Windows worker
-(`euclid-wrk` installs as a service and registers there, and refuses to start a process rather than
-half-doing it) and a CLI for some of the operator actions — `assign-instance` and `drain-node` are
-reachable over the API only.
 
 `ModuleInstance::host` exists, is written by every manager, and is honoured by the two operations
 that were destructive across hosts — the start-up leftover sweep and the start-up clear. A backend
@@ -432,17 +427,6 @@ Said plainly, because each of these is a thing somebody will reasonably expect:
 - **moving a running instance.** Instances are replaced, not migrated.
 - **resource limits.** No cgroups, no memory caps. A worker that overcommits is an operator's problem
   until there is evidence it needs to be euclid's.
-- **Running applications on a Windows worker.** The design has nothing POSIX-specific in it, but
-  `spawnInstance` already has two implementations (`Controller.cpp:330` and `:419`) and the worker
-  would need the same care. `WorkerClient::Apply` refuses on Windows and says so in the log rather
-  than half-doing it.
-
-  What *is* built there is everything around it: `euclid-wrk` runs as a Windows service, registers,
-  renews its lease, reports and stops cleanly, and ships as an MSI
-  (`dist/win32/msi/euclid-wrk.wxs`, `--install`/`--uninstall`/`--foreground` for a tree without a
-  package). So the remaining gap is exactly one function, and a Windows host can be deployed and
-  watched registering before anything is placed on it. Installing it on a host the master will
-  actually place work on is still premature.
 
 ## 12. Open questions
 
@@ -464,7 +448,7 @@ Said plainly, because each of these is a thing somebody will reasonably expect:
 
 ## 13. Proposal: every application on a worker
 
-*Status: proposed, not started.*
+*Status: 13.1 and 13.2 done; 13.3 done for Linux; 13.4 not started.*
 
 ### The problem
 
@@ -526,9 +510,65 @@ survives a manager restart — today it is a child of the manager and goes with 
 
 | Step | Scope | Proves |
 |---|---|---|
-| 13.1 | One implementation of "start an application" in `euclidcore`, which both the manager and the worker link: the command line (`Worker::CommandLine`, today checked against `Runtime.h` by a test), artifact freshness, the exec bit, the credentials file. The manager's path uses it too. | the two paths cannot drift — useful even if nothing below happens |
-| 13.2 | worker parity: the table above, Windows first | an application loses nothing by moving onto a worker |
-| 13.3 | a local worker shipped and provisioned by the server package | a single-host install runs its applications through a worker with no setup |
+| 13.1 ✅ | One implementation of "start an application" in `euclidcore` — `Core::Launch`, which both the manager and the worker link: the command line and the interpreter table (`Runtime.h` delegates to it), artifact freshness by md5 then size, the exec bit, the credentials blob (`IssueCredentials`, used by the manager and by `issue-instance-credentials`), the credentials file and its refresh rule. | the two paths cannot drift — useful even if nothing below happens |
+| 13.2 ✅ | worker parity: the table above. On Windows, the manager's process code moved to `Core::WindowsProcess` — the job object, the inheritance list, the suspended start, the stop event, the environment block — and the worker starts, stops and reaps through it; a killed worker's instances die with it, by the job, rather than running on beside the copies the master places elsewhere. On every platform — the environment (the definition's half from `Database::Entity::EAP::ApplicationEnvironment`, sent with each assignment; the host's half from `Core::Launch::AddHostEnvironment`), the credentials' namespace fallback, the gateway endpoint as the worker reaches it, crash detection and restart with the manager's backoff (`Reconciler::RestartDelay`), an `EUCLID_HTTP_PORT` from `euclid.worker.http-port-min/max` reported with the node's registered address, output captured onto `app.<runtimeName>` (`Core::Launch::EmitOutput`) and `set-log-level` applied there. | an application loses nothing by moving onto a worker |
+| 13.3 (Linux ✅) | a local worker shipped and provisioned by the server package. EAP's start ensures a `local-node` principal (no login, one key, the new built-in `node` role) and writes its credentials and a worker configuration generated from the manager's own to `euclid.modules.eap.local-node.dir`, readable by the worker's group only (`LocalNode::Provision`). The DEB and RPM depend on `euclid-wrk` and ship a drop-in pointing `euclid-wrk.service` at that configuration with `--wait-for-config`. The node registers as `local`, labelled `local=true`, with a port range of its own. macOS, Windows and Docker do not set it up yet. | a single-host install has a worker running with no setup |
 | 13.4 | the split removed: unconstrained applications placed on any node, `isNodeApplication` and the manager's application code deleted; existing installations migrate through the hand-over that already stops a local pool | one path |
 
 13.2 is the real work, and the step that decides whether the rest is worth doing.
+
+### What 13.3 changed on the way
+
+- **`euclid.json` and the gateway's private key are now mode 0640.** The package shipped them 0644,
+  like every other file, so any account on a manager host could read the signing secret and the
+  database password — and the local node puts a second account on every manager host. The
+  applications the manager still runs itself run as `euclid` and can still read them; that ends with
+  13.4.
+- **A worker's node name and labels can be set in its configuration** (`euclid.worker.node`,
+  `euclid.worker.labels`), not only on the command line, so they survive an upgrade that replaces the
+  unit file or the launchd job.
+- **A worker can sign with an access key alone**, without a login's token — what the local node is
+  given. Only EAM's own actions need the token, and a worker calls none of them.
+
+### What 13.1 found
+
+Putting the three copies side by side — the manager's, the worker's, and the blob
+`issue-instance-credentials` builds — turned up more drift than the pass that prompted this:
+
+- **A worker could not fetch an artifact of 8 MB or more.** The renewal never sent the object's
+  size, so the worker asked for every artifact in one call, which ESM refuses at or above the part
+  size — most Spring jars. The renewal now sends ESM's size and md5 for each assignment, and the
+  worker decides freshness by the manager's rule instead of by revision.
+- **The credentials file had two names** (`credentials` on the manager, `credentials.json` on a
+  worker) and only the manager's was owner-only. Both are now `credentials`, mode 0600.
+- **`DateTimeUtils::FromISO8601` read UTC timestamps as local time and added an hour** — right in CET
+  in winter, an hour early in summer, and on Windows it parsed nothing. Every lease deadline a
+  worker acts on and every credential expiry goes through it. Now a UTC parser that honours a `Z` or
+  `±HH:MM` offset and fractional seconds.
+
+Both remaining differences — the environment, and the namespace in the credentials — were closed in
+13.2.
+
+### What 13.2 changed, and one deliberate difference
+
+- **The environment** is now the manager's, assembled the same way: the definition's half is sent
+  with each assignment and the worker adds its own gateway endpoint, CA certificate and credentials
+  path. The endpoint inside the issued credentials is replaced the same way — the master's is
+  "localhost" by default, which on a node is the node.
+- **An operator's access key goes to the node too.** For an application running as an
+  operator-named, login-enabled user, the manager exports that user's long-lived
+  `EUCLID_ACCESS_KEY_ID` and `EUCLID_SECRET_ACCESS_KEY`, and EAP now sends the same pair with each
+  assignment, so the application behaves the same wherever it is placed. Decided rather than
+  defaulted: the key travels in every renewal (over the gateway's TLS) to a host the installation may
+  trust less than its own, which is the price of parity. An application running as a technical
+  principal is unaffected — it never had a key, on either host.
+- **A crash** is noticed on the next tick (`WorkerClient::Reap`), reported as `CRASHED`, and
+  restarted after the manager's backoff — a second, doubling to thirty, reset after a minute of
+  running. Before, a dead process stayed a zombie, counted as running, and was never restarted.
+- **An instance's port** comes from `euclid.worker.http-port-min`/`-max`, is kept across restarts of
+  the slot, and is reported with the node's registered address as the host, so the gateway can
+  route to it without resolving the node's host name. The gateway has to be able to reach that
+  address and port range, which on most networks means a firewall rule on the node.
+- **Output** is captured and recorded on `app.<runtimeName>` with the manager's severity rules, and
+  the level set with `set-log-level` is applied to that channel on the node. It lands in the
+  worker's own log — shipping it to the manager is §9 and not part of this.

@@ -19,11 +19,11 @@ binary because the manager already runs applications itself. See `docs/worker-no
 
 Two things about it are worth knowing before deploying one.
 
-**It does not yet run applications.** `WorkerClient::Apply` refuses to spawn a process on Windows
-and logs that it did (`worker/src/WorkerClient.cpp`), so a Windows worker registers, renews its
-lease, reports and stops cleanly — and runs nothing it is assigned. §11 of `worker-nodes.md` is
-still the reference. This package is the deployment half; a host the master will actually place work
-on needs the other half first.
+**It runs the applications placed on it**, through the same `Core::WindowsProcess` the manager
+starts its own with: suspended into a job object that ends with the service, so a killed worker
+leaves nothing running behind it. An application asked to stop is signalled, then killed after ten
+seconds — a JVM, which does not watch the signal, is always the latter. Nothing has been run on a
+live installation yet; treat the first Windows node as an experiment.
 
 **The service is installed but not started.** A worker refuses to start without credentials, and
 §3.2 means those come from a login an operator performs — there is nothing the package could ship

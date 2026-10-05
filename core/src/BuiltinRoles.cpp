@@ -125,6 +125,26 @@ namespace Euclid::Core {
             return kPermissions;
         }
 
+        // Exactly the calls euclid-wrk makes as itself - WorkerClient's four EAP actions and the four
+        // ESM ones Core::Artifact fetches with - and nothing an operator does to a node.
+        const std::vector<std::string> &nodePermissions() {
+            static const std::vector<std::string> kPermissions = [] {
+                std::vector<std::string> permissions{
+                        "eap:issue-instance-credentials",
+                        "eap:register-node",
+                        "eap:renew-node",
+                        "eap:report-node-instance",
+                        "esm:complete-download",
+                        "esm:create-download",
+                        "esm:download-part",
+                        "esm:get-object",
+                };
+                std::ranges::sort(permissions);
+                return permissions;
+            }();
+            return kPermissions;
+        }
+
         std::vector<std::string> merged(const std::vector<std::string> &left, const std::vector<std::string> &right,
                                         const std::vector<std::string> &extra) {
             std::vector<std::string> all;
@@ -230,6 +250,7 @@ namespace Euclid::Core {
                                 "ess:get-secret"});
 
                 built[std::string(BuiltinRoles::Transfer)] = transferPermissions();
+                built[std::string(BuiltinRoles::Node)] = nodePermissions();
 
                 return built;
             }();
@@ -263,6 +284,7 @@ namespace Euclid::Core {
         if (name == Publisher) return "Publish to a topic and send to a queue";
         if (name == Consumer) return "Receive from a queue and manage topic subscriptions";
         if (name == Application) return "What a euclid-deployed application is given: publish, consume, read and write objects, and own its delivery queue";
+        if (name == Node) return "What a euclid-wrk node does as itself: register, renew, take its instances' credentials, report on them, and fetch their artifacts";
         if (name == Transfer) return "Everything an FTP or SFTP client can do: list, download, upload, rename, create and remove directories, including the bucket objects those become";
         return {};
     }
