@@ -304,7 +304,7 @@ apply without a new mechanism.
 
 | Action | Direction | What it does |
 |---|---|---|
-| `eap:register-node` | worker → master | announces the node: name, labels, cpu count, euclid version, operating system, architecture. Idempotent; a restarted worker re-registers. |
+| `eap:register-node` | worker → master | announces the node: name, IP address, labels, cpu count, euclid version, operating system, architecture. Idempotent; a restarted worker re-registers. |
 | `eap:renew-node` | worker → master | one call that renews every lease this node holds and answers with the node's current assignment — the desired set of `(instanceId, applicationId, revision)`. The heartbeat and the poll are the same call on purpose. |
 | `eap:issue-instance-credentials` | worker → master | the credentials blob for one assigned instance. Refused for an instance not assigned to the caller. |
 | `eap:report-node-instance` | worker → master | the instance's state, pid, host and port, written onto its record — what `spawnInstance` writes locally today. |

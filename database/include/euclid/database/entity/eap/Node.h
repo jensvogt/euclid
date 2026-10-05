@@ -54,6 +54,17 @@ namespace Euclid::Database::Entity::EAP {
         std::string accountId;
 
         /**
+         * @brief The IP address the node reported when it last registered.
+         *
+         * @par
+         * By default the local address of the worker's route to the master, so the one the
+         * master's side of the network can reach it on; an operator can override it on the
+         * worker for a node behind NAT. Informational - nothing on the master connects to it.
+         * Empty for a worker older than the field, or one that could not tell.
+         */
+        std::string address;
+
+        /**
          * @brief The principal that registered this node, and the only one allowed to renew it.
          *
          * @par
