@@ -178,7 +178,7 @@ BOOST_AUTO_TEST_SUITE(InfrastructureDeclarationTest)
 
         // What an error message offers has to be what the table actually holds, or the message sends
         // somebody to a level that does not work.
-        for (const auto &kind: {"queues", "topics", "buckets"}) {
+        for (const auto &kind: {"queues", "topics", "buckets", "secrets"}) {
             BOOST_TEST_CONTEXT(kind) {
                 const auto levels = AccessLevelsFor(kind);
                 BOOST_TEST(!levels.empty());
@@ -188,6 +188,43 @@ BOOST_AUTO_TEST_SUITE(InfrastructureDeclarationTest)
             }
         }
         BOOST_TEST(AccessLevelsFor("tables").empty());
+    }
+
+    // A secret is the one kind with a single verb, and the only one an application may name but
+    // never own: its value cannot travel in a file that ships inside the artifact. So the table
+    // holds exactly one row for it, and `creates` refuses it saying where the value goes instead.
+    BOOST_AUTO_TEST_CASE(ASecretIsReadAndNeverCreated) {
+
+        BOOST_TEST(grants("secrets", "read", "ess:get-secret"));
+        BOOST_TEST((AccessLevelsFor("secrets") == std::vector<std::string>{"read"}));
+
+        // No ERN lookup beside it, unlike every other kind: ess:get-secret takes the secret's name,
+        // which is what a deployment's configuration can carry and what stays the same between
+        // environments, so there is no name-to-ERN step for the access level to grant.
+        BOOST_TEST(PermissionsFor("secrets", "read").size() == 1u);
+
+        // And not the listing. What an application needs is the value of a secret it was told the
+        // name of - ESS answers list-secrets by filtering to what the caller may read, so holding
+        // it would turn a narrow grant into a map of what the grant does not cover.
+        BOOST_TEST(!grants("secrets", "read", "ess:list-secrets"));
+
+        const auto used = Read(parse(R"({"version": 1, "uses": {
+            "secrets": [{"name": "suppliers-username", "access": "read"}]}})"));
+        BOOST_TEST(used.error.empty());
+        BOOST_REQUIRE(used.declaration.uses.size() == 1u);
+        BOOST_TEST(used.declaration.uses.front().kind == "secrets");
+
+        const auto created = Read(parse(R"({"version": 1, "creates": {
+            "secrets": [{"name": "suppliers-password"}]}})"));
+        BOOST_TEST(!created.error.empty());
+        BOOST_TEST(created.error.find("ess create-secret") != std::string::npos, "unhelpful: " + created.error);
+
+        // Written, the access levels that do not apply are refused by the table rather than by a
+        // second list of rules: "secrets have no \"write\" access - only read".
+        const auto written = Read(parse(R"({"version": 1, "uses": {
+            "secrets": [{"name": "suppliers-password", "access": "write"}]}})"));
+        BOOST_TEST(!written.error.empty());
+        BOOST_TEST(written.error.find("only read") != std::string::npos, "unhelpful: " + written.error);
     }
 
     // ── merging a folder ────────────────────────────────────────────────────

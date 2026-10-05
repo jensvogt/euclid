@@ -425,6 +425,10 @@ namespace Euclid::Core {
             std::optional<std::string> subject;
             bool tokenExpired{false};
             std::string denialReason;
+            // Set by a caller that did look the subject up and found no such user. Authenticate()
+            // never sets it - it is how a handler says "the credential was fine, the principal is
+            // not one I know", which Unauthorized() would otherwise report as a bad token.
+            bool unknownSubject{false};
         };
 
         /**

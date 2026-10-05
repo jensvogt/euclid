@@ -65,6 +65,9 @@ namespace Euclid::EAP {
             std::optional<Database::Entity::EAM::User> user;
             bool tokenExpired{false};
             std::string denialReason;
+            // The subject verified but names nobody this installation knows - distinct from a
+            // credential that did not verify, which is what unauthorized() would otherwise report.
+            bool unknownSubject{false};
         };
 
         std::string stringField(const boost::json::object &obj, const std::string &key, const std::string &fallback = "") {
@@ -259,7 +262,8 @@ namespace Euclid::EAP {
         // resource rather than whoever else in the installation has a bucket or queue called that.
         std::optional<std::vector<std::string> > resolveResources(const std::string &accountId, const std::string &nameSpace,
                                                                   const std::vector<std::string> &buckets, const std::vector<std::string> &queues,
-                                                                  const std::vector<std::string> &topics, std::string &unresolved) {
+                                                                  const std::vector<std::string> &topics, const std::vector<std::string> &secrets,
+                                                                  std::string &unresolved) {
 
             std::vector<std::string> resources;
 
@@ -291,6 +295,21 @@ namespace Euclid::EAP {
                     return std::nullopt;
                 }
                 resources.push_back(topic->ern);
+            }
+
+            // Secrets, for the same reason and with one difference: an application reads a secret
+            // by name, but ess:get-secret is resource-checked against the ERN the name resolves
+            // to, so the grant has to carry ERNs like every other kind here. Resolved at deploy
+            // rather than first read, which is what turns "the database credentials are not there"
+            // from a crash in some application's startup into a deployment that was refused and
+            // said which secret it could not find.
+            for (const auto &name: secrets) {
+                const auto secret = Database::RepositoryFactory::instance().essRepository()->findSecretByName(accountId, nameSpace, name);
+                if (!secret.has_value()) {
+                    unresolved = "secret '" + name + "'";
+                    return std::nullopt;
+                }
+                resources.push_back(secret->ern);
             }
             return resources;
         }
@@ -548,17 +567,19 @@ namespace Euclid::EAP {
                 // Resolved, not created: a service that could conjure another team's queue by naming
                 // it would make ownership meaningless, so a `uses` entry for something absent is the
                 // deployment being wrong about its own dependencies.
-                // All three kinds go through the one resolver rather than this doing topics itself:
+                // Every kind goes through the one resolver rather than this doing topics itself:
                 // it names what it could not find - "topic 'reminder-topic'" - so the answer says
                 // which resource was missing and not merely that something was.
                 std::string unresolved;
                 const std::vector<std::string> named{resource.name};
                 const auto resolved = resource.kind == "buckets"
-                                              ? resolveResources(accountId, nameSpace, named, {}, {}, unresolved)
+                                              ? resolveResources(accountId, nameSpace, named, {}, {}, {}, unresolved)
                                               : resource.kind == "queues"
-                                              ? resolveResources(accountId, nameSpace, {}, named, {}, unresolved)
+                                              ? resolveResources(accountId, nameSpace, {}, named, {}, {}, unresolved)
                                               : resource.kind == "topics"
-                                              ? resolveResources(accountId, nameSpace, {}, {}, named, unresolved)
+                                              ? resolveResources(accountId, nameSpace, {}, {}, named, {}, unresolved)
+                                              : resource.kind == "secrets"
+                                              ? resolveResources(accountId, nameSpace, {}, {}, {}, named, unresolved)
                                               : std::optional<std::vector<std::string> >{};
 
                 if (!resolved.has_value() || resolved->empty()) {
@@ -804,11 +825,17 @@ namespace Euclid::EAP {
         if (!auth.subject.has_value()) {
             return {.user = std::nullopt, .tokenExpired = auth.tokenExpired, .denialReason = auth.denialReason};
         }
-        return {.user = Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(*auth.subject)};
+
+        // Resolved rather than looked up by user ID: kSystemPrincipal is a constant and not a row,
+        // so a lookup finds nothing for euclid's own inter-module traffic - which the gate has
+        // already allowed by the time this runs. See Database::ResolveCaller.
+        auto user = Database::ResolveCaller(*auth.subject, req);
+        const auto unknown = !user.has_value();
+        return {.user = std::move(user), .unknownSubject = unknown};
     }
 
     static response<string_body> unauthorized(const request<string_body> &req, const AuthResult &auth) {
-        return EapServer::Unauthorized(req, {.subject = std::nullopt, .tokenExpired = auth.tokenExpired, .denialReason = auth.denialReason});
+        return EapServer::Unauthorized(req, {.subject = std::nullopt, .tokenExpired = auth.tokenExpired, .denialReason = auth.denialReason, .unknownSubject = auth.unknownSubject});
     }
 
     // Every action here decides which code euclid executes, and under whose identity it does so,
@@ -905,7 +932,8 @@ namespace Euclid::EAP {
         // a rejected deployment rather than an application that runs and is denied everything.
         std::string unresolved;
         const auto resources = resolveResources(auth.user->accountId, ns,
-                                                stringArray(obj, "buckets"), stringArray(obj, "queues"), stringArray(obj, "topics"), unresolved);
+                                                stringArray(obj, "buckets"), stringArray(obj, "queues"), stringArray(obj, "topics"),
+                                                stringArray(obj, "secrets"), unresolved);
         if (!resources.has_value()) {
             return EapServer::ErrorResponse(req, status::not_found, "Not found: " + unresolved);
         }
@@ -1152,6 +1180,7 @@ namespace Euclid::EAP {
         std::vector<std::string> buckets;
         std::vector<std::string> queues;
         std::vector<std::string> topics;
+        std::vector<std::string> secrets;
         for (const auto &resource: source->resources) {
             const auto service = Core::serviceFromErn(resource);
             const auto name = Core::resourceNameFromErn(resource);
@@ -1159,10 +1188,15 @@ namespace Euclid::EAP {
             if (service == "esm") buckets.push_back(name);
             else if (service == "eqs") queues.push_back(name);
             else if (service == "ens") topics.push_back(name);
+            // The same secret *name* in the target namespace, which is a different secret holding
+            // a different value - the whole point of a name rather than an ERN in configuration.
+            // A copy into a namespace where it has not been written is refused below, which is the
+            // right answer: the copy would start and fail to build its datasource.
+            else if (service == "ess") secrets.push_back(name);
         }
 
         std::string unresolved;
-        const auto resources = resolveResources(auth.user->accountId, targetNameSpace, buckets, queues, topics, unresolved);
+        const auto resources = resolveResources(auth.user->accountId, targetNameSpace, buckets, queues, topics, secrets, unresolved);
         if (!resources.has_value()) {
             return EapServer::ErrorResponse(req, status::not_found,
                                             "Not found in namespace '" + targetNameSpace + "': " + unresolved +
@@ -1340,13 +1374,14 @@ namespace Euclid::EAP {
         if (obj.contains("maxInstances")) application->maxInstances = std::max(application->minInstances, longField(obj, "maxInstances", application->maxInstances));
         if (obj.contains("readyTimeoutMs")) application->readyTimeoutMs = std::max(1000L, longField(obj, "readyTimeoutMs", application->readyTimeoutMs));
 
-        if (obj.contains("buckets") || obj.contains("queues") || obj.contains("topics")) {
+        if (obj.contains("buckets") || obj.contains("queues") || obj.contains("topics") || obj.contains("secrets")) {
             std::string unresolved;
             // The application's own account and namespace rather than the request's: the grants
             // being rewritten are the application's, and it is the namespace set just above - the
             // one it will actually run in - that decides which queue a bare name means to it.
             const auto resources = resolveResources(application->accountId, application->nameSpace,
-                                                    stringArray(obj, "buckets"), stringArray(obj, "queues"), stringArray(obj, "topics"), unresolved);
+                                                    stringArray(obj, "buckets"), stringArray(obj, "queues"), stringArray(obj, "topics"),
+                                                    stringArray(obj, "secrets"), unresolved);
             if (!resources.has_value()) {
                 return EapServer::ErrorResponse(req, status::not_found, "Not found: " + unresolved);
             }

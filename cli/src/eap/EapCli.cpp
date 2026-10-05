@@ -70,20 +70,25 @@ namespace Euclid::CLI {
             boost::json::array buckets;
             boost::json::array queues;
             boost::json::array topics;
+            boost::json::array secrets;
 
             const auto add = [&](const Core::ApplicationManifest::Kind kind, const std::string &name) {
                 switch (kind) {
                     case Core::ApplicationManifest::Kind::Bucket: buckets.push_back(boost::json::string(name)); break;
                     case Core::ApplicationManifest::Kind::Queue: queues.push_back(boost::json::string(name)); break;
                     case Core::ApplicationManifest::Kind::Topic: topics.push_back(boost::json::string(name)); break;
+                    // Named here for the same reason the other three are: the application role
+                    // holds ess:get-secret and that action is resource-checked, so a deployment
+                    // that did not name its secrets would reach every secret in the namespace.
+                    case Core::ApplicationManifest::Kind::Secret: secrets.push_back(boost::json::string(name)); break;
                 }
             };
 
             for (const auto &declaration: loaded.manifest.creates) add(declaration.kind, declaration.name);
             for (const auto &declaration: loaded.manifest.uses) add(declaration.kind, declaration.name);
 
-            if (buckets.empty() && queues.empty() && topics.empty()) {
-                // A manifest that declares nothing would otherwise send three empty lists, and EAP
+            if (buckets.empty() && queues.empty() && topics.empty() && secrets.empty()) {
+                // A manifest that declares nothing would otherwise send four empty lists, and EAP
                 // reads "no resources named" as "every resource in the account" - the opposite of
                 // what a manifest is for. Better to leave the deployment's own lists alone.
                 std::cerr << "warning: " << directory.string() << " declares no objects; the deployment's resources are unchanged\n";
@@ -93,6 +98,7 @@ namespace Euclid::CLI {
             request["buckets"] = buckets;
             request["queues"] = queues;
             request["topics"] = topics;
+            request["secrets"] = secrets;
             return true;
         }
     }// namespace
@@ -1041,6 +1047,14 @@ namespace Euclid::CLI {
                     return {"eqs", "get-queue-ern", "get-queue", "create-queue", "add-queue-tag"};
                 case Core::ApplicationManifest::Kind::Topic:
                     return {"ens", "get-topic-ern", "get-topic", "create-topic", "add-topic-tag"};
+                case Core::ApplicationManifest::Kind::Secret:
+                    // Only the module is meaningful. A secret is never created, adopted, tagged or
+                    // pruned from here - it is written by an operator and only ever used - so the
+                    // verbs that do those things have no spelling for it, and lookupErn below
+                    // answers for a secret without coming through this table. Present as its own
+                    // case rather than left to the default, which would silently look a secret up
+                    // as though it were a bucket.
+                    return {"ess", {}, {}, {}, {}};
                 case Core::ApplicationManifest::Kind::Bucket:
                 default:
                     return {"esm", "get-bucket-ern", "get-bucket", "create-bucket", "add-bucket-tag"};
@@ -1059,7 +1073,41 @@ namespace Euclid::CLI {
             [[nodiscard]] bool absent() const { return known && ern.empty(); }
         };
 
+        // The ERN of a secret, from the listing. ESS has no get-secret-ern: the only action that
+        // takes a secret's name is get-secret, and that one decrypts and returns the value - which
+        // is not a thing a tool checking whether a declaration resolves should ever ask for. So the
+        // name is looked up through list-secrets instead, whose rows carry the ERN and nothing
+        // sensitive. The prefix narrows the page; the exact name is matched here, because "pim-db"
+        // is a prefix of "pim-db-password" and a prefix match would resolve the wrong secret.
+        Lookup lookupSecretErn(const HttpClient &client, const std::string &name) {
+
+            try {
+                const HttpResponse response = client.Post("ess", "list-secrets", boost::json::object{{"prefix", name}});
+                if (!response.IsSuccess()) {
+                    return {.known = false, .problem = "HTTP " + std::to_string(response.statusCode) + ": " + boost::json::serialize(response.body)};
+                }
+
+                const auto *secrets = response.body.is_object() ? response.body.as_object().if_contains("secrets") : nullptr;
+                if (secrets == nullptr || !secrets->is_array()) return {.known = true, .ern = {}};
+
+                for (const auto &entry: secrets->as_array()) {
+                    if (!entry.is_object()) continue;
+                    const auto &object = entry.as_object();
+                    const auto *found = object.if_contains("name");
+                    if (found == nullptr || !found->is_string() || std::string(found->as_string()) != name) continue;
+                    const auto *ern = object.if_contains("ern");
+                    if (ern != nullptr && ern->is_string()) return {.known = true, .ern = std::string(ern->as_string())};
+                }
+                return {.known = true, .ern = {}};
+
+            } catch (const std::exception &ex) {
+                return {.known = false, .problem = ex.what()};
+            }
+        }
+
         Lookup lookupErn(const HttpClient &client, const Core::ApplicationManifest::Kind kind, const std::string &name) {
+
+            if (kind == Core::ApplicationManifest::Kind::Secret) return lookupSecretErn(client, name);
 
             const auto actions = actionsFor(kind);
             try {
@@ -1305,6 +1353,11 @@ namespace Euclid::CLI {
         std::vector<Removal> removals;
 
         if (prune && !blocked && !unanswerable) {
+            // Three kinds, not four. Pruning is about objects this application owns, and it can
+            // never own a secret - a manifest may only use one - so there is nothing of that kind
+            // a previous manifest could have left behind. Which is the answer to the obvious
+            // worry too: removing a secret from a manifest narrows the grant and does not go near
+            // the value, so a credential cannot be deleted by editing the file that reads it.
             for (const auto kind: {Core::ApplicationManifest::Kind::Bucket,
                                    Core::ApplicationManifest::Kind::Queue,
                                    Core::ApplicationManifest::Kind::Topic}) {

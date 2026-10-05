@@ -58,12 +58,28 @@ jobs:
       - name: Create vcpkg binary cache dir
         run: mkdir -p ${{ github.workspace }}/vcpkg-bincache
 
+      # Which runner image built the cache, because that is what decides whether its contents are
+      # usable at all: a vcpkg package's ABI hash includes the compiler, and the compiler comes from
+      # the image. Read into the environment rather than written as ${{ env.ImageVersion }} in the
+      # key below - the env context holds what the workflow sets, not the machine's own variables.
+      - name: Record the runner image version
+        shell: bash
+        run: |
+          # Echoed as well as recorded: if this is ever empty the key silently stops
+          # distinguishing toolchains, which is the failure being fixed here.
+          echo "runner image: ${ImageVersion:-unknown}"
+          echo "IMAGE_VERSION=${ImageVersion:-unknown}" >> "$GITHUB_ENV"
+
       - name: Cache vcpkg binary packages
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/vcpkg-bincache
-          key: vcpkg-v1-${{ runner.os }}-${{ hashFiles('**/vcpkg.json') }}
+          # The image version is part of the key so that a toolchain change misses and the rebuilt
+          # tree is saved: actions/cache only uploads on a miss, so a key that never changes leaves
+          # a stale cache in place and rebuilds vcpkg on every pull request forever.
+          key: vcpkg-v1-${{ runner.os }}-${{ env.IMAGE_VERSION }}-${{ hashFiles('vcpkg.json') }}
           restore-keys: |
+            vcpkg-v1-${{ runner.os }}-${{ env.IMAGE_VERSION }}-
             vcpkg-v1-${{ runner.os }}-
 
       - name: Setup vcpkg

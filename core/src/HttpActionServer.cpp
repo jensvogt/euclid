@@ -549,6 +549,12 @@ namespace Euclid::Core {
         if (!auth.denialReason.empty()) {
             return ErrorResponse(req, http::status::forbidden, auth.denialReason);
         }
+        // Still a 401 - the caller has no identity this installation accepts, and a 403 would
+        // promise that a grant could fix it. Said apart from the token, because a credential that
+        // verified and a credential that did not are two different things to go looking for.
+        if (auth.unknownSubject) {
+            return ErrorResponse(req, http::status::unauthorized, "No such principal");
+        }
         return ErrorResponse(req, http::status::unauthorized, auth.tokenExpired ? "Bearer token expired" : "Missing or invalid bearer token");
     }
 
