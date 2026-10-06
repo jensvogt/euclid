@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.16](https://github.com/jensvogt/euclid/compare/1.2.15...v1.2.16) (2026-10-06)
+
+
+### Bug Fixes
+
+* get an application placed on a worker node started ([049c3f8](https://github.com/jensvogt/euclid/commit/049c3f897444f38b2b7edd439d713c70c7c5ea84))
+* worker on local host ([8e1e179](https://github.com/jensvogt/euclid/commit/8e1e179a47f40421ef66d25872275b07ba0f7d23))
+
 ## [1.2.15](https://github.com/jensvogt/euclid/compare/v1.2.14...v1.2.15) (2026-10-06)
 
 
