@@ -125,6 +125,27 @@ namespace Euclid::Core {
             }
 
             /**
+             * @brief Whether the object's size is known at all, which has to be asked before
+             * FitsInOneCall() is believed.
+             *
+             * @par
+             * A master that does not send the size leaves Request::size at zero, and zero is below
+             * any part size - so an unknown size reads as a small one and takes the single-shot
+             * path, which ESM refuses for anything at or above the part size. That is the wrong
+             * direction to fail in: downloading in parts asks ESM for the size in create-download
+             * and therefore works whether or not the caller knew it, while one call only works when
+             * the size is known to be small. An unknown size is not a small one.
+             *
+             * @par
+             * This is not hypothetical across versions: a worker older than the master that places
+             * work on it never read the field, so every artifact it fetched - 84 MB included - went
+             * down the single-shot path and was refused on every tick, for ever.
+             */
+            [[nodiscard]] constexpr bool SizeIsKnown(const long size) noexcept {
+                return size > 0;
+            }
+
+            /**
              * @brief How many parts an object of this size is fetched in.
              *
              * @par

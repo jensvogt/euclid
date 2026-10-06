@@ -170,7 +170,8 @@ namespace Euclid::Core::Artifact {
             return false;
         }
 
-        return Detail::FitsInOneCall(request.size, PartSize())
+        // Both halves, and in this order: an unknown size is not a small one - see SizeIsKnown.
+        return Detail::SizeIsKnown(request.size) && Detail::FitsInOneCall(request.size, PartSize())
                        ? downloadWhole(request, target, call)
                        : downloadInParts(request, target, call);
     }
