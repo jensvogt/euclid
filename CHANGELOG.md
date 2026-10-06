@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.2.15](https://github.com/jensvogt/euclid/compare/v1.2.14...v1.2.15) (2026-10-06)
+
+
+### Bug Fixes
+
+* DEB installation ([2869b6f](https://github.com/jensvogt/euclid/commit/2869b6f78b0f1dec76678dcff3b1f5f4f37bc2b4))
+* scale up only on sustained saturation, not a single busy tick ([1f98730](https://github.com/jensvogt/euclid/commit/1f9873017919b8211caf875d90afe228e822bd03))
+* worker on local host ([549d3ba](https://github.com/jensvogt/euclid/commit/549d3bab30b28c1b4a0cb4782339fee1af12fd84))
+* worker on local host ([7ccbd77](https://github.com/jensvogt/euclid/commit/7ccbd77c0b1163f31c5be2de53323a7c60cc3068))
+* worker on local host ([e988e5f](https://github.com/jensvogt/euclid/commit/e988e5f32d197b33995a37790fe70a4a0ae3e7d5))
+* worker on local host ([4f9b388](https://github.com/jensvogt/euclid/commit/4f9b388286d35f9a5e354a260421b6d83a747719))
+* worker on local host ([393dd0c](https://github.com/jensvogt/euclid/commit/393dd0c9c45cfb5faddb06d2b12e04e3390d4951))
+
 ## [1.2.14](https://github.com/jensvogt/euclid/compare/v1.2.13...v1.2.14) (2026-10-06)
 
 
