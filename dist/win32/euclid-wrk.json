@@ -15,6 +15,7 @@
     },
     "logging": {
       "level": "info",
+      "file-active": true,
       "dir": "C:\\Program Files\\euclid-wrk\\log",
       "prefix": "euclid-wrk"
     }
