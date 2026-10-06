@@ -824,7 +824,25 @@ jobs:
           # than --strip-all: it keeps the dynamic symbols the loader needs and drops only what is
           # genuinely dead in a shipped executable.
           strip --strip-unneeded ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/bin/euclid-*
-          cp dist/linux/etc/* ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/etc/
+          # Everything in etc/ except the worker's own configuration, which belongs to the
+          # euclid-wrk package. Both packages owning /usr/local/euclid/etc/euclid-wrk.json is a
+          # dpkg "trying to overwrite '/usr/local/euclid/etc/euclid-wrk.json', which is also in
+          # package euclid" the moment the dependency is unpacked - which is to say on every
+          # install of the server, because euclid-wrk is one. The binary loop above already
+          # excludes euclid-wrk for the same reason; this file was swept in by the wildcard.
+          #
+          # Excluded by name rather than listing what to include, so a configuration file added
+          # tomorrow is still picked up.
+          for file in dist/linux/etc/*; do
+            case "$(basename "$file")" in
+              euclid-wrk.json) continue ;;
+            esac
+            cp "$file" ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/etc/
+          done
+          # The failure this prevents is only visible on a user's machine at install time, so it
+          # is worth one line here.
+          [ ! -e ${{ env.PACKAGE_DIR_DEB }}/usr/local/euclid/etc/euclid-wrk.json ] \
+            || { echo "::error::the server package must not ship euclid-wrk.json - it belongs to the euclid-wrk package"; exit 1; }
           # euclid statically links vcpkg's own libmagic, whose compiled magic database format
           # isn't guaranteed compatible with the system's /usr/lib/file/magic.mgc (see
           # Core::ContentTypeUtils) - bundle the one this exact build produced instead, at the
@@ -1044,7 +1062,16 @@ jobs:
           # than --strip-all: it keeps the dynamic symbols the loader needs and drops only what is
           # genuinely dead in a shipped executable.
           strip --strip-unneeded ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/bin/euclid-*
-          cp dist/linux/etc/* ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc/
+          # Without the worker's configuration - see the DEB step above. rpm reports the same
+          # thing as "file ... conflicts between attempted installs of euclid and euclid-wrk".
+          for file in dist/linux/etc/*; do
+            case "$(basename "$file")" in
+              euclid-wrk.json) continue ;;
+            esac
+            cp "$file" ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc/
+          done
+          [ ! -e ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc/euclid-wrk.json ] \
+            || { echo "::error::the server package must not ship euclid-wrk.json - it belongs to the euclid-wrk package"; exit 1; }
           # See the DEB step above for why this is bundled rather than relying on the system's.
           cp ${{ env.BUILD_DIR }}/vcpkg_installed/${{ matrix.vcpkg_triplet }}/share/libmagic/misc/magic.mgc ${{ env.PACKAGE_DIR_RPM }}/usr/local/euclid/etc/magic.mgc
           cp dist/linux/systemd/system/euclid.service ${{ env.PACKAGE_DIR_RPM }}/etc/systemd/system
