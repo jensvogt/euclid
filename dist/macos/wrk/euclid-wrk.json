@@ -16,6 +16,7 @@
     },
     "logging": {
       "level": "info",
+      "file-active": true,
       "dir": "/usr/local/var/euclid-wrk/log",
       "prefix": "euclid-wrk"
     }

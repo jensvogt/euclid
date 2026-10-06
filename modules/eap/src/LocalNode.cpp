@@ -207,6 +207,10 @@ namespace Euclid::EAP::LocalNode {
                                    {"worker", worker},
                                    {"logging", boost::json::object{
                                                        {"level", configuration.getOr<std::string>("euclid.logging.level", "info")},
+                                                       // Inherited rather than decided here: a manager that writes a log
+                                                       // file has a local node that writes one too, and one that logs only
+                                                       // to the journal has a node that does the same.
+                                                       {"file-active", configuration.getOr<bool>("euclid.logging.file-active", false)},
                                                        {"dir", configuration.getOr<std::string>("euclid.modules.eap.local-node.log-dir", "/var/lib/euclid-wrk/log")},
                                                        {"prefix", "euclid-wrk"}}}}}};
     }
