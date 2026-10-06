@@ -4,7 +4,13 @@
       "endpoint": "https://euclid.example:5566",
       "ca-cert": "",
       "address": "",
-      "java": "java"
+      "runtimes": {
+        "java": "java",
+        "java21": "/usr/lib/jvm/java-21-openjdk-amd64/bin/java",
+        "java25": "/usr/lib/jvm/java-25-openjdk-amd64/bin/java",
+        "python": "python3",
+        "nodejs": "node"
+      }
     },
     "logging": {
       "level": "info",

@@ -270,32 +270,28 @@ configuration, so a selector of `os=linux, arch=aarch64` cannot be satisfied by 
 machine. Both are needed for a native build: a Raspberry Pi and a PC are both `linux`. Configured
 labels named `os` or `arch` are overridden.
 
-### Naming one is also how an application opts in
+### Naming one narrows the candidates, and nothing else
 
-As built, that constraint does more than narrow the candidates: **it is what makes an application a
-node application at all.** One that names neither `nodes` nor `nodeLabels` is run by the manager on
-its own host, exactly as it was before any of this existed, and never reaches placement.
+A constraint says which nodes may take an application. It does not decide *whether* the application
+is placed: every application is, and §13.4 is where that became true. One that names neither `nodes`
+nor `nodeLabels` may go on any node whose lease is live — the manager's own host among them, through
+the local node of §13.3.
 
-This was not the original intent — §6 reads as though placement applies to everything — and the
-reason for the change is worth recording. Making every application dual-mode means every existing
-pool takes a new path through `reconcileApplications` on the strength of whether a worker happens to
-be registered, and an installation with no workers (which is every installation today) would be
-taking that new path to the same destination. Opting in per application makes adopting workers a
-decision about one application rather than a property of the installation, which is also how anybody
-would want to try the first one.
+For a while it did decide that. `isNodeApplication` — "names a node or a label" — was what made an
+application a node application at all, and one that named neither was run by the manager itself and
+never reached placement. The reasoning was adoption: opting in per application makes trying the
+first worker a decision about one application rather than about the installation. What it bought was
+two implementations of starting an application, which is what §13 was written to remove, and a
+security property that held on every host except the manager's (§3.2). Both are gone with it.
 
-What it costs: placing an application takes an edit to its definition. If that turns out to be the
-wrong trade, the condition is one function — `isNodeApplication` — and nothing else depends on the
-distinction.
+`nodeLabels` is part of the application as `eap:list-applications` returns it, and
+`eap:update-application` replaces it whole — `{}` clears it. Clearing it widens the candidates back
+to every node; it no longer moves the application to the manager, because there is nowhere there to
+move it to.
 
-An application whose constraint is added while it is running locally has its local pool stopped
-first. Leaving it would mean the application running both on the manager and wherever it gets
-placed, which is the one outcome every part of this design exists to prevent.
-
-The reverse holds too. `nodeLabels` is part of the application as `eap:list-applications` returns
-it, and `eap:update-application` replaces it whole — `{}` clears it. An application whose
-constraints are cleared is the manager's again: its slots on nodes are removed, each worker stops
-its share on the next renewal, and the manager starts the pool itself.
+An installation with no worker registered places nothing, and says so once per reconcile rather than
+once per application. That is a manager without a worker, which is a legitimate way to run one — it
+serves the API and supervises the modules, and runs no application code.
 
 ## 7. The worker's side
 
@@ -448,7 +444,7 @@ Said plainly, because each of these is a thing somebody will reasonably expect:
 
 ## 13. Proposal: every application on a worker
 
-*Status: 13.1 and 13.2 done; 13.3 done for Linux; 13.4 not started.*
+*Status: 13.1, 13.2 and 13.4 done; 13.3 done for Linux, not yet for macOS, Windows or Docker.*
 
 ### The problem
 
@@ -513,7 +509,7 @@ survives a manager restart — today it is a child of the manager and goes with 
 | 13.1 ✅ | One implementation of "start an application" in `euclidcore` — `Core::Launch`, which both the manager and the worker link: the command line and the interpreter table (`Runtime.h` delegates to it), artifact freshness by md5 then size, the exec bit, the credentials blob (`IssueCredentials`, used by the manager and by `issue-instance-credentials`), the credentials file and its refresh rule. | the two paths cannot drift — useful even if nothing below happens |
 | 13.2 ✅ | worker parity: the table above. On Windows, the manager's process code moved to `Core::WindowsProcess` — the job object, the inheritance list, the suspended start, the stop event, the environment block — and the worker starts, stops and reaps through it; a killed worker's instances die with it, by the job, rather than running on beside the copies the master places elsewhere. On every platform — the environment (the definition's half from `Database::Entity::EAP::ApplicationEnvironment`, sent with each assignment; the host's half from `Core::Launch::AddHostEnvironment`), the credentials' namespace fallback, the gateway endpoint as the worker reaches it, crash detection and restart with the manager's backoff (`Reconciler::RestartDelay`), an `EUCLID_HTTP_PORT` from `euclid.worker.http-port-min/max` reported with the node's registered address, output captured onto `app.<runtimeName>` (`Core::Launch::EmitOutput`) and `set-log-level` applied there. | an application loses nothing by moving onto a worker |
 | 13.3 (Linux ✅) | a local worker shipped and provisioned by the server package. EAP's start ensures a `local-node` principal (no login, one key, the new built-in `node` role) and writes its credentials and a worker configuration generated from the manager's own to `euclid.modules.eap.local-node.dir`, readable by the worker's group only (`LocalNode::Provision`). The DEB and RPM depend on `euclid-wrk` and ship a drop-in pointing `euclid-wrk.service` at that configuration with `--wait-for-config`. The node registers as `local`, labelled `local=true`, with a port range of its own. macOS, Windows and Docker do not set it up yet. | a single-host install has a worker running with no setup |
-| 13.4 | the split removed: unconstrained applications placed on any node, `isNodeApplication` and the manager's application code deleted; existing installations migrate through the hand-over that already stops a local pool | one path |
+| 13.4 ✅ | the split removed. `isNodeApplication` is gone and every application goes through `reconcileNodeApplication`; the manager's own application code - `materializeArtifact`, `writeApplicationCredentials`, `credentialsNeedRefresh`, `applicationEnvironment`, `noteApplicationPrincipal`, `credentialsPath`, `esmTransport` - is deleted, and with it the hand-over in each direction. Nothing migrates: an upgrade is a restart, and the applications the old manager ran were its children. `killLeftoverInstances` now skips any slot assigned to a node, which it had to once the local node put a worker's instances on the manager's own host. | one path |
 
 13.2 is the real work, and the step that decides whether the rest is worth doing.
 

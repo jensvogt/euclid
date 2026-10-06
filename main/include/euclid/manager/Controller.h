@@ -21,6 +21,7 @@
 // Euclid includes
 #include <euclid/core/Configuration.h>
 #include <euclid/database/entity/eap/Application.h>
+#include <euclid/database/entity/eap/Node.h>
 #include <euclid/database/entity/emm/Module.h>
 #include <euclid/dto/emm/ModuleProcess.h>
 
@@ -125,24 +126,28 @@ namespace Euclid::main {
         void reconcileTransferServers();
 
         /**
-         * @brief Brings the running application pools in line with what EAP has defined.
+         * @brief Places every application EAP defines on a worker node, and starts none of them.
          *
          * @par
-         * The same reconcile reconcileTransferServers() performs, for applications: every
-         * application whose desired state is RUNNING gets a module pool, everything else is torn
-         * down. Two things happen here that a transfer server does not need, because an
-         * application is foreign code rather than a euclid binary:
+         * A reconcile like reconcileTransferServers(), with one difference that decides everything
+         * else about it: this manager runs no applications. Each one is placed - a slot recorded
+         * against a node, leased and renewed - and the worker holding that slot fetches the
+         * artifact, writes the credentials file and spawns the process on its own host. The
+         * manager's own implementation of all three is gone; see docs/worker-nodes.md §13.4.
          *
-         * @par Artifact
-         * The artifact is an object in an ESM bucket, so it is materialised onto local disk
-         * before the first instance starts - which is what lets a manager on a fresh host bring
-         * an application up from nothing but the database and the object store.
+         * @par What that means for a host
+         * A host with euclid-wrk installed runs applications as any other worker does - the
+         * manager's host included, through the local node the server package provisions (§13.3). A
+         * host without one is a manager and runs no application at all: its applications stay
+         * unplaced, which is said once per pass rather than once per application.
          *
-         * @par Credentials
-         * The application's EAM user's access key is passed in through the environment, so the
-         * process can sign its own calls back into euclid (RFC 9421). Nothing else hands it an
-         * identity: it holds no token, reads no configuration file and never touches the
-         * database.
+         * @par Why not both
+         * The manager drops no privileges when it spawns, and `euclid.service` has
+         * ReadWritePaths=/usr/local/euclid - so an application the manager ran could read the
+         * signing secret and the database password out of euclid.json. §3.2 exists to prevent
+         * exactly that, and until this it held on every host except the one that mattered most.
+         * `nodes` and `nodeLabels` are constraints on which node may take an application, not a
+         * choice between two ways of starting one.
          */
         void reconcileApplications();
 
@@ -331,7 +336,8 @@ namespace Euclid::main {
          * worker stops it without being told to.
          */
         void reconcileNodeApplication(const Database::Entity::EAP::Application &application,
-                                      const std::string &runtimeName);
+                                      const std::string &runtimeName,
+                                      const std::vector<Database::Entity::EAP::Node> &nodes);
 
         /**
          * @brief The pre-2026-09-14 load path, for applications that do not report directly yet.
@@ -879,8 +885,13 @@ namespace Euclid::main {
          * module's config allows it.
          *
          * @param svc The instance whose process has exited.
+         * @param status What the process exited with - waitpid()'s status on POSIX, the process
+         * exit code on Windows, or -1 where the caller has none. Reported rather than only
+         * recorded: a child that could not be executed at all exits 127 before it can say anything
+         * on stderr, so without this the log read "crashed" and then "exited during startup" with
+         * nothing to say that the configured executable does not exist.
          */
-        static void handleExitedInstance(const std::shared_ptr<Dto::ModuleProcess> &svc);
+        static void handleExitedInstance(const std::shared_ptr<Dto::ModuleProcess> &svc, int status = -1);
 
 #if defined(_WIN32)
         /**
