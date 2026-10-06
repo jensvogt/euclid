@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.14](https://github.com/jensvogt/euclid/compare/v1.2.13...v1.2.14) (2026-10-06)
+
+
+### Bug Fixes
+
+* worker running nodes or python ([52cd6a4](https://github.com/jensvogt/euclid/commit/52cd6a47fcde5a00c960e30113dacf81e743056d))
+
 ## [1.2.13](https://github.com/jensvogt/euclid/compare/1.2.12...v1.2.13) (2026-10-05)
 
 
