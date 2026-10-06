@@ -238,6 +238,31 @@ static int RunWorker(const CliOptions &options, const bool reportServiceStatus) 
         return 1;
     }
 
+    // What every other euclid process does on startup, and what this one did not: without it the
+    // configuration's whole logging block was inert. euclid.logging.level was never applied, so a
+    // worker configured for "info" logged at the library's own default and filled the journal with
+    // debug lines; euclid.logging.dir and .prefix named a directory nothing ever wrote to - the
+    // package creates /var/lib/euclid-wrk/log and chowns it, and it stayed empty; and the records
+    // carried no process channel, so a worker could not be turned down through
+    // euclid.logging.channels the way a module can.
+    //
+    // After the configuration is loaded, because every one of these reads it.
+    Euclid::Core::LogStream::Initialize();
+
+    // "wrk", matching the binary and the log prefix, so euclid.logging.channels.wrk turns this
+    // process down without touching the applications it runs - those carry app.<application>.
+    Euclid::Core::LogStream::SetProcessChannel("wrk");
+    Euclid::Core::LogStream::ApplyConfiguration("");
+
+    // A file as well as the console, when the configuration asks for one. The console goes to the
+    // journal under systemd, which is where a worker's log is usually read; the file is for a host
+    // where it is not, and for keeping more than the journal's retention.
+    if (const auto &configuration = Euclid::Core::Configuration::instance();
+        configuration.getOr<bool>("euclid.logging.file-active", false)) {
+        Euclid::Core::LogStream::AddFile(configuration.getOr<std::string>("euclid.logging.dir", std::string(defaultDataDir()) + "/log"),
+                                         configuration.getOr<std::string>("euclid.logging.prefix", "euclid-wrk"));
+    }
+
     // The credentials this worker signs with, from the same file euclid-cli writes. A worker is a
     // euclid client and is logged in the way any other is: there is no separate worker identity
     // mechanism, which is what keeps its role, its grants and its audit trail ordinary.

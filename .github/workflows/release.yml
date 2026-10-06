@@ -1004,6 +1004,7 @@ jobs:
           --depends libunwind8 \
           --depends liblzma5 \
           --depends "${{ env.WORKER_NAME }} (= ${{ env.SEMVER }})" \
+          --config-files /usr/local/euclid/etc/euclid.json \
           --after-install ${{ github.workspace }}/deb-scripts/postinstall.sh \
           --after-remove ${{ github.workspace }}/deb-scripts/postremove.sh \
           --package "${{ env.APP_NAME }}-${{ env.SEMVER }}-${{ matrix.arch }}.deb" \
@@ -1197,6 +1198,7 @@ jobs:
           # this step's upload then has to predict - so the two are driven from one value.
           fpm -s dir -t rpm \
           -n euclid \
+          --config-files /usr/local/euclid/etc/euclid.json \
           -v ${SEMVER} \
           --architecture ${{ matrix.rpm_arch }} \
           --description "Euclid - Euclid Cloud Service" \
@@ -1552,6 +1554,7 @@ jobs:
           # vcpkg's own statically, which is why the server package bundles magic.mgc rather than
           # reading the system one.
           fpm -s dir -t deb --name "${{ env.WORKER_NAME }}" \
+          --config-files /usr/local/euclid/etc/euclid-wrk.json \
           --deb-compression xz \
           --version "${{ env.SEMVER }}" \
           --architecture ${{ matrix.arch }} \
@@ -1580,6 +1583,7 @@ jobs:
         run: |
           fpm -s dir -t rpm \
           -n "${{ env.WORKER_NAME }}" \
+          --config-files /usr/local/euclid/etc/euclid-wrk.json \
           -v ${SEMVER} \
           --architecture ${{ matrix.rpm_arch }} \
           --description "Euclid worker node - runs euclid applications on a host that is not the manager" \
