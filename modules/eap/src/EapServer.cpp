@@ -1949,6 +1949,57 @@ namespace Euclid::EAP {
             return {.node = node, .refusal = std::nullopt};
         }
 
+        // The applications a node is actually running: which application, what the manager runs it
+        // as, and how many of its instances this node is holding.
+        //
+        // Read off the slots and nowhere else. An application's own `nodes` is the other direction -
+        // where it *may* be placed - and answers this wrongly in both: an application allowed
+        // anywhere names no node at all, and a named node is still not placed on while it is drained.
+        //
+        // Pools that are not applications are skipped rather than reported without an id: the
+        // manager's own modules are not placed on a worker, and a node holding one would be a record
+        // nobody can act on.
+        //
+        // Deliberately not on list-nodes, which this would make a walk of every pool per row: a
+        // listing is read to find a node, not to read what is on it.
+        boost::json::array nodeApplications(const std::string &accountId, const std::string &nodeName) {
+
+            const auto repository = Database::RepositoryFactory::instance().eapRepository();
+
+            boost::json::array applications;
+            for (const auto &module: Database::RepositoryFactory::instance().emmRepository()->findAll()) {
+
+                long placed = 0;
+                long running = 0;
+                for (const auto &instance: module.instances) {
+                    // Empty assignedTo is the manager's own host, which is what an installation with
+                    // no workers writes - see ModuleInstance::isAssignedTo.
+                    if (!instance.isAssignedTo(nodeName)) continue;
+                    ++placed;
+                    if (instance.state == Database::Entity::ModuleState::RUNNING) ++running;
+                }
+                if (placed == 0) continue;
+
+                const auto application = repository->findApplicationByRuntimeName(module.name);
+                if (!application.has_value()) continue;
+                // A runtime name is installation-wide while a node belongs to an account, so the
+                // account is checked rather than assumed from the pool having been found.
+                if (application->accountId != accountId) continue;
+
+                applications.push_back(boost::json::object{
+                        {"applicationId", application->applicationId},
+                        {"runtimeName", module.name},
+                        {"namespace", application->nameSpace},
+                        {"runtime", RuntimeToString(application->runtime)},
+                        // Slots this node holds, and the ones actually serving out of them. Both,
+                        // because a node holding four slots and running none is the state worth
+                        // seeing, and a single count cannot say it.
+                        {"instances", placed},
+                        {"running", running}});
+            }
+            return applications;
+        }
+
         boost::json::object nodeToJson(const Database::Entity::EAP::Node &node) {
 
             boost::json::object labels;
@@ -2345,7 +2396,12 @@ namespace Euclid::EAP {
             return EapServer::ErrorResponse(req, status::not_found, "Node is not registered, node: " + name);
         }
 
-        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(nodeToJson(*node)));
+        // Only here, and only for one node: what a node is running is the question its own page is
+        // open to answer, and it is the one thing about a node that is not on the node record.
+        auto answer = nodeToJson(*node);
+        answer["applications"] = nodeApplications(auth.user->accountId, node->name);
+
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(answer));
     }
 
     // Removes a node's registration, which is how a node name is freed for another principal - see
