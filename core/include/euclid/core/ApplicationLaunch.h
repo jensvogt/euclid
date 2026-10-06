@@ -99,6 +99,44 @@ namespace Euclid::Core {
                                                            const Interpreter &interpreter);
 
         /**
+         * @brief One runtime this host is configured for but could not actually start.
+         */
+        struct UnusableRuntime {
+            /** @brief The runtime's key, as it is named in the configuration: "java25". */
+            std::string runtime;
+
+            /** @brief What it resolves to here, which is the runtime's own name when nothing named a path. */
+            std::string command;
+
+            /** @brief Why it cannot be run, as a phrase to put after @ref command in a message. */
+            std::string reason;
+        };
+
+        /**
+         * @brief The runtimes this host cannot start, for saying so before an application needs one.
+         *
+         * @par
+         * An interpreter nobody configured is not found out until an application is started with it,
+         * and then only as exit 127 - a message about a runtime arriving minutes or days after the
+         * mistake, on whichever host happened to be given the application. Asked at startup instead,
+         * the same mistake is a line in the log of the host that has it, next to everything else
+         * that host got told.
+         *
+         * @par
+         * An interpreter named rather than located - "python3", "node", and the "java" default - is
+         * looked for on the PATH, because that is where a host that configured nothing keeps them and
+         * finding one there is not a misconfiguration. Anything holding a separator is a path, and is
+         * checked as one.
+         *
+         * @par
+         * Says nothing about BINARY, which is its own command and has no interpreter to name.
+         *
+         * @param interpreter how this host resolves a runtime's key - see Interpreter.
+         * @return one entry per unusable runtime, empty when every one of them can be started.
+         */
+        [[nodiscard]] std::vector<UnusableRuntime> UnusableRuntimes(const Interpreter &interpreter);
+
+        /**
          * @brief Whether the file on disk is the object, byte for byte, so nothing needs fetching.
          *
          * @par

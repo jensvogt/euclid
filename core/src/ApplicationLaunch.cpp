@@ -6,8 +6,15 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <string_view>
+
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 // Euclid includes
 #include <euclid/core/ApplicationLaunch.h>
@@ -34,6 +41,84 @@ namespace Euclid::Core::Launch {
         if (runtime == "PYTHON") return {"python3"};
         if (runtime == "NODEJS") return {"node"};
         return {};
+    }
+
+    namespace {
+
+        // Whether this process could exec it, which on POSIX is a question about the effective user
+        // and not about the mode bits alone - a JDK under a directory the service account cannot
+        // traverse is as unusable as one that is not there.
+        bool runnable(const std::filesystem::path &path) {
+#ifdef _WIN32
+            std::error_code ec;
+            return std::filesystem::is_regular_file(path, ec);
+#else
+            return ::access(path.c_str(), X_OK) == 0;
+#endif
+        }
+
+        // Where execvp() would look, for the interpreters named rather than located.
+        bool onPath(const std::string &name) {
+
+            const char *path = std::getenv("PATH");
+            if (path == nullptr) return false;
+
+#ifdef _WIN32
+            constexpr char separator = ';';
+#else
+            constexpr char separator = ':';
+#endif
+            const std::string_view all{path};
+            for (std::size_t at = 0; at <= all.size();) {
+
+                const auto end = all.find(separator, at);
+                const auto entry = all.substr(at, end == std::string_view::npos ? std::string_view::npos : end - at);
+                at = end == std::string_view::npos ? all.size() + 1 : end + 1;
+
+                if (!entry.empty() && runnable(std::filesystem::path(entry) / name)) return true;
+            }
+            return false;
+        }
+
+    }// namespace
+
+    std::vector<UnusableRuntime> UnusableRuntimes(const Interpreter &interpreter) {
+
+        std::vector<UnusableRuntime> unusable;
+
+        // The runtimes that have an interpreter at all. BINARY is its own command, so there is
+        // nothing a host could be told about it and nothing to check.
+        for (const auto *runtime: {"JAVA", "JAVA21", "JAVA25", "PYTHON", "NODEJS"}) {
+
+            const auto prefix = InterpreterPrefix(runtime);
+            if (prefix.empty()) continue;
+
+            const auto key = RuntimeKey(runtime);
+            const auto command = interpreter ? interpreter(key, prefix.front()) : prefix.front();
+
+            if (command.empty()) {
+                unusable.push_back({.runtime = key, .command = command, .reason = "is configured as nothing at all"});
+                continue;
+            }
+
+            // Named rather than located, which is both the shipped python3 and node and the name a
+            // runtime falls back to when nothing was configured for it. Either way the PATH decides.
+            if (std::filesystem::path(command).filename() == std::filesystem::path(command)) {
+                if (!onPath(command)) {
+                    unusable.push_back({.runtime = key, .command = command, .reason = "is not on the PATH"});
+                }
+                continue;
+            }
+
+            std::error_code ec;
+            if (!std::filesystem::exists(command, ec)) {
+                unusable.push_back({.runtime = key, .command = command, .reason = "does not exist"});
+            } else if (!runnable(command)) {
+                unusable.push_back({.runtime = key, .command = command, .reason = "cannot be executed by this account"});
+            }
+        }
+
+        return unusable;
     }
 
     std::vector<std::string> CommandLine(const std::string &runtime, const std::string &command, const std::string &artifact,

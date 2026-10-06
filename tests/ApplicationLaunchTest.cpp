@@ -83,6 +83,41 @@ BOOST_AUTO_TEST_CASE(TheInterpreterIsWhereTheHostSaysItIs) {
     BOOST_TEST(Launch::CommandLine("JAVA25", "", "a.jar", {}, interpreters).front() == "java25");
 }
 
+BOOST_AUTO_TEST_CASE(AHostSaysWhichOfItsRuntimesItCouldNotStart) {
+
+    // A real one, made executable, so "located and runnable" is answered by the filesystem rather
+    // than by whichever interpreters happen to be installed where this test runs.
+    const auto present = std::filesystem::temp_directory_path() / "euclid-launch-test-interpreter";
+    std::ofstream(present, std::ios::trunc) << "#!/bin/sh\n";
+    std::filesystem::permissions(present, std::filesystem::perms::owner_all);
+
+    const auto absent = (std::filesystem::temp_directory_path() / "euclid-no-such-jvm" / "bin" / "java").string();
+
+    // Every key named, for the same reason: what this asserts must not depend on the host.
+    const auto unusable = Launch::UnusableRuntimes(configured({{"java", present.string()},
+                                                               {"java21", present.string()},
+                                                               {"java25", absent},
+                                                               {"python", ""},
+                                                               {"nodejs", "euclid-no-such-interpreter"}}));
+
+    std::map<std::string, std::string> reasons;
+    for (const auto &[runtime, command, reason]: unusable) reasons[runtime] = reason;
+
+    BOOST_TEST(reasons.size() == 3U);
+    BOOST_TEST(reasons["java25"] == "does not exist");
+    BOOST_TEST(reasons["python"] == "is configured as nothing at all");
+    // Named rather than located, and nowhere on the PATH - which is also what an unconfigured
+    // runtime looks like, since it falls back to its own name.
+    BOOST_TEST(reasons["nodejs"] == "is not on the PATH");
+
+    // The two that can be started are not mentioned: this reports problems, not an inventory.
+    BOOST_TEST(!reasons.contains("java"));
+    BOOST_TEST(!reasons.contains("java21"));
+
+    std::error_code ec;
+    std::filesystem::remove(present, ec);
+}
+
 BOOST_AUTO_TEST_CASE(OnlyTheInterpreterIsAskedFor) {
 
     // -jar is how a jar is started; what the host is asked is which java.
