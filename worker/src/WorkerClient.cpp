@@ -101,6 +101,32 @@ namespace Euclid::Worker {
 
     }// namespace
 
+    Core::Launch::Interpreter RuntimeLookup() {
+        return [](const std::string &key, const std::string &fallback) {
+            const auto &configuration = Core::Configuration::instance();
+            const auto legacy = key == "java" ? configuration.getOr<std::string>("euclid.worker.java", fallback) : fallback;
+            return configuration.getOr<std::string>("euclid.worker.runtimes." + key, legacy);
+        };
+    }
+
+    void CheckRuntimes() {
+
+        const auto unusable = Core::Launch::UnusableRuntimes(RuntimeLookup());
+        if (unusable.empty()) {
+            log_debug << "Every runtime this node is configured for can be started";
+            return;
+        }
+
+        // A warning rather than a refusal to start: a node that can run two of the three runtimes
+        // an installation uses is still worth having, and which ones it is asked for is not its
+        // decision. What it can say is which of them would fail, before one is asked for.
+        for (const auto &[runtime, command, reason]: unusable) {
+            log_warning << "Runtime " << runtime << " resolves to '" << command << "', which " << reason
+                        << " - an application with this runtime placed here will exit 127."
+                        << " Set euclid.worker.runtimes." << runtime << " to this host's path for it";
+        }
+    }
+
     WorkerClient::WorkerClient(Options options, CLI::Credentials::Entry credentials)
         : _options(std::move(options)), _credentials(std::move(credentials)),
           _client(_options.endpoint, _credentials, _options.caCertPath) {}
@@ -391,17 +417,12 @@ namespace Euclid::Worker {
         // because the child starts in the application's directory, and a worker started with a
         // relative --data-dir would otherwise exec a path that no longer leads anywhere.
         //
-        // Where this node keeps each interpreter is euclid.worker.runtimes.<key>. JAVA also still
-        // reads euclid.worker.java, the name every worker configured before the others existed
-        // uses; the newer key wins where both are set.
+        // Where this node keeps each interpreter is RuntimeLookup()'s to answer - the same answer
+        // CheckRuntimes() reported on at startup.
         const auto artifactPath = std::filesystem::absolute(target, ec);
         const auto commandLine = Core::Launch::CommandLine(
                 assignment.runtime, assignment.command, (ec ? target : artifactPath).string(), assignment.arguments,
-                [](const std::string &key, const std::string &fallback) {
-                    const auto &configuration = Core::Configuration::instance();
-                    const auto legacy = key == "java" ? configuration.getOr<std::string>("euclid.worker.java", fallback) : fallback;
-                    return configuration.getOr<std::string>("euclid.worker.runtimes." + key, legacy);
-                });
+                RuntimeLookup());
         const auto workingDir = directory.string();
         // Absolute for the same reason: the application reads it after the chdir.
         const auto credentialsPath = std::filesystem::absolute(directory / Core::Launch::CredentialsFileName, ec).string();

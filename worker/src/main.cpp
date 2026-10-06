@@ -266,6 +266,11 @@ static int RunWorker(const CliOptions &options, const bool reportServiceStatus) 
                                          configuration.getOr<std::string>("euclid.logging.prefix", "euclid-wrk"));
     }
 
+    // Said now rather than when an application needs one: this node's interpreters are its own to
+    // configure, and being told the wrong path for one is otherwise reported as an application's
+    // exit 127, on whichever host it was placed, however long after the file was written.
+    Euclid::Worker::CheckRuntimes();
+
     // The credentials this worker signs with, from the same file euclid-cli writes. A worker is a
     // euclid client and is logged in the way any other is: there is no separate worker identity
     // mechanism, which is what keeps its role, its grants and its audit trail ordinary.

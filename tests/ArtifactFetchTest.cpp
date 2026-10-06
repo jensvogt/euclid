@@ -17,6 +17,7 @@ namespace http = boost::beast::http;
 
 using Euclid::Core::Artifact::Detail::FitsInOneCall;
 using Euclid::Core::Artifact::Detail::PartCount;
+using Euclid::Core::Artifact::Detail::SizeIsKnown;
 
 // The manager used to read an application's artifact straight off ESM's data directory. A worker
 // has no such directory and no database, so that could never be the path a worker takes - and two
@@ -48,6 +49,21 @@ BOOST_AUTO_TEST_CASE(ALargeObjectGoesInParts) {
 
     BOOST_TEST(!FitsInOneCall(8 * 1024 * 1024 + 1, 8 * 1024 * 1024));
     BOOST_TEST(!FitsInOneCall(300L * 1024 * 1024, 8 * 1024 * 1024));
+}
+
+BOOST_AUTO_TEST_CASE(AnUnknownSizeIsNotASmallOne) {
+
+    // Zero is what a master that does not send the size leaves behind, and zero is below every
+    // part size - so believing FitsInOneCall() alone sent an 84 MB artifact down the single-shot
+    // path and had ESM refuse it with 413, on every tick, for ever. Parts ask ESM for the size, so
+    // they work without the caller knowing it; one call only works when it is known to be small.
+    BOOST_TEST(!SizeIsKnown(0));
+    BOOST_TEST(!SizeIsKnown(-1));
+    BOOST_TEST(SizeIsKnown(1));
+
+    // The predicate it guards still reads an unknown size as small, which is exactly why it cannot
+    // be asked on its own.
+    BOOST_TEST(FitsInOneCall(0, 8 * 1024 * 1024));
 }
 
 // ── How many parts ──────────────────────────────────────────────────────────

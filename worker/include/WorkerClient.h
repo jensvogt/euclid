@@ -14,9 +14,36 @@
 // Euclid includes
 #include <WorkerReconciler.h>
 #include <euclid/cli/http/HttpClient.h>
+#include <euclid/core/ApplicationLaunch.h>
 #include <euclid/core/ArtifactFetcher.h>
 
 namespace Euclid::Worker {
+
+    /**
+     * @brief Where this node keeps each interpreter: euclid.worker.runtimes.&lt;key&gt;.
+     *
+     * @par
+     * A path per host, because an application names a version and not a location - the JDKs are
+     * under /usr/lib/jvm on one host and somewhere else on the next, and this is how a node says
+     * which. JAVA also still reads euclid.worker.java, the name every worker configured before the
+     * others existed uses; the newer key wins where both are set.
+     *
+     * @par
+     * One definition rather than a lambda at each use, so what a runtime means when an application
+     * is started is the same thing CheckRuntimes() reported on at startup.
+     */
+    [[nodiscard]] Core::Launch::Interpreter RuntimeLookup();
+
+    /**
+     * @brief Logs a warning for every runtime this node could not start, if any.
+     *
+     * @par
+     * Called once at startup. An interpreter this node was told nothing about, or the wrong path
+     * for, is otherwise found out only when an application is placed here and exits 127 - which is
+     * a message about the configuration arriving long after it was written, in the log of whatever
+     * application happened to need it.
+     */
+    void CheckRuntimes();
 
     /**
      * @brief What this worker was started with.
