@@ -4,6 +4,8 @@
       "endpoint": "https://euclid.example:5566",
       "ca-cert": "",
       "address": "",
+      "http-port-min": 9000,
+      "http-port-max": 9999,
       "runtimes": {
         "java": "java.exe",
         "java21": "C:\\Program Files\\Java\\jdk-21\\bin\\java.exe",
