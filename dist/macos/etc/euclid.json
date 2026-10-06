@@ -318,6 +318,7 @@
     },
     "scaling": {
       "scale-down-idle-seconds": 60,
+      "scale-up-saturated-ticks": 3,
       "load-freshness-seconds": 45
     },
     "monitoring": {

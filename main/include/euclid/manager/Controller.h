@@ -605,6 +605,19 @@ namespace Euclid::main {
             int desiredCount = 0;
 
             /**
+             * @brief Consecutive watchdog ticks this group has looked saturated for, reset the
+             * first tick it does not. What _scaleUpSaturatedTicks is counted against.
+             *
+             * @par
+             * Not reset when an instance is spawned: under load that is genuinely sustained every
+             * instance goes on being busy, the count goes on climbing, and the pool ramps a further
+             * instance per tick. It falls back to zero on its own as soon as a tick has an instance
+             * that nobody wanted - which is what a newly spawned one looks like, and what the tick
+             * after a single heartbeat looks like.
+             */
+            int saturatedTicks = 0;
+
+            /**
              * @brief Whether somebody stopped this module through "emm stop-module".
              *
              * @par
@@ -827,6 +840,22 @@ namespace Euclid::main {
          *        once from euclid.scaling.scale-down-idle-seconds when startWatchdog() is called.
          */
         long _scaleDownIdleSeconds = 60;
+
+        /**
+         * @brief How many consecutive watchdog ticks a group has to look saturated for before the
+         *        autoscaler spawns on that signal. Read once from
+         *        euclid.scaling.scale-up-saturated-ticks when startWatchdog() is called.
+         *
+         * @par
+         * One tick is not evidence. At the floor, `busy >= running` is satisfied by a *single*
+         * request - so any caller that polls a module on a cycle longer than one tick made it spawn
+         * an instance, and the tick after that the pool was over-provisioned and gave one back. A
+         * module whose workers renew a lease every ten seconds churned its process identity every
+         * ten seconds, forever, having never served a concurrent request. Requiring the signal to
+         * persist tells a burst apart from a heartbeat without having to know which callers are
+         * which. 1 restores the single-tick behaviour this replaced.
+         */
+        long _scaleUpSaturatedTicks = 3;
 
         /**
          * @brief True if this deployment uses the MongoDB backend (euclid.database.backend), read

@@ -2054,6 +2054,7 @@ namespace Euclid::main {
 
     void ServiceController::startWatchdog() {
         _scaleDownIdleSeconds = Core::Configuration::instance().getOr<long>("euclid.scaling.scale-down-idle-seconds", 60);
+        _scaleUpSaturatedTicks = std::max(1L, Core::Configuration::instance().getOr<long>("euclid.scaling.scale-up-saturated-ticks", 3));
         _usesMongoBackend = Core::Configuration::instance().getOr<std::string>("euclid.database.backend", "mongodb") != "memory";
 
         _watchdog = std::thread([this] {
@@ -2384,7 +2385,23 @@ namespace Euclid::main {
             // see declareExpectedConcurrency()'s doc comment for why busy-based detection alone
             // can't be trusted to catch this for high-instance-count/short-request workloads.
             const bool saturated = running > 0 && busy >= running;
-            if ((saturated || running < group.desiredCount) && running < group.config.maxInstances) {
+
+            // Held across ticks rather than decided on this one: see saturatedTicks. The count is
+            // what separates a pool that is actually out of capacity from one that was asked a
+            // single question - at running == 1 the test above cannot tell those apart, because one
+            // request makes every running instance busy.
+            if (saturated) {
+                ++group.saturatedTicks;
+            } else {
+                group.saturatedTicks = 0;
+            }
+
+            // desiredCount is not gated on the count: a client that has declared what it is about
+            // to need is not guessing from a sample, and making it wait three ticks for instances
+            // it has already said it wants is the latency declareExpectedConcurrency() exists to
+            // avoid.
+            const bool sustained = saturated && group.saturatedTicks >= _scaleUpSaturatedTicks;
+            if ((sustained || running < group.desiredCount) && running < group.config.maxInstances) {
                 auto svc = std::make_shared<Dto::ModuleProcess>();
                 svc->config = group.config;
                 group.instances.push_back(svc);
