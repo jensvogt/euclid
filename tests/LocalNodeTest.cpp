@@ -134,6 +134,25 @@ BOOST_AUTO_TEST_CASE(TheWorkersConfigurationIsTheManagersViewOfThisHost) {
     BOOST_TEST(worker.at("http-port-max").as_int64() == 10999);
 }
 
+BOOST_AUTO_TEST_CASE(TheNodesLogLevelIsItsOwnIfSetAndTheManagersIfNot) {
+
+    // Inherited, which is all there was: a node told nothing about its own level says what the
+    // manager says, so an installation that logs one way does not have a worker logging another.
+    freshInstallation(true);
+    Configuration::instance().set<std::string>("euclid.logging.level", "warning");
+
+    const auto inherited = LocalNode::WorkerConfiguration(kDirectory / "credentials").at("euclid").at("logging").as_object();
+    BOOST_TEST(inherited.at("level").as_string() == "warning");
+
+    // And its own when it is given one, because a manager kept at warning does not mean its worker
+    // has nothing worth saying: inherited, a healthy node wrote nothing at all to the file it had
+    // just been handed, and the only thing that ever appeared in it was a failure.
+    Configuration::instance().set<std::string>("euclid.modules.eap.local-node.log-level", "info");
+
+    const auto own = LocalNode::WorkerConfiguration(kDirectory / "credentials").at("euclid").at("logging").as_object();
+    BOOST_TEST(own.at("level").as_string() == "info");
+}
+
 BOOST_AUTO_TEST_CASE(NoSecretOfTheManagersReachesTheWorkersFile) {
 
     // A worker refuses to start with the signing secret in its configuration, and is right to.
