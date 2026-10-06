@@ -244,7 +244,9 @@ BOOST_AUTO_TEST_CASE(CredentialsAreWrittenWholeAndReadBack) {
 #ifndef _WIN32
     // The token is the application's identity: nobody but its owner reads it.
     const auto mode = std::filesystem::status(path).permissions();
-    BOOST_TEST((mode & (std::filesystem::perms::group_all | std::filesystem::perms::others_all)) == std::filesystem::perms::none);
+    // Parenthesised twice so Boost.Test asserts a bool: std::filesystem::perms has no operator<< for
+    // it to print the two sides with, which libstdc++ refuses to compile.
+    BOOST_TEST(((mode & (std::filesystem::perms::group_all | std::filesystem::perms::others_all)) == std::filesystem::perms::none));
 #endif
 }
 
