@@ -38,6 +38,7 @@
 #include <euclid/core/Configuration.h>
 #include <euclid/core/LogStream.h>
 #include <euclid/core/SystemUtils.h>
+#include <euclid/core/Version.h>
 #if defined(_WIN32)
 #include <WorkerService.h>
 #endif
@@ -469,6 +470,7 @@ int main(const int argc, char **argv) {
     po::options_description options("euclid-wrk options");
     options.add_options()
             ("help,h", "show this help")
+            ("version,v", "show the version and exit")
             ("endpoint,e", po::value<std::string>(), "gateway to reach euclid through, e.g. https://euclid.example:5566")
             ("node,n", po::value<std::string>(), "what this node calls itself; defaults to the host name")
             ("label,l", po::value<std::vector<std::string> >()->composing(), "a placement label, key=value; repeatable")
@@ -499,6 +501,14 @@ int main(const int argc, char **argv) {
 
     if (vm.contains("help")) {
         std::cout << options << std::endl;
+        return 0;
+    }
+
+    // The same string this reports to the master on register-node, so "eap list-nodes" saying a
+    // node is on one version can be checked against the binary on that host - which is the question
+    // worth asking when workers on different machines are upgraded at different times.
+    if (vm.contains("version")) {
+        std::cout << "euclid-wrk version " << APP_VERSION << std::endl;
         return 0;
     }
 
