@@ -241,20 +241,65 @@ namespace Euclid::EAP {
         // or an external one - discovers its backends from exactly this.
         // By the name the application runs under, not the one it is defined under: the module rows
         // are the manager's, and it registers each pool under Entity::EAP::RuntimeName().
-        boost::json::array applicationEndpoints(const std::string &runtimeName) {
-            boost::json::array instances;
+        // The pool behind one application, read in a single pass: the endpoints its running
+        // instances serve, and what the pool as a whole is doing.
+        struct ApplicationPool {
+            boost::json::array endpoints;
+            std::string state;
+        };
+
+        // `state` is deliberately not "does it have an endpoint". That question has two answers and
+        // folds the six module states that are not RUNNING into "STOPPED" - so an application
+        // crashing on startup reads exactly like one somebody stopped on purpose, in the listing
+        // where it is looked for. The states are EMM's own (Entity::ModuleState), so an instance row
+        // on the details page and the application's state above it finally say the same word.
+        //
+        // Ranked rather than counted: a pool with one instance serving and one dead is RUNNING,
+        // because what a caller asks this for is whether the application answers. CRASHED comes
+        // next, being the state that does not resolve itself, and the ones on their way up or down
+        // after it, because they do.
+        ApplicationPool applicationPool(const std::string &runtimeName) {
+
+            using State = Database::Entity::ModuleState;
+
+            ApplicationPool pool;
+            bool crashed = false;
+            bool starting = false;
+            bool stopping = false;
+
             for (const auto &module: Database::RepositoryFactory::instance().emmRepository()->findAll()) {
                 if (module.name != runtimeName) continue;
                 for (const auto &instance: module.instances) {
-                    if (instance.state != Database::Entity::ModuleState::RUNNING) continue;
-                    instances.push_back(boost::json::object{
-                            {"instanceId", instance.instanceId},
-                            {"pid", instance.pid},
-                            {"host", instance.host},
-                            {"httpPort", instance.httpPort}});
+                    if (instance.state == State::RUNNING) {
+                        pool.endpoints.push_back(boost::json::object{
+                                {"instanceId", instance.instanceId},
+                                {"pid", instance.pid},
+                                {"host", instance.host},
+                                {"httpPort", instance.httpPort}});
+                    } else if (instance.state == State::CRASHED) {
+                        crashed = true;
+                    } else if (instance.state == State::STARTING || instance.state == State::RESTARTING
+                               || instance.state == State::PENDING_RESTART) {
+                        starting = true;
+                    } else if (instance.state == State::STOPPING) {
+                        stopping = true;
+                    }
+                    // STOPPED and UNKNOWN are a slot the manager is holding and nothing more. An
+                    // application whose every slot is one of those is stopped, which is what the
+                    // fallback below says.
                 }
             }
-            return instances;
+
+            pool.state = !pool.endpoints.empty() ? "RUNNING"
+                         : crashed               ? "CRASHED"
+                         : starting              ? "STARTING"
+                         : stopping              ? "STOPPING"
+                                                 : "STOPPED";
+            return pool;
+        }
+
+        boost::json::array applicationEndpoints(const std::string &runtimeName) {
+            return applicationPool(runtimeName).endpoints;
         }
 
         // The identity an application runs as, when the caller did not name one of their own.
@@ -789,8 +834,8 @@ namespace Euclid::EAP {
             boost::json::object nodeLabels;
             for (const auto &[key, value]: application.nodeLabels) nodeLabels[key] = value;
 
-            const auto endpoints = applicationEndpoints(Database::Entity::EAP::RuntimeName(application));
-            const auto count = static_cast<long>(endpoints.size());
+            const auto pool = applicationPool(Database::Entity::EAP::RuntimeName(application));
+            const auto count = static_cast<long>(pool.endpoints.size());
 
             return boost::json::object{
                     {"applicationId", application.applicationId},
@@ -838,11 +883,16 @@ namespace Euclid::EAP {
                     {"maxInstances", application.maxInstances},
                     {"readyTimeoutMs", application.readyTimeoutMs},
                     {"desiredState", ApplicationStateToString(application.desiredState)},
-                    {"state", count > 0 ? "RUNNING" : "STOPPED"},
-                    // Kept as the count it has always been; the instances themselves, with the
-                    // ports they were given, are alongside it rather than in its place.
+                    // What the pool is doing, not merely whether anything answers - see
+                    // applicationPool(). RUNNING and STOPPED still mean what they always did; the
+                    // difference is that a crash no longer arrives as "STOPPED", which read as
+                    // somebody having stopped it on purpose.
+                    {"state", pool.state},
+                    // Kept as the count it has always been - running instances, not slots held; the
+                    // instances themselves, with the ports they were given, are alongside it rather
+                    // than in its place.
                     {"instances", count},
-                    {"endpoints", endpoints},
+                    {"endpoints", pool.endpoints},
                     {"created", Core::DateTimeUtils::ToISO8601(application.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(application.modified)}};
         }
