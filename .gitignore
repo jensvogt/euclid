@@ -1,5 +1,10 @@
 # Prerequisites
 *.d
+# ...but not systemd drop-in directories, which end in .d too. Without this the local node's
+# dist/linux/systemd/system/euclid-wrk.service.d/local-node.conf was silently never committed, and
+# the release's packaging step failed on a file that existed only on the machine that wrote it.
+# Negated as a directory: git cannot re-include a file whose parent directory is excluded.
+!*.service.d/
 
 # Compiled Object files
 *.slo
