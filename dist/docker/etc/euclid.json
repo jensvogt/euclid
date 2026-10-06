@@ -338,6 +338,8 @@
       "port": 27017,
       "user": "root",
       "password": "password",
+      "replica-set": "",
+      "server-selection-timeout-ms": 0,
       "pool-size": 256
     },
     "logging": {
