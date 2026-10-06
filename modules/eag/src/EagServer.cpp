@@ -50,11 +50,6 @@ namespace Euclid::EAG {
             return value && value->is_string() ? std::string(value->as_string()) : fallback;
         }
 
-        long longField(const boost::json::object &obj, const std::string &key, const long fallback = 0) {
-            const auto *value = obj.if_contains(key);
-            return value && value->is_int64() ? static_cast<long>(value->as_int64()) : fallback;
-        }
-
         // The same, for the fields that are sizes in bytes. Separate because "long" is 32 bits on
         // Windows, and an upload route exists to carry deliveries measured in gigabytes - read
         // through the one above, a 12GB limit arrived as whatever its low 32 bits said.
@@ -271,7 +266,7 @@ namespace Euclid::EAG {
         // A path that does not start with "/" would never match anything, since what is compared
         // against it is a request target - refused here rather than becoming a route that is
         // configured, listed, and silently dead.
-        if (path.empty() || !path.starts_with("/")) {
+        if (path.empty() || !path.starts_with('/')) {
             return EagServer::ErrorResponse(req, status::bad_request, "path is required and must start with '/'");
         }
 
@@ -410,7 +405,7 @@ namespace Euclid::EAG {
         }
         if (obj.contains("path")) {
             const auto path = stringField(obj, "path");
-            if (path.empty() || !path.starts_with("/")) {
+            if (path.empty() || !path.starts_with('/')) {
                 return EagServer::ErrorResponse(req, status::bad_request, "path must start with '/'");
             }
             route->path = path;
