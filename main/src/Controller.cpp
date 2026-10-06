@@ -240,6 +240,35 @@ namespace Euclid::main {
         Database::RepositoryFactory::instance().emmRepository()->upsertInstance(Dto::EmmMapper::toModuleEntity(*svc), Dto::EmmMapper::toInstanceEntity(*svc));
     }
 
+    // What a process exited with, in words, for the crash line below. The two codes the child
+    // itself chooses are the ones worth naming: the forked child calls execvp() and _exit(127) if
+    // it returns, and _exit(126) if it could not enter the working directory first - so both are
+    // failures that happen before the process can write a syllable of its own to stderr.
+    //
+    // Which is exactly how a wrong runtime path presents: three lines saying an application
+    // crashed and failed to start, and nothing anywhere naming the executable that does not exist.
+    static std::string describeExit(const int status, const std::string &executable, const std::string &workingDir) {
+
+        if (status < 0) return {};
+
+#ifndef _WIN32
+        if (WIFSIGNALED(status)) return ", killed by signal " + std::to_string(WTERMSIG(status));
+        if (!WIFEXITED(status)) return {};
+        const int code = WEXITSTATUS(status);
+#else
+        const int code = status;
+#endif
+
+        if (code == 127) {
+            return ", exit code 127 - the executable could not be run, which is usually that it is"
+                   " not there: " + executable;
+        }
+        if (code == 126) {
+            return ", exit code 126 - the working directory could not be entered: " + workingDir;
+        }
+        return ", exit code " + std::to_string(code);
+    }
+
     // Whether this module is the one holding the store the manager reads from - which is what
     // euclid.database.backend names when it does not name a database. False on MongoDB and on the
     // in-process store, neither of which is a module this manager starts.
@@ -733,125 +762,6 @@ namespace Euclid::main {
             log_info << "Removed application directory, path: " << directory.string() << ", entries: " << removed;
         }
 
-        // How the manager reaches ESM to fetch an artifact: straight down its Unix socket, with a
-        // token for euclid's own inter-module principal.
-        //
-        // The protocol is Core::Artifact's and is shared with the worker; this is the transport,
-        // which is not. A worker has neither a module socket nor a database to find one in, and
-        // goes through the gateway as a signed client instead.
-        //
-        // `system` bypasses authorization, and the manager minting a token for it widens nothing:
-        // it already holds the signing secret and mints every application's credentials with the
-        // same call. That is also exactly why a worker must never hold that secret, and is issued
-        // its credentials instead - worker-nodes.md §3.2.
-        Core::Artifact::Call esmTransport() {
-
-            return [](const std::string &action,
-                      const std::vector<std::pair<std::string, std::string> > &headers,
-                      const std::string &body) -> Core::ModuleClient::ModuleResponse {
-                // Resolved per call rather than held: an instance can go away between two fetches,
-                // and any running one will serve a download - the object is a file in the shared
-                // data directory, not something one instance holds.
-                std::string socketPath;
-                for (const auto &module: Database::RepositoryFactory::instance().emmRepository()->findAll()) {
-                    if (module.name != "esm") continue;
-                    for (const auto &instance: module.instances) {
-                        if (instance.state == Database::Entity::ModuleState::RUNNING && !instance.socketPath.empty()) {
-                            socketPath = instance.socketPath;
-                            break;
-                        }
-                    }
-                }
-                if (socketPath.empty()) {
-                    // The one failure this path has that reading the file off disk did not. Said
-                    // plainly, because "could not download the artifact" with no running ESM
-                    // behind it would send somebody looking at the bucket.
-                    log_error << "No running instance of ESM to fetch an application artifact from";
-                    return {};
-                }
-
-                constexpr std::chrono::seconds kShortLived{300};
-                const auto token = Core::JwtUtils::CreateToken(Database::kSystemPrincipal,
-                                                               Core::HttpActionServer::JwtSecret(), kShortLived);
-
-                return Core::ModuleClient::CallAt(socketPath, "esm", action, token, headers, body);
-            };
-        }
-
-        // Puts the artifact next to where the application will run, downloading it from ESM when
-        // what is already there is not the object.
-        //
-        // Fetched through the module rather than read off its data directory, which is what this
-        // did until worker-nodes.md §10 step 3. The filesystem was cheaper and worked because the
-        // two are on one host - but a worker is not on that host, has no such directory and no
-        // database, so the filesystem cannot be the path a worker takes. Two paths would mean the
-        // one that matters is the one nobody exercises; this is the one, and the manager runs it
-        // on the host where it is easy to debug.
-        //
-        // What it costs: an application whose artifact changed cannot start while ESM is down.
-        // Narrow, because the freshness check below means a download happens on a first deploy or
-        // a new build and not on a restart - and the manager starts ESM before it reconciles
-        // applications at all.
-        //
-        // What it saves: ESM decrypts on the way out, so an artifact in an encrypted bucket no
-        // longer needs the manager to find the key, reach EKM and transcode the file itself. The
-        // md5Sum compared below is over the plaintext either way, which is what let that branch go
-        // without changing what the check means.
-        //
-        // The object row is still the source of truth for size and content hash.
-        std::optional<std::filesystem::path> materializeArtifact(const Database::Entity::EAP::Application &application) {
-
-            const auto object = Database::RepositoryFactory::instance().esmRepository()->findObjectByBucketAndKey(application.bucketErn, application.artifactKey);
-            if (!object.has_value()) {
-                log_error << "Application artifact not found, applicationId: " << application.applicationId << ", key: " << application.artifactKey;
-                return std::nullopt;
-            }
-
-            std::error_code ec;
-            const auto directory = applicationDir(Database::Entity::EAP::RuntimeName(application));
-            std::filesystem::create_directories(directory, ec);
-            if (ec) {
-                log_error << "Could not create application directory, path: " << directory.string() << ", error: " << ec.message();
-                return std::nullopt;
-            }
-
-            const auto target = directory / std::filesystem::path(application.artifactKey).filename();
-
-            // Re-copied whenever the local copy is not the object byte for byte, which is the case
-            // that matters here: a new build uploaded to the same key. The rule is Core::Launch's,
-            // and a worker applies the same one to the same md5 and size.
-            //
-            // ESM computes md5Sum over the assembled object for both the single-shot and the
-            // multipart path, so it is a plain content hash rather than an S3-style etag; size is
-            // the fallback for an object stored before it was recorded.
-            if (!Core::Launch::ArtifactIsCurrent(target, object->md5Sum, object->size)) {
-                // Whatever the bucket's encryption says: ESM hands back plaintext either way, so
-                // there is one branch here where there used to be two and the manager needs no
-                // key material of its own.
-                const Core::Artifact::Request fetch{.bucketErn = application.bucketErn,
-                                                    .key = application.artifactKey,
-                                                    .size = object->size,
-                                                    .accountId = application.accountId,
-                                                    .nameSpace = application.nameSpace,
-                                                    .region = application.region};
-
-                if (!Core::Artifact::Download(fetch, target, esmTransport())) {
-                    log_error << "Could not materialize application artifact, applicationId: " << application.applicationId
-                            << ", key: " << application.artifactKey;
-                    return std::nullopt;
-                }
-                log_info << "Application artifact materialized, applicationId: " << application.applicationId << ", path: " << target.string()
-                        << ", size: " << object->size;
-            }
-
-            Core::Launch::PrepareArtifact(target, Database::Entity::EAP::RuntimeToString(application.runtime), application.command);
-            return target;
-        }
-
-        std::filesystem::path credentialsPath(const std::string &runtimeName) {
-            return applicationDir(runtimeName) / Core::Launch::CredentialsFileName;
-        }
-
         // Writes the application's current credentials: a bearer token for the identity it runs
         // as, and when it stops being valid.
         //
@@ -870,124 +780,6 @@ namespace Euclid::main {
          * when it comes back, because "it is working now" is the other half of the story and is
          * exactly what somebody who has just changed the definition is waiting to see.
          */
-        void noteApplicationPrincipal(const std::string &runtimeName, const std::string &applicationId,
-                                      const std::string &userId, const bool resolves) {
-
-            static std::mutex mutex;
-            static std::set<std::string> reported;
-
-            std::lock_guard lock(mutex);
-
-            if (resolves) {
-                if (reported.erase(runtimeName) > 0) {
-                    log_info << "Application identity resolves again, applicationId: " << applicationId << ", user: " << userId;
-                }
-                return;
-            }
-
-            if (!reported.insert(runtimeName).second) return;
-
-            log_error << "Application identity does not exist, applicationId: " << applicationId << ", user: " << userId
-                      << " - it will run with no working credentials and be refused everything it calls. "
-                         "Point it at a principal that exists: 'eap update-application --application-id "
-                      << applicationId << " --user <userId>', or 'eam list-users' to see which there are";
-        }
-
-        bool writeApplicationCredentials(const Database::Entity::EAP::Application &application) {
-
-            // The identity first, because a token is only worth writing if there is somebody for it
-            // to be about. A JWT names its subject and is verified against the signing secret, so
-            // one minted for a user that does not exist is perfectly well-formed and authenticates
-            // as nobody: every call the application makes is refused, and the refusal it reports is
-            // about whatever it was trying to do - "failed to read the secret X" - rather than
-            // about the identity it was doing it as.
-            //
-            // Observed exactly so: two applications named principals one letter off the ones that
-            // existed ("app-supplier" against "app-suppliers"), were handed credentials anyway, and
-            // the only sign was one warning line in the manager's log.
-            if (!Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(application.userId).has_value()) {
-                log_error << "Application credentials not written, applicationId: " << application.applicationId
-                          << ", user: " << application.userId
-                          << " - no such user. Point the application at one that exists with "
-                             "'eap update-application --application-id " << application.applicationId << " --user <userId>'";
-
-                // The file already there is left alone rather than removed. It holds the only copy
-                // of a token an instance may still be inside the hour of, and if the principal is
-                // created again under the name the definition asks for, that token starts working
-                // again - so taking it away helps nobody and can take working credentials with it.
-                return false;
-            }
-
-            // The same blob EAP issues to a worker for an application placed on a node, so the
-            // file an application reads is the same whichever host it runs on.
-            const auto credentials = Core::Launch::IssueCredentials({.userId = application.userId,
-                                                                     .accountId = application.accountId,
-                                                                     .region = application.region,
-                                                                     .nameSpace = Database::Entity::EAP::ApplicationNamespace(application)});
-
-            return Core::Launch::WriteCredentials(credentialsPath(Database::Entity::EAP::RuntimeName(application)), credentials);
-        }
-
-        // Whether the credentials on disk are missing, unreadable, or close enough to expiry to be
-        // worth replacing. Half the lifetime is the threshold, so an application always has at
-        // least that long left in hand however unluckily a reconcile tick lands.
-        bool credentialsNeedRefresh(const std::string &runtimeName) {
-            const auto expiresAt = Core::Launch::ReadCredentialsExpiry(credentialsPath(runtimeName));
-            return !expiresAt.has_value() || *expiresAt - std::chrono::system_clock::now() < Core::Launch::CredentialsTtl() / 2;
-        }
-
-        // Everything the process needs to know about itself, and the credentials it needs to be
-        // anyone. The application's own environment goes on first, so it cannot shadow these.
-        std::map<std::string, std::string> applicationEnvironment(const Database::Entity::EAP::Application &application) {
-
-            // The definition's half, the same one EAP sends a worker - except that the manager
-            // also passes on an operator-named user's access key, as it always has.
-            auto environment = Database::Entity::EAP::ApplicationEnvironment(application, true);
-
-            if (!Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(application.userId).has_value()) {
-                // Not fatal: an application that only serves requests never has to prove who it
-                // is. One that calls back into euclid will get 401s, and this line is what
-                // explains them.
-                log_warning << "Application user not found, applicationId: " << application.applicationId << ", user: " << application.userId;
-            }
-
-            const auto &configuration = Core::Configuration::instance();
-
-            // Which certificate to trust when that endpoint is https, which by default it is - and
-            // served with a self-signed certificate, which no system trust store has heard of.
-            //
-            // Told rather than left to be found. An application handed an https endpoint and no
-            // trust anchor has to guess where the certificate lives, and the guess is a path that
-            // differs on every platform and every installation prefix: the CLI's own default is
-            // "C:\Program Files\euclid\etc" on Windows and "/usr/local/euclid/etc" elsewhere. The
-            // Java SDK guessed "/etc/euclid/euclid_cert.crt", which is neither, so a Spring
-            // application on Windows failed to start with "failed to load CA certificate" before it
-            // ran a line of its own code.
-            //
-            // The same file the gateway serves, because that is what trusting a self-signed
-            // certificate means - it is its own authority. Exported only when it is there: a
-            // variable naming a file that does not exist is how this failed in the first place, and
-            // an SDK that finds nothing can still fall back to the system trust store.
-            std::string caCertPath;
-            if (configuration.getOr<bool>("euclid.gateway.tls.enabled", true)) {
-                if (const auto certificate = configuration.getOr<std::string>("euclid.gateway.tls.cert-file", ""); !certificate.empty() && std::filesystem::exists(certificate)) {
-                    caCertPath = certificate;
-                } else {
-                    // Not fatal, and worth a line: the gateway is serving TLS with a certificate
-                    // this cannot find, so every application that calls back in is about to have a
-                    // verification problem nothing else explains.
-                    log_warning << "No CA certificate to hand applications, euclid.gateway.tls.cert-file: '"
-                                << certificate << "' - applications calling back in over https will have to trust it themselves";
-                }
-            }
-
-            // The host's half: the gateway as this host reaches it, that certificate, and where the
-            // short-lived credentials are.
-            Core::Launch::AddHostEnvironment(environment, Core::Launch::GatewayEndpoint(), caCertPath,
-                                             credentialsPath(Database::Entity::EAP::RuntimeName(application)).string());
-            return environment;
-        }
-
         // Applies the level an application asks for its own output to be logged at - see
         // Application::logLevel. Done here, on every reconcile, rather than when the application
         // is started: the whole point of keeping the level in the row is that it can be changed
@@ -1015,10 +807,6 @@ namespace Euclid::main {
 
     }// namespace
 
-    // Defined with the rest of the node-placement code further down, declared here because the
-    // application reconcile is the first thing that asks.
-    static bool isNodeApplication(const Database::Entity::EAP::Application &application);
-
     void ServiceController::reconcileApplications() {
 
         // Every application in the installation: this host runs them all, whatever account or
@@ -1026,10 +814,12 @@ namespace Euclid::main {
         // other namespace's running pool as undefined and tear it down.
         const auto applications = Database::RepositoryFactory::instance().eapRepository()->listAllApplications("");
 
-        const auto &configuration = Core::Configuration::instance();
-        const auto socketDir = configuration.getOr<std::string>("euclid.modules.eap.socket-dir", "/var/run/euclid");
-
         std::set<std::string> defined;
+
+        // Nodes per account, filled as accounts are met, and how many applications had nowhere to
+        // go - see the two uses below.
+        std::map<std::string, std::vector<Database::Entity::EAP::Node> > nodesByAccount;
+        long waitingForANode = 0;
 
         // Read once for the whole pass rather than per application: it is a copy of the level
         // table, and nothing in this loop changes it except applyApplicationLogLevel() itself.
@@ -1047,194 +837,50 @@ namespace Euclid::main {
 
             applyApplicationLogLevel(application, channelLevels);
 
-            // An application that names a node or a label is placed rather than run here. Decided
-            // before anything else in this loop, because everything after it is about running a
-            // process on this host: an artifact on this disk, a credentials file in this directory,
-            // a pool in this process's memory. None of that is this host's to do for a slot that
-            // belongs to another machine.
-            if (isNodeApplication(application)) {
+            // Every application is a worker's to run. The manager places it and grants the lease;
+            // nothing here starts a process. Where this used to choose between running the
+            // application itself and placing it on a node - isNodeApplication() - there is one
+            // path: `nodes` and `nodeLabels` are constraints on which node may take an application,
+            // not a switch between two implementations of starting one. docs/worker-nodes.md §13.4.
+            //
+            // So a host with a worker on it runs applications the way any other worker does, and a
+            // host without one is a manager that runs none. That is also the security property the
+            // worker was designed for and this path never had: the manager drops no privileges when
+            // it spawns, so an application it ran could read euclid.json - the signing secret and
+            // the database password - which §3.2 exists to prevent.
 
-                // A pool that was running locally when the constraint was added. Taken down here
-                // rather than left: it is running on the wrong host by the definition's own account,
-                // and leaving it would mean the application running both here and wherever it gets
-                // placed - which is the one outcome every part of this design exists to prevent.
-                //
-                // Asked once under the lock and acted on after it, because stop() and
-                // deregisterModule() take the lock themselves - and because _services is written by
-                // other threads, so reading it unguarded is a race whatever is done with the
-                // answer.
-                bool runningLocally;
-                {
-                    std::lock_guard lock(_mutex);
-                    runningLocally = _services.contains(runtimeName);
-                }
+            // Nothing is handed over from a local pool here, and nothing needs to be: the only
+            // code that ever registered one is the code this replaced, and an upgrade into §13.4
+            // is a restart - the applications the previous manager ran were its children and went
+            // with it. An instance record it left behind is dealt with by killLeftoverInstances()
+            // at startup, which skips the ones a worker owns.
 
-                if (runningLocally) {
-                    log_info << "Application is now placed on nodes, stopping the local pool, applicationId: " << runtimeName;
-                    stop(runtimeName);
-                    deregisterModule(runtimeName);
-                }
+            // The nodes of this application's account, read once per account per pass rather than
+            // once per slot: an account with three nodes and twenty applications would otherwise
+            // read the node list sixty times - the same reason reconcileNodeLeases() counts
+            // instances once. Also what lets the line below be said once for the installation
+            // instead of once per application.
+            auto nodes = nodesByAccount.find(application.accountId);
+            if (nodes == nodesByAccount.end()) {
+                nodes = nodesByAccount.emplace(application.accountId,
+                                               Database::RepositoryFactory::instance().eapRepository()->listNodes(application.accountId))
+                                .first;
+            }
 
-                reconcileNodeApplication(application, runtimeName);
+            if (nodes->second.empty() && application.desiredState == Database::Entity::EAP::ApplicationState::RUNNING) {
+                ++waitingForANode;
                 continue;
             }
 
-            // The other direction: a node application whose constraints were cleared, so it is the
-            // manager's to run again. Its slots on nodes are removed rather than withdrawn - the
-            // pool about to start here has no use for records that point at another host's pids -
-            // and a slot that is gone drops out of its node's next renewal, which is what makes
-            // the worker stop it. Without this the application would run both here and there.
-            if (const auto pool = Database::RepositoryFactory::instance().emmRepository()->findByName(runtimeName); pool.has_value()) {
-                for (const auto &instance: pool->instances) {
-                    if (instance.assignedTo.empty()) continue;
-                    log_info << "Application is no longer placed on nodes, removing a node slot, applicationId: " << runtimeName
-                             << ", instance: " << instance.instanceId << ", node: " << instance.assignedTo;
-                    Database::RepositoryFactory::instance().emmRepository()->removeInstance(runtimeName, instance.instanceId);
-                }
-            }
+            reconcileNodeApplication(application, runtimeName, nodes->second);
+        }
 
-            const bool wantRunning = application.desiredState == Database::Entity::EAP::ApplicationState::RUNNING;
-            const auto revision = Core::DateTimeUtils::ToISO8601(application.modified);
-
-            bool registered;
-            std::string runningRevision;
-            {
-                std::lock_guard lock(_mutex);
-                if (const auto it = _services.find(runtimeName); it != _services.end()) {
-                    registered = true;
-                    if (const auto env = it->second.config.environment.find("EUCLID_APPLICATION_REVISION");
-                        env != it->second.config.environment.end()) {
-                        runningRevision = env->second;
-                    }
-                } else {
-                    registered = false;
-                }
-            }
-
-            // A definition that changed while its pool was running has to be picked up, and the
-            // only way to pick it up is to start the processes again: an artifact, a command, an
-            // environment and the credentials it was handed are all decided at spawn time.
-            //
-            // This is not a rare edge: deleting an application and creating it again between two
-            // reconciles looks exactly like one that never changed, and the pool would keep
-            // running with the previous definition's credentials - which by then have been
-            // deleted along with the principal that owned them.
-            if (wantRunning && registered && runningRevision != revision) {
-                log_info << "Application definition changed, restarting, applicationId: " << runtimeName
-                        << ", revision: " << runningRevision << " -> " << revision;
-                stop(runtimeName);
-                deregisterModule(runtimeName);
-                registered = false;
-            }
-
-            // The identity the application runs as, checked on every pass rather than only when the
-            // application was created. A principal can be deleted, or renamed, or never have
-            // existed under the name the definition carries - and until now nothing noticed: the
-            // application was started, handed a token naming nobody, and refused everything it
-            // asked for. What reaches an operator then is whatever the application says about the
-            // first call it made, which is a sentence about a secret or a queue and not about who
-            // it is.
-            const bool principalResolves =
-                    !wantRunning || Database::RepositoryFactory::instance().eamRepository()->findUserByUserId(application.userId).has_value();
-            noteApplicationPrincipal(runtimeName, application.applicationId, application.userId, principalResolves);
-
-            // Rewritten while the application runs, not only when it starts: that is the whole
-            // point of putting them in a file. An instance started an hour ago is holding a token
-            // that is about to expire, and the only thing that can replace it is this.
-            //
-            // Not attempted at all for a principal that does not resolve: the file would be a token
-            // that authenticates as nobody, and credentialsNeedRefresh() would ask for it again on
-            // every tick for as long as the mismatch lasts.
-            if (wantRunning && principalResolves && credentialsNeedRefresh(runtimeName)) {
-                if (writeApplicationCredentials(application)) {
-                    log_debug << "Application credentials refreshed, applicationId: " << runtimeName;
-                }
-            }
-
-            // An application is a client of the whole installation: it does not declare which
-            // modules it calls, and the first thing many of them do is call one - a
-            // @BucketListener subscribing to EES, say. Starting one while the modules are still
-            // coming up means its first call meets a gateway that answers 503, or a module whose
-            // socket exists but which is still opening its database connection - and a client
-            // that treats that as "the server does not do this" degrades itself for the rest of
-            // its life rather than retrying.
-            //
-            // So applications wait for the installation, and only then start. The wait is bounded
-            // by the reconcile tick that runs this: a module that never comes up is reported by
-            // its own supervision, and this simply keeps saying what it is waiting for.
-            if (wantRunning && !registered && !modulesRunning()) {
-                log_info << "Application waiting for the modules to come up, applicationId: " << runtimeName;
-                continue;
-            }
-
-            if (wantRunning && !registered) {
-
-                const auto artifact = materializeArtifact(application);
-                if (!artifact.has_value()) continue;
-
-                // The runtime decides what actually gets exec'd: an interpreter with the artifact
-                // as its argument, or the artifact itself, and an application that spells out its
-                // own command overrides all of it. The rule is Core::Launch's, the one a worker
-                // starts a placed instance with.
-                //
-                // Where this host keeps each interpreter is read here rather than decided in EAP,
-                // because the application records which version it needs and the host it lands on
-                // records where that version lives - a JDK 25 application is the same definition on
-                // every host and a different path on each of them.
-                Dto::ModuleConfig config;
-                config.name = runtimeName;
-
-                const auto line = Core::Launch::CommandLine(
-                        RuntimeToString(application.runtime), application.command, artifact->string(), application.arguments,
-                        [&application](const std::string &, const std::string &fallback) {
-                            return Core::Configuration::instance().getOr<std::string>(
-                                    Database::Entity::EAP::RuntimeExecutableSetting(application.runtime), fallback);
-                        });
-                config.executable = line.front();
-                config.args.assign(line.begin() + 1, line.end());
-
-                config.environment = applicationEnvironment(application);
-                config.workingDir = applicationDir(runtimeName).string();
-                config.socketPath = socketDir + "/euclid-application-" + runtimeName + ".sock";
-                config.readyTimeoutMs = static_cast<int>(application.readyTimeoutMs);
-                config.maxRestarts = -1;
-                config.autoRestart = true;
-                // An application is supervised, not routed to: nothing asks it for anything over
-                // a socket, so requiring it to create one only kills programs whose authors never
-                // heard of the convention - see ModuleConfig::ReadinessCheck.
-                config.readiness = Dto::ModuleConfig::ReadinessCheck::Liveness;
-                config.application = true;
-                config.nameSpace = application.nameSpace;
-                config.accountId = application.accountId;
-                config.minInstances = static_cast<int>(application.minInstances);
-                config.maxInstances = static_cast<int>(application.maxInstances);
-
-                log_info << "Application starting, applicationId: " << runtimeName
-                        << ", runtime: " << RuntimeToString(application.runtime) << ", command: " << config.executable
-                        << ", instances: " << config.minInstances << "-" << config.maxInstances;
-                registerModule(config);
-                {
-                    // Remembered past the pool's own life, so that deleting an application that
-                    // was stopped first still takes its directory with it - see _applicationPools.
-                    std::lock_guard lock(_mutex);
-                    _applicationPools.insert(runtimeName);
-                }
-
-                // The answer is acted on rather than dropped. A pool whose instances could not be
-                // spawned stays registered, which is right - the watchdog retries it - but nothing
-                // else would say the attempt failed, and "registered, no instances, no log line" is
-                // not a state anybody can diagnose. On Windows it was exactly that: the spawn
-                // returned false in silence and this threw the answer away.
-                if (!start(runtimeName)) {
-                    log_error << "Application did not start, applicationId: " << runtimeName
-                              << ", command: " << config.executable;
-                }
-
-            } else if (!wantRunning && registered) {
-                log_info << "Application stopping, applicationId: " << runtimeName;
-                stop(runtimeName);
-                deregisterModule(runtimeName);
-            }
+        // Once for the installation, not once per application: an installation with no worker is
+        // not twenty misconfigured applications, it is a manager without a worker - which is a
+        // legitimate way to run one, and says so in one line rather than filling every tick.
+        if (waitingForANode > 0) {
+            log_warning << "No worker node is registered, so no application can run: " << waitingForANode
+                        << " application(s) are waiting to be placed. Install euclid-wrk on this host, or register a node.";
         }
 
         // Whatever this controller still runs as an application but EAP no longer defines was
@@ -1454,21 +1100,6 @@ namespace Euclid::main {
         rollQueuedInstance();
     }
 
-    // Whether an application is a node application: one the master places rather than runs itself.
-    //
-    // Opt-in, by naming a node or a label, and that is deliberate. Making every application
-    // dual-mode would mean every existing pool changing the path it takes through this file on the
-    // strength of whether a worker happens to be registered - and an installation with no workers,
-    // which is every installation today, would be taking a new path to the same place. An
-    // application that names no constraint is run exactly as it was before any of this existed.
-    //
-    // The cost is that placing an application takes an edit to its definition. For a first version
-    // that is the right trade: it makes adopting workers a decision per application rather than a
-    // property of the installation, which is also how an operator would want to try one.
-    static bool isNodeApplication(const Database::Entity::EAP::Application &application) {
-        return !application.nodes.empty() || !application.nodeLabels.empty();
-    }
-
     // The labels placement matches a node against: the operator's, plus the operating system and
     // architecture the worker reported, under "os" and "arch". The reported values win over labels
     // of the same name, because a label is configuration and can say anything, while the worker's
@@ -1488,10 +1119,10 @@ namespace Euclid::main {
     // credentials file, no process. That is the whole point - those are the worker's, on its own
     // disk, and the manager doing any of them would be doing work for a host it does not own.
     void ServiceController::reconcileNodeApplication(const Database::Entity::EAP::Application &application,
-                                                     const std::string &runtimeName) {
+                                                     const std::string &runtimeName,
+                                                     const std::vector<Database::Entity::EAP::Node> &nodes) {
 
         const auto emm = Database::RepositoryFactory::instance().emmRepository();
-        const auto eap = Database::RepositoryFactory::instance().eapRepository();
 
         const auto leaseSeconds = std::chrono::seconds{
                 std::max(1L, Core::Configuration::instance().getOr<long>("euclid.modules.eap.node-lease-seconds", 45))};
@@ -1538,7 +1169,7 @@ namespace Euclid::main {
         for (auto slot = have; slot < wanted; ++slot) {
 
             std::vector<Manager::Placement::Candidate> candidates;
-            for (const auto &node: eap->listNodes(application.accountId)) {
+            for (const auto &node: nodes) {
                 candidates.push_back(Manager::Placement::Candidate{.name = node.name,
                                                                    .labels = placementLabels(node),
                                                                    .cpuCount = node.cpuCount,
@@ -2559,7 +2190,7 @@ namespace Euclid::main {
         });
     }
 
-    void ServiceController::handleExitedInstance(const std::shared_ptr<Dto::ModuleProcess> &svc) {
+    void ServiceController::handleExitedInstance(const std::shared_ptr<Dto::ModuleProcess> &svc, const int status) {
         if (svc->state == Database::Entity::ModuleState::STOPPING || svc->state == Database::Entity::ModuleState::STOPPED) {
             svc->pid = -1;
             svc->state = Database::Entity::ModuleState::STOPPED;
@@ -2574,7 +2205,8 @@ namespace Euclid::main {
         svc->state = Database::Entity::ModuleState::CRASHED;
         svc->lastCrashTime = std::chrono::steady_clock::now();
         persistInstance(svc);
-        log_warning << "Service " << svc->config.name << " crashed (pid=" << exitedPid << ")";
+        log_warning << "Service " << svc->config.name << " crashed (pid=" << exitedPid << ")"
+                    << describeExit(status, svc->config.executable, svc->config.workingDir);
 
         if (svc->config.autoRestart) scheduleRestart(svc);
     }
@@ -2609,7 +2241,7 @@ namespace Euclid::main {
         while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
             auto svc = findByPid(pid);
             if (!svc) continue;
-            handleExitedInstance(svc);
+            handleExitedInstance(svc, status);
         }
     }
 #endif

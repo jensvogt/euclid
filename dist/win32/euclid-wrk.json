@@ -4,7 +4,13 @@
       "endpoint": "https://euclid.example:5566",
       "ca-cert": "",
       "address": "",
-      "java": "java",
+      "runtimes": {
+        "java": "java.exe",
+        "java21": "C:\\Program Files\\Java\\jdk-21\\bin\\java.exe",
+        "java25": "C:\\Program Files\\Java\\jdk-25\\bin\\java.exe",
+        "python": "python.exe",
+        "nodejs": "node.exe"
+      },
       "credentials": "C:\\Program Files\\euclid-wrk\\etc\\credentials"
     },
     "logging": {

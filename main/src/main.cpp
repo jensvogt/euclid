@@ -636,6 +636,19 @@ static void killLeftoverInstances() {
                           << ", host: " << instance.host << ", pid: " << instance.pid;
                 continue;
             }
+
+            // A slot assigned to a node is a worker's, never this manager's - and since every
+            // application is placed on a node now (docs/worker-nodes.md §13.4), that includes the
+            // local node on this very host, which passes the filter above. Its instances outlive a
+            // manager restart by design, and the checks below would not save them: an application's
+            // recorded executable is the interpreter, so /proc/<pid>/exe matches, and the manager
+            // would SIGKILL a process it does not own. Only the worker that holds the lease stops
+            // what it started.
+            if (!instance.assignedTo.empty()) {
+                log_debug << "Leftover belongs to a worker node, ignoring, module: " << module.name
+                          << ", node: " << instance.assignedTo << ", pid: " << instance.pid;
+                continue;
+            }
             if (instance.pid <= 0 || kill(instance.pid, 0) != 0) {
                 continue;
             }

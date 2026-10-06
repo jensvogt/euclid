@@ -434,7 +434,8 @@ namespace Euclid::Worker {
         const auto channel = Core::Launch::OutputChannel(assignment.runtimeName);
         const auto fields = Core::Launch::OutputFields(assignment.runtimeName, assignment.nameSpace, assignment.accountId);
 
-        Instance instance{.assignment = assignment, .httpPort = httpPort, .credentialsRefreshAt = *credentialsRefreshAt};
+        Instance instance{.assignment = assignment, .httpPort = httpPort,
+                          .executable = commandLine.front(), .credentialsRefreshAt = *credentialsRefreshAt};
 
 #ifdef _WIN32
         // The manager's own Windows spawn - see Core::WindowsProcess: the two pipe ends and nothing
@@ -702,7 +703,7 @@ namespace Euclid::Worker {
             // interpreter, most often - which is worth naming, since nothing else will.
             if (WIFEXITED(status)) {
                 how = "exit code " + std::to_string(WEXITSTATUS(status));
-                if (WEXITSTATUS(status) == 127) how += " (the command could not be executed)";
+                if (WEXITSTATUS(status) == 127) how += " (" + it->second.executable + " could not be executed)";
                 if (WEXITSTATUS(status) == 126) how += " (could not enter the application directory)";
             } else if (WIFSIGNALED(status)) {
                 how = "signal " + std::to_string(WTERMSIG(status));
