@@ -4,7 +4,13 @@
       "endpoint": "https://euclid.example:5566",
       "ca-cert": "",
       "address": "",
-      "java": "java",
+      "runtimes": {
+        "java": "java",
+        "java21": "/opt/homebrew/opt/openjdk@21/bin/java",
+        "java25": "/opt/homebrew/opt/openjdk@25/bin/java",
+        "python": "python3",
+        "nodejs": "node"
+      },
       "data-dir": "/usr/local/var/euclid-wrk",
       "credentials": "/usr/local/var/euclid-wrk/.euclid/credentials"
     },

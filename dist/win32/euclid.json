@@ -284,7 +284,7 @@
             "protocol": "http"
           },
           "production": {
-            "port": 80,
+            "port": 8082,
             "protocol": "http"
           }
         }

@@ -167,6 +167,18 @@ namespace Euclid::Worker {
             int httpPort{};
 
             /**
+             * @brief What was exec'd, kept for the one message that needs it.
+             *
+             * @par
+             * An instance that exits 127 was never executed at all - most often an interpreter
+             * this node was told the wrong path for, since euclid.worker.runtimes.java25 is a path
+             * per host and an application only names the version. "the command could not be
+             * executed" without saying which command leaves the reader to guess at exactly the
+             * moment the answer is one string.
+             */
+            std::string executable;
+
+            /**
              * @brief When this instance's credentials should be asked for again.
              *
              * @par

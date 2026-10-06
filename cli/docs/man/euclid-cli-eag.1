@@ -47,6 +47,30 @@ One gateway can answer on more than one port, each bound to a namespace:
 .fi
 .RE
 .PP
+The shipped configuration defines three \- 8080, 8081 and 8082, for
+.IR development ", " integration " and " production .
+All three are above 1024 on purpose. euclid runs as the unprivileged
+.I euclid
+user, so a listener on 80 or 443 cannot bind and fails with
+.IR "bind: Permission denied" ;
+leaving
+.I production
+on 8082 means a fresh installation comes up with every listener working,
+and what sits in front of it \- nginx, a load balancer, a published
+container port, or euclid itself on 80 \- stays the operator's decision.
+.PP
+To bind a privileged port, grant the capability rather than running as
+root: uncomment
+.I AmbientCapabilities=CAP_NET_BIND_SERVICE
+in
+.IR euclid.service ,
+.B systemctl daemon-reload
+and restart. Note that every listener is bound when the module starts
+and one that cannot bind takes the others with it \- so a
+.I production
+listener moved to 80 without that capability leaves 8080 and 8081
+unserved too, with the reason in the log.
+.PP
 A request is then in the namespace of the port it arrived on, and a
 listener carries only that namespace's routes. Development and
 integration can both publish
