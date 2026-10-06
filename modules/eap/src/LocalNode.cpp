@@ -206,7 +206,13 @@ namespace Euclid::EAP::LocalNode {
                 {"euclid", boost::json::object{
                                    {"worker", worker},
                                    {"logging", boost::json::object{
-                                                       {"level", configuration.getOr<std::string>("euclid.logging.level", "info")},
+                                                       // The node's own level if one is set, and the manager's if not. A
+                                                       // manager kept at warning does not mean its worker has nothing
+                                                       // worth saying: inherited, a healthy local node wrote nothing at
+                                                       // all to the file it had just been handed, so the only thing that
+                                                       // ever appeared in it was a failure.
+                                                       {"level", configuration.getOr<std::string>("euclid.modules.eap.local-node.log-level",
+                                                                                                  configuration.getOr<std::string>("euclid.logging.level", "info"))},
                                                        // Inherited rather than decided here: a manager that writes a log
                                                        // file has a local node that writes one too, and one that logs only
                                                        // to the journal has a node that does the same.

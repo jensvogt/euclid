@@ -15,7 +15,9 @@
 //
 
 // C++ includes
+#include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <csignal>
 #include <filesystem>
 #include <iostream>
@@ -342,9 +344,31 @@ static int RunWorker(const CliOptions &options, const bool reportServiceStatus) 
 
     Euclid::Worker::WorkerClient worker(workerOptions, *credentials);
 
-    if (!worker.Register().has_value()) {
-        std::cerr << "error: could not register with the master" << std::endl;
-        return 1;
+    // Retried rather than fatal, for the same reason the configuration is waited for above: on a
+    // boot or a restart of the pair the master is seconds away from listening, and the gateway
+    // binds its port after the manager's own start - so a worker that gives up on the first refusal
+    // is restarted by systemd, refused again, and leaves behind a pair of alarming lines and a
+    // rotated log file for each attempt. The local node needed three starts to catch the gateway,
+    // and the two that failed are what anybody tailing the log sees.
+    //
+    // Backed off rather than retried every second, because a master that is genuinely unreachable
+    // is worth saying so about at a readable rate: Register() already logs each refusal itself, and
+    // at one attempt a second that is two lines a second for as long as it stays down.
+    constexpr auto registerBackoffMax = std::chrono::seconds{30};
+    for (auto backoff = std::chrono::seconds{1}; !worker.Register().has_value();
+         backoff = std::min(backoff * 2, registerBackoffMax)) {
+
+        if (g_shutdownRequested) return 0;
+
+        log_warning << "Could not register with the master, retrying in " << backoff.count() << "s";
+
+        // A second at a time, so a stop asked for mid-wait is answered then rather than after the
+        // whole backoff - the same reason the tick below is slept this way.
+        for (auto slept = std::chrono::seconds{0}; slept < backoff && !g_shutdownRequested; ++slept) {
+            std::this_thread::sleep_for(std::chrono::seconds{1});
+        }
+
+        if (g_shutdownRequested) return 0;
     }
 
     log_info << "euclid-wrk running, node: " << workerOptions.nodeName
