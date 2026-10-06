@@ -1146,10 +1146,35 @@ namespace Euclid::main {
             return;
         }
 
+        // Slots nobody holds, dropped before they are counted. Since §13.4 every instance is a
+        // worker's to run, so one assigned to no node is running nowhere whatever its record says:
+        // it is what the withdrawal above leaves behind, or a slot from before this host had a
+        // worker. Counted towards the floor it kept an application permanently one slot short of
+        // itself and never said so - "have >= wanted" returns silently - so stop-application
+        // followed by start-application, which is how anybody restarts one, left an application
+        // defined, desired RUNNING, and never placed again.
+        //
+        // Only the unassigned ones. A slot a node holds is that worker's business even when its
+        // process has just died: the worker restarts it on its own backoff, and a manager that
+        // re-placed it meanwhile would have two hosts running one instance. A node that stopped
+        // renewing is reconcileNodeLeases()'s to take back.
+        if (existing.has_value()) {
+            for (const auto &instance: existing->instances) {
+                if (!instance.assignedTo.empty()) continue;
+                log_info << "Dropping an unheld slot, application: " << runtimeName
+                         << ", instance: " << instance.instanceId
+                         << ", state: " << Database::Entity::ModuleStateToString(instance.state);
+                emm->removeInstance(runtimeName, instance.instanceId);
+            }
+        }
+
         // How many to have. The floor only: growing past it is the autoscaler's business, and it
         // works off these same records - see reconcileApplicationLoad.
         const auto wanted = std::max(1L, application.minInstances);
-        const auto have = existing.has_value() ? static_cast<long>(existing->instances.size()) : 0;
+        const auto have = existing.has_value()
+                                  ? std::ranges::count_if(existing->instances,
+                                                          [](const auto &instance) { return !instance.assignedTo.empty(); })
+                                  : 0;
 
         if (have >= wanted) return;
 
