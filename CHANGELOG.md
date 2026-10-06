@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.2.13](https://github.com/jensvogt/euclid/compare/1.2.12...v1.2.13) (2026-10-05)
+
+
+### Bug Fixes
+
+* add address worker ([7c8f77d](https://github.com/jensvogt/euclid/commit/7c8f77d646a0c1d0bdf054fbaef36faedb8bbc5a))
+* worker running nodes or python ([55a7503](https://github.com/jensvogt/euclid/commit/55a750383ea9a06b8410ba6a83d4e0365eadf375))
+* worker running nodes or python ([e002c55](https://github.com/jensvogt/euclid/commit/e002c55a392ff225653986df5fc45cd5eeb889b8))
+* worker running nodes or python ([feb0e97](https://github.com/jensvogt/euclid/commit/feb0e97efa2b83ebcb28ccdf322f088eaf098aa5))
+* worker running nodes or python ([10fa2b1](https://github.com/jensvogt/euclid/commit/10fa2b16c1e8e957628640b1df3e72fa8cabc564))
+
 ## [1.2.12](https://github.com/jensvogt/euclid/compare/1.2.11...v1.2.12) (2026-10-05)
 
 
