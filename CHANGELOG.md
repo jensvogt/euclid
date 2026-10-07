@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.18](https://github.com/jensvogt/euclid/compare/1.2.17...v1.2.18) (2026-10-07)
+
+
+### Bug Fixes
+
+* worker monitoring ([c553f98](https://github.com/jensvogt/euclid/commit/c553f98c24643490095d300c137078db58cfba4b))
+* worker monitoring ([4e869fa](https://github.com/jensvogt/euclid/commit/4e869fa598b4aa082c390087d7dccd926f26949c))
+
 ## [1.2.17](https://github.com/jensvogt/euclid/compare/1.2.16...v1.2.17) (2026-10-07)
 
 
