@@ -12,11 +12,17 @@
 #include <pdh.h>        // PdhOpenQuery/PdhAddEnglishCounter - the performance counter API
 #include <pdhmsg.h>     // PDH_CSTATUS_VALID_DATA
 #include <psapi.h>      // GetProcessMemoryInfo
+#include <iphlpapi.h>   // GetAdaptersAddresses
 #else
 #include <unistd.h>     // getuid
 #include <pwd.h>        // getpwuid_r
 #include <sys/types.h>  // uid_t
+#include <ifaddrs.h>    // getifaddrs
+#include <net/if.h>     // IFF_UP
+#include <netinet/in.h> // sockaddr_in, sockaddr_in6
 #endif
+#include <algorithm>
+#include <cstring>
 #include <fstream>
 #include <sstream>
 
@@ -106,6 +112,74 @@ namespace Euclid::Core {
             log_debug << "Could not determine the outbound address, host: " << host << ", error: " << e.what();
         }
         return std::nullopt;
+    }
+
+    std::vector<std::string> SystemUtils::GetLocalAddresses() {
+
+        std::vector<boost::asio::ip::address> addresses;
+
+        // One place for what both platforms hand back as a sockaddr, so the two listings below only
+        // have to say how they walk their interfaces.
+        const auto add = [&addresses](const sockaddr *socketAddress) {
+            if (socketAddress == nullptr) return;
+            if (socketAddress->sa_family == AF_INET) {
+                boost::asio::ip::address_v4::bytes_type bytes;
+                std::memcpy(bytes.data(), &reinterpret_cast<const sockaddr_in *>(socketAddress)->sin_addr, bytes.size());
+                addresses.emplace_back(boost::asio::ip::make_address_v4(bytes));
+            } else if (socketAddress->sa_family == AF_INET6) {
+                boost::asio::ip::address_v6::bytes_type bytes;
+                std::memcpy(bytes.data(), &reinterpret_cast<const sockaddr_in6 *>(socketAddress)->sin6_addr, bytes.size());
+                addresses.emplace_back(boost::asio::ip::make_address_v6(bytes));
+            }
+        };
+
+#ifdef _WIN32
+        // Sized by asking: the first call fails with the size it needs. Asked twice more at most,
+        // since an adapter can appear between the two calls.
+        ULONG size = 16 * 1024;
+        std::vector<unsigned char> buffer;
+        ULONG result = ERROR_BUFFER_OVERFLOW;
+        for (int attempt = 0; attempt < 3 && result == ERROR_BUFFER_OVERFLOW; ++attempt) {
+            buffer.resize(size);
+            result = GetAdaptersAddresses(AF_UNSPEC, GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER,
+                                          nullptr, reinterpret_cast<IP_ADAPTER_ADDRESSES *>(buffer.data()), &size);
+        }
+        if (result != NO_ERROR) {
+            log_debug << "Could not list the network adapters, error: " << result;
+            return {};
+        }
+        for (auto *adapter = reinterpret_cast<IP_ADAPTER_ADDRESSES *>(buffer.data()); adapter != nullptr; adapter = adapter->Next) {
+            if (adapter->OperStatus != IfOperStatusUp) continue;
+            for (auto *unicast = adapter->FirstUnicastAddress; unicast != nullptr; unicast = unicast->Next) {
+                add(unicast->Address.lpSockaddr);
+            }
+        }
+#else
+        ifaddrs *interfaces = nullptr;
+        if (getifaddrs(&interfaces) != 0) {
+            log_debug << "Could not list the network interfaces, error: " << std::strerror(errno);
+            return {};
+        }
+        for (const auto *entry = interfaces; entry != nullptr; entry = entry->ifa_next) {
+            if ((entry->ifa_flags & IFF_UP) == 0) continue;
+            add(entry->ifa_addr);
+        }
+        freeifaddrs(interfaces);
+#endif
+
+        std::erase_if(addresses, [](const boost::asio::ip::address &address) {
+            return address.is_loopback() || address.is_unspecified() || (address.is_v6() && address.to_v6().is_link_local());
+        });
+
+        // IPv4 first, because that is what a person types into a URL and what reads first in a
+        // certificate's list of names; and each address once, since an interface may carry the
+        // same one under several adapters.
+        std::ranges::stable_sort(addresses, [](const auto &a, const auto &b) { return a.is_v4() && !b.is_v4(); });
+        std::vector<std::string> names;
+        for (const auto &address: addresses) {
+            if (auto text = address.to_string(); std::ranges::find(names, text) == names.end()) names.push_back(std::move(text));
+        }
+        return names;
     }
 
     std::string SystemUtils::GetArchitecture() {

@@ -444,6 +444,19 @@ static int RunWorker(const CliOptions &options, const bool reportServiceStatus) 
     return 0;
 }
 
+// RunWorker with whatever escapes it said and turned into an exit code. Without this an exception
+// reaches std::terminate, which on Windows is a fast-fail: no message on the console, nothing in
+// the log, and only an "Application Error" event with code 0xc0000409 to say it happened at all.
+static int RunWorkerReporting(const CliOptions &options, const bool reportServiceStatus) {
+    try {
+        return RunWorker(options, reportServiceStatus);
+    } catch (const std::exception &e) {
+        std::cerr << "error: " << e.what() << std::endl;
+        log_error << "euclid-wrk stopped by an unexpected error: " << e.what();
+        return 1;
+    }
+}
+
 #if defined(_WIN32)
 static void WINAPI serviceMain(DWORD, LPSTR *) {
     g_serviceStatus.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
@@ -453,7 +466,7 @@ static void WINAPI serviceMain(DWORD, LPSTR *) {
     if (!g_serviceStatusHandle) return;// nothing to report to - the SCM already logged the failure
 
     updateServiceStatus(SERVICE_START_PENDING, NO_ERROR, 30000);
-    const int rc = RunWorker(*g_serviceCliOpts, true);
+    const int rc = RunWorkerReporting(*g_serviceCliOpts, true);
 
     // rc goes into dwServiceSpecificExitCode, or the event log reports every failure as "terminated
     // with the following service-specific error: The operation completed successfully" - which is
@@ -591,5 +604,5 @@ int main(const int argc, char **argv) {
     std::signal(SIGTERM, onSignal);
 #endif
 
-    return RunWorker(cliOptions, false);
+    return RunWorkerReporting(cliOptions, false);
 }
