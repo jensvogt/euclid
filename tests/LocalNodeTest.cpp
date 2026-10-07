@@ -153,6 +153,22 @@ BOOST_AUTO_TEST_CASE(TheNodesLogLevelIsItsOwnIfSetAndTheManagersIfNot) {
     BOOST_TEST(own.at("level").as_string() == "info");
 }
 
+BOOST_AUTO_TEST_CASE(TheLocalNodeDoesNotReportTheHostTheMonitoringModuleAlreadyReads) {
+
+    freshInstallation(true);
+    const auto worker = LocalNode::WorkerConfiguration(kDirectory / "credentials").at("euclid").at("worker").as_object();
+
+    // Off for this one worker, because it shares a host with EMO - which reads that host's CPU,
+    // memory and load directly. Reported as well, the same machine would arrive twice, and under
+    // the node's name rather than the host's, so it would read as a second machine rather than as
+    // a duplicate of the first.
+    BOOST_TEST(worker.at("monitoring-active").as_bool() == false);
+
+    // And the label EAP refuses a co-located node's figures on, which is the other half of the
+    // same guard: a worker configured by hand with monitoring left on must not double the host up.
+    BOOST_TEST(worker.at("labels").at("local").as_string() == "true");
+}
+
 BOOST_AUTO_TEST_CASE(NoSecretOfTheManagersReachesTheWorkersFile) {
 
     // A worker refuses to start with the signing secret in its configuration, and is right to.
