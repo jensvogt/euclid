@@ -24,6 +24,7 @@
 #include <euclid/core/JwtUtils.h>
 #include <euclid/core/DirUtils.h>
 #include <euclid/core/ErnUtils.h>
+#include <euclid/core/SystemUtils.h>
 #include <euclid/core/monitoring/MonitoringTimer.h>
 #include <euclid/database/entity/RuntimeName.h>
 #include <euclid/database/entity/eam/User.h>
@@ -2124,7 +2125,18 @@ namespace Euclid::EAP {
         //
         // Each one only when the node sent it: a platform with no reading sends nothing, and a
         // recorded zero would be indistinguishable from an idle host.
-        {
+        //
+        // And nothing at all from a node that shares this host with the monitoring module, which
+        // already measures it. Two series for one machine is the mildest version of that - the
+        // local node registers as "local", so its figures would sit beside the same machine's
+        // under its host name as though they were two hosts. A worker that took the default node
+        // name is the worse one: identical labels, so EMO accumulates both samplers into one
+        // series, and since a worker renews every 10s against EMO's 60s period the mean comes out
+        // weighted six to one towards the worker's readings rather than wrong in an obvious way.
+        const auto sharesThisHost = claim.node->labels.contains("local")
+                                    || claim.node->name == Core::SystemUtils::GetHostName();
+
+        if (!sharesThisHost) {
             const auto &object = jv.as_object();
             const auto host = claim.node->name;
 

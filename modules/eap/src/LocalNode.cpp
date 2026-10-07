@@ -178,6 +178,13 @@ namespace Euclid::EAP::LocalNode {
                 // What an application asks for to be placed here and nowhere else - nodeLabels
                 // {"local": "true"} - until every application is (§13.4).
                 {"labels", boost::json::object{{"local", "true"}}},
+                // Off, alone among workers: this one shares a host with the monitoring module,
+                // which reads that host's CPU, memory and load directly. Reported as well, the
+                // same machine would arrive twice - and under the node's name rather than the
+                // host's, so it would read as a second machine rather than as a duplicate.
+                // EAP refuses it for a co-located node anyway; this stops the worker collecting a
+                // figure that would only be thrown away.
+                {"monitoring-active", false},
         };
 
         if (tls) {

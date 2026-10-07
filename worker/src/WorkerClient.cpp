@@ -241,28 +241,36 @@ namespace Euclid::Worker {
         // master labels these with the node it authenticated, so a worker can report its own
         // figures and never claim to be another host.
         //
+        // Switched off where something else already watches this machine, and on the local node,
+        // which shares a host with the monitoring module that measures it directly. Deliberately
+        // separate from the one-minute figure above: that one is placement's third tie-break, not
+        // monitoring, and a node that stopped sending it would read as idle and attract work.
+        //
         // Present only when there is something to read, so the master can tell "idle" from "this
         // platform has no reading" rather than recording a flat zero for a macOS worker.
-        if (load.has_value()) {
-            body["loadAverage5m"] = load->fiveMinutes;
-            body["loadAverage15m"] = load->fifteenMinutes;
-            if (load->cpuCount > 0) body["cpuCount"] = load->cpuCount;
-        }
+        if (Core::Configuration::instance().getOr<bool>("euclid.worker.monitoring-active", true)) {
 
-        // A percentage needs two readings, so the first renewal after a start only primes it. Kept
-        // on this object rather than in a file-local: two workers in one process would otherwise
-        // corrupt each other's baseline, which is the reason ReadCpuTimes() is stateless.
-        if (const auto cpuTimes = Core::SystemUtils::ReadCpuTimes(); cpuTimes.has_value()) {
-            if (_previousCpuTimes.has_value()) {
-                if (const auto usage = Core::SystemUtils::CpuUsagePercent(*_previousCpuTimes, *cpuTimes); usage.has_value()) {
-                    body["cpuUsage"] = *usage;
-                }
+            if (load.has_value()) {
+                body["loadAverage5m"] = load->fiveMinutes;
+                body["loadAverage15m"] = load->fifteenMinutes;
+                if (load->cpuCount > 0) body["cpuCount"] = load->cpuCount;
             }
-            _previousCpuTimes = cpuTimes;
-        }
 
-        if (const auto memory = Core::SystemUtils::ReadSystemMemoryUsagePercent(); memory.has_value()) {
-            body["memoryUsage"] = *memory;
+            // A percentage needs two readings, so the first renewal after a start only primes it.
+            // Kept on this object rather than in a file-local: two workers in one process would
+            // otherwise corrupt each other's baseline, which is why ReadCpuTimes() is stateless.
+            if (const auto cpuTimes = Core::SystemUtils::ReadCpuTimes(); cpuTimes.has_value()) {
+                if (_previousCpuTimes.has_value()) {
+                    if (const auto usage = Core::SystemUtils::CpuUsagePercent(*_previousCpuTimes, *cpuTimes); usage.has_value()) {
+                        body["cpuUsage"] = *usage;
+                    }
+                }
+                _previousCpuTimes = cpuTimes;
+            }
+
+            if (const auto memory = Core::SystemUtils::ReadSystemMemoryUsagePercent(); memory.has_value()) {
+                body["memoryUsage"] = *memory;
+            }
         }
 
         const auto response = post("eap", "renew-node", body);
