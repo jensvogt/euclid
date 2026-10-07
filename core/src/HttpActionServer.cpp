@@ -577,13 +577,22 @@ namespace Euclid::Core {
     http::response<http::string_body> HttpActionServer::MetricsResponse(const http::request<http::string_body> &req) {
         boost::json::array items;
         for (const auto &sample: Monitoring::MonitoringCollector::instance().Collect()) {
-            items.push_back(boost::json::object{
+            auto item = boost::json::object{
                     {"name", sample.name},
                     {"labelName", sample.labelName},
                     {"labelValue", sample.labelValue},
                     {"value", sample.value},
                     {"type", sample.isRate ? "rate" : "gauge"}
-            });
+            };
+
+            // As MetricsPusher does, and for the same reason: present only when the sample has
+            // dimensions beyond the pair, so the usual shape is unchanged.
+            if (!sample.labels.empty()) {
+                boost::json::object labels;
+                for (const auto &[label, value]: sample.labels) labels[label] = value;
+                item["labels"] = labels;
+            }
+            items.push_back(std::move(item));
         }
         return JsonResponse(req, http::status::ok, boost::json::serialize(boost::json::object{{"items", items}}));
     }
