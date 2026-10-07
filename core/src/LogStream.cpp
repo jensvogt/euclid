@@ -10,6 +10,8 @@
 #include <boost/json.hpp>
 
 // C++ includes
+#include <filesystem>
+#include <fstream>
 #include <utility>
 //#include <awsmock/core/logging/LoggingServer.h>
 
@@ -483,17 +485,25 @@ namespace Euclid::Core {
     }
 
     void LogStream::AddFile(const std::string &dir, const std::string &prefix, long size, int count) {
-#ifdef _WIN32
+
+        // Tried here, because the sink opens its file lazily, on the first record - and a file it
+        // cannot open is then an exception out of whichever log statement came first, which nothing
+        // catches and which ends the process with nothing said. A worker started by hand from a
+        // prompt that cannot write C:\Program Files\euclid-wrk\log did exactly that. A process that
+        // cannot keep a log file is still worth running: it says so, and logs to the console.
+        const auto file = std::filesystem::path(dir) / (prefix + ".log");
+        std::error_code ec;
+        std::filesystem::create_directories(dir, ec);
+        if (!std::ofstream(file, std::ios::app)) {
+            log_warning << "Cannot write the log file, logging to the console only, file: " << file.string();
+            return;
+        }
+
         _fileSink = add_file_log(
-                boost::log::keywords::file_name = dir + "\\" + prefix + ".log ", boost::log::keywords::rotation_size = size,
-                boost::log::keywords::target_file_name = dir + "\\" + prefix + "_ % N.log ", boost::log::keywords::format = FormatterFor("euclid.logging.file-format"));
-#else
-        _fileSink = add_file_log(
-                boost::log::keywords::file_name = dir + "/" + prefix + ".log",
+                boost::log::keywords::file_name = file.string(),
                 boost::log::keywords::rotation_size = size,
-                boost::log::keywords::target_file_name = dir + "/" + prefix + "_%N.log",
+                boost::log::keywords::target_file_name = (std::filesystem::path(dir) / (prefix + "_%N.log")).string(),
                 boost::log::keywords::format = FormatterFor("euclid.logging.file-format"));
-#endif
 
         // No filter of its own: the core's channel-aware filter has already decided what gets
         // written, and a second one here could only ever discard more than the levels asked for.

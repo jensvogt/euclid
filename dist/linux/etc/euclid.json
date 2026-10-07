@@ -22,7 +22,8 @@
       "tls": {
         "enabled": true,
         "cert-file": "/usr/local/euclid/etc/euclid_cert.crt",
-        "key-file": "/usr/local/euclid/etc/euclid_cert.key"
+        "key-file": "/usr/local/euclid/etc/euclid_cert.key",
+        "alt-names": []
       },
       "websocket": {
         "enabled": true,

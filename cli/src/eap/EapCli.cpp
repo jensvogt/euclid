@@ -51,6 +51,20 @@ namespace Euclid::CLI {
             return entries;
         }
 
+        // Splits "os=windows,gpu" into the nodeLabels object placement matches against. A bare
+        // label means "true", as it does in the worker's own --label, so "gpu" asks for the node
+        // that was labelled "gpu". An empty string gives an empty object, which clears them.
+        boost::json::object SplitLabels(const std::string &value) {
+            boost::json::object labels;
+            for (const auto &entry: SplitList(value)) {
+                const std::string part(entry.as_string());
+                const auto equals = part.find('=');
+                if (equals == std::string::npos) labels[part] = "true";
+                else labels[part.substr(0, equals)] = part.substr(equals + 1);
+            }
+            return labels;
+        }
+
         // The objects a manifest names, split the way create-application and update-application
         // take them. Both halves count: an application reaches what it owns and what it borrows,
         // and a grant that named only the first would refuse it the second.
@@ -193,6 +207,7 @@ namespace Euclid::CLI {
                 ("command,c", po::value<std::string>(), "command to run instead of the runtime's default")
                 ("arguments", po::value<std::string>(), "comma-separated arguments passed after the artifact")
                 ("environment,e", po::value<std::string>(), "comma-separated KEY=value environment variables")
+                ("node-labels", po::value<std::string>(), "comma-separated key=value labels a worker node must carry to run it, e.g. os=windows; empty means any node")
                 ("min-instances", po::value<long>(), "smallest number of instances the autoscaler keeps running (default 1)")
                 ("max-instances", po::value<long>(), "largest number of instances the autoscaler may scale out to (default 1)")
                 ("ready-timeout", po::value<long>(), "kept on the definition but no longer decides readiness: an application counts as started by surviving its own startup, not by creating a socket");
@@ -201,7 +216,7 @@ namespace Euclid::CLI {
             return PrintActionHelp("eap", "create-application",
                                    "--application-id <name> --runtime <runtime> --bucket <bucket> --artifact <key> [--version <x.y.z>] "
                                    "[--user <user>] [--buckets <list>] [--queues <list>] [--command <cmd>] "
-                                   "[--arguments <list>] [--environment <list>] [--min-instances <n>] "
+                                   "[--arguments <list>] [--environment <list>] [--node-labels <list>] [--min-instances <n>] "
                                    "[--max-instances <n>] [--ready-timeout <ms>]",
                                    "Defines a new application from an artifact already stored in an ESM bucket - upload it first with "
                                    "\"esm upload-file\", or through a transfer server. The manager copies the artifact to the host, "
@@ -219,6 +234,9 @@ namespace Euclid::CLI {
                                    "Naming --buckets and --queues narrows that principal to exactly those resources: the storage and "
                                    "queueing modules refuse anything else it asks for, so a compromised application reaches what it was "
                                    "deployed with and nothing more. Naming neither leaves it able to use everything in its account. "
+                                   "--node-labels restricts which worker nodes it may be placed on: every node carries the os "
+                                   "(linux, windows, macos) and arch it reported, so --node-labels os=windows runs it on Windows "
+                                   "workers only. "
                                    "The application is created stopped - use \"eap start-application\" to run it.",
                                    desc);
         }
@@ -246,6 +264,7 @@ namespace Euclid::CLI {
         if (vm.contains("environment")) request["environment"] = SplitEnvironment(vm["environment"].as<std::string>());
         if (vm.contains("buckets")) request["buckets"] = SplitList(vm["buckets"].as<std::string>());
         if (vm.contains("queues")) request["queues"] = SplitList(vm["queues"].as<std::string>());
+        if (vm.contains("node-labels")) request["nodeLabels"] = SplitLabels(vm["node-labels"].as<std::string>());
         if (vm.contains("manifest") && !addManifestResources(vm["manifest"].as<std::string>(), request)) return 1;
         if (vm.contains("min-instances")) request["minInstances"] = vm["min-instances"].as<long>();
         if (vm.contains("max-instances")) request["maxInstances"] = vm["max-instances"].as<long>();
@@ -280,6 +299,7 @@ namespace Euclid::CLI {
                 ("buckets", po::value<std::string>(), "comma-separated bucket names the application may use; replaces the current list")
                 ("manifest", po::value<std::string>(), "an application euclid/ directory; the objects it declares become the resources this application is granted, instead of every resource in its namespace")
                 ("queues", po::value<std::string>(), "comma-separated queue names the application may use; replaces the current list")
+                ("node-labels", po::value<std::string>(), "comma-separated key=value labels a worker node must carry to run it, e.g. os=windows; replaces the current set, and an empty string clears it")
                 ("min-instances", po::value<long>(), "smallest number of instances the autoscaler keeps running")
                 ("max-instances", po::value<long>(), "largest number of instances the autoscaler may scale out to")
                 ("ready-timeout", po::value<long>(), "kept on the definition but no longer decides readiness: an application counts as started by surviving its own startup, not by creating a socket");
@@ -288,7 +308,7 @@ namespace Euclid::CLI {
             return PrintActionHelp("eap", "update-application",
                                    "--application-id <name> [--runtime <runtime>] [--artifact <key>] [--command <cmd>] "
                                    "[--arguments <list>] [--environment <list>] [--buckets <list>] [--queues <list>] "
-                                   "[--min-instances <n>] [--max-instances <n>] [--ready-timeout <ms>] [--user <userId>]",
+                                   "[--node-labels <list>] [--min-instances <n>] [--max-instances <n>] [--ready-timeout <ms>] [--user <userId>]",
                                    "Changes an existing application's definition. Only the options actually given are altered, so one "
                                    "setting can be changed without resending the whole definition; --arguments and --environment "
                                    "replace the current values rather than adding to them. A running application is restarted onto the "
@@ -299,6 +319,8 @@ namespace Euclid::CLI {
                                    "nothing about the definition changed. "
                                    "Changing --buckets or --queues re-grants the application's technical principal, so the "
                                    "new list takes effect immediately, for running instances too. "
+                                   "--node-labels replaces the labels a worker node must carry to take the application - "
+                                   "--node-labels os=windows for Windows workers only - and --node-labels \"\" lets it run on any node again. "
                                    "--user points the application at a different EAM identity, which has to exist and hold an access "
                                    "key - the repair for a definition naming a principal that was deleted or renamed, which otherwise "
                                    "runs and is refused everything it calls. If the application was running as a technical principal EAP "
@@ -325,6 +347,7 @@ namespace Euclid::CLI {
         if (vm.contains("environment")) request["environment"] = SplitEnvironment(vm["environment"].as<std::string>());
         if (vm.contains("buckets")) request["buckets"] = SplitList(vm["buckets"].as<std::string>());
         if (vm.contains("queues")) request["queues"] = SplitList(vm["queues"].as<std::string>());
+        if (vm.contains("node-labels")) request["nodeLabels"] = SplitLabels(vm["node-labels"].as<std::string>());
         if (vm.contains("manifest") && !addManifestResources(vm["manifest"].as<std::string>(), request)) return 1;
         if (vm.contains("min-instances")) request["minInstances"] = vm["min-instances"].as<long>();
         if (vm.contains("max-instances")) request["maxInstances"] = vm["max-instances"].as<long>();

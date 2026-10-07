@@ -3,6 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 // C++ includes
+#include <algorithm>
 #include <atomic>
 #include <cerrno>
 #include <chrono>
@@ -29,6 +30,7 @@
 // Euclid includes
 #include <euclid/core/SystemUtils.h>
 #include <euclid/core/ApplicationLaunch.h>
+#include <euclid/core/CertificateUtils.h>
 #include <euclid/core/Version.h>
 #include <euclid/core/Configuration.h>
 #include <euclid/core/monitoring/MetricsPusher.h>
@@ -500,6 +502,72 @@ static int initializeDatabase(const Euclid::Core::Configuration &cfg) {
 }
 
 /**
+ * @brief Gives the gateway a certificate of this host's own, when it has none or has one that names
+ * no host.
+ *
+ * Releases used to ship one certificate, key included, to every installation: anyone with a copy of
+ * a release could impersonate any gateway still using it, and since it named no host every client
+ * that checks host names refused it - the Java SDK on a worker said "No subject alternative names
+ * present" on every call. So the packages ship none, and the first start makes one.
+ *
+ * Before the modules start, because EAG reads this file and EAP hands its path to the local node.
+ *
+ * The names are every one a caller might reasonably use: this host's name, every address on its
+ * interfaces, loopback, the configured gateway host, and euclid.gateway.tls.alt-names for anything
+ * this host cannot know about itself - a DNS alias, an address behind NAT.
+ *
+ * @return false if TLS is on and no certificate could be put in place; the gateway cannot start.
+ */
+static bool ensureGatewayCertificate(const Euclid::Core::Configuration &cfg) {
+
+    if (!cfg.getOr<bool>("euclid.gateway.tls.enabled", false)) return true;
+
+    const auto certificateFile = cfg.getOr<std::string>("euclid.gateway.tls.cert-file", "");
+    const auto keyFile = cfg.getOr<std::string>("euclid.gateway.tls.key-file", "");
+    if (certificateFile.empty() || keyFile.empty()) return true;// GatewayServer says what is missing
+
+    const auto hostName = Euclid::Core::SystemUtils::GetHostName();
+    std::vector<std::string> names{hostName, "localhost", "127.0.0.1", "::1"};
+    for (auto &address: Euclid::Core::SystemUtils::GetLocalAddresses()) names.push_back(std::move(address));
+    names.push_back(cfg.getOr<std::string>("euclid.gateway.http.host", "localhost"));
+    if (cfg.has("euclid.gateway.tls.alt-names")) {
+        try {
+            for (auto &name: cfg.getArray<std::string>("euclid.gateway.tls.alt-names")) names.push_back(std::move(name));
+        } catch (const std::exception &e) {
+            log_warning << "euclid.gateway.tls.alt-names has to be an array of host names and addresses, ignored: " << e.what();
+        }
+    }
+    std::vector<std::string> unique;
+    for (auto &name: names) {
+        if (!name.empty() && std::ranges::find(unique, name) == unique.end()) unique.push_back(std::move(name));
+    }
+
+    try {
+        const auto result = Euclid::Core::CertificateUtils::EnsureServerCertificate(certificateFile, keyFile, hostName, unique);
+        if (result.action == Euclid::Core::ServerCertificateResult::Action::Kept) return true;
+
+        std::string altNames;
+        for (const auto &name: result.info ? result.info->subjectAltNames : std::vector<std::string>{}) {
+            altNames += (altNames.empty() ? "" : ", ") + name;
+        }
+        if (result.action == Euclid::Core::ServerCertificateResult::Action::Replaced) {
+            log_warning << "The gateway certificate named no host, so no client checking host names could accept it;"
+                        << " replaced it with one for this host, old certificate: " << result.backupFile;
+        }
+        // Warning rather than info, because it asks for something to be done: every worker trusts
+        // the gateway through a copy of this file, and the copy they have stops working now.
+        log_warning << "Generated a gateway certificate for this host, file: " << certificateFile
+                    << ", names: " << altNames
+                    << ", sha256: " << (result.info ? result.info->fingerprint : std::string("?"))
+                    << " - copy it to every worker host, where euclid.worker.ca-cert points";
+        return true;
+    } catch (const std::exception &e) {
+        log_error << "Could not create the gateway certificate, file: " << certificateFile << ", error: " << e.what();
+        return false;
+    }
+}
+
+/**
  * @brief Takes the installation-wide manager lock, held for the life of this process.
  *
  * One manager owns one installation: its gateway port, its module sockets, and the child processes
@@ -789,6 +857,9 @@ static int RunManager(const CliOptions &opts, [[maybe_unused]] const bool report
     Euclid::main::ServiceController ctrl;
     g_ctrl = &ctrl;// must happen before setupSignals() installs handlers that dereference it
     setupSignals();
+
+    // Before the modules, which read it - see ensureGatewayCertificate().
+    if (!ensureGatewayCertificate(cfg)) return 1;
 
     // Register modules
     registerModules(ctrl);
