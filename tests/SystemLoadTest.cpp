@@ -6,8 +6,11 @@
 #include <boost/test/unit_test.hpp>
 
 // C++ includes
+#include <algorithm>
 #include <fstream>
 #include <sstream>
+
+#include <boost/asio/ip/address.hpp>
 #include <string>
 
 // Euclid includes
@@ -185,3 +188,19 @@ BOOST_AUTO_TEST_CASE(ThereIsNoLoadAverageOffLinux) {
 }
 
 #endif
+
+BOOST_AUTO_TEST_CASE(LocalAddressesAreReachableOnes) {
+
+    // What a generated gateway certificate names, so every entry has to be an address a client
+    // could dial: parseable, not loopback (named separately), not link-local, and each only once.
+    // Not required to be non-empty - a build machine with no network is still a build machine.
+    const auto addresses = SystemUtils::GetLocalAddresses();
+    for (const auto &text: addresses) {
+        boost::system::error_code ec;
+        const auto address = boost::asio::ip::make_address(text, ec);
+        BOOST_TEST_REQUIRE(!ec, text);
+        BOOST_TEST(!address.is_loopback(), text);
+        BOOST_TEST(!(address.is_v6() && address.to_v6().is_link_local()), text);
+        BOOST_TEST(std::count(addresses.begin(), addresses.end(), text) == 1, text);
+    }
+}

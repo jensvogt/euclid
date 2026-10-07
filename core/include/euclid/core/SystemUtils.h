@@ -117,6 +117,20 @@ namespace Euclid::Core {
         static std::optional<std::string> GetOutboundAddress(const std::string &host, const std::string &port);
 
         /**
+         * @brief Returns every IP address configured on this host's interfaces that are up
+         *
+         * @par
+         * Unlike GetOutboundAddress() this does list interfaces, because the question it answers is
+         * the opposite one: not which address this host uses to reach a particular remote, but
+         * which addresses a remote might use to reach this host - which is what a server
+         * certificate has to name. Loopback and IPv6 link-local addresses are left out: the first
+         * are named separately by whoever asks, and the second are not reachable by address alone.
+         *
+         * @return the addresses as text, IPv4 first; empty if the interfaces cannot be read.
+         */
+        static std::vector<std::string> GetLocalAddresses();
+
+        /**
          * @brief Returns a random port number between 32768 and 65536
          *
          * @return random port
