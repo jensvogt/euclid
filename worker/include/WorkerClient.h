@@ -16,6 +16,7 @@
 #include <euclid/cli/http/HttpClient.h>
 #include <euclid/core/ApplicationLaunch.h>
 #include <euclid/core/ArtifactFetcher.h>
+#include <euclid/core/SystemUtils.h>
 
 namespace Euclid::Worker {
 
@@ -341,6 +342,18 @@ namespace Euclid::Worker {
          * host - the gateway connects to it, and an address needs no DNS where a host name does.
          */
         std::string _address;
+
+        /**
+         * @brief The previous Core::SystemUtils::ReadCpuTimes() reading, for the percentage sent
+         * with the next renewal.
+         *
+         * @par
+         * CPU usage is a delta between two readings, so the first renewal after a start only
+         * primes this and reports nothing. Held per client rather than in a file-local because
+         * ReadCpuTimes() is deliberately stateless: two pollers sharing one baseline would each
+         * read a figure for an interval neither of them measured.
+         */
+        std::optional<Core::SystemUtils::CpuTimes> _previousCpuTimes;
     };
 
 }// namespace Euclid::Worker

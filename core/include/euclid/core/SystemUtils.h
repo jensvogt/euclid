@@ -210,6 +210,23 @@ namespace Euclid::Core {
         static std::optional<CpuTimes> ReadCpuTimes();
 
         /**
+         * @brief The percentage of CPU time that was not idle between two readings.
+         *
+         * @par
+         * The ratio the unit cancels out of - see CpuTimes. Here rather than at each call site
+         * because there is more than one: the monitoring module reads the manager's host, and a
+         * worker reads its own and reports it with its heartbeat. Two copies of three lines of
+         * arithmetic is how the two would come to disagree about what "busy" means on a dashboard
+         * that puts them side by side.
+         *
+         * @param previous the earlier reading.
+         * @param current the later reading.
+         * @return the percentage, or std::nullopt when no time passed between the two readings -
+         * which is not 0% busy but no answer, and is what a caller gets on its first poll.
+         */
+        static std::optional<double> CpuUsagePercent(const CpuTimes &previous, const CpuTimes &current);
+
+        /**
          * @brief The kernel's run-queue averages over the last 1, 5 and 15 minutes, and the number
          * of CPUs they should be read against.
          *

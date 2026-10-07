@@ -154,6 +154,30 @@ BOOST_AUTO_TEST_CASE(TheCpuTimesAreCumulativeAndIdleIsPartOfTheTotal) {
     BOOST_TEST(second->idle >= first->idle);
 }
 
+BOOST_AUTO_TEST_CASE(CpuUsageIsTheNonIdleShareOfTheInterval) {
+
+    // Fixed readings rather than two real ones, because what is being pinned is the arithmetic and
+    // a live host gives a different answer every run. One implementation of it, because EMO reads
+    // the manager's host and a worker reads its own: two copies is how the two hosts come to
+    // disagree about what "busy" means on a dashboard that shows them side by side.
+    BOOST_TEST(SystemUtils::CpuUsagePercent({.idle = 0, .total = 0}, {.idle = 250, .total = 1000}).value_or(-1) == 75.0);
+    BOOST_TEST(SystemUtils::CpuUsagePercent({.idle = 100, .total = 200}, {.idle = 100, .total = 300}).value_or(-1) == 100.0);
+    BOOST_TEST(SystemUtils::CpuUsagePercent({.idle = 100, .total = 200}, {.idle = 200, .total = 300}).value_or(-1) == 0.0);
+
+    // No time passed, so there is no answer - which is not the same as 0% busy, and is what a
+    // caller gets on its first poll before it has a baseline.
+    BOOST_TEST(!SystemUtils::CpuUsagePercent({.idle = 100, .total = 200}, {.idle = 100, .total = 200}).has_value());
+
+    // Counters that went backwards: a reading across a suspend, or one taken against a different
+    // baseline. Unsigned subtraction would turn that into an enormous positive percentage.
+    BOOST_TEST(!SystemUtils::CpuUsagePercent({.idle = 100, .total = 400}, {.idle = 100, .total = 300}).has_value());
+    BOOST_TEST(!SystemUtils::CpuUsagePercent({.idle = 200, .total = 200}, {.idle = 100, .total = 300}).has_value());
+
+    // Idle growing faster than total cannot happen on one host, and would report a negative
+    // percentage if it were believed.
+    BOOST_TEST(!SystemUtils::CpuUsagePercent({.idle = 0, .total = 0}, {.idle = 200, .total = 100}).has_value());
+}
+
 BOOST_AUTO_TEST_CASE(TheHostAndProcessMemoryFiguresAreBothInRange) {
 
     // The host's memory, which is a percentage and cannot be outside 0..100 whatever happens.

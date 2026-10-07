@@ -16,8 +16,14 @@ namespace Euclid::Core::Monitoring {
         return collector;
     }
 
-    std::string MonitoringCollector::key(const std::string &name, const std::string &labelName, const std::string &labelValue) {
-        return name + ":" + labelName + ":" + labelValue;
+    std::string MonitoringCollector::key(const std::string &name, const std::string &labelName, const std::string &labelValue,
+                                         const std::map<std::string, std::string> &labels) {
+
+        // std::map iterates in key order, so the same dimensions always produce the same key
+        // whatever order the caller named them in.
+        std::string composed = name + ":" + labelName + ":" + labelValue;
+        for (const auto &[label, value]: labels) composed += ":" + label + "=" + value;
+        return composed;
     }
 
     void MonitoringCollector::Start() {
@@ -28,6 +34,9 @@ namespace Euclid::Core::Monitoring {
         auto &bus = MetricEventBus::instance();
         bus.sigMetricGauge.connect([this](const std::string &name, const std::string &labelName, const std::string &labelValue, const double value) {
             setGauge(name, labelName, labelValue, value);
+        });
+        bus.sigMetricGaugeWithLabels.connect([this](const std::string &name, const std::map<std::string, std::string> &labels, const double value) {
+            setGauge(name, labels, value);
         });
         bus.sigMetricRate.connect([this](const std::string &name, const std::string &labelName, const std::string &labelValue) {
             increment(name, labelName, labelValue);
@@ -43,6 +52,16 @@ namespace Euclid::Core::Monitoring {
         entry.name = name;
         entry.labelName = labelName;
         entry.labelValue = labelValue;
+        entry.sum += value;
+        entry.count++;
+        entry.isRate = false;
+    }
+
+    void MonitoringCollector::setGauge(const std::string &name, const std::map<std::string, std::string> &labels, const double value) {
+        std::lock_guard lock(_mutex);
+        auto &entry = _entries[key(name, {}, {}, labels)];
+        entry.name = name;
+        entry.labels = labels;
         entry.sum += value;
         entry.count++;
         entry.isRate = false;
@@ -76,6 +95,7 @@ namespace Euclid::Core::Monitoring {
             result.push_back({.name = entry.name,
                                .labelName = entry.labelName,
                                .labelValue = entry.labelValue,
+                               .labels = entry.labels,
                                .value = entry.isRate ? entry.sum : entry.sum / static_cast<double>(entry.count),
                                .isRate = entry.isRate});
         }
