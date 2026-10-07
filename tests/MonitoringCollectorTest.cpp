@@ -96,6 +96,52 @@ BOOST_AUTO_TEST_CASE(LabelsSeparateServers) {
     BOOST_TEST(sftp->value == 400.0);
 }
 
+BOOST_AUTO_TEST_CASE(EveryDimensionSeparatesASeries) {
+    drain();
+
+    // A load average needs two: the host says whose it is, the window says which of the three the
+    // kernel reports. Keyed by the single pair alone these collapsed into one entry whose value
+    // was the mean of all three - a number that is not any of the figures measured.
+    auto &bus = MetricEventBus::instance();
+    bus.sigMetricGaugeWithLabels("system-load-average", {{"host", "pi"}, {"interval", "1m"}}, 4.0);
+    bus.sigMetricGaugeWithLabels("system-load-average", {{"host", "pi"}, {"interval", "5m"}}, 2.0);
+    bus.sigMetricGaugeWithLabels("system-load-average", {{"host", "pi"}, {"interval", "15m"}}, 1.0);
+
+    // And the host is a dimension like any other, so two machines are two series per window.
+    bus.sigMetricGaugeWithLabels("system-load-average", {{"host", "desktop"}, {"interval", "1m"}}, 8.0);
+
+    const auto samples = MonitoringCollector::instance().Collect();
+    BOOST_TEST(std::ranges::count(samples, std::string("system-load-average"), &MonitoringCollector::Sample::name) == 4);
+
+    const auto of = [&samples](const std::string &host, const std::string &interval) -> std::optional<double> {
+        const auto it = std::ranges::find_if(samples, [&](const auto &s) {
+            return s.name == "system-load-average" && s.labels.contains("host") && s.labels.at("host") == host
+                   && s.labels.contains("interval") && s.labels.at("interval") == interval;
+        });
+        return it == samples.end() ? std::nullopt : std::optional{it->value};
+    };
+
+    BOOST_TEST(of("pi", "1m").value_or(-1) == 4.0);
+    BOOST_TEST(of("pi", "5m").value_or(-1) == 2.0);
+    BOOST_TEST(of("pi", "15m").value_or(-1) == 1.0);
+    BOOST_TEST(of("desktop", "1m").value_or(-1) == 8.0);
+}
+
+BOOST_AUTO_TEST_CASE(ADimensionedGaugeIsStillAveraged) {
+    drain();
+
+    // The same rule as a single-pair gauge: the mean over the window, not the last value.
+    auto &bus = MetricEventBus::instance();
+    bus.sigMetricGaugeWithLabels("system-cpu-usage", {{"host", "pi"}}, 20.0);
+    bus.sigMetricGaugeWithLabels("system-cpu-usage", {{"host", "pi"}}, 40.0);
+
+    const auto samples = MonitoringCollector::instance().Collect();
+    const auto sample = sampleOf(samples, "system-cpu-usage");
+    BOOST_TEST_REQUIRE(sample.has_value());
+    BOOST_TEST(sample->value == 30.0);
+    BOOST_TEST(!sample->isRate);
+}
+
 BOOST_AUTO_TEST_CASE(GaugeAveragesSamples) {
     drain();
 

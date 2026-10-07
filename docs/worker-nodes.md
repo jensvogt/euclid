@@ -198,6 +198,14 @@ another host; each worker sweeps its own on start-up, the same logic with a diff
 which is correct — they are different hosts — and harmless the moment the record says which host it
 is. Each node allocates within its own range and nothing needs to coordinate. No change beyond §3.4.
 
+A worker reads its own `euclid.worker.http-port-min`..`max`, and the shipped `euclid-wrk.json` now
+carries 9000..9999 — the same range the manager hands its own instances out of, which is right
+because it is a different host. It is a default rather than nothing because a worker with no range
+gives every instance port 0, and `Backends::refresh` drops a portless instance from the rotation:
+the application starts, reports healthy, and is quietly unroutable. The local node is the one worker
+that does not take this default — it shares a host with the manager, so `LocalNode::Provision` gives
+it `euclid.modules.eap.local-node.http-port-min`..`max` (10000..10999) instead.
+
 ## 4. Who decides what
 
 | Decision | Who | Why not the other one |
@@ -487,7 +495,6 @@ worker lacks:
 | Gap | On the manager today |
 |---|---|
 | Running applications on Windows (§11) | `spawnInstance`'s Windows implementation |
-| An HTTP port per instance, and routing to it — the worker reports `httpPort: 0` | port allocation, `applicationEndpoints`, the gateway's backends |
 | Supervision: readiness, restart on crash, `maxRestarts` | `ServiceController`'s module supervision |
 | Application output on `app.<runtimeName>`, and `set-log-level` while it runs (§9) | captured and re-emitted by the manager |
 | Zero-touch setup on the manager's host | nothing to set up |

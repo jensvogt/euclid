@@ -5,6 +5,7 @@
 #pragma once
 
 // C++ includes
+#include <map>
 #include <string>
 
 // Boost includes
@@ -48,6 +49,24 @@ namespace Euclid::Core::Monitoring {
          * mean of N identical values is just that value.
          */
         boost::signals2::signal<void(std::string, std::string, std::string, double)> sigMetricGauge;
+
+        /**
+         * @brief The same gauge, for a measurement that needs more than one dimension to say what
+         * it is: name, labels, value.
+         *
+         * @par
+         * One label pair answers most of them - a timer labelled by method, a figure labelled by
+         * host. A load average needs two, because the host says whose it is and the window says
+         * which of the three the kernel reports it is; recorded under one label they would collide
+         * into a single meaningless series, and recorded as "system-load-average-1m" they would
+         * stop being one series a dashboard can put against itself. EmoServer already records and
+         * accepts dimensions as a map - this is the in-process half that was missing.
+         *
+         * @par
+         * Aggregated exactly as sigMetricGauge is: the mean across the collection period, keyed by
+         * the name and every dimension together.
+         */
+        boost::signals2::signal<void(std::string, std::map<std::string, std::string>, double)> sigMetricGaugeWithLabels;
 
         /**
          * @brief Fired to record one occurrence of a rate-style event: name, labelName, labelValue.

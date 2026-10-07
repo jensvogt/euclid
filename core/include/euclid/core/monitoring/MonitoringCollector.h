@@ -45,6 +45,18 @@ namespace Euclid::Core::Monitoring {
             std::string labelValue;
 
             /**
+             * @brief Dimensions beyond the single pair, for a sample recorded through
+             * MetricEventBus::sigMetricGaugeWithLabels.
+             *
+             * @par
+             * Alongside labelName/labelValue rather than replacing them: every existing producer
+             * records one pair, and the receiving end merges the two spellings into one set of
+             * dimensions - see EmoServer's push-metrics handler. Empty for a sample recorded with
+             * a single pair, which is nearly all of them.
+             */
+            std::map<std::string, std::string> labels;
+
+            /**
              * @brief For a rate metric, the total accumulated since the last Collect() - the
              * number of occurrences, or the sum of the amounts when they were recorded through
              * MetricEventBus::sigMetricCounter. For a gauge metric, the mean of every sample
@@ -75,14 +87,21 @@ namespace Euclid::Core::Monitoring {
 
         void setGauge(const std::string &name, const std::string &labelName, const std::string &labelValue, double value);
 
+        void setGauge(const std::string &name, const std::map<std::string, std::string> &labels, double value);
+
         void increment(const std::string &name, const std::string &labelName, const std::string &labelValue, double amount = 1.0);
 
-        static std::string key(const std::string &name, const std::string &labelName, const std::string &labelValue);
+        // Every dimension, because two samples that differ only in one of them are two series. A
+        // key built from the single pair alone collapsed a load average's three windows into one
+        // entry whose value was the mean of all three.
+        static std::string key(const std::string &name, const std::string &labelName, const std::string &labelValue,
+                               const std::map<std::string, std::string> &labels = {});
 
         struct Entry {
             std::string name;
             std::string labelName;
             std::string labelValue;
+            std::map<std::string, std::string> labels;
             double sum = 0;
             long count = 0;
             bool isRate = false;

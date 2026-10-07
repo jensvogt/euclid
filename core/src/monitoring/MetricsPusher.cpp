@@ -96,13 +96,23 @@ namespace Euclid::Core::Monitoring {
 
         boost::json::array items;
         for (const auto &sample: samples) {
-            items.push_back(boost::json::object{
+            auto item = boost::json::object{
                     {"name", sample.name},
                     {"labelName", sample.labelName},
                     {"labelValue", sample.labelValue},
                     {"value", sample.value},
                     {"type", sample.isRate ? "rate" : "gauge"}
-            });
+            };
+
+            // Only when there are any, so the shape of what nearly every producer sends does not
+            // change. The receiving end merges these with the pair above - see EmoServer's
+            // push-metrics handler, which has taken a map since before anything sent one.
+            if (!sample.labels.empty()) {
+                boost::json::object labels;
+                for (const auto &[label, value]: sample.labels) labels[label] = value;
+                item["labels"] = labels;
+            }
+            items.push_back(std::move(item));
         }
         const auto body = boost::json::serialize(boost::json::object{{"module", _moduleName}, {"items", items}});
 
