@@ -231,8 +231,39 @@ namespace Euclid::Worker {
         // between nodes already running the same number of instances of the application.
         const auto load = Core::SystemUtils::ReadLoadAverage();
 
-        const boost::json::value body{{"node", _options.nodeName},
-                                      {"loadAverage", load.has_value() ? load->oneMinute : 0.0}};
+        boost::json::object body{{"node", _options.nodeName},
+                                 {"loadAverage", load.has_value() ? load->oneMinute : 0.0}};
+
+        // And this machine's own health, for the same reason and by the same route: the monitoring
+        // module reads the host it runs on, which on every host but the manager's is nobody. Sent
+        // with the renewal rather than pushed to EMO directly because emo:push-metrics is
+        // unauthenticated by design - a module-to-module call over a Unix socket - and because the
+        // master labels these with the node it authenticated, so a worker can report its own
+        // figures and never claim to be another host.
+        //
+        // Present only when there is something to read, so the master can tell "idle" from "this
+        // platform has no reading" rather than recording a flat zero for a macOS worker.
+        if (load.has_value()) {
+            body["loadAverage5m"] = load->fiveMinutes;
+            body["loadAverage15m"] = load->fifteenMinutes;
+            if (load->cpuCount > 0) body["cpuCount"] = load->cpuCount;
+        }
+
+        // A percentage needs two readings, so the first renewal after a start only primes it. Kept
+        // on this object rather than in a file-local: two workers in one process would otherwise
+        // corrupt each other's baseline, which is the reason ReadCpuTimes() is stateless.
+        if (const auto cpuTimes = Core::SystemUtils::ReadCpuTimes(); cpuTimes.has_value()) {
+            if (_previousCpuTimes.has_value()) {
+                if (const auto usage = Core::SystemUtils::CpuUsagePercent(*_previousCpuTimes, *cpuTimes); usage.has_value()) {
+                    body["cpuUsage"] = *usage;
+                }
+            }
+            _previousCpuTimes = cpuTimes;
+        }
+
+        if (const auto memory = Core::SystemUtils::ReadSystemMemoryUsagePercent(); memory.has_value()) {
+            body["memoryUsage"] = *memory;
+        }
 
         const auto response = post("eap", "renew-node", body);
 

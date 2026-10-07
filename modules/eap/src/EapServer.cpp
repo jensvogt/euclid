@@ -2111,6 +2111,54 @@ namespace Euclid::EAP {
 
         std::ignore = repository->touchNode(auth.user->accountId, claim.node->name, now, loadAverage);
 
+        // What the node says about its own health, recorded under the same metric names the
+        // monitoring module records the manager's host under - so anything that reads
+        // "system-cpu-usage" gets every host in the installation rather than only the one EMO
+        // happens to run on, which is the whole point of those series being labelled by host.
+        //
+        // Published here rather than pushed by the worker because emo:push-metrics is
+        // unauthenticated by design - a module-to-module call over a Unix socket - and because the
+        // host label is written from the node this request authenticated as. A worker can be wrong
+        // about its own load; it cannot claim to be another machine. EAP runs a MetricsPusher, so
+        // these reach EMO on its next tick like any other module's.
+        //
+        // Each one only when the node sent it: a platform with no reading sends nothing, and a
+        // recorded zero would be indistinguishable from an idle host.
+        {
+            const auto &object = jv.as_object();
+            const auto host = claim.node->name;
+
+            const auto gauge = [&host](const std::string &name, const double value) {
+                Core::Monitoring::MetricEventBus::instance().sigMetricGauge(name, "host", host, value);
+            };
+
+            if (object.contains("cpuUsage")) gauge("system-cpu-usage", object.at("cpuUsage").to_number<double>());
+            if (object.contains("memoryUsage")) gauge("system-memory-usage-percent", object.at("memoryUsage").to_number<double>());
+
+            // Three series labelled by the window they average over, exactly as EmoServer records
+            // them: the host says whose figure it is and the interval says which of the three the
+            // kernel reports, and spiking or subsiding is the difference between them.
+            if (loadAverage > 0.0 || object.contains("loadAverage5m")) {
+                const auto loadGauge = [&host](const std::string &interval, const double value) {
+                    Core::Monitoring::MetricEventBus::instance().sigMetricGaugeWithLabels(
+                            "system-load-average", {{"host", host}, {"interval", interval}}, value);
+                };
+                loadGauge("1m", loadAverage);
+                if (object.contains("loadAverage5m")) loadGauge("5m", object.at("loadAverage5m").to_number<double>());
+                if (object.contains("loadAverage15m")) loadGauge("15m", object.at("loadAverage15m").to_number<double>());
+            }
+
+            // The one-minute figure over the core count, which is the series worth alerting on:
+            // one is the saturation point whatever the hardware. The count the load was read
+            // against if the node sent one, and the count it registered with otherwise.
+            if (const auto cores = object.contains("cpuCount")
+                                           ? static_cast<long>(object.at("cpuCount").to_number<long>())
+                                           : static_cast<long>(claim.node->cpuCount);
+                cores > 0 && loadAverage > 0.0) {
+                gauge("system-load-per-core", loadAverage / static_cast<double>(cores));
+            }
+        }
+
         // Only slots still assigned to this node, which is what makes a partition safe with no
         // extra rule: a worker whose lease lapsed and whose slot was re-placed extends nothing,
         // finds the slot absent below, and stops the process.

@@ -267,6 +267,21 @@ namespace Euclid::Core {
 #endif
     }
 
+    std::optional<double> SystemUtils::CpuUsagePercent(const CpuTimes &previous, const CpuTimes &current) {
+
+        // Unsigned, and the counters only go up - but a reading taken across a suspend, or from a
+        // host whose /proc was re-read after a counter wrap, can come back lower. Subtracting then
+        // would give an enormous positive number rather than a negative one, so it is refused
+        // rather than reported.
+        if (current.total <= previous.total || current.idle < previous.idle) return std::nullopt;
+
+        const auto totalDelta = current.total - previous.total;
+        const auto idleDelta = current.idle - previous.idle;
+        if (idleDelta > totalDelta) return std::nullopt;
+
+        return 100.0 * static_cast<double>(totalDelta - idleDelta) / static_cast<double>(totalDelta);
+    }
+
     std::optional<SystemUtils::CpuTimes> SystemUtils::ReadCpuTimes() {
 #ifdef __linux__
         std::ifstream stat("/proc/stat");

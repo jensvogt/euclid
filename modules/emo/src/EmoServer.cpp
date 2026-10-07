@@ -514,15 +514,16 @@ namespace Euclid::Monitoring {
         // readings.
         if (!previous.has_value()) return;
 
-        const auto totalDelta = current->total - previous->total;
-        const auto idleDelta = current->idle - previous->idle;
-        if (totalDelta == 0) return;
+        // The arithmetic is Core::SystemUtils::CpuUsagePercent's, because a worker reporting its
+        // own host's figure with its heartbeat does the same sum - and two copies of it is how the
+        // two hosts would come to disagree on a dashboard that shows them together.
+        const auto usage = Core::SystemUtils::CpuUsagePercent(*previous, *current);
+        if (!usage.has_value()) return;
 
         // Recorded as a sample rather than written straight out, so CPU usage is bucket-aligned
         // and carries a sample count and a min/max like every other metric, and so the rollups
         // can aggregate it at all.
-        const auto usage = 100.0 * static_cast<double>(totalDelta - idleDelta) / static_cast<double>(totalDelta);
-        recordSample("system-cpu-usage", "host", Core::SystemUtils::GetHostName(), usage, MetricType::GAUGE);
+        recordSample("system-cpu-usage", "host", Core::SystemUtils::GetHostName(), *usage, MetricType::GAUGE);
     }
 
     void EmoServer::collectSystemLoad() {
