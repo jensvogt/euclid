@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.17](https://github.com/jensvogt/euclid/compare/1.2.16...v1.2.17) (2026-10-07)
+
+
+### Bug Fixes
+
+* new certs during startup ([121d21f](https://github.com/jensvogt/euclid/commit/121d21fcacbdaa726af7865b9aab317aa2f73847))
+* new certs during startup ([72b4c9b](https://github.com/jensvogt/euclid/commit/72b4c9b41f2c244070437a9fc1f4823b53fe3ffb))
+
 ## [1.2.16](https://github.com/jensvogt/euclid/compare/1.2.15...v1.2.16) (2026-10-06)
 
 
