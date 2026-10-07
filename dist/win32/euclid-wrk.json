@@ -4,6 +4,7 @@
       "endpoint": "https://euclid.example:5566",
       "ca-cert": "",
       "address": "",
+      "monitoring-active": true,
       "http-port-min": 9000,
       "http-port-max": 9999,
       "runtimes": {
