@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.2.19](https://github.com/jensvogt/euclid/compare/1.2.18...v1.2.19) (2026-10-08)
+
+
+### Bug Fixes
+
+* ekv permissions ([5d39de2](https://github.com/jensvogt/euclid/commit/5d39de25088c6919b318dad88cbb8b7251d46b56))
+
+## [1.2.18](https://github.com/jensvogt/euclid/compare/1.2.17...v1.2.18) (2026-10-07)
+
+
+### Bug Fixes
+
+* worker monitoring ([c553f98](https://github.com/jensvogt/euclid/commit/c553f98c24643490095d300c137078db58cfba4b))
+* worker monitoring ([4e869fa](https://github.com/jensvogt/euclid/commit/4e869fa598b4aa082c390087d7dccd926f26949c))
+
+## [1.2.17](https://github.com/jensvogt/euclid/compare/1.2.16...v1.2.17) (2026-10-07)
+
+
+### Bug Fixes
+
+* new certs during startup ([121d21f](https://github.com/jensvogt/euclid/commit/121d21fcacbdaa726af7865b9aab317aa2f73847))
+* new certs during startup ([72b4c9b](https://github.com/jensvogt/euclid/commit/72b4c9b41f2c244070437a9fc1f4823b53fe3ffb))
+
+## [1.2.16](https://github.com/jensvogt/euclid/compare/1.2.15...v1.2.16) (2026-10-06)
+
+
+### Bug Fixes
+
+* get an application placed on a worker node started ([049c3f8](https://github.com/jensvogt/euclid/commit/049c3f897444f38b2b7edd439d713c70c7c5ea84))
+* worker on local host ([8e1e179](https://github.com/jensvogt/euclid/commit/8e1e179a47f40421ef66d25872275b07ba0f7d23))
+
 ## [1.2.15](https://github.com/jensvogt/euclid/compare/v1.2.14...v1.2.15) (2026-10-06)
 
 

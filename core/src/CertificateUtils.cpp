@@ -9,6 +9,8 @@
 // C++ includes
 #include <cstring>
 #include <ctime>
+#include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <memory>
 #include <sstream>
@@ -280,6 +282,75 @@ namespace Euclid::Core {
         if (!key) return false;
 
         return X509_check_private_key(certificate.get(), key.get()) == 1;
+    }
+
+    namespace {
+
+        std::string readFile(const std::filesystem::path &path) {
+            std::ifstream in(path, std::ios::binary);
+            std::ostringstream buffer;
+            buffer << in.rdbuf();
+            return buffer.str();
+        }
+
+        void writeFile(const std::filesystem::path &path, const std::string &content, const bool ownerOnly) {
+
+            std::error_code ec;
+            if (path.has_parent_path()) std::filesystem::create_directories(path.parent_path(), ec);
+
+            std::ofstream out(path, std::ios::binary | std::ios::trunc);
+            if (!out || !(out << content) || !out.flush()) throw std::runtime_error("Could not write " + path.string());
+            out.close();
+
+#ifndef _WIN32
+            // Before anything else could read it would be better still, but the window is between
+            // two calls of this process, in a directory only its own account writes to. Windows
+            // has no mode bits to set: the key is protected by the directory's ACL.
+            if (ownerOnly) {
+                std::filesystem::permissions(path, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
+                                             std::filesystem::perm_options::replace, ec);
+            }
+#else
+            (void) ownerOnly;
+#endif
+        }
+
+    }// namespace
+
+    ServerCertificateResult CertificateUtils::EnsureServerCertificate(const std::string &certificateFile, const std::string &keyFile,
+                                                                      const std::string &commonName,
+                                                                      const std::vector<std::string> &subjectAltNames) {
+
+        ServerCertificateResult result;
+
+        std::error_code ec;
+        const bool haveCertificate = std::filesystem::exists(certificateFile, ec);
+        const bool haveKey = std::filesystem::exists(keyFile, ec);
+
+        if (haveCertificate && haveKey) {
+            result.info = Inspect(readFile(certificateFile));
+            if (!result.info.has_value() || !result.info->subjectAltNames.empty()) return result;
+
+            // Names no host at all. Moved rather than deleted, because it is still the file every
+            // worker was given as its CA, and somebody may want to compare.
+            result.action = ServerCertificateResult::Action::Replaced;
+            result.backupFile = certificateFile + ".no-san";
+            std::filesystem::rename(certificateFile, result.backupFile, ec);
+            if (ec) throw std::runtime_error("Could not move " + certificateFile + " aside: " + ec.message());
+            std::filesystem::rename(keyFile, keyFile + ".no-san", ec);
+        } else {
+            result.action = ServerCertificateResult::Action::Generated;
+        }
+
+        const auto generated = GenerateSelfSigned(commonName, subjectAltNames);
+
+        // The key first: a certificate without its key is a listener that cannot start, while a
+        // key without its certificate is regenerated over on the next start.
+        writeFile(keyFile, generated.privateKey, true);
+        writeFile(certificateFile, generated.certificate, false);
+
+        result.info = Inspect(generated.certificate);
+        return result;
     }
 
 }// namespace Euclid::Core

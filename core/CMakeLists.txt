@@ -21,5 +21,6 @@ if (WIN32)
     # SystemUtils::ReadProcessorQueueLength() reads "\System\Processor Queue Length" through - the
     # Windows stand-in for a load average, and the one figure EMO collects that has no Win32 call.
     # Psapi provides GetProcessMemoryInfo() for SystemUtils::ReadMemoryUsage().
-    target_link_libraries(${LIBRARY} PRIVATE Pdh Psapi)
+    # Iphlpapi provides GetAdaptersAddresses() for SystemUtils::GetLocalAddresses().
+    target_link_libraries(${LIBRARY} PRIVATE Pdh Psapi Iphlpapi)
 endif ()

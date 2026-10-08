@@ -64,8 +64,9 @@ EMD module, so there is no database to set up and nothing is left behind when th
 docker run --name euclid -p 5566:5566 -p 2121:2121 -p 8080:8080 jensvogt/euclid:latest
 ```
 
-The CLI ships inside the image. The gateway serves HTTPS with a self-signed certificate, so point the
-client at it once and give the rest of the session a short name:
+The CLI ships inside the image. The gateway serves HTTPS with a self-signed certificate the manager
+generates for the container on its first start, so point the client at it once and give the rest of
+the session a short name:
 
 ```bash
 alias ec='docker exec -i euclid euclid-cli --ca-cert /usr/local/euclid/etc/euclid_cert.crt'
@@ -251,7 +252,8 @@ It registers and starts the `euclid` service. Installing a newer package over an
 installation upgrades it in place: the service is stopped, the binaries and the web frontend are
 replaced, and `etc\euclid.json`, the TLS certificate, its key and the SSH host key are left exactly
 as they are — an installation's configuration and its identity belong to the installation, not to
-the package. Whatever is under `data\` is untouched, by an upgrade and by an uninstall alike.
+the package. The one exception is a gateway certificate that names no host at all, which is what
+releases up to 1.2.16 shipped: the manager moves it aside and generates one for this host. Whatever is under `data\` is untouched, by an upgrade and by an uninstall alike.
 
 ### The CLI on its own
 
@@ -472,6 +474,8 @@ Every process reads the same JSON config (`--config <path>`, default
 | Setting                                         | Default                      | Purpose                                                                                                                                                                                 |
 |-------------------------------------------------|------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `euclid.gateway.http.port`                      | 5566                         | Gateway HTTP(S) entry point                                                                                                                                                             |
+| `euclid.gateway.tls.cert-file` / `key-file`     | `etc/euclid_cert.crt` / `.key` | The gateway's certificate and key. Generated on first start when missing, self-signed, for this host's name, every address on its interfaces and loopback - copy the certificate to every worker, where `euclid.worker.ca-cert` points. A certificate naming no host is replaced the same way; any other is left alone |
+| `euclid.gateway.tls.alt-names`                  | `[]`                         | Further host names and addresses a generated certificate is valid for - a DNS alias, an address behind NAT, the host's address for a container                                       |
 | `euclid.gateway.websocket.enabled`              | true                         | Accept websocket upgrades on the gateway HTTP(S) port                                                                                                                                   |
 | `euclid.gateway.websocket.max-message-size`     | 1048576                      | Max inbound websocket frame size, in bytes                                                                                                                                              |
 | `euclid.gateway.websocket.idle-timeout-seconds` | 300                          | Websocket ping/pong idle timeout                                                                                                                                                        |
