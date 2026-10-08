@@ -389,6 +389,7 @@ namespace Euclid::CLI {
         };
         return kActions;
     }
+
     int EamCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
             return PrintModuleHelp("eam", Actions());
@@ -567,7 +568,7 @@ namespace Euclid::CLI {
                 // anyway has usually decided that already - in a script, or on a machine only they
                 // use - and that is their call to make.
                 std::cerr << "note: a password on the command line is visible in your shell history and the process list;"
-                             " EUCLID_ONELOGIN_PASSWORD avoids both\n";
+                        " EUCLID_ONELOGIN_PASSWORD avoids both\n";
             }
             return loginWithOneLogin(nameSpace,
                                      vm.contains("application") ? vm["application"].as<std::string>() : std::string{},
@@ -626,7 +627,7 @@ namespace Euclid::CLI {
             const HttpResponse authorizeResponse = client.Post("eam", "oidc-authorize", boost::json::value_from(authorizeRequest));
             if (!authorizeResponse.IsSuccess()) {
                 std::cerr << "error: could not start the OIDC login (HTTP " << authorizeResponse.statusCode << "): "
-                          << boost::json::serialize(authorizeResponse.body) << std::endl;
+                        << boost::json::serialize(authorizeResponse.body) << std::endl;
                 return 1;
             }
 
@@ -639,7 +640,7 @@ namespace Euclid::CLI {
             // Printed before the browser is opened, and printed whether or not opening it works:
             // on a machine without one - over ssh, in a container - this line is the whole flow.
             std::cerr << "Opening your browser to sign in. If it does not open, go to:\n\n  "
-                      << authorization.authorizationUrl << "\n\nWaiting for the callback ...\n";
+                    << authorization.authorizationUrl << "\n\nWaiting for the callback ...\n";
             openBrowser(authorization.authorizationUrl);
 
             CallbackListener::Callback callback;
@@ -694,7 +695,7 @@ namespace Euclid::CLI {
             const HttpResponse authorizeResponse = client.Post("eam", "saml-authorize", request);
             if (!authorizeResponse.IsSuccess()) {
                 std::cerr << "error: could not start the SAML login (HTTP " << authorizeResponse.statusCode << "): "
-                          << boost::json::serialize(authorizeResponse.body) << std::endl;
+                        << boost::json::serialize(authorizeResponse.body) << std::endl;
                 return 1;
             }
 
@@ -705,7 +706,7 @@ namespace Euclid::CLI {
             }
 
             std::cerr << "Opening your browser to sign in. If it does not open, go to:\n\n  "
-                      << authentication.authenticationUrl << "\n\nWaiting for the callback ...\n";
+                    << authentication.authenticationUrl << "\n\nWaiting for the callback ...\n";
             openBrowser(authentication.authenticationUrl);
 
             CallbackListener::Callback callback;
@@ -774,8 +775,9 @@ namespace Euclid::CLI {
             const auto assertion = client.SamlAssertion(
                     password, oneTimeCode,
                     [](const std::string &deviceType) {
-                        return readLine(deviceType.empty() ? "OneLogin one-time code: "
-                                                           : "OneLogin one-time code (" + deviceType + "): ");
+                        return readLine(deviceType.empty()
+                                            ? "OneLogin one-time code: "
+                                            : "OneLogin one-time code (" + deviceType + "): ");
                     },
                     [](const std::vector<OneLoginClient::Device> &devices) -> std::size_t {
                         // Listed rather than guessed at. Which of somebody's authenticators comes
@@ -810,12 +812,12 @@ namespace Euclid::CLI {
                 }
 
                 std::cout << "What the assertion says (unverified - this is what the document claims):\n\n"
-                          << "  euclid.modules.eam.saml.idp-entity-id : " << description->issuer << "\n"
-                          << "  euclid.modules.eam.saml.entity-id     : " << description->audience << "\n"
-                          << "  euclid.modules.eam.saml.acs-url       : " << description->recipient << "\n\n"
-                          << "  subject                               : " << description->nameId << "\n"
-                          << "  valid until                           : " << description->notOnOrAfter << "\n"
-                          << "  signed                                : " << (description->hasSignature ? "yes" : "no") << "\n";
+                        << "  euclid.modules.eam.saml.idp-entity-id : " << description->issuer << "\n"
+                        << "  euclid.modules.eam.saml.entity-id     : " << description->audience << "\n"
+                        << "  euclid.modules.eam.saml.acs-url       : " << description->recipient << "\n\n"
+                        << "  subject                               : " << description->nameId << "\n"
+                        << "  valid until                           : " << description->notOnOrAfter << "\n"
+                        << "  signed                                : " << (description->hasSignature ? "yes" : "no") << "\n";
 
                 if (!description->attributes.empty()) {
                     std::cout << "\n  attributes (for saml.username-attribute / saml.email-attribute):\n";
@@ -823,7 +825,7 @@ namespace Euclid::CLI {
                 }
 
                 std::cout << "\nThe signing certificate is not in the assertion; take it from the application's SSO tab\n"
-                             "in OneLogin and point saml.idp-certificate-file at it.\n";
+                        "in OneLogin and point saml.idp-certificate-file at it.\n";
                 return 0;
             }
 
@@ -835,14 +837,14 @@ namespace Euclid::CLI {
             const HttpResponse response = euclid.Post("eam", "saml-acs", request);
             if (!response.IsSuccess()) {
                 std::cerr << "error: euclid refused the assertion (HTTP " << response.statusCode << "): "
-                          << boost::json::serialize(response.body) << std::endl;
+                        << boost::json::serialize(response.body) << std::endl;
 
                 // The one refusal worth explaining, because it is a setting rather than a mistake:
                 // an assertion fetched this way answers no request euclid made.
                 if (boost::json::serialize(response.body).find("Unsolicited logins are not enabled") != std::string::npos) {
                     std::cerr << "\nAn assertion fetched through OneLogin's API is unsolicited by definition - there is no\n"
-                                 "login request from euclid for it to answer. Set euclid.modules.eam.saml.allow-idp-initiated\n"
-                                 "to true on the server to accept these.\n";
+                            "login request from euclid for it to answer. Set euclid.modules.eam.saml.allow-idp-initiated\n"
+                            "to true on the server to accept these.\n";
                 }
                 return 1;
             }
@@ -1041,7 +1043,7 @@ namespace Euclid::CLI {
         // passes one anyway is usually in a script and has already decided.
         if (vm.contains("old-password") || vm.contains("new-password")) {
             std::cerr << "note: a password on the command line is visible in your shell history and the process list;"
-                         " leaving it out asks for it at the terminal instead\n";
+                    " leaving it out asks for it at the terminal instead\n";
         }
 
         std::string oldPassword = vm.contains("old-password") ? vm["old-password"].as<std::string>() : std::string{};
@@ -1145,7 +1147,7 @@ namespace Euclid::CLI {
             // that reads as the server having gone wrong.
             if (request.userId == _authentication.userId) {
                 std::cerr << "note: you renamed yourself; log in again as '" << request.newUserId
-                          << "' - the session this used names the old id\n";
+                        << "' - the session this used names the old id\n";
             }
             return 0;
         } catch (const std::exception &ex) {
@@ -1345,12 +1347,14 @@ namespace Euclid::CLI {
     int EamCli::addUserToUserGroup(const std::vector<std::string> &args) const {
         po::options_description desc("eam add user to user group options");
         desc.add_options()
-                ("user-group,g", po::value<std::string>()->required(), "user group ERN")
-                ("user,u", po::value<std::string>()->required(), "user ERN");
+                ("user-group,g", po::value<std::string>()->required(), "user group, by name or ERN")
+                ("user,u", po::value<std::string>()->required(), "user, by id or ERN");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eam", "user-group-add-user", "--user-group <ERN> --user <ERN>",
-                                   "Adds a user to a user group. User group ERN and user ERN are required.",
+            return PrintActionHelp("eam", "user-group-add-user", "--user-group <name|ERN> --user <id|ERN>",
+                                   "Adds a user to a user group. Both take either spelling: the name and user id that "
+                                   "\"eam list-user-groups\" and \"eam list-users\" show, or the full ERN of each. A "
+                                   "value beginning \"ern:\" is read as an ERN and anything else as a name.",
                                    desc);
         }
 
@@ -1369,9 +1373,8 @@ namespace Euclid::CLI {
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
-            const HttpResponse response = client.Post("eam", "user-group-add-user", boost::json::value_from(request));
 
-            if (!response.IsSuccess()) {
+            if (const HttpResponse response = client.Post("eam", "user-group-add-user", boost::json::value_from(request)); !response.IsSuccess()) {
                 reportFailure("user-group-add-user", response);
                 return 1;
             }
@@ -1385,12 +1388,13 @@ namespace Euclid::CLI {
     int EamCli::removeUserFromUserGroup(const std::vector<std::string> &args) const {
         po::options_description desc("eam remove user from a user group options");
         desc.add_options()
-                ("user-group,g", po::value<std::string>()->required(), "user group ERN")
-                ("user,u", po::value<std::string>()->required(), "user ERN");
+                ("user-group,g", po::value<std::string>()->required(), "user group, by name or ERN")
+                ("user,u", po::value<std::string>()->required(), "user, by id or ERN");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eam", "user-group-remove-user", "--user-group <ERN> --user <ERN>",
-                                   "Removes a user from a user group. User group ERN and user ERN are required.",
+            return PrintActionHelp("eam", "user-group-remove-user", "--user-group <name|ERN> --user <id|ERN>",
+                                   "Removes a user from a user group. Both take either spelling: the name and user id "
+                                   "that \"eam list-user-groups\" and \"eam list-users\" show, or the full ERN of each.",
                                    desc);
         }
 
@@ -1838,7 +1842,7 @@ namespace Euclid::CLI {
         po::options_description desc("eam create-role options");
         desc.add_options()
                 ("name,n", po::value<std::string>()->required(), "role name, unique within your account")
-                ("permission,p", po::value<std::vector<std::string>>()->multitoken()->required(),
+                ("permission,p", po::value<std::vector<std::string> >()->multitoken()->required(),
                  "a permission the role grants, as <module>:<action>, <module>:* or *:*; repeat for several")
                 ("description,d", po::value<std::string>()->default_value(""), "what the role is for");
 
@@ -1863,7 +1867,7 @@ namespace Euclid::CLI {
         Dto::EAM::CreateRoleRequest request;
         request.name = vm["name"].as<std::string>();
         request.description = vm["description"].as<std::string>();
-        request.permissions = vm["permission"].as<std::vector<std::string>>();
+        request.permissions = vm["permission"].as<std::vector<std::string> >();
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
@@ -1886,7 +1890,7 @@ namespace Euclid::CLI {
         po::options_description desc("eam update-role options");
         desc.add_options()
                 ("name,n", po::value<std::string>()->required(), "role name")
-                ("permission,p", po::value<std::vector<std::string>>()->multitoken()->required(),
+                ("permission,p", po::value<std::vector<std::string> >()->multitoken()->required(),
                  "the role's permissions after this call; repeat for several")
                 ("description,d", po::value<std::string>()->default_value(""), "what the role is for");
 
@@ -1911,7 +1915,7 @@ namespace Euclid::CLI {
         Dto::EAM::UpdateRoleRequest request;
         request.name = vm["name"].as<std::string>();
         request.description = vm["description"].as<std::string>();
-        request.permissions = vm["permission"].as<std::vector<std::string>>();
+        request.permissions = vm["permission"].as<std::vector<std::string> >();
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
@@ -2168,9 +2172,9 @@ namespace Euclid::CLI {
                 ("role,o", po::value<std::string>()->required(), "role name; a built-in name also works")
                 ("principal,p", po::value<std::string>()->required(),
                  "who gets it: a user ERN or a user-group ERN - the ERN says which")
-                ("namespace,e", po::value<std::vector<std::string>>()->multitoken()->default_value({"*"}, "*"),
+                ("namespace,e", po::value<std::vector<std::string> >()->multitoken()->default_value({"*"}, "*"),
                  "namespaces it applies in; * means every namespace of the account")
-                ("resource,u", po::value<std::vector<std::string>>()->multitoken()->default_value({"*"}, "*"),
+                ("resource,u", po::value<std::vector<std::string> >()->multitoken()->default_value({"*"}, "*"),
                  "ERN patterns it applies to, each exact or ending in *; * means every resource")
                 ("account,a", po::value<std::string>()->default_value(""),
                  "account to grant in; your own unless given, and naming another needs administrator rights on it");
@@ -2198,8 +2202,8 @@ namespace Euclid::CLI {
         request.role = vm["role"].as<std::string>();
         request.accountId = vm["account"].as<std::string>();
         request.principal = vm["principal"].as<std::string>();
-        request.namespaces = vm["namespace"].as<std::vector<std::string>>();
-        request.resources = vm["resource"].as<std::vector<std::string>>();
+        request.namespaces = vm["namespace"].as<std::vector<std::string> >();
+        request.resources = vm["resource"].as<std::vector<std::string> >();
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);

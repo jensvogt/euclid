@@ -243,6 +243,24 @@ BOOST_AUTO_TEST_CASE(ApplicationIsPublisherAndConsumerPlusObjects) {
 // first. The queue is therefore part of the application and its whole life is the application's to
 // manage. euclid-spring's listener container does exactly this on startup and shutdown, and throws
 // if it cannot, so an application missing any of these does not start at all.
+// An application behind EAG treats euclid as its identity provider: the gateway states who the
+// caller is in x-euclid-user-id, and the application maps that caller's euclid groups onto its own
+// roles. Without the lookup it cannot authorise anybody, so every request through the gateway is
+// answered 401 by the application - a failure that reads as an authentication problem and is not
+// one.
+BOOST_AUTO_TEST_CASE(ApplicationCanResolveTheRolesOfItsCaller) {
+
+    BOOST_TEST(grants(BuiltinRoles::Application, "eam:list-user-groups"));
+
+    // Reading, and nothing more. An application that can see which groups exist must not be able to
+    // put itself in one, invent one, or read the users behind them - which is the difference
+    // between resolving a caller's roles and administering the installation.
+    BOOST_TEST(!grants(BuiltinRoles::Application, "eam:create-user-group"));
+    BOOST_TEST(!grants(BuiltinRoles::Application, "eam:delete-user-group"));
+    BOOST_TEST(!grants(BuiltinRoles::Application, "eam:user-group-add-user"));
+    BOOST_TEST(!grants(BuiltinRoles::Application, "eam:list-users"));
+}
+
 BOOST_AUTO_TEST_CASE(ApplicationOwnsTheDeliveryQueueItConsumesThrough) {
 
     BOOST_TEST(grants(BuiltinRoles::Application, "eqs:create-queue"));
