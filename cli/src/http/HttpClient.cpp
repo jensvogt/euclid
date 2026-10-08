@@ -199,6 +199,25 @@ namespace Euclid::CLI {
                 throw std::runtime_error("failed to set TLS server name for " + host);
             }
             stream.set_verify_mode(ssl::verify_peer);
+
+            // And issued for the host this connects to, not merely signed by something trusted.
+            // Without it any certificate the CA file vouches for was accepted for any address -
+            // which is also how a gateway certificate naming nothing at all went unnoticed here
+            // while every Java application on a worker refused it. An IP-literal endpoint is
+            // matched against the certificate's IP alternative names, without the brackets an
+            // IPv6 URL host carries.
+            //
+            // OpenSSL's own check rather than asio's host_name_verification callback, because a
+            // mismatch then shows in SSL_get_verify_result and can be said as such below, instead
+            // of as the bare "certificate verify failed" every other trust failure also produces.
+            const auto verifyHost = host.size() > 2 && host.front() == '[' && host.back() == ']' ? host.substr(1, host.size() - 2) : host;
+            X509_VERIFY_PARAM *verifyParam = SSL_get0_param(stream.native_handle());
+            X509_VERIFY_PARAM_set_hostflags(verifyParam, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+            if (X509_VERIFY_PARAM_set1_ip_asc(verifyParam, verifyHost.c_str()) != 1
+                && X509_VERIFY_PARAM_set1_host(verifyParam, verifyHost.c_str(), 0) != 1) {
+                throw std::runtime_error("failed to set the TLS host to verify for " + host);
+            }
+
             beast::get_lowest_layer(stream).expires_after(kTimeout);
 
             beast::error_code opEc;
@@ -229,6 +248,9 @@ namespace Euclid::CLI {
 
             ioc.run();
 
+            // Read before the socket goes, while the SSL object still holds the handshake's result.
+            const auto verifyResult = SSL_get_verify_result(stream.native_handle());
+
             // Deliberately does NOT call stream.shutdown() here (the SSL "close_notify"
             // handshake): unlike every other operation on this stream, that overload is
             // *synchronous* and, per this function's opening comment, is NOT covered by
@@ -241,6 +263,10 @@ namespace Euclid::CLI {
             // what the peer does.
             beast::get_lowest_layer(stream).close();
 
+            if (opEc && (verifyResult == X509_V_ERR_HOSTNAME_MISMATCH || verifyResult == X509_V_ERR_IP_ADDRESS_MISMATCH)) {
+                throw std::runtime_error("the server's TLS certificate is not issued for " + verifyHost
+                                         + " - reissue it with " + verifyHost + " among its subject alternative names");
+            }
             if (opEc) throw boost::system::system_error(opEc);
             return response;
         }

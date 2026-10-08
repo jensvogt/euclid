@@ -98,6 +98,34 @@ namespace Euclid::Core {
     };
 
     /**
+     * @brief What CertificateUtils::EnsureServerCertificate() found, and what it did about it.
+     */
+    struct ServerCertificateResult {
+
+        enum class Action {
+            /** The files were there and usable, and were left alone. */
+            Kept,
+            /** There was no certificate, and one was generated. */
+            Generated,
+            /** There was a certificate naming no host at all; it was moved aside and replaced. */
+            Replaced
+        };
+
+        Action action{Action::Kept};
+
+        /**
+         * @brief The certificate now in place, or nothing if what was kept does not parse - which
+         * is left for the listener to fail on, since it is somebody's own file.
+         */
+        std::optional<CertificateInfo> info;
+
+        /**
+         * @brief Where the replaced certificate was moved to, for Action::Replaced.
+         */
+        std::string backupFile;
+    };
+
+    /**
      * @brief Generates, reads and checks the X.509 certificates euclid terminates TLS with.
      *
      * @par
@@ -160,6 +188,34 @@ namespace Euclid::Core {
          */
         [[nodiscard]]
         static bool KeyMatches(const std::string &certificatePem, const std::string &privateKeyPem);
+
+        /**
+         * @brief Makes sure a server certificate and its key exist, generating them if not.
+         *
+         * @par
+         * What lets a package ship no certificate. Every installation used to carry the same one,
+         * private key included - so anyone holding a copy of a release could stand in for any
+         * gateway still using it - and it named no host, which every client that checks host
+         * names refuses. This gives each host its own on first start instead.
+         *
+         * @par
+         * A certificate is generated when the certificate or the key file is missing. One that
+         * exists but carries no subject alternative names at all is replaced too, after being
+         * moved aside to "<file>.no-san": no current client accepts it for any host, so it cannot
+         * be what anybody relies on - and it is what an installation upgraded from a release
+         * that shipped one still has. Anything else is left alone: a certificate an operator put
+         * there is theirs, whatever it says.
+         *
+         * @param certificateFile where the PEM certificate is, or is to be written.
+         * @param keyFile where the PEM private key is, or is to be written; owner-readable only.
+         * @param commonName subject common name for a generated certificate.
+         * @param subjectAltNames the names a generated certificate is valid for.
+         * @return what was found and done.
+         * @throws std::runtime_error if a certificate is needed and cannot be generated or written.
+         */
+        static ServerCertificateResult EnsureServerCertificate(const std::string &certificateFile, const std::string &keyFile,
+                                                               const std::string &commonName,
+                                                               const std::vector<std::string> &subjectAltNames);
     };
 
 }// namespace Euclid::Core
