@@ -743,6 +743,44 @@ namespace Euclid::main {
         void applyBacklog(ServiceGroup &group, long pending, long reporting,
                           std::chrono::steady_clock::time_point now);
 
+        /**
+         * @brief The same arithmetic for an application a worker runs, which has no pool here to
+         *        keep the answer on.
+         *
+         * @par
+         * applyBacklog() writes the target onto the ServiceGroup, because for a module the pool and
+         * the processes are the same thing and evaluateScaling() reads it back on the next tick.
+         * Since §13.4 an application is a worker's to run, so the manager holds no group for one -
+         * getGroup() returns nothing and the load that was just reported had nowhere to go. Every
+         * application sat at its floor however deep its queues were, which is what this restores.
+         *
+         * @param module the application's module record, for its name and its instance bounds.
+         * @param pending messages waiting, summed over the instances that reported.
+         * @param reporting how many instances that sum came from.
+         */
+        void applyNodeApplicationBacklog(const Database::Entity::Module &module, long pending, long reporting);
+
+        /**
+         * @brief How many instances a node-run application should have this tick: its floor until
+         *        a backlog asks for more.
+         *
+         * @param application the definition, for its own floor and ceiling.
+         * @param runtimeName what the pool is keyed by.
+         */
+        [[nodiscard]] long nodeApplicationTarget(const Database::Entity::EAP::Application &application,
+                                                 const std::string &runtimeName) const;
+
+        /**
+         * @brief What a backlog last asked for, per node-run application, keyed by runtime name.
+         *
+         * @par
+         * The ServiceGroup::desiredCount of an application the manager does not run. Held here
+         * rather than on the module record because it is this process's running estimate and not a
+         * fact about the application - a manager that restarts should begin from the floor and let
+         * the next load report raise it again, rather than inherit a target nobody is measuring.
+         */
+        std::map<std::string, int> _nodeApplicationTargets;
+
 
         /**
          * @brief Maintains a collection of service module pools managed by the system, keyed by module name.
