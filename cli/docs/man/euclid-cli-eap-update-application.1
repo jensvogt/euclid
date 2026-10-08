@@ -13,6 +13,7 @@ euclid-cli-eap-update-application \- change an application's definition
 [\fB\-\-environment\fR|\fB\-e\fR \fILIST\fR]
 [\fB\-\-buckets\fR \fILIST\fR]
 [\fB\-\-queues\fR \fILIST\fR]
+[\fB\-\-node\-labels\fR \fILIST\fR]
 [\fB\-\-min\-instances\fR \fIN\fR]
 [\fB\-\-max\-instances\fR \fIN\fR]
 [\fB\-\-ready\-timeout\fR \fIMS\fR]
@@ -106,6 +107,13 @@ enforced where a request is served rather than where a process starts.
 Comma-separated queue names the application may use; replaces the
 current list.
 .TP
+.B \-\-node\-labels " " \fILIST\fR
+Comma-separated \fIkey=value\fR labels a worker node must carry to be
+given the application, for example \fBos=windows\fR; replaces the current
+set. An empty string clears it, so the application may be placed on any
+node again. See
+.BR euclid-cli-eap-create-application (1).
+.TP
 .B \-\-min\-instances " " \fIN\fR
 Smallest number of instances the autoscaler keeps running.
 .TP
@@ -139,6 +147,14 @@ Let it scale further:
 .RS
 .nf
 euclid-cli eap update-application --application-id inbox --max-instances 8
+.fi
+.RE
+.PP
+Run it on Windows workers only, and later anywhere again:
+.RS
+.nf
+euclid-cli eap update-application --application-id inbox --node-labels os=windows
+euclid-cli eap update-application --application-id inbox --node-labels ""
 .fi
 .RE
 .SH SEE ALSO

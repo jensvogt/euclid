@@ -161,27 +161,35 @@
                 </Directory>
 
                 <!-- ── Configuration and keys ────────────────────────────────────────────────
-                     NeverOverwrite, all four: an installation's configuration and its identity
+                     The gateway certificate and its key are not shipped: every installation used to
+                     get the same pair, key included, so anyone holding a release could impersonate
+                     any gateway still using it - and it named no host, which every client checking
+                     host names refuses. The manager generates a certificate for this host on its
+                     first start instead (ensureGatewayCertificate in main.cpp), and replaces one
+                     left behind by an older release, which is still here because its components
+                     were Permanent.
+
+                     NeverOverwrite, both: an installation's configuration and its identity
                      belong to the installation, not to the package. An upgrade that replaced
                      euclid.json would undo every path, port and account id the host had been
-                     given, and one that replaced the certificate or the SSH host key would break
-                     every client that trusts them - a pinned CA certificate, an SFTP client's
-                     known_hosts entry.
+                     given, and one that replaced the SSH host key would break every client that
+                     trusts it - an SFTP client's known_hosts entry.
 
-                     Permanent, all four, and that is not belt-and-braces: NeverOverwrite on its own
+                     Permanent, both, and that is not belt-and-braces: NeverOverwrite on its own
                      deletes exactly what it is there to protect. MajorUpgrade schedules
                      RemoveExistingProducts afterInstallValidate, at sequence 1401 - but component
                      states are decided at CostFinalize, 1000, while the old version's files are
                      still on disk. NeverOverwrite sees the key path present and marks the component
                      "do not install"; RemoveExistingProducts then deletes it as part of uninstalling
                      the old product; InstallFiles at 4000 honours the decision already taken and
-                     writes nothing. The upgrade ends with no euclid.json, no certificate and no key,
-                     and a service that exits 1 on the next start because it has no configuration to
+                     writes nothing. The upgrade ends with no euclid.json and no SSH host key, and a
+                     service that exits 1 on the next start because it has no configuration to
                      load. Permanent components are not removed by an uninstall, which includes the
                      uninstall inside an upgrade, so the file the costing decision was based on is
                      still there when the install finishes.
 
-                     The price is that a real uninstall leaves these four behind. That is the right
+                     The price is that a real uninstall leaves these behind, and the generated
+                     certificate with them. That is the right
                      trade for a server: data\ and log\ already outlive the package, and a machine
                      that is reinstalled should not silently come back with a new identity.
 
@@ -194,12 +202,6 @@
                 <Directory Id="ETCFOLDER" Name="etc">
                     <Component Id="EuclidJson" NeverOverwrite="yes" Permanent="yes">
                         <File Id="euclid.json" Source="$(SrcDir)\dist\win32\euclid.json" KeyPath="yes" />
-                    </Component>
-                    <Component Id="CertificateCrt" NeverOverwrite="yes" Permanent="yes">
-                        <File Id="euclid_cert.crt" Source="$(SrcDir)\dist\linux\etc\euclid_cert.crt" KeyPath="yes" />
-                    </Component>
-                    <Component Id="CertificateKey" NeverOverwrite="yes" Permanent="yes">
-                        <File Id="euclid_cert.key" Source="$(SrcDir)\dist\linux\etc\euclid_cert.key" KeyPath="yes" />
                     </Component>
                     <Component Id="SshHostKey" NeverOverwrite="yes" Permanent="yes">
                         <File Id="ssh_host_key" Source="$(SrcDir)\dist\linux\etc\ssh_host_key" KeyPath="yes" />
