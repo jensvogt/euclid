@@ -781,6 +781,25 @@ namespace Euclid::main {
          */
         std::map<std::string, int> _nodeApplicationTargets;
 
+        /**
+         * @brief Each node-run application's own instance bounds, as its definition states them,
+         *        keyed by runtime name: {minInstances, maxInstances}.
+         *
+         * @par
+         * The module record carries a copy of these, and it is not to be trusted: only
+         * upsertInstance() writes it, and that runs when a slot is placed - so an application
+         * sitting at its floor never places, never rewrites the row, and the row keeps the limits
+         * it had when the application was last scaled. Raising an application's ceiling from 1 to 8
+         * therefore left every row saying 1, and a pool holding ten thousand messages was capped at
+         * one instance by a number nobody had looked at since.
+         *
+         * @par
+         * Filled by reconcileNodeApplication(), which holds the definition, and read by
+         * applyNodeApplicationBacklog(), which sees only module records. Both run on the same tick,
+         * placement first.
+         */
+        std::map<std::string, std::pair<int, int> > _nodeApplicationBounds;
+
 
         /**
          * @brief Maintains a collection of service module pools managed by the system, keyed by module name.
