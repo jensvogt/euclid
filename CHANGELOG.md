@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.19](https://github.com/jensvogt/euclid/compare/1.2.18...v1.2.19) (2026-10-08)
+
+
+### Bug Fixes
+
+* ekv permissions ([5d39de2](https://github.com/jensvogt/euclid/commit/5d39de25088c6919b318dad88cbb8b7251d46b56))
+
 ## [1.2.18](https://github.com/jensvogt/euclid/compare/1.2.17...v1.2.18) (2026-10-07)
 
 
