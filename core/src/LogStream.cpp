@@ -484,6 +484,13 @@ namespace Euclid::Core {
         boost::log::core::get()->set_filter(&ChannelFilter);
     }
 
+    // Flushed on every record, which is the whole difference between a log file and a log file you
+    // can read. Without it boost buffers, and the buffer is written out when the file rotates or
+    // the process exits - so a running installation's log is an empty file, "tail -f" shows
+    // nothing whatever is happening, and the run's output appears all at once in euclid_<N>.log at
+    // the moment the thing you were trying to watch has already stopped. A manager logging at
+    // warning writes a handful of records a minute; the cost of flushing each one is nothing
+    // against being unable to see any of them until it is too late to matter.
     void LogStream::AddFile(const std::string &dir, const std::string &prefix, long size, int count) {
 
         // Tried here, because the sink opens its file lazily, on the first record - and a file it
@@ -507,6 +514,14 @@ namespace Euclid::Core {
 
         // No filter of its own: the core's channel-aware filter has already decided what gets
         // written, and a second one here could only ever discard more than the levels asked for.
+
+        // Flushed per record, as the console sink above already is, and for the same reason: a
+        // buffered file is written out when it rotates or the process exits, so a running
+        // installation's log is an empty file, "tail -f" shows nothing whatever is happening, and
+        // the run appears all at once in <prefix>_<N>.log at the moment the thing being watched has
+        // stopped. A manager logging at warning writes a handful of records a minute, so the flush
+        // costs nothing against being unable to see any of them while they matter.
+        _fileSink->locked_backend()->auto_flush(true);
 
         _fileSink->locked_backend()->set_file_collector(boost::log::sinks::file::make_collector(
                 boost::log::keywords::target = dir,

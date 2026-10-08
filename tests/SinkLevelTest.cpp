@@ -64,6 +64,33 @@ namespace {
 
 }// namespace
 
+BOOST_AUTO_TEST_CASE(TheFileIsReadableWhileTheProcessIsStillRunning) {
+
+    const auto dir = freshLogDir();
+
+    Configuration::instance().set<std::string>("euclid.logging.level", "info");
+    Configuration::instance().set<std::string>("euclid.logging.file-level", "info");
+
+    LogStream::RemoveConsoleLogs();
+    LogStream::RemoveFile();
+    LogStream::Initialize();
+    LogStream::SetSeverity("info");
+    LogStream::SetProcessChannel("mgr");
+
+    LogStream::AddFile(dir.string(), "euclid", 1024L * 1024L, 5);
+    log_warning << "something worth watching for";
+
+    // Read with the sink still attached, which is the one thing every other case here does not do:
+    // they call RemoveFile() first, and closing a sink flushes it - so a test that tears down
+    // before reading cannot tell a flushed sink from a buffered one. That is how an unflushed file
+    // sink survived: a running installation's log stayed empty, "tail -f" showed nothing whatever
+    // was happening, and the whole run appeared in euclid_<N>.log at the moment it stopped.
+    const auto live = fileContents(dir);
+    BOOST_TEST(live.find("something worth watching for") != std::string::npos);
+
+    LogStream::RemoveFile();
+}
+
 BOOST_AUTO_TEST_CASE(AConsoleAtWarningLeavesTheFileAtInfo) {
 
     const auto dir = freshLogDir();

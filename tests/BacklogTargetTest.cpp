@@ -210,3 +210,53 @@ BOOST_AUTO_TEST_CASE(TheTargetIsHeldInsideThePoolsOwnBounds) {
 }
 
 BOOST_AUTO_TEST_SUITE_END()
+
+// ── An application a worker runs ─────────────────────────────────────────────
+
+// Since §13.4 the manager starts no applications, so it holds no ServiceGroup for one - and
+// applyBacklog() wrote the answer onto exactly that. reconcileApplicationLoad() resolved the pool
+// by name, found nothing, and dropped the load it had just been sent; reconcileNodeApplication()
+// sized the pool from minInstances and asked nobody. Every application sat at its floor however
+// deep its queues were: katalogdaten-rule reporting a backlog of 7384 across one instance of a
+// possible eight.
+//
+// applyNodeApplicationBacklog() keeps the target beside the application instead, and composes the
+// same two helpers in the same order. What is pinned here is that composition, since the wiring
+// itself is a private member of a class no test can link against.
+BOOST_AUTO_TEST_CASE(AWorkersApplicationGrowsFromItsFloorOnTheSameArithmetic) {
+
+    constexpr long kThreshold = 100;
+    constexpr int floor = 1, ceiling = 8;
+
+    // Where every one of them was stuck: the floor, because nothing had been asked for yet.
+    int target = floor;
+
+    // One instance reporting a deep queue. The mean is the depth, so the pool it calls for is that
+    // over the threshold - and the target goes there in one step rather than one instance a tick.
+    target = NextDesiredCount(target, InstancesForBacklog(7384, 1, kThreshold), floor, ceiling);
+    BOOST_TEST(target == ceiling);
+
+    // The queue drains. Eight instances now report between them, so the mean is what each still
+    // holds - and the pool is given back one at a time while that stays below the threshold.
+    target = NextDesiredCount(target, InstancesForBacklog(80, 8, kThreshold), floor, ceiling);
+    BOOST_TEST(target == 7);
+    target = NextDesiredCount(target, InstancesForBacklog(0, 8, kThreshold), floor, ceiling);
+    BOOST_TEST(target == 6);
+
+    // And work arriving mid-descent stops it where it is, rather than after the pool has gone.
+    // 3600 across six is six thresholds each, which asks for the six that are already there.
+    target = NextDesiredCount(target, InstancesForBacklog(3600, 6, kThreshold), floor, ceiling);
+    BOOST_TEST(target == 6);
+}
+
+BOOST_AUTO_TEST_CASE(AWorkersApplicationIsNeverAskedForLessThanItsFloor) {
+
+    // minInstances is the promise, whatever the backlog says - and the floor is what a manager
+    // that has just started uses before any instance has reported to it.
+    BOOST_TEST(NextDesiredCount(2, 0, 2, 8) == 2);
+    BOOST_TEST(NextDesiredCount(2, InstancesForBacklog(0, 2, 100), 2, 8) == 2);
+
+    // A ceiling below the floor is a crossed configuration, and the floor wins: an application
+    // promised two instances gets two.
+    BOOST_TEST(NextDesiredCount(1, 99, 2, 1) == 2);
+}
