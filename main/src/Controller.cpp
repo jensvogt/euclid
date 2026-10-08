@@ -1172,6 +1172,13 @@ namespace Euclid::main {
         // is maintained by reconcileApplicationLoad() from what the instances report about
         // themselves - it used to be read off a ServiceGroup, which a worker's application does not
         // have, so this was the floor and nothing else and no application ever grew.
+        // Noted for the load path, which sees only module records and would otherwise read the
+        // stale copy of these on the row - see applyNodeApplicationBacklog(). Recorded here
+        // because this is the one place that holds the definition, and it runs for every
+        // application on every pass, a tick ahead of the load path reading it.
+        _nodeApplicationBounds[runtimeName] = {static_cast<int>(std::max(1L, application.minInstances)),
+                                               static_cast<int>(std::max(1L, application.maxInstances))};
+
         const auto wanted = nodeApplicationTarget(application, runtimeName);
         const auto have = existing.has_value()
                                   ? std::ranges::count_if(existing->instances,
@@ -1622,12 +1629,23 @@ namespace Euclid::main {
         // the two kinds of pool would come to disagree about what a backlog is worth.
         const auto wanted = InstancesForBacklog(pending, reporting, kBacklogScaleUpMessages);
 
-        const auto floor = static_cast<int>(std::max(1, module.minInstances));
+        // The definition's bounds, not the module record's. A module row carries a copy of them,
+        // but only upsertInstance() writes it and that runs when a slot is placed - so a pool
+        // already at its floor never places, never rewrites the row, and the row keeps whatever
+        // the limits were when the application was last scaled. Every application here read 1/1
+        // from a row written before its ceiling was raised to 8, which capped the target at 1 and
+        // left a pool of one holding ten thousand messages looking exactly like a pool that had
+        // decided it needed one.
+        const auto bounds = _nodeApplicationBounds.find(module.name);
+        const auto floor = bounds != _nodeApplicationBounds.end() ? bounds->second.first
+                                                                  : static_cast<int>(std::max(1, module.minInstances));
+        const auto ceiling = bounds != _nodeApplicationBounds.end() ? bounds->second.second : module.maxInstances;
+
         auto &target = _nodeApplicationTargets[module.name];
         if (target < floor) target = floor;
 
         const auto previous = target;
-        target = NextDesiredCount(target, wanted, floor, module.maxInstances);
+        target = NextDesiredCount(target, wanted, floor, ceiling);
         if (target == previous) return;
 
         log_info << "Application backlog, application: " << module.name
