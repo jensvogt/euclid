@@ -833,18 +833,34 @@ namespace Euclid::EAG {
             }
         }
 
+        // Whoever the caller says they are is worth nothing here, and is removed before anything
+        // downstream could read it. The header below is this gateway's statement about a caller it
+        // verified, so an application may trust it - which is only true if a client cannot send one
+        // itself. Erased for every route, including the unauthenticated ones: a route with
+        // --authentication none sets no identity, and must not pass on a forged one either.
+        request->erase("x-euclid-user-id");
+
         // Checked here, before a backend is chosen, so an unauthenticated caller never causes a
         // connection to an application at all.
         if (match.authentication == Database::Entity::EAG::RouteAuthentication::EUCLID) {
-            if (const auto auth = Core::HttpActionServer::Authenticate(*request); !auth.subject.has_value()) {
+            const auto auth = Core::HttpActionServer::Authenticate(*request);
+            if (!auth.subject.has_value()) {
                 log_debug << "Unauthenticated request for " << path << ", route: " << match.routeId;
                 respond(stream, std::make_shared<http::response<http::string_body> >(
                                         errorResponse(*request, http::status::unauthorized,
                                                       auth.denialReason.empty() ? "authentication required" : auth.denialReason)));
                 return;
             }
+
+            // Who got through, for the application behind the route. The credential itself is
+            // forwarded untouched as well, but verifying it again would mean every application
+            // holding the secret that signs tokens - and a secret that verifies a token also mints
+            // one. This says what the gateway established instead, so the signing secret stays in
+            // euclid and an application only has to trust the hop in front of it.
+            request->set("x-euclid-user-id", *auth.subject);
         } else if (match.authentication == Database::Entity::EAG::RouteAuthentication::BASIC) {
-            if (!_basicAuth.Verify(std::string((*request)[http::field::authorization])).has_value()) {
+            const auto userId = _basicAuth.Verify(std::string((*request)[http::field::authorization]));
+            if (!userId.has_value()) {
                 log_debug << "Basic authentication required for " << path << ", route: " << match.routeId;
 
                 // The header is the whole point of Basic over a bearer token: without it a browser
@@ -856,6 +872,10 @@ namespace Euclid::EAG {
                 respond(stream, response);
                 return;
             }
+
+            // Same statement for a caller who proved themselves with a password instead of a token,
+            // so an application behind either kind of route reads identity the one way.
+            request->set("x-euclid-user-id", *userId);
         }
 
         // A route naming a module goes to euclid's own gateway rather than to an application:

@@ -1241,6 +1241,23 @@ namespace Euclid::EAM {
         return EamServer::JsonResponse(req, status::created, response.toJson());
     }
 
+    // A user group by either spelling: the ERN list-user-groups prints, or the name a person has
+    // in their head. Both, because the two are the same thing said twice and refusing the shorter
+    // one answered "User group does not exist" about a group the very next command listed.
+    //
+    // The ERN prefix is the discriminator, as it is everywhere else that takes both - EssServer,
+    // EsmServer and the ekm/ens command lines. A name cannot begin "ern:" without being one.
+    static std::optional<Database::Entity::EAM::UserGroup> findUserGroup(const std::string &nameOrErn) {
+        const auto repo = Database::RepositoryFactory::instance().eamRepository();
+        return nameOrErn.starts_with("ern:") ? repo->findUserGroupByErn(nameOrErn) : repo->findUserGroupByName(nameOrErn);
+    }
+
+    // The same for a user, whose two spellings are its ERN and its userId.
+    static std::optional<Database::Entity::EAM::User> findUser(const std::string &userIdOrErn) {
+        const auto repo = Database::RepositoryFactory::instance().eamRepository();
+        return userIdOrErn.starts_with("ern:") ? repo->findUserByErn(userIdOrErn) : repo->findUserByUserId(userIdOrErn);
+    }
+
     static response<string_body> handleUserGroupAddUser(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "user-group-add-user");
@@ -1258,29 +1275,32 @@ namespace Euclid::EAM {
 
         const auto request = boost::json::value_to<Dto::EAM::UserGroupAddUserRequest>(jv);
         if (request.userGroup.empty()) {
-            return EamServer::ErrorResponse(req, status::bad_request, "user group ERN is required");
+            return EamServer::ErrorResponse(req, status::bad_request, "user group name or ERN is required");
         }
         if (request.user.empty()) {
-            return EamServer::ErrorResponse(req, status::bad_request, "user ERN is required");
+            return EamServer::ErrorResponse(req, status::bad_request, "user id or ERN is required");
         }
 
-        const auto repo = Database::RepositoryFactory::instance().eamRepository();
-        if (!repo->userGroupErnExists(request.userGroup)) {
-            return EamServer::ErrorResponse(req, status::conflict, "User group does not exist");
+        // Looked up once rather than asked to exist and then fetched: two calls answer about two
+        // moments, and the second one is the one that gets dereferenced.
+        const auto group = findUserGroup(request.userGroup);
+        if (!group.has_value()) {
+            return EamServer::ErrorResponse(req, status::not_found, "No user group '" + request.userGroup + "'");
         }
-        if (!repo->userErnExists(request.user)) {
-            return EamServer::ErrorResponse(req, status::conflict, "User does not exist");
+        const auto user = findUser(request.user);
+        if (!user.has_value()) {
+            return EamServer::ErrorResponse(req, status::not_found, "No user '" + request.user + "'");
         }
-
-        std::optional<Database::Entity::EAM::UserGroup> group = repo->findUserGroupByErn(request.userGroup);
-        std::optional<Database::Entity::EAM::User> user = repo->findUserByErn(request.user);
 
         if (std::ranges::contains(group->userIds, user->userId)) {
             return EamServer::ErrorResponse(req, status::conflict, "User already member of user group");
         }
-        group->userIds.push_back(user->userId);
 
-        const auto saved = repo->upsertUserGroup(group.value());
+        auto updated = *group;
+        updated.userIds.push_back(user->userId);
+
+        const auto repo = Database::RepositoryFactory::instance().eamRepository();
+        const auto saved = repo->upsertUserGroup(updated);
         log_info << "User added to user group, userGroup: " << saved.name << ", user: " << user->userId;
 
         return EamServer::JsonResponse(req, status::ok);
@@ -1303,26 +1323,26 @@ namespace Euclid::EAM {
 
         const auto request = boost::json::value_to<Dto::EAM::UserGroupAddUserRequest>(jv);
         if (request.userGroup.empty()) {
-            return EamServer::ErrorResponse(req, status::bad_request, "user group ERN is required");
+            return EamServer::ErrorResponse(req, status::bad_request, "user group name or ERN is required");
         }
         if (request.user.empty()) {
-            return EamServer::ErrorResponse(req, status::bad_request, "user ERN is required");
+            return EamServer::ErrorResponse(req, status::bad_request, "user id or ERN is required");
         }
+
+        const auto group = findUserGroup(request.userGroup);
+        if (!group.has_value()) {
+            return EamServer::ErrorResponse(req, status::not_found, "No user group '" + request.userGroup + "'");
+        }
+        const auto user = findUser(request.user);
+        if (!user.has_value()) {
+            return EamServer::ErrorResponse(req, status::not_found, "No user '" + request.user + "'");
+        }
+
+        auto updated = *group;
+        std::erase(updated.userIds, user->userId);
 
         const auto repo = Database::RepositoryFactory::instance().eamRepository();
-        if (!repo->userGroupErnExists(request.userGroup)) {
-            return EamServer::ErrorResponse(req, status::conflict, "User group does not exist");
-        }
-        if (!repo->userErnExists(request.user)) {
-            return EamServer::ErrorResponse(req, status::conflict, "User does not exist");
-        }
-
-        std::optional<Database::Entity::EAM::UserGroup> group = repo->findUserGroupByErn(request.userGroup);
-        std::optional<Database::Entity::EAM::User> user = repo->findUserByErn(request.user);
-
-        std::erase(group->userIds, user->userId);
-
-        const auto saved = repo->upsertUserGroup(group.value());
+        const auto saved = repo->upsertUserGroup(updated);
         log_info << "User removed from user group, userGroup: " << saved.name << ", user: " << user->userId;
 
         return EamServer::JsonResponse(req, status::ok);
@@ -1336,9 +1356,17 @@ namespace Euclid::EAM {
         if (!auth.user.has_value()) {
             return unauthorized(req, auth);
         }
-        if (!isAdmin(*auth.user)) {
-            return EamServer::ErrorResponse(req, status::forbidden, "Administrator privileges required");
-        }
+
+        // No administrator gate of its own: "eam:list-user-groups" is in the vocabulary and not in
+        // Permissions::UngatedActions(), so a caller that reaches this handler was already found to
+        // hold it by grant - an administrator through the role that carries it, anything else
+        // through a role it was given deliberately. Asking a second time, and asking a different
+        // question, is what made this admin-only in practice: an application resolving its caller's
+        // roles holds the permission, was refused anyway, and the 403 said "Administrator
+        // privileges required" about a principal that is never going to be one.
+        //
+        // Who may ask is what widens here, not what comes back: the listing is still the calling
+        // account's own, by the grant that allowed the call.
 
         const auto repo = Database::RepositoryFactory::instance().eamRepository();
 
