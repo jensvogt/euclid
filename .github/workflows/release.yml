@@ -436,8 +436,6 @@ jobs:
           # take the one this exact build produced instead of a separately maintained copy.
           cp ${{ env.BUILD_DIR }}/vcpkg_installed/arm64-osx/share/libmagic/misc/magic.mgc ${{ env.PACKAGE_DIR }}/euclid/etc/magic.mgc
           cp dist/linux/etc/ssh_host_key ${{ env.PACKAGE_DIR }}/euclid/etc/ssh_host_key
-          cp dist/linux/etc/euclid_cert.crt ${{ env.PACKAGE_DIR }}/euclid/etc/euclid_cert.crt
-          cp dist/linux/etc/euclid_cert.key ${{ env.PACKAGE_DIR }}/euclid/etc/euclid_cert.key
           cp dist/macos/de.jensvogt.euclid.plist ${{ env.PACKAGE_DIR }}/euclid/etc/
           # Not "|| true": the pages are in the repository, so a copy that fails means something
           # is wrong with the build, and a package that silently ships no documentation is worse
