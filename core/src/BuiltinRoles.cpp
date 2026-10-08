@@ -118,6 +118,23 @@ namespace Euclid::Core {
                         "esm:get-object",
                         "esm:list-objects",
                         "esm:put-object",
+                        // The same two operations again, for a file too big to move in one call.
+                        // TransferStorage picks the path by size, not by permission: above the part
+                        // size an upload becomes create-upload/upload-part/complete-upload and a
+                        // download becomes create-download/download-part/complete-download. Holding
+                        // only the single-shot pair meant a transfer user could store a small file
+                        // and not a large one - and the refusal arrives at CLOSE, after the client
+                        // has sent every byte, as "Could not store object" with nothing to say
+                        // which of the two paths it was on.
+                        //
+                        // No wider than put-object and get-object already are: these move the same
+                        // bytes to the same key in the same bucket, in pieces.
+                        "esm:complete-download",
+                        "esm:complete-upload",
+                        "esm:create-download",
+                        "esm:create-upload",
+                        "esm:download-part",
+                        "esm:upload-part",
                 };
                 std::ranges::sort(permissions);
                 return permissions;
