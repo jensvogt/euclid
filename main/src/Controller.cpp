@@ -1168,13 +1168,32 @@ namespace Euclid::main {
             }
         }
 
-        // How many to have. The floor only: growing past it is the autoscaler's business, and it
-        // works off these same records - see reconcileApplicationLoad.
-        const auto wanted = std::max(1L, application.minInstances);
+        // How many to have: the floor, or whatever the backlog has asked for above it. The target
+        // is maintained by reconcileApplicationLoad() from what the instances report about
+        // themselves - it used to be read off a ServiceGroup, which a worker's application does not
+        // have, so this was the floor and nothing else and no application ever grew.
+        const auto wanted = nodeApplicationTarget(application, runtimeName);
         const auto have = existing.has_value()
                                   ? std::ranges::count_if(existing->instances,
                                                           [](const auto &instance) { return !instance.assignedTo.empty(); })
                                   : 0;
+
+        // Surplus given back one slot at a time, which is the pace NextDesiredCount() lowers the
+        // target at anyway. Withdrawn rather than deleted, exactly as a stopped application's slots
+        // are: the manager cannot stop a process on another machine, but a slot that is no longer
+        // assigned disappears from that node's next renewal and the worker stops it on its own -
+        // and the unheld record it leaves is dropped at the top of the next pass.
+        if (have > wanted) {
+            for (const auto &instance: std::ranges::reverse_view(existing->instances)) {
+                if (instance.assignedTo.empty()) continue;
+                log_info << "Scaling down an application, application: " << runtimeName
+                         << ", instance: " << instance.instanceId << ", node: " << instance.assignedTo
+                         << ", have: " << have << ", wanted: " << wanted;
+                std::ignore = emm->assignInstance(runtimeName, instance.instanceId, {}, {});
+                break;
+            }
+            return;
+        }
 
         if (have >= wanted) return;
 
@@ -1380,7 +1399,29 @@ namespace Euclid::main {
             for (const auto &module: modules) {
 
                 auto *group = getGroup(module.name);
-                if (!group) continue;
+
+                // An application a worker runs has no pool here to hang the answer on, so the
+                // figures are read straight off the records and the target kept beside the
+                // application instead. Everything below this matches a report against a process
+                // object this manager owns, which for a node application does not exist - so the
+                // load that had just arrived fell out of this loop and no application could grow
+                // past its floor. See applyNodeApplicationBacklog().
+                if (!group) {
+
+                    long nodePending = 0;
+                    long nodeReporting = 0;
+                    for (const auto &reported: module.instances) {
+                        if (reported.utilisation < 0 || reported.loadReportedAt < fresh) continue;
+                        ++nodeReporting;
+                        if (reported.backlog > 0) nodePending += reported.backlog;
+                    }
+
+                    // Only when something reported. A pool nobody is measuring keeps the target it
+                    // has rather than being told its backlog is zero, which would walk it down to
+                    // the floor every tick an application was restarting.
+                    if (nodeReporting > 0) applyNodeApplicationBacklog(module, nodePending, nodeReporting);
+                    continue;
+                }
 
                 bool reporting = false;
                 long pending = 0;
@@ -1568,6 +1609,46 @@ namespace Euclid::main {
                  << ", pending per instance: " << pending / reporting
                  << " (" << pending << " reported across " << reporting << ")"
                  << ", desiredCount: " << previous << " -> " << group.desiredCount;
+    }
+
+    void ServiceController::applyNodeApplicationBacklog(const Database::Entity::Module &module, const long pending,
+                                                        const long reporting) {
+
+        if (reporting <= 0) return;
+
+        // The same two steps applyBacklog() takes, against the same helpers: the mean of what was
+        // reported turned into an absolute pool size, then moved towards it - up at once, down one
+        // instance per tick. Sharing the arithmetic is the point; a second copy of it here is how
+        // the two kinds of pool would come to disagree about what a backlog is worth.
+        const auto wanted = InstancesForBacklog(pending, reporting, kBacklogScaleUpMessages);
+
+        const auto floor = static_cast<int>(std::max(1, module.minInstances));
+        auto &target = _nodeApplicationTargets[module.name];
+        if (target < floor) target = floor;
+
+        const auto previous = target;
+        target = NextDesiredCount(target, wanted, floor, module.maxInstances);
+        if (target == previous) return;
+
+        log_info << "Application backlog, application: " << module.name
+                 << ", pending per instance: " << pending / reporting
+                 << " (" << pending << " reported across " << reporting << ")"
+                 << ", target: " << previous << " -> " << target;
+    }
+
+    long ServiceController::nodeApplicationTarget(const Database::Entity::EAP::Application &application,
+                                                  const std::string &runtimeName) const {
+
+        const auto floor = std::max(1L, application.minInstances);
+        const auto ceiling = std::max(floor, application.maxInstances);
+
+        // The floor until a backlog has asked for more. An application nothing has reported for is
+        // one this manager has not heard from since it started, and starting it at its floor is
+        // what makes a restart settle rather than inherit a pool size nobody is measuring.
+        const auto found = _nodeApplicationTargets.find(runtimeName);
+        if (found == _nodeApplicationTargets.end()) return floor;
+
+        return std::clamp(static_cast<long>(found->second), floor, ceiling);
     }
 
     void ServiceController::reconcileBackgroundWork(const std::vector<Database::Entity::Module> &modules) {
