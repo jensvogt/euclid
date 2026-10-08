@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.20](https://github.com/jensvogt/euclid/compare/1.2.19...v1.2.20) (2026-10-08)
+
+
+### Bug Fixes
+
+* esm permissions ([830dbe7](https://github.com/jensvogt/euclid/commit/830dbe7a5fb5c609887cbb99c133148bd858dc2e))
+* scaling ([036b1cd](https://github.com/jensvogt/euclid/commit/036b1cd44c5878e6a2fc36bcd09daa07dfdbe991))
+* scaling ([1c4abe2](https://github.com/jensvogt/euclid/commit/1c4abe2ca93cbcd9eeef659e33b18d6c594a6263))
+
 ## [1.2.19](https://github.com/jensvogt/euclid/compare/1.2.18...v1.2.19) (2026-10-08)
 
 
