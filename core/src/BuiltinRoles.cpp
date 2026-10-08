@@ -208,6 +208,19 @@ namespace Euclid::Core {
                                 // grows however much work is waiting - which is what happened when
                                 // the action was added and this was not.
                                 "eap:report-load",
+                                // Who its caller is, for an application behind EAG that treats
+                                // euclid as its identity provider. The gateway states the caller in
+                                // x-euclid-user-id, and an application that maps euclid groups onto
+                                // its own roles has to read the groups to do it - without this the
+                                // lookup is refused, the application cannot authorise anybody, and
+                                // every request through the gateway is answered 401 by the
+                                // application rather than by euclid.
+                                //
+                                // Reading only, and the calling account's own groups: nothing here
+                                // creates a group, changes a membership, or reads a user. An
+                                // application that can see which groups exist is a long way from
+                                // one that can put itself in them.
+                                "eam:list-user-groups",
                                 // Its own metrics, for the history and the dashboards. A different
                                 // question from the load report above and not a substitute for it:
                                 // EMO writes a row when its averaging bucket closes, five minutes
