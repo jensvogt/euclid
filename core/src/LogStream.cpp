@@ -482,16 +482,26 @@ namespace Euclid::Core {
         boost::log::core::get()->set_filter(&ChannelFilter);
     }
 
+    // Flushed on every record, which is the whole difference between a log file and a log file you
+    // can read. Without it boost buffers, and the buffer is written out when the file rotates or
+    // the process exits - so a running installation's log is an empty file, "tail -f" shows
+    // nothing whatever is happening, and the run's output appears all at once in euclid_<N>.log at
+    // the moment the thing you were trying to watch has already stopped. A manager logging at
+    // warning writes a handful of records a minute; the cost of flushing each one is nothing
+    // against being unable to see any of them until it is too late to matter.
     void LogStream::AddFile(const std::string &dir, const std::string &prefix, long size, int count) {
 #ifdef _WIN32
         _fileSink = add_file_log(
                 boost::log::keywords::file_name = dir + "\\" + prefix + ".log ", boost::log::keywords::rotation_size = size,
-                boost::log::keywords::target_file_name = dir + "\\" + prefix + "_ % N.log ", boost::log::keywords::format = FormatterFor("euclid.logging.file-format"));
+                boost::log::keywords::target_file_name = dir + "\\" + prefix + "_ % N.log ",
+                boost::log::keywords::auto_flush = true,
+                boost::log::keywords::format = FormatterFor("euclid.logging.file-format"));
 #else
         _fileSink = add_file_log(
                 boost::log::keywords::file_name = dir + "/" + prefix + ".log",
                 boost::log::keywords::rotation_size = size,
                 boost::log::keywords::target_file_name = dir + "/" + prefix + "_%N.log",
+                boost::log::keywords::auto_flush = true,
                 boost::log::keywords::format = FormatterFor("euclid.logging.file-format"));
 #endif
 

@@ -405,6 +405,29 @@ BOOST_AUTO_TEST_CASE(TransferGrantsEveryTransferCommandAndNoServerAdministration
     BOOST_TEST(!grants(BuiltinRoles::Transfer, "eqs:send-message"));
 }
 
+// A file too large to move in one call takes the multipart path, and TransferStorage picks that
+// path by size rather than by permission. Holding only the single-shot pair meant a transfer user
+// could store a small file and not a large one - and the refusal arrives at CLOSE, after every byte
+// has been sent, as "Could not store object" with nothing to say which path it was on.
+BOOST_AUTO_TEST_CASE(TransferCanMoveAFileTooBigForOneCall) {
+
+    // Upload: what UploadStream calls above the part size.
+    BOOST_TEST(grants(BuiltinRoles::Transfer, "esm:create-upload"));
+    BOOST_TEST(grants(BuiltinRoles::Transfer, "esm:upload-part"));
+    BOOST_TEST(grants(BuiltinRoles::Transfer, "esm:complete-upload"));
+
+    // Download: the same, in the other direction. Both halves, because a user who can put a large
+    // file and not get it back is as broken as one who cannot put it.
+    BOOST_TEST(grants(BuiltinRoles::Transfer, "esm:create-download"));
+    BOOST_TEST(grants(BuiltinRoles::Transfer, "esm:download-part"));
+    BOOST_TEST(grants(BuiltinRoles::Transfer, "esm:complete-download"));
+
+    // Still inside somebody else's bucket: moving bytes in pieces is not permission to make or
+    // destroy the thing they are moved into.
+    BOOST_TEST(!grants(BuiltinRoles::Transfer, "esm:create-bucket"));
+    BOOST_TEST(!grants(BuiltinRoles::Transfer, "esm:delete-bucket"));
+}
+
 // The half that is easy to leave out and impossible to notice from the ets: side alone: a transfer
 // server stores nothing itself, so every command it allows turns into an ESM call made with the
 // client's own token. A role granting the FTP verb and not the storage action passes the FTP check
