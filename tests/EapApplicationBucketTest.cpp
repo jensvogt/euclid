@@ -126,7 +126,11 @@ BOOST_AUTO_TEST_CASE(EveryDeclaredNamespaceGetsOneOfItsOwn) {
 
     for (const auto *nameSpace: {"", "development", "integration", "production"}) {
         const auto bucket = repositories.storage.findBucketByName(kAccount, nameSpace, "apps");
-        BOOST_TEST_REQUIRE(bucket.has_value(), "no apps bucket in namespace '" << nameSpace << "'");
+        // BOOST_REQUIRE_MESSAGE rather than BOOST_TEST_REQUIRE: the latter's two-argument form puts
+        // the condition through assertion_result's converting constructor, and gcc warns about
+        // choosing between that and the conversion operator. This is the macro for a condition with
+        // a message of its own.
+        BOOST_REQUIRE_MESSAGE(bucket.has_value(), "no apps bucket in namespace '" << nameSpace << "'");
         BOOST_TEST(bucket->nameSpace == nameSpace);
         BOOST_TEST(bucket->internal);
     }

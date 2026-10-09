@@ -897,3 +897,12 @@ set_target_properties(${SEND_MESSAGE_BATCH_BINARY} PROPERTIES CXX_SCAN_FOR_MODUL
 target_link_libraries(${SEND_MESSAGE_BATCH_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
 
 add_test(NAME ${SEND_MESSAGE_BATCH_BINARY} COMMAND ${SEND_MESSAGE_BATCH_BINARY})
+
+set(CRON_RELEASE_BINARY euclid-cron-release-tests)
+
+add_executable(${CRON_RELEASE_BINARY} CronReleaseTest.cpp)
+set_target_properties(${CRON_RELEASE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${CRON_RELEASE_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
+
+add_test(NAME ${CRON_RELEASE_BINARY} COMMAND ${CRON_RELEASE_BINARY})

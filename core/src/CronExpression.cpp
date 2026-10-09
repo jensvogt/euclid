@@ -10,8 +10,12 @@
 
 // C++ standard includes
 #include <algorithm>
+#include <cctype>
 #include <ctime>
+#include <ranges>
 #include <stdexcept>
+#include <string>
+#include <vector>
 
 // Boost includes
 #include <boost/algorithm/string/classification.hpp>
@@ -25,6 +29,12 @@ namespace Euclid::Core {
         struct Tm {
             int minute, hour, dayOfMonth, month, dayOfWeek;
         };
+
+        // Three-letter names in the order cron numbers them, so a name's value is its index plus the
+        // field's own base: Sunday is 0 in the day-of-week field, January is 1 in the month field.
+        const std::vector<std::string> kDayNames{"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
+        const std::vector<std::string> kMonthNames{"JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+                                                   "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
 
         Tm ToTm(const system_clock::time_point &timePoint) {
             const time_t timeT = system_clock::to_time_t(timePoint);
@@ -47,6 +57,38 @@ namespace Euclid::Core {
         if (trimmed == "@daily" || trimmed == "@midnight") return "0 0 * * *";
         if (trimmed == "@hourly") return "0 * * * *";
         return trimmed;
+    }
+
+    std::string CronExpression::ResolveNames(const std::string &field, const std::vector<std::string> &names, const int base) {
+
+        // Substitution rather than parsing, so every form ParseField() already understands keeps
+        // working with names in it: "MON-FRI" becomes "1-5", "SAT,SUN" becomes "6,0", and
+        // "MON-FRI/2" becomes "1-5/2" without this function knowing what a range or a step is.
+        std::string result;
+        result.reserve(field.size());
+
+        for (std::size_t i = 0; i < field.size();) {
+
+            if (!std::isalpha(static_cast<unsigned char>(field[i]))) {
+                result += field[i];
+                ++i;
+                continue;
+            }
+
+            std::size_t end = i;
+            while (end < field.size() && std::isalpha(static_cast<unsigned char>(field[end]))) ++end;
+
+            auto word = field.substr(i, end - i);
+            std::ranges::transform(word, word.begin(), [](const unsigned char c) { return static_cast<char>(std::toupper(c)); });
+
+            const auto found = std::ranges::find(names, word);
+            if (found == names.end()) throw std::invalid_argument("Invalid cron name in field: " + field);
+
+            result += std::to_string(base + static_cast<int>(std::distance(names.begin(), found)));
+            i = end;
+        }
+
+        return result;
     }
 
     std::set<int> CronExpression::ParseField(const std::string &field, const int min, const int max) {
@@ -96,8 +138,8 @@ namespace Euclid::Core {
         _minutes = ParseField(fields[0], 0, 59);
         _hours = ParseField(fields[1], 0, 23);
         _daysOfMonth = ParseField(fields[2], 1, 31);
-        _months = ParseField(fields[3], 1, 12);
-        _daysOfWeek = ParseField(fields[4], 0, 7);
+        _months = ParseField(ResolveNames(fields[3], kMonthNames, 1), 1, 12);
+        _daysOfWeek = ParseField(ResolveNames(fields[4], kDayNames, 0), 0, 7);
         if (_daysOfWeek.contains(7)) {
             _daysOfWeek.erase(7);
             _daysOfWeek.insert(0);
