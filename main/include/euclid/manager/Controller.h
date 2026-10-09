@@ -771,6 +771,47 @@ namespace Euclid::main {
                                                  const std::string &runtimeName) const;
 
         /**
+         * @brief Releases a scheduled job whose moment has come, and returns the definition as it
+         *        now stands.
+         *
+         * @par
+         * A cron firing is nothing more than this: desiredState becomes RUNNING. Everything that
+         * follows is machinery that already existed for a job started by hand - the next lines of
+         * reconcileApplications() place the slot, a worker runs the command, reports COMPLETED, and
+         * reconcileNodeApplication() takes the slot away and sets the state back to STOPPED. So the
+         * schedule adds a clock and not a second way of starting things.
+         *
+         * @par Why the manager and not EAP
+         * It is the installation's singleton. EAP runs up to three instances behind the gateway and
+         * each of them would see the same job come due in the same minute; the first to write would
+         * win nothing, because the other two would already have started their own.
+         *
+         * @par Overlap
+         * A run still in flight is a run still in flight: the tick is skipped and said so in the
+         * log, rather than queued. desiredState is the whole test - a job is RUNNING from the moment
+         * it is released until the worker reports it finished - so a job that takes an hour on a
+         * schedule that fires every ten minutes runs six times less often than it is asked to, and
+         * the log says why each time.
+         *
+         * @param application the definition as read this pass.
+         * @return the definition to go on reconciling with: the stored copy if it fired, otherwise
+         *         the one passed in.
+         */
+        [[nodiscard]] Database::Entity::EAP::Application releaseDueJob(const Database::Entity::EAP::Application &application);
+
+        /**
+         * @brief Runtime names of jobs whose stored schedule does not parse, so each is complained
+         *        about once rather than on every tick.
+         *
+         * @par
+         * EAP refuses an expression it cannot parse, so one in the database arrived another way - a
+         * document edited by hand, or written by an older module. It cannot be fired and it cannot
+         * be corrected from here, which leaves saying so; and a reconcile pass runs every few
+         * seconds, so saying so once is the difference between a warning and a log nobody can read.
+         */
+        std::set<std::string> _unparseableSchedules;
+
+        /**
          * @brief What a backlog last asked for, per node-run application, keyed by runtime name.
          *
          * @par

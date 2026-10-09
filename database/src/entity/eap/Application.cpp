@@ -73,7 +73,7 @@ namespace Euclid::Database::Entity::EAP {
                 bsoncxx::builder::basic::kvp("arguments", argumentsArray),
                 bsoncxx::builder::basic::kvp("environment", environmentDoc.extract()),
                 bsoncxx::builder::basic::kvp("resources", resourcesArray),
-                // Where this application may be placed - see worker-nodes.md §6. Absent on every
+                // Where this application may be placed - see worker-nodes.md ï¿½6. Absent on every
                 // application defined before workers existed, which reads as "anywhere" and is
                 // what they have always had.
                 bsoncxx::builder::basic::kvp("nodes", nodesArray),
@@ -84,6 +84,9 @@ namespace Euclid::Database::Entity::EAP {
                 bsoncxx::builder::basic::kvp("maxInstances", static_cast<std::int64_t>(maxInstances)),
                 bsoncxx::builder::basic::kvp("readyTimeoutMs", static_cast<std::int64_t>(readyTimeoutMs)),
                 bsoncxx::builder::basic::kvp("desiredState", ApplicationStateToString(desiredState)),
+                bsoncxx::builder::basic::kvp("type", ApplicationTypeToString(type)),
+                bsoncxx::builder::basic::kvp("schedule", schedule),
+                bsoncxx::builder::basic::kvp("nextRunAt", bsoncxx::types::b_date(nextRunAt)),
                 bsoncxx::builder::basic::kvp("logLevel", logLevel),
                 bsoncxx::builder::basic::kvp("created", bsoncxx::types::b_date(created)),
                 bsoncxx::builder::basic::kvp("modified", bsoncxx::types::b_date(modified)))
@@ -133,6 +136,12 @@ namespace Euclid::Database::Entity::EAP {
             else if (key == "maxInstances") application.maxInstances = getBsonInt(field);
             else if (key == "readyTimeoutMs") application.readyTimeoutMs = getBsonInt(field);
             else if (key == "desiredState") application.desiredState = ApplicationStateFromString(std::string(field.get_string().value));
+            // Absent in every document written before this field existed, which is why the member
+            // defaults to PROCESS rather than UNKNOWN: a definition with no type is a long-running
+            // application, not one whose kind nobody knows.
+            else if (key == "type") application.type = ApplicationTypeFromString(std::string(field.get_string().value));
+            else if (key == "schedule") application.schedule = std::string(field.get_string().value);
+            else if (key == "nextRunAt") application.nextRunAt = std::chrono::system_clock::time_point{field.get_date().value};
             else if (key == "logLevel") application.logLevel = std::string(field.get_string().value);
             else if (key == "created") application.created = std::chrono::system_clock::time_point{field.get_date().value};
             else if (key == "modified") application.modified = std::chrono::system_clock::time_point{field.get_date().value};

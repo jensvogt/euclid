@@ -18,6 +18,10 @@
 using Euclid::Database::MongoEapRepository;
 using Euclid::Database::Entity::EAP::Application;
 using Euclid::Database::Entity::EAP::ApplicationState;
+using Euclid::Database::Entity::EAP::ApplicationType;
+using Euclid::Database::Entity::EAP::ApplicationTypeFromString;
+using Euclid::Database::Entity::EAP::ApplicationTypeToString;
+using Euclid::Database::Entity::EAP::IsJob;
 using Euclid::Database::Entity::EAP::RedeployRefusal;
 using Euclid::Database::Entity::EAP::ScaleRefusal;
 using Euclid::Database::Entity::EAP::RestartRefusal;
@@ -619,4 +623,92 @@ BOOST_AUTO_TEST_CASE(AnApplicationThatNamesNoConstraintGoesAnywhere) {
 
     BOOST_TEST(stored.nodes.empty());
     BOOST_TEST(stored.nodeLabels.empty());
+}
+
+// ── What kind of thing an application is ─────────────────────────────────────
+
+BOOST_AUTO_TEST_CASE(AnApplicationIsALongRunningProcessUnlessItSaysOtherwise) {
+
+    // The default carries the whole backward-compatibility story: every definition written before
+    // this field existed has no "type" in its document, and has to come back behaving exactly as
+    // it did - started, kept up, restarted when it exits.
+    BOOST_TEST((Application{}.type == ApplicationType::PROCESS));
+
+    auto stored = demoApplication();
+    auto document = stored.toDocument();
+    const auto restored = Application::fromDocument(document.view());
+    BOOST_TEST((restored.type == ApplicationType::PROCESS));
+    BOOST_TEST(!IsJob(restored.type));
+}
+
+BOOST_AUTO_TEST_CASE(AJobSurvivesABsonRoundTrip) {
+
+    auto job = demoApplication();
+    job.type = ApplicationType::JOB;
+
+    const auto restored = Application::fromDocument(job.toDocument().view());
+    BOOST_TEST((restored.type == ApplicationType::JOB));
+    BOOST_TEST(IsJob(restored.type));
+}
+
+BOOST_AUTO_TEST_CASE(AnUnknownTypeIsTreatedAsLongRunning) {
+
+    // A document written by a newer euclid, or edited by hand. The question every caller asks is
+    // "does this finish", and answering yes to a word we do not understand would stop restarting
+    // a service; answering no only restarts a job that meant to end. The second is recoverable.
+    BOOST_TEST((ApplicationTypeFromString("CRONJOB") == ApplicationType::UNKNOWN));
+    BOOST_TEST(!IsJob(ApplicationType::UNKNOWN));
+
+    // And the spelling is exact - "job" is not "JOB", which is why EAP refuses it on create
+    // rather than storing a type that reads back as UNKNOWN.
+    BOOST_TEST((ApplicationTypeFromString("job") == ApplicationType::UNKNOWN));
+    BOOST_TEST((ApplicationTypeFromString("JOB") == ApplicationType::JOB));
+    BOOST_TEST(ApplicationTypeToString(ApplicationType::JOB) == "JOB");
+}
+
+BOOST_AUTO_TEST_CASE(AJobIsOnDemandUntilItIsGivenASchedule) {
+
+    // Both halves of "on demand only", and the second is the one that matters: the epoch is how a
+    // job with no schedule stores its next run, and anything that reads it as a moment that has
+    // passed would start every unscheduled job in the installation on the manager's first tick.
+    const auto application = demoApplication();
+    BOOST_TEST(application.schedule.empty());
+    BOOST_TEST(application.nextRunAt.time_since_epoch().count() == 0);
+}
+
+BOOST_AUTO_TEST_CASE(AScheduleAndItsNextRunSurviveABsonRoundTrip) {
+
+    // The pair is what the manager reconciles against, and it reads it out of MongoDB rather than
+    // being told - so a schedule that did not round-trip would be a job that never fired, and a
+    // next run that did not would be one that fired on every tick.
+    auto job = demoApplication();
+    job.type = ApplicationType::JOB;
+    job.schedule = "0 2 * * *";
+
+    // Whole seconds: BSON dates have millisecond resolution, so a time_point carrying anything
+    // finer is not the one that comes back, and the comparison below would fail for a reason that
+    // has nothing to do with scheduling.
+    const auto due = std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() + std::chrono::hours(3));
+    job.nextRunAt = due;
+
+    const auto restored = Application::fromDocument(job.toDocument().view());
+    BOOST_TEST(restored.schedule == "0 2 * * *");
+    BOOST_TEST((restored.nextRunAt == due));
+    BOOST_TEST(IsJob(restored.type));
+}
+
+BOOST_AUTO_TEST_CASE(AnApplicationWrittenBeforeSchedulesExistedReadsBackUnscheduled) {
+
+    // The field is absent in every document written before it existed. It has to read back as the
+    // epoch, because the manager's test for "this job was scheduled at all" is a non-empty
+    // expression and its test for "the moment has not come" is this timestamp - and a PROCESS that
+    // came back with either one set would be a service the scheduler had opinions about.
+    const auto legacy = bsoncxx::builder::basic::make_document(
+            bsoncxx::builder::basic::kvp("applicationId", "legacy"),
+            bsoncxx::builder::basic::kvp("desiredState", "RUNNING"));
+
+    const auto restored = Application::fromDocument(legacy.view());
+    BOOST_TEST(restored.schedule.empty());
+    BOOST_TEST(restored.nextRunAt.time_since_epoch().count() == 0);
+    BOOST_TEST(!IsJob(restored.type));
 }

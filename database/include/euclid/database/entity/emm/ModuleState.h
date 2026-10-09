@@ -37,6 +37,13 @@ namespace Euclid::Database::Entity {
         CRASHED,
         PENDING_RESTART,
         RESTARTING,
+
+        // A job that ran to completion. Terminal and not a fault: the difference between this and
+        // CRASHED is the whole reason an application has a type - a JOB exiting 0 has done what it
+        // was started for, and nothing is to restart it or count it as a lost instance. A PROCESS
+        // never reaches this state, because for a PROCESS there is no such thing as finishing.
+        COMPLETED,
+
         UNKNOWN
     };
 
@@ -55,6 +62,7 @@ namespace Euclid::Database::Entity {
      * - CRASHED: "CRASHED"
      * - PENDING_RESTART: "PENDING_RESTART"
      * - RESTARTING: "RESTARTING"
+     * - COMPLETED: "COMPLETED"
      * - UNKNOWN: "UNKNOWN"
      */
     static std::map<ModuleState, std::string> ModuleStateNames{
@@ -65,6 +73,7 @@ namespace Euclid::Database::Entity {
         {ModuleState::CRASHED, "CRASHED"},
         {ModuleState::PENDING_RESTART, "PENDING_RESTART"},
         {ModuleState::RESTARTING, "RESTARTING"},
+        {ModuleState::COMPLETED, "COMPLETED"},
         {ModuleState::UNKNOWN, "UNKNOWN"},
     };
 

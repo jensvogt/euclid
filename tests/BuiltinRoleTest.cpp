@@ -296,6 +296,14 @@ BOOST_AUTO_TEST_CASE(ApplicationMayReportItsOwnLoad) {
     // one that holds neither is invisible to both - which is what a 403 on every push made of it.
     BOOST_TEST(grants(BuiltinRoles::Application, "emo:push-metrics"));
 
+    // The backlog half of the report, and the half that actually grows a listener's pool:
+    // utilisation is measured against the sum of every listener's concurrency, so an instance whose
+    // one busy queue is saturated still reads as a fraction loaded and never reaches the saturation
+    // bar. Left out, this fails differently from report-load above - the container counts
+    // best-effort, so the refusal goes to debug and the report still arrives saying backlog 0,
+    // which is indistinguishable from an empty queue.
+    BOOST_TEST(grants(BuiltinRoles::Application, "eqs:get-message-count"));
+
     // Reading the monitoring store back is not part of it. An application reports about itself; it
     // does not get to see what the installation has been doing.
     BOOST_TEST(!grants(BuiltinRoles::Application, "emo:list"));
