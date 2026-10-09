@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.21](https://github.com/jensvogt/euclid/compare/1.2.20...v1.2.21) (2026-10-09)
+
+
+### Bug Fixes
+
+* new jobs and process application types ([7486532](https://github.com/jensvogt/euclid/commit/748653287eeb010113857911380ebe470381be43))
+* new jobs and process application types ([479aafb](https://github.com/jensvogt/euclid/commit/479aafbb02e2af85d764e8a85f3c6785649d796a))
+
 ## [1.2.20](https://github.com/jensvogt/euclid/compare/1.2.19...v1.2.20) (2026-10-08)
 
 
