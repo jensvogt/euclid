@@ -210,6 +210,8 @@ namespace Euclid::CLI {
                 ("node-labels", po::value<std::string>(), "comma-separated key=value labels a worker node must carry to run it, e.g. os=windows; empty means any node")
                 ("min-instances", po::value<long>(), "smallest number of instances the autoscaler keeps running (default 1)")
                 ("max-instances", po::value<long>(), "largest number of instances the autoscaler may scale out to (default 1)")
+                ("type", po::value<std::string>(), "PROCESS (default) for something that stays up, or JOB for something that runs once and finishes: a JOB is not restarted when it exits 0, and is not autoscaled")
+                ("schedule", po::value<std::string>(), "cron expression a JOB runs on, in UTC, e.g. \"0 2 * * *\" or \"@daily\"; only valid with --type JOB, and an empty value unschedules it")
                 ("ready-timeout", po::value<long>(), "kept on the definition but no longer decides readiness: an application counts as started by surviving its own startup, not by creating a socket");
 
         if (IsHelpRequest(args)) {
@@ -268,6 +270,8 @@ namespace Euclid::CLI {
         if (vm.contains("manifest") && !addManifestResources(vm["manifest"].as<std::string>(), request)) return 1;
         if (vm.contains("min-instances")) request["minInstances"] = vm["min-instances"].as<long>();
         if (vm.contains("max-instances")) request["maxInstances"] = vm["max-instances"].as<long>();
+        if (vm.contains("type")) request["type"] = vm["type"].as<std::string>();
+        if (vm.contains("schedule")) request["schedule"] = vm["schedule"].as<std::string>();
         if (vm.contains("ready-timeout")) request["readyTimeoutMs"] = vm["ready-timeout"].as<long>();
 
         try {
@@ -302,6 +306,8 @@ namespace Euclid::CLI {
                 ("node-labels", po::value<std::string>(), "comma-separated key=value labels a worker node must carry to run it, e.g. os=windows; replaces the current set, and an empty string clears it")
                 ("min-instances", po::value<long>(), "smallest number of instances the autoscaler keeps running")
                 ("max-instances", po::value<long>(), "largest number of instances the autoscaler may scale out to")
+                ("type", po::value<std::string>(), "PROCESS (default) for something that stays up, or JOB for something that runs once and finishes: a JOB is not restarted when it exits 0, and is not autoscaled")
+                ("schedule", po::value<std::string>(), "cron expression a JOB runs on, in UTC, e.g. \"0 2 * * *\" or \"@daily\"; only valid with --type JOB, and an empty value unschedules it")
                 ("ready-timeout", po::value<long>(), "kept on the definition but no longer decides readiness: an application counts as started by surviving its own startup, not by creating a socket");
 
         if (IsHelpRequest(args)) {
@@ -351,6 +357,8 @@ namespace Euclid::CLI {
         if (vm.contains("manifest") && !addManifestResources(vm["manifest"].as<std::string>(), request)) return 1;
         if (vm.contains("min-instances")) request["minInstances"] = vm["min-instances"].as<long>();
         if (vm.contains("max-instances")) request["maxInstances"] = vm["max-instances"].as<long>();
+        if (vm.contains("type")) request["type"] = vm["type"].as<std::string>();
+        if (vm.contains("schedule")) request["schedule"] = vm["schedule"].as<std::string>();
         if (vm.contains("ready-timeout")) request["readyTimeoutMs"] = vm["ready-timeout"].as<long>();
 
         try {

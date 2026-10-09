@@ -23,6 +23,7 @@
 // Euclid includes
 #include <euclid/database/entity/RuntimeName.h>
 #include <euclid/database/entity/eap/ApplicationState.h>
+#include <euclid/database/entity/eap/ApplicationType.h>
 #include <euclid/database/entity/eap/Runtime.h>
 
 namespace Euclid::Database::Entity::EAP {
@@ -267,6 +268,47 @@ namespace Euclid::Database::Entity::EAP {
          * @brief What the application should be doing - see ApplicationState.
          */
         ApplicationState desiredState = ApplicationState::STOPPED;
+
+        /**
+         * @brief Whether this is something that stays up or something that finishes - see
+         * ApplicationType.
+         *
+         * @par
+         * PROCESS by default, and that default is load-bearing rather than arbitrary: every
+         * definition written before this field existed has no type in it, reads back as PROCESS,
+         * and goes on being restarted and held at its instance count exactly as it was. A JOB is
+         * the new behaviour and has to be asked for.
+         */
+        ApplicationType type = ApplicationType::PROCESS;
+
+        /**
+         * @brief Cron expression this job runs on, or empty for on-demand only.
+         *
+         * @par
+         * Only meaningful on a JOB: a PROCESS is held at its instance count for as long as it is
+         * RUNNING and has nothing to be scheduled. EAP refuses a schedule on anything else rather
+         * than storing one that would never fire.
+         *
+         * @par
+         * Five fields in the Core::CronExpression dialect, or one of the @c \@daily-style
+         * shorthands, and interpreted in UTC - the same clock the manager and every host in the
+         * installation agree on. EAP parses it before storing it, so a schedule that is in the
+         * database parses.
+         */
+        std::string schedule;
+
+        /**
+         * @brief When this job is next due, or the epoch if it has no schedule.
+         *
+         * @par
+         * Derived from @ref schedule and written by whoever last touched it: EAP when the schedule
+         * is set, the manager each time the job is released. Keeping the next occurrence rather
+         * than the last run is what makes a firing idempotent across a manager restart - the
+         * decision to run is "this instant has passed", which survives being asked twice, and
+         * there is no window in which a manager coming up decides a nightly job is overdue and
+         * starts it at breakfast.
+         */
+        system_clock::time_point nextRunAt{};
 
         /**
          * @brief Level this application's own output is logged at, or empty to leave it to the

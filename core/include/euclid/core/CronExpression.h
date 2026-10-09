@@ -12,6 +12,7 @@
 #include <chrono>
 #include <set>
 #include <string>
+#include <vector>
 
 namespace Euclid::Core {
 
@@ -22,12 +23,16 @@ namespace Euclid::Core {
      *
      * @par
      * Supported field syntax: '*', a single value, a range 'a-b', a step '*\/n' or 'a-b/n',
-     * and comma separated lists of any of the above, e.g. 'MON-FRI', '0,15,30,45 * * * *'.
+     * and comma separated lists of any of the above, e.g. '0,15,30,45 * * * *'.
      *
      * @par
      * Field order (matching Unix cron): minute (0-59) hour (0-23) day-of-month (1-31) month (1-12)
      * day-of-week (0-6, 0 and 7 both mean Sunday). If both day-of-month and day-of-week are
      * restricted (not '*'), a time point matches when either field matches, per the POSIX cron rule.
+     *
+     * @par
+     * The month and day-of-week fields also accept the usual three-letter names, in any case and in
+     * any of the forms above: 'MON-FRI', 'SAT,SUN', '0 0 1 JAN,JUL *'.
      *
      * @par
      * The aliases '\@yearly', '\@annually', '\@monthly', '\@weekly', '\@daily', '\@midnight' and
@@ -81,6 +86,22 @@ namespace Euclid::Core {
         static std::set<int> ParseField(const std::string &field, int min, int max);
 
         /**
+         * @brief Rewrites the three-letter names in a field into the numbers they stand for.
+         *
+         * @par
+         * Applied to the month and day-of-week fields before they are parsed, which is what lets
+         * 'MON-FRI' go on being a range and 'SAT,SUN' a list: the names are substituted in place,
+         * so every form ParseField() understands keeps working with names in it.
+         *
+         * @param field field text, e.g. 'MON-FRI'
+         * @param names the three-letter names in the order the field numbers them
+         * @param base the value the first name stands for - 0 for day-of-week, 1 for month
+         * @return the field with every name replaced by its number
+         * @throws std::invalid_argument if the field contains a word that is not one of the names
+         */
+        static std::string ResolveNames(const std::string &field, const std::vector<std::string> &names, int base);
+
+        /**
          * @brief Rewrites a named alias ('\@daily', ...) into the equivalent five field expression.
          *
          * @param expression expression as passed to the constructor
@@ -128,5 +149,58 @@ namespace Euclid::Core {
          */
         std::string _expression;
     };
+
+    /**
+     * @brief What to do with a scheduled thing when its stored moment is compared with the clock.
+     */
+    enum class CronRelease {
+
+        /**
+         * @brief The moment has not come. Nothing to do.
+         */
+        NotDue,
+
+        /**
+         * @brief There is a schedule but no moment stored against it, so one has to be computed
+         * before anything can be due.
+         *
+         * @par
+         * Distinct from NotDue because it is the one case that has to write something down, and
+         * distinct from Fire because the alternative - reading the epoch as a moment that passed -
+         * means a nightly job starts the instant the scheduler comes up, every time it comes up.
+         */
+        Undated,
+
+        /**
+         * @brief The moment has come and the previous run has not finished, so this one is skipped.
+         */
+        Skip,
+
+        /**
+         * @brief The moment has come. Run it.
+         */
+        Fire
+    };
+
+    /**
+     * @brief Decides what a stored occurrence means now.
+     *
+     * @par
+     * The whole of a cron scheduler's behaviour that is not cron arithmetic, in one place and with
+     * no clock of its own, so that it can be stated as a table and tested as one. Whoever calls it
+     * supplies the time, advances the occurrence and does the work.
+     *
+     * @param nextRunAt the moment stored against the schedule; the epoch if there is none
+     * @param now the time to judge it against
+     * @param running whether the previous run is still in flight
+     * @return what to do - see CronRelease
+     */
+    [[nodiscard]]
+    constexpr CronRelease CronReleaseFor(const system_clock::time_point &nextRunAt, const system_clock::time_point &now, const bool running) {
+
+        if (nextRunAt.time_since_epoch().count() == 0) return CronRelease::Undated;
+        if (nextRunAt > now) return CronRelease::NotDue;
+        return running ? CronRelease::Skip : CronRelease::Fire;
+    }
 
 }// namespace Euclid::Core

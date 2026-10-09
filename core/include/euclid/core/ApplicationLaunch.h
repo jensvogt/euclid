@@ -61,6 +61,26 @@ namespace Euclid::Core {
         [[nodiscard]] std::string RuntimeKey(const std::string &runtime);
 
         /**
+         * @brief Whether an application of this type runs to completion.
+         *
+         * @par
+         * Takes the type as the word it arrives as, for the same reason InterpreterPrefix() takes
+         * the runtime that way: a worker links this library and not the database one, so it cannot
+         * see Entity::EAP::ApplicationType and has only the string the master sent. One definition
+         * of what "JOB" means, rather than a literal compared in two places that could drift.
+         *
+         * @par
+         * Anything else - including the empty string a master too old to send the field leaves -
+         * is long-running. That is the safe direction: being wrong this way restarts an
+         * application that need not have been, where the other way a service quietly stops being
+         * restarted at all.
+         *
+         * @param type the application's type as EAP spells it, e.g. "JOB" or "PROCESS".
+         * @return true only for a job.
+         */
+        [[nodiscard]] bool IsJob(const std::string &type);
+
+        /**
          * @brief The interpreter a runtime's artifact is handed to, and the arguments before it.
          *
          * @par

@@ -9,6 +9,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <ranges>
 #include <sstream>
 #include <set>
@@ -24,6 +25,7 @@
 #include <Placement.h>
 #include <euclid/core/ApplicationLaunch.h>
 #include <euclid/core/ArtifactFetcher.h>
+#include <euclid/core/CronExpression.h>
 #include <euclid/core/CryptoUtils.h>
 #include <euclid/core/DateTimeUtils.h>
 #include <euclid/core/DirUtils.h>
@@ -837,6 +839,13 @@ namespace Euclid::main {
 
             applyApplicationLogLevel(application, channelLevels);
 
+            // Before the application is placed rather than on a timer of its own, so that a job
+            // coming due is released and placed on the same pass: a schedule only sets the desired
+            // state, and the lines below are what act on it. Returns the definition as it now
+            // stands - everything after this point must read that one, or a job would be released
+            // and then reconciled against the copy that said it was stopped.
+            const auto current = releaseDueJob(application);
+
             // Every application is a worker's to run. The manager places it and grants the lease;
             // nothing here starts a process. Where this used to choose between running the
             // application itself and placing it on a node - isNodeApplication() - there is one
@@ -860,19 +869,19 @@ namespace Euclid::main {
             // read the node list sixty times - the same reason reconcileNodeLeases() counts
             // instances once. Also what lets the line below be said once for the installation
             // instead of once per application.
-            auto nodes = nodesByAccount.find(application.accountId);
+            auto nodes = nodesByAccount.find(current.accountId);
             if (nodes == nodesByAccount.end()) {
-                nodes = nodesByAccount.emplace(application.accountId,
-                                               Database::RepositoryFactory::instance().eapRepository()->listNodes(application.accountId))
+                nodes = nodesByAccount.emplace(current.accountId,
+                                               Database::RepositoryFactory::instance().eapRepository()->listNodes(current.accountId))
                                 .first;
             }
 
-            if (nodes->second.empty() && application.desiredState == Database::Entity::EAP::ApplicationState::RUNNING) {
+            if (nodes->second.empty() && current.desiredState == Database::Entity::EAP::ApplicationState::RUNNING) {
                 ++waitingForANode;
                 continue;
             }
 
-            reconcileNodeApplication(application, runtimeName, nodes->second);
+            reconcileNodeApplication(current, runtimeName, nodes->second);
         }
 
         // Once for the installation, not once per application: an installation with no worker is
@@ -1172,6 +1181,35 @@ namespace Euclid::main {
         // is maintained by reconcileApplicationLoad() from what the instances report about
         // themselves - it used to be read off a ServiceGroup, which a worker's application does not
         // have, so this was the floor and nothing else and no application ever grew.
+        // A job that has run. COMPLETED is terminal and only a JOB ever reaches it - the worker
+        // reports it instead of CRASHED when the process exited 0 - so the run is over and the
+        // application goes back to not wanting to be running. Without this the slot would be
+        // re-placed on the next pass and the job would run for ever, once per tick, which is the
+        // restart loop having a type exists to prevent.
+        //
+        // desiredState is written rather than just the slot removed: "has it finished" is a
+        // question asked of the definition, by the CLI and by whatever starts it next, and a job
+        // left desiring RUNNING would be started again by the next reconcile either way.
+        if (Database::Entity::EAP::IsJob(application.type) && existing.has_value()) {
+
+            const auto finished = std::ranges::find_if(existing->instances, [](const auto &instance) {
+                return instance.state == Database::Entity::ModuleState::COMPLETED;
+            });
+
+            if (finished != existing->instances.end()) {
+
+                log_info << "Job finished, application: " << runtimeName
+                         << ", instance: " << finished->instanceId << ", node: " << finished->assignedTo;
+
+                emm->removeInstance(runtimeName, finished->instanceId);
+
+                auto completed = application;
+                completed.desiredState = Database::Entity::EAP::ApplicationState::STOPPED;
+                std::ignore = Database::RepositoryFactory::instance().eapRepository()->upsertApplication(completed);
+                return;
+            }
+        }
+
         // Noted for the load path, which sees only module records and would otherwise read the
         // stale copy of these on the row - see applyNodeApplicationBacklog(). Recorded here
         // because this is the one place that holds the definition, and it runs for every
@@ -1657,6 +1695,11 @@ namespace Euclid::main {
     long ServiceController::nodeApplicationTarget(const Database::Entity::EAP::Application &application,
                                                   const std::string &runtimeName) const {
 
+        // A job is one run, however deep its queues are. Backlog-driven scaling answers "how many
+        // copies of this should be working through the pile", which is a question about a service;
+        // for something started to do one thing and finish, the answer is always the floor.
+        if (Database::Entity::EAP::IsJob(application.type)) return std::max(1L, application.minInstances);
+
         const auto floor = std::max(1L, application.minInstances);
         const auto ceiling = std::max(floor, application.maxInstances);
 
@@ -1667,6 +1710,80 @@ namespace Euclid::main {
         if (found == _nodeApplicationTargets.end()) return floor;
 
         return std::clamp(static_cast<long>(found->second), floor, ceiling);
+    }
+
+    Database::Entity::EAP::Application ServiceController::releaseDueJob(const Database::Entity::EAP::Application &application) {
+
+        const auto runtimeName = Database::Entity::EAP::RuntimeName(application);
+
+        if (!Database::Entity::EAP::IsJob(application.type) || application.schedule.empty()) {
+            // Cheap to do here and it keeps the set from growing without bound: a job that was
+            // unscheduled, or whose expression was corrected, should be complained about again if it
+            // ever comes back broken.
+            _unparseableSchedules.erase(runtimeName);
+            return application;
+        }
+
+        std::optional<Core::CronExpression> cron;
+        try {
+            cron.emplace(application.schedule);
+        } catch (const std::exception &e) {
+            if (_unparseableSchedules.insert(runtimeName).second) {
+                log_warning << "Job has a schedule that cannot be parsed and will never fire, application: " << runtimeName
+                            << ", schedule: " << application.schedule << ", error: " << e.what();
+            }
+            return application;
+        }
+        _unparseableSchedules.erase(runtimeName);
+
+        const auto now = std::chrono::system_clock::now();
+        const auto release = Core::CronReleaseFor(application.nextRunAt, now,
+                                                  application.desiredState == Database::Entity::EAP::ApplicationState::RUNNING);
+
+        if (release == Core::CronRelease::NotDue) return application;
+
+        // Advanced before anything else is decided, and from now rather than from the occurrence
+        // just consumed. That occurrence is spent whether or not it was run, which is what makes
+        // "skip" mean skipped - leaving it behind would fire the moment the run in flight finished,
+        // and a job that overran by a minute would spend the rest of the day running its missed
+        // ticks back to back. From now for the same reason: on a manager that was down for a week,
+        // walking forward from the occurrence would work through a week of them first.
+        auto next = application;
+        try {
+            next.nextRunAt = cron->Next(now);
+        } catch (const std::exception &e) {
+            log_warning << "Job schedule has no occurrence left to run at, application: " << runtimeName
+                        << ", schedule: " << application.schedule << ", error: " << e.what();
+            return application;
+        }
+
+        switch (release) {
+
+            case Core::CronRelease::Undated:
+                // A schedule with no moment against it arrived another way than through EAP, which
+                // computes one as it stores the expression - a document edited by hand, or written
+                // by a module from before this field existed. Dated from now rather than run.
+                log_info << "Job schedule dated from now, application: " << runtimeName << ", schedule: " << application.schedule
+                         << ", next run: " << Core::DateTimeUtils::ToISO8601(next.nextRunAt);
+                break;
+
+            case Core::CronRelease::Skip:
+                log_warning << "Job is still running, skipping this scheduled run, application: " << runtimeName
+                            << ", schedule: " << application.schedule
+                            << ", next run: " << Core::DateTimeUtils::ToISO8601(next.nextRunAt);
+                break;
+
+            case Core::CronRelease::Fire:
+                next.desiredState = Database::Entity::EAP::ApplicationState::RUNNING;
+                log_info << "Job released by its schedule, application: " << runtimeName << ", schedule: " << application.schedule
+                         << ", next run: " << Core::DateTimeUtils::ToISO8601(next.nextRunAt);
+                break;
+
+            case Core::CronRelease::NotDue:
+                break;
+        }
+
+        return Database::RepositoryFactory::instance().eapRepository()->upsertApplication(next);
     }
 
     void ServiceController::reconcileBackgroundWork(const std::vector<Database::Entity::Module> &modules) {

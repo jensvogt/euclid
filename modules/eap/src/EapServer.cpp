@@ -19,6 +19,7 @@
 #include <EapServer.h>
 #include <euclid/core/ApplicationLaunch.h>
 #include <euclid/core/Configuration.h>
+#include <euclid/core/CronExpression.h>
 #include <euclid/core/CryptoUtils.h>
 #include <euclid/core/DateTimeUtils.h>
 #include <euclid/core/JwtUtils.h>
@@ -91,6 +92,33 @@ namespace Euclid::EAP {
         bool boolField(const boost::json::object &obj, const std::string &key, const bool fallback = false) {
             if (const auto *v = obj.if_contains(key); v && v->is_bool()) return v->as_bool();
             return fallback;
+        }
+
+        // Puts a cron expression on an application, or returns why it cannot go there.
+        //
+        // @par
+        // An expression that does not parse is refused here, at the moment somebody typed it, and
+        // not at the moment it was due - which would be hours later, in the manager's log, on a job
+        // whose owner had long since gone home believing it was scheduled.
+        //
+        // @par
+        // On success the next occurrence is computed and kept with it. That is what decides a
+        // schedule set at noon is next due tonight rather than overdue since midnight, and it means
+        // the only thing the manager ever has to ask is whether that instant has passed.
+        std::optional<std::string> applySchedule(Application &application, const std::string &requested) {
+            if (requested.empty()) {
+                application.schedule.clear();
+                application.nextRunAt = {};
+                return std::nullopt;
+            }
+            try {
+                const Core::CronExpression cron(requested);
+                application.nextRunAt = cron.Next(std::chrono::system_clock::now());
+            } catch (const std::exception &e) {
+                return "schedule '" + requested + "' is not a valid cron expression: " + e.what();
+            }
+            application.schedule = requested;
+            return std::nullopt;
         }
 
         // What an artifact lookup found: the object once ESM has finished with it, or the fact
@@ -883,6 +911,12 @@ namespace Euclid::EAP {
                     {"minInstances", application.minInstances},
                     {"maxInstances", application.maxInstances},
                     {"readyTimeoutMs", application.readyTimeoutMs},
+                    {"type", Database::Entity::EAP::ApplicationTypeToString(application.type)},
+                    {"schedule", application.schedule},
+                    // Only reported when there is a schedule it came from. The epoch is how "no
+                    // schedule" is stored, and formatting that gives 1970, which reads as a job
+                    // overdue by half a century rather than one that is not scheduled at all.
+                    {"nextRunAt", application.schedule.empty() ? std::string{} : Core::DateTimeUtils::ToISO8601(application.nextRunAt)},
                     {"desiredState", ApplicationStateToString(application.desiredState)},
                     // What the pool is doing, not merely whether anything answers - see
                     // applicationPool(). RUNNING and STOPPED still mean what they always did; the
@@ -1068,6 +1102,31 @@ namespace Euclid::EAP {
         application.maxInstances = std::max(application.minInstances, longField(obj, "maxInstances", 1));
         application.readyTimeoutMs = std::max(1000L, longField(obj, "readyTimeoutMs", 30000));
         application.desiredState = ApplicationState::STOPPED;
+
+        // PROCESS unless asked for otherwise, and an unrecognised word is refused rather than
+        // silently becoming one: "type": "job" in the wrong case, or a typo, would otherwise read
+        // as UNKNOWN, behave as a long-running process, and be found out the first time a run that
+        // was meant to finish was restarted instead.
+        if (const auto requested = stringField(obj, "type"); !requested.empty()) {
+            application.type = Database::Entity::EAP::ApplicationTypeFromString(requested);
+            if (application.type == Database::Entity::EAP::ApplicationType::UNKNOWN) {
+                return EapServer::ErrorResponse(req, status::bad_request,
+                                                "type must be PROCESS or JOB, not '" + requested + "'");
+            }
+        }
+
+        // After the type, because a schedule only means something on a JOB and this is where that
+        // is found out. A PROCESS is held at its instance count for as long as it is RUNNING, so a
+        // cron expression on one would be stored, listed, and never fire.
+        if (const auto schedule = stringField(obj, "schedule"); !schedule.empty()) {
+            if (!Database::Entity::EAP::IsJob(application.type)) {
+                return EapServer::ErrorResponse(req, status::bad_request,
+                                                "schedule is only valid on a JOB - pass '--type JOB' as well");
+            }
+            if (const auto refusal = applySchedule(application, schedule); refusal.has_value()) {
+                return EapServer::ErrorResponse(req, status::bad_request, *refusal);
+            }
+        }
 
         // Before the application is stored, so that what it owns exists by the time the manager
         // reads the row and starts a pool against it.
@@ -1468,6 +1527,45 @@ namespace Euclid::EAP {
         if (obj.contains("minInstances")) application->minInstances = std::max(1L, longField(obj, "minInstances", application->minInstances));
         if (obj.contains("maxInstances")) application->maxInstances = std::max(application->minInstances, longField(obj, "maxInstances", application->maxInstances));
         if (obj.contains("readyTimeoutMs")) application->readyTimeoutMs = std::max(1000L, longField(obj, "readyTimeoutMs", application->readyTimeoutMs));
+
+        // Changeable, because an application deployed as a PROCESS before anybody noticed it was a
+        // job should not have to be deleted and recreated to say so. Refused the same way as on
+        // create - a value nobody recognises must not quietly leave the type as it was.
+        if (obj.contains("type")) {
+            const auto requested = stringField(obj, "type");
+            const auto parsed = Database::Entity::EAP::ApplicationTypeFromString(requested);
+            if (parsed == Database::Entity::EAP::ApplicationType::UNKNOWN) {
+                return EapServer::ErrorResponse(req, status::bad_request,
+                                                "type must be PROCESS or JOB, not '" + requested + "'");
+            }
+            if (parsed != application->type) {
+                log_info << "EAP changed application type, applicationId: " << applicationId
+                         << ", type: " << Database::Entity::EAP::ApplicationTypeToString(application->type)
+                         << " -> " << Database::Entity::EAP::ApplicationTypeToString(parsed);
+            }
+            application->type = parsed;
+        }
+
+        // Sent empty to unschedule, which is how a job goes back to being on-demand only without
+        // being deleted and recreated.
+        if (obj.contains("schedule")) {
+            const auto requested = stringField(obj, "schedule");
+            if (const auto refusal = applySchedule(*application, requested); refusal.has_value()) {
+                return EapServer::ErrorResponse(req, status::bad_request, *refusal);
+            }
+            log_info << "EAP changed application schedule, applicationId: " << applicationId
+                     << ", schedule: " << (requested.empty() ? "<none>" : requested);
+        }
+
+        // Checked once both have been applied, because either one can be what breaks the pair, and
+        // a type change is the likelier way in: a JOB turned back into a PROCESS would otherwise
+        // keep a schedule that stopped firing without anybody being told.
+        if (!application->schedule.empty() && !Database::Entity::EAP::IsJob(application->type)) {
+            return EapServer::ErrorResponse(req, status::bad_request,
+                                            "application has schedule '" + application->schedule + "', which only fires on a JOB - "
+                                            "send an empty schedule in the same request to clear it");
+        }
+
         // Replaced whole, like environment: the set sent is the set wanted, so {} clears it - which
         // hands the application back to the manager, and the manager takes its node slots away.
         if (obj.contains("nodeLabels")) {
@@ -2221,6 +2319,10 @@ namespace Euclid::EAP {
                         {"artifactSize", object.has_value() ? object->size : 0L},
                         {"md5Sum", object.has_value() ? object->md5Sum : application->md5Sum},
                         {"runtime", RuntimeToString(application->runtime)},
+                        // What an exit means on the far end: a JOB that exits 0 has finished and
+                        // is not restarted, a PROCESS that exits has crashed. See
+                        // Reconciler::Assignment::type.
+                        {"type", ApplicationTypeToString(application->type)},
                         // The application's own command, which overrides the runtime's
                         // interpreter on a node exactly as it does on the manager.
                         {"command", application->command},

@@ -178,6 +178,45 @@ euclid-pdk` for that interpreter, or ship a virtualenv and point the application
 python. The same is true in reverse of the C++ example, which is why `cpp/README.md` argues for
 linking the SDK statically: a single file that cannot arrive and fail to start for want of a library.
 
+## Jobs
+
+Everything above describes a `PROCESS`: something that starts, stays up, and is restarted if it
+exits. A `JOB` is the other kind — something that runs once and finishes — and the difference is in
+one field:
+
+```bash
+euclid-cli eap create-application \
+    --application-id nightly-report --runtime PYTHON \
+    --bucket apps --artifact report.py --version 1.0.0 \
+    --type JOB
+```
+
+Exiting is how a job succeeds, so a `JOB` that exits `0` is not restarted and is not counted as a
+crash; it is not autoscaled either, because "how many copies should be working through the pile" is
+a question about a service, and a job's answer is always one. Start it with `start-application`, as
+often as you like — each start is one run, and the application goes back to `STOPPED` on its own
+when the run finishes.
+
+A job can also carry a clock:
+
+```bash
+euclid-cli eap update-application --application-id nightly-report --schedule "0 2 * * *"
+euclid-cli eap update-application --application-id nightly-report --schedule ""
+```
+
+Five cron fields or an `@daily`-style shorthand, **interpreted in UTC** — the clock every host in
+the installation agrees on, not the one the machine you typed it on is set to. Ranges, lists and
+steps work as they do in Unix cron, and the month and day-of-week fields take the usual names:
+`0 6 * * MON-FRI`. An expression that
+does not parse is refused here and now rather than at two in the morning. `list-applications`
+reports the expression and the moment it is next due as `schedule` and `nextRunAt`; sending an empty
+schedule, as above, hands the job back to being on-demand only.
+
+A schedule only fires a job that is not already running. If a run is still in flight when the next
+one comes due, that occurrence is skipped — not queued — and the manager says so in its log. A job
+that takes an hour on a schedule that fires every ten minutes therefore runs once an hour, and never
+builds up a backlog of itself to work through.
+
 ## Who an application is
 
 Nothing above named a user, and that is deliberate: `create-application` gives the application a

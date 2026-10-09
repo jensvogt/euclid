@@ -32,7 +32,9 @@ namespace {
     // any order satisfying the dependencies is a correct answer.
     std::size_t positionOf(const std::vector<std::string> &order, const std::string &name) {
         const auto it = std::ranges::find(order, name);
-        BOOST_TEST_REQUIRE((it != order.end()), "'" << name << "' is missing from the start order");
+        // See EapApplicationBucketTest: BOOST_TEST_REQUIRE's two-argument form warns under
+        // -Wconversion, and this is the macro meant for a condition with a message.
+        BOOST_REQUIRE_MESSAGE(it != order.end(), "'" << name << "' is missing from the start order");
         return static_cast<std::size_t>(std::distance(order.begin(), it));
     }
 
