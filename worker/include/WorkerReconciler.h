@@ -80,6 +80,23 @@ namespace Euclid::Worker {
             long artifactSize{};
             std::string md5Sum;
             std::string runtime;
+
+            /**
+             * @brief Whether this is a PROCESS or a JOB - see Entity::EAP::ApplicationType.
+             *
+             * @par
+             * Carried with the assignment rather than looked up, for the same reason the runtime
+             * and the artifact are: a worker holds no definitions and asking the master per
+             * instance per tick would be a round trip for something that cannot change under it.
+             *
+             * @par
+             * What it decides is what an exit means. Reap() reports every exit as CRASHED and
+             * schedules a restart, which for something that is supposed to end turns success into
+             * a restart loop - so a JOB that exits 0 is reported COMPLETED and left alone. Empty,
+             * or any word this worker does not know, is treated as PROCESS: an older master sends
+             * no type at all, and its applications are all long-running.
+             */
+            std::string type;
             /**
              * @brief The application's own command, when it names one instead of its runtime's
              * interpreter. Empty for the ordinary case - see Worker::CommandLine().

@@ -34,6 +34,10 @@ namespace Euclid::Core::Launch {
         return key;
     }
 
+    bool IsJob(const std::string &type) {
+        return type == "JOB";
+    }
+
     std::vector<std::string> InterpreterPrefix(const std::string &runtime) {
         if (runtime == "JAVA") return {"java", "-jar"};
         if (runtime == "JAVA21") return {"java21", "-jar"};

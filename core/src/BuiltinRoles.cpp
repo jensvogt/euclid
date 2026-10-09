@@ -225,6 +225,28 @@ namespace Euclid::Core {
                                 // grows however much work is waiting - which is what happened when
                                 // the action was added and this was not.
                                 "eap:report-load",
+                                // How deep the queues it polls are, which is the other figure in
+                                // that report and the only one that can grow a listener's pool.
+                                // Utilisation cannot: it is measured against the sum of every
+                                // listener's concurrency, so an instance whose one busy queue is
+                                // saturated still reports a fraction of capacity and never reaches
+                                // the saturation bar. Backlog is what evaluateScaling() turns into
+                                // a desired count, and it is counted a queue at a time through
+                                // eqs:get-message-count.
+                                //
+                                // Worse than a refusal, left out: euclid-spring's listener
+                                // container counts best-effort, so a queue it may not count
+                                // contributes nothing and the 403 goes to debug. The report still
+                                // arrives, carrying backlog 0, and a pool with ten thousand
+                                // messages in front of it looks exactly like an idle one.
+                                //
+                                // Not in consumerPermissions(), where the rest of what a listener
+                                // needs lives: counting is not part of consuming, and a principal
+                                // granted the consumer role to read one queue should not thereby
+                                // learn how much is waiting in it. This is here because the
+                                // container asks for it on every tick of every deployed
+                                // application.
+                                "eqs:get-message-count",
                                 // Who its caller is, for an application behind EAG that treats
                                 // euclid as its identity provider. The gateway states the caller in
                                 // x-euclid-user-id, and an application that maps euclid groups onto

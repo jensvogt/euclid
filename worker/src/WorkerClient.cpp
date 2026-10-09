@@ -304,6 +304,7 @@ namespace Euclid::Worker {
                 assignment.artifactSize = numberField(entry, "artifactSize");
                 assignment.md5Sum = textField(entry, "md5Sum");
                 assignment.runtime = textField(entry, "runtime");
+                assignment.type = textField(entry, "type");
                 assignment.command = textField(entry, "command");
                 assignment.accountId = textField(entry, "accountId");
                 assignment.nameSpace = textField(entry, "nameSpace");
@@ -741,6 +742,10 @@ namespace Euclid::Worker {
         for (auto it = _instances.begin(); it != _instances.end();) {
 
             std::string how;
+
+            // Whether it ended of its own accord and said it went well, which is the only thing
+            // that separates a finished job from a failed one - see the JOB branch below.
+            bool succeeded = false;
 #ifdef _WIN32
             const auto process = static_cast<HANDLE>(it->second.processHandle);
             const auto exitCode = Core::WindowsProcess::ExitCode(process);
@@ -749,6 +754,7 @@ namespace Euclid::Worker {
                 continue;
             }
             how = "exit code " + std::to_string(*exitCode);
+            succeeded = *exitCode == 0;
             CloseHandle(process);
             if (it->second.stopEvent) CloseHandle(static_cast<HANDLE>(it->second.stopEvent));
 #else
@@ -763,6 +769,7 @@ namespace Euclid::Worker {
             // interpreter, most often - which is worth naming, since nothing else will.
             if (WIFEXITED(status)) {
                 how = "exit code " + std::to_string(WEXITSTATUS(status));
+                succeeded = WEXITSTATUS(status) == 0;
                 if (WEXITSTATUS(status) == 127) how += " (" + it->second.executable + " could not be executed)";
                 if (WEXITSTATUS(status) == 126) how += " (could not enter the application directory)";
             } else if (WIFSIGNALED(status)) {
@@ -773,6 +780,23 @@ namespace Euclid::Worker {
 #endif
 
             const auto ranFor = std::chrono::duration_cast<std::chrono::seconds>(now - it->second.startedAt);
+
+            // A job that finished, which is the one exit that is not a fault. Reported COMPLETED
+            // and given no entry in _crashes, so nothing holds it off and nothing starts it again:
+            // the master sees a terminal state and takes the slot away rather than re-placing it.
+            // Only a clean exit counts - a job killed by a signal, or exiting non-zero, failed and
+            // is handled below exactly as a process is.
+            if (Core::Launch::IsJob(it->second.assignment.type) && succeeded) {
+
+                log_info << "Job " << it->first << " finished, application: " << it->second.assignment.applicationId
+                         << ", " << how << ", ran for " << ranFor.count() << "s";
+
+                report(it->second.assignment, -1, 0, "COMPLETED");
+                _crashes.erase(it->first);
+                it = _instances.erase(it);
+                continue;
+            }
+
             const auto previous = _crashes.contains(it->first) ? _crashes.at(it->first).delay : std::chrono::seconds{0};
             const auto delay = Reconciler::RestartDelay(previous, ranFor);
             _crashes[it->first] = Crash{.delay = delay, .notBefore = now + delay};
