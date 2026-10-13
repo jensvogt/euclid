@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <future>
 #include <iostream>
+#include <map>
 #include <optional>
 #include <string>
 #include <utility>
@@ -363,6 +364,85 @@ namespace Euclid::Core {
          * @return the reading, or std::nullopt if it failed or the platform has none (e.g. macOS).
          */
         static std::optional<MemoryUsage> ReadMemoryUsage();
+
+        /**
+         * @brief Another process's CPU time and memory: what a worker reads for each application
+         * instance it started.
+         *
+         * @par
+         * cpuTime is cumulative, like CpuTimes, and in the same unit as CpuTimes::total - clock
+         * ticks on Linux, 100-nanosecond intervals on Windows - so ProcessCpuUsagePercent() can
+         * divide one delta by the other and the unit cancels. The memory figures are direct
+         * readings with the meaning MemoryUsage gives them.
+         */
+        struct ProcessUsage {
+            unsigned long long cpuTime = 0;
+            double realMb = 0;
+            double virtualMb = 0;
+            double percentOfTotal = 0;
+        };
+
+        /**
+         * @brief Reads the usage of each of the given process groups, summed over every process
+         * in the group (Linux-only).
+         *
+         * @par
+         * By group rather than by pid because a worker starts each instance as the leader of a
+         * group of its own, and what the instance costs is what the group costs: a launcher script,
+         * or a Python application with worker processes, does its work in children the leader's
+         * own figures never see. cpuTime includes cutime/cstime, the time of children that exited
+         * and were waited for, so a child's CPU time does not vanish from the sum when it exits.
+         *
+         * @par
+         * One pass over /proc for all of them rather than one per group: finding a group's members
+         * means reading every process's stat line whichever group is asked for.
+         *
+         * @param groups the process group ids - each the pid of its leader.
+         * @return the usage of each group that has at least one live process; a group with none is
+         * absent rather than reported as zero. Empty on any other platform.
+         */
+        static std::map<int, ProcessUsage> ReadProcessGroupUsage(const std::vector<int> &groups);
+
+        /**
+         * @brief Reads the usage of one process through its handle (Windows-only).
+         *
+         * @par
+         * The process alone, not its children. A worker's instances share one job object - the one
+         * that takes them down with the worker - so the job's accounting is the whole node's, and
+         * there is no per-instance grouping to sum over the way there is on Linux.
+         *
+         * @param processHandle the HANDLE the process was started with, as void * so this header
+         * does not need <windows.h>.
+         * @return the reading, or std::nullopt if it failed or this is not Windows.
+         */
+        static std::optional<ProcessUsage> ReadProcessUsage(void *processHandle);
+
+        /**
+         * @brief This process's own cumulative CPU time, user and system, in the unit
+         * CpuTimes::total counts in - see ProcessUsage::cpuTime.
+         *
+         * @par
+         * This process alone, unlike ReadProcessGroupUsage(): a module is not necessarily the
+         * leader of a group of its own, and summing whatever group it happens to be in would charge
+         * it for its siblings. On Linux from /proc/self/stat, on Windows from GetProcessTimes().
+         *
+         * @return the reading, or std::nullopt if it failed or the platform has none (e.g. macOS).
+         */
+        static std::optional<unsigned long long> ReadProcessCpuTime();
+
+        /**
+         * @brief The share of the whole machine's CPU time a process used between two readings.
+         *
+         * @par
+         * Of the machine, not of one core: 100 is every processor busy with this process alone,
+         * so the figure sits on the same scale as the host's "system-cpu-usage" and the two can be
+         * read against each other. A process keeping one core of sixteen busy reads 6.25.
+         *
+         * @return the percentage, or std::nullopt when no time passed or either counter went
+         * backwards - a process in the group that left it, or a reading across a pid being reused.
+         */
+        static std::optional<double> ProcessCpuUsagePercent(unsigned long long previousProcessTime, unsigned long long currentProcessTime,
+                                                             const CpuTimes &previousSystem, const CpuTimes &currentSystem);
 
         /**
          * @brief Returns the value of an environment variable or empty string, if not existent.

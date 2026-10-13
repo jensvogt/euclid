@@ -23,7 +23,10 @@
 #endif
 #include <algorithm>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
+#include <ranges>
+#include <set>
 #include <sstream>
 
 #include <boost/asio/io_context.hpp>
@@ -544,6 +547,168 @@ namespace Euclid::Core {
 #else
         return std::nullopt;
 #endif
+    }
+
+    std::map<int, SystemUtils::ProcessUsage> SystemUtils::ReadProcessGroupUsage(const std::vector<int> &groups) {
+
+        std::map<int, ProcessUsage> usage;
+#ifdef __linux__
+        if (groups.empty()) return usage;
+
+        const std::set<int> wanted(groups.begin(), groups.end());
+        const auto pageSize = sysconf(_SC_PAGESIZE);
+
+        std::error_code ec;
+        for (const auto &entry: std::filesystem::directory_iterator("/proc", ec)) {
+            const auto name = entry.path().filename().string();
+            if (name.empty() || !std::ranges::all_of(name, [](const char c) { return c >= '0' && c <= '9'; })) continue;
+
+            // A process can exit between the listing and the read; it is simply not counted.
+            std::ifstream statFile(entry.path() / "stat");
+            std::string line;
+            if (!statFile.is_open() || !std::getline(statFile, line)) continue;
+
+            // "pid (comm) state ppid pgrp ..." - the command name is in parentheses and may itself
+            // contain spaces and parentheses, so the fields are counted from the last ')' rather
+            // than from the start of the line.
+            const auto close = line.rfind(')');
+            if (close == std::string::npos) continue;
+            std::istringstream fields(line.substr(close + 1));
+
+            // Fields 3 to 17 of proc(5): state ppid pgrp session tty_nr tpgid flags minflt cminflt
+            // majflt cmajflt utime stime cutime cstime.
+            std::string state;
+            long long ppid = 0, pgrp = 0, skip = 0;
+            unsigned long long utime = 0, stime = 0;
+            long long cutime = 0, cstime = 0;
+            fields >> state >> ppid >> pgrp;
+            if (!fields || !wanted.contains(static_cast<int>(pgrp))) continue;
+            for (int i = 0; i < 8; ++i) fields >> skip;// session .. cmajflt
+            fields >> utime >> stime >> cutime >> cstime;
+            if (!fields) continue;
+
+            // The sizes from statm rather than from stat's own vsize and rss fields. stat's rss is
+            // the kernel's cheap reading of a per-CPU counter and can lag far behind: a process
+            // forked a moment ago reads 0 there while status and statm say 872 kB. statm sums the
+            // counter exactly, as status does, and is one line of two numbers to parse - size and
+            // resident, both in pages.
+            std::ifstream statmFile(entry.path() / "statm");
+            unsigned long long sizePages = 0, residentPages = 0;
+            if (!(statmFile >> sizePages >> residentPages)) continue;
+
+            auto &group = usage[static_cast<int>(pgrp)];
+            group.cpuTime += utime + stime + static_cast<unsigned long long>(std::max(0LL, cutime) + std::max(0LL, cstime));
+            group.realMb += static_cast<double>(residentPages) * static_cast<double>(pageSize) / (1024.0 * 1024.0);
+            group.virtualMb += static_cast<double>(sizePages) * static_cast<double>(pageSize) / (1024.0 * 1024.0);
+        }
+
+        // MemTotal once for all of them, for the percentage - see ReadMemoryUsage().
+        if (!usage.empty()) {
+            std::ifstream meminfo("/proc/meminfo");
+            std::string line;
+            unsigned long long memTotalKb = 0;
+            while (std::getline(meminfo, line)) {
+                std::istringstream iss(line);
+                std::string label;
+                unsigned long long value = 0;
+                iss >> label >> value;
+                if (label == "MemTotal:") {
+                    memTotalKb = value;
+                    break;
+                }
+            }
+            if (memTotalKb > 0) {
+                for (auto &group: usage | std::views::values) {
+                    group.percentOfTotal = 100.0 * group.realMb * 1024.0 / static_cast<double>(memTotalKb);
+                }
+            }
+        }
+#endif
+        return usage;
+    }
+
+    std::optional<SystemUtils::ProcessUsage> SystemUtils::ReadProcessUsage(void *processHandle) {
+#ifdef _WIN32
+        if (processHandle == nullptr) return std::nullopt;
+        const auto handle = static_cast<HANDLE>(processHandle);
+
+        // The same 100-nanosecond unit GetSystemTimes() counts in, which is what ReadCpuTimes()
+        // returns on Windows - so the ratio ProcessCpuUsagePercent() takes is unit-free.
+        FILETIME created{}, exited{}, kernelTime{}, userTime{};
+        if (!GetProcessTimes(handle, &created, &exited, &kernelTime, &userTime)) return std::nullopt;
+        const auto ticks = [](const FILETIME &fileTime) {
+            return static_cast<unsigned long long>(fileTime.dwHighDateTime) << 32 | fileTime.dwLowDateTime;
+        };
+
+        // The same two sizes ReadMemoryUsage() reports for this process, for the same reasons.
+        PROCESS_MEMORY_COUNTERS_EX counters{};
+        counters.cb = sizeof(counters);
+        if (!GetProcessMemoryInfo(handle, reinterpret_cast<PROCESS_MEMORY_COUNTERS *>(&counters), sizeof(counters))) return std::nullopt;
+
+        MEMORYSTATUSEX status{};
+        status.dwLength = sizeof(status);
+        if (!GlobalMemoryStatusEx(&status) || status.ullTotalPhys == 0) return std::nullopt;
+
+        ProcessUsage usage;
+        usage.cpuTime = ticks(kernelTime) + ticks(userTime);
+        usage.realMb = static_cast<double>(counters.WorkingSetSize) / (1024.0 * 1024.0);
+        usage.virtualMb = static_cast<double>(counters.PrivateUsage) / (1024.0 * 1024.0);
+        usage.percentOfTotal = 100.0 * static_cast<double>(counters.WorkingSetSize) / static_cast<double>(status.ullTotalPhys);
+        return usage;
+#else
+        (void) processHandle;
+        return std::nullopt;
+#endif
+    }
+
+    std::optional<unsigned long long> SystemUtils::ReadProcessCpuTime() {
+#ifdef __linux__
+        std::ifstream statFile("/proc/self/stat");
+        std::string line;
+        if (!statFile.is_open() || !std::getline(statFile, line)) return std::nullopt;
+
+        // Counted from the last ')' for the reason ReadProcessGroupUsage() gives: the command name
+        // may contain spaces. Fields 3 to 15 of proc(5), the last two being utime and stime.
+        const auto close = line.rfind(')');
+        if (close == std::string::npos) return std::nullopt;
+        std::istringstream fields(line.substr(close + 1));
+
+        std::string state;
+        long long skip = 0;
+        unsigned long long utime = 0, stime = 0;
+        fields >> state;
+        for (int i = 0; i < 10; ++i) fields >> skip;// ppid .. cmajflt
+        fields >> utime >> stime;
+        if (!fields) return std::nullopt;
+        return utime + stime;
+#elif defined(_WIN32)
+        FILETIME created{}, exited{}, kernelTime{}, userTime{};
+        if (!GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernelTime, &userTime)) return std::nullopt;
+        const auto ticks = [](const FILETIME &fileTime) {
+            return static_cast<unsigned long long>(fileTime.dwHighDateTime) << 32 | fileTime.dwLowDateTime;
+        };
+        return ticks(kernelTime) + ticks(userTime);
+#else
+        return std::nullopt;
+#endif
+    }
+
+    std::optional<double> SystemUtils::ProcessCpuUsagePercent(const unsigned long long previousProcessTime,
+                                                              const unsigned long long currentProcessTime,
+                                                              const CpuTimes &previousSystem, const CpuTimes &currentSystem) {
+
+        // Refused rather than reported when either counter went backwards, for the reason
+        // CpuUsagePercent() gives - and here there is one more way for it to happen: a process
+        // that left the group, or a group summed across a pid being reused, takes its time with it.
+        if (currentSystem.total <= previousSystem.total || currentProcessTime < previousProcessTime) return std::nullopt;
+
+        const auto systemDelta = currentSystem.total - previousSystem.total;
+        const auto processDelta = currentProcessTime - previousProcessTime;
+
+        // Both deltas cover the same wall-clock interval only approximately - the two are read
+        // a moment apart - so a process keeping the whole machine busy can come out a hair over
+        // 100. Clamped, since more than all of the machine is not a reading anyone can act on.
+        return std::min(100.0, 100.0 * static_cast<double>(processDelta) / static_cast<double>(systemDelta));
     }
 
     std::string SystemUtils::GetEnvironmentVariableValue(const std::string &name) {

@@ -4,6 +4,7 @@
 
 // C++ includes
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -98,6 +99,24 @@ namespace Euclid::ETS {
             boost::json::array directories;
             for (const auto &directory: server.directories) directories.push_back(boost::json::string(directory));
 
+            // Everyone who may log in, which is neither list's length and is not their sum either:
+            // the two are a union - a user may be named directly, be a member of one of the groups,
+            // or both - so counting userIds alone undercounts a server that admits people by group,
+            // and adding the group names in counts a group as if it were a person.
+            //
+            // Resolved here because it takes EAM, and because this is the same question
+            // TransferAuthenticator::isPermitted() answers for an actual login: a group that is not
+            // there admits nobody, and is passed over here exactly as it is there. The only
+            // difference is the silence - a listing that warned once per row per refresh would say
+            // it thousands of times a day.
+            std::set<std::string> permitted(server.userIds.begin(), server.userIds.end());
+            const auto eamRepository = Database::RepositoryFactory::instance().eamRepository();
+            for (const auto &groupName: server.userGroups) {
+                if (const auto group = eamRepository->findUserGroupByName(groupName); group.has_value()) {
+                    permitted.insert(group->userIds.begin(), group->userIds.end());
+                }
+            }
+
             return boost::json::object{
                     {"serverId", server.serverId},
                     // What an operator needs to find anything belonging to this server on a host:
@@ -118,6 +137,10 @@ namespace Euclid::ETS {
                     {"homeDirectory", server.homeDirectory},
                     {"userIds", userIds},
                     {"userGroups", userGroups},
+                    // Both lists are still reported as they are stored - a page that edits them has
+                    // to show what is there - and this is what they come to: how many people this
+                    // server lets in, counted once each.
+                    {"userCount", static_cast<long>(permitted.size())},
                     {"directories", directories},
                     {"desiredState", TransferServerStateToString(server.desiredState)},
                     {"state", observedState(Database::Entity::ETS::RuntimeName(server))},

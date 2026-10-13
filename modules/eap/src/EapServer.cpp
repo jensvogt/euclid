@@ -2176,6 +2176,52 @@ namespace Euclid::EAP {
                                                                 {"leaseSeconds", leasePeriod().count()}}));
     }
 
+    // Records what a node says each of its application instances costs - CPU and memory, by pid -
+    // as gauges labelled with the application, the instance, the node and the pid.
+    //
+    // Published here rather than pushed by the worker for the reason the host figures are: the
+    // labels come from the master's own records. An entry is recorded only for a slot assigned to
+    // the node that sent it, so a worker can report on what it runs and cannot put figures on
+    // another node's instances or invent an application. Unlike the host figures, these are
+    // recorded for the local node too - the monitoring module measures that host, but not the
+    // applications on it.
+    //
+    // Each figure only when it was sent: the first renewal after an instance starts carries no
+    // CPU percentage, and a recorded zero would read as an idle instance.
+    static void recordInstanceUsage(const boost::json::object &body, const std::string &node,
+                                    const std::map<std::string, std::string> &applicationOf) {
+
+        const auto *entries = body.if_contains("instanceUsage");
+        if (entries == nullptr || !entries->is_array()) return;
+
+        for (const auto &value: entries->as_array()) {
+            if (!value.is_object()) continue;
+            const auto &entry = value.as_object();
+
+            const auto instanceId = stringField(entry, "instanceId");
+            const auto application = applicationOf.find(instanceId);
+            if (application == applicationOf.end()) continue;
+
+            const auto *pid = entry.if_contains("pid");
+            if (pid == nullptr || !pid->is_number()) continue;
+
+            const std::map<std::string, std::string> labels{{"application", application->second},
+                                                            {"instance", instanceId},
+                                                            {"node", node},
+                                                            {"pid", std::to_string(pid->to_number<long long>())}};
+
+            const auto gauge = [&labels, &entry](const std::string &name, const char *field) {
+                if (const auto *figure = entry.if_contains(field); figure != nullptr && figure->is_number()) {
+                    Core::Monitoring::MetricEventBus::instance().sigMetricGaugeWithLabels(name, labels, figure->to_number<double>());
+                }
+            };
+            gauge("application-cpu-usage", "cpuUsage");
+            gauge("application-memory-usage-real-mb", "memoryRealMb");
+            gauge("application-memory-usage-virtual-mb", "memoryVirtualMb");
+            gauge("application-memory-usage-percent", "memoryPercent");
+        }
+    }
+
     // Renews every lease this node holds and answers with what it should be running.
     //
     // One call on purpose: the heartbeat and the "what should I be running" poll are the same
@@ -2275,6 +2321,11 @@ namespace Euclid::EAP {
         const auto renewed = modules->renewInstanceLeases(claim.node->name, expiry);
 
         boost::json::array assigned;
+
+        // The application behind each slot this node holds, by instance id - what an instance's
+        // usage below is labelled with, and the check that the node is reporting on its own slots.
+        std::map<std::string, std::string> applicationOf;
+
         for (const auto &module: modules->findAll()) {
             for (const auto &instance: module.instances) {
                 if (instance.assignedTo != claim.node->name) continue;
@@ -2284,6 +2335,7 @@ namespace Euclid::EAP {
                 // would have nothing to do with it but stop it, which is what its absence says.
                 const auto application = repository->findApplicationByRuntimeName(module.name);
                 if (!application.has_value()) continue;
+                applicationOf[instance.instanceId] = application->applicationId;
 
                 boost::json::array arguments;
                 for (const auto &argument: application->arguments) arguments.push_back(boost::json::value(argument));
@@ -2343,6 +2395,8 @@ namespace Euclid::EAP {
                 });
             }
         }
+
+        recordInstanceUsage(jv.as_object(), claim.node->name, applicationOf);
 
         log_debug << "EAP RenewNode, node: " << claim.node->name << ", renewed: " << renewed
                   << ", assigned: " << assigned.size();
