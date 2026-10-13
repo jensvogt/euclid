@@ -28,6 +28,7 @@
 #include <euclid/core/HttpSignature.h>
 #include <euclid/core/JwtUtils.h>
 #include <euclid/core/LogStream.h>
+#include <euclid/core/monitoring/MetricEventBus.h>
 #include <euclid/database/RepositoryFactory.h>
 
 namespace Euclid::EAG {
@@ -275,6 +276,24 @@ namespace Euclid::EAG {
     void ProxyServer::respond(const std::shared_ptr<ClientStream> &stream,
                               const std::shared_ptr<http::response<http::string_body> > &response) {
 
+        // What the gateway actually carries, which nothing recorded until now: "eag-service-*" is
+        // the route administration - six actions somebody calls when they edit a route - and
+        // "gateway-service-*" belongs to the manager's own gateway on 5566, not to this one.
+        //
+        // Measured here because every outcome arrives here: a proxied answer, a refusal decided
+        // from the headers, a backend that could not be reached. Measured as the request rather
+        // than as the write, since the clock has been running since dispatch() and what somebody
+        // reading this chart wants is how long the caller waited.
+        //
+        // By method, like the manager's gateway next to it in the same charts. Not by route: the
+        // series would then grow with the route table, and a client reading the chart cannot know
+        // which routes an installation has.
+        if (const auto &method = stream->ExchangeMethod(); !method.empty()) {
+            Core::Monitoring::MetricEventBus::instance().sigMetricRate("eag-proxy-count", "method", method);
+            Core::Monitoring::MetricEventBus::instance().sigMetricGauge("eag-proxy-time", "method", method,
+                                                                       stream->ExchangeElapsedMs());
+        }
+
         stream->AsyncWrite(*response, [stream, response](const beast::error_code &ec) {
             if (ec) {
                 log_debug << "API gateway write failed: " << ec.message();
@@ -298,6 +317,11 @@ namespace Euclid::EAG {
         const auto &headers = header->get();
         const auto path = pathOf(std::string(headers.target()));
         const auto method = std::string(headers.method_string());
+
+        // From here the exchange is a request rather than a connection, which is the first point
+        // there is anything to measure and the last one common to every way it can end. What
+        // respond() does with it is the other half - see ClientStream::BeginExchange.
+        stream->BeginExchange(method);
 
         const auto found = _routes.match(path, method, nameSpace);
         if (!found.route.has_value()) {

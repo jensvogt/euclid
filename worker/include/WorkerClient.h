@@ -354,6 +354,34 @@ namespace Euclid::Worker {
          * read a figure for an interval neither of them measured.
          */
         std::optional<Core::SystemUtils::CpuTimes> _previousCpuTimes;
+
+        /**
+         * @brief One instance's previous CPU reading: the process's time and the machine's, read
+         * together, and the pid they belong to.
+         *
+         * @par
+         * The pid is kept so a restart is noticed. A slot keeps its instance id across a crash and
+         * gets a new process, whose counters start again from zero - a delta against the old
+         * one's would be meaningless, so the first reading of a new pid only primes.
+         */
+        struct InstanceCpu {
+            int pid{-1};
+            unsigned long long processTime{};
+            Core::SystemUtils::CpuTimes systemTimes{};
+        };
+
+        /**
+         * @brief Each running instance's CPU and memory, for the renewal - see Renew().
+         *
+         * @param systemTimes this tick's reading of the machine's CPU time, which every instance's
+         * delta is taken against.
+         */
+        [[nodiscard]] boost::json::array instanceUsage(const std::optional<Core::SystemUtils::CpuTimes> &systemTimes);
+
+        /**
+         * @brief The previous CPU reading of each instance, by instance id.
+         */
+        std::map<std::string, InstanceCpu> _previousInstanceCpu;
     };
 
 }// namespace Euclid::Worker

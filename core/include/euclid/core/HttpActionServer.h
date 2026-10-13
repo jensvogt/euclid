@@ -38,7 +38,7 @@ namespace Euclid::Core {
          * Also starts Core::Monitoring::MonitoringCollector, so every module built on this base
          * class collects Core::Monitoring::MonitoringTimer/MetricEventBus metrics without each
          * one having to remember to start it itself. Also schedules a periodic task (Linux only)
-         * that records this process's system CPU usage ("euclid-cpu-usage") and memory usage
+         * that records this process's own share of the machine's CPU ("euclid-cpu-usage") and memory usage
          * ("euclid-memory-usage-real-mb"/"-virtual-mb"/"-percent") as gauges, all labelled with
          * this module's serviceName, so they're pushed to the monitoring module the same way as
          * every other MetricEventBus-recorded metric - see MetricsPusher.

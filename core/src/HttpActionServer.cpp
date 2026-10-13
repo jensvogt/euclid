@@ -121,41 +121,51 @@ namespace Euclid::Core {
 
         constexpr auto kCpuUsagePeriod = std::chrono::seconds(60);
 
-        // Previous SystemUtils::ReadCpuTimes() reading, so recordCpuUsage() can compute a
-        // delta-based percentage rather than a since-boot average. There's only ever one
-        // HttpActionServer-derived instance per process, so file-local state is simplest - same
-        // reasoning as EmoServer's own accumulators.
+        // The previous reading of this process's CPU time and the machine's, taken together, so
+        // recordCpuUsage() can compute a delta-based percentage rather than a since-boot average.
+        // There's only ever one HttpActionServer-derived instance per process, so file-local state
+        // is simplest - same reasoning as EmoServer's own accumulators.
+        struct CpuReading {
+            unsigned long long processTime = 0;
+            SystemUtils::CpuTimes systemTimes;
+        };
+
         std::mutex &cpuTimesMutex() {
             static std::mutex mutex;
             return mutex;
         }
 
-        std::optional<SystemUtils::CpuTimes> &previousCpuTimes() {
-            static std::optional<SystemUtils::CpuTimes> previous;
+        std::optional<CpuReading> &previousCpuReading() {
+            static std::optional<CpuReading> previous;
             return previous;
         }
 
-        // Records this process's system CPU usage since the previous call as a "euclid-cpu-usage"
-        // gauge, labelled with this module's serviceName - picked up by MonitoringCollector and
-        // pushed to the monitoring module by MetricsPusher, same as any other MetricEventBus
-        // metric. The first call after process start only primes the previous-reading state,
-        // since a delta needs two samples.
+        // Records this process's own share of the machine's CPU since the previous call as a
+        // "euclid-cpu-usage" gauge, labelled with this module's serviceName - picked up by
+        // MonitoringCollector and pushed to the monitoring module by MetricsPusher, same as any
+        // other MetricEventBus metric. The first call after process start only primes the
+        // previous-reading state, since a delta needs two samples.
+        //
+        // The process's share, not the host's. This used to report the machine's whole CPU usage
+        // under every module's label, so every module drew the same line and none of them said
+        // what the module itself cost - the host's figure is "system-cpu-usage", recorded by EMO.
+        // On the same scale as that one: 100 is the whole machine, not one core.
         void recordCpuUsage(const std::string &serviceName) {
 
-            const auto current = SystemUtils::ReadCpuTimes();
-            if (!current.has_value()) return;
+            const auto processTime = SystemUtils::ReadProcessCpuTime();
+            const auto systemTimes = SystemUtils::ReadCpuTimes();
+            if (!processTime.has_value() || !systemTimes.has_value()) return;
 
             std::lock_guard lock(cpuTimesMutex());
-            const auto previous = previousCpuTimes();
-            previousCpuTimes() = current;
+            const auto previous = previousCpuReading();
+            previousCpuReading() = CpuReading{.processTime = *processTime, .systemTimes = *systemTimes};
             if (!previous.has_value()) return;
 
-            const auto totalDelta = current->total - previous->total;
-            const auto idleDelta = current->idle - previous->idle;
-            if (totalDelta == 0) return;
-
-            const auto percent = 100.0 * static_cast<double>(totalDelta - idleDelta) / static_cast<double>(totalDelta);
-            Monitoring::MetricEventBus::instance().sigMetricGauge("euclid-cpu-usage", "module", serviceName, percent);
+            if (const auto percent = SystemUtils::ProcessCpuUsagePercent(previous->processTime, *processTime,
+                                                                         previous->systemTimes, *systemTimes);
+                percent.has_value()) {
+                Monitoring::MetricEventBus::instance().sigMetricGauge("euclid-cpu-usage", "module", serviceName, *percent);
+            }
         }
 
         // Records this process's current memory usage as three gauges, all labelled with this

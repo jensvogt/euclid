@@ -5,6 +5,7 @@
       "ca-cert": "",
       "address": "",
       "monitoring-active": true,
+      "application-monitoring-active": true,
       "http-port-min": 9000,
       "http-port-max": 9999,
       "runtimes": {
