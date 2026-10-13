@@ -17,6 +17,8 @@
 #include <euclid/core/ContentTypeUtils.h>
 #include <euclid/core/CryptoUtils.h>
 #include <euclid/core/UuidUtils.h>
+#include <bsoncxx/builder/concatenate.hpp>
+
 #include <euclid/database/repository/ens/MongoEnsRepository.h>
 
 namespace Euclid::Database {
@@ -117,11 +119,25 @@ namespace Euclid::Database {
             // 2.5s for an early page and 7.3s two million in. With it the walk is the index order,
             // so a page costs the same wherever it starts.
             //
-            // Ordered by _id and not by a timestamp, because Message::toDocument() does not write
-            // one: "created" is absent from every message ever stored, so sorting on it sorts on
-            // nothing. _id is the order there actually is - an ObjectId leads with its creation
-            // second, so ascending _id is insertion order, which for a topic is publish order.
+            // Ordered by _id and not by a timestamp, and still the order to read a topic in: every
+            // message published before sendMessage() began stamping "created" has no such field, so
+            // for those this is the only order there is. An ObjectId leads with its creation second,
+            // so ascending _id is insertion order, which for a topic is publish order.
             messageCollection.create_index(make_document(kvp("topicErn", 1), kvp("_id", 1)));
+
+            // What a listing sorted by date walks, which is what every client asks for by default -
+            // the UI, and "euclid-cli ens list-messages" too. Without it the database matches on
+            // topicErn and then blocking-sorts the matches: on a topic holding nine million messages
+            // that does not finish inside the gateway's timeout, so the page never arrives at all.
+            // EQS has carried the same index for the same reason since a queue of 3.6 million did
+            // this - see MongoEqsRepository::ensureIndexes().
+            //
+            // Descending, which is the direction a listing wants - newest first - and a direction an
+            // index serves either way round by being walked backwards.
+            //
+            // Messages stored before the stamp existed index as null and so sort together, which is
+            // why _id above remains the order for a topic that predates it.
+            messageCollection.create_index(make_document(kvp("topicErn", 1), kvp("created", -1)));
 
             // Retention, enforced by the database. expireAfterSeconds is zero because the moment is
             // already in the document - the field is when the message expires, not when it was
@@ -789,7 +805,25 @@ namespace Euclid::Database {
                 queueCollection.update_one(queueFilter.view(), update.view());
             }
 
-            messageCollection.insert_one(message.ToDocument());
+            // The created/modified stamps are appended here rather than written by ToDocument(),
+            // exactly as MongoEqsRepository::sendMessage() does it and for the same reason: they are
+            // what upsertMessage() puts in $setOnInsert/$currentDate, and Mongo refuses an update
+            // that touches the same path twice. An insert has no such conflict and no server-side
+            // stamp either, so it adds them here.
+            //
+            // Appended around the document rather than restating its fields, so a field added to the
+            // entity later cannot be forgotten by this path. Until this existed a published message
+            // carried no created field at all, and Entity::ENS::Message::created defaults to now() -
+            // so every read of one reported the moment it was read as the moment it was published,
+            // and a listing sorted by it sorted on a field no document had.
+            const auto now = std::chrono::system_clock::now();
+            const auto stamp = bsoncxx::types::b_date{std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch())};
+
+            document doc;
+            doc.append(concatenate(message.ToDocument().view()));
+            doc.append(kvp("created", stamp), kvp("modified", stamp));
+
+            messageCollection.insert_one(doc.view());
             log_debug << "Message sent, ern: " << ern << ", messageId: " << message.messageId;
 
         } catch (const std::exception &e) {
