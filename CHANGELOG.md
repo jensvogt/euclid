@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.22](https://github.com/jensvogt/euclid/compare/1.2.21...v1.2.22) (2026-10-13)
+
+
+### Bug Fixes
+
+* add some indexes ([7b4f354](https://github.com/jensvogt/euclid/commit/7b4f354ce7deda1ffde54be9ebdd6d101e52ae41))
+
 ## [1.2.21](https://github.com/jensvogt/euclid/compare/1.2.20...v1.2.21) (2026-10-09)
 
 
