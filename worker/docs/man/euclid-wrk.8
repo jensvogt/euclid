@@ -269,6 +269,30 @@ The range, inclusive, instances on this node are given their HTTP ports
 from. Unset, they are given none, and the gateway has nothing to route
 to here.
 .TP
+.I euclid.worker.monitoring-active
+Whether this node reports its own CPU, memory and load averages with each
+renewal, recorded as
+.IR system-cpu-usage ,
+.I system-memory-usage-percent
+and
+.I system-load-average
+labelled with the node's name. On by default; off for the local node,
+whose host the monitoring module already measures.
+.TP
+.I euclid.worker.application-monitoring-active
+Whether this node reports the CPU and memory of each application instance
+it runs with each renewal, recorded as
+.IR application-cpu-usage ,
+.IR application-memory-usage-real-mb ,
+.I application-memory-usage-virtual-mb
+and
+.IR application-memory-usage-percent ,
+labelled with the application, instance, node and pid. On by default,
+the local node included. On Linux an instance is read as its whole
+process group, so children it started are counted; CPU is a share of
+the whole machine, so one busy core of sixteen reads 6.25. An instance's
+first renewal after it starts carries memory only.
+.TP
 .I euclid.worker.java
 The older name for
 .IR euclid.worker.runtimes.java ,

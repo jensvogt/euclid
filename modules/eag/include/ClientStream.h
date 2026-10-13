@@ -181,6 +181,37 @@ namespace Euclid::EAG {
         [[nodiscard]]
         std::optional<boost::asio::ip::tcp::endpoint> RemoteEndpoint() const;
 
+        /**
+         * @brief Starts measuring one proxied request, from the point its method is known.
+         *
+         * @par
+         * Kept on the stream because that is the one thing that lives as long as the exchange does.
+         * A proxied request is answered across a dozen asynchronous continuations - connect, write,
+         * read, and four ways of failing in between - so an RAII timer in any of them would measure
+         * a hand-off rather than a request, and threading a start time through all of them by hand
+         * is what this class exists to avoid.
+         *
+         * @param method the request's HTTP method, which is what the measurement is labelled by.
+         */
+        void BeginExchange(std::string method);
+
+        /**
+         * @brief The method this exchange was started with, or empty if it never was.
+         *
+         * @par
+         * Empty is the ordinary answer for everything that never became a request: a TLS handshake
+         * that failed, a scanner that connected and said nothing. Those are not traffic through the
+         * gateway and are not counted as it.
+         */
+        [[nodiscard]]
+        const std::string &ExchangeMethod() const;
+
+        /**
+         * @brief How long this exchange has been running, in milliseconds.
+         */
+        [[nodiscard]]
+        double ExchangeElapsedMs() const;
+
     private:
 
         /**
@@ -211,6 +242,12 @@ namespace Euclid::EAG {
          * for a plain connection.
          */
         std::shared_ptr<boost::asio::ssl::context> _context;
+
+        /**
+         * @brief What BeginExchange() recorded: the method this request is, and when it started.
+         */
+        std::string _exchangeMethod;
+        std::chrono::steady_clock::time_point _exchangeStart;
     };
 
 }// namespace Euclid::EAG
