@@ -176,4 +176,18 @@ namespace Euclid::EAG {
                           _stream);
     }
 
+    void ClientStream::BeginExchange(std::string method) {
+        _exchangeMethod = std::move(method);
+        _exchangeStart = std::chrono::steady_clock::now();
+    }
+
+    const std::string &ClientStream::ExchangeMethod() const {
+        return _exchangeMethod;
+    }
+
+    double ClientStream::ExchangeElapsedMs() const {
+        const auto elapsed = std::chrono::steady_clock::now() - _exchangeStart;
+        return static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count()) / 1000.0;
+    }
+
 }// namespace Euclid::EAG

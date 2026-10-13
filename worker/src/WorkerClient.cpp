@@ -3,10 +3,14 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 // C++ includes
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <ranges>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 // Boost includes
 #include <boost/url.hpp>
@@ -248,6 +252,12 @@ namespace Euclid::Worker {
         //
         // Present only when there is something to read, so the master can tell "idle" from "this
         // platform has no reading" rather than recording a flat zero for a macOS worker.
+        //
+        // The machine's CPU times are read once, outside the switch, because each instance's
+        // percentage below is a delta against them too - and the host's figure and an instance's
+        // only add up if they cover the same interval.
+        const auto cpuTimes = Core::SystemUtils::ReadCpuTimes();
+
         if (Core::Configuration::instance().getOr<bool>("euclid.worker.monitoring-active", true)) {
 
             if (load.has_value()) {
@@ -259,7 +269,7 @@ namespace Euclid::Worker {
             // A percentage needs two readings, so the first renewal after a start only primes it.
             // Kept on this object rather than in a file-local: two workers in one process would
             // otherwise corrupt each other's baseline, which is why ReadCpuTimes() is stateless.
-            if (const auto cpuTimes = Core::SystemUtils::ReadCpuTimes(); cpuTimes.has_value()) {
+            if (cpuTimes.has_value()) {
                 if (_previousCpuTimes.has_value()) {
                     if (const auto usage = Core::SystemUtils::CpuUsagePercent(*_previousCpuTimes, *cpuTimes); usage.has_value()) {
                         body["cpuUsage"] = *usage;
@@ -271,6 +281,14 @@ namespace Euclid::Worker {
             if (const auto memory = Core::SystemUtils::ReadSystemMemoryUsagePercent(); memory.has_value()) {
                 body["memoryUsage"] = *memory;
             }
+        }
+
+        // What each application instance here costs, by pid. A switch of its own, and on by default
+        // even on the local node, whose host figures are switched off above: the monitoring module
+        // measures that host, but nothing measures the applications on it except the worker that
+        // started them.
+        if (Core::Configuration::instance().getOr<bool>("euclid.worker.application-monitoring-active", true)) {
+            if (auto usage = instanceUsage(cpuTimes); !usage.empty()) body["instanceUsage"] = std::move(usage);
         }
 
         const auto response = post("eap", "renew-node", body);
@@ -347,6 +365,61 @@ namespace Euclid::Worker {
 
         log_debug << "Renewed, node: " << _options.nodeName << ", assigned: " << assigned.size();
         return true;
+    }
+
+    boost::json::array WorkerClient::instanceUsage(const std::optional<Core::SystemUtils::CpuTimes> &systemTimes) {
+
+        // Every instance's process group in one pass over /proc - see ReadProcessGroupUsage(). On
+        // Windows each process is read through its own handle instead, which is all there is to
+        // read there; elsewhere both come back empty and nothing is sent.
+#ifdef _WIN32
+        std::map<int, Core::SystemUtils::ProcessUsage> usageByPid;
+        for (const auto &instance: _instances | std::views::values) {
+            if (const auto usage = Core::SystemUtils::ReadProcessUsage(instance.processHandle); usage.has_value()) {
+                usageByPid[instance.pid] = *usage;
+            }
+        }
+#else
+        std::vector<int> groups;
+        for (const auto &instance: _instances | std::views::values) {
+            if (instance.pid > 0) groups.push_back(instance.pid);
+        }
+        const auto usageByPid = Core::SystemUtils::ReadProcessGroupUsage(groups);
+#endif
+
+        boost::json::array reported;
+        for (const auto &[instanceId, instance]: _instances) {
+            const auto found = usageByPid.find(instance.pid);
+            if (found == usageByPid.end()) continue;
+            const auto &usage = found->second;
+
+            boost::json::object entry{{"instanceId", instanceId},
+                                      {"pid", instance.pid},
+                                      {"memoryRealMb", usage.realMb},
+                                      {"memoryVirtualMb", usage.virtualMb},
+                                      {"memoryPercent", usage.percentOfTotal}};
+
+            // A percentage only against a previous reading of the same process: a restarted slot
+            // keeps its instance id and starts its counters again from zero, so its first tick
+            // only primes, as the very first tick after a start does.
+            if (systemTimes.has_value()) {
+                if (const auto previous = _previousInstanceCpu.find(instanceId);
+                    previous != _previousInstanceCpu.end() && previous->second.pid == instance.pid) {
+                    if (const auto percent = Core::SystemUtils::ProcessCpuUsagePercent(
+                                previous->second.processTime, usage.cpuTime, previous->second.systemTimes, *systemTimes);
+                        percent.has_value()) {
+                        entry["cpuUsage"] = *percent;
+                    }
+                }
+                _previousInstanceCpu[instanceId] = InstanceCpu{.pid = instance.pid, .processTime = usage.cpuTime, .systemTimes = *systemTimes};
+            }
+            reported.push_back(std::move(entry));
+        }
+
+        // Baselines of instances no longer here go with them, so the map is only ever as large as
+        // what this worker runs.
+        std::erase_if(_previousInstanceCpu, [this](const auto &entry) { return !_instances.contains(entry.first); });
+        return reported;
     }
 
     std::optional<std::chrono::system_clock::time_point>

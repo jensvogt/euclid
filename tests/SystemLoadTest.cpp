@@ -19,6 +19,13 @@
 #ifdef _WIN32
 #include <windows.h>    // GetActiveProcessorCount, for checking the count reported beside the queue
 #endif
+#ifdef __linux__
+#include <chrono>
+#include <csignal>      // kill
+#include <thread>
+#include <sys/wait.h>   // waitpid
+#include <unistd.h>     // fork, setpgid
+#endif
 
 using Euclid::Core::SystemUtils;
 
@@ -100,6 +107,144 @@ BOOST_AUTO_TEST_CASE(PerCoreSaturatesAtOneWhateverTheHardware) {
     // A machine with more CPUs than runnable work reads below one. Not asserted as an equality
     // against a fixed number, because whatever is running this is also running everything else.
     BOOST_TEST(perCore < static_cast<double>(load->cpuCount));
+}
+
+// A worker reads each application instance as a process group: the instance is the leader of a
+// group of its own, and what it costs includes whatever it started. These start real groups,
+// because the parsing of /proc/<pid>/stat is what can be wrong - one field off and the figures are
+// another column of the same line, plausible and meaningless.
+namespace {
+
+    // Spins until killed, so it has CPU time to find.
+    [[noreturn]] void burn() {
+        volatile unsigned long long counter = 0;
+        while (true) counter = counter + 1;
+    }
+
+    // Starts a group whose leader sleeps and, if @p busyChild, whose one child burns CPU - so any
+    // CPU time the group shows can only have come from the child. Returns the leader's pid.
+    pid_t startGroup(const bool busyChild) {
+        const auto leader = fork();
+        if (leader == 0) {
+            setpgid(0, 0);
+            if (busyChild && fork() == 0) burn();
+            while (true) pause();
+        }
+        setpgid(leader, leader);// in the parent too, so the group exists before the first read
+        return leader;
+    }
+
+    void stopGroup(const pid_t leader) {
+        kill(-leader, SIGKILL);
+        waitpid(leader, nullptr, 0);
+    }
+}// namespace
+
+BOOST_AUTO_TEST_CASE(AGroupsUsageIsReadFromItsProcesses) {
+
+    const auto leader = startGroup(false);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    const auto usage = SystemUtils::ReadProcessGroupUsage({leader});
+    stopGroup(leader);
+
+    BOOST_TEST_REQUIRE(usage.contains(leader));
+    const auto &group = usage.at(leader);
+
+    // A forked copy of this test binary: resident memory of at least a page, an address space far
+    // larger than that, and a sliver of the machine. Not compared exactly - what is pinned is that
+    // the sizes were taken from their own fields and converted with the right units.
+    //
+    // Resident memory above zero is also the regression check for where it is read from: stat's
+    // own rss field reported 0 for exactly this child, a moment after the fork, on a 7.0 kernel.
+    BOOST_TEST(group.realMb > 0.0);
+    BOOST_TEST(group.virtualMb > group.realMb);
+    BOOST_TEST(group.percentOfTotal > 0.0);
+    BOOST_TEST(group.percentOfTotal < 50.0);
+}
+
+BOOST_AUTO_TEST_CASE(TheCpuOfAChildIsTheGroups) {
+
+    // The leader only sleeps, so the time can only be the child's - which is the case reading the
+    // leader's pid alone gets wrong for a launcher script or a Python application with workers.
+    const auto leader = startGroup(true);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    const auto systemBefore = SystemUtils::ReadCpuTimes();
+    const auto before = SystemUtils::ReadProcessGroupUsage({leader});
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    const auto systemAfter = SystemUtils::ReadCpuTimes();
+    const auto after = SystemUtils::ReadProcessGroupUsage({leader});
+    stopGroup(leader);
+
+    BOOST_TEST_REQUIRE(before.contains(leader));
+    BOOST_TEST_REQUIRE(after.contains(leader));
+    BOOST_TEST_REQUIRE(systemBefore.has_value());
+    BOOST_TEST_REQUIRE(systemAfter.has_value());
+    BOOST_TEST(after.at(leader).cpuTime > before.at(leader).cpuTime);
+
+    // A child busy for the whole interval keeps about one processor busy, which as a share of the
+    // machine is roughly 100 / processors - loosely, since the host is doing other things too.
+    const auto percent = SystemUtils::ProcessCpuUsagePercent(before.at(leader).cpuTime, after.at(leader).cpuTime,
+                                                             *systemBefore, *systemAfter);
+    BOOST_TEST_REQUIRE(percent.has_value());
+    const auto processors = static_cast<double>(sysconf(_SC_NPROCESSORS_ONLN));
+    BOOST_TEST(*percent > 25.0 / processors);
+    BOOST_TEST(*percent <= 100.0);
+}
+
+BOOST_AUTO_TEST_CASE(AGroupWithNoProcessesIsAbsent) {
+
+    // Started and stopped, so the pid names nothing - absent rather than zero, which would read as
+    // an idle instance rather than a missing one.
+    const auto leader = startGroup(false);
+    stopGroup(leader);
+
+    BOOST_TEST(!SystemUtils::ReadProcessGroupUsage({leader}).contains(leader));
+    BOOST_TEST(SystemUtils::ReadProcessGroupUsage({}).empty());
+}
+
+BOOST_AUTO_TEST_CASE(AModulesCpuIsItsOwnNotTheHosts) {
+
+    // What "euclid-cpu-usage" is computed from. It used to be the host's CPU under every module's
+    // label; this pins that it is this process's own time - it grows while this thread spins, and
+    // a child spinning in another process does not move it.
+    const auto before = SystemUtils::ReadProcessCpuTime();
+    BOOST_TEST_REQUIRE(before.has_value());
+
+    const auto busyUntil = std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
+    volatile unsigned long long counter = 0;
+    while (std::chrono::steady_clock::now() < busyUntil) counter = counter + 1;
+
+    const auto afterSpinning = SystemUtils::ReadProcessCpuTime();
+    BOOST_TEST_REQUIRE(afterSpinning.has_value());
+    BOOST_TEST(*afterSpinning > *before);
+
+    // A busy group of its own beside this one, while this thread sleeps: a reading of the host
+    // would climb by about a core's worth, this one by next to nothing.
+    const auto leader = startGroup(true);
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    const auto afterSleeping = SystemUtils::ReadProcessCpuTime();
+    const auto group = SystemUtils::ReadProcessGroupUsage({leader});
+    stopGroup(leader);
+
+    BOOST_TEST_REQUIRE(afterSleeping.has_value());
+    BOOST_TEST_REQUIRE(group.contains(leader));
+    BOOST_TEST(*afterSleeping - *afterSpinning < group.at(leader).cpuTime);
+}
+
+BOOST_AUTO_TEST_CASE(OnlyTheGroupsAskedForAreRead) {
+
+    const auto first = startGroup(false);
+    const auto second = startGroup(false);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    const auto usage = SystemUtils::ReadProcessGroupUsage({first});
+    stopGroup(first);
+    stopGroup(second);
+
+    BOOST_TEST(usage.size() == 1u);
+    BOOST_TEST(usage.contains(first));
 }
 
 #elif defined(_WIN32)
@@ -212,6 +357,26 @@ BOOST_AUTO_TEST_CASE(ThereIsNoLoadAverageOffLinux) {
 }
 
 #endif
+
+BOOST_AUTO_TEST_CASE(AProcessesCpuIsItsShareOfTheWholeMachine) {
+
+    // Fixed readings, as for CpuUsagePercent: the arithmetic is what is pinned. A process that used
+    // 100 ticks of the 800 the machine counted is an eighth of it - one core of eight, fully busy.
+    const SystemUtils::CpuTimes before{.idle = 0, .total = 1000};
+    const SystemUtils::CpuTimes after{.idle = 0, .total = 1800};
+    BOOST_TEST(SystemUtils::ProcessCpuUsagePercent(50, 150, before, after).value_or(-1) == 12.5);
+    BOOST_TEST(SystemUtils::ProcessCpuUsagePercent(50, 50, before, after).value_or(-1) == 0.0);
+
+    // Two readings taken a moment apart can make a process busy on every core come out a hair over
+    // the machine's own count; more than all of the machine is not a reading.
+    BOOST_TEST(SystemUtils::ProcessCpuUsagePercent(0, 900, before, after).value_or(-1) == 100.0);
+
+    // No time passed, or a counter went backwards - a process that left the group, or a pid reused
+    // between two readings. Refused, rather than an enormous unsigned difference.
+    BOOST_TEST(!SystemUtils::ProcessCpuUsagePercent(50, 150, before, before).has_value());
+    BOOST_TEST(!SystemUtils::ProcessCpuUsagePercent(150, 50, before, after).has_value());
+    BOOST_TEST(!SystemUtils::ProcessCpuUsagePercent(50, 150, after, before).has_value());
+}
 
 BOOST_AUTO_TEST_CASE(LocalAddressesAreReachableOnes) {
 
