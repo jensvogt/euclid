@@ -356,6 +356,13 @@ namespace Euclid::Worker {
         std::optional<Core::SystemUtils::CpuTimes> _previousCpuTimes;
 
         /**
+         * @brief The one-minute load this node reports where the platform keeps none (Windows),
+         * and when it was last updated - see Core::SystemUtils::DampedLoad().
+         */
+        std::optional<double> _estimatedLoad;
+        std::chrono::steady_clock::time_point _estimatedLoadAt{};
+
+        /**
          * @brief One instance's previous CPU reading: the process's time and the machine's, read
          * together, and the pid they belong to.
          *

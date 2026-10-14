@@ -262,7 +262,9 @@ The master picks a node when it creates a slot. Kept deliberately dull to begin 
    instance being placed — spread beats pack, because the reason for a second instance is usually
    that the first is saturated
 3. tie broken by the node's one-minute load average, which `SystemUtils::ReadLoadAverage()` already
-   reports and EMO already collects, normalised by `cpuCount`
+   reports and EMO already collects, normalised by `cpuCount`. Windows keeps none, so a Windows
+   worker estimates one — processor queue plus busy cores, damped over a minute the way the kernel
+   does it — rather than reporting zero and looking idle however busy it is
 4. tie broken by node name, so the choice is deterministic and a test can assert it
 
 Step 2 used to be a raw count, which treats every machine as the same size. It dealt a pool of six

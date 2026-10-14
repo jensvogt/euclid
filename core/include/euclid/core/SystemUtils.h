@@ -9,6 +9,7 @@
 #pragma once
 
 // C++ includes
+#include <chrono>
 #include <filesystem>
 #include <future>
 #include <iostream>
@@ -317,6 +318,40 @@ namespace Euclid::Core {
          * could not be read or the platform has none (Linux, macOS).
          */
         static std::optional<ProcessorQueue> ReadProcessorQueueLength();
+
+        /**
+         * @brief What a load average would sample right now, from the figures Windows does keep:
+         * the threads waiting for a processor plus the processors busy running one.
+         *
+         * @par
+         * Linux's load counts both - runnable tasks, running or waiting - where Windows' queue
+         * counts only the waiting. A machine whose every core is busy with nothing queued has a
+         * load of its core count on Linux and a queue of zero, so the busy share of the cores is
+         * added back to make the two mean the same thing.
+         *
+         * @param queueLength "\\System\\Processor Queue Length", see ReadProcessorQueueLength().
+         * @param cpuUsagePercent the machine's busy percentage over the last interval.
+         * @param cpuCount the processors the percentage is of.
+         */
+        static double InstantaneousLoad(double queueLength, double cpuUsagePercent, long cpuCount);
+
+        /**
+         * @brief Folds one instantaneous load sample into a running one-minute average, the way
+         * the Linux kernel computes /proc/loadavg's first figure.
+         *
+         * @par
+         * An exponential decay with a one-minute time constant, weighted by the time actually
+         * elapsed rather than by a fixed sampling period - so the result does not depend on how
+         * often the caller happens to poll, which is the objection ReadLoadAverage() has to
+         * emulating an average from instantaneous counts. The kernel samples every five seconds;
+         * a worker renews every ten, and the decay for ten seconds is what it gets.
+         *
+         * @param previous the average so far, or nothing on the first sample - which then becomes
+         * the average outright rather than being pulled up from zero over a minute.
+         * @param instantaneous this sample, see InstantaneousLoad().
+         * @param elapsed the time since @p previous was computed.
+         */
+        static double DampedLoad(std::optional<double> previous, double instantaneous, std::chrono::duration<double> elapsed);
 
         /**
          * @brief How much of the machine's memory is in use, as a percentage.
