@@ -788,9 +788,16 @@ namespace Euclid::EQS {
         // message that is not yet in flight (AVAILABLE/DELAYED), this just changes the timeout
         // that will apply the next time it is received - a Euclid-specific extension, since AWS
         // only allows ChangeMessageVisibility on a message currently leased via receipt handle.
+        //
+        // Pinned in the second case only. A receive otherwise gives the message the queue's
+        // current timeout (see receiveMessages), and a timeout asked for ahead of the receive is
+        // exactly one that must not be replaced there. An in-flight change is the current lease's
+        // alone, as in AWS: the next receive is the queue's again.
         message->visibilityTimeout = request.visibility;
         if (message->status == Database::Entity::EQS::MessageStatus::INVISIBLE) {
             message->lastReceived = std::chrono::system_clock::now();
+        } else {
+            message->visibilityPinned = true;
         }
         repo->upsertMessage(message.value());
 

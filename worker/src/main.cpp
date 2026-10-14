@@ -200,11 +200,40 @@ static bool waitFor(const std::filesystem::path &path, const std::string &what) 
 
 static int RunWorker(const CliOptions &options, const bool reportServiceStatus) {
 
+#if defined(_WIN32)
+    // Running, under the SCM, from the moment this process is willing to wait for what it needs -
+    // the configuration, the credentials, a master to register with - rather than only once it has
+    // all three. That is what lets an installer start the service on a host with no credentials yet:
+    // left in START_PENDING for as long as nobody has logged in, the installer's start would time
+    // out and roll the whole install back, and Windows would log the service as hung on starting.
+    //
+    // Only with --wait-for-config, which is the switch that says waiting is the intended state.
+    // Without it a missing file is a failed start, as it always was. Either way the errors that are
+    // not waits - a configuration that will not load, a signing secret that must not be here, no
+    // endpoint - still end the service with a service-specific exit code, which is where they are
+    // read from.
+    bool reportedRunning = false;
+    if (reportServiceStatus && options.waitForConfig) {
+        updateServiceStatus(SERVICE_RUNNING);
+        reportedRunning = true;
+    }
+#endif
+
     // The local node's case: its configuration and credentials are written by the manager on the
     // same host when EAP starts (docs/worker-nodes.md §13.3), which on a boot or a first install is
     // after this process does. Without waiting it would fail, be restarted, and fail again until
     // they appear - burying the one line that says why under a restart loop's worth of them.
     if (options.waitForConfig && !options.configFile.empty() && !waitFor(options.configFile, "the configuration")) return 0;
+
+    // The credentials too, before the configuration is read, when the command line names them - as
+    // the Windows service does. A service an installer started is waiting from the moment of the
+    // install, with the package's configuration file on disk: read now, its placeholder endpoint
+    // would be the one this process kept, and the operator's edit to it would need a restart
+    // nobody would think to do. Read after the credentials arrive, the configuration is whatever
+    // the operator made of it by the time they copied the credentials in - which is the last step
+    // of setting a worker up. A credentials path that only the configuration names is waited for
+    // below, once it is known.
+    if (options.waitForConfig && !options.credentialsFile.empty() && !waitFor(options.credentialsFile, "the credentials")) return 0;
 
     if (!options.configFile.empty()) {
         try {
@@ -384,8 +413,8 @@ static int RunWorker(const CliOptions &options, const bool reportServiceStatus) 
     // After Register(), not before: the SCM takes SERVICE_RUNNING as "this started successfully",
     // and a worker that cannot reach its master has not. Reported here rather than at the top of
     // the loop so a failed registration is a failed start, which is what shows up in services.msc
-    // and in the event log.
-    if (reportServiceStatus) updateServiceStatus(SERVICE_RUNNING);
+    // and in the event log - unless --wait-for-config already said it was running, see the top.
+    if (reportServiceStatus && !reportedRunning) updateServiceStatus(SERVICE_RUNNING);
 #else
     (void) reportServiceStatus;
 #endif
@@ -553,17 +582,22 @@ int main(const int argc, char **argv) {
     }
 
     if (cliOptions.install) {
-        if (const std::string error = Euclid::Worker::Service::Install(cliOptions.configFile, cliOptions.credentialsFile); !error.empty()) {
+        std::string startError;
+        if (const std::string error = Euclid::Worker::Service::Install(cliOptions.configFile, cliOptions.credentialsFile, startError);
+            !error.empty()) {
             std::cerr << "Failed to install the euclid-wrk service: " << error << "\n";
             return 1;
         }
-        std::cout << "Service 'euclid-wrk' installed (start type: automatic, not started).\n"
-                     "A worker will not start until it has credentials: log in as this node's\n"
-                     "principal with 'euclid-cli eam login'";
+        if (!startError.empty()) {
+            std::cout << "Service 'euclid-wrk' installed (start type: automatic), but it did not start: " << startError << "\n"
+                         "Start it with 'sc start euclid-wrk' or from services.msc.\n";
+            return 0;
+        }
+        std::cout << "Service 'euclid-wrk' installed and started (start type: automatic).\n"
+                     "Until it has credentials it waits for them: log in as this node's principal\n"
+                     "with 'euclid-cli eam login'";
         if (!cliOptions.credentialsFile.empty()) std::cout << " and copy the file to\n  " << cliOptions.credentialsFile;
-        std::cout << ".\nThen start it with:\n"
-                     "  sc start euclid-wrk\n"
-                     "or from services.msc.\n";
+        std::cout << ".\nIt picks them up within a second; nothing has to be restarted.\n";
         return 0;
     }
 

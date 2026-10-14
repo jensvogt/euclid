@@ -30,7 +30,7 @@ namespace Euclid::Worker::Service {
 
     }// namespace
 
-    std::string Install(const std::string &configFilePath, const std::string &credentialsFilePath) {
+    std::string Install(const std::string &configFilePath, const std::string &credentialsFilePath, std::string &startError) {
 
         char exePath[MAX_PATH];
         const DWORD len = GetModuleFileNameA(nullptr, exePath, MAX_PATH);
@@ -44,17 +44,17 @@ namespace Euclid::Worker::Service {
         if (!configFilePath.empty()) binPath += " --config " + Core::SystemUtils::QuoteCommandLineArg(configFilePath);
         if (!credentialsFilePath.empty()) binPath += " --credentials " + Core::SystemUtils::QuoteCommandLineArg(credentialsFilePath);
 
+        // Waits for what it does not have yet rather than exiting 1, and reports itself running
+        // while it does - which is what makes starting it below safe on a host nobody has logged in
+        // on yet. The same switch the MSI passes, so the two produce the same service.
+        binPath += " --wait-for-config";
+
         const SC_HANDLE scm = OpenSCManagerA(nullptr, nullptr, SC_MANAGER_CREATE_SERVICE);
         if (!scm) return LastErrorText("Opening the Service Control Manager", GetLastError());
 
-        // SERVICE_AUTO_START, and deliberately not started here. This matches what the Debian
-        // package does - "systemctl enable" and no "systemctl start" - and for the same reason: a
-        // worker with no credentials exits 1, so starting it now would report a failure for a state
-        // that is simply "not configured yet". It comes up on the next boot, or when an operator
-        // starts it after putting the credentials file in place.
         const SC_HANDLE svc = CreateServiceA(
                 scm, Name, DisplayName,
-                SERVICE_CHANGE_CONFIG, SERVICE_WIN32_OWN_PROCESS, SERVICE_AUTO_START, SERVICE_ERROR_NORMAL,
+                SERVICE_CHANGE_CONFIG | SERVICE_START, SERVICE_WIN32_OWN_PROCESS, SERVICE_AUTO_START, SERVICE_ERROR_NORMAL,
                 binPath.c_str(), nullptr, nullptr, nullptr, nullptr, nullptr);
 
         if (!svc) {
@@ -66,6 +66,11 @@ namespace Euclid::Worker::Service {
 
         SERVICE_DESCRIPTIONA description{const_cast<char *>(Description)};
         ChangeServiceConfig2A(svc, SERVICE_CONFIG_DESCRIPTION, &description);
+
+        // Started now rather than at the next boot. Reported to the caller rather than returned as
+        // the result: the registration above succeeded and stays, whatever happens here.
+        startError.clear();
+        if (!StartServiceA(svc, 0, nullptr)) startError = LastErrorText("StartService", GetLastError());
 
         CloseServiceHandle(svc);
         CloseServiceHandle(scm);

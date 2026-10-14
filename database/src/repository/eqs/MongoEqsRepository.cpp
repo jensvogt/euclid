@@ -533,6 +533,12 @@ namespace Euclid::Database {
     Entity::EQS::Queue MongoEqsRepository::upsertQueue(Entity::EQS::Queue &queue) {
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "upsertQueue");
 
+        // Forgotten so the next send and receive read the queue as it now is. A receive applies
+        // the queue's visibility to the lease it hands out, so set-queue-visibility should take
+        // effect at once rather than up to one cache period later. This process's cache only - an
+        // EQS pool's other instances catch up when theirs expires.
+        if (!queue.ern.empty()) forgetQueueConfig(queue.ern);
+
         try {
 
             const auto filter = make_document(kvp("accountId", queue.accountId), kvp("namespace", queue.nameSpace), kvp("name", queue.name));
@@ -1034,9 +1040,11 @@ namespace Euclid::Database {
         static constexpr std::array priorityOrder{Entity::EQS::MessagePriority::HIGH, Entity::EQS::MessagePriority::MEDIUM, Entity::EQS::MessagePriority::LOW};
 
         long maxReceiveCount = 0;
+        long queueVisibility = 0;
         std::string deadLetterQueueErn;
         if (const auto queue = queueConfig(queueErn)) {
             maxReceiveCount = queue->maxReceiveCount;
+            queueVisibility = queue->visibility;
             deadLetterQueueErn = queue->deadLetterQueueErn;
         }
 
@@ -1146,6 +1154,26 @@ namespace Euclid::Database {
 
                             log_debug << "Message moved to dead letter queue, ern: " << queueErn << ", dlqErn: " << deadLetterQueueErn << ", messageId: " << message.messageId;
                             continue;
+                        }
+
+                        // The lease this receive holds is the queue's, as it is now - not the figure
+                        // the message was sent with. A queue whose visibility is raised otherwise
+                        // goes on leasing the old one for every message already in it, which is how
+                        // a topic queue created with 30 seconds and set to 90 kept giving 30 to a
+                        // consumer that needed 40: every message expired mid-export, was taken
+                        // again, and dead-lettered on its third receive. AWS SQS applies the queue's
+                        // timeout at receive for the same reason.
+                        //
+                        // A separate write, and only when the two differ - which is never, for a
+                        // queue whose visibility has not been changed. Conditional on this receive's
+                        // receipt handle, so it cannot touch a lease somebody else has since taken.
+                        // A message whose own timeout was set before it was received keeps it - see
+                        // Message::visibilityPinned.
+                        if (!message.visibilityPinned && queueVisibility > 0 && message.visibilityTimeout != queueVisibility) {
+                            std::ignore = messageCollection.update_one(
+                                    make_document(kvp("_id", bsoncxx::oid{message.oid}), kvp("receiptHandle", receiptHandle)).view(),
+                                    make_document(kvp("$set", make_document(kvp("visibilityTimeout", static_cast<int32_t>(queueVisibility))))).view());
+                            message.visibilityTimeout = queueVisibility;
                         }
 
                         result.push_back(message);
