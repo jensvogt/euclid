@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.23](https://github.com/jensvogt/euclid/compare/1.2.22...v1.2.23) (2026-10-14)
+
+
+### Bug Fixes
+
+* artifact size recalculation ([10128e5](https://github.com/jensvogt/euclid/commit/10128e583060ac916cf4b682cc58c591441e9c82))
+* artifact size recalculation ([7a97542](https://github.com/jensvogt/euclid/commit/7a97542e95b4b1af14804eb47f49f719736390ea))
+* worker monitoring ([7313011](https://github.com/jensvogt/euclid/commit/7313011460cc3140d001466d6ac5a39bf54d8935))
+
 ## [1.2.22](https://github.com/jensvogt/euclid/compare/1.2.21...v1.2.22) (2026-10-13)
 
 
