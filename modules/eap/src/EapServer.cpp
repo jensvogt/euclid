@@ -887,6 +887,8 @@ namespace Euclid::EAP {
                     {"artifactKey", application.artifactKey},
                     {"version", application.version},
                     {"md5Sum", application.md5Sum},
+                    // Bytes, as deployed; 0 for an application deployed before this was recorded.
+                    {"artifactSize", application.artifactSize},
                     {"command", application.command},
                     {"arguments", arguments},
                     {"environment", environment},
@@ -1092,6 +1094,8 @@ namespace Euclid::EAP {
         // The checksum is ESM's, not one computed here: it is the same hash the manager compares
         // the copy on the host against, and the same one a redeploy has to differ from.
         application.md5Sum = artifact->md5Sum;
+        // And its size, from the same row, so the two always describe the same build.
+        application.artifactSize = artifact->size;
         application.command = stringField(obj, "command");
         application.arguments = stringArray(obj, "arguments");
         application.environment = stringMap(obj, "environment");
@@ -1443,6 +1447,7 @@ namespace Euclid::EAP {
             // to a version already seen - and the recorded checksum has to follow the artifact
             // either way, or the definition would claim a build it no longer points at.
             application->md5Sum = artifact->md5Sum;
+            application->artifactSize = artifact->size;
         }
         // The namespace an application works in, changeable like any other setting - and the only
         // way an application created before applications carried one can acquire it without being
@@ -1771,6 +1776,7 @@ namespace Euclid::EAP {
         application->artifactKey = artifactKey;
         application->version = version;
         application->md5Sum = artifact->md5Sum;
+        application->artifactSize = artifact->size;
 
         // Storing it is what deploys it: upsertApplication stamps `modified`, the manager reads
         // that as a new revision on its next pass, and restarts the pool onto the new artifact.
