@@ -226,17 +226,51 @@ namespace Euclid::Worker {
     bool WorkerClient::Renew(std::vector<Reconciler::Assignment> &assigned,
                              std::chrono::system_clock::time_point &leaseExpiresAt) {
 
-        // This machine's own one-minute load average, which only this machine can read. Sent with
-        // the renewal because placement's third tie-break reads it, and because the renewal is
-        // already the one call this worker makes every tick.
+        // The machine's CPU times, read once: the host's percentage, the Windows load estimate
+        // below and each instance's percentage are all deltas against them, and they only add up
+        // if they cover the same interval.
         //
-        // Zero where there is nothing to read - /proc/loadavg is Linux-only - which reads as idle
-        // at the far end. Optimistic, and the right direction: the figure only ever breaks a tie
-        // between nodes already running the same number of instances of the application.
-        const auto load = Core::SystemUtils::ReadLoadAverage();
+        // A percentage needs two readings, so the first renewal after a start only primes it.
+        // Kept on this object rather than in a file-local: two workers in one process would
+        // otherwise corrupt each other's baseline, which is why ReadCpuTimes() is stateless.
+        const auto cpuTimes = Core::SystemUtils::ReadCpuTimes();
+        std::optional<double> cpuUsage;
+        if (cpuTimes.has_value()) {
+            if (_previousCpuTimes.has_value()) cpuUsage = Core::SystemUtils::CpuUsagePercent(*_previousCpuTimes, *cpuTimes);
+            _previousCpuTimes = cpuTimes;
+        }
 
-        boost::json::object body{{"node", _options.nodeName},
-                                 {"loadAverage", load.has_value() ? load->oneMinute : 0.0}};
+        // This machine's own one-minute load average, which only this machine can read. Sent with
+        // the renewal because placement reads it - to break a tie, and to decide which node gives a
+        // slot back when a pool shrinks - and because the renewal is already the one call this
+        // worker makes every tick.
+        const auto load = Core::SystemUtils::ReadLoadAverage();
+        const auto queue = load.has_value() ? std::nullopt : Core::SystemUtils::ReadProcessorQueueLength();
+
+        boost::json::object body{{"node", _options.nodeName}};
+
+        if (load.has_value()) {
+            body["loadAverage"] = load->oneMinute;
+        } else if (queue.has_value()) {
+            // Windows keeps no load average, and sending zero made a Windows node look idle to
+            // placement however busy it was - so it attracted work and was never the one asked to
+            // give any back. Estimated instead, the way the kernel would have computed it, from
+            // the figures Windows does keep - see InstantaneousLoad() and DampedLoad().
+            //
+            // Marked as estimated so the master uses it for placement and does not record it as a
+            // load-average series: what Windows measures is the queue, and that is what the
+            // monitoring series for a Windows host is.
+            const auto now = std::chrono::steady_clock::now();
+            const auto sample = Core::SystemUtils::InstantaneousLoad(queue->queueLength, cpuUsage.value_or(0.0), queue->cpuCount);
+            _estimatedLoad = Core::SystemUtils::DampedLoad(_estimatedLoad, sample, now - _estimatedLoadAt);
+            _estimatedLoadAt = now;
+            body["loadAverage"] = *_estimatedLoad;
+            body["loadEstimated"] = true;
+        } else {
+            // Nothing to read at all - macOS. Zero reads as idle at the far end, which is
+            // optimistic; there is nothing better to say.
+            body["loadAverage"] = 0.0;
+        }
 
         // And this machine's own health, for the same reason and by the same route: the monitoring
         // module reads the host it runs on, which on every host but the manager's is nobody. Sent
@@ -252,12 +286,6 @@ namespace Euclid::Worker {
         //
         // Present only when there is something to read, so the master can tell "idle" from "this
         // platform has no reading" rather than recording a flat zero for a macOS worker.
-        //
-        // The machine's CPU times are read once, outside the switch, because each instance's
-        // percentage below is a delta against them too - and the host's figure and an instance's
-        // only add up if they cover the same interval.
-        const auto cpuTimes = Core::SystemUtils::ReadCpuTimes();
-
         if (Core::Configuration::instance().getOr<bool>("euclid.worker.monitoring-active", true)) {
 
             if (load.has_value()) {
@@ -266,17 +294,14 @@ namespace Euclid::Worker {
                 if (load->cpuCount > 0) body["cpuCount"] = load->cpuCount;
             }
 
-            // A percentage needs two readings, so the first renewal after a start only primes it.
-            // Kept on this object rather than in a file-local: two workers in one process would
-            // otherwise corrupt each other's baseline, which is why ReadCpuTimes() is stateless.
-            if (cpuTimes.has_value()) {
-                if (_previousCpuTimes.has_value()) {
-                    if (const auto usage = Core::SystemUtils::CpuUsagePercent(*_previousCpuTimes, *cpuTimes); usage.has_value()) {
-                        body["cpuUsage"] = *usage;
-                    }
-                }
-                _previousCpuTimes = cpuTimes;
+            // Windows' own figure, recorded as the monitoring module records it for a Windows
+            // host it runs on - see EmoServer's processor-queue series.
+            if (queue.has_value()) {
+                body["processorQueueLength"] = queue->queueLength;
+                if (queue->cpuCount > 0) body["cpuCount"] = queue->cpuCount;
             }
+
+            if (cpuUsage.has_value()) body["cpuUsage"] = *cpuUsage;
 
             if (const auto memory = Core::SystemUtils::ReadSystemMemoryUsagePercent(); memory.has_value()) {
                 body["memoryUsage"] = *memory;

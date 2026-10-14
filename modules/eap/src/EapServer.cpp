@@ -2308,10 +2308,25 @@ namespace Euclid::EAP {
             if (object.contains("cpuUsage")) gauge("system-cpu-usage", object.at("cpuUsage").to_number<double>());
             if (object.contains("memoryUsage")) gauge("system-memory-usage-percent", object.at("memoryUsage").to_number<double>());
 
+            // A Windows node's queue, under the names EmoServer records a Windows host's under, so a
+            // Windows worker draws the same series as a Windows manager would.
+            if (const auto *queue = object.if_contains("processorQueueLength"); queue != nullptr && queue->is_number()) {
+                const auto length = queue->to_number<double>();
+                gauge("system-processor-queue-length", length);
+                const auto cores = object.contains("cpuCount") ? object.at("cpuCount").to_number<long>() : claim.node->cpuCount;
+                if (cores > 0) gauge("system-processor-queue-per-core", length / static_cast<double>(cores));
+            }
+
+            // An estimated load - a Windows node's, see WorkerClient::Renew - is placement's input
+            // and nothing more. Recorded as a load average it would sit in a series of kernel
+            // figures looking like one; the queue above is what Windows actually measured.
+            const auto estimated = object.contains("loadEstimated") && object.at("loadEstimated").is_bool()
+                                   && object.at("loadEstimated").as_bool();
+
             // Three series labelled by the window they average over, exactly as EmoServer records
             // them: the host says whose figure it is and the interval says which of the three the
             // kernel reports, and spiking or subsiding is the difference between them.
-            if (loadAverage > 0.0 || object.contains("loadAverage5m")) {
+            if (!estimated && (loadAverage > 0.0 || object.contains("loadAverage5m"))) {
                 const auto loadGauge = [&host](const std::string &interval, const double value) {
                     Core::Monitoring::MetricEventBus::instance().sigMetricGaugeWithLabels(
                             "system-load-average", {{"host", host}, {"interval", interval}}, value);
@@ -2327,7 +2342,7 @@ namespace Euclid::EAP {
             if (const auto cores = object.contains("cpuCount")
                                            ? static_cast<long>(object.at("cpuCount").to_number<long>())
                                            : static_cast<long>(claim.node->cpuCount);
-                cores > 0 && loadAverage > 0.0) {
+                !estimated && cores > 0 && loadAverage > 0.0) {
                 gauge("system-load-per-core", loadAverage / static_cast<double>(cores));
             }
         }
