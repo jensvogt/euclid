@@ -155,6 +155,16 @@ namespace Euclid::Database::Entity::EAP {
         std::string md5Sum;
 
         /**
+         * @brief Size of the artifact object in bytes, as it was when this version was deployed.
+         *
+         * @par
+         * Copied from the ESM object alongside @ref md5Sum, on create, on an update that changes
+         * the artifact, and on redeploy - so it always describes the same build the checksum does.
+         * Zero on an application deployed before this was recorded, until its next redeploy.
+         */
+        long artifactSize{};
+
+        /**
          * @brief Command to run instead of the runtime's default.
          *
          * @par
