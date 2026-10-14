@@ -121,9 +121,23 @@ namespace Euclid::Database::Entity::EQS {
         long size{};
 
         /**
-         * @brief Visibility timeout in seconds
+         * @brief Visibility timeout in seconds - the length of the lease the current receive holds.
+         *
+         * @par
+         * Taken from the queue each time the message is received, unless visibilityPinned. It used
+         * to be copied once, when the message was sent, so a queue whose visibility was raised
+         * went on handing out the old figure for every message already in it: a topic queue
+         * created with 30 seconds and set to 90 kept leasing 30 to consumers that needed 40, and
+         * every message was exported two and three times and then dead-lettered.
          */
         long visibilityTimeout = 30;
+
+        /**
+         * @brief Whether visibilityTimeout was set for this message explicitly - set-message-visibility
+         * on a message not in flight - and so survives being received, rather than being replaced by
+         * the queue's figure.
+         */
+        bool visibilityPinned = false;
 
         /**
          * @brief Timestamp of the last time this message was claimed by receiveMessages().
