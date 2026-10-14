@@ -2116,6 +2116,17 @@ namespace Euclid::EAP {
                     {"principal", node.principal},
                     {"labels", labels},
                     {"cpuCount", node.cpuCount},
+                    // The one-minute figure from the node's last heartbeat, set by the same tick
+                    // that set lastSeen - so it is exactly as current as lastSeen says it is.
+                    // Reported here as well as pushed to EMO because the gauge is not an answer for
+                    // every node: one sharing the manager's host publishes none of them (see
+                    // sharesThisHost in handleRenewNode), and reading it back from monitoring would
+                    // mean a query per node for what the record already holds.
+                    //
+                    // Zero for a heartbeat that carried no reading, which is also what an idle
+                    // machine reports. The two are not told apart here, any more than placement
+                    // tells them apart - it reads absent as idle on purpose.
+                    {"loadAverage", node.loadAverage},
                     {"version", node.version},
                     {"os", node.os},
                     {"arch", node.arch},
