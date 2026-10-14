@@ -396,6 +396,15 @@ target_link_libraries(${QUEUE_COUNTER_BINARY} PRIVATE eucliddb Boost::unit_test_
 
 add_test(NAME ${QUEUE_COUNTER_BINARY} COMMAND ${QUEUE_COUNTER_BINARY})
 
+set(VISIBILITY_TIMEOUT_BINARY euclid-eqs-visibility-timeout-tests)
+
+add_executable(${VISIBILITY_TIMEOUT_BINARY} VisibilityTimeoutTest.cpp)
+set_target_properties(${VISIBILITY_TIMEOUT_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${VISIBILITY_TIMEOUT_BINARY} PRIVATE eucliddb Boost::unit_test_framework Boost::thread)
+
+add_test(NAME ${VISIBILITY_TIMEOUT_BINARY} COMMAND ${VISIBILITY_TIMEOUT_BINARY})
+
 set(UPDATE_MESSAGE_BODY_BINARY euclid-update-message-body-tests)
 
 add_executable(${UPDATE_MESSAGE_BODY_BINARY} UpdateMessageBodyTest.cpp)

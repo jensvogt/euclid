@@ -204,7 +204,13 @@ local node is given; everything a worker sends is signed with the key.
 .B \-\-wait\-for\-config
 Wait for the configuration file, and then the credentials file it names,
 to exist, rather than fail without them. What the local node is started
-with, since the manager writes both when it starts.
+with, since the manager writes both when it starts. A credentials file
+named with
+.B \-\-credentials
+is waited for before the configuration is read, so a configuration edited
+while the worker waits is the one it starts with. Under the Windows
+Service Control Manager the service reports itself running while it waits,
+which is what lets the installer start it before anybody has logged in.
 .TP
 .BR \-h ", " \-\-help
 Print the options and exit.
@@ -213,7 +219,9 @@ On Windows only:
 .TP
 .B \-\-install
 Register this executable as the Windows service \fIeuclid-wrk\fR
-(automatic start, not started) and exit.
+(automatic start, with
+.BR \-\-wait\-for\-config ),
+start it, and exit. Until its credentials are in place it waits for them.
 .TP
 .B \-\-uninstall
 Stop and remove the service and exit.

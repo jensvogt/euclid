@@ -110,7 +110,10 @@
                              default install location, which is wrong the moment somebody picks
                              another volume. The one path that cannot be handled this way is the log
                              directory inside euclid-wrk.json, which is a file and not a command
-                             line - an operator who relocates the install edits that line. -->
+                             line - an operator who relocates the install edits that line.
+
+                             wait-for-config, so a worker with no credentials waits for them instead
+                             of exiting - see the ServiceControl below. -->
                         <ServiceInstall Id="EuclidWorkerService"
                                         Name="euclid-wrk"
                                         DisplayName="Euclid Worker Node"
@@ -118,34 +121,35 @@
                                         Type="ownProcess"
                                         Start="auto"
                                         ErrorControl="normal"
-                                        Arguments="--config &quot;[INSTALLFOLDER]etc\euclid-wrk.json&quot; --data-dir &quot;[INSTALLFOLDER]data&quot; --credentials &quot;[INSTALLFOLDER]etc\credentials&quot;"
+                                        Arguments="--config &quot;[INSTALLFOLDER]etc\euclid-wrk.json&quot; --data-dir &quot;[INSTALLFOLDER]data&quot; --credentials &quot;[INSTALLFOLDER]etc\credentials&quot; --wait-for-config"
                                         Vital="yes" />
 
-                        <!-- Stopped before the binary under it is replaced, and removed with the
-                             product - but deliberately **not** started by the install.
+                        <!-- Stopped before the binary under it is replaced, started again once it
+                             is, and removed with the product.
 
-                             A worker refuses to start without credentials, and a fresh install has
-                             none: §3.2 means the token comes from a login an operator performs, and
-                             there is nothing this package could ship instead. Start="install" would
-                             make that refusal an error inside the transaction, and Vital="yes"
-                             would then roll the whole install back - so a first install of a
-                             correctly-built package would fail, with the reason buried in an
-                             installer log rather than said out loud.
+                             Started by the install, which it used to deliberately not be. A fresh
+                             install has no credentials - §3.2 means the token comes from a login an
+                             operator performs, and there is nothing this package could ship
+                             instead - and a worker without them exited 1. Started here, that was an
+                             error inside the transaction, and Vital="yes" rolled the whole install
+                             back.
 
-                             This matches what the Debian package does: postinst runs "systemctl
-                             enable" and not "systemctl start", for exactly this reason. Start="auto"
-                             above means the service comes up on the next boot once the credentials
-                             are in place, and "sc start euclid-wrk" brings it up now.
+                             With wait-for-config on its command line the worker waits for the
+                             credentials file instead, and reports itself running to the SCM while
+                             it does - so starting it succeeds whether or not anybody has logged in
+                             yet, and the worker picks the file up within a second of it being
+                             copied into etc\, with nothing to restart. The same holds for a master
+                             it cannot reach: it retries registering in the running state.
 
-                             The cost is that an upgrade leaves a configured worker stopped until it
-                             is started again or the host reboots, where the server package's
-                             Start="install" leaves the manager running. That is the right way round
-                             for a worker: the master re-places work from a node that stops
-                             reporting after one lease period (§5), so a worker being down for a
-                             minute is a thing the design already handles, and an install that fails
-                             outright is not. -->
+                             Wait="yes" is safe for that reason, and worth having: a service that
+                             cannot start at all - a missing runtime DLL - fails the install here,
+                             which is where a broken package should fail.
+
+                             An upgrade now leaves a running worker running, as the server
+                             package's Start="install" leaves the manager. -->
                         <ServiceControl Id="EuclidWorkerServiceControl"
                                         Name="euclid-wrk"
+                                        Start="install"
                                         Stop="both"
                                         Remove="uninstall"
                                         Wait="yes" />

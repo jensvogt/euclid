@@ -46,6 +46,7 @@ namespace Euclid::Database::Entity::EQS {
                 bsoncxx::builder::basic::kvp("receivedCount", static_cast<int32_t>(receivedCount)),
                 bsoncxx::builder::basic::kvp("size", static_cast<int64_t>(size)),
                 bsoncxx::builder::basic::kvp("visibilityTimeout", static_cast<int32_t>(visibilityTimeout)),
+                bsoncxx::builder::basic::kvp("visibilityPinned", visibilityPinned),
                 bsoncxx::builder::basic::kvp("messageId", messageId),
                 bsoncxx::builder::basic::kvp("receiptHandle", receiptHandle),
                 bsoncxx::builder::basic::kvp("contentType", contentType),
@@ -70,6 +71,7 @@ namespace Euclid::Database::Entity::EQS {
             else if (key == "receivedCount") receivedCount = getBsonInt(field);
             else if (key == "size") size = getBsonInt(field);
             else if (key == "visibilityTimeout") visibilityTimeout = static_cast<int>(getBsonInt(field));
+            else if (key == "visibilityPinned") visibilityPinned = field.type() == bsoncxx::type::k_bool && field.get_bool().value;
             else if (key == "messageId") messageId = std::string(field.get_string().value);
             else if (key == "receiptHandle") receiptHandle = std::string(field.get_string().value);
             else if (key == "contentType") contentType = std::string(field.get_string().value);
