@@ -277,7 +277,11 @@ renewal, recorded as
 and
 .I system-load-average
 labelled with the node's name. On by default; off for the local node,
-whose host the monitoring module already measures.
+whose host the monitoring module already measures. A Windows node, which
+has no load average, reports
+.I system-processor-queue-length
+instead. Its renewal still carries an estimated one-minute load for
+placement, whatever this is set to.
 .TP
 .I euclid.worker.application-monitoring-active
 Whether this node reports the CPU and memory of each application instance

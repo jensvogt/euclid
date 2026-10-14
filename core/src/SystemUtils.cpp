@@ -22,6 +22,7 @@
 #include <netinet/in.h> // sockaddr_in, sockaddr_in6
 #endif
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -472,6 +473,21 @@ namespace Euclid::Core {
 #else
         return std::nullopt;
 #endif
+    }
+
+    double SystemUtils::InstantaneousLoad(const double queueLength, const double cpuUsagePercent, const long cpuCount) {
+        const auto busy = std::clamp(cpuUsagePercent, 0.0, 100.0) / 100.0 * static_cast<double>(std::max(0L, cpuCount));
+        return std::max(0.0, queueLength) + busy;
+    }
+
+    double SystemUtils::DampedLoad(const std::optional<double> previous, const double instantaneous,
+                                   const std::chrono::duration<double> elapsed) {
+        if (!previous.has_value() || elapsed.count() <= 0.0) return previous.value_or(instantaneous);
+
+        // The kernel's EXP_1 is exp(-5s/60s) applied every five seconds; this is the same curve
+        // evaluated at whatever interval actually passed.
+        const auto decay = std::exp(-elapsed.count() / 60.0);
+        return *previous * decay + instantaneous * (1.0 - decay);
     }
 
     std::optional<SystemUtils::MemoryUsage> SystemUtils::ReadMemoryUsage() {

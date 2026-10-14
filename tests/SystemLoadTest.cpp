@@ -7,7 +7,10 @@
 
 // C++ includes
 #include <algorithm>
+#include <chrono>
+#include <cmath>
 #include <fstream>
+#include <optional>
 #include <sstream>
 
 #include <boost/asio/ip/address.hpp>
@@ -376,6 +379,45 @@ BOOST_AUTO_TEST_CASE(AProcessesCpuIsItsShareOfTheWholeMachine) {
     BOOST_TEST(!SystemUtils::ProcessCpuUsagePercent(50, 150, before, before).has_value());
     BOOST_TEST(!SystemUtils::ProcessCpuUsagePercent(150, 50, before, after).has_value());
     BOOST_TEST(!SystemUtils::ProcessCpuUsagePercent(50, 150, after, before).has_value());
+}
+
+// A Windows worker reports an estimated load, since Windows keeps none and a zero made a busy
+// Windows node look idle to placement. These pin the estimate's arithmetic, which is all of it -
+// the inputs are read on Windows alone.
+
+BOOST_AUTO_TEST_CASE(AnInstantaneousLoadCountsTheBusyCoresAsWellAsTheQueue) {
+
+    // Every core of eight busy with nothing waiting: a load of 8 on Linux, a queue of 0 on Windows.
+    BOOST_TEST(SystemUtils::InstantaneousLoad(0.0, 100.0, 8) == 8.0);
+    // Half busy with three waiting.
+    BOOST_TEST(SystemUtils::InstantaneousLoad(3.0, 50.0, 8) == 7.0);
+    // Idle is idle.
+    BOOST_TEST(SystemUtils::InstantaneousLoad(0.0, 0.0, 32) == 0.0);
+    // Out-of-range inputs are clamped rather than producing a negative load.
+    BOOST_TEST(SystemUtils::InstantaneousLoad(-1.0, 150.0, 4) == 4.0);
+}
+
+BOOST_AUTO_TEST_CASE(TheFirstSampleIsTheAverageOutright) {
+
+    // Not pulled up from zero over a minute, which would make a node that came up busy look idle
+    // for exactly the minute in which placement is most likely to send it more.
+    BOOST_TEST(SystemUtils::DampedLoad(std::nullopt, 12.0, std::chrono::seconds(10)) == 12.0);
+}
+
+BOOST_AUTO_TEST_CASE(TheAverageMovesTowardsTheSampleOnTheKernelsCurve) {
+
+    // One minute is one time constant: 1 - 1/e of the way from the old average to the sample.
+    const auto oneMinute = SystemUtils::DampedLoad(0.0, 10.0, std::chrono::seconds(60));
+    BOOST_TEST(oneMinute == 10.0 * (1.0 - std::exp(-1.0)), boost::test_tools::tolerance(1e-9));
+
+    // The result depends on the time that passed, not on how often it was asked: six ten-second
+    // steps land where one sixty-second step does.
+    std::optional<double> stepped = 0.0;
+    for (int i = 0; i < 6; ++i) stepped = SystemUtils::DampedLoad(stepped, 10.0, std::chrono::seconds(10));
+    BOOST_TEST(*stepped == oneMinute, boost::test_tools::tolerance(1e-9));
+
+    // No time passed, no change.
+    BOOST_TEST(SystemUtils::DampedLoad(4.0, 10.0, std::chrono::seconds(0)) == 4.0);
 }
 
 BOOST_AUTO_TEST_CASE(LocalAddressesAreReachableOnes) {
