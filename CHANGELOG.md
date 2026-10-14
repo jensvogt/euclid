@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.24](https://github.com/jensvogt/euclid/compare/v1.2.23...v1.2.24) (2026-10-14)
+
+
+### Bug Fixes
+
+* load average emitting ([81624bc](https://github.com/jensvogt/euclid/commit/81624bcccbc331668af332214ef0415fc49a08f3))
+
 ## [1.2.23](https://github.com/jensvogt/euclid/compare/1.2.22...v1.2.23) (2026-10-14)
 
 
