@@ -69,6 +69,7 @@ namespace Euclid::Database::Entity::EAP {
                 bsoncxx::builder::basic::kvp("artifactKey", artifactKey),
                 bsoncxx::builder::basic::kvp("version", version),
                 bsoncxx::builder::basic::kvp("md5Sum", md5Sum),
+                bsoncxx::builder::basic::kvp("artifactSize", static_cast<std::int64_t>(artifactSize)),
                 bsoncxx::builder::basic::kvp("command", command),
                 bsoncxx::builder::basic::kvp("arguments", argumentsArray),
                 bsoncxx::builder::basic::kvp("environment", environmentDoc.extract()),
@@ -118,6 +119,8 @@ namespace Euclid::Database::Entity::EAP {
             // next redeploy, and that redeploy is the one that fills them in.
             else if (key == "version") application.version = std::string(field.get_string().value);
             else if (key == "md5Sum") application.md5Sum = std::string(field.get_string().value);
+            // Read as either width, for the reason getBsonInt gives; absent before it was recorded.
+            else if (key == "artifactSize") application.artifactSize = getBsonInt(field);
             else if (key == "command") application.command = std::string(field.get_string().value);
             else if (key == "arguments") {
                 for (const auto &elem: field.get_array().value) application.arguments.emplace_back(elem.get_string().value);

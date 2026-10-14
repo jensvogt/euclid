@@ -56,6 +56,7 @@ namespace {
         application.artifactKey = "orders/orders-1.4.0.jar";
         application.version = "1.4.0";
         application.md5Sum = "0dc7cdef5e707bae7f7b6bbb5be4c32a";
+        application.artifactSize = 52428800L;
         application.arguments = {"--profile", "production"};
         application.environment = {{"JAVA_TOOL_OPTIONS", "-Xmx512m"}, {"ORDERS_MODE", "batch"}};
         application.resources = {"ern:esm:eu-central-1:000000000000:development:bucket:inbox",
@@ -89,6 +90,7 @@ BOOST_AUTO_TEST_CASE(ApplicationSurvivesABsonRoundTrip) {
     // what is running, and a redeploy has nothing to compare against.
     BOOST_TEST(restored.version == "1.4.0");
     BOOST_TEST(restored.md5Sum == "0dc7cdef5e707bae7f7b6bbb5be4c32a");
+    BOOST_TEST(restored.artifactSize == 52428800L);
     BOOST_TEST(restored.userId == "appuser");
     BOOST_TEST(restored.minInstances == 2);
     BOOST_TEST(restored.maxInstances == 8);
@@ -711,4 +713,16 @@ BOOST_AUTO_TEST_CASE(AnApplicationWrittenBeforeSchedulesExistedReadsBackUnschedu
     BOOST_TEST(restored.schedule.empty());
     BOOST_TEST(restored.nextRunAt.time_since_epoch().count() == 0);
     BOOST_TEST(!IsJob(restored.type));
+}
+
+BOOST_AUTO_TEST_CASE(AnArtifactSizeReadsBackWhateverWidthItWasStoredIn) {
+
+    // Absent on an application deployed before the size was recorded: zero, until its next redeploy.
+    const auto legacy = bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("applicationId", "legacy"));
+    BOOST_TEST(Application::fromDocument(legacy.view()).artifactSize == 0L);
+
+    // Written by hand or by a migration as int32 rather than the int64 toDocument() writes.
+    const auto narrow = bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("applicationId", "narrow"),
+                                                               bsoncxx::builder::basic::kvp("artifactSize", std::int32_t{1048576}));
+    BOOST_TEST(Application::fromDocument(narrow.view()).artifactSize == 1048576L);
 }
