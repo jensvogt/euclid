@@ -36,18 +36,23 @@ namespace Euclid::Worker::Service {
      * back. This is the equivalent for a hand-built tree, and the manager has had one for the same
      * reason - see Platform::InstallService.
      *
-     * Deliberately not started. A worker refuses to start without credentials, and a fresh install
-     * has none - see the --credentials comment in main.cpp. Start it once the file is in place.
+     * Started at once, with --wait-for-config on its command line, as the MSI starts its own. A
+     * fresh install has no credentials, and the service waits for them in the running state rather
+     * than refusing to start - see RunWorker - so it picks them up as soon as the file is in place,
+     * with no second step. Starting is reported separately, through @p startError: the service is
+     * installed whether or not it came up, and a failed start is a warning rather than a failed
+     * install.
      *
      * @param configFilePath  passed to the service as --config; may be empty, in which case no
      *                        --config is baked in and the worker runs on its defaults
      * @param credentialsFilePath passed as --credentials; may be empty, in which case the worker
      *                        falls back to the invoking user's own credentials file, which for a
      *                        service means Local System's
+     * @param startError     written with why the service did not start, or left empty if it did
      * @return empty string on success; a human-readable error message otherwise (e.g.
      *         "already exists", "access denied - run as Administrator").
      */
-    std::string Install(const std::string &configFilePath, const std::string &credentialsFilePath);
+    std::string Install(const std::string &configFilePath, const std::string &credentialsFilePath, std::string &startError);
 
     /**
      * @brief Stops the service if it is running and removes it from the Service Control Manager.
