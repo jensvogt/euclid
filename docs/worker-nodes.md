@@ -258,11 +258,26 @@ lease matches `LoadFreshnessSeconds()` and gives three chances to renew before g
 The master picks a node when it creates a slot. Kept deliberately dull to begin with:
 
 1. nodes whose lease is live and whose labels satisfy the application's constraints, if it has any
-2. of those, the one running fewest instances of *this* application — spread beats pack, because the
-   reason for a second instance is usually that the first is saturated
+2. of those, the one running fewest instances of *this* application **per core**, counting the
+   instance being placed — spread beats pack, because the reason for a second instance is usually
+   that the first is saturated
 3. tie broken by the node's one-minute load average, which `SystemUtils::ReadLoadAverage()` already
    reports and EMO already collects, normalised by `cpuCount`
 4. tie broken by node name, so the choice is deterministic and a test can assert it
+
+Step 2 used to be a raw count, which treats every machine as the same size. It dealt a pool of six
+two apiece to a 128-core desktop, a 32-core box and a 4-core Raspberry Pi, and the Pi — seven JVMs
+across its applications — ran at a load of 37 while the desktop idled. Per core, a pool fills machines
+in proportion to their size (128 : 32 : 4 places 32 : 8 : 1); between machines of one size it is the
+plain count, since the core counts cancel. The price is that a small pool may now sit entirely on the
+largest machine, which trades resilience for load on purpose: a node that dies is re-placed within a
+lease, and an overloaded one used to stay overloaded.
+
+When a pool shrinks, the slot given back is chosen the same way in reverse
+(`Placement::ChooseToWithdraw`): a node that is not live or is drained first, then the most loaded per
+core, then the densest per core, then the name. It used to be whichever slot was last in the list.
+Neither rule moves a running instance; a node that is already overloaded is relieved as its
+applications scale down, or at once by draining it and restarting what runs there.
 
 No bin-packing, no resource requests, no affinity beyond labels. Those are real features and none of
 them is needed to get an application onto a second machine; adding them later does not change

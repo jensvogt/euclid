@@ -1228,9 +1228,32 @@ namespace Euclid::main {
         // are: the manager cannot stop a process on another machine, but a slot that is no longer
         // assigned disappears from that node's next renewal and the worker stops it on its own -
         // and the unheld record it leaves is dropped at the top of the next pass.
+        //
+        // From the node that most needs the relief - see Placement::ChooseToWithdraw - rather than
+        // whichever slot was last in the list. Within that node, its last slot, as before.
         if (have > wanted) {
+            std::map<std::string, long> held;
+            for (const auto &instance: existing->instances) {
+                if (!instance.assignedTo.empty()) ++held[instance.assignedTo];
+            }
+
+            std::vector<Manager::Placement::Candidate> holders;
+            for (const auto &[name, count]: held) {
+                // A holder with no node record left - deleted under its slots - is as good as a
+                // dead one, and is taken back from first for the same reason.
+                const auto node = std::ranges::find(nodes, name, &Database::Entity::EAP::Node::name);
+                holders.push_back(Manager::Placement::Candidate{
+                        .name = name,
+                        .labels = {},
+                        .cpuCount = node != nodes.end() ? node->cpuCount : 0,
+                        .loadAverage = node != nodes.end() ? node->loadAverage : 0.0,
+                        .instancesOfApplication = count,
+                        .acceptsWork = node != nodes.end() && node->acceptsWork(leaseSeconds, now)});
+            }
+
+            const auto from = Manager::Placement::ChooseToWithdraw(holders);
             for (const auto &instance: std::ranges::reverse_view(existing->instances)) {
-                if (instance.assignedTo.empty()) continue;
+                if (instance.assignedTo.empty() || instance.assignedTo != from) continue;
                 log_info << "Scaling down an application, application: " << runtimeName
                          << ", instance: " << instance.instanceId << ", node: " << instance.assignedTo
                          << ", have: " << have << ", wanted: " << wanted;

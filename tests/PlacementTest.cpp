@@ -6,6 +6,8 @@
 #include <boost/test/unit_test.hpp>
 
 // C++ includes
+#include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -18,7 +20,8 @@ using Euclid::Manager::Placement::Constraints;
 using Euclid::Manager::Placement::NormalisedLoad;
 
 // Which node the next instance goes on - docs/worker-nodes.md §6, in order: eligible nodes, then
-// fewest instances of this application, then least loaded per core, then the name.
+// fewest instances of this application per core, then least loaded per core, then the name. And
+// which one gives a slot back when the pool shrinks.
 //
 // The last tie-break is there so the answer is deterministic and a test can assert it. Two idle
 // machines with nothing running is the common case on a small installation, and "whichever the map
@@ -130,6 +133,110 @@ BOOST_AUTO_TEST_CASE(SpreadBeatsALowerLoadAverage) {
     const std::vector candidates{node("node-a", 2, 0.0), node("node-b", 0, 3.5)};
 
     BOOST_TEST((Choose(candidates) == std::optional<std::string>("node-b")));
+}
+
+// ── Spread per core ─────────────────────────────────────────────────────────
+
+namespace {
+
+    // Places @p slots instances of one application one at a time, as reconcileNodeApplication does,
+    // and returns how many each node ended up with.
+    std::map<std::string, long> placeInTurn(std::vector<Candidate> candidates, const int slots) {
+        std::map<std::string, long> placed;
+        for (int slot = 0; slot < slots; ++slot) {
+            const auto chosen = Choose(candidates);
+            if (!chosen.has_value()) break;
+            ++placed[*chosen];
+            for (auto &candidate: candidates) {
+                if (candidate.name == *chosen) ++candidate.instancesOfApplication;
+            }
+        }
+        return placed;
+    }
+}// namespace
+
+BOOST_AUTO_TEST_CASE(APoolDoesNotLandOnTheSmallestMachineAsOftenAsOnTheLargest) {
+
+    // What happened: a pool of six dealt two apiece to a 128-core desktop, a 32-core box and a
+    // 4-core Raspberry Pi. Across its applications the Pi carried seven JVMs and a load of 37,
+    // while the desktop sat at 0.03 per core. Per core, the Pi is the last place an instance goes.
+    const auto placed = placeInTurn({node("desktop", 0, 0.0, 128), node("nuc", 0, 0.0, 32), node("pios", 0, 0.0, 4)}, 6);
+
+    BOOST_TEST(!placed.contains("pios"));
+    BOOST_TEST(placed.at("desktop") > placed.at("nuc"));
+}
+
+BOOST_AUTO_TEST_CASE(APoolFillsMachinesInProportionToTheirCores) {
+
+    // 32 : 8 : 1 by cores, and a pool of 41 instances lands exactly so.
+    const auto placed = placeInTurn({node("large", 0, 0.0, 128), node("medium", 0, 0.0, 32), node("small", 0, 0.0, 4)}, 41);
+
+    BOOST_TEST(placed.at("large") == 32);
+    BOOST_TEST(placed.at("medium") == 8);
+    BOOST_TEST(placed.at("small") == 1);
+}
+
+BOOST_AUTO_TEST_CASE(BetweenMachinesOfOneSizeItIsThePlainCount) {
+
+    // The core counts cancel, so equal machines are dealt round-robin exactly as before.
+    const auto placed = placeInTurn({node("node-a", 0, 0.0, 8), node("node-b", 0, 0.0, 8), node("node-c", 0, 0.0, 8)}, 6);
+
+    BOOST_TEST(placed.at("node-a") == 2);
+    BOOST_TEST(placed.at("node-b") == 2);
+    BOOST_TEST(placed.at("node-c") == 2);
+}
+
+BOOST_AUTO_TEST_CASE(EqualDensityIsATieThatLoadBreaks) {
+
+    // With the next instance counted, two on twelve cores becomes three in twelve and none on four
+    // becomes one in four - exactly equal, cross-multiplied rather than rounded. So load decides,
+    // and the busier machine loses.
+    const std::vector candidates{node("twelve", 2, 6.0, 12), node("four", 0, 0.1, 4)};
+
+    BOOST_TEST((Choose(candidates) == std::optional<std::string>("four")));
+}
+
+// ── Giving a slot back ──────────────────────────────────────────────────────
+
+using Euclid::Manager::Placement::ChooseToWithdraw;
+
+BOOST_AUTO_TEST_CASE(NothingHeldMeansNothingToWithdraw) {
+
+    BOOST_TEST(!ChooseToWithdraw({}).has_value());
+    BOOST_TEST(!ChooseToWithdraw({node("node-a", 0)}).has_value());
+}
+
+BOOST_AUTO_TEST_CASE(TheMostLoadedNodeGivesBackFirst) {
+
+    // The Pi again: one instance there at 9 per core against five on an idle desktop. Shrinking is
+    // the one chance to relieve it without stopping anything that is needed, and it used to take
+    // whichever slot was last in the list instead.
+    const std::vector holders{node("desktop", 5, 3.7, 128), node("pios", 1, 37.3, 4)};
+
+    BOOST_TEST((ChooseToWithdraw(holders) == std::optional<std::string>("pios")));
+}
+
+BOOST_AUTO_TEST_CASE(ANodeThatDoesNotAcceptWorkGivesBackBeforeABusyOne) {
+
+    // Not live, or drained: its slot is running nowhere or is meant to be leaving, so giving it
+    // back costs nothing that is working - even against a machine at full load.
+    const std::vector holders{node("busy", 1, 40.0, 4), node("drained", 1, 0.0, 4, false)};
+
+    BOOST_TEST((ChooseToWithdraw(holders) == std::optional<std::string>("drained")));
+}
+
+BOOST_AUTO_TEST_CASE(AtEqualLoadTheDensestGivesBack) {
+
+    const std::vector holders{node("sparse", 1, 0.0, 16), node("dense", 3, 0.0, 4)};
+
+    BOOST_TEST((ChooseToWithdraw(holders) == std::optional<std::string>("dense")));
+}
+
+BOOST_AUTO_TEST_CASE(TheNameDecidesARemainingWithdrawTie) {
+
+    const std::vector holders{node("node-c", 1), node("node-a", 1), node("node-b", 1)};
+
+    BOOST_TEST((ChooseToWithdraw(holders) == std::optional<std::string>("node-a")));
 }
 
 // ── Load, normalised ────────────────────────────────────────────────────────
