@@ -458,7 +458,7 @@ namespace Euclid::EQS {
         log_info << "EQS SendMessage queueErn: " << request.ern;
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
-        std::optional<Database::Entity::EQS::Queue> queue = repo->findQueueByErn(request.ern);
+        std::optional<Database::Entity::EQS::Queue> queue = repo->findQueueByErnCached(request.ern);
         if (!queue.has_value()) {
             return EqsServer::ErrorResponse(req, status::bad_request, "Queue does not exist");
         }
@@ -591,7 +591,7 @@ namespace Euclid::EQS {
         }
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
-        std::optional<Database::Entity::EQS::Queue> queue = repo->findQueueByErn(request.ern);
+        std::optional<Database::Entity::EQS::Queue> queue = repo->findQueueByErnCached(request.ern);
         if (!queue.has_value()) {
             return EqsServer::ErrorResponse(req, status::bad_request, "Queue does not exist");
         }
@@ -724,7 +724,11 @@ namespace Euclid::EQS {
         // Checked before the long poll, not after: waiting twenty seconds to be told the queue is
         // stopped would be twenty seconds a consumer spends holding a slot for an answer that was
         // already known.
-        if (const auto queue = repo->findQueueByErn(request.ern);
+        //
+        // From the queue cache, since this is every poll of every consumer. A stop made through
+        // this instance is seen at once; one made through another EQS instance once the entry
+        // expires (euclid.modules.eqs.queue-cache-seconds).
+        if (const auto queue = repo->findQueueByErnCached(request.ern);
             queue.has_value() && queue->status == Database::Entity::EQS::QueueStatus::STOPPED) {
             return EqsServer::ErrorResponse(req, status::conflict, "Queue is stopped, ern: " + request.ern);
         }
@@ -745,12 +749,11 @@ namespace Euclid::EQS {
 
         Dto::EQS::ReceiveMessagesResponse response;
         response.messages = Dto::EQS::EqsMapper::toDto(messages);
-        response.total = repo->countMessages(request.ern);
 
         if (internalTraffic) {
-            log_debug << "EQS ReceiveMessages ern: " << request.ern << ", count: " << response.messages.size() << ", total: " << response.total;
+            log_debug << "EQS ReceiveMessages ern: " << request.ern << ", count: " << response.messages.size();
         } else {
-            log_info << "EQS ReceiveMessages ern: " << request.ern << ", count: " << response.messages.size() << ", total: " << response.total;
+            log_info << "EQS ReceiveMessages ern: " << request.ern << ", count: " << response.messages.size();
         }
 
         applyMetadata(response, *auth.user);
@@ -1723,7 +1726,7 @@ namespace Euclid::EQS {
         const auto body = Core::GetStringValue(envelope.payload, "body");
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
-        const auto queue = repo->findQueueByErn(targetErn);
+        const auto queue = repo->findQueueByErnCached(targetErn);
         if (!queue.has_value()) {
 
             // A missing queue is permanent, not transient. Acking this one delivery and moving on

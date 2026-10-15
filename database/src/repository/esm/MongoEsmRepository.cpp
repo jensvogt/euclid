@@ -7,11 +7,17 @@
 //
 
 // C++ includes
+#include <algorithm>
 #include <chrono>
+#include <optional>
+#include <string>
+#include <vector>
 
 // Euclid includes
 #include <mongocxx/pipeline.hpp>
 
+#include <euclid/core/Configuration.h>
+#include <euclid/core/TtlCache.h>
 #include <euclid/database/repository/esm/MongoEsmRepository.h>
 
 #include "euclid/core/monitoring/MonitoringTimer.h"
@@ -48,6 +54,31 @@ namespace Euclid::Database {
         // operations below are timed, never the waiting.
         constexpr auto kRepositoryTimer = "esm-repository-time";
         constexpr auto kRepositoryCounter = "esm-repository-count";
+
+        /**
+         * @brief Each bucket's subscriptions, by bucket ERN - see listSubscriptionsBySourceErnCached().
+         *
+         * @par
+         * Every object written or removed asks which queues to tell, and on a split that is a
+         * million objects into one bucket whose subscriptions do not change while it runs. Short by
+         * default because ESM runs as a pool: a subscription made through another instance is only
+         * seen here when the entry runs out, and an event in between is not delivered to it. The TTL
+         * is read once, when the first lookup builds this.
+         */
+        Core::TtlCache<std::string, std::vector<Entity::ESM::Subscription> > &subscriptionCache() {
+            // Misses off: a miss here is a read that failed, not a bucket with no subscriptions -
+            // that is an empty list, and is cached like any other answer.
+            static Core::TtlCache<std::string, std::vector<Entity::ESM::Subscription> > cache{
+                    std::chrono::seconds(std::max(0L, Core::Configuration::instance().getOr<long>("euclid.modules.esm.subscription-cache-seconds", 5))),
+                    4096, false};
+            return cache;
+        }
+    }
+
+    std::vector<Entity::ESM::Subscription> MongoEsmRepository::listSubscriptionsBySourceErnCached(const std::string &sourceErn) const {
+        return subscriptionCache()
+                .get(sourceErn, [](const std::string &key) { return loadSubscriptions(key); })
+                .value_or(std::vector<Entity::ESM::Subscription>{});
     }
 
     MongoEsmRepository::MongoEsmRepository() {
@@ -749,6 +780,10 @@ namespace Euclid::Database {
             const auto result = subscriptionCollection.update_many(
                     make_document(kvp("sourceErn", oldSourceErn)).view(),
                     make_document(kvp("$set", make_document(kvp("sourceErn", newSourceErn)))).view());
+
+            // After the write - see upsertSubscription.
+            subscriptionCache().erase(oldSourceErn);
+            subscriptionCache().erase(newSourceErn);
             return result ? static_cast<long>(result->modified_count()) : 0;
 
         } catch (const std::exception &e) {
@@ -835,7 +870,14 @@ namespace Euclid::Database {
 
             auto subscriptionCollection = Database::instance().collection(SUBSCRIPTION_COLLECTION);
 
-            if (auto result = subscriptionCollection.find_one_and_update(filter.view(), update.view(), opts)) {
+            const auto result = subscriptionCollection.find_one_and_update(filter.view(), update.view(), opts);
+
+            // After the write, never before: a lookup starting in between would read the old list
+            // and store it. One already reading when this runs is not stored either - the cache's
+            // generation sees to that.
+            subscriptionCache().erase(subscription.sourceErn);
+
+            if (result) {
                 return Entity::ESM::Subscription::fromDocument(result->view());
             }
             throw std::runtime_error("upsert returned no document, sourceErn: " + subscription.sourceErn);
@@ -846,10 +888,10 @@ namespace Euclid::Database {
         }
     }
 
-    std::vector<Entity::ESM::Subscription> MongoEsmRepository::listSubscriptionsBySourceErn(const std::string &sourceErn) const {
+    std::optional<std::vector<Entity::ESM::Subscription> > MongoEsmRepository::loadSubscriptions(const std::string &sourceErn) {
 
-        std::vector<Entity::ESM::Subscription> subscriptions;
         try {
+            std::vector<Entity::ESM::Subscription> subscriptions;
             const auto filter = make_document(kvp("sourceErn", sourceErn));
 
             auto subscriptionCollection = Database::instance().collection(SUBSCRIPTION_COLLECTION);
@@ -857,11 +899,16 @@ namespace Euclid::Database {
             for (auto cursor = subscriptionCollection.find(filter.view()); auto doc: cursor) {
                 subscriptions.push_back(Entity::ESM::Subscription::fromDocument(doc));
             }
+            return subscriptions;
 
         } catch (const std::exception &e) {
             log_error << "List subscriptions failed, sourceErn: " << sourceErn << ", error: " << e.what();
+            return std::nullopt;
         }
-        return subscriptions;
+    }
+
+    std::vector<Entity::ESM::Subscription> MongoEsmRepository::listSubscriptionsBySourceErn(const std::string &sourceErn) const {
+        return loadSubscriptions(sourceErn).value_or(std::vector<Entity::ESM::Subscription>{});
     }
 
     void MongoEsmRepository::deleteSubscriptionByErn(const std::string &ern) {
@@ -870,6 +917,11 @@ namespace Euclid::Database {
             auto subscriptionCollection = Database::instance().collection(SUBSCRIPTION_COLLECTION);
 
             const auto result = subscriptionCollection.delete_many(make_document(kvp("ern", ern)));
+
+            // All of them, after the write - see upsertSubscription. Knowing only the subscription's
+            // ERN there is no telling which bucket's entry it was in, and subscriptions change
+            // rarely enough that forgetting every bucket costs one read each.
+            subscriptionCache().clear();
             log_debug << "Subscription deleted, ern: " << ern << ", count: " << result->deleted_count();
 
         } catch (const std::exception &e) {

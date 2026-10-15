@@ -23,7 +23,8 @@
         "host": "localhost",
         "port": 5566,
         "max-thread": 64,
-        "max-body": 536870912
+        "max-body": 536870912,
+        "backend-timeout-seconds": 60
       },
       "tls": {
         "enabled": true,
@@ -362,7 +363,7 @@
     },
     "eventbus": {
       "notify-interval-ms": 100,
-      "subscription-cache-seconds": 0
+      "subscription-cache-seconds": 5
     }
   }
 }
