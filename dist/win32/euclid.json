@@ -123,7 +123,7 @@
         "rollup-hour-period": 600,
         "rollup-day-period": 3600,
         "cpu-usage-period": 60,
-        "queue-count-period": 3600,
+        "queue-count-period": 300,
         "bucket-count-period": 3600,
         "topic-count-period": 3600,
         "module-instance-period": 15,

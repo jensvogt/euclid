@@ -30,6 +30,7 @@
 
 // Boost includes
 #include <boost/program_options.hpp>
+#include <boost/version.hpp>
 
 // Euclid includes
 #include <WorkerClient.h>
@@ -295,6 +296,13 @@ static int RunWorker(const CliOptions &options, const bool reportServiceStatus) 
                                          configuration.getOr<std::string>("euclid.logging.prefix", "euclid-wrk"));
     }
 
+    // The first line the log gets, as the manager's is: which build this is. Here, as soon as there
+    // is a log to write it to, rather than with the "running" line below - a worker that cannot
+    // reach its master retries registering for as long as it takes, and the version is what one
+    // looks for first when a node behaves differently from the others.
+    log_info << "Starting euclid-wrk " << APP_VERSION << ", pid: " << Euclid::Core::SystemUtils::GetPid()
+             << ", boost: " << BOOST_LIB_VERSION;
+
     // Said now rather than when an application needs one: this node's interpreters are its own to
     // configure, and being told the wrong path for one is otherwise reported as an application's
     // exit 127, on whichever host it was placed, however long after the file was written.
@@ -406,7 +414,7 @@ static int RunWorker(const CliOptions &options, const bool reportServiceStatus) 
         if (g_shutdownRequested) return 0;
     }
 
-    log_info << "euclid-wrk running, node: " << workerOptions.nodeName
+    log_info << "euclid-wrk " << APP_VERSION << " running, node: " << workerOptions.nodeName
              << ", endpoint: " << workerOptions.endpoint << ", tick: " << workerOptions.tick.count() << "s";
 
 #if defined(_WIN32)

@@ -340,6 +340,24 @@ namespace Euclid::main {
                                       const std::vector<Database::Entity::EAP::Node> &nodes);
 
         /**
+         * @brief Moves one instance of a settled pool to where placement would put it now, if that
+         * is better - see Manager::Placement::ChooseRebalance.
+         *
+         * @par
+         * Only after the pool has lost an instance (see _rebalancePending), only once it is settled
+         * - as many slots as it wants, every one of them RUNNING - and at most one move per pass.
+         * The move withdraws a slot and lets the next pass place its replacement, so a pool is one
+         * instance short for as long as that takes; settling first keeps two moves from overlapping.
+         * Never a JOB: moving one would run it again. Off with euclid.modules.eap.rebalance.
+         */
+        void rebalanceNodeApplication(const Database::Entity::EAP::Application &application,
+                                      const std::string &runtimeName,
+                                      const Database::Entity::Module &pool,
+                                      const std::vector<Database::Entity::EAP::Node> &nodes,
+                                      std::chrono::seconds leaseSeconds,
+                                      std::chrono::system_clock::time_point now);
+
+        /**
          * @brief The pre-2026-09-14 load path, for applications that do not report directly yet.
          *
          * @par
@@ -840,6 +858,22 @@ namespace Euclid::main {
          * placement first.
          */
         std::map<std::string, std::pair<int, int> > _nodeApplicationBounds;
+
+        /**
+         * @brief How many slots each node application held on the previous pass, by runtime name -
+         * so a pass can tell that one of its instances has gone.
+         */
+        std::map<std::string, long> _heldSlots;
+
+        /**
+         * @brief Node applications that have lost an instance since they were last balanced, and
+         * so may be worth a move - see rebalanceNodeApplication(). Cleared once no move would help.
+         *
+         * @par
+         * Kept in memory: a manager that restarts forgets them, which costs a rebalance that
+         * would have happened, not a wrong one.
+         */
+        std::set<std::string> _rebalancePending;
 
 
         /**

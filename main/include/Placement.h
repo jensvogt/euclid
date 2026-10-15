@@ -274,6 +274,90 @@ namespace Euclid::Manager {
             return best->name;
         }
 
+        /**
+         * @brief One instance to take off a node so that placement puts it back somewhere better.
+         */
+        struct Move {
+            std::string from;
+            std::string to;
+        };
+
+        /**
+         * @brief Whether the pool is better off with one instance moved, and from where to where.
+         *
+         * @par
+         * Placement is decided once, when a slot is made, and nothing reconsiders it: a pool that
+         * shrank, or lost a node and got it back, keeps whatever shape the slots happened to end up
+         * in. This is the reconsideration. The move it proposes is carried out by withdrawing one
+         * slot from @c from - the replacement is then placed by Choose(), the same rule as every
+         * other slot, and lands on @c to.
+         *
+         * @par
+         * From, in order:
+         *
+         *   1. a holder that may not have the work any more - drained, not live, or no longer
+         *      satisfying the application's constraints. Always moved off, if anywhere will take it.
+         *   2. otherwise the holder densest per core in this application.
+         *
+         * @par
+         * To is Choose()'s answer for the pool as it stands. A move is only proposed off a holder
+         * that may keep its instance when it is a strict improvement: @c from carries more per core
+         * than @c to would with one more (`n_from / c_from > (n_to + 1) / c_to`, cross-multiplied).
+         * That one inequality does two jobs. It is what makes Choose() put the replacement on @c to
+         * rather than back where it came from - after the withdrawal @c from would sit at
+         * `n_from / c_from` against @c to's `(n_to + 1) / c_to` - and it is what makes the process
+         * end: the densest holder only ever gets sparser, and the node it hands to stays below
+         * where it was, so the sorted densities fall with every move and cannot cycle.
+         *
+         * @param candidates every node, as for Choose(), with instancesOfApplication its count - a
+         *        holder with no node record left included, as not accepting work.
+         * @param constraints what the application will accept.
+         * @return the move, or nothing when no move would improve the pool.
+         */
+        [[nodiscard]] inline std::optional<Move> ChooseRebalance(const std::vector<Candidate> &candidates,
+                                                                 const Constraints &constraints = {}) {
+
+            const Candidate *from = nullptr;
+            bool fromMustLeave = false;
+            for (const auto &candidate: candidates) {
+
+                if (candidate.instancesOfApplication <= 0) continue;
+                const bool mustLeave = !Satisfies(candidate, constraints);
+
+                if (from == nullptr) {
+                    from = &candidate;
+                    fromMustLeave = mustLeave;
+                    continue;
+                }
+                if (mustLeave != fromMustLeave) {
+                    if (mustLeave) {
+                        from = &candidate;
+                        fromMustLeave = true;
+                    }
+                    continue;
+                }
+                if (const auto density = CompareDensity(candidate, 0, *from, 0); density != 0) {
+                    if (density > 0) from = &candidate;
+                    continue;
+                }
+                if (candidate.name < from->name) from = &candidate;
+            }
+            if (from == nullptr) return std::nullopt;
+
+            const auto chosen = Choose(candidates, constraints);
+            if (!chosen.has_value() || *chosen == from->name) return std::nullopt;
+
+            if (!fromMustLeave) {
+                const auto to = std::ranges::find(candidates, *chosen, &Candidate::name);
+                if (to == candidates.end()) return std::nullopt;
+                // n_from / c_from > (n_to + 1) / c_to - see CompareDensity() for why it is
+                // cross-multiplied rather than divided.
+                if (CompareDensity(*from, 0, *to, 1) <= 0) return std::nullopt;
+            }
+
+            return Move{.from = from->name, .to = *chosen};
+        }
+
     }// namespace Placement
 
 }// namespace Euclid::Manager
