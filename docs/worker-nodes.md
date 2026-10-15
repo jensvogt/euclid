@@ -278,8 +278,27 @@ lease, and an overloaded one used to stay overloaded.
 When a pool shrinks, the slot given back is chosen the same way in reverse
 (`Placement::ChooseToWithdraw`): a node that is not live or is drained first, then the most loaded per
 core, then the densest per core, then the name. It used to be whichever slot was last in the list.
-Neither rule moves a running instance; a node that is already overloaded is relieved as its
-applications scale down, or at once by draining it and restarting what runs there.
+### Rebalancing after an instance goes
+
+Placement decides where a slot goes once, when it is made. After a pool loses an instance - a
+scale-down, a stop, a slot taken off a node - what is left is reconsidered
+(`Placement::ChooseRebalance`):
+
+- from: a holder that may no longer have the work (drained, not live, or not satisfying the
+  application's constraints any more), otherwise the holder densest per core
+- to: where `Choose` would put the next instance
+- only if it is a strict improvement - `n_from / c_from > (n_to + 1) / c_to` - unless `from` has to
+  give the work back anyway
+
+The move is a withdrawal: the next pass finds the pool one short, and ordinary placement puts the
+replacement on `to` (the inequality guarantees it). One move per pass, and only once the pool is
+settled - as many slots as it wants, all RUNNING - so moves never overlap; it repeats until no move
+helps. The same inequality makes it end: the densest holder only gets sparser and the receiver stays
+below it, so it cannot cycle. JOB applications are never moved, since moving one runs it again.
+`euclid.modules.eap.rebalance: false` turns it off.
+
+A pool that lost no instance is not reconsidered: a node that comes back after its slots were
+re-placed elsewhere gets work again only as the pool scales.
 
 No bin-packing, no resource requests, no affinity beyond labels. Those are real features and none of
 them is needed to get an application onto a second machine; adding them later does not change
