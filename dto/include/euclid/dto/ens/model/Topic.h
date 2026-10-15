@@ -83,6 +83,12 @@ namespace Euclid::Dto::ENS {
         long retentionPeriod = 0;
 
         /**
+         * @brief Whether a message is deleted once it has been handed to every subscription, rather
+         * than kept for the retention period - see euclid-cli-ens-set-topic-delete-after-delivery(1).
+         */
+        bool deleteAfterDelivery = false;
+
+        /**
          * @brief Creation date
          */
         system_clock::time_point created;
@@ -122,6 +128,7 @@ namespace Euclid::Dto::ENS {
             r.resend = Core::GetLongValue(v, "resend", 0);
             r.status = Core::GetStringValue(v, "status");
             r.retentionPeriod = Core::GetLongValue(v, "retentionPeriod", 0);
+            r.deleteAfterDelivery = Core::GetBoolValue(v, "deleteAfterDelivery");
             r.created = Core::GetDatetimeValue(v, "created");
             r.modified = Core::GetDatetimeValue(v, "modified");
             return r;
@@ -140,6 +147,7 @@ namespace Euclid::Dto::ENS {
                     {"resend", obj.resend},
                     {"status", obj.status},
                     {"retentionPeriod", obj.retentionPeriod},
+                    {"deleteAfterDelivery", obj.deleteAfterDelivery},
                     {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
             };

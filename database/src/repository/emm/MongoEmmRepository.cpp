@@ -672,7 +672,8 @@ namespace Euclid::Database {
 
     bool MongoEmmRepository::reportInstanceFromNode(const std::string &moduleName, const std::string &instanceId,
                                                     const std::string &nodeName, const std::string &host,
-                                                    const int pid, const int httpPort, const Entity::ModuleState state) {
+                                                    const int pid, const int httpPort, const Entity::ModuleState state,
+                                                    const std::chrono::system_clock::time_point started) {
 
         if (nodeName.empty()) return false;
 
@@ -713,6 +714,9 @@ namespace Euclid::Database {
                                                          bsoncxx::builder::basic::kvp("instances.$.pid", pid),
                                                          bsoncxx::builder::basic::kvp("instances.$.httpPort", httpPort),
                                                          bsoncxx::builder::basic::kvp("instances.$.state", Entity::ModuleStateToString(state)),
+                                                         // Always written, so a stop or a crash clears the start of
+                                                         // the process that is no longer there.
+                                                         bsoncxx::builder::basic::kvp("instances.$.started", asDate(started)),
                                                          // An explicit date rather than $currentDate, which EMD does not
                                                          // implement on a nested path - and which reportInstanceLoad
                                                          // already avoids for its own timestamp. The clock is the

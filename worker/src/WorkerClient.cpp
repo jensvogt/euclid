@@ -688,12 +688,13 @@ namespace Euclid::Worker {
 
         instance.startedAt = std::chrono::system_clock::now();
         const auto startedPid = instance.pid;
+        const auto startedAt = instance.startedAt;
         _instances[assignment.instanceId] = std::move(instance);
 
         log_info << "Started instance " << assignment.instanceId << ", application: " << assignment.applicationId
                  << ", pid: " << startedPid << ", port: " << httpPort << ", command: " << commandLine.front();
 
-        report(assignment, startedPid, httpPort, "RUNNING");
+        report(assignment, startedPid, httpPort, "RUNNING", startedAt);
         return true;
     }
 
@@ -749,21 +750,26 @@ namespace Euclid::Worker {
     }
 
     void WorkerClient::report(const Reconciler::Assignment &assignment, const int pid, const int httpPort,
-                              const std::string &state) const {
+                              const std::string &state, const std::chrono::system_clock::time_point startedAt) const {
 
-        const auto response = post("eap", "report-node-instance",
-                                   boost::json::value{{"node", _options.nodeName},
-                                                              {"instanceId", assignment.instanceId},
-                                                              {"runtimeName", assignment.runtimeName},
-                                                              // The address this node registered with
-                                                              // rather than its host name: the
-                                                              // gateway connects to this, and a host
-                                                              // name a worker knows itself by is not
-                                                              // one the master's DNS need know.
-                                                              {"host", _address.empty() ? Core::SystemUtils::GetHostName() : _address},
-                                                              {"pid", pid},
-                                                              {"httpPort", httpPort},
-                                                              {"state", state}});
+        boost::json::object body{{"node", _options.nodeName},
+                                 {"instanceId", assignment.instanceId},
+                                 {"runtimeName", assignment.runtimeName},
+                                 // The address this node registered with rather than its host name: the
+                                 // gateway connects to this, and a host name a worker knows itself by is
+                                 // not one the master's DNS need know.
+                                 {"host", _address.empty() ? Core::SystemUtils::GetHostName() : _address},
+                                 {"pid", pid},
+                                 {"httpPort", httpPort},
+                                 {"state", state}};
+
+        // When the process started, so the master can say how long it has been up. The slot's own
+        // creation date is not that: a slot outlives every process it runs - a redeploy, a worker
+        // restart, a crash - and reading uptime off it showed a pool restarted three hours ago as
+        // up for eleven. Sent only with a start; any other report means there is no process.
+        if (startedAt.time_since_epoch().count() != 0) body["startedAt"] = Core::DateTimeUtils::ToISO8601(startedAt);
+
+        const auto response = post("eap", "report-node-instance", body);
 
         // Advisory. A report that could not be written costs the master one tick of accuracy, and
         // the process is running - or stopped - either way. A 409 is the one worth saying out loud:

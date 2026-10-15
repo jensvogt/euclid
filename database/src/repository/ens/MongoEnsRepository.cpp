@@ -763,6 +763,31 @@ namespace Euclid::Database {
         }
     }
 
+    bool MongoEnsRepository::deleteDeliveredMessage(const std::string &topicErn, const std::string &messageId, const long size) {
+
+        try {
+            const auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
+            const auto deleted = messageCollection.delete_one(make_document(kvp("messageId", messageId)).view());
+            if (!deleted || deleted->deleted_count() == 0) return false;
+
+            // The reverse of what publishMessage() added, and only for a delete that happened.
+            const auto topicCollection = Database::instance().collection(TOPIC_COLLECTION);
+            const auto update = make_document(
+                    kvp("$inc", make_document(
+                                kvp("size", -static_cast<int64_t>(size)),
+                                kvp("available", static_cast<int64_t>(-1)))),
+                    kvp("$currentDate", make_document(kvp("modified", true))));
+            topicCollection.update_one(make_document(kvp("ern", topicErn)).view(), update.view());
+            return true;
+
+        } catch (const std::exception &e) {
+            // Logged, not thrown: the message has been delivered either way, and one that could not
+            // be deleted is still removed by retention.
+            log_error << "Delete delivered message failed, messageId: " << messageId << ", error: " << e.what();
+            return false;
+        }
+    }
+
     void MongoEnsRepository::recordSend(const std::string &topicErn, const long count) {
 
         if (count <= 0) return;
@@ -1046,9 +1071,15 @@ namespace Euclid::Database {
 
             const auto topicFilter = make_document(kvp("ern", topicErn));
             const auto update = make_document(
+                    // The totals too. A purge starts the topic over, so "sent" and "resent" count
+                    // from the purge rather than from the topic's creation - what a topic reads as
+                    // having sent should not outlive the messages it is supposed to have sent.
+                    // Retention removing messages one by one leaves them alone; recountTopics() does.
                     kvp("$set", make_document(
                                 kvp("size", static_cast<int64_t>(0)),
-                                kvp("available", static_cast<int64_t>(0)))),
+                                kvp("available", static_cast<int64_t>(0)),
+                                kvp("send", static_cast<int64_t>(0)),
+                                kvp("resend", static_cast<int64_t>(0)))),
                     kvp("$currentDate", make_document(
                                 kvp("modified", true))));
             queueCollection.update_one(topicFilter.view(), update.view());
@@ -1094,9 +1125,15 @@ namespace Euclid::Database {
             log_debug << "Topics purged, region: " << region << ", accountId: " << accountId << ", topicCount: " << topicCount << ", messageCount: " << messageResult->deleted_count();
 
             const auto update = make_document(
+                    // The totals too. A purge starts the topic over, so "sent" and "resent" count
+                    // from the purge rather than from the topic's creation - what a topic reads as
+                    // having sent should not outlive the messages it is supposed to have sent.
+                    // Retention removing messages one by one leaves them alone; recountTopics() does.
                     kvp("$set", make_document(
                                 kvp("size", static_cast<int64_t>(0)),
-                                kvp("available", static_cast<int64_t>(0)))),
+                                kvp("available", static_cast<int64_t>(0)),
+                                kvp("send", static_cast<int64_t>(0)),
+                                kvp("resend", static_cast<int64_t>(0)))),
                     kvp("$currentDate", make_document(
                                 kvp("modified", true))));
             topicCollection.update_many(queueFilter.view(), update.view());

@@ -43,11 +43,13 @@ namespace Euclid::Dto::ENS {
         dto.size = entity.size;
         dto.messages = entity.available;
         dto.maxMessageLength = entity.maxMessageLength;
-        // Lifetime totals, which recountTopics() deliberately leaves alone - see IEnsRepository.
+        // Totals since creation or the last purge, which recountTopics() deliberately leaves alone -
+        // see IEnsRepository.
         dto.send = entity.send;
         dto.resend = entity.resend;
         dto.status = entity.status();
         dto.retentionPeriod = entity.retentionPeriod;
+        dto.deleteAfterDelivery = entity.deleteAfterDelivery;
         dto.created = entity.created;
         dto.modified = entity.modified;
         return dto;

@@ -70,6 +70,7 @@ namespace Euclid::Database::Entity {
                 bsoncxx::builder::basic::kvp("socketPath", socketPath),
                 bsoncxx::builder::basic::kvp("httpPort", httpPort),
                 bsoncxx::builder::basic::kvp("restartCount", restartCount),
+                bsoncxx::builder::basic::kvp("started", bsoncxx::types::b_date{std::chrono::duration_cast<std::chrono::milliseconds>(started.time_since_epoch())}),
                 bsoncxx::builder::basic::kvp("created", bsoncxx::types::b_date{std::chrono::duration_cast<std::chrono::milliseconds>(created.time_since_epoch())}),
                 bsoncxx::builder::basic::kvp("modified", bsoncxx::types::b_date{std::chrono::duration_cast<std::chrono::milliseconds>(modified.time_since_epoch())}));
     }
@@ -94,6 +95,7 @@ namespace Euclid::Database::Entity {
             else if (key == "utilisation") instance.utilisation = field.type() == bsoncxx::type::k_double ? field.get_double().value : static_cast<double>(getBsonInt(field));
             else if (key == "backlog") instance.backlog = getBsonInt(field);
             else if (key == "loadReportedAt") instance.loadReportedAt = getBsonDate(field);
+            else if (key == "started") instance.started = getBsonDate(field);
             else if (key == "created") instance.created = getBsonDate(field);
             else if (key == "modified") instance.modified = getBsonDate(field);
         }

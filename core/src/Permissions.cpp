@@ -162,7 +162,7 @@ namespace Euclid::Core {
                 "emo:list",
                 "emo:push-metrics",
 
-                // ens - 25 actions
+                // ens - 26 actions
                 "ens:add-topic-tag",
                 "ens:create-topic",
                 "ens:delete-topic",
@@ -181,6 +181,7 @@ namespace Euclid::Core {
                 "ens:purge-topic",
                 "ens:resend-messages",
                 "ens:set-message-attribute",
+                "ens:set-topic-delete-after-delivery",
                 "ens:set-topic-max-message-length",
                 "ens:set-topic-retention",
                 "ens:set-topic-tag",
