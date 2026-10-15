@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.26](https://github.com/jensvogt/euclid/compare/1.2.25...v1.2.26) (2026-10-14)
+
+
+### Bug Fixes
+
+* load measurements ([19dcfe7](https://github.com/jensvogt/euclid/commit/19dcfe7dc93919f5c53c5207c7f4270f74b9acef))
+* load measurements ([4bf1749](https://github.com/jensvogt/euclid/commit/4bf17494005ce49ad31891c89c10306e29229834))
+
 ## [1.2.25](https://github.com/jensvogt/euclid/compare/1.2.24...v1.2.25) (2026-10-14)
 
 
