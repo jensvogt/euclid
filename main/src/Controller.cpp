@@ -1223,6 +1223,14 @@ namespace Euclid::main {
                                                           [](const auto &instance) { return !instance.assignedTo.empty(); })
                                   : 0;
 
+        // An instance has gone since the last pass - scaled down, stopped, taken off a node - so
+        // the slots that are left are worth a second look once the pool has settled. See
+        // rebalanceNodeApplication(). A crash does not count: the worker restarts it in its slot.
+        if (const auto previous = _heldSlots.find(runtimeName); previous != _heldSlots.end() && have < previous->second) {
+            _rebalancePending.insert(runtimeName);
+        }
+        _heldSlots[runtimeName] = have;
+
         // Surplus given back one slot at a time, which is the pace NextDesiredCount() lowers the
         // target at anyway. Withdrawn rather than deleted, exactly as a stopped application's slots
         // are: the manager cannot stop a process on another machine, but a slot that is no longer
@@ -1263,7 +1271,10 @@ namespace Euclid::main {
             return;
         }
 
-        if (have >= wanted) return;
+        if (have >= wanted) {
+            if (existing.has_value()) rebalanceNodeApplication(application, runtimeName, *existing, nodes, leaseSeconds, now);
+            return;
+        }
 
         // Who is already carrying how much of this application, which is what the spread rule
         // reads. Counted before the loop so that placing two slots in one pass does not put both
@@ -1325,6 +1336,69 @@ namespace Euclid::main {
 
             log_info << "Placed an instance of a node application, application: " << runtimeName
                      << ", instance: " << instance.instanceId << ", node: " << *chosen;
+        }
+    }
+
+    void ServiceController::rebalanceNodeApplication(const Database::Entity::EAP::Application &application,
+                                                     const std::string &runtimeName,
+                                                     const Database::Entity::Module &pool,
+                                                     const std::vector<Database::Entity::EAP::Node> &nodes,
+                                                     const std::chrono::seconds leaseSeconds,
+                                                     const std::chrono::system_clock::time_point now) {
+
+        if (!_rebalancePending.contains(runtimeName)) return;
+
+        // A job's instance is a run of it, and moving one would run it again from the start.
+        if (Database::Entity::EAP::IsJob(application.type) ||
+            !Core::Configuration::instance().getOr<bool>("euclid.modules.eap.rebalance", true)) {
+            _rebalancePending.erase(runtimeName);
+            return;
+        }
+
+        // Settled first: every slot RUNNING. A slot still starting is a move in progress - this
+        // one's replacement, or a scale-up - and judging the pool before it lands would count it
+        // where it is going and not yet where it is doing anything. Kept pending meanwhile.
+        std::map<std::string, long> held;
+        for (const auto &instance: pool.instances) {
+            if (instance.assignedTo.empty()) continue;
+            if (instance.state != Database::Entity::ModuleState::RUNNING) return;
+            ++held[instance.assignedTo];
+        }
+
+        std::vector<Manager::Placement::Candidate> candidates;
+        for (const auto &node: nodes) {
+            candidates.push_back(Manager::Placement::Candidate{.name = node.name,
+                                                               .labels = placementLabels(node),
+                                                               .cpuCount = node.cpuCount,
+                                                               .loadAverage = node.loadAverage,
+                                                               .instancesOfApplication = held[node.name],
+                                                               .acceptsWork = node.acceptsWork(leaseSeconds, now)});
+        }
+        // A holder with no node record left - deleted under its slots - is as gone as a dead one.
+        for (const auto &[name, count]: held) {
+            if (std::ranges::find(nodes, name, &Database::Entity::EAP::Node::name) != nodes.end()) continue;
+            candidates.push_back(Manager::Placement::Candidate{.name = name, .instancesOfApplication = count, .acceptsWork = false});
+        }
+
+        const Manager::Placement::Constraints constraints{.nodes = application.nodes,
+                                                          .labels = application.nodeLabels};
+        const auto move = Manager::Placement::ChooseRebalance(candidates, constraints);
+        if (!move.has_value()) {
+            // Balanced, as far as one move at a time can tell. Nothing more until the next loss.
+            _rebalancePending.erase(runtimeName);
+            log_debug << "Node application balanced, application: " << runtimeName;
+            return;
+        }
+
+        // Withdrawn, and nothing else: the next pass finds the pool one short and places the
+        // replacement by the ordinary rule, which ChooseRebalance() has made sure lands on
+        // move->to. Within the node, its last slot, as a scale-down takes.
+        for (const auto &instance: std::ranges::reverse_view(pool.instances)) {
+            if (instance.assignedTo != move->from) continue;
+            log_info << "Rebalancing a node application, application: " << runtimeName
+                     << ", instance: " << instance.instanceId << ", from: " << move->from << ", to: " << move->to;
+            std::ignore = Database::RepositoryFactory::instance().emmRepository()->assignInstance(runtimeName, instance.instanceId, {}, {});
+            return;
         }
     }
 
