@@ -424,7 +424,7 @@ namespace Euclid::ESM {
         if (objects.empty()) return;
 
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
-        const auto subscriptions = repo->listSubscriptionsBySourceErn(objects.front().bucketErn);
+        const auto subscriptions = repo->listSubscriptionsBySourceErnCached(objects.front().bucketErn);
 
         const auto asJson = [](const std::map<std::string, Database::Entity::COM::Variant> &source) {
             boost::json::object out;
@@ -927,7 +927,7 @@ namespace Euclid::ESM {
         // for.
         std::vector<Database::Entity::ESM::Subscription> own;
         if (resolved == nullptr) {
-            own = Database::RepositoryFactory::instance().esmRepository()->listSubscriptionsBySourceErn(bucketErn);
+            own = Database::RepositoryFactory::instance().esmRepository()->listSubscriptionsBySourceErnCached(bucketErn);
             resolved = &own;
         }
         const auto &subscriptions = *resolved;

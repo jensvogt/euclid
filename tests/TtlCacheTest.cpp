@@ -156,3 +156,57 @@ BOOST_AUTO_TEST_CASE(concurrent_readers_all_get_the_answer) {
 
     BOOST_CHECK_EQUAL(wrong.load(), 0);
 }
+
+// ── What the queue and subscription caches added ────────────────────────────
+
+BOOST_AUTO_TEST_CASE(erase_forgets_one_key_and_only_that_one) {
+    TtlCache<std::string, std::string> cache(kLongEnoughNotToExpire);
+    CountingLoader loader{"secret"};
+
+    cache.get("a", loader.fn());
+    cache.get("b", loader.fn());
+    cache.erase("a");
+    cache.get("a", loader.fn());
+    cache.get("b", loader.fn());
+
+    // "a" loaded twice, "b" once: the erase reached only the key it named.
+    BOOST_CHECK_EQUAL(loader.calls.load(), 3);
+}
+
+// A queue cache whose answer "there is no such queue" makes a delivery throw that queue's pending
+// events away. Remembered, a queue created a moment later would go on being "not there" for the
+// whole TTL, and its events with it.
+BOOST_AUTO_TEST_CASE(a_cache_built_without_misses_asks_again_after_one) {
+    TtlCache<std::string, std::string> cache(kLongEnoughNotToExpire, 4096, false);
+    CountingLoader loader{std::nullopt};
+
+    BOOST_CHECK(!cache.get("queue", loader.fn()).has_value());
+    loader.answer = "created";
+    BOOST_CHECK_EQUAL(cache.get("queue", loader.fn()).value(), "created");
+
+    // And a hit is still a hit once there is something to remember.
+    cache.get("queue", loader.fn());
+    BOOST_CHECK_EQUAL(loader.calls.load(), 2);
+}
+
+// The race the generation closes: a lookup reads the old row, the row is changed and the cache
+// told to forget it, and then the lookup finishes - and without the guard puts the old row back,
+// to be served for a whole TTL after the change that forgetting was meant to make visible.
+BOOST_AUTO_TEST_CASE(a_load_that_was_running_when_the_key_was_forgotten_is_not_stored) {
+    TtlCache<std::string, std::string> cache(kLongEnoughNotToExpire);
+    int calls = 0;
+
+    const auto stale = cache.get("queue", [&](const std::string &key) -> std::optional<std::string> {
+        ++calls;
+        cache.erase(key);// the row changes while this load is still running
+        return "old";
+    });
+    BOOST_CHECK_EQUAL(stale.value(), "old");// the caller asked before the change, and gets that
+
+    const auto fresh = cache.get("queue", [&](const std::string &) -> std::optional<std::string> {
+        ++calls;
+        return "new";
+    });
+    BOOST_CHECK_EQUAL(fresh.value(), "new");
+    BOOST_CHECK_EQUAL(calls, 2);
+}

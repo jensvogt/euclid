@@ -107,6 +107,23 @@ namespace Euclid::Database {
         virtual std::optional<Entity::EQS::Queue> findQueueByErn(const std::string &ern) const = 0;
 
         /**
+         * @brief findQueueByErn() for the paths that run once per message - send, receive, and a
+         * subscription's delivery - answered from a short-lived cache.
+         *
+         * @par
+         * Only for what a queue is, never for what it holds: the record's counters (available,
+         * invisible, size) are as stale as the entry, so anything that reports them reads
+         * findQueueByErn() instead. A queue that does not exist is never cached - a delivery acts on
+         * that answer by discarding the queue's pending events, and a queue created a moment ago
+         * has to be found at once.
+         *
+         * @par
+         * The default is the uncached read, for a repository with nothing to gain from a cache.
+         */
+        [[nodiscard]]
+        virtual std::optional<Entity::EQS::Queue> findQueueByErnCached(const std::string &ern) const { return findQueueByErn(ern); }
+
+        /**
          * @brief Finds and retrieves all available entities or objects.
          *
          * @param accountId only queues belonging to this account are returned

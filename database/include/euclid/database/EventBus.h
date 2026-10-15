@@ -6,6 +6,7 @@
 
 // C++ includes
 #include <chrono>
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
@@ -600,6 +601,10 @@ namespace Euclid::Database {
         };
 
         std::unordered_map<std::string, CacheEntry> _subscriberCache;
+
+        // Bumped by every invalidateSubscribers(), so a lookup that read the subscription
+        // collection before the change does not put what it read back afterwards.
+        std::uint64_t _cacheGeneration = 0;
 
         std::mutex _notifyMutex;
         std::map<std::string, PendingNotify> _pendingNotifications;// keyed by subscriber + event type

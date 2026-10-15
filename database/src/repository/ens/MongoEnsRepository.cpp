@@ -7,15 +7,20 @@
 //
 
 // C++ includes
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <map>
+#include <optional>
+#include <string>
 #include <thread>
+#include <vector>
 
 // Euclid includes
 #include <euclid/core/Configuration.h>
 #include <euclid/core/ContentTypeUtils.h>
 #include <euclid/core/CryptoUtils.h>
+#include <euclid/core/TtlCache.h>
 #include <euclid/core/UuidUtils.h>
 #include <bsoncxx/builder/concatenate.hpp>
 
@@ -24,6 +29,22 @@
 namespace Euclid::Database {
 
     namespace {
+
+        /**
+         * @brief Each topic's subscriptions, by topic ERN - see listSubscriptionsBySourceErnCached().
+         *
+         * @par
+         * Every publish asks which queues to deliver to. Short by default because ENS runs as a
+         * pool, as ESM's bucket cache is: a subscription made through another instance is seen here
+         * when the entry runs out. Misses off, because a miss is a read that failed; a topic with no
+         * subscriptions is an empty list and is cached like any other answer.
+         */
+        Core::TtlCache<std::string, std::vector<Entity::ENS::Subscription> > &subscriptionCache() {
+            static Core::TtlCache<std::string, std::vector<Entity::ENS::Subscription> > cache{
+                    std::chrono::seconds(std::max(0L, Core::Configuration::instance().getOr<long>("euclid.modules.ens.subscription-cache-seconds", 5))),
+                    4096, false};
+            return cache;
+        }
 
         /**
          * @brief How long a published message lives when its topic has not been given a period of
@@ -329,7 +350,12 @@ namespace Euclid::Database {
 
             auto subscriptionCollection = Database::instance().collection(SUBSCRIPTION_COLLECTION);
 
-            if (auto result = subscriptionCollection.find_one_and_update(filter.view(), update.view(), opts)) {
+            const auto result = subscriptionCollection.find_one_and_update(filter.view(), update.view(), opts);
+
+            // After the write, never before - see MongoEsmRepository::upsertSubscription.
+            subscriptionCache().erase(subscription.sourceErn);
+
+            if (result) {
                 return Entity::ENS::Subscription::fromDocument(result->view());
             }
             throw std::runtime_error("upsert returned no document, sourceErn: " + subscription.sourceErn);
@@ -340,10 +366,10 @@ namespace Euclid::Database {
         }
     }
 
-    std::vector<Entity::ENS::Subscription> MongoEnsRepository::listSubscriptionsBySourceErn(const std::string &sourceErn) const {
+    std::optional<std::vector<Entity::ENS::Subscription> > MongoEnsRepository::loadSubscriptions(const std::string &sourceErn) {
 
-        std::vector<Entity::ENS::Subscription> subscriptions;
         try {
+            std::vector<Entity::ENS::Subscription> subscriptions;
             const auto filter = make_document(kvp("sourceErn", sourceErn));
 
             auto subscriptionCollection = Database::instance().collection(SUBSCRIPTION_COLLECTION);
@@ -351,11 +377,22 @@ namespace Euclid::Database {
             for (auto cursor = subscriptionCollection.find(filter.view()); auto doc: cursor) {
                 subscriptions.push_back(Entity::ENS::Subscription::fromDocument(doc));
             }
+            return subscriptions;
 
         } catch (const std::exception &e) {
             log_error << "List subscriptions failed, sourceErn: " << sourceErn << ", error: " << e.what();
+            return std::nullopt;
         }
-        return subscriptions;
+    }
+
+    std::vector<Entity::ENS::Subscription> MongoEnsRepository::listSubscriptionsBySourceErn(const std::string &sourceErn) const {
+        return loadSubscriptions(sourceErn).value_or(std::vector<Entity::ENS::Subscription>{});
+    }
+
+    std::vector<Entity::ENS::Subscription> MongoEnsRepository::listSubscriptionsBySourceErnCached(const std::string &sourceErn) const {
+        return subscriptionCache()
+                .get(sourceErn, [](const std::string &key) { return loadSubscriptions(key); })
+                .value_or(std::vector<Entity::ENS::Subscription>{});
     }
 
     void MongoEnsRepository::deleteSubscriptionByErn(const std::string &ern) {
@@ -364,6 +401,9 @@ namespace Euclid::Database {
             auto subscriptionCollection = Database::instance().collection(SUBSCRIPTION_COLLECTION);
 
             const auto result = subscriptionCollection.delete_many(make_document(kvp("ern", ern)));
+
+            // Every topic, after the write - see MongoEsmRepository::deleteSubscriptionByErn.
+            subscriptionCache().clear();
             log_debug << "Subscription deleted, ern: " << ern << ", count: " << result->deleted_count();
 
         } catch (const std::exception &e) {
