@@ -15,6 +15,13 @@ If
 is given, only topics in that namespace are purged; otherwise every
 topic in the region/account is purged regardless of namespace. No topic
 is deleted, only its messages. This cannot be undone.
+.PP
+Each purged topic's counters start over: the messages it holds and their
+size, and its
+.I send
+and
+.I resend
+totals, are all set to zero.
 .SH OPTIONS
 .TP
 .BR \-r ", " \-\-region " " \fIREGION\fR

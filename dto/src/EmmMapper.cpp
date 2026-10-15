@@ -52,6 +52,15 @@ namespace Euclid::Dto {
         instance.httpPort = svc.httpPort;
         instance.restartCount = svc.restartCount;
         instance.modified = std::chrono::system_clock::now();
+
+        // When the running process started, from the spawn's own steady-clock stamp: measured as an
+        // age and subtracted from the wall clock, so a clock change since the spawn does not move
+        // it. Only for a running instance - any other state has no process to be up.
+        if (svc.state == Database::Entity::ModuleState::RUNNING && svc.startTime.time_since_epoch().count() != 0) {
+            const auto age = std::chrono::steady_clock::now() - svc.startTime;
+            instance.started = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+                    instance.modified - std::chrono::duration_cast<std::chrono::system_clock::duration>(age));
+        }
         return instance;
     }
 

@@ -266,6 +266,12 @@ namespace Euclid::EMM {
                         // Work the instance is doing that no request is waiting on - an --async
                         // purge, say. Scale-down passes over an instance reporting any.
                         {"backgroundTasks", i.backgroundTasks},
+                        // When the running process started, which is what uptime is counted from;
+                        // empty when nothing is running or the start is not known. Not created,
+                        // which is the slot's and outlives every process in it.
+                        {"started", i.started.time_since_epoch().count() == 0
+                                            ? std::string()
+                                            : Core::DateTimeUtils::ToISO8601(i.started)},
                         {"created", Core::DateTimeUtils::ToISO8601(i.created)},
                         {"modified", Core::DateTimeUtils::ToISO8601(i.modified)},
                 });

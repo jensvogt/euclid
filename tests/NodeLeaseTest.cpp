@@ -303,6 +303,29 @@ BOOST_AUTO_TEST_CASE(ANodeReportsWhatItIsRunning) {
     BOOST_TEST(stored->assignedTo == kNode);
 }
 
+BOOST_AUTO_TEST_CASE(AReportCarriesWhenTheProcessStartedAndAStopClearsIt) {
+
+    // Uptime is counted from the process, not the slot: a slot outlives every process it runs, and
+    // reading uptime off its creation showed a pool replaced three hours earlier as up for eleven.
+    auto repo = freshModules();
+    seedSlot(repo, "i-1");
+    BOOST_TEST_REQUIRE(repo.assignInstance(kModule, "i-1", kNode, kNow + 45s));
+
+    const auto spawned = kNow - 10min;
+    BOOST_TEST_REQUIRE(repo.reportInstanceFromNode(kModule, "i-1", kNode, "192.168.178.29", 4242, 9000,
+                                                   Euclid::Database::Entity::ModuleState::RUNNING, spawned));
+    const auto running = slot(repo, "i-1");
+    BOOST_TEST_REQUIRE(running.has_value());
+    BOOST_TEST((std::chrono::abs(running->started - spawned) < 1s));
+
+    // Not running any more, so nothing is up - the old start must not linger beside a STOPPED.
+    BOOST_TEST_REQUIRE(repo.reportInstanceFromNode(kModule, "i-1", kNode, "192.168.178.29", -1, 0,
+                                                   Euclid::Database::Entity::ModuleState::STOPPED));
+    const auto stopped = slot(repo, "i-1");
+    BOOST_TEST_REQUIRE(stopped.has_value());
+    BOOST_TEST(stopped->started.time_since_epoch().count() == 0);
+}
+
 BOOST_AUTO_TEST_CASE(ANodeCannotReportOnASlotThatIsNotItsOwn) {
 
     // Not a formality. A worker whose lease lapsed and whose slot was re-placed must not be able
