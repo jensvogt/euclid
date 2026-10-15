@@ -269,6 +269,21 @@ namespace Euclid::Database {
         virtual void markMessageDelivered(const std::string &messageId) = 0;
 
         /**
+         * @brief Deletes one message that has been handed to every subscription of its topic, and
+         * takes it off the topic's counters - for a topic set to delete after delivery.
+         *
+         * @par
+         * The counters move only when the delete removed something, so a message already gone -
+         * expired, purged, deleted by another instance - is not subtracted twice.
+         *
+         * @param topicErn the message's topic, whose counters it was counted in.
+         * @param messageId the message.
+         * @param size the message's size, as it was added to the topic's.
+         * @return whether a message was deleted.
+         */
+        virtual bool deleteDeliveredMessage(const std::string &topicErn, const std::string &messageId, long size) = 0;
+
+        /**
          * @brief Adds to a topic's lifetime count of messages published into it.
          *
          * @par
@@ -307,14 +322,16 @@ namespace Euclid::Database {
         // virtual void deleteMessages(const std::string &topicErn) = 0;
 
         /**
-         * @brief Deletes all messages of a topic.
+         * @brief Deletes all messages of a topic, and resets its counters - what it holds, and its
+         * send and resend totals - to zero.
          *
          * @param topicErn The Euclid resource name (ERN) of the topic whose messages are to be purged.
          */
         virtual void purgeTopic(const std::string &topicErn) = 0;
 
         /**
-         * @brief Deletes all messages of every topics in a region/account/nameSpace.
+         * @brief Deletes all messages of every topics in a region/account/nameSpace, and resets
+         * each topic's counters, its send and resend totals included, to zero.
          *
          * @param region region of the topics to purge.
          * @param accountId account ID of the topics to purge.
@@ -453,9 +470,9 @@ namespace Euclid::Database {
          * approximate in the useful sense - right as of the last pass, self-correcting on the next.
          *
          * @par
-         * Only "available" and "size" are recomputed. "send" and "resend" are lifetime totals, and
-         * deriving those from the messages still stored would make them fall every time a topic
-         * was purged.
+         * Only "available" and "size" are recomputed. "send" and "resend" are totals since the
+         * topic was created or last purged, and deriving those from the messages still stored would
+         * make them fall every time retention removed one.
          *
          * @par
          * Called by EMO, which runs as a single instance and already owns the installation's

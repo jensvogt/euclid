@@ -47,6 +47,7 @@ namespace Euclid::Database::Entity::ENS {
                 bsoncxx::builder::basic::kvp("maxMessageLength", static_cast<int64_t>(maxMessageLength)),
                 bsoncxx::builder::basic::kvp("retentionPeriod", static_cast<int64_t>(retentionPeriod)),
                 bsoncxx::builder::basic::kvp("delivering", delivering),
+                bsoncxx::builder::basic::kvp("deleteAfterDelivery", deleteAfterDelivery),
                 bsoncxx::builder::basic::kvp("tags", tagsDoc.extract()));
         // bsoncxx::builder::basic::kvp("defaultMessageAttributes", defaultMessageAttributesDoc.extract()));
     }
@@ -70,6 +71,7 @@ namespace Euclid::Database::Entity::ENS {
             else if (key == "maxMessageLength") topic.maxMessageLength = getBsonInt(field);
             else if (key == "retentionPeriod") topic.retentionPeriod = getBsonInt(field);
             else if (key == "delivering") topic.delivering = field.get_bool().value;
+            else if (key == "deleteAfterDelivery") topic.deleteAfterDelivery = field.type() == bsoncxx::type::k_bool && field.get_bool().value;
             else if (key == "created") topic.created = system_clock::time_point{field.get_date().value};
             else if (key == "modified") topic.modified = system_clock::time_point{field.get_date().value};
             else if (key == "tags") {

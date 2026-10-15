@@ -285,7 +285,12 @@ namespace Euclid::Worker {
          * @brief Stops an instance: asks, waits until @p deadline, then kills. Reaps and reports it.
          */
         void stop(const Reconciler::Running &running, std::chrono::steady_clock::time_point deadline);
-        void report(const Reconciler::Assignment &assignment, int pid, int httpPort, const std::string &state) const;
+        /**
+         * @brief Tells the master where one of its slots stands here. @p startedAt only with a
+         * start: the moment the process was spawned, which is what its uptime is counted from.
+         */
+        void report(const Reconciler::Assignment &assignment, int pid, int httpPort, const std::string &state,
+                    std::chrono::system_clock::time_point startedAt = {}) const;
 
         /**
          * @brief Asks the master for one instance's credentials and writes them where the process

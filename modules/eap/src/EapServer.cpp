@@ -2465,12 +2465,22 @@ namespace Euclid::EAP {
 
         const auto state = Database::Entity::ModuleStateFromString(stringField(obj, "state", "RUNNING"));
 
+        // When the process started, as the worker saw it spawn; only a running instance has one.
+        // A worker too old to send it reports a start just the same, so now - the report follows
+        // the spawn by moments - is closer to the truth than leaving the previous process's start
+        // standing, or none at all.
+        std::chrono::system_clock::time_point started{};
+        if (state == Database::Entity::ModuleState::RUNNING) {
+            const auto reported = stringField(obj, "startedAt");
+            started = reported.empty() ? std::chrono::system_clock::now() : Core::DateTimeUtils::FromISO8601(reported);
+        }
+
         const auto modules = Database::RepositoryFactory::instance().emmRepository();
         if (!modules->reportInstanceFromNode(runtimeName, instanceId, claim.node->name,
                                              stringField(obj, "host"),
                                              obj.contains("pid") ? static_cast<int>(obj.at("pid").to_number<long>()) : -1,
                                              obj.contains("httpPort") ? static_cast<int>(obj.at("httpPort").to_number<long>()) : 0,
-                                             state)) {
+                                             state, started)) {
             // Refused rather than silently dropped: a worker reporting on a slot that is not its
             // own is a worker whose lease lapsed and whose work was re-placed, and it needs to
             // learn that from the answer rather than carry on.

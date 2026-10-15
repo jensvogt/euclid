@@ -405,6 +405,15 @@ target_link_libraries(${VISIBILITY_TIMEOUT_BINARY} PRIVATE eucliddb Boost::unit_
 
 add_test(NAME ${VISIBILITY_TIMEOUT_BINARY} COMMAND ${VISIBILITY_TIMEOUT_BINARY})
 
+set(ENS_DELETE_AFTER_DELIVERY_BINARY euclid-ens-delete-after-delivery-tests)
+
+add_executable(${ENS_DELETE_AFTER_DELIVERY_BINARY} EnsDeleteAfterDeliveryTest.cpp)
+set_target_properties(${ENS_DELETE_AFTER_DELIVERY_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${ENS_DELETE_AFTER_DELIVERY_BINARY} PRIVATE eucliddb Boost::unit_test_framework Boost::thread)
+
+add_test(NAME ${ENS_DELETE_AFTER_DELIVERY_BINARY} COMMAND ${ENS_DELETE_AFTER_DELIVERY_BINARY})
+
 set(REPOSITORY_CACHE_BINARY euclid-repository-cache-tests)
 
 add_executable(${REPOSITORY_CACHE_BINARY} RepositoryCacheTest.cpp)

@@ -1,0 +1,84 @@
+.TH EUCLID-CLI-ENS-SET-TOPIC-DELETE-AFTER-DELIVERY 1 "October 2026" "euclid-cli 1.0.73" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-ens-set-topic-delete-after-delivery \- set whether a topic deletes a message once every subscriber has it
+.SH SYNOPSIS
+.B euclid-cli ens set-topic-delete-after-delivery
+.BR \-\-topic | \-t
+.I NAME
+.BR \-\-enabled | \-e
+.I true|false
+.SH DESCRIPTION
+Sets whether a topic deletes each message as soon as it has been handed
+to every subscription, instead of keeping it for the topic's retention
+period.
+.PP
+Off for every topic until it is turned on here. That is how topics have
+always behaved, and how a topic created before this setting existed
+reads back: a message is kept for the retention period set with
+.BR euclid-cli-ens-set-topic-retention (1),
+and removed when that runs out.
+.SH WHAT "HANDED TO" MEANS
+A publish fans a message out to the topic's subscriptions at once: one
+event per subscription, written to the event bus, which keeps it until
+EQS has turned it into a queue message. With this setting on, the topic
+message is deleted right after that \- the queue messages are the copies
+that remain.
+.PP
+A message published while the topic is stopped
+.RB ( euclid-cli-ens-stop-topic (1))
+is held, not handed on, and is deleted when
+.BR euclid-cli-ens-start-topic (1)
+delivers it.
+.PP
+A message on a topic with no subscription at all has been handed to
+nobody, and is kept for the retention period as on any topic rather than
+lost undelivered.
+.SH WHAT IT COSTS
+The topic's own record of what was published.
+.BR euclid-cli-ens-resend-messages (1)
+works from that record, so a message this deletes cannot be sent again:
+a subscriber that was down, was subscribed after the fact, or failed
+to process what it received has no way back to it.
+.SH WHEN IT TAKES EFFECT
+For messages published afterwards. Messages the topic already holds were
+delivered under the old rule and stay until their retention runs out \-
+turning this on is not a purge. To empty a topic, use
+.BR euclid-cli-ens-purge-topic (1).
+.SH OPTIONS
+.TP
+.BR \-t ", " \-\-topic " " \fINAME\fR
+Topic name. A full ERN also works, and is what reaches another
+namespace. Required.
+.TP
+.BR \-e ", " \-\-enabled " " \fItrue|false\fR
+\fItrue\fR to delete each message once every subscription has it,
+\fIfalse\fR to keep it for the retention period. Also accepts \fI1\fR,
+\fI0\fR, \fIyes\fR, \fIno\fR, \fIon\fR and \fIoff\fR. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The setting was changed; the topic's ERN and its new setting are
+printed.
+.TP
+.B 1
+No topic of that name, or a value that is not a yes or a no.
+.SH EXAMPLES
+.RS
+.nf
+# A topic whose subscribers are the only record anybody needs
+euclid-cli ens set-topic-delete-after-delivery --topic katalogdaten-result-topic --enabled true
+
+# Back to keeping messages for the retention period
+euclid-cli ens set-topic-delete-after-delivery --topic katalogdaten-result-topic --enabled false
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-ens (1),
+.BR euclid-cli-ens-set-topic-retention (1),
+.BR euclid-cli-ens-resend-messages (1),
+.BR euclid-cli-ens-start-topic (1),
+.BR euclid-cli-ens-stop-topic (1),
+.BR euclid-cli-ens-purge-topic (1),
+.BR euclid-cli-ens-get-topic-metadata (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

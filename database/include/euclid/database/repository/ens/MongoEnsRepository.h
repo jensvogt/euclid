@@ -188,6 +188,8 @@ namespace Euclid::Database {
 
         void markMessageDelivered(const std::string &messageId) override;
 
+        bool deleteDeliveredMessage(const std::string &topicErn, const std::string &messageId, long size) override;
+
         void recordSend(const std::string &topicErn, long count) override;
 
         void recordResend(const std::string &topicErn, long count) override;

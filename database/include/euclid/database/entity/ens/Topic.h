@@ -141,12 +141,12 @@ namespace Euclid::Database::Entity::ENS {
         long available{};
 
         /**
-         * @brief Total number of messages send
+         * @brief Total number of messages sent since the topic was created or last purged
          */
         long send{};
 
         /**
-         * @brief Total number of messages resend
+         * @brief Total number of messages resent since the topic was created or last purged
          */
         long resend{};
 
@@ -204,6 +204,25 @@ namespace Euclid::Database::Entity::ENS {
          * afterwards; the ones already stored keep the expiry they were given.
          */
         long retentionPeriod = 0;
+
+        /**
+         * @brief Whether a message is deleted as soon as it has been handed to every subscription,
+         * rather than kept for the retention period.
+         *
+         * @par
+         * Off by default, which is how every topic has always behaved and how one written before
+         * this existed reads back. A topic's record of what was published is what resend-messages
+         * works from, so a topic that turns this on gives that up for the space it saves: what has
+         * been delivered is gone, and a subscriber that missed it has no way back to it.
+         *
+         * @par
+         * "Handed to" is the fan-out: one event per subscription, written to the event bus, which
+         * keeps it until EQS has turned it into a queue message. The message is deleted after that
+         * write, at publish - or at start-topic, for one held while the topic was stopped. A message
+         * on a topic with no subscription at all has been handed to nobody, and is kept for the
+         * retention period as it always was.
+         */
+        bool deleteAfterDelivery = false;
 
         /**
          * @brief Creation date

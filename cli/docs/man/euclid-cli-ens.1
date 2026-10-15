@@ -187,6 +187,11 @@ Sets the largest message a topic accepts, which
 set to 1M. See
 .BR euclid-cli-ens-set-topic-max-message-length (1).
 .TP
+.B set-topic-delete-after-delivery
+Sets whether a topic deletes each message once every subscription has
+it, rather than keeping it for the retention period. See
+.BR euclid-cli-ens-set-topic-delete-after-delivery (1).
+.TP
 .B set-topic-tag
 Sets the value of an existing topic tag.
 .B Not yet wired to a server handler in this release.
@@ -390,6 +395,7 @@ euclid-cli --endpoint http://localhost:5566 ens delete-topic \e
 .BR euclid-cli-ens-stop-topic (1),
 .BR euclid-cli-ens-set-topic-retention (1),
 .BR euclid-cli-ens-set-topic-max-message-length (1),
+.BR euclid-cli-ens-set-topic-delete-after-delivery (1),
 .BR euclid-cli-ens-set-topic-tag (1),
 .BR euclid-cli-ens-delete-topic-tag (1),
 .BR euclid-cli-ens-purge-topic (1),

@@ -68,6 +68,11 @@ namespace Euclid::Dto::ENS {
         long retentionPeriod{};
 
         /**
+         * @brief Whether a message is deleted once it has been handed to every subscription.
+         */
+        bool deleteAfterDelivery{};
+
+        /**
          * @brief How many messages are held, waiting for the topic to be started again.
          */
         long held{};
@@ -91,6 +96,7 @@ namespace Euclid::Dto::ENS {
             r.ern = Core::GetStringValue(v, "ern");
             r.status = Core::GetStringValue(v, "status");
             r.retentionPeriod = Core::GetLongValue(v, "retentionPeriod", 0);
+            r.deleteAfterDelivery = Core::GetBoolValue(v, "deleteAfterDelivery");
             r.held = Core::GetLongValue(v, "held", 0);
             r.size = Core::GetLongValue(v, "size");
             r.messages = Core::GetLongValue(v, "messages");
@@ -109,6 +115,7 @@ namespace Euclid::Dto::ENS {
                     {"messages", obj.messages},
                     {"status", obj.status},
                     {"retentionPeriod", obj.retentionPeriod},
+                    {"deleteAfterDelivery", obj.deleteAfterDelivery},
                     {"held", obj.held},
             };
         }

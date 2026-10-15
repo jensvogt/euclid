@@ -9,6 +9,7 @@
 #pragma once
 
 // C++ includes
+#include <chrono>
 #include <optional>
 #include <string>
 #include <vector>
@@ -349,11 +350,15 @@ namespace Euclid::Database {
          * the record of the process that replaced it, which would leave the master pointing at a
          * pid on the wrong machine.
          *
+         * @param started when the reported process started - see ModuleInstance::started. The
+         *        epoch, the default, for a report that is not about a running process; it clears
+         *        whatever start the slot held.
          * @return false if no such slot exists or it is not assigned to that node.
          */
         virtual bool reportInstanceFromNode(const std::string &moduleName, const std::string &instanceId,
                                             const std::string &nodeName, const std::string &host,
-                                            int pid, int httpPort, Entity::ModuleState state) = 0;
+                                            int pid, int httpPort, Entity::ModuleState state,
+                                            std::chrono::system_clock::time_point started = {}) = 0;
     };
 
 } // namespace Euclid::Database
