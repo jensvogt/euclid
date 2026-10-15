@@ -131,22 +131,24 @@ namespace Euclid::Database {
 
     std::shared_ptr<const std::vector<EventBus::SubscriberRecord> > EventBus::subscribersOf(const std::string &eventType) {
 
-        // Off by default, deliberately. Caching the subscriber list was meant to keep a busy
-        // publisher (eqs.message.sent fires on every message send) from querying the subscription
-        // collection every time, but measured against a local database at ~800 messages/second it
-        // made no difference at all - the collection is small and the query is cheap next to the
-        // work the send itself does. What it does cost is immediacy: a subscription created in
-        // another process would not be seen for the length of the cache. So it stays available
-        // for an installation that measures a need, and stays out of the way until then.
+        // Five seconds by default. This was off by default once: measured against a local database
+        // at ~800 messages/second the cache made no difference, the collection being small and the
+        // query cheap next to the send around it. It is on now, with the queue and subscription
+        // caches beside it, because every message sent, every object written and every publish
+        // asks this, and against a replica set across a network a round trip per event is not
+        // cheap. What it costs is immediacy: a subscription created in another process is seen
+        // here when the entry runs out. Zero turns it off.
         const auto ttl = std::chrono::seconds(
-                Core::Configuration::instance().getOr<long>("euclid.eventbus.subscription-cache-seconds", 0));
+                Core::Configuration::instance().getOr<long>("euclid.eventbus.subscription-cache-seconds", 5));
         const auto now = std::chrono::steady_clock::now();
 
+        std::uint64_t generation = 0;
         {
             std::lock_guard lock(_cacheMutex);
             if (const auto it = _subscriberCache.find(eventType); it != _subscriberCache.end() && now - it->second.refreshedAt < ttl) {
                 return it->second.subscribers;
             }
+            generation = _cacheGeneration;
         }
 
         // Queried with the lock released: holding it here would make every publishing thread in
@@ -194,7 +196,10 @@ namespace Euclid::Database {
         std::shared_ptr<const std::vector<SubscriberRecord> > result = std::move(subscribers);
         {
             std::lock_guard lock(_cacheMutex);
-            _subscriberCache.insert_or_assign(eventType, CacheEntry{.refreshedAt = now, .subscribers = result});
+            // Not stored if the subscriptions changed while this read them - see _cacheGeneration.
+            if (ttl.count() > 0 && generation == _cacheGeneration) {
+                _subscriberCache.insert_or_assign(eventType, CacheEntry{.refreshedAt = now, .subscribers = result});
+            }
         }
         return result;
     }
@@ -203,6 +208,7 @@ namespace Euclid::Database {
         std::lock_guard lock(_cacheMutex);
         if (eventType.empty()) _subscriberCache.clear();
         else _subscriberCache.erase(eventType);
+        ++_cacheGeneration;
     }
 
     void EventBus::PublishBatch(const std::string &eventType,

@@ -7,15 +7,20 @@
 //
 
 // C++ includes
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <map>
+#include <optional>
+#include <string>
 #include <thread>
+#include <vector>
 
 // Euclid includes
 #include <euclid/core/Configuration.h>
 #include <euclid/core/ContentTypeUtils.h>
 #include <euclid/core/CryptoUtils.h>
+#include <euclid/core/TtlCache.h>
 #include <euclid/core/UuidUtils.h>
 #include <euclid/core/monitoring/MonitoringTimer.h>
 #include <bsoncxx/builder/concatenate.hpp>
@@ -49,6 +54,26 @@ namespace Euclid::Database {
                     "euclid.modules.eqs.retention-period", static_cast<int>(Entity::EQS::kDefaultRetentionPeriod));
             return configured > 0 ? configured : Entity::EQS::kDefaultRetentionPeriod;
         }
+
+        /**
+         * @brief The queues the per-message paths look up, by ERN - see findQueueByErnCached().
+         *
+         * @par
+         * Every send, every receive and every subscription delivery read the queue's whole record
+         * before doing anything else, and the record changes perhaps a few times in a queue's life.
+         * Short by default because EQS runs as a pool: what another instance changes is seen here
+         * only when the entry runs out. The TTL is read once, when the first lookup builds this.
+         */
+        Core::TtlCache<std::string, Entity::EQS::Queue> &queueCache() {
+            static Core::TtlCache<std::string, Entity::EQS::Queue> cache{
+                    std::chrono::seconds(std::max(0L, Core::Configuration::instance().getOr<long>("euclid.modules.eqs.queue-cache-seconds", 5))),
+                    4096, false};
+            return cache;
+        }
+    }
+
+    std::optional<Entity::EQS::Queue> MongoEqsRepository::findQueueByErnCached(const std::string &ern) const {
+        return queueCache().get(ern, [this](const std::string &key) { return findQueueByErn(key); });
     }
 
     MongoEqsRepository::MongoEqsRepository() {
@@ -256,8 +281,12 @@ namespace Euclid::Database {
     }
 
     void MongoEqsRepository::forgetQueueConfig(const std::string &ern) {
-        std::lock_guard lock(_queueConfigMutex);
-        _queueConfigs.erase(ern);
+        {
+            std::lock_guard lock(_queueConfigMutex);
+            _queueConfigs.erase(ern);
+        }
+        // Both caches, from the one place every write and delete of a queue already passes.
+        queueCache().erase(ern);
     }
 
     void MongoEqsRepository::ensureIndexes() {
@@ -533,12 +562,6 @@ namespace Euclid::Database {
     Entity::EQS::Queue MongoEqsRepository::upsertQueue(Entity::EQS::Queue &queue) {
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "upsertQueue");
 
-        // Forgotten so the next send and receive read the queue as it now is. A receive applies
-        // the queue's visibility to the lease it hands out, so set-queue-visibility should take
-        // effect at once rather than up to one cache period later. This process's cache only - an
-        // EQS pool's other instances catch up when theirs expires.
-        if (!queue.ern.empty()) forgetQueueConfig(queue.ern);
-
         try {
 
             const auto filter = make_document(kvp("accountId", queue.accountId), kvp("namespace", queue.nameSpace), kvp("name", queue.name));
@@ -561,7 +584,15 @@ namespace Euclid::Database {
             auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
 
             if (auto result = queueCollection.find_one_and_update(filter.view(), update.view(), opts)) {
-                return Entity::EQS::Queue::fromDocument(result->view());
+                auto stored = Entity::EQS::Queue::fromDocument(result->view());
+
+                // Forgotten so the next send and receive read the queue as it now is - a stop, or a
+                // new visibility, takes effect at once rather than a cache period later. After the
+                // write, never before: a lookup starting in between would read the old record and
+                // store it; one already reading is not stored, by the cache's generation. This
+                // process's caches only - an EQS pool's other instances catch up as theirs expire.
+                forgetQueueConfig(stored.ern);
+                return stored;
             }
             throw std::runtime_error("upsert returned no document, name: " + queue.name);
 
@@ -653,6 +684,11 @@ namespace Euclid::Database {
             const auto result = queueCollection.delete_many(make_document(kvp("ern", ern)));
             log_debug << "EQS deleted, count: " << result->deleted_count();
 
+            // Again after the delete, for the same reason upsertQueue forgets after its write: a
+            // lookup between the first forgetting and the delete would have stored the queue
+            // that is now gone.
+            forgetQueueConfig(ern);
+
             const auto messageResult = messageCollection.delete_many(make_document(kvp("queueErn", ern)));
             log_debug << "EQS messages deleted, count: " << messageResult->deleted_count();
 
@@ -669,6 +705,7 @@ namespace Euclid::Database {
             std::lock_guard lock(_queueConfigMutex);
             _queueConfigs.clear();
         }
+        queueCache().clear();
 
         try {
             auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
@@ -679,6 +716,8 @@ namespace Euclid::Database {
         } catch (const std::exception &e) {
             log_error << "Delete all queues queues failed, error: " << e.what();
         }
+        // After the delete as well - see deleteQueueByErn.
+        queueCache().clear();
     }
 
     bool MongoEqsRepository::messageExists(const std::string &messageId) const {

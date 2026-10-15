@@ -26,11 +26,6 @@ namespace Euclid::Dto::EQS {
         std::vector<Message> messages;
 
         /**
-         * @brief total number of messages
-         */
-        long total{};
-
-        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -43,7 +38,6 @@ namespace Euclid::Dto::EQS {
             ReceiveMessagesResponse r;
             static_cast<BaseDto &>(r) = GetMetadata(v);
             r.messages = boost::json::value_to<std::vector<Message> >(v.at("messages"));
-            r.total = Core::GetLongValue(v, "total");
             return r;
         }
 
@@ -51,7 +45,6 @@ namespace Euclid::Dto::EQS {
             jv = {
                     {"metadata", boost::json::value_from(static_cast<const BaseDto &>(obj))},
                     {"messages", boost::json::value_from(obj.messages)},
-                    {"total", obj.total},
             };
         }
     };
