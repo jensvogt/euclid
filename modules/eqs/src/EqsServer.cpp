@@ -1906,6 +1906,19 @@ namespace Euclid::EQS {
                                                           },
                                                           std::chrono::seconds(30));
 
+        // Writes the counter changes this process is still holding - see adjustQueueCounters(). It
+        // only ever wrote them when a later change in this same process found them due, so the last
+        // few messages an instance delivered before going quiet stayed uncounted until it handled
+        // something else - or until EMO's hourly recount. With sixteen instances sharing the work,
+        // the one that delivered a bucket event to a fresh queue could stay quiet for an hour, and
+        // the queue read empty all that time: a listener that short-polls asks for the count first
+        // and fetches nothing while it is zero. Seen as file-copy never picking up an FTP upload
+        // that was sitting in its queue.
+        _flushCountersTaskId = scheduler.SchedulePeriodic("queues-flush-counters", [] {
+                                                              Database::RepositoryFactory::instance().eqsRepository()->flushQueueCounters();
+                                                          },
+                                                          std::chrono::seconds(1));
+
         Database::EventBus::instance().Subscribe("eqs", "ens.message.published", handleSubscriptionDelivery);
         Database::EventBus::instance().Subscribe("eqs", "esm.subscription.delivery", handleSubscriptionDelivery);
         Database::EventBus::instance().Start("eqs");
@@ -1913,6 +1926,10 @@ namespace Euclid::EQS {
 
     EqsServer::~EqsServer() {
         Core::Scheduler::instance().Cancel(_resetMessagesTaskId);
+        Core::Scheduler::instance().Cancel(_flushCountersTaskId);
+
+        // And once more on the way out, so what this instance counted last is not lost with it.
+        Database::RepositoryFactory::instance().eqsRepository()->flushQueueCounters();
     }
 
     response<string_body> EqsServer::DispatchAction(const request<string_body> &req) {
