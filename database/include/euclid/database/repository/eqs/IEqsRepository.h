@@ -491,8 +491,11 @@ namespace Euclid::Database {
          *
          * @par
          * Adjustments are coalesced, so the last few of them are in memory rather than in the
-         * database at any moment. Called before a process stops, and by anything that has to read
-         * its own writes - a test, or a handler answering with the counters it just changed.
+         * database at any moment. EQS calls this every second and once more as it stops, so a
+         * queue's counters trail its messages by about a second; anything that has to read its own
+         * writes at once - a test, or a handler answering with the counters it just changed - calls
+         * it too. Before the timer, nothing called it, and the counters of a queue whose last change
+         * landed on an instance that then went quiet stayed wrong until the hourly recount.
          */
         virtual void flushQueueCounters() = 0;
 
