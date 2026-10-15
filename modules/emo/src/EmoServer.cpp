@@ -59,7 +59,13 @@ namespace Euclid::Monitoring {
         // an installation holding four million published messages it was the most expensive thing
         // in the database, and it was running four times a minute to correct a drift that mostly
         // was not there.
-        constexpr auto kQueueCountPeriod = std::chrono::seconds(3600);
+        //
+        // Queues every five minutes rather than hourly, though: their counters are not only a
+        // figure on a dashboard. The autoscaler sizes a pool from a queue's backlog, and a
+        // short-polling listener asks the count before it fetches - so a counter that drifted to
+        // zero once left 796,171 messages unread and their pool scaled down to one for the best part
+        // of an hour. Twelve passes an hour is still a twentieth of what four a minute cost.
+        constexpr auto kQueueCountPeriod = std::chrono::seconds(300);
         constexpr auto kBucketCountPeriod = std::chrono::seconds(3600);
         constexpr auto kTopicCountPeriod = std::chrono::seconds(3600);
 

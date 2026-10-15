@@ -364,3 +364,137 @@ BOOST_AUTO_TEST_CASE(TheWholeRuleInOrder) {
 
     BOOST_TEST((Choose(candidates, Constraints{.nodes = {}, .labels = {{"gpu", "true"}}}) == std::optional<std::string>("node-e")));
 }
+
+// ── Rebalancing ─────────────────────────────────────────────────────────────
+
+using Euclid::Manager::Placement::ChooseRebalance;
+
+namespace {
+
+    // What the controller does with a move: withdraw one slot from `from`, then place the
+    // replacement with Choose(). Returns where it landed.
+    std::string applyMove(std::vector<Candidate> &candidates, const std::string &from, const Constraints &constraints = {}) {
+        for (auto &candidate: candidates) {
+            if (candidate.name == from) --candidate.instancesOfApplication;
+        }
+        const auto placed = Choose(candidates, constraints);
+        BOOST_TEST_REQUIRE(placed.has_value());
+        for (auto &candidate: candidates) {
+            if (candidate.name == *placed) ++candidate.instancesOfApplication;
+        }
+        return *placed;
+    }
+
+    long countOn(const std::vector<Candidate> &candidates, const std::string &name) {
+        for (const auto &candidate: candidates) {
+            if (candidate.name == name) return candidate.instancesOfApplication;
+        }
+        return -1;
+    }
+}// namespace
+
+BOOST_AUTO_TEST_CASE(ABalancedPoolIsLeftAlone) {
+
+    // Nothing to gain, so nothing restarted: a move costs a running instance its work.
+    BOOST_TEST(!ChooseRebalance({node("a", 2, 0.0, 8), node("b", 2, 0.0, 8)}).has_value());
+    BOOST_TEST(!ChooseRebalance({node("a", 2, 0.0, 8), node("b", 1, 0.0, 8)}).has_value());
+    BOOST_TEST(!ChooseRebalance({}).has_value());
+}
+
+BOOST_AUTO_TEST_CASE(AnInstanceLeftOnTheSmallMachineMovesToTheLargeOne) {
+
+    // The Pi again: after a scale-down the one instance it still holds is a quarter of its cores,
+    // against a desktop where one more would be a sixty-fourth of its.
+    auto candidates = std::vector{node("desktop", 1, 0.0, 128), node("pios", 1, 0.0, 4)};
+
+    const auto move = ChooseRebalance(candidates);
+    BOOST_TEST_REQUIRE(move.has_value());
+    BOOST_TEST(move->from == "pios");
+    BOOST_TEST(move->to == "desktop");
+
+    // And the replacement does land there - the rule's own guarantee, checked through Choose().
+    BOOST_TEST(applyMove(candidates, move->from) == "desktop");
+    BOOST_TEST(countOn(candidates, "pios") == 0);
+}
+
+BOOST_AUTO_TEST_CASE(AnUnevenPoolOnEqualMachinesEvensOut) {
+    auto candidates = std::vector{node("a", 3, 0.0, 8), node("b", 1, 0.0, 8)};
+
+    const auto move = ChooseRebalance(candidates);
+    BOOST_TEST_REQUIRE(move.has_value());
+    BOOST_TEST(move->from == "a");
+    applyMove(candidates, move->from);
+
+    BOOST_TEST(countOn(candidates, "a") == 2);
+    BOOST_TEST(countOn(candidates, "b") == 2);
+    BOOST_TEST(!ChooseRebalance(candidates).has_value());
+}
+
+BOOST_AUTO_TEST_CASE(ADrainedNodeIsMovedOffEvenWhenItIsTheSparsest) {
+
+    // Drained means "give your work back", so its instance leaves whatever the arithmetic says.
+    auto drained = node("old", 1, 0.0, 64, false);
+    const auto move = ChooseRebalance({drained, node("new", 3, 0.0, 4)});
+
+    BOOST_TEST_REQUIRE(move.has_value());
+    BOOST_TEST(move->from == "old");
+    BOOST_TEST(move->to == "new");
+}
+
+BOOST_AUTO_TEST_CASE(AHolderTheApplicationNoLongerAcceptsIsMovedOff) {
+
+    // The application's labels changed under a running instance: where it runs is no longer
+    // somewhere it may.
+    auto gpu = node("gpu-box", 0, 0.0, 8);
+    gpu.labels = {{"gpu", "true"}};
+    const Constraints needsGpu{.nodes = {}, .labels = {{"gpu", "true"}}};
+
+    const auto move = ChooseRebalance({node("plain", 1, 0.0, 64), gpu}, needsGpu);
+
+    BOOST_TEST_REQUIRE(move.has_value());
+    BOOST_TEST(move->from == "plain");
+    BOOST_TEST(move->to == "gpu-box");
+}
+
+BOOST_AUTO_TEST_CASE(NothingMovesWhenNowhereElseWouldTakeIt) {
+
+    // Drained, but the only other node does not satisfy the constraints either: withdrawing would
+    // leave the pool short with nowhere to put the replacement.
+    auto drained = node("old", 1, 0.0, 8, false);
+    BOOST_TEST(!ChooseRebalance({drained}).has_value());
+}
+
+BOOST_AUTO_TEST_CASE(RebalancingAlwaysSettles) {
+
+    // Every pool, moved one instance at a time as the controller does, reaches a state with no
+    // move left - and never more moves than it has instances times nodes. A rule that could cycle
+    // would restart instances for ever; the inequality is what rules that out.
+    const std::vector<long> cores{1, 2, 4, 8, 32, 128};
+    unsigned seed = 7;
+    const auto next = [&seed](const unsigned bound) {
+        seed = seed * 1103515245u + 12345u;
+        return (seed >> 8) % bound;
+    };
+
+    for (int pool = 0; pool < 500; ++pool) {
+        std::vector<Candidate> candidates;
+        long instances = 0;
+        const auto nodes = 2 + next(4);
+        for (unsigned i = 0; i < nodes; ++i) {
+            const long count = static_cast<long>(next(6));
+            instances += count;
+            candidates.push_back(node("node-" + std::to_string(i), count, 0.0, cores[next(cores.size())]));
+        }
+
+        long moves = 0;
+        while (const auto move = ChooseRebalance(candidates)) {
+            const auto landed = applyMove(candidates, move->from);
+            BOOST_TEST(landed == move->to);
+            BOOST_TEST_REQUIRE(++moves <= instances * static_cast<long>(nodes));
+        }
+
+        long after = 0;
+        for (const auto &candidate: candidates) after += candidate.instancesOfApplication;
+        BOOST_TEST(after == instances);
+    }
+}
