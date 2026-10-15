@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.28](https://github.com/jensvogt/euclid/compare/1.2.27...v1.2.28) (2026-10-15)
+
+
+### Bug Fixes
+
+* EQS file copy problems ([6648cf5](https://github.com/jensvogt/euclid/commit/6648cf52988215d42e9f4fcf83896ba7c8a1b5bd))
+* EQS file copy problems ([5d00d6b](https://github.com/jensvogt/euclid/commit/5d00d6b7334689354857825d646caca7e08544b9))
+
 ## [1.2.27](https://github.com/jensvogt/euclid/compare/1.2.26...v1.2.27) (2026-10-15)
 
 
