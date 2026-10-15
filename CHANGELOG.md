@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.27](https://github.com/jensvogt/euclid/compare/1.2.26...v1.2.27) (2026-10-15)
+
+
+### Bug Fixes
+
+* ENS pugre topic ([bf62607](https://github.com/jensvogt/euclid/commit/bf6260722e7037473c6957ea6fc3be0b5ed4de8e))
+* EQS file copy problems ([e70b01a](https://github.com/jensvogt/euclid/commit/e70b01a602a135af5346554a63ffac184c63f382))
+* load measurements ([c851e85](https://github.com/jensvogt/euclid/commit/c851e8522d9a48e5d7592a2b087e9f9beb4f3fe3))
+
 ## [1.2.26](https://github.com/jensvogt/euclid/compare/1.2.25...v1.2.26) (2026-10-14)
 
 
