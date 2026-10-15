@@ -243,6 +243,14 @@ namespace Euclid::Database {
         std::vector<Entity::ESM::Subscription> listSubscriptionsBySourceErn(const std::string &sourceErn) const override;
 
         /**
+         * @brief See IEsmRepository::listSubscriptionsBySourceErnCached. Held for
+         * euclid.modules.esm.subscription-cache-seconds (default 5, zero disables) and cleared in
+         * this process whenever a subscription is written here. A subscription created through
+         * another ESM instance reaches this one's events once the entry expires.
+         */
+        std::vector<Entity::ESM::Subscription> listSubscriptionsBySourceErnCached(const std::string &sourceErn) const override;
+
+        /**
          * @brief Deletes a subscription by its ERN.
          *
          * @param ern subscription ERN
@@ -277,6 +285,13 @@ namespace Euclid::Database {
          * @brief Subscriptions collection name
          */
         static constexpr auto SUBSCRIPTION_COLLECTION = "esm_subscription";
+
+        /**
+         * @brief A bucket's subscriptions, or nothing when they could not be read - which the cache
+         * must not mistake for "none" and remember, or a database hiccup silences a bucket's
+         * deliveries for a whole TTL.
+         */
+        static std::optional<std::vector<Entity::ESM::Subscription> > loadSubscriptions(const std::string &sourceErn);
 
         /**
          * @brief Outstanding background removals - see Entity::ESM::PurgeJob.

@@ -103,6 +103,15 @@ namespace Euclid::Database {
         std::optional<Entity::EQS::Queue> findQueueByErn(const std::string &ern) const override;
 
         /**
+         * @brief See IEqsRepository::findQueueByErnCached. Held for
+         * euclid.modules.eqs.queue-cache-seconds (default 5, zero disables), and forgotten in this
+         * process whenever a queue is written or deleted here. Another EQS instance's change is
+         * seen once the entry expires - so a queue stopped through one instance is still served by
+         * the others for up to that long.
+         */
+        std::optional<Entity::EQS::Queue> findQueueByErnCached(const std::string &ern) const override;
+
+        /**
          * @brief Find all queues
          *
          * @param prefix only queues whose name starts with this prefix are returned; empty matches all queues

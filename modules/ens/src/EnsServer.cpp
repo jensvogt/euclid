@@ -291,7 +291,7 @@ namespace Euclid::ENS {
         const auto repo = Database::RepositoryFactory::instance().ensRepository();
 
         long delivered = 0;
-        for (const auto &subscription: repo->listSubscriptionsBySourceErn(topicErn)) {
+        for (const auto &subscription: repo->listSubscriptionsBySourceErnCached(topicErn)) {
             if (subscription.type != "SQS") continue;
             boost::json::object payloadObject{
                     {"body", body},

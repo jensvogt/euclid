@@ -405,6 +405,15 @@ target_link_libraries(${VISIBILITY_TIMEOUT_BINARY} PRIVATE eucliddb Boost::unit_
 
 add_test(NAME ${VISIBILITY_TIMEOUT_BINARY} COMMAND ${VISIBILITY_TIMEOUT_BINARY})
 
+set(REPOSITORY_CACHE_BINARY euclid-repository-cache-tests)
+
+add_executable(${REPOSITORY_CACHE_BINARY} RepositoryCacheTest.cpp)
+set_target_properties(${REPOSITORY_CACHE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${REPOSITORY_CACHE_BINARY} PRIVATE eucliddb Boost::unit_test_framework Boost::thread)
+
+add_test(NAME ${REPOSITORY_CACHE_BINARY} COMMAND ${REPOSITORY_CACHE_BINARY})
+
 set(UPDATE_MESSAGE_BODY_BINARY euclid-update-message-body-tests)
 
 add_executable(${UPDATE_MESSAGE_BODY_BINARY} UpdateMessageBodyTest.cpp)

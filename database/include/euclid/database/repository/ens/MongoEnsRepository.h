@@ -64,6 +64,13 @@ namespace Euclid::Database {
         std::vector<Entity::ENS::Subscription> listSubscriptionsBySourceErn(const std::string &sourceErn) const override;
 
         /**
+         * @brief See IEnsRepository::listSubscriptionsBySourceErnCached. Held for
+         * euclid.modules.ens.subscription-cache-seconds (default 5, zero disables) and cleared in
+         * this process whenever a subscription is written here.
+         */
+        std::vector<Entity::ENS::Subscription> listSubscriptionsBySourceErnCached(const std::string &sourceErn) const override;
+
+        /**
          * @brief Deletes a subscription by its ERN.
          *
          * @param ern subscription ERN
@@ -303,6 +310,12 @@ namespace Euclid::Database {
         static constexpr auto TOPIC_COLLECTION = "ens_topic";
         static constexpr auto MESSAGE_COLLECTION = "ens_message";
         static constexpr auto SUBSCRIPTION_COLLECTION = "ens_subscription";
+
+        /**
+         * @brief A topic's subscriptions, or nothing when they could not be read - see
+         * MongoEsmRepository::loadSubscriptions.
+         */
+        static std::optional<std::vector<Entity::ENS::Subscription> > loadSubscriptions(const std::string &sourceErn);
 
         /**
          * @brief Creates the indexes required for efficient message lookup, if they do not already exist.

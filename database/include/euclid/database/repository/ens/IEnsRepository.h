@@ -71,6 +71,16 @@ namespace Euclid::Database {
         virtual std::vector<Entity::ENS::Subscription> listSubscriptionsBySourceErn(const std::string &sourceErn) const = 0;
 
         /**
+         * @brief listSubscriptionsBySourceErn() for the path that runs once per published message,
+         * answered from a short-lived cache. Only for fanning a message out; anything that shows or
+         * edits subscriptions reads the uncached one. The default is the uncached read.
+         */
+        [[nodiscard]]
+        virtual std::vector<Entity::ENS::Subscription> listSubscriptionsBySourceErnCached(const std::string &sourceErn) const {
+            return listSubscriptionsBySourceErn(sourceErn);
+        }
+
+        /**
          * @brief Deletes a subscription by its ERN. Deleting an ERN with no matching subscription
          * is not an error.
          *

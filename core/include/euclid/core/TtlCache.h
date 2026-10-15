@@ -11,6 +11,7 @@
 
 // C++ includes
 #include <chrono>
+#include <cstdint>
 #include <functional>
 #include <mutex>
 #include <optional>
@@ -35,9 +36,12 @@ namespace Euclid::Core {
      * configurable - an installation that would rather pay the latency can set it to zero, which
      * turns the cache off entirely.
      *
-     * <b>Misses are remembered too.</b> An unknown access key is a common thing to be asked about -
-     * a stale client, a scan - and looking it up every time makes an unauthenticated caller more
-     * expensive to serve than an authenticated one. The absence is cached like any other answer.
+     * <b>Misses are remembered too</b>, by default. An unknown access key is a common thing to be
+     * asked about - a stale client, a scan - and looking it up every time makes an unauthenticated
+     * caller more expensive to serve than an authenticated one. The absence is cached like any
+     * other answer. A cache whose callers act on an absence - a queue that is not there has its
+     * pending deliveries thrown away - is built with misses off, so a row created a moment ago is
+     * found at once.
      *
      * <b>Size.</b> Bounded, and when the bound is reached the expired entries go first and the
      * whole map second. That is cruder than evicting least-recently-used, and deliberately so:
@@ -58,9 +62,11 @@ namespace Euclid::Core {
          * @param ttl how long an answer may be reused; zero disables caching entirely, so every
          * lookup goes to the loader
          * @param maxEntries the most entries to hold before the cache is emptied
+         * @param cacheMisses whether "there is none" is remembered like an answer, or asked again
+         * every time
          */
-        explicit TtlCache(const std::chrono::milliseconds ttl, const std::size_t maxEntries = 4096)
-            : _ttl(ttl), _maxEntries(maxEntries) {}
+        explicit TtlCache(const std::chrono::milliseconds ttl, const std::size_t maxEntries = 4096, const bool cacheMisses = true)
+            : _ttl(ttl), _maxEntries(maxEntries), _cacheMisses(cacheMisses) {}
 
         /**
          * @brief The answer for @p key, from the cache when it is still fresh and from @p loader
@@ -83,16 +89,24 @@ namespace Euclid::Core {
             }
 
             const auto now = std::chrono::steady_clock::now();
+            std::uint64_t generation = 0;
             {
                 std::lock_guard lock(_mutex);
                 if (const auto entry = _entries.find(key); entry != _entries.end() && entry->second.expiresAt > now) {
                     return entry->second.value;
                 }
+                generation = _generation;
             }
 
             std::optional<Value> loaded = loader(key);
 
             std::lock_guard lock(_mutex);
+            // Not stored if the cache was cleared or this key forgotten while the loader ran: the
+            // row changed meanwhile, and the answer read before the change would otherwise be put
+            // back over the forgetting and served for a whole TTL - the one staleness clear()
+            // exists to prevent. Returned to this caller all the same; it asked before the change.
+            if (generation != _generation) return loaded;
+            if (!loaded.has_value() && !_cacheMisses) return loaded;
             if (_entries.size() >= _maxEntries) {
                 evict(now);
             }
@@ -109,6 +123,16 @@ namespace Euclid::Core {
         void clear() {
             std::lock_guard lock(_mutex);
             _entries.clear();
+            ++_generation;
+        }
+
+        /**
+         * @brief Forgets one key, as clear() forgets them all.
+         */
+        void erase(const Key &key) {
+            std::lock_guard lock(_mutex);
+            _entries.erase(key);
+            ++_generation;
         }
 
       private:
@@ -130,9 +154,15 @@ namespace Euclid::Core {
 
         const std::chrono::milliseconds _ttl;
         const std::size_t _maxEntries;
+        const bool _cacheMisses;
 
         std::mutex _mutex;
         std::unordered_map<Key, Entry> _entries;
+
+        /**
+         * @brief Bumped by every clear() and erase(), so a load that started before one can tell.
+         */
+        std::uint64_t _generation = 0;
     };
 
 }// namespace Euclid::Core
