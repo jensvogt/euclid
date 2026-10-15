@@ -144,7 +144,8 @@ namespace Euclid::Database {
 
         bool reportInstanceFromNode(const std::string &moduleName, const std::string &instanceId,
                                     const std::string &nodeName, const std::string &host,
-                                    int pid, int httpPort, Entity::ModuleState state) override;
+                                    int pid, int httpPort, Entity::ModuleState state,
+                                    std::chrono::system_clock::time_point started = {}) override;
 
     private:
 

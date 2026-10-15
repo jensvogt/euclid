@@ -39,6 +39,7 @@
 #include <euclid/dto/ens/ListMessagesRequest.h>
 #include <euclid/dto/ens/ListTopicsRequest.h>
 #include <euclid/dto/ens/PublishMessageRequest.h>
+#include <euclid/dto/ens/SetTopicDeleteAfterDeliveryRequest.h>
 #include <euclid/dto/ens/SetTopicMaxMessageLengthRequest.h>
 #include <euclid/dto/ens/SetTopicRetentionRequest.h>
 #include <euclid/dto/ens/PurgeAllTopicsRequest.h>
@@ -291,6 +292,16 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int setTopicMaxMessageLength(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Sets whether a topic deletes each message once it has been handed to every
+         * subscription, rather than keeping it for the retention period.
+         *
+         * @param args the action's arguments - see euclid-cli-ens-set-topic-delete-after-delivery(1).
+         * @return the process exit code.
+         */
+        [[nodiscard]]
+        int setTopicDeleteAfterDelivery(const std::vector<std::string> &args) const;
 
         /**
          * @brief Starts or stops a topic delivering to its subscribers

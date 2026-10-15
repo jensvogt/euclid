@@ -273,6 +273,18 @@ namespace Euclid::Database::Entity {
         std::chrono::system_clock::time_point loadReportedAt{};
 
         /**
+         * @brief When the process this slot is running now was started; the epoch when there is
+         * none, or it is not known.
+         *
+         * @par
+         * Not created, which is when the slot was: a slot outlives every process it runs - a
+         * redeploy, a worker restart, a crash - and uptime read off created showed a pool whose
+         * processes had been replaced three hours before as up for eleven. Set by whoever starts the
+         * process - the manager for its own, a worker's report for a node's - and cleared with it.
+         */
+        std::chrono::system_clock::time_point started{};
+
+        /**
          * @brief Time this instance entry was first persisted.
          */
         std::chrono::system_clock::time_point created = std::chrono::system_clock::now();

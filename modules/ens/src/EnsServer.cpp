@@ -330,7 +330,8 @@ namespace Euclid::ENS {
                                                          const std::string &accountId,
                                                          const std::string &priority = "MEDIUM",
                                                          const boost::json::object &systemAttributes = {},
-                                                         const std::string &bucketPriority = {}) {
+                                                         const std::string &bucketPriority = {},
+                                                         const bool deleteAfterDelivery = false) {
 
         const std::string messageId = Core::UuidUtils::CreateRandomUuid();
         const std::string ern = Core::createEnsMessageErn(accountId, messageId);
@@ -365,6 +366,13 @@ namespace Euclid::ENS {
 
         const auto delivered = deliverToSubscriptions(topicErn, message.messageId, body, attributesJson, systemAttributes, priority, bucketPriority);
         recordMessages(kMessagesReceived, kBytesReceived, topicErn, delivered, delivered * message.size);
+
+        // A topic set to delete after delivery keeps nothing it has handed on - see
+        // Topic::deleteAfterDelivery. Only once something was handed on: a message with no
+        // subscription to go to is kept, as on any topic, rather than lost undelivered.
+        if (deleteAfterDelivery && delivered > 0) {
+            repo->deleteDeliveredMessage(topicErn, message.messageId, message.size);
+        }
 
         return message;
     }
@@ -420,7 +428,8 @@ namespace Euclid::ENS {
                                             R"(priority must be "LOW", "MEDIUM" or "HIGH", not ")" + request.priority + R"(")");
         }
 
-        const auto message = publishToTopic(request.ern, request.body, request.attributes, auth.user->accountId, request.priority);
+        const auto message = publishToTopic(request.ern, request.body, request.attributes, auth.user->accountId, request.priority,
+                                            {}, {}, topic->deleteAfterDelivery);
 
         Dto::ENS::PublishMessageResponse response;
         response.messageId = message.messageId;
@@ -443,7 +452,8 @@ namespace Euclid::ENS {
         const auto body = Core::GetStringValue(envelope.payload, "body");
 
         const auto repo = Database::RepositoryFactory::instance().ensRepository();
-        if (!repo->findTopicByErn(targetErn).has_value()) {
+        const auto topic = repo->findTopicByErn(targetErn);
+        if (!topic.has_value()) {
             log_warning << "ENS EventBus object-published notification: target topic not found, ern: " << targetErn;
             return true;// ack - topic is gone, nothing to retry
         }
@@ -460,7 +470,7 @@ namespace Euclid::ENS {
         // EqsServer gives a default - see deliverToSubscriptions.
         const auto bucketPriority = Core::GetStringValue(envelope.payload, "bucketPriority");
         const auto message = publishToTopic(targetErn, body, {}, Core::accountIdFromErn(targetErn), "MEDIUM",
-                                            systemAttributes, bucketPriority);
+                                            systemAttributes, bucketPriority, topic->deleteAfterDelivery);
 
         log_info << "ENS created message from ESM object-published notification, source: " << envelope.sourceModule << ", targetErn: " << targetErn
                   << ", messageId: " << message.messageId;
@@ -634,6 +644,7 @@ namespace Euclid::ENS {
         response.messages = topic->available + topic->send + topic->send;
         response.status = topic->status();
         response.retentionPeriod = topic->retentionPeriod;
+        response.deleteAfterDelivery = topic->deleteAfterDelivery;
 
         // Counted only for a topic that is stopped: for a running one it is always zero, and the
         // query is not worth making to say so.
@@ -948,12 +959,20 @@ namespace Euclid::ENS {
                         systemAttributes[key] = boost::json::value_from(Dto::ENS::EnsMapper::toDto(variant));
                     }
 
-                    deliverToSubscriptions(ern, message.messageId, message.body, attributesJson, systemAttributes, message.priority);
+                    const auto delivered = deliverToSubscriptions(ern, message.messageId, message.body, attributesJson, systemAttributes,
+                                                                  message.priority);
 
                     // Marked whatever the fan-out found: a topic with no subscriptions left has
                     // nothing to deliver to, and leaving its held messages held would mean every
                     // later start walked past them again.
-                    repo->markMessageDelivered(message.messageId);
+                    //
+                    // Or deleted, on a topic set to delete after delivery, by the rule a publish
+                    // follows - see publishToTopic().
+                    if (topic->deleteAfterDelivery && delivered > 0) {
+                        repo->deleteDeliveredMessage(ern, message.messageId, message.size);
+                    } else {
+                        repo->markMessageDelivered(message.messageId);
+                    }
                     ++released;
                 }
 
@@ -1267,6 +1286,38 @@ namespace Euclid::ENS {
                                                {"maxMessageLength", topic->maxMessageLength}}));
     }
 
+    // Whether a topic deletes each message once it has handed it to every subscription, or keeps
+    // it for the retention period as every topic does by default - see Topic::deleteAfterDelivery.
+    static response<string_body> handleSetTopicDeleteAfterDelivery(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-topic-delete-after-delivery");
+
+        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto [ern, deleteAfterDelivery] = boost::json::value_to<Dto::ENS::SetTopicDeleteAfterDeliveryRequest>(jv);
+        log_info << "ENS SetTopicDeleteAfterDelivery, ern: " << ern << ", deleteAfterDelivery: " << std::boolalpha << deleteAfterDelivery;
+
+        const auto repo = Database::RepositoryFactory::instance().ensRepository();
+        std::optional<Database::Entity::ENS::Topic> topic = repo->findTopicByErn(ern);
+        if (!topic.has_value()) {
+            return EnsServer::ErrorResponse(req, status::not_found, "Topic not found, ern: " + ern);
+        }
+
+        // What is published from here on. The messages the topic already holds were delivered
+        // under the old rule and stay until their retention runs out; turning this on is not a
+        // purge - purge-topic is, and says so.
+        topic->deleteAfterDelivery = deleteAfterDelivery;
+        topic = repo->upsertTopic(topic.value());
+
+        return EnsServer::JsonResponse(req, status::ok,
+                                       boost::json::serialize(boost::json::object{
+                                               {"ern", topic->ern},
+                                               {"deleteAfterDelivery", topic->deleteAfterDelivery}}));
+    }
+
     static response<string_body> handleDeleteTopicTag(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-topic-tag");
@@ -1426,6 +1477,7 @@ namespace Euclid::ENS {
             SetTopicTag,
             SetTopicRetention,
             SetTopicMaxMessageLength,
+            SetTopicDeleteAfterDelivery,
             StartTopic,
             StopTopic,
             DeleteTopicTag,
@@ -1457,6 +1509,7 @@ namespace Euclid::ENS {
         if (action == "set-topic-tag") return Command::SetTopicTag;
         if (action == "set-topic-retention") return Command::SetTopicRetention;
         if (action == "set-topic-max-message-length") return Command::SetTopicMaxMessageLength;
+        if (action == "set-topic-delete-after-delivery") return Command::SetTopicDeleteAfterDelivery;
         if (action == "start-topic") return Command::StartTopic;
         if (action == "stop-topic") return Command::StopTopic;
         if (action == "delete-topic-tag") return Command::DeleteTopicTag;
@@ -1537,6 +1590,9 @@ namespace Euclid::ENS {
 
             case Command::SetTopicMaxMessageLength:
                 return handleSetTopicMaxMessageLength(req);
+
+            case Command::SetTopicDeleteAfterDelivery:
+                return handleSetTopicDeleteAfterDelivery(req);
 
             case Command::StartTopic:
                 return handleStartTopic(req);

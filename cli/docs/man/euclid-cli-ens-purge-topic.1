@@ -10,6 +10,13 @@ Deletes all messages from a topic identified by its Euclid resource
 name (ERN). The topic itself is not deleted; see
 .BR euclid-cli-ens-delete-topic (1)
 for that. This cannot be undone.
+.PP
+The topic's counters start over with it: the messages it holds and their
+size, and its
+.I send
+and
+.I resend
+totals, are all set to zero.
 .SH OPTIONS
 .TP
 .BR \-t ", " \-\-topic " " \fIERN\fR

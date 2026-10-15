@@ -153,6 +153,7 @@ namespace Euclid::CLI {
                 {"update-message-body", "Replaces the body of a message already published to a topic"},
                 {"set-topic-max-message-length", "Sets the largest message a topic accepts"},
                 {"set-topic-retention", "Sets how long a topic keeps the messages published to it"},
+                {"set-topic-delete-after-delivery", "Sets whether a topic deletes a message once every subscriber has it"},
                 {"set-topic-tag", "Sets the value of an existing topic tag"},
                 {"start-topic", "Starts delivering to a topic's subscribers, handing over what it held"},
                 {"stop-topic", "Stops delivering to a topic's subscribers; publishes are still stored"},
@@ -295,6 +296,9 @@ namespace Euclid::CLI {
         }
         if (action == "set-topic-max-message-length") {
             return setTopicMaxMessageLength(args);
+        }
+        if (action == "set-topic-delete-after-delivery") {
+            return setTopicDeleteAfterDelivery(args);
         }
         if (action == "resend-messages") {
             return resendMessages(args);
@@ -1160,6 +1164,58 @@ namespace Euclid::CLI {
             const HttpResponse response = client.Post("ens", "set-topic-max-message-length", boost::json::value_from(request));
             if (!response.IsSuccess()) {
                 std::cerr << "error: set-topic-max-message-length failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EnsCli::setTopicDeleteAfterDelivery(const std::vector<std::string> &args) const {
+
+        po::options_description desc("set topic delete after delivery options");
+        desc.add_options()
+                ("topic,t", po::value<std::string>()->required(), "topic name; a full ERN also works and is what reaches another namespace")
+                ("enabled,e", po::value<bool>()->required(),
+                 "true to delete each message once every subscription has it, false to keep it for the retention period");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("ens", "set-topic-delete-after-delivery", "--topic <name|ern> --enabled <true|false>",
+                                   "Sets whether a topic deletes each message as soon as it has been handed to every "
+                                   "subscription, instead of keeping it for its retention period. Off for every topic "
+                                   "until it is turned on here, which is how topics have always behaved. "
+                                   "Handed to means the fan-out: one event per subscription, written to the event bus, "
+                                   "which keeps it until EQS has made it a queue message. A message held while the topic "
+                                   "is stopped is deleted when start-topic delivers it. A message on a topic with no "
+                                   "subscription is kept either way - it has been handed to nobody. "
+                                   "What a topic deletes is gone for resend-messages too, which is the price of the space "
+                                   "it saves. It applies to what is published from here on; messages the topic already "
+                                   "holds stay until their retention runs out.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        Dto::ENS::SetTopicDeleteAfterDeliveryRequest request;
+        request.ern = vm["topic"].as<std::string>();
+        request.deleteAfterDelivery = vm["enabled"].as<bool>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("ens", "set-topic-delete-after-delivery", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                std::cerr << "error: set-topic-delete-after-delivery failed (HTTP " << response.statusCode << "): "
+                          << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);
