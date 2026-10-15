@@ -127,6 +127,12 @@ namespace Euclid::EQS {
          * it on destruction.
          */
         std::string _resetMessagesTaskId;
+
+        /**
+         * @brief Id of the periodic task that writes pending queue counter changes, used to cancel
+         * it on destruction.
+         */
+        std::string _flushCountersTaskId;
     };
 
 }// namespace Euclid::EQS
