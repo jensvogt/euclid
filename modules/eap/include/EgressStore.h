@@ -68,15 +68,21 @@ namespace Euclid::EAP::Egress {
         return limits;
     }
 
-    // One site's document, as read.
+    // The site name a limit is stored under to apply to all of an application's sites: its own
+    // default, in between a limit for one site and euclid.modules.eap.egress.default.
+    inline constexpr auto kAllSites = "*";
+
+    // One application's state for one site, as read. Everything is per application: two
+    // applications calling the same site each have their own bucket, slots and limits - the
+    // downloader that must go gently does not slow down the one that needs not.
     struct StoredSite {
+        std::string application;  // the application's ERN - what keys the state
+        std::string applicationId;// its id, for display
         std::string site;
         long long version{-1};// -1: no document yet
         SiteState state;
-        std::optional<Limits> limits;// set with set-egress-limit; otherwise the default
+        std::optional<Limits> limits;// set with set-egress-limit; otherwise see limitsFor()
         Clock::time_point modified{};
-
-        [[nodiscard]] Limits effectiveLimits() const { return limits.value_or(defaultEgressLimits()); }
     };
 
     inline double numberOr(const bsoncxx::document::view doc, const std::string_view key, const double fallback) {
@@ -94,9 +100,16 @@ namespace Euclid::EAP::Egress {
         return static_cast<long long>(numberOr(doc, key, static_cast<double>(fallback)));
     }
 
+    inline std::string stringOr(const bsoncxx::document::view doc, const std::string_view key) {
+        const auto e = doc[key];
+        return e && e.type() == bsoncxx::type::k_string ? std::string(e.get_string().value) : std::string();
+    }
+
     inline StoredSite parseSite(const bsoncxx::document::view doc) {
         StoredSite s;
-        if (const auto e = doc["site"]; e && e.type() == bsoncxx::type::k_string) s.site = std::string(e.get_string().value);
+        s.application = stringOr(doc, "application");
+        s.applicationId = stringOr(doc, "applicationId");
+        s.site = stringOr(doc, "site");
         s.version = int64Or(doc, "version", 0);
         s.state.tokens = numberOr(doc, "tokens", 0.0);
         s.state.refilledAt = fromMillis(int64Or(doc, "refilledAt", 0));
@@ -116,8 +129,8 @@ namespace Euclid::EAP::Egress {
             const auto ld = e.get_document().value;
             const auto defaults = defaultEgressLimits();
             s.limits = Limits{.requestsPerSecond = numberOr(ld, "requestsPerSecond", defaults.requestsPerSecond),
-                                      .burst = numberOr(ld, "burst", defaults.burst),
-                                      .concurrent = int64Or(ld, "concurrent", defaults.concurrent)};
+                              .burst = numberOr(ld, "burst", defaults.burst),
+                              .concurrent = int64Or(ld, "concurrent", defaults.concurrent)};
         }
         return s;
     }
@@ -130,7 +143,9 @@ namespace Euclid::EAP::Egress {
             permits.append(make_document(kvp("id", p.id), kvp("expiresAt", static_cast<std::int64_t>(toMillis(p.expiresAt)))));
         }
         bsoncxx::builder::basic::document doc;
-        doc.append(kvp("site", s.site),
+        doc.append(kvp("application", s.application),
+                   kvp("applicationId", s.applicationId),
+                   kvp("site", s.site),
                    kvp("version", static_cast<std::int64_t>(version)),
                    kvp("tokens", s.state.tokens),
                    kvp("refilledAt", static_cast<std::int64_t>(toMillis(s.state.refilledAt))),
@@ -145,35 +160,52 @@ namespace Euclid::EAP::Egress {
         return doc.extract();
     }
 
+    inline bsoncxx::document::value siteKey(const std::string &application, const std::string &site) {
+        using bsoncxx::builder::basic::kvp;
+        return bsoncxx::builder::basic::make_document(kvp("application", application), kvp("site", site));
+    }
+
     inline Database::Collection egressCollection() {
-    // The unique index is what keeps two EAP instances meeting a new site at the same
-    // moment from creating it twice. Made once per process; creating an index that
-    // exists is a no-op.
+        // The unique index is what keeps two EAP instances meeting a new site at the same moment
+        // from creating it twice. Made once per process; creating an index that exists is a no-op.
         static std::once_flag indexed;
         auto collection = Database::Database::instance().collection(kEgressCollection);
         std::call_once(indexed, [&] {
             try {
+                // The index of the first, installation-wide version, unique on site alone - which
+                // would refuse a second application's state for a site the first one already has.
+                collection.drop_index("site_1");
                 mongocxx::options::index options;
                 options.unique(true);
-                collection.create_index(bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("site", 1)), options);
+                collection.create_index(bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("application", 1),
+                                                                               bsoncxx::builder::basic::kvp("site", 1)),
+                                        options);
             } catch (const std::exception &e) {
-                log_warning << "EAP egress: cannot create the unique index on " << kEgressCollection << ".site: " << e.what();
+                log_warning << "EAP egress: cannot create the unique index on " << kEgressCollection << ": " << e.what();
             }
         });
         return collection;
     }
 
-    inline std::optional<StoredSite> loadSite(const Database::Collection &collection, const std::string &site) {
-        const auto doc = collection.find_one(bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("site", site)));
+    inline std::optional<StoredSite> loadSite(const Database::Collection &collection, const std::string &application, const std::string &site) {
+        const auto doc = collection.find_one(siteKey(application, site));
         if (!doc) return std::nullopt;
         return parseSite(doc->view());
+    }
+
+    // What one application's state for one site is held to: its own limit for that site, else the
+    // application's limit for all its sites, else euclid.modules.eap.egress.default.
+    inline Limits limitsFor(const StoredSite &s) {
+        if (s.limits) return *s.limits;
+        if (s.site != kAllSites) {
+            if (const auto all = loadSite(egressCollection(), s.application, kAllSites); all && all->limits) return *all->limits;
+        }
+        return defaultEgressLimits();
     }
 
     // Writes `s` if its document is still at the version it was read at. False if somebody
     // else got there first - the caller reads again and decides again.
     inline bool storeSite(const Database::Collection &collection, const StoredSite &s, const Clock::time_point now) {
-        using bsoncxx::builder::basic::kvp;
-        using bsoncxx::builder::basic::make_document;
         if (s.version < 0) {
             try {
                 std::ignore = collection.insert_one(siteDocument(s, 0, now));
@@ -182,20 +214,24 @@ namespace Euclid::EAP::Egress {
                 return false;// another instance created it a moment ago
             }
         }
-        const auto outcome = collection.replace_one(make_document(kvp("site", s.site), kvp("version", static_cast<std::int64_t>(s.version))),
+        using bsoncxx::builder::basic::kvp;
+        using bsoncxx::builder::basic::make_document;
+        const auto outcome = collection.replace_one(make_document(kvp("application", s.application), kvp("site", s.site),
+                                                                  kvp("version", static_cast<std::int64_t>(s.version))),
                                                     siteDocument(s, s.version + 1, now));
         return outcome.has_value() && outcome->matched_count() == 1;
     }
 
-    // Reads the site, lets `change` decide, writes the result - again from the read if another
-    // instance wrote in between. `change` returns false to write nothing (nothing changed).
+    // Reads one application's state for a site, lets `change` decide, writes the result - again
+    // from the read if another instance wrote in between. `change` returns false to write nothing.
     //
     // @return true if the change was written (or none was needed), false if it kept colliding
     template<typename Change>
-    inline bool updateSite(const std::string &site, Change &&change) {
+    bool updateSite(const std::string &application, const std::string &applicationId, const std::string &site, Change &&change) {
         const auto collection = egressCollection();
         for (int attempt = 0; attempt < kEgressAttempts; ++attempt) {
-            auto stored = loadSite(collection, site).value_or(StoredSite{.site = site});
+            auto stored = loadSite(collection, application, site)
+                                  .value_or(StoredSite{.application = application, .applicationId = applicationId, .site = site});
             const auto now = Clock::now();
             if (!change(stored, now)) return true;
             if (storeSite(collection, stored, now)) return true;

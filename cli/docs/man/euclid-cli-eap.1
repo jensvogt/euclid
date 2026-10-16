@@ -348,16 +348,17 @@ principal. See
 .BR euclid-cli-eap-delete-node (1).
 .TP
 .B list-egress-sites
-Lists the outside sites applications call through egress permits, with
-the limits each is held to and how it stands now. See
+Lists, per application, the outside sites it calls through egress
+permits, with the limits each is held to and how it stands now. See
 .BR euclid-cli-eap-list-egress-sites (1).
 .TP
 .B set-egress-limit
-Sets how fast all applications together may call one outside site. See
+Sets how fast one application, all its instances together, may call an
+outside site. See
 .BR euclid-cli-eap-set-egress-limit (1).
 .TP
 .B delete-egress-limit
-Returns an outside site to the default egress limits. See
+Removes an application's egress limit for an outside site. See
 .BR euclid-cli-eap-delete-egress-limit (1).
 .TP
 .B report-load

@@ -2891,15 +2891,19 @@ namespace Euclid::EAP {
 
     // ── Egress permits ───────────────────────────────────────────────────────
     //
-    // How often euclid's applications may call one outside site, all of them together - see
-    // EgressPermits.h for why the limit has to live here rather than in each application, and for
+    // How often an application may call one outside site, all of its instances together - see
+    // EgressPermits.h for why the limit has to live here rather than in the application, and for
     // the decisions themselves, and EgressStore.h for how every EAP instance shares one state.
+    //
+    // Per application: each has its own bucket, slots and limits for each site, so one that has to
+    // go gently with a site is not held back by - and does not hold back - another calling it too.
 
     namespace {
 
         using Egress::StoredSite;
         using Egress::defaultEgressLimits;
         using Egress::egressCollection;
+        using Egress::limitsFor;
         using Egress::updateSite;
         using Egress::parseSite;
         using Egress::isoOrEmpty;
@@ -2911,16 +2915,54 @@ namespace Euclid::EAP {
             return Egress::NormalizeSite(stringField(obj, "site"));
         }
 
+        // A site, or "*" for all of an application's sites - which only the limit actions take.
+        std::string siteOrAllField(const boost::json::object &obj) {
+            return stringField(obj, "site") == Egress::kAllSites ? std::string(Egress::kAllSites) : siteField(obj);
+        }
+
         boost::json::object limitsJson(const Egress::Limits &l) {
             return {{"requestsPerSecond", l.requestsPerSecond}, {"burst", l.burst}, {"concurrent", l.concurrent}};
         }
 
+        // The application a request is about, or the answer refusing it.
+        struct EgressScope {
+            std::optional<Application> application;
+            std::optional<response<string_body> > refusal;
+        };
+
+        // Looked up by the applicationId in the body - EUCLID_APPLICATION_ID, to an application - in
+        // the caller's account and namespace.
+        //
+        // `own`: the caller must be the identity the application runs as, or an administrator. An
+        // application may spend its own permits and nobody else's: otherwise one could use up
+        // another's allowance for a site, or report a block that stops it.
+        EgressScope egressScope(const request<string_body> &req, const AuthResult &auth, const boost::json::object &obj, const bool own) {
+            const auto applicationId = stringField(obj, "applicationId");
+            if (applicationId.empty()) {
+                return {.application = std::nullopt,
+                        .refusal = EapServer::ErrorResponse(req, status::bad_request, "applicationId is required - see EUCLID_APPLICATION_ID")};
+            }
+            const auto ns = std::string(req["x-euclid-namespace"]);
+            auto application = Database::RepositoryFactory::instance().eapRepository()->findApplicationByApplicationId(auth.user->accountId, ns, applicationId);
+            if (!application.has_value()) {
+                return {.application = std::nullopt,
+                        .refusal = EapServer::ErrorResponse(req, status::not_found, "Application not found, applicationId: " + applicationId)};
+            }
+            if (own && application->userId != auth.user->userId &&
+                !Database::IsEamAdmin(*Database::RepositoryFactory::instance().eamRepository(), auth.user->userId)) {
+                return {.application = std::nullopt,
+                        .refusal = EapServer::ErrorResponse(req, status::forbidden, "Not the identity application '" + applicationId + "' runs as")};
+            }
+            return {.application = std::move(application), .refusal = std::nullopt};
+        }
+
     }// namespace
 
-    // Asks for one request's worth of a site: a token from its bucket and a slot among the requests
-    // to it in flight. Never waits - an EAP thread held for every application waiting on a slow
-    // site would be an EAP that answers nothing else - but says how long to wait before asking
-    // again. Both answers are 200: being told to wait is the action working.
+    // Asks for one request's worth of a site for one application: a token from its bucket and a
+    // slot among its requests to the site in flight. Never waits - an EAP thread held for every
+    // application waiting on a slow site would be an EAP that answers nothing else - but says how
+    // long to wait before asking again. Both answers are 200: being told to wait is the action
+    // working.
     static response<string_body> handleAcquireEgressPermit(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "acquire-egress-permit");
@@ -2935,14 +2977,17 @@ namespace Euclid::EAP {
 
         const auto site = siteField(obj);
         if (site.empty()) return EapServer::ErrorResponse(req, status::bad_request, "site is required: the host name to be called, e.g. downloads.example.com");
+        const auto scope = egressScope(req, auth, obj, true);
+        if (scope.refusal) return *scope.refusal;
+        const auto &application = *scope.application;
 
         const auto lease = std::chrono::seconds{std::clamp(longField(obj, "leaseSeconds", kDefaultEgressLeaseSeconds), 1L, kMaxEgressLeaseSeconds)};
         const auto permitId = Core::UuidUtils::CreateRandomUuid();
 
         Egress::Decision decision;
         Egress::Limits limits;
-        const bool written = updateSite(site, [&](StoredSite &stored, const Egress::Clock::time_point now) {
-            limits = stored.effectiveLimits();
+        const bool written = updateSite(application.ern, application.applicationId, site, [&](StoredSite &stored, const Egress::Clock::time_point now) {
+            limits = limitsFor(stored);
             decision = Egress::Acquire(stored.state, limits, now, permitId, lease);
             return true;// a refusal still refreshes the bucket and drops expired slots
         });
@@ -2950,7 +2995,7 @@ namespace Euclid::EAP {
             decision = {.granted = false, .refusal = Egress::Refusal::Concurrency, .retryAfter = std::chrono::milliseconds{100}, .permit = std::nullopt};
         }
 
-        boost::json::object answer{{"site", site}, {"granted", decision.granted}, {"limits", limitsJson(limits)}};
+        boost::json::object answer{{"applicationId", application.applicationId}, {"site", site}, {"granted", decision.granted}, {"limits", limitsJson(limits)}};
         if (decision.granted) {
             answer["permitId"] = decision.permit->id;
             answer["expiresAt"] = Core::DateTimeUtils::ToISO8601(decision.permit->expiresAt);
@@ -2978,20 +3023,24 @@ namespace Euclid::EAP {
         const auto site = siteField(obj);
         const auto permitId = stringField(obj, "permitId");
         if (site.empty() || permitId.empty()) return EapServer::ErrorResponse(req, status::bad_request, "site and permitId are required");
+        const auto scope = egressScope(req, auth, obj, true);
+        if (scope.refusal) return *scope.refusal;
+        const auto &application = *scope.application;
 
         bool released = false;
-        const bool written = updateSite(site, [&](StoredSite &stored, const Egress::Clock::time_point) {
+        const bool written = updateSite(application.ern, application.applicationId, site, [&](StoredSite &stored, const Egress::Clock::time_point) {
             if (stored.version < 0) return false;
             released = Egress::Release(stored.state, permitId);
             return released;
         });
         if (!written) return EapServer::ErrorResponse(req, status::service_unavailable, "egress state is busy, try again");
 
-        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{{"site", site}, {"released", released}}));
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"applicationId", application.applicationId}, {"site", site}, {"released", released}}));
     }
 
     // The site refused a request - 429, 503 - and said, or implied, how long to stay away. Every
-    // application calling it stays away for that long, not just the one that was told.
+    // instance of the application stays away for that long, not just the one that was told.
     static response<string_body> handleReportEgressThrottled(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "report-egress-throttled");
@@ -3006,24 +3055,29 @@ namespace Euclid::EAP {
 
         const auto site = siteField(obj);
         if (site.empty()) return EapServer::ErrorResponse(req, status::bad_request, "site is required");
+        const auto scope = egressScope(req, auth, obj, true);
+        if (scope.refusal) return *scope.refusal;
+        const auto &application = *scope.application;
         const auto retryAfter = std::chrono::seconds{std::max(1L, longField(obj, "retryAfterSeconds", 60))};
 
         Egress::Clock::time_point until{};
-        const bool written = updateSite(site, [&](StoredSite &stored, const Egress::Clock::time_point now) {
+        const bool written = updateSite(application.ern, application.applicationId, site, [&](StoredSite &stored, const Egress::Clock::time_point now) {
             until = Egress::Block(stored.state, now, retryAfter);
             return true;
         });
         if (!written) return EapServer::ErrorResponse(req, status::service_unavailable, "egress state is busy, try again");
 
-        log_warning << "EAP egress: site " << site << " is throttling requests, blocked until "
-                    << Core::DateTimeUtils::ToISO8601(until) << ", reported by: " << auth.user->userId;
+        log_warning << "EAP egress: site " << site << " is throttling application " << application.applicationId
+                    << ", blocked until " << Core::DateTimeUtils::ToISO8601(until) << ", reported by: " << auth.user->userId;
 
         return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
-                                                                {"site", site}, {"blockedUntil", Core::DateTimeUtils::ToISO8601(until)}}));
+                                                                {"applicationId", application.applicationId}, {"site", site},
+                                                                {"blockedUntil", Core::DateTimeUtils::ToISO8601(until)}}));
     }
 
-    // Sets what one site is allowed, over euclid.modules.eap.egress.default. Persisted with the
-    // site, so it applies to every EAP instance at once and survives a restart.
+    // Sets what one application is allowed for one site - or, with site "*", for all of its sites
+    // that have no limit of their own - over euclid.modules.eap.egress.default. Persisted, so it
+    // applies to every EAP instance at once and survives a restart.
     static response<string_body> handleSetEgressLimit(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-egress-limit");
@@ -3036,15 +3090,18 @@ namespace Euclid::EAP {
         if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
         const auto &obj = jv.as_object();
 
-        const auto site = siteField(obj);
-        if (site.empty()) return EapServer::ErrorResponse(req, status::bad_request, "site is required");
+        const auto site = siteOrAllField(obj);
+        if (site.empty()) return EapServer::ErrorResponse(req, status::bad_request, R"(site is required: a host name, or "*" for all of the application's sites)");
         if (!obj.contains("requestsPerSecond") && !obj.contains("burst") && !obj.contains("concurrent")) {
             return EapServer::ErrorResponse(req, status::bad_request, "at least one of requestsPerSecond, burst or concurrent is required");
         }
+        const auto scope = egressScope(req, auth, obj, false);
+        if (scope.refusal) return *scope.refusal;
+        const auto &application = *scope.application;
 
         Egress::Limits limits;
-        const bool written = updateSite(site, [&](StoredSite &stored, const Egress::Clock::time_point) {
-            limits = stored.effectiveLimits();
+        const bool written = updateSite(application.ern, application.applicationId, site, [&](StoredSite &stored, const Egress::Clock::time_point) {
+            limits = limitsFor(stored);
             if (obj.contains("requestsPerSecond")) limits.requestsPerSecond = doubleField(obj, "requestsPerSecond");
             if (obj.contains("burst")) limits.burst = std::max(1.0, doubleField(obj, "burst"));
             if (obj.contains("concurrent")) limits.concurrent = longField(obj, "concurrent");
@@ -3053,14 +3110,17 @@ namespace Euclid::EAP {
         });
         if (!written) return EapServer::ErrorResponse(req, status::service_unavailable, "egress state is busy, try again");
 
-        log_info << "EAP egress limit set, site: " << site << ", requestsPerSecond: " << limits.requestsPerSecond
-                 << ", burst: " << limits.burst << ", concurrent: " << limits.concurrent << ", user: " << auth.user->userId;
+        log_info << "EAP egress limit set, application: " << application.applicationId << ", site: " << site
+                 << ", requestsPerSecond: " << limits.requestsPerSecond << ", burst: " << limits.burst
+                 << ", concurrent: " << limits.concurrent << ", user: " << auth.user->userId;
 
-        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{{"site", site}, {"limits", limitsJson(limits)}}));
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"applicationId", application.applicationId}, {"site", site}, {"limits", limitsJson(limits)}}));
     }
 
-    // Takes a site back to the default limits. The site's state - tokens, slots, a block - stays:
-    // forgetting the slots in flight would let the site be overrun the moment this is called.
+    // Takes an application's site back to what it would be held to without a limit of its own. The
+    // state - tokens, slots, a block - stays: forgetting the slots in flight would let the site be
+    // overrun the moment this is called.
     static response<string_body> handleDeleteEgressLimit(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-egress-limit");
@@ -3071,25 +3131,34 @@ namespace Euclid::EAP {
         boost::json::value jv;
         if (const auto err = EapServer::ParseJsonBody(req, jv)) return *err;
         if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+        const auto &obj = jv.as_object();
 
-        const auto site = siteField(jv.as_object());
-        if (site.empty()) return EapServer::ErrorResponse(req, status::bad_request, "site is required");
+        const auto site = siteOrAllField(obj);
+        if (site.empty()) return EapServer::ErrorResponse(req, status::bad_request, R"(site is required: a host name, or "*")");
+        const auto scope = egressScope(req, auth, obj, false);
+        if (scope.refusal) return *scope.refusal;
+        const auto &application = *scope.application;
 
         bool existed = false;
-        const bool written = updateSite(site, [&](StoredSite &stored, const Egress::Clock::time_point) {
+        Egress::Limits now{};
+        const bool written = updateSite(application.ern, application.applicationId, site, [&](StoredSite &stored, const Egress::Clock::time_point) {
             existed = stored.limits.has_value();
             stored.limits.reset();
+            now = limitsFor(stored);
             return existed;
         });
         if (!written) return EapServer::ErrorResponse(req, status::service_unavailable, "egress state is busy, try again");
-        if (!existed) return EapServer::ErrorResponse(req, status::not_found, "no limit is set for site " + site);
+        if (!existed) {
+            return EapServer::ErrorResponse(req, status::not_found, "application " + application.applicationId + " has no limit set for site " + site);
+        }
 
-        log_info << "EAP egress limit removed, site: " << site << ", user: " << auth.user->userId;
+        log_info << "EAP egress limit removed, application: " << application.applicationId << ", site: " << site << ", user: " << auth.user->userId;
         return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
-                                                                {"site", site}, {"limits", limitsJson(defaultEgressLimits())}}));
+                                                                {"applicationId", application.applicationId}, {"site", site}, {"limits", limitsJson(now)}}));
     }
 
-    // Every site euclid has called through a permit, what it is allowed and how it stands now.
+    // Every application's sites, or one application's with applicationId: what each is allowed and
+    // how it stands now.
     static response<string_body> handleListEgressSites(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-egress-sites");
@@ -3097,26 +3166,55 @@ namespace Euclid::EAP {
         AuthResult auth;
         if (const auto denied = requireAdmin(req, auth)) return *denied;
 
+        boost::json::value jv;
+        if (const auto err = EapServer::ParseJsonBody(req, jv)) return *err;
+        const auto &obj = jv.is_object() ? jv.as_object() : boost::json::object{};
+
+        // Only this account's and namespace's applications: the ERN is what the state is keyed by,
+        // and it is the account's and namespace's to see.
+        std::string onlyApplication;
+        if (!stringField(obj, "applicationId").empty()) {
+            const auto scope = egressScope(req, auth, obj, false);
+            if (scope.refusal) return *scope.refusal;
+            onlyApplication = scope.application->ern;
+        }
+        const auto ns = std::string(req["x-euclid-namespace"]);
+        std::set<std::string> visible;
+        for (const auto &a: Database::RepositoryFactory::instance().eapRepository()->listApplications(auth.user->accountId, ns, "")) {
+            visible.insert(a.ern);
+        }
+
         const auto now = Egress::Clock::now();
         boost::json::array sites;
         for (auto cursor = egressCollection().find({}); const auto &doc: cursor) {
             auto stored = parseSite(doc);
-            const auto limits = stored.effectiveLimits();
-            // Shown as of now, not as of the last write: a bucket nobody asked of for an hour is
-            // full, and slots whose lease ran out are free.
-            Egress::Refresh(stored.state, limits, now);
-            sites.push_back(boost::json::object{
+            if (!visible.contains(stored.application)) continue;
+            if (!onlyApplication.empty() && stored.application != onlyApplication) continue;
+            const auto limits = limitsFor(stored);
+            boost::json::object entry{
+                    {"applicationId", stored.applicationId},
                     {"site", stored.site},
                     {"limits", limitsJson(limits)},
                     {"limitsSet", stored.limits.has_value()},
-                    {"tokens", stored.state.tokens},
-                    {"inFlight", static_cast<long>(stored.state.permits.size())},
-                    {"blockedUntil", stored.state.blockedUntil > now ? Core::DateTimeUtils::ToISO8601(stored.state.blockedUntil) : std::string()},
-                    {"lastUsed", isoOrEmpty(stored.modified)},
-            });
+            };
+            // The "*" entry is an application's default and nothing else: nobody acquires a permit
+            // for it, so it has no state to show.
+            if (stored.site != Egress::kAllSites) {
+                // Shown as of now, not as of the last write: a bucket nobody asked of for an hour is
+                // full, and slots whose lease ran out are free.
+                Egress::Refresh(stored.state, limits, now);
+                entry["tokens"] = stored.state.tokens;
+                entry["inFlight"] = static_cast<long>(stored.state.permits.size());
+                entry["blockedUntil"] = stored.state.blockedUntil > now ? Core::DateTimeUtils::ToISO8601(stored.state.blockedUntil) : std::string();
+                entry["lastUsed"] = isoOrEmpty(stored.modified);
+            }
+            sites.emplace_back(std::move(entry));
         }
         std::ranges::sort(sites, [](const boost::json::value &a, const boost::json::value &b) {
-            return a.at("site").as_string() < b.at("site").as_string();
+            const auto &l = a.as_object();
+            const auto &r = b.as_object();
+            if (l.at("applicationId").as_string() != r.at("applicationId").as_string()) return l.at("applicationId").as_string() < r.at("applicationId").as_string();
+            return l.at("site").as_string() < r.at("site").as_string();
         });
 
         return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
