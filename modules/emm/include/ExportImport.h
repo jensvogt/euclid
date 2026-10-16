@@ -5,6 +5,7 @@
 #pragma once
 
 // C++ includes
+#include <ostream>
 #include <string>
 
 // Boost includes
@@ -45,6 +46,20 @@ namespace Euclid::EMM {
      */
     [[nodiscard]]
     boost::json::array ExportCollection(const Database::Collection &collection);
+
+    /**
+     * @brief Writes one collection to a stream as a JSON array of its documents.
+     *
+     * @par
+     * The same text boost::json::serialize(ExportCollection(collection)) would produce, one
+     * document at a time, so memory stays at a single document however big the collection is.
+     * A nightly backup that built the whole array first reached 27 GB on 7 million queue
+     * messages and was killed by the kernel before it wrote a byte.
+     *
+     * @param collection the collection to read.
+     * @param out        where the array is written.
+     */
+    void WriteCollection(const Database::Collection &collection, std::ostream &out);
 
     /**
      * @brief Upserts one collection's worth of documents, by "_id".

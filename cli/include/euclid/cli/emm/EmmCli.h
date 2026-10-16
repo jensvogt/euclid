@@ -73,6 +73,26 @@ namespace Euclid::CLI {
         int listModules(const std::vector<std::string> &args) const;
 
         /**
+         * @brief Lists the backups EMM has written, newest first, and how the nightly backup is
+         * configured.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int listBackups(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Starts a backup now, as the nightly one would write it, and returns once it has
+         * started.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int createBackup(const std::vector<std::string> &args) const;
+
+        /**
          * @brief Sets the instance limits the autoscaler works within for one module.
          *
          * Either limit may be given on its own; the one left out keeps whatever is in force. The

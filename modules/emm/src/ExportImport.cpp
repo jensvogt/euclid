@@ -28,6 +28,19 @@ namespace Euclid::EMM {
         return docs;
     }
 
+    void WriteCollection(const Database::Collection &collection, std::ostream &out) {
+        // Through boost::json rather than writing bsoncxx's text as it comes, because that is
+        // spaced differently ({ "a" : 1 }) - and an export must read the same however it was made.
+        out << '[';
+        bool first = true;
+        for (auto cursor = collection.find({}); const auto &doc: cursor) {
+            if (!first) out << ',';
+            first = false;
+            out << boost::json::serialize(boost::json::parse(bsoncxx::to_json(doc, bsoncxx::ExtendedJsonMode::k_relaxed)));
+        }
+        out << ']';
+    }
+
     ImportOutcome ImportCollection(const Database::Collection &collection, const std::string &name, const boost::json::array &docs) {
 
         namespace basic = bsoncxx::builder::basic;

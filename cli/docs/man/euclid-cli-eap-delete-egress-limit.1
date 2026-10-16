@@ -1,0 +1,36 @@
+.TH EUCLID-CLI-EAP-DELETE-EGRESS-LIMIT 1 "October 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eap-delete-egress-limit \- return an outside site to the default egress limits
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B eap delete-egress-limit
+\fB\-\-site\fR \fIhost\fR
+.SH DESCRIPTION
+Removes the limit set for one site with
+.BR euclid-cli-eap-set-egress-limit (1),
+so it's held to
+.I euclid.modules.eap.egress.default
+again. What's in flight to the site, and a block it asked for, stay
+counted: forgetting them would let the site be overrun the moment this
+is run. Fails with HTTP 404 if the site has no limit of its own. The
+caller must be an administrator.
+.SH OPTIONS
+.TP
+.BR \-s ", " \-\-site " " \fIhost\fR
+The site's host name.
+.SH OUTPUT
+The site and the default limits now in force for it, as JSON.
+.SH EXAMPLE
+.PP
+.RS
+.nf
+euclid-cli eap delete-egress-limit --site downloads.example.com
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eap (1),
+.BR euclid-cli-eap-set-egress-limit (1),
+.BR euclid-cli-eap-list-egress-sites (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

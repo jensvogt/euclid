@@ -7,6 +7,7 @@
 
 // C++ includes
 #include <map>
+#include <sstream>
 #include <string>
 #include <tuple>
 
@@ -177,4 +178,30 @@ BOOST_AUTO_TEST_CASE(AnUnusableDocumentFailsOnItsOwn) {
     BOOST_TEST(outcome.imported == 2L);
     BOOST_TEST(outcome.failed == 1L);
     BOOST_TEST(exported().size() == 2U);
+}
+
+// The streamed writer the nightly backup and "export" now use must say exactly what serializing
+// the collected array said: one implementation of the format, whichever way it is reached - a
+// backup written differently from the export whose import is tested is a backup nobody tested.
+BOOST_AUTO_TEST_CASE(TheStreamedCollectionReadsTheSameAsTheCollectedOne) {
+
+    freshDatabase();
+    insertTopic("order-events");
+    insertTopic("audit \"quoted\"");
+
+    std::ostringstream streamed;
+    Euclid::EMM::WriteCollection(Database::instance().collection(kCollection), streamed);
+
+    BOOST_TEST(streamed.str() == boost::json::serialize(exported()));
+    BOOST_TEST(importInto(boost::json::parse(streamed.str()).as_array()).imported == 2L);
+}
+
+BOOST_AUTO_TEST_CASE(AnEmptyCollectionStreamsAsAnEmptyArray) {
+
+    freshDatabase();
+
+    std::ostringstream streamed;
+    Euclid::EMM::WriteCollection(Database::instance().collection(kCollection), streamed);
+
+    BOOST_TEST(streamed.str() == "[]");
 }

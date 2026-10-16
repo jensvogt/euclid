@@ -209,6 +209,7 @@
         "threads": 2,
         "backup": {
           "enabled": true,
+          "full": false,
           "schedule": "0 1 * * *",
           "directory": "/usr/local/euclid/data/backup",
           "keep": 7,
@@ -243,6 +244,13 @@
         "executable": "/usr/local/euclid/bin/euclid-ead"
       },
       "eap": {
+        "egress": {
+          "default": {
+            "requests-per-second": 2,
+            "burst": 2,
+            "concurrent": 4
+          }
+        },
         "dependencies": [
           "emd"
         ],

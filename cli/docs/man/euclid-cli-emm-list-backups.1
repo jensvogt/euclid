@@ -1,0 +1,104 @@
+.TH EUCLID-CLI-EMM-LIST-BACKUPS 1 "October 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-emm-list-backups \- list the nightly backups the Euclid manager has written
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B emm list-backups
+.SH DESCRIPTION
+Lists the backup archives EMM has written to its backup directory,
+newest first, together with how the nightly backup is set up. Takes no
+arguments. The caller must be authenticated as an administrator; see
+.BR euclid-cli-emm (1)
+for how that's checked.
+.PP
+The list is read from the directory itself, not from a record the
+backup keeps. A backup that dies part-way - killed by the kernel for
+running out of memory, say - writes no log line and no record, but it
+does leave its unzipped export behind. That file is listed too, with
+.I complete
+set to
+.IR false ,
+so a backup that fails every night shows up as a failure, not as a
+quiet gap between dates.
+.PP
+The directory is the one on the host EMM runs on.
+.PP
+The JSON response is printed to standard output. It has:
+.RS
+.TP
+.I directory
+The backup directory
+.RI ( euclid.modules.emm.backup.directory ).
+.TP
+.I enabled
+Whether the nightly backup runs at all
+.RI ( euclid.modules.emm.backup.enabled ).
+.TP
+.I schedule
+Its cron expression, read in UTC
+.RI ( euclid.modules.emm.backup.schedule ).
+.TP
+.I keep
+How many archives retention keeps
+.RI ( euclid.modules.emm.backup.keep ).
+.TP
+.I full
+Whether the next backup takes the bulk data too (queue and topic
+messages, object records) or only the configuration. Always
+.I false
+while a passphrase is set: an encrypted backup is built in memory, and
+the bulk data is what doesn't fit.
+.TP
+.I encrypted
+Whether a passphrase is configured
+.RI ( euclid.modules.emm.backup.passphrase ).
+Without one,
+.I ekm
+is left out of every backup.
+.TP
+.I backups
+One object per file, newest first:
+.RS
+.TP
+.I name ", " path
+The file name, and the same with its directory.
+.TP
+.I startedAt
+When the backup started, in UTC, read from the file name.
+.TP
+.I modified
+When the file was last written. For a finished archive, roughly when
+the backup ended.
+.TP
+.I size
+Size in bytes.
+.TP
+.I complete
+.I true
+for a finished archive;
+.I false
+for an export that was never zipped - a backup running right now, or
+one that died part-way. Retention never deletes these, so remove them
+by hand once you're sure no backup is running.
+.RE
+.RE
+.SH EXIT STATUS
+.B 0
+on success,
+.B 1
+if the request fails or the caller is not an administrator.
+.SH EXAMPLE
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm list-backups
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-emm (1),
+.BR euclid-cli-emm-create-backup (1),
+.BR euclid-cli-emm-export (1),
+.BR euclid-cli-emm-import (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

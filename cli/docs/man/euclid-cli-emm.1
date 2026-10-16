@@ -32,6 +32,16 @@ command requires the caller to be authenticated as an administrator; see
 below.
 .SH ACTIONS
 .TP
+.B create-backup
+Starts a backup now, written exactly as the nightly one would be, and
+returns once it has started. See
+.BR euclid-cli-emm-create-backup (1).
+.TP
+.B list-backups
+Lists the nightly backups in EMM's backup directory, newest first,
+including any left unfinished, and how the backup is configured. See
+.BR euclid-cli-emm-list-backups (1).
+.TP
 .B list-modules
 Lists every module known to the manager, one entry per module name, each
 with its live pool of instances (pid, state, socket, restart count).
@@ -255,6 +265,8 @@ euclid-cli --endpoint http://localhost:5566 emm import --file eqs-backup.json
 .BR euclid-cli-eam (1),
 .BR euclid-cli-eap (1),
 .BR euclid-cli-eam-login (1),
+.BR euclid-cli-emm-create-backup (1),
+.BR euclid-cli-emm-list-backups (1),
 .BR euclid-cli-emm-list-modules (1),
 .BR euclid-cli-emm-set-instances (1),
 .BR euclid-cli-emm-set-threads (1),

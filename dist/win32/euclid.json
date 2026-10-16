@@ -183,6 +183,7 @@
         "threads": 2,
         "backup": {
           "enabled": true,
+          "full": false,
           "schedule": "0 1 * * *",
           "directory": "C:\\Program Files\\euclid\\data\\backup",
           "keep": 7,
@@ -217,6 +218,13 @@
         "executable": "C:\\Program Files\\euclid\\bin\\euclid-ead.exe"
       },
       "eap": {
+        "egress": {
+          "default": {
+            "requests-per-second": 2,
+            "burst": 2,
+            "concurrent": 4
+          }
+        },
         "dependencies": [
           "emd"
         ],

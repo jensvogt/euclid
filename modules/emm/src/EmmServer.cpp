@@ -4,9 +4,13 @@
 
 // C++ includes
 #include <algorithm>
+#include <atomic>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <ranges>
+#include <sstream>
+#include <thread>
 #include <unordered_set>
 
 // Euclid includes
@@ -127,40 +131,62 @@ namespace Euclid::EMM {
         // passphrase is present if one is required, because the backup checks both differently
         // (it has no client to answer with a 400).
         //
+        // Written to a stream rather than built as one document: an export is the size of the data,
+        // and holding it as a boost::json tree - then again as the string serialize() makes of it -
+        // is what had the nightly backup killed at 27 GB. The output is the text serializing that
+        // tree would have produced, key order included.
+        //
+        // An encrypted export is the exception: AES-GCM here seals one buffer, so the payload is
+        // gathered in memory before it is sealed. That is why the backup refuses full + passphrase.
+        //
         // @throws std::runtime_error if a key cannot be derived from the passphrase and salt.
-        boost::json::object buildExport(const std::vector<std::string> &modules, const bool full,
-                                        const std::string &passphrase, const std::string &salt) {
+        void writeExport(std::ostream &out, const std::vector<std::string> &modules, const bool full,
+                         const std::string &passphrase, const std::string &salt) {
 
             const auto &specs = moduleExportSpecs();
 
-            boost::json::object collections;
-            for (const auto &module: modules) {
-                const auto &spec = specs.at(module);
-                for (const auto &collectionName: spec.topLevel) {
-                    collections[collectionName] = ExportCollection(Database::Database::instance().collection(collectionName));
-                }
-                if (full) {
-                    for (const auto &collectionName: spec.fullOnly) {
-                        collections[collectionName] = ExportCollection(Database::Database::instance().collection(collectionName));
+            // Derived first, so a bad salt fails before anything has been read or written.
+            std::optional<std::pair<std::string, std::string>> archive;
+            if (!passphrase.empty()) archive = archiveKey(passphrase, salt);
+
+            // {"name":[...],...} - the value of "collections".
+            const auto writeCollections = [&](std::ostream &to) {
+                to << '{';
+                bool first = true;
+                const auto one = [&](const std::string &collectionName) {
+                    if (!first) to << ',';
+                    first = false;
+                    to << boost::json::serialize(boost::json::value(collectionName)) << ':';
+                    WriteCollection(Database::Database::instance().collection(collectionName), to);
+                };
+                for (const auto &module: modules) {
+                    const auto &spec = specs.at(module);
+                    for (const auto &collectionName: spec.topLevel) one(collectionName);
+                    if (full) {
+                        for (const auto &collectionName: spec.fullOnly) one(collectionName);
                     }
                 }
-            }
+                to << '}';
+            };
 
             boost::json::array modulesJson(modules.begin(), modules.end());
             const auto exportedAt = Core::DateTimeUtils::ToISO8601(std::chrono::system_clock::now());
 
-            if (!passphrase.empty()) {
-                auto [saltBase64, key] = archiveKey(passphrase, salt);
+            if (archive) {
+                auto &[saltBase64, key] = *archive;
 
                 // What is sealed is the same object an unencrypted export answers with, so opening
                 // a frame yields a file the plain import path already understands.
-                const auto payload = boost::json::serialize(boost::json::object{{"collections", std::move(collections)}});
-                const auto sealed = Core::CryptoUtils::AesGcmEncrypt(key, payload);
+                std::ostringstream payload;
+                payload << R"({"collections":)";
+                writeCollections(payload);
+                payload << '}';
+                const auto sealed = Core::CryptoUtils::AesGcmEncrypt(key, payload.str());
 
                 // The envelope around it stays readable: which modules, when, and how to derive the
                 // key. Enough to tell what a file is, and to ask for the right passphrase, without
                 // giving away a byte of what it holds.
-                return boost::json::object{
+                out << boost::json::serialize(boost::json::object{
                         {"encrypted", true},
                         {"modules", std::move(modulesJson)},
                         {"full", full},
@@ -170,15 +196,16 @@ namespace Euclid::EMM {
                         {"salt", saltBase64},
                         {"cipher", kCipherName},
                         {"data", Core::CryptoUtils::Base64Encode(sealed)},
-                };
+                });
+                return;
             }
 
-            return boost::json::object{
-                    {"modules", std::move(modulesJson)},
-                    {"full", full},
-                    {"exportedAt", exportedAt},
-                    {"collections", std::move(collections)},
-            };
+            out << R"({"modules":)" << boost::json::serialize(modulesJson)
+                << R"(,"full":)" << (full ? "true" : "false")
+                << R"(,"exportedAt":)" << boost::json::serialize(boost::json::value(exportedAt))
+                << R"(,"collections":)";
+            writeCollections(out);
+            out << '}';
         }
 
         // Collection name -> owning module, derived from moduleExportSpecs() (the single source of
@@ -370,7 +397,9 @@ namespace Euclid::EMM {
         }
 
         try {
-            return EmmServer::JsonResponse(req, status::ok, boost::json::serialize(buildExport(modules, full, passphrase, salt)));
+            std::ostringstream body;
+            writeExport(body, modules, full, passphrase, salt);
+            return EmmServer::JsonResponse(req, status::ok, body.str());
         } catch (const std::exception &e) {
             return EmmServer::ErrorResponse(req, status::bad_request, std::string("cannot derive a key: ") + e.what());
         }
@@ -795,9 +824,15 @@ namespace Euclid::EMM {
             RestartModule,
             Export,
             Import,
-            SetLogLevel
+            SetLogLevel,
+            ListBackups,
+            CreateBackup
         };
     }
+
+    // Defined after the backup section, whose defaults it reports.
+    static response<string_body> handleListBackups(const request<string_body> &req);
+    static response<string_body> handleCreateBackup(const request<string_body> &req);
 
     static Command commandFromString(const std::string &action) {
         if (action == "list-modules") return Command::ListModules;
@@ -809,6 +844,8 @@ namespace Euclid::EMM {
         if (action == "restart-module") return Command::RestartModule;
         if (action == "export") return Command::Export;
         if (action == "import") return Command::Import;
+        if (action == "list-backups") return Command::ListBackups;
+        if (action == "create-backup") return Command::CreateBackup;
         return Command::Unknown;
     }
 
@@ -849,6 +886,12 @@ namespace Euclid::EMM {
             case Command::Import:
                 return handleImport(req);
 
+            case Command::ListBackups:
+                return handleListBackups(req);
+
+            case Command::CreateBackup:
+                return handleCreateBackup(req);
+
             case Command::Unknown:
             default:
                 log_warning << "Unknown action: " << action;
@@ -884,6 +927,13 @@ namespace Euclid::EMM {
 #endif
         constexpr long kDefaultBackupKeep = 7;
 
+        // Whether a backup takes the bulk data too - queue and topic messages, object records -
+        // or only the configuration around it. Off by default: that data is millions of documents
+        // on a busy installation (7 M queue messages, 11 M object records on the dev one), mostly
+        // in flight, and an object record restored without the file under data/esm it describes
+        // restores nothing. The configuration is what nobody can recreate.
+        constexpr bool kDefaultBackupFull = false;
+
         // Which modules a backup covers, and whether its key material comes with it.
         //
         // Everything, when a passphrase is configured. Without one, everything except ekm: an ekm
@@ -891,9 +941,13 @@ namespace Euclid::EMM {
         // writing one unencrypted every night would leave the installation's keys lying in a file
         // on the same host as the data they protect. Refusing to back ekm up is the lesser harm,
         // and it is said out loud rather than left to be discovered at restore time.
+        //
+        // Never emo: its collection is the metric history (3 M samples), not configuration, and it
+        // is rebuilt by simply running. "export" can still take it on request.
         std::vector<std::string> backupModules(const bool haveKey) {
             std::vector<std::string> modules;
             for (const auto &name: moduleExportSpecs() | std::views::keys) {
+                if (name == "emo") continue;
                 if (!haveKey && name == "ekm") continue;
                 modules.emplace_back(name);
             }
@@ -931,11 +985,38 @@ namespace Euclid::EMM {
             }
         }
 
-        // One backup: export everything, write it, zip it, prune what it replaced.
+        // Whether a backup is being written right now - the nightly one or one asked for with
+        // create-backup. One at a time: two would read the same collections twice over and write
+        // the same directory, and a second one asked for while the first runs adds nothing to it.
+        std::atomic_bool gBackupRunning{false};
+
+        // Holds gBackupRunning for as long as it lives, if it was free.
+        class BackupSlot {
+        public:
+            BackupSlot() : _held(!gBackupRunning.exchange(true)) {}
+            ~BackupSlot() { if (_held) gBackupRunning = false; }
+            BackupSlot(const BackupSlot &) = delete;
+            BackupSlot &operator=(const BackupSlot &) = delete;
+            [[nodiscard]] bool held() const { return _held; }
+        private:
+            bool _held;
+        };
+
+        // The UTC time a backup's files are named with, ':' made '-' so it is a valid file name.
+        std::string backupStamp() {
+            auto stamp = Core::DateTimeUtils::ToISO8601(std::chrono::system_clock::now()).substr(0, 19);
+            std::ranges::replace(stamp, ':', '-');
+            return stamp;
+        }
+
+        // One backup: export the configuration (and the bulk data, if backup.full), write it, zip
+        // it, prune what it replaced. `safeStamp` names its files (see backupStamp); `fullOverride`
+        // replaces backup.full for this one run.
         //
-        // Runs on the scheduler's own thread, so nothing here may throw - an exception escaping a
-        // scheduled task takes the thread and every other task with it.
-        void runBackup() {
+        // Runs on the scheduler's own thread, or create-backup's, so nothing here may throw - an
+        // exception escaping a scheduled task takes the thread and every other task with it. The
+        // caller holds a BackupSlot.
+        void runBackup(const std::string &safeStamp, const std::optional<bool> fullOverride) {
 
             try {
                 const auto &configuration = Core::Configuration::instance();
@@ -953,17 +1034,22 @@ namespace Euclid::EMM {
                 }
 
                 const auto modules = backupModules(!passphrase.empty());
+                auto full = fullOverride.value_or(configuration.getOr<bool>("euclid.modules.emm.backup.full", kDefaultBackupFull));
+                if (full && !passphrase.empty()) {
+                    // An encrypted export is sealed in one piece, in memory (see writeExport), and
+                    // the bulk data is what does not fit there. Configuration only, then - a
+                    // smaller backup than asked for beats the one that takes EMM down at 03:00.
+                    log_warning << "EMM backup: euclid.modules.emm.backup.full is ignored when a passphrase is set "
+                                << "- an encrypted backup is built in memory; backing up configuration only";
+                    full = false;
+                }
                 const auto started = std::chrono::steady_clock::now();
-                const auto document = buildExport(modules, true, passphrase, "");
 
                 // Written next to the archive rather than in /tmp, so a backup never half-succeeds
                 // because two filesystems disagree about space - and named .tmp so a reader can
                 // tell an archive being built from one that is finished.
-                const auto stamp = Core::DateTimeUtils::ToISO8601(std::chrono::system_clock::now()).substr(0, 19);
-                auto safeStamp = stamp;
-                std::ranges::replace(safeStamp, ':', '-');
                 const auto archive = directory / (kBackupPrefix + safeStamp + kBackupSuffix);
-                const auto payload = directory / (kBackupPrefix + safeStamp + ".json");
+                const auto payload = directory / (kBackupPrefix + safeStamp + kBackupPayloadSuffix);
 
                 {
                     std::ofstream out(payload, std::ios::binary | std::ios::trunc);
@@ -971,7 +1057,18 @@ namespace Euclid::EMM {
                         log_error << "EMM backup could not write its export, path: " << payload.string();
                         return;
                     }
-                    out << boost::json::serialize(document);
+                    // Streamed straight into the file, so a backup costs a document's worth of
+                    // memory rather than the database's. Should it fail part-way, the half-written
+                    // payload goes with it - retention only ever removes finished archives.
+                    try {
+                        writeExport(out, modules, full, passphrase, "");
+                        out.flush();
+                        if (!out) throw std::runtime_error("write failed (disk full?)");
+                    } catch (...) {
+                        out.close();
+                        std::filesystem::remove(payload, ec);
+                        throw;
+                    }
                 }
 
                 Core::ZipUtils::Zip(payload.string(), archive.string());
@@ -982,6 +1079,7 @@ namespace Euclid::EMM {
                         std::chrono::steady_clock::now() - started);
                 log_info << "EMM backup written, path: " << archive.string()
                          << ", modules: " << modules.size()
+                         << ", full: " << (full ? "yes" : "no")
                          << ", encrypted: " << (passphrase.empty() ? "no" : "yes")
                          << ", bytes: " << (ec ? 0 : size)
                          << ", duration: " << elapsed.count() << "ms";
@@ -997,7 +1095,137 @@ namespace Euclid::EMM {
             }
         }
 
+        // The nightly run. Skipped, and said so, if a backup asked for with create-backup is still
+        // being written - it is the same backup, only a little earlier.
+        void runScheduledBackup() {
+            const BackupSlot slot;
+            if (!slot.held()) {
+                log_warning << "EMM backup: the scheduled backup is skipped, another backup is still being written";
+                return;
+            }
+            runBackup(backupStamp(), std::nullopt);
+        }
+
     }// namespace
+
+    // A backup now, rather than at the next scheduled time - before an upgrade, say, or to check
+    // that the backup works at all.
+    //
+    // Answered at once, not when the backup is done: with backup.full it reads every message and
+    // object record there is, which takes longer than any client should hold a request open. The
+    // answer names the archive it will write; list-backups shows it incomplete while it is
+    // written, and complete once it is. 409 if a backup is already running.
+    //
+    // "full" (optional) replaces backup.full for this one backup, and is dropped the same way
+    // when a passphrase is set. The rest - directory, passphrase, retention - is the configured
+    // backup's, so what this writes is exactly what the nightly run would.
+    static response<string_body> handleCreateBackup(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "create-backup");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        std::optional<bool> full;
+        if (!req.body().empty()) {
+            boost::system::error_code parseEc;
+            const auto jv = boost::json::parse(req.body(), parseEc);
+            if (parseEc || !jv.is_object()) {
+                return EmmServer::ErrorResponse(req, status::bad_request, "request body must be a JSON object");
+            }
+            if (const auto *value = jv.as_object().if_contains("full")) {
+                if (!value->is_bool()) {
+                    return EmmServer::ErrorResponse(req, status::bad_request, R"("full" must be true or false)");
+                }
+                full = value->as_bool();
+            }
+        }
+
+        auto slot = std::make_shared<BackupSlot>();
+        if (!slot->held()) {
+            return EmmServer::ErrorResponse(req, status::conflict, "a backup is already being written; see list-backups");
+        }
+
+        const auto &configuration = Core::Configuration::instance();
+        const auto directory = std::filesystem::path(
+                configuration.getOr<std::string>("euclid.modules.emm.backup.directory", kDefaultBackupDirectory));
+        const auto passphrase = configuration.getOr<std::string>("euclid.modules.emm.backup.passphrase", "");
+        const bool effectiveFull = passphrase.empty() &&
+                                   full.value_or(configuration.getOr<bool>("euclid.modules.emm.backup.full", kDefaultBackupFull));
+        const auto stamp = backupStamp();
+        const auto name = kBackupPrefix + stamp + kBackupSuffix;
+
+        log_info << "EMM backup requested, user: " << auth.user->userId << ", archive: " << name;
+
+        // Detached: the slot travels with the thread and is let go when the backup ends, however
+        // it ends. Nothing waits for it - a process shutting down mid-backup leaves the payload,
+        // which list-backups then shows as incomplete.
+        try {
+            std::thread([slot, stamp, full] { runBackup(stamp, full); }).detach();
+        } catch (const std::system_error &e) {
+            return EmmServer::ErrorResponse(req, status::internal_server_error, std::string("cannot start the backup: ") + e.what());
+        }
+
+        return EmmServer::JsonResponse(req, status::accepted, boost::json::serialize(boost::json::object{
+                                                                      {"name", name},
+                                                                      {"path", (directory / name).string()},
+                                                                      {"startedAt", BackupStartedAt(name)},
+                                                                      {"full", effectiveFull},
+                                                                      {"encrypted", !passphrase.empty()},
+                                                              }));
+    }
+
+    // What the nightly backup has written, and how it is set up to write the next one.
+    //
+    // Answered from the directory rather than from a record the backup keeps, because the
+    // directory is what a restore will have to work with - and a backup killed part-way writes no
+    // record, only the payload it never zipped, which is listed here as incomplete.
+    //
+    // Note that the directory is this EMM process's own: on an installation whose manager runs on
+    // several hosts it lists the backups on the host EMM runs on.
+    static response<string_body> handleListBackups(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-backups");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        const auto &configuration = Core::Configuration::instance();
+        const auto directory = std::filesystem::path(
+                configuration.getOr<std::string>("euclid.modules.emm.backup.directory", kDefaultBackupDirectory));
+        const auto passphrase = configuration.getOr<std::string>("euclid.modules.emm.backup.passphrase", "");
+
+        std::error_code ec;
+        const auto files = ListBackups(directory, ec);
+        if (ec) {
+            return EmmServer::ErrorResponse(req, status::internal_server_error,
+                                            "cannot read the backup directory " + directory.string() + ": " + ec.message());
+        }
+
+        boost::json::array backups;
+        for (const auto &file: files) {
+            backups.push_back(boost::json::object{
+                    {"name", file.name},
+                    {"path", (directory / file.name).string()},
+                    {"startedAt", file.startedAt},
+                    {"modified", Core::DateTimeUtils::ToISO8601(file.modified)},
+                    {"size", file.size},
+                    {"complete", file.complete},
+            });
+        }
+
+        return EmmServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"directory", directory.string()},
+                                                                {"enabled", configuration.getOr<bool>("euclid.modules.emm.backup.enabled", true)},
+                                                                {"schedule", configuration.getOr<std::string>("euclid.modules.emm.backup.schedule", kDefaultBackupSchedule)},
+                                                                {"keep", configuration.getOr<long>("euclid.modules.emm.backup.keep", kDefaultBackupKeep)},
+                                                                // What the next one will take: full is dropped when a
+                                                                // passphrase is set (see runBackup).
+                                                                {"full", passphrase.empty() && configuration.getOr<bool>("euclid.modules.emm.backup.full", kDefaultBackupFull)},
+                                                                {"encrypted", !passphrase.empty()},
+                                                                {"backups", std::move(backups)},
+                                                        }));
+    }
 
     EmmServer::EmmServer(std::string socketPath, const int threads) : HttpActionServer("EMM", std::move(socketPath), threads) {
 
@@ -1020,7 +1248,7 @@ namespace Euclid::EMM {
         auto &scheduler = Core::Scheduler::instance();
         scheduler.Start();
         try {
-            _backupTaskId = scheduler.ScheduleCron(kBackupTaskName, runBackup, schedule);
+            _backupTaskId = scheduler.ScheduleCron(kBackupTaskName, runScheduledBackup, schedule);
             log_info << "EMM backup scheduled, cron: '" << schedule << "' (UTC), directory: " << configuration.getOr<std::string>("euclid.modules.emm.backup.directory", kDefaultBackupDirectory) << ", keep: " << configuration.getOr<long>("euclid.modules.emm.backup.keep", kDefaultBackupKeep);
         } catch (const std::exception &e) {
             // A cron expression nobody can parse is a backup that silently never runs, which is
