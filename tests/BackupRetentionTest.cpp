@@ -6,6 +6,8 @@
 #include <boost/test/unit_test.hpp>
 
 // C++ includes
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -114,4 +116,76 @@ BOOST_AUTO_TEST_CASE(WhatCountsAsOneOfOurArchives) {
     BOOST_TEST(!IsBackupArchive("backup.zip"));
     BOOST_TEST(!IsBackupArchive(""));
     BOOST_TEST(!IsBackupArchive("euclid-backup-"));
+}
+
+// ── list-backups ─────────────────────────────────────────────────────────────
+
+BOOST_AUTO_TEST_CASE(TheStartTimeIsReadFromTheName) {
+
+    using Euclid::EMM::BackupStartedAt;
+
+    BOOST_TEST(BackupStartedAt("euclid-backup-2026-10-08T01-00-00.zip") == "2026-10-08T01:00:00Z");
+    BOOST_TEST(BackupStartedAt("euclid-backup-2026-10-08T01-00-00.json") == "2026-10-08T01:00:00Z");
+    BOOST_TEST(BackupStartedAt("euclid-backup-.zip").empty());
+    BOOST_TEST(BackupStartedAt("euclid-backup-2026-10-08 01-00-00.zip").empty());
+    BOOST_TEST(BackupStartedAt("euclid-backup-2026-1x-08T01-00-00.zip").empty());
+    BOOST_TEST(BackupStartedAt("notes-2026-10-08T01-00-00.zip").empty());
+}
+
+namespace {
+
+    // A directory of its own, removed again however the test ends.
+    struct ScratchDirectory {
+        std::filesystem::path path;
+
+        ScratchDirectory() : path(std::filesystem::temp_directory_path() /
+                                  ("euclid-list-backups-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()))) {
+            std::filesystem::create_directories(path);
+        }
+
+        ~ScratchDirectory() {
+            std::error_code ec;
+            std::filesystem::remove_all(path, ec);
+        }
+
+        void write(const std::string &name, const std::string &content) const {
+            std::ofstream(path / name, std::ios::binary) << content;
+        }
+    };
+
+}// namespace
+
+// What a night the backup died on looks like: the older archives, and the export it never zipped.
+// That one is listed - incomplete - because it is the only trace such a night leaves.
+BOOST_AUTO_TEST_CASE(BackupsAreListedNewestFirstIncludingOneThatNeverFinished) {
+
+    const ScratchDirectory dir;
+    dir.write("euclid-backup-2026-10-07T01-00-00.zip", "zip7");
+    dir.write("euclid-backup-2026-10-08T01-00-00.zip", "zip8");
+    dir.write("euclid-backup-2026-10-09T01-00-00.json", "{\"half\":");
+    dir.write("README.txt", "not a backup");
+    std::filesystem::create_directory(dir.path / "euclid-backup-2026-10-10T01-00-00.zip");
+
+    std::error_code ec;
+    const auto backups = Euclid::EMM::ListBackups(dir.path, ec);
+
+    BOOST_TEST(!ec);
+    BOOST_REQUIRE(backups.size() == 3U);
+    BOOST_TEST(backups[0].name == "euclid-backup-2026-10-09T01-00-00.json");
+    BOOST_TEST(!backups[0].complete);
+    BOOST_TEST(backups[0].startedAt == "2026-10-09T01:00:00Z");
+    BOOST_TEST(backups[1].name == "euclid-backup-2026-10-08T01-00-00.zip");
+    BOOST_TEST(backups[1].complete);
+    BOOST_TEST(backups[1].size == 4U);
+    BOOST_TEST(backups[2].name == "euclid-backup-2026-10-07T01-00-00.zip");
+}
+
+// No backup has run yet: nothing to list, and nothing wrong.
+BOOST_AUTO_TEST_CASE(AMissingDirectoryIsAnEmptyListNotAnError) {
+
+    std::error_code ec;
+    const auto backups = Euclid::EMM::ListBackups(std::filesystem::temp_directory_path() / "euclid-no-such-backup-directory", ec);
+
+    BOOST_TEST(!ec);
+    BOOST_TEST(backups.empty());
 }

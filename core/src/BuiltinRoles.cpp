@@ -225,6 +225,14 @@ namespace Euclid::Core {
                                 // grows however much work is waiting - which is what happened when
                                 // the action was added and this was not.
                                 "eap:report-load",
+                                // Asking before calling an outside site, so that all instances
+                                // of all applications together stay within what the site
+                                // tolerates - see EgressPermits.h. Without these an application
+                                // that asks is refused, and one that does not ask is not limited
+                                // at all, which is the problem they exist to solve.
+                                "eap:acquire-egress-permit",
+                                "eap:release-egress-permit",
+                                "eap:report-egress-throttled",
                                 // How deep the queues it polls are, which is the other figure in
                                 // that report and the only one that can grow a listener's pool.
                                 // Utilisation cannot: it is measured against the sum of every

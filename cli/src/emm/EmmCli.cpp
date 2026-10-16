@@ -113,8 +113,10 @@ namespace Euclid::CLI {
      */
     const std::vector<std::pair<std::string, std::string> > &EmmCli::Actions() {
         static const std::vector<std::pair<std::string, std::string> > kActions = {
+                {"create-backup", "Starts a backup now, as the nightly one would write it"},
                 {"export", "Exports a module's MongoDB collections to a JSON file"},
                 {"import", "Imports a JSON file written by \"emm export\" back into MongoDB"},
+                {"list-backups", "Lists the nightly backups EMM has written"},
                 {"list-modules", "List modules known to the manager"},
                 {"restart-module", "Restarts a module's instances, one at a time"},
                 {"set-instances", "Sets a module's minimum and maximum instance count"},
@@ -146,6 +148,12 @@ namespace Euclid::CLI {
 
         if (action == "list-modules") {
             return listModules(args);
+        }
+        if (action == "list-backups") {
+            return listBackups(args);
+        }
+        if (action == "create-backup") {
+            return createBackup(args);
         }
         if (action == "set-instances") {
             return setInstances(args);
@@ -189,6 +197,85 @@ namespace Euclid::CLI {
             const HttpResponse response = client.Post("emm", "list-modules", boost::json::object{});
             if (!response.IsSuccess()) {
                 std::cerr << "error: list-modules failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EmmCli::listBackups(const std::vector<std::string> &args) const {
+        const po::options_description desc("list backups options");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("emm", "list-backups", "",
+                                   "Lists the backups EMM has written to its backup directory, newest first, along with "
+                                   "how the nightly backup is set up (directory, schedule, how many are kept, whether it "
+                                   "takes the bulk data and whether it is encrypted). An entry with \"complete\": false "
+                                   "is an export that was never zipped: a backup running right now, or one that died "
+                                   "part-way. The directory is the one on the host EMM runs on.",
+                                   desc);
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("emm", "list-backups", boost::json::object{});
+            if (!response.IsSuccess()) {
+                std::cerr << "error: list-backups failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EmmCli::createBackup(const std::vector<std::string> &args) const {
+        po::options_description desc("create backup options");
+        desc.add_options()
+                ("full", "also back up the bulk data - queue and topic messages, object records - for this backup")
+                ("config-only", "back up the configuration only for this backup, whatever backup.full says");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("emm", "create-backup", "[--full | --config-only]",
+                                   "Starts a backup now instead of at the next scheduled time - written to the "
+                                   "configured backup directory, named, encrypted and pruned exactly as the nightly "
+                                   "one is. Returns as soon as the backup has started, with the name of the archive it "
+                                   "will write; \"emm list-backups\" shows it as incomplete while it is written and "
+                                   "complete once it is done. Without --full or --config-only, euclid.modules.emm.backup.full "
+                                   "decides what it takes. --full is ignored when a backup passphrase is set: an "
+                                   "encrypted backup is built in memory, and the bulk data is what does not fit. "
+                                   "Fails if a backup is already being written.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+        if (vm.contains("full") && vm.contains("config-only")) {
+            std::cerr << "error: --full and --config-only cannot be given together\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        boost::json::object request;
+        if (vm.contains("full")) request["full"] = true;
+        if (vm.contains("config-only")) request["full"] = false;
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("emm", "create-backup", request);
+            if (!response.IsSuccess()) {
+                std::cerr << "error: create-backup failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);

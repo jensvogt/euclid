@@ -907,6 +907,26 @@ target_link_libraries(${BACKUP_RETENTION_BINARY} PRIVATE Boost::unit_test_framew
 
 add_test(NAME ${BACKUP_RETENTION_BINARY} COMMAND ${BACKUP_RETENTION_BINARY})
 
+set(EGRESS_PERMITS_BINARY euclid-egress-permits-tests)
+
+add_executable(${EGRESS_PERMITS_BINARY} EgressPermitsTest.cpp)
+set_target_properties(${EGRESS_PERMITS_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${EGRESS_PERMITS_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/eap/include)
+target_link_libraries(${EGRESS_PERMITS_BINARY} PRIVATE Boost::unit_test_framework)
+
+add_test(NAME ${EGRESS_PERMITS_BINARY} COMMAND ${EGRESS_PERMITS_BINARY})
+
+set(EGRESS_STORE_BINARY euclid-egress-store-tests)
+
+add_executable(${EGRESS_STORE_BINARY} EgressStoreTest.cpp)
+set_target_properties(${EGRESS_STORE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${EGRESS_STORE_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/eap/include)
+target_link_libraries(${EGRESS_STORE_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${EGRESS_STORE_BINARY} COMMAND ${EGRESS_STORE_BINARY})
+
 set(SYSTEM_LOAD_BINARY euclid-system-load-tests)
 
 add_executable(${SYSTEM_LOAD_BINARY} SystemLoadTest.cpp)

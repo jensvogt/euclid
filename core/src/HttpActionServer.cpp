@@ -351,6 +351,11 @@ namespace Euclid::Core {
         // that cannot report fails on that same timer.
         constexpr std::array kMachineryActions{
                 std::string_view{"report-load"},
+                // One pair for every request an application makes to an outside site - a
+                // downloader fetching ten thousand files writes twenty thousand of them, and the
+                // site's limits, not who asked, are what anyone wants to know afterwards.
+                std::string_view{"acquire-egress-permit"},
+                std::string_view{"release-egress-permit"},
         };
 
     }// namespace

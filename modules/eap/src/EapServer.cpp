@@ -17,6 +17,14 @@
 
 // Euclid includes
 #include <EapServer.h>
+#include <EgressPermits.h>
+#include <EgressStore.h>
+#include <euclid/core/UuidUtils.h>
+#include <euclid/database/Database.h>
+#include <bsoncxx/builder/basic/array.hpp>
+#include <bsoncxx/builder/basic/document.hpp>
+#include <bsoncxx/builder/basic/kvp.hpp>
+#include <mongocxx/options/index.hpp>
 #include <euclid/core/ApplicationLaunch.h>
 #include <euclid/core/Configuration.h>
 #include <euclid/core/CronExpression.h>
@@ -2881,6 +2889,240 @@ namespace Euclid::EAP {
                                                                                     + Database::Entity::EAP::RuntimeName(*application)}}));
     }
 
+    // ── Egress permits ───────────────────────────────────────────────────────
+    //
+    // How often euclid's applications may call one outside site, all of them together - see
+    // EgressPermits.h for why the limit has to live here rather than in each application, and for
+    // the decisions themselves, and EgressStore.h for how every EAP instance shares one state.
+
+    namespace {
+
+        using Egress::StoredSite;
+        using Egress::defaultEgressLimits;
+        using Egress::egressCollection;
+        using Egress::updateSite;
+        using Egress::parseSite;
+        using Egress::isoOrEmpty;
+
+        constexpr long kDefaultEgressLeaseSeconds = 900;
+        constexpr long kMaxEgressLeaseSeconds = 6 * 3600;
+
+        std::string siteField(const boost::json::object &obj) {
+            return Egress::NormalizeSite(stringField(obj, "site"));
+        }
+
+        boost::json::object limitsJson(const Egress::Limits &l) {
+            return {{"requestsPerSecond", l.requestsPerSecond}, {"burst", l.burst}, {"concurrent", l.concurrent}};
+        }
+
+    }// namespace
+
+    // Asks for one request's worth of a site: a token from its bucket and a slot among the requests
+    // to it in flight. Never waits - an EAP thread held for every application waiting on a slow
+    // site would be an EAP that answers nothing else - but says how long to wait before asking
+    // again. Both answers are 200: being told to wait is the action working.
+    static response<string_body> handleAcquireEgressPermit(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "acquire-egress-permit");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EapServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+        const auto &obj = jv.as_object();
+
+        const auto site = siteField(obj);
+        if (site.empty()) return EapServer::ErrorResponse(req, status::bad_request, "site is required: the host name to be called, e.g. downloads.example.com");
+
+        const auto lease = std::chrono::seconds{std::clamp(longField(obj, "leaseSeconds", kDefaultEgressLeaseSeconds), 1L, kMaxEgressLeaseSeconds)};
+        const auto permitId = Core::UuidUtils::CreateRandomUuid();
+
+        Egress::Decision decision;
+        Egress::Limits limits;
+        const bool written = updateSite(site, [&](StoredSite &stored, const Egress::Clock::time_point now) {
+            limits = stored.effectiveLimits();
+            decision = Egress::Acquire(stored.state, limits, now, permitId, lease);
+            return true;// a refusal still refreshes the bucket and drops expired slots
+        });
+        if (!written) {
+            decision = {.granted = false, .refusal = Egress::Refusal::Concurrency, .retryAfter = std::chrono::milliseconds{100}, .permit = std::nullopt};
+        }
+
+        boost::json::object answer{{"site", site}, {"granted", decision.granted}, {"limits", limitsJson(limits)}};
+        if (decision.granted) {
+            answer["permitId"] = decision.permit->id;
+            answer["expiresAt"] = Core::DateTimeUtils::ToISO8601(decision.permit->expiresAt);
+        } else {
+            answer["reason"] = Egress::RefusalToString(decision.refusal);
+            answer["retryAfterMs"] = decision.retryAfter.count();
+        }
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(answer));
+    }
+
+    // Gives a slot back. Answered the same whether it was still held or had already expired: the
+    // slot is free either way, and a client releasing late has nothing to do about it.
+    static response<string_body> handleReleaseEgressPermit(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "release-egress-permit");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EapServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+        const auto &obj = jv.as_object();
+
+        const auto site = siteField(obj);
+        const auto permitId = stringField(obj, "permitId");
+        if (site.empty() || permitId.empty()) return EapServer::ErrorResponse(req, status::bad_request, "site and permitId are required");
+
+        bool released = false;
+        const bool written = updateSite(site, [&](StoredSite &stored, const Egress::Clock::time_point) {
+            if (stored.version < 0) return false;
+            released = Egress::Release(stored.state, permitId);
+            return released;
+        });
+        if (!written) return EapServer::ErrorResponse(req, status::service_unavailable, "egress state is busy, try again");
+
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{{"site", site}, {"released", released}}));
+    }
+
+    // The site refused a request - 429, 503 - and said, or implied, how long to stay away. Every
+    // application calling it stays away for that long, not just the one that was told.
+    static response<string_body> handleReportEgressThrottled(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "report-egress-throttled");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = EapServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+        const auto &obj = jv.as_object();
+
+        const auto site = siteField(obj);
+        if (site.empty()) return EapServer::ErrorResponse(req, status::bad_request, "site is required");
+        const auto retryAfter = std::chrono::seconds{std::max(1L, longField(obj, "retryAfterSeconds", 60))};
+
+        Egress::Clock::time_point until{};
+        const bool written = updateSite(site, [&](StoredSite &stored, const Egress::Clock::time_point now) {
+            until = Egress::Block(stored.state, now, retryAfter);
+            return true;
+        });
+        if (!written) return EapServer::ErrorResponse(req, status::service_unavailable, "egress state is busy, try again");
+
+        log_warning << "EAP egress: site " << site << " is throttling requests, blocked until "
+                    << Core::DateTimeUtils::ToISO8601(until) << ", reported by: " << auth.user->userId;
+
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"site", site}, {"blockedUntil", Core::DateTimeUtils::ToISO8601(until)}}));
+    }
+
+    // Sets what one site is allowed, over euclid.modules.eap.egress.default. Persisted with the
+    // site, so it applies to every EAP instance at once and survives a restart.
+    static response<string_body> handleSetEgressLimit(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-egress-limit");
+
+        AuthResult auth;
+        if (const auto denied = requireAdmin(req, auth)) return *denied;
+
+        boost::json::value jv;
+        if (const auto err = EapServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+        const auto &obj = jv.as_object();
+
+        const auto site = siteField(obj);
+        if (site.empty()) return EapServer::ErrorResponse(req, status::bad_request, "site is required");
+        if (!obj.contains("requestsPerSecond") && !obj.contains("burst") && !obj.contains("concurrent")) {
+            return EapServer::ErrorResponse(req, status::bad_request, "at least one of requestsPerSecond, burst or concurrent is required");
+        }
+
+        Egress::Limits limits;
+        const bool written = updateSite(site, [&](StoredSite &stored, const Egress::Clock::time_point) {
+            limits = stored.effectiveLimits();
+            if (obj.contains("requestsPerSecond")) limits.requestsPerSecond = doubleField(obj, "requestsPerSecond");
+            if (obj.contains("burst")) limits.burst = std::max(1.0, doubleField(obj, "burst"));
+            if (obj.contains("concurrent")) limits.concurrent = longField(obj, "concurrent");
+            stored.limits = limits;
+            return true;
+        });
+        if (!written) return EapServer::ErrorResponse(req, status::service_unavailable, "egress state is busy, try again");
+
+        log_info << "EAP egress limit set, site: " << site << ", requestsPerSecond: " << limits.requestsPerSecond
+                 << ", burst: " << limits.burst << ", concurrent: " << limits.concurrent << ", user: " << auth.user->userId;
+
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{{"site", site}, {"limits", limitsJson(limits)}}));
+    }
+
+    // Takes a site back to the default limits. The site's state - tokens, slots, a block - stays:
+    // forgetting the slots in flight would let the site be overrun the moment this is called.
+    static response<string_body> handleDeleteEgressLimit(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-egress-limit");
+
+        AuthResult auth;
+        if (const auto denied = requireAdmin(req, auth)) return *denied;
+
+        boost::json::value jv;
+        if (const auto err = EapServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+
+        const auto site = siteField(jv.as_object());
+        if (site.empty()) return EapServer::ErrorResponse(req, status::bad_request, "site is required");
+
+        bool existed = false;
+        const bool written = updateSite(site, [&](StoredSite &stored, const Egress::Clock::time_point) {
+            existed = stored.limits.has_value();
+            stored.limits.reset();
+            return existed;
+        });
+        if (!written) return EapServer::ErrorResponse(req, status::service_unavailable, "egress state is busy, try again");
+        if (!existed) return EapServer::ErrorResponse(req, status::not_found, "no limit is set for site " + site);
+
+        log_info << "EAP egress limit removed, site: " << site << ", user: " << auth.user->userId;
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"site", site}, {"limits", limitsJson(defaultEgressLimits())}}));
+    }
+
+    // Every site euclid has called through a permit, what it is allowed and how it stands now.
+    static response<string_body> handleListEgressSites(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-egress-sites");
+
+        AuthResult auth;
+        if (const auto denied = requireAdmin(req, auth)) return *denied;
+
+        const auto now = Egress::Clock::now();
+        boost::json::array sites;
+        for (auto cursor = egressCollection().find({}); const auto &doc: cursor) {
+            auto stored = parseSite(doc);
+            const auto limits = stored.effectiveLimits();
+            // Shown as of now, not as of the last write: a bucket nobody asked of for an hour is
+            // full, and slots whose lease ran out are free.
+            Egress::Refresh(stored.state, limits, now);
+            sites.push_back(boost::json::object{
+                    {"site", stored.site},
+                    {"limits", limitsJson(limits)},
+                    {"limitsSet", stored.limits.has_value()},
+                    {"tokens", stored.state.tokens},
+                    {"inFlight", static_cast<long>(stored.state.permits.size())},
+                    {"blockedUntil", stored.state.blockedUntil > now ? Core::DateTimeUtils::ToISO8601(stored.state.blockedUntil) : std::string()},
+                    {"lastUsed", isoOrEmpty(stored.modified)},
+            });
+        }
+        std::ranges::sort(sites, [](const boost::json::value &a, const boost::json::value &b) {
+            return a.at("site").as_string() < b.at("site").as_string();
+        });
+
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"defaultLimits", limitsJson(defaultEgressLimits())}, {"sites", std::move(sites)}}));
+    }
+
     // ── Request dispatcher ───────────────────────────────────────────────────
 
     static response<string_body> dispatch(const request<string_body> &req) {
@@ -2914,6 +3156,12 @@ namespace Euclid::EAP {
         if (action == "get-node") return handleGetNode(req);
         if (action == "delete-node") return handleDeleteNode(req);
         if (action == "drain-node") return handleDrainNode(req);
+        if (action == "acquire-egress-permit") return handleAcquireEgressPermit(req);
+        if (action == "release-egress-permit") return handleReleaseEgressPermit(req);
+        if (action == "report-egress-throttled") return handleReportEgressThrottled(req);
+        if (action == "set-egress-limit") return handleSetEgressLimit(req);
+        if (action == "delete-egress-limit") return handleDeleteEgressLimit(req);
+        if (action == "list-egress-sites") return handleListEgressSites(req);
         if (action == "get-metrics") return EapServer::MetricsResponse(req);
 
         return EapServer::ErrorResponse(req, status::not_found, "Action not implemented: " + action);

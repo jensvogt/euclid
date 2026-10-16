@@ -204,6 +204,44 @@ namespace Euclid::CLI {
         int listNodes(const std::vector<std::string> &args) const;
 
         /**
+         * @brief Lists the outside sites applications call through egress permits, with their
+         * limits and how each stands now.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int listEgressSites(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Sets how fast all applications together may call one outside site.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int setEgressLimit(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Returns one outside site to the default egress limits.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int deleteEgressLimit(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Posts one egress action and prints its answer.
+         *
+         * @param action  the eap action
+         * @param request its body
+         * @return ok
+         */
+        [[nodiscard]]
+        int postEgress(const std::string &action, const boost::json::object &request) const;
+
+        /**
          * @brief Shows one worker node's registration.
          *
          * @param args command line arguments

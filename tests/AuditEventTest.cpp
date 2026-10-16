@@ -360,6 +360,9 @@ BOOST_AUTO_TEST_CASE(EveryActionEuclidHasIsPartitionedDeliberately) {
     // "message" fails here and gets decided on rather than disappearing from the trail quietly.
     // The same contract PermissionVocabularyTest enforces on the vocabulary itself.
     const std::set<std::string> expected{
+            // One pair per request an application makes to an outside site; report-egress-throttled,
+            // which is rare and is what anyone wants to find afterwards, stays in.
+            "eap:acquire-egress-permit", "eap:release-egress-permit",
             "eap:report-load",
             "ees:ack-events", "ees:receive-events", "ees:subscribe-events", "ees:unsubscribe-events",
             "ekv:delete-item", "ekv:put-item", "ekv:query", "ekv:scan",

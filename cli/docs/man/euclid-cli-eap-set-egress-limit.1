@@ -1,0 +1,91 @@
+.TH EUCLID-CLI-EAP-SET-EGRESS-LIMIT 1 "October 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eap-set-egress-limit \- set how fast all applications together may call one outside site
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B eap set-egress-limit
+\fB\-\-site\fR \fIhost\fR
+[\fB\-\-requests\-per\-second\fR \fIn\fR]
+[\fB\-\-burst\fR \fIn\fR]
+[\fB\-\-concurrent\fR \fIn\fR]
+.SH DESCRIPTION
+Sets the egress limit for one outside site: how many requests per
+second, and how many at once, euclid's applications may make to it -
+all instances of all applications on all nodes counted together.
+.PP
+A site that protects itself against denial of service counts per source
+address, and everything euclid runs reaches it from the same one. A
+limit kept inside an application counts per instance, which the
+autoscaler multiplies exactly when there's the most to fetch. So the
+limit is kept in EAP, once per site for the whole installation, and an
+application asks for a permit before each request it makes to the site
+- with the euclid-jdk
+.BR EuclidEgressLimiter :
+.PP
+.RS
+.nf
+try (var permit = limiter.acquire(uri.getHost())) {
+    response = http.send(request, ...);
+}
+.fi
+.RE
+.PP
+A permit is a token from the site's bucket (the rate) and a slot among
+its requests in flight (the concurrency). The slot is held until the
+permit is closed, or until its lease runs out if the instance holding
+it dies. When the site answers 429 or 503, the application reports it,
+and no permit is granted for that site to anyone until the site's
+.I Retry-After
+has passed (at most an hour per report).
+.PP
+Only applications that ask are held to the limit; euclid does not
+intercept outgoing traffic.
+.PP
+A site without its own limit gets
+.IR euclid.modules.eap.egress.default :
+.PP
+.RS
+.nf
+"egress": { "default": { "requests-per-second": 2, "burst": 2, "concurrent": 4 } }
+.fi
+.RE
+.PP
+The limit set here replaces that default for the one site. It applies to
+every EAP instance at once and survives a restart. The caller must be
+an administrator.
+.SH OPTIONS
+.TP
+.BR \-s ", " \-\-site " " \fIhost\fR
+The site's host name, e.g. \fIdownloads.example.com\fR. Case and a
+trailing dot don't matter; the port and path aren't part of it.
+.TP
+.BR \-r ", " \-\-requests\-per\-second " " \fIn\fR
+Requests per second, averaged, for all applications together. May be a
+fraction: \fI0.5\fR is one every two seconds. \fI0\fR for no rate limit.
+.TP
+.BR \-b ", " \-\-burst " " \fIn\fR
+How many requests may go in quick succession before the rate applies;
+at least 1.
+.TP
+.BR \-c ", " \-\-concurrent " " \fIn\fR
+Requests to the site in flight at once. \fI0\fR for no limit.
+.PP
+At least one is required; those not given keep what is in force.
+.SH OUTPUT
+The site and the limits now in force for it, as JSON.
+.SH EXAMPLE
+One download at a time, at most one start every two seconds:
+.PP
+.RS
+.nf
+euclid-cli eap set-egress-limit --site downloads.example.com \e
+    --requests-per-second 0.5 --burst 1 --concurrent 1
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eap (1),
+.BR euclid-cli-eap-list-egress-sites (1),
+.BR euclid-cli-eap-delete-egress-limit (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

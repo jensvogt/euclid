@@ -146,6 +146,9 @@ namespace Euclid::CLI {
                 {"list-nodes", "List the registered worker nodes and whether they are live"},
                 {"get-node", "Show one worker node's registration"},
                 {"delete-node", "Remove a worker node's registration, freeing its name"},
+                {"list-egress-sites", "List the outside sites applications call through egress permits"},
+                {"set-egress-limit", "Set how fast all applications together may call one outside site"},
+                {"delete-egress-limit", "Return an outside site to the default egress limits"},
         };
         return kActions;
     }
@@ -187,6 +190,9 @@ namespace Euclid::CLI {
         if (action == "list-nodes") return listNodes(args);
         if (action == "get-node") return getNode(args);
         if (action == "delete-node") return deleteNode(args);
+        if (action == "list-egress-sites") return listEgressSites(args);
+        if (action == "set-egress-limit") return setEgressLimit(args);
+        if (action == "delete-egress-limit") return deleteEgressLimit(args);
 
         std::cerr << "error: unknown eap action '" << action << "'\n";
         return 1;
@@ -944,6 +950,108 @@ namespace Euclid::CLI {
             std::cerr << "error: " << ex.what() << std::endl;
             return 1;
         }
+    }
+
+    // Sends one egress request and prints the answer - the three egress commands differ only in
+    // what they send.
+    int EapCli::postEgress(const std::string &action, const boost::json::object &request) const {
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eap", action, request);
+            if (!response.IsSuccess()) {
+                std::cerr << "error: " << action << " failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EapCli::listEgressSites(const std::vector<std::string> &args) const {
+        po::options_description desc("list egress sites");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eap", "list-egress-sites", "",
+                                   "Lists every outside site an application has asked an egress permit for: the limits it "
+                                   "is held to (its own, or the default from euclid.modules.eap.egress.default), how many "
+                                   "of its tokens are left, how many requests to it are in flight, and whether it has asked "
+                                   "to be left alone - a 429 or 503 an application reported - and until when.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+        return postEgress("list-egress-sites", boost::json::object{});
+    }
+
+    int EapCli::setEgressLimit(const std::vector<std::string> &args) const {
+        po::options_description desc("set an egress limit");
+        desc.add_options()
+                ("site,s", po::value<std::string>()->required(), "host name of the outside site, e.g. downloads.example.com")
+                ("requests-per-second,r", po::value<double>(), "requests per second all applications together may make, averaged; 0 for no rate limit")
+                ("burst,b", po::value<double>(), "requests that may go at once before the rate applies (1 or more)")
+                ("concurrent,c", po::value<long>(), "requests to the site in flight at once; 0 for no limit");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eap", "set-egress-limit", "--site <host> [--requests-per-second <n>] [--burst <n>] [--concurrent <n>]",
+                                   "Sets how fast euclid's applications, all instances on all nodes together, may call one "
+                                   "outside site, in place of euclid.modules.eap.egress.default. Any of the three may be given "
+                                   "on its own; the others keep what is in force. Applies to every EAP instance at once and "
+                                   "survives a restart. Only applications that ask for a permit before each request are "
+                                   "held to it - see the euclid-jdk EuclidEgressLimiter.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+        if (!vm.contains("requests-per-second") && !vm.contains("burst") && !vm.contains("concurrent")) {
+            std::cerr << "error: at least one of --requests-per-second, --burst or --concurrent is required" << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        boost::json::object request{{"site", vm["site"].as<std::string>()}};
+        if (vm.contains("requests-per-second")) request["requestsPerSecond"] = vm["requests-per-second"].as<double>();
+        if (vm.contains("burst")) request["burst"] = vm["burst"].as<double>();
+        if (vm.contains("concurrent")) request["concurrent"] = vm["concurrent"].as<long>();
+        return postEgress("set-egress-limit", request);
+    }
+
+    int EapCli::deleteEgressLimit(const std::vector<std::string> &args) const {
+        po::options_description desc("delete an egress limit");
+        desc.add_options()
+                ("site,s", po::value<std::string>()->required(), "host name of the outside site");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eap", "delete-egress-limit", "--site <host>",
+                                   "Returns one outside site to the default egress limits "
+                                   "(euclid.modules.eap.egress.default). What is in flight to it stays counted.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+        return postEgress("delete-egress-limit", boost::json::object{{"site", vm["site"].as<std::string>()}});
     }
 
     int EapCli::getNode(const std::vector<std::string> &args) const {

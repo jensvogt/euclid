@@ -1,0 +1,104 @@
+.TH EUCLID-CLI-EMM-CREATE-BACKUP 1 "October 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-emm-create-backup \- start a backup now instead of at the next scheduled time
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B emm create-backup
+[\fB\-\-full\fR | \fB\-\-config\-only\fR]
+.SH DESCRIPTION
+Starts a backup immediately - before an upgrade, say, or to check that
+backups work at all. It is the nightly backup run early: written to the
+same directory
+.RI ( euclid.modules.emm.backup.directory ),
+named the same way, encrypted when a passphrase is configured, and
+pruned by the same retention afterwards. The caller must be
+authenticated as an administrator; see
+.BR euclid-cli-emm (1)
+for how that's checked.
+.PP
+The command returns as soon as the backup has started, not when it has
+finished: a backup that takes the bulk data reads every message and
+object record there is, which can take far longer than a request should
+stay open. The answer names the archive it will write.
+.BR euclid-cli-emm-list-backups (1)
+shows it with
+.I complete
+set to
+.I false
+while it's being written, and
+.I true
+once it's done. If it fails, the reason is in EMM's log at error level.
+.PP
+Only one backup runs at a time. While one is being written, another
+request fails with HTTP 409, and the nightly run is skipped with a
+warning in the log.
+.SH OPTIONS
+.TP
+.B \-\-full
+Also back up the bulk data - queue and topic messages, object records -
+for this backup only. Ignored when a backup passphrase is set: an
+encrypted backup is built in memory, and the bulk data is what doesn't
+fit.
+.TP
+.B \-\-config\-only
+Back up only the configuration (queues, topics, subscriptions, buckets,
+users, roles, applications, servers, secrets), whatever
+.I euclid.modules.emm.backup.full
+says.
+.PP
+With neither,
+.I euclid.modules.emm.backup.full
+decides, as it does for the nightly backup.
+.PP
+Monitoring data
+.RI ( emo )
+is never part of a backup, and
+.I ekm
+is only included when a passphrase is set.
+.SH OUTPUT
+The JSON response is printed to standard output:
+.RS
+.TP
+.I name ", " path
+The archive the backup will write, and the same with its directory.
+.TP
+.I startedAt
+When it started, in UTC.
+.TP
+.I full
+Whether it takes the bulk data, after the options above and the
+passphrase rule are applied.
+.TP
+.I encrypted
+Whether it is sealed with the configured passphrase.
+.RE
+.SH EXIT STATUS
+.B 0
+once the backup has started,
+.B 1
+if it could not be started (a backup is already running, the caller is
+not an administrator, or the request failed).
+.SH EXAMPLES
+Back up the configuration now:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm create-backup --config-only
+.fi
+.RE
+.PP
+Then check that it finished:
+.PP
+.RS
+.nf
+euclid-cli --endpoint http://localhost:5566 emm list-backups
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-emm (1),
+.BR euclid-cli-emm-list-backups (1),
+.BR euclid-cli-emm-export (1),
+.BR euclid-cli-emm-import (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>
