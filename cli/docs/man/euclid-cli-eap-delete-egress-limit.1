@@ -1,31 +1,43 @@
 .TH EUCLID-CLI-EAP-DELETE-EGRESS-LIMIT 1 "October 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
 .SH NAME
-euclid-cli-eap-delete-egress-limit \- return an outside site to the default egress limits
+euclid-cli-eap-delete-egress-limit \- remove an application's egress limit for an outside site
 .SH SYNOPSIS
 .B euclid-cli
 [\fB\-\-endpoint\fR \fIURL\fR]
 .B eap delete-egress-limit
-\fB\-\-site\fR \fIhost\fR
+\fB\-\-application\-id\fR \fIid\fR
+\fB\-\-site\fR \fIhost\fR|\fB*\fR
 .SH DESCRIPTION
-Removes the limit set for one site with
-.BR euclid-cli-eap-set-egress-limit (1),
-so it's held to
+Removes a limit set with
+.BR euclid-cli-eap-set-egress-limit (1).
+For a site, the application is then held to its
+.I *
+default for that site, or to
 .I euclid.modules.eap.egress.default
-again. What's in flight to the site, and a block it asked for, stay
-counted: forgetting them would let the site be overrun the moment this
-is run. Fails with HTTP 404 if the site has no limit of its own. The
-caller must be an administrator.
+if it has none. With
+.BR "\-\-site '*'" ,
+the application's default is removed, and its sites without a limit of
+their own fall back to
+.IR euclid.modules.eap.egress.default .
+.PP
+What's in flight to the site, and a block it asked for, stay counted:
+forgetting them would let the site be overrun the moment this is run.
+Fails with HTTP 404 if there's no such limit. The caller must be an
+administrator.
 .SH OPTIONS
 .TP
-.BR \-s ", " \-\-site " " \fIhost\fR
-The site's host name.
+.BR \-n ", " \-\-application\-id " " \fIid\fR
+The application the limit is for.
+.TP
+.BR \-s ", " \-\-site " " \fIhost\fR|\fB*\fR
+The site's host name, or \fB*\fR for the application's default.
 .SH OUTPUT
-The site and the default limits now in force for it, as JSON.
+The application, the site and the limits now in force for it, as JSON.
 .SH EXAMPLE
 .PP
 .RS
 .nf
-euclid-cli eap delete-egress-limit --site downloads.example.com
+euclid-cli eap delete-egress-limit --application-id downloader --site downloads.example.com
 .fi
 .RE
 .SH SEE ALSO

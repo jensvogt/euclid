@@ -88,13 +88,21 @@ namespace Euclid::CLI {
 
             const auto add = [&](const Core::ApplicationManifest::Kind kind, const std::string &name) {
                 switch (kind) {
-                    case Core::ApplicationManifest::Kind::Bucket: buckets.push_back(boost::json::string(name)); break;
-                    case Core::ApplicationManifest::Kind::Queue: queues.push_back(boost::json::string(name)); break;
-                    case Core::ApplicationManifest::Kind::Topic: topics.push_back(boost::json::string(name)); break;
+                    case Core::ApplicationManifest::Kind::Bucket:
+                        buckets.push_back(boost::json::string(name));
+                        break;
+                    case Core::ApplicationManifest::Kind::Queue:
+                        queues.push_back(boost::json::string(name));
+                        break;
+                    case Core::ApplicationManifest::Kind::Topic:
+                        topics.push_back(boost::json::string(name));
+                        break;
                     // Named here for the same reason the other three are: the application role
                     // holds ess:get-secret and that action is resource-checked, so a deployment
                     // that did not name its secrets would reach every secret in the namespace.
-                    case Core::ApplicationManifest::Kind::Secret: secrets.push_back(boost::json::string(name)); break;
+                    case Core::ApplicationManifest::Kind::Secret:
+                        secrets.push_back(boost::json::string(name));
+                        break;
                 }
             };
 
@@ -129,29 +137,30 @@ namespace Euclid::CLI {
      */
     const std::vector<std::pair<std::string, std::string> > &EapCli::Actions() {
         static const std::vector<std::pair<std::string, std::string> > kActions = {
+                {"apply", "Create and check the objects an application's euclid/ manifest declares"},
+                {"copy-application", "Define the same application again in another namespace"},
                 {"create-application", "Define a new application from an artifact in an ESM bucket"},
                 {"delete-application", "Delete an application definition"},
-                {"list-applications", "List the defined applications and how many instances are running"},
-                {"get-application", "Show one application's definition"},
+                {"delete-egress-limit", "Remove an application's egress limit for an outside site"},
+                {"delete-node", "Remove a worker node's registration, freeing its name"},
                 {"deploy-infrastructure", "Store an application's declaration beside its artifact and apply it"},
+                {"get-application", "Show one application's definition"},
+                {"get-node", "Show one worker node's registration"},
+                {"list-egress-sites", "List each application's outside sites, egress limits and how they stand"},
+                {"list-applications", "List the defined applications and how many instances are running"},
+                {"list-nodes", "List the registered worker nodes and whether they are live"},
                 {"redeploy-application", "Deploy a new build of an application from a local file"},
                 {"restart-application", "Ask the manager to start an application's instances again"},
+                {"set-egress-limit", "Set how fast one application may call an outside site"},
+                {"set-log-level", "Turn an application's own logging up, down or off"},
+                {"scale-application", "Change how many instances an application runs, without restarting it"},
                 {"start-application", "Ask the manager to start an application"},
                 {"stop-application", "Ask the manager to stop an application"},
-                {"set-log-level", "Turn an application's own logging up, down or off"},
                 {"update-application", "Change an existing application's definition"},
-                {"copy-application", "Define the same application again in another namespace"},
-                {"scale-application", "Change how many instances an application runs, without restarting it"},
-                {"apply", "Create and check the objects an application's euclid/ manifest declares"},
-                {"list-nodes", "List the registered worker nodes and whether they are live"},
-                {"get-node", "Show one worker node's registration"},
-                {"delete-node", "Remove a worker node's registration, freeing its name"},
-                {"list-egress-sites", "List the outside sites applications call through egress permits"},
-                {"set-egress-limit", "Set how fast all applications together may call one outside site"},
-                {"delete-egress-limit", "Return an outside site to the default egress limits"},
         };
         return kActions;
     }
+
     int EapCli::process(const std::string &action, const std::vector<std::string> &args) const {
         if (action == "help" || action == "--help" || action == "-h") {
             return PrintModuleHelp("eap", Actions());
@@ -605,7 +614,7 @@ namespace Euclid::CLI {
         if (merged.declaration.applicationId.empty()) merged.declaration.applicationId = applicationId;
         if (merged.declaration.applicationId != applicationId) {
             std::cerr << "error: these files declare \"" << merged.declaration.applicationId
-                      << "\", not \"" << applicationId << "\"" << std::endl;
+                    << "\", not \"" << applicationId << "\"" << std::endl;
             return 1;
         }
 
@@ -627,7 +636,7 @@ namespace Euclid::CLI {
                                                      boost::json::object{{"applicationId", applicationId}});
             if (!current.IsSuccess()) {
                 std::cerr << "error: get-application failed (HTTP " << current.statusCode << "): "
-                          << boost::json::serialize(current.body) << std::endl;
+                        << boost::json::serialize(current.body) << std::endl;
                 return 1;
             }
             // Read off the top level: get-application answers with the application's own fields,
@@ -658,7 +667,7 @@ namespace Euclid::CLI {
                                                      boost::json::object{{"applicationId", applicationId}});
             if (!applied.IsSuccess()) {
                 std::cerr << "error: apply-infrastructure failed (HTTP " << applied.statusCode << "): "
-                          << boost::json::serialize(applied.body) << std::endl;
+                        << boost::json::serialize(applied.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, applied.body, _pretty);
@@ -762,9 +771,10 @@ namespace Euclid::CLI {
             // hashing the file only to ignore what it says costs a read of something that is
             // routinely hundreds of megabytes.
             const auto force = vm["force"].as<bool>();
-            if (const auto refused = force ? std::string()
-                                           : Database::Entity::EAP::RedeployRefusal(deployedVersion, deployedMd5, version,
-                                                                                    Core::CryptoUtils::md5SumFile(filePath), true);
+            if (const auto refused = force
+                                         ? std::string()
+                                         : Database::Entity::EAP::RedeployRefusal(deployedVersion, deployedMd5, version,
+                                                                                  Core::CryptoUtils::md5SumFile(filePath), true);
                 !refused.empty()) {
                 std::cerr << "error: refusing to redeploy '" << applicationId << "': " << refused
                         << "\npass --force to deploy it anyway, or use 'eap update-application --application-id " << applicationId
@@ -773,8 +783,7 @@ namespace Euclid::CLI {
             }
 
             const EsmCli esm(_endpoint, _authentication, _pretty, _caCertPath);
-            boost::json::value uploaded;
-            if (esm.uploadOneFile(bucketErn, artifactKey, filePath, 0, 0, uploaded) != 0) {
+            if (boost::json::value uploaded; esm.uploadOneFile(bucketErn, artifactKey, filePath, 0, 0, uploaded) != 0) {
                 // uploadOneFile already said what went wrong, and the definition is untouched -
                 // the application keeps running on the build it has.
                 return 1;
@@ -972,13 +981,16 @@ namespace Euclid::CLI {
 
     int EapCli::listEgressSites(const std::vector<std::string> &args) const {
         po::options_description desc("list egress sites");
+        desc.add_options()
+                ("application-id,n", po::value<std::string>(), "only this application's sites");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eap", "list-egress-sites", "",
-                                   "Lists every outside site an application has asked an egress permit for: the limits it "
-                                   "is held to (its own, or the default from euclid.modules.eap.egress.default), how many "
-                                   "of its tokens are left, how many requests to it are in flight, and whether it has asked "
-                                   "to be left alone - a 429 or 503 an application reported - and until when.",
+            return PrintActionHelp("eap", "list-egress-sites", "[--application-id <id>]",
+                                   "Lists, per application, every outside site it has asked an egress permit for or has a "
+                                   "limit for: the limits it is held to (its own for the site, the application's \"*\" "
+                                   "default, or euclid.modules.eap.egress.default), how many of its tokens are left, how "
+                                   "many of its requests to the site are in flight, and whether the site has asked it to "
+                                   "stay away - a 429 or 503 it reported - and until when.",
                                    desc);
         }
 
@@ -990,24 +1002,29 @@ namespace Euclid::CLI {
             std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
-        return postEgress("list-egress-sites", boost::json::object{});
+        boost::json::object request;
+        if (vm.contains("application-id")) request["applicationId"] = vm["application-id"].as<std::string>();
+        return postEgress("list-egress-sites", request);
     }
 
     int EapCli::setEgressLimit(const std::vector<std::string> &args) const {
         po::options_description desc("set an egress limit");
         desc.add_options()
-                ("site,s", po::value<std::string>()->required(), "host name of the outside site, e.g. downloads.example.com")
+                ("application-id,n", po::value<std::string>()->required(), "the application the limit is for")
+                ("site,s", po::value<std::string>()->required(), "host name of the outside site, e.g. downloads.example.com, or \"*\" for all of the application's sites without a limit of their own")
                 ("requests-per-second,r", po::value<double>(), "requests per second all applications together may make, averaged; 0 for no rate limit")
                 ("burst,b", po::value<double>(), "requests that may go at once before the rate applies (1 or more)")
                 ("concurrent,c", po::value<long>(), "requests to the site in flight at once; 0 for no limit");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eap", "set-egress-limit", "--site <host> [--requests-per-second <n>] [--burst <n>] [--concurrent <n>]",
-                                   "Sets how fast euclid's applications, all instances on all nodes together, may call one "
-                                   "outside site, in place of euclid.modules.eap.egress.default. Any of the three may be given "
-                                   "on its own; the others keep what is in force. Applies to every EAP instance at once and "
-                                   "survives a restart. Only applications that ask for a permit before each request are "
-                                   "held to it - see the euclid-jdk EuclidEgressLimiter.",
+            return PrintActionHelp("eap", "set-egress-limit", "--application-id <id> --site <host|*> [--requests-per-second <n>] [--burst <n>] [--concurrent <n>]",
+                                   "Sets how fast one application, all its instances on all nodes together, may call one "
+                                   "outside site. Each application has its own limits: another calling the same site is "
+                                   "not affected. --site \"*\" sets the application's default for every site that has no "
+                                   "limit of its own; without either, euclid.modules.eap.egress.default applies. Any of the "
+                                   "three values may be given on its own; the others keep what is in force. Applies to every "
+                                   "EAP instance at once and survives a restart. Only applications that ask for a permit "
+                                   "before each request are held to it - see the euclid-jdk EuclidEgressLimiter.",
                                    desc);
         }
 
@@ -1024,7 +1041,7 @@ namespace Euclid::CLI {
             return 1;
         }
 
-        boost::json::object request{{"site", vm["site"].as<std::string>()}};
+        boost::json::object request{{"applicationId", vm["application-id"].as<std::string>()}, {"site", vm["site"].as<std::string>()}};
         if (vm.contains("requests-per-second")) request["requestsPerSecond"] = vm["requests-per-second"].as<double>();
         if (vm.contains("burst")) request["burst"] = vm["burst"].as<double>();
         if (vm.contains("concurrent")) request["concurrent"] = vm["concurrent"].as<long>();
@@ -1034,12 +1051,14 @@ namespace Euclid::CLI {
     int EapCli::deleteEgressLimit(const std::vector<std::string> &args) const {
         po::options_description desc("delete an egress limit");
         desc.add_options()
-                ("site,s", po::value<std::string>()->required(), "host name of the outside site");
+                ("application-id,n", po::value<std::string>()->required(), "the application the limit is for")
+                ("site,s", po::value<std::string>()->required(), "host name of the outside site, or \"*\" for the application's default");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eap", "delete-egress-limit", "--site <host>",
-                                   "Returns one outside site to the default egress limits "
-                                   "(euclid.modules.eap.egress.default). What is in flight to it stays counted.",
+            return PrintActionHelp("eap", "delete-egress-limit", "--application-id <id> --site <host|*>",
+                                   "Removes an application's limit for one outside site, so it is held to the application's "
+                                   "\"*\" default again, or to euclid.modules.eap.egress.default if it has none. With --site "
+                                   "\"*\", removes the application's default. What is in flight stays counted.",
                                    desc);
         }
 
@@ -1051,7 +1070,8 @@ namespace Euclid::CLI {
             std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
             return 1;
         }
-        return postEgress("delete-egress-limit", boost::json::object{{"site", vm["site"].as<std::string>()}});
+        return postEgress("delete-egress-limit", boost::json::object{{"applicationId", vm["application-id"].as<std::string>()},
+                                                                     {"site", vm["site"].as<std::string>()}});
     }
 
     int EapCli::getNode(const std::vector<std::string> &args) const {
@@ -1259,7 +1279,7 @@ namespace Euclid::CLI {
         // a typo is worth answering now instead of after a round trip that ends in a 400.
         if (!level.empty() && !Core::LogStream::CanonicalLevel(level).has_value()) {
             std::cerr << "error: not a log level: " << level << std::endl
-                      << "       expected trace, debug, info, warning, error, fatal, off, or default" << std::endl;
+                    << "       expected trace, debug, info, warning, error, fatal, off, or default" << std::endl;
             return 1;
         }
 
@@ -1420,8 +1440,8 @@ namespace Euclid::CLI {
         // mention. Nothing untagged is ever in this list, so nothing an application did not declare
         // can be removed by it.
         std::vector<std::pair<std::string, std::string> > ownedObjects(const HttpClient &client,
-                                                                      const Core::ApplicationManifest::Kind kind,
-                                                                      const std::string &application, bool &known) {
+                                                                       const Core::ApplicationManifest::Kind kind,
+                                                                       const std::string &application, bool &known) {
 
             static const std::map<std::string, std::string> kListActions{
                     {"esm", "list-buckets"},
@@ -1500,7 +1520,7 @@ namespace Euclid::CLI {
             po::notify(vm);
         } catch (const po::error &ex) {
             std::cerr << "error: " << ex.what() << "\n\n"
-                      << desc << std::endl;
+                    << desc << std::endl;
             return 1;
         }
 
@@ -1589,7 +1609,7 @@ namespace Euclid::CLI {
             // problem. Naming the application that should have made it is the difference between a
             // fix and a support call.
             std::cout << "  MISSING " << kind << " " << declaration.name << " - used but does not exist"
-                      << (declaration.owner.empty() ? "" : "; created by '" + declaration.owner + "'") << "\n";
+                    << (declaration.owner.empty() ? "" : "; created by '" + declaration.owner + "'") << "\n";
             blocked = true;
         }
 
@@ -1675,7 +1695,7 @@ namespace Euclid::CLI {
                     const HttpResponse response = client.Post(actions.module, actions.create, body);
                     if (!response.IsSuccess()) {
                         std::cerr << "error: could not create " << kind << " " << item.declaration->name
-                                  << " (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << "\n";
+                                << " (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << "\n";
                         return 1;
                     }
                 } catch (const std::exception &ex) {
@@ -1688,7 +1708,7 @@ namespace Euclid::CLI {
                 const auto found = lookupErn(client, item.declaration->kind, item.declaration->name);
                 if (!found.found()) {
                     std::cerr << "error: created " << kind << " " << item.declaration->name
-                              << " but could not resolve its ERN to record ownership\n";
+                            << " but could not resolve its ERN to record ownership\n";
                     return 1;
                 }
                 item.ern = found.ern;
@@ -1704,8 +1724,8 @@ namespace Euclid::CLI {
                     // rather than one it can prune - which is the safe way round, but only if
                     // somebody knows.
                     std::cerr << "warning: " << kind << " " << item.declaration->name
-                              << " exists but could not be tagged as owned by " << application
-                              << " (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << "\n";
+                            << " exists but could not be tagged as owned by " << application
+                            << " (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << "\n";
                 }
             } catch (const std::exception &ex) {
                 std::cerr << "warning: " << kind << " " << item.declaration->name << " exists but could not be tagged: " << ex.what() << "\n";
@@ -1720,9 +1740,11 @@ namespace Euclid::CLI {
 
             const auto kind = Core::ToString(removal.kind);
             const auto actions = actionsFor(removal.kind);
-            const auto deleteAction = removal.kind == Core::ApplicationManifest::Kind::Bucket ? "delete-bucket"
-                                      : removal.kind == Core::ApplicationManifest::Kind::Queue ? "delete-queue"
-                                                                                               : "delete-topic";
+            const auto deleteAction = removal.kind == Core::ApplicationManifest::Kind::Bucket
+                                          ? "delete-bucket"
+                                          : removal.kind == Core::ApplicationManifest::Kind::Queue
+                                          ? "delete-queue"
+                                          : "delete-topic";
 
             try {
                 // ifEmpty, always. An object this application owns may still hold a delivery

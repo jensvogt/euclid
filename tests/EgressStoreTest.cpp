@@ -29,26 +29,30 @@ namespace {
         Database::instance().initializeMemory();
     }
 
+    // The application the state belongs to, by ERN - what the handlers key it by.
+    constexpr auto kDownloader = "ern:eap:eu-central-1:000000000000:application/default/downloader";
+    constexpr auto kIndexer = "ern:eap:eu-central-1:000000000000:application/default/indexer";
+
     // One EAP instance's acquire, as the handler does it.
-    std::optional<std::string> tryAcquire(const std::string &site, const std::string &id) {
+    std::optional<std::string> tryAcquire(const std::string &site, const std::string &id, const std::string &application = kDownloader) {
         Decision decision;
-        const bool written = updateSite(site, [&](StoredSite &stored, const Clock::time_point now) {
-            decision = Acquire(stored.state, stored.effectiveLimits(), now, id, std::chrono::seconds{60});
+        const bool written = updateSite(application, "app", site, [&](StoredSite &stored, const Clock::time_point now) {
+            decision = Acquire(stored.state, limitsFor(stored), now, id, std::chrono::seconds{60});
             return true;
         });
         if (written && decision.granted) return decision.permit->id;
         return std::nullopt;
     }
 
-    void release(const std::string &site, const std::string &id) {
-        BOOST_REQUIRE(updateSite(site, [&](StoredSite &stored, const Clock::time_point) {
+    void release(const std::string &site, const std::string &id, const std::string &application = kDownloader) {
+        BOOST_REQUIRE(updateSite(application, "app", site, [&](StoredSite &stored, const Clock::time_point) {
             if (stored.version < 0) return false;
             return Release(stored.state, id);
         }));
     }
 
-    void setLimits(const std::string &site, const Limits &limits) {
-        BOOST_REQUIRE(updateSite(site, [&](StoredSite &stored, const Clock::time_point) {
+    void setLimits(const std::string &site, const Limits &limits, const std::string &application = kDownloader) {
+        BOOST_REQUIRE(updateSite(application, "app", site, [&](StoredSite &stored, const Clock::time_point) {
             stored.limits = limits;
             return true;
         }));
@@ -65,7 +69,7 @@ BOOST_AUTO_TEST_CASE(ASiteIsCreatedOnFirstUseAndRemembered) {
     BOOST_TEST(first.has_value());
     BOOST_TEST(!tryAcquire("a.example.com", "two").has_value());
 
-    const auto stored = loadSite(egressCollection(), "a.example.com");
+    const auto stored = loadSite(egressCollection(), kDownloader, "a.example.com");
     BOOST_REQUIRE(stored.has_value());
     BOOST_TEST(stored->state.permits.size() == 1U);
     BOOST_TEST(stored->limits->concurrent == 1L);
@@ -107,7 +111,7 @@ BOOST_AUTO_TEST_CASE(ManyInstancesTogetherNeverExceedTheConcurrency) {
 
     BOOST_TEST(highest.load() <= kConcurrent);
     BOOST_TEST(granted.load() > 0L);
-    BOOST_TEST(loadSite(egressCollection(), site)->state.permits.empty());
+    BOOST_TEST(loadSite(egressCollection(), kDownloader, site)->state.permits.empty());
 }
 
 // The rate across instances: a burst of 5 and a rate too slow to matter within the test, so
@@ -130,4 +134,43 @@ BOOST_AUTO_TEST_CASE(ManyInstancesTogetherShareOneBucket) {
     for (auto &t: instances) t.join();
 
     BOOST_TEST(granted.load() == 5L);
+}
+
+// Two applications calling the same site: each has its own allowance, so the one that has to go
+// gently is not slowed by the other, and does not slow it.
+BOOST_AUTO_TEST_CASE(EachApplicationHasItsOwnLimitForASite) {
+
+    freshDatabase();
+    const std::string site = "shared.example.com";
+    setLimits(site, {.requestsPerSecond = 0, .burst = 1, .concurrent = 1}, kDownloader);
+    setLimits(site, {.requestsPerSecond = 0, .burst = 1, .concurrent = 3}, kIndexer);
+
+    BOOST_TEST(tryAcquire(site, "d1", kDownloader).has_value());
+    BOOST_TEST(!tryAcquire(site, "d2", kDownloader).has_value());
+
+    // The downloader's one slot is taken; the indexer's three are untouched by it.
+    BOOST_TEST(tryAcquire(site, "i1", kIndexer).has_value());
+    BOOST_TEST(tryAcquire(site, "i2", kIndexer).has_value());
+    BOOST_TEST(tryAcquire(site, "i3", kIndexer).has_value());
+    BOOST_TEST(!tryAcquire(site, "i4", kIndexer).has_value());
+}
+
+// An application's "*" limit is its default for every site without one of its own - and only its.
+BOOST_AUTO_TEST_CASE(AnApplicationsDefaultAppliesToItsOtherSitesOnly) {
+
+    freshDatabase();
+    setLimits(kAllSites, {.requestsPerSecond = 0, .burst = 1, .concurrent = 1}, kDownloader);
+    setLimits("fast.example.com", {.requestsPerSecond = 0, .burst = 1, .concurrent = 2}, kDownloader);
+
+    // Any site: the application's default, one at a time.
+    BOOST_TEST(tryAcquire("any.example.com", "a1").has_value());
+    BOOST_TEST(!tryAcquire("any.example.com", "a2").has_value());
+
+    // Its own limit wins over the default.
+    BOOST_TEST(tryAcquire("fast.example.com", "f1").has_value());
+    BOOST_TEST(tryAcquire("fast.example.com", "f2").has_value());
+
+    // Another application is held to euclid's default - a burst of two - not to this one's one.
+    BOOST_TEST(tryAcquire("any.example.com", "x1", kIndexer).has_value());
+    BOOST_TEST(tryAcquire("any.example.com", "x2", kIndexer).has_value());
 }

@@ -1,28 +1,38 @@
 .TH EUCLID-CLI-EAP-LIST-EGRESS-SITES 1 "October 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
 .SH NAME
-euclid-cli-eap-list-egress-sites \- list the outside sites applications call through egress permits
+euclid-cli-eap-list-egress-sites \- list each application's outside sites, egress limits and how they stand
 .SH SYNOPSIS
 .B euclid-cli
 [\fB\-\-endpoint\fR \fIURL\fR]
 .B eap list-egress-sites
+[\fB\-\-application\-id\fR \fIid\fR]
 .SH DESCRIPTION
-Lists every outside site an application has asked an egress permit for,
-or that has a limit set, with the limits it's held to and how it stands
-now. See
+Lists, for each application in the caller's account and namespace,
+every outside site it has asked an egress permit for or has a limit for,
+with the limits it's held to and how it stands now. See
 .BR euclid-cli-eap-set-egress-limit (1)
 for what egress permits are. The caller must be an administrator.
-.PP
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-application\-id " " \fIid\fR
+Only this application's sites.
+.SH OUTPUT
 The JSON response has
 .I defaultLimits
 (from
 .IR euclid.modules.eap.egress.default )
 and a
 .I sites
-array, sorted by site, each with:
+array, sorted by application and site, each with:
 .RS
 .TP
+.I applicationId
+The application.
+.TP
 .I site
-The host name.
+The host name, or
+.I *
+for the application's default for all its sites.
 .TP
 .I limits
 .IR requestsPerSecond ", " burst " and " concurrent
@@ -30,31 +40,37 @@ in force for it.
 .TP
 .I limitsSet
 .I true
-if they were set with
+if they were set for this entry with
 .BR set-egress-limit ;
 .I false
-if they're the default.
+if they come from the application's
+.I *
+entry or from the default.
+.PP
+For a site (not for
+.IR * ):
 .TP
 .I tokens
 Requests that could start right now as far as the rate goes - up to the
 burst.
 .TP
 .I inFlight
-Permits held: requests to the site that have started and not finished.
-Includes those of an instance that died, until their lease runs out.
+Permits held: the application's requests to the site that have started
+and not finished. Includes those of an instance that died, until their
+lease runs out.
 .TP
 .I blockedUntil
-When the site asked to be left alone (a 429 or 503 an application
+When the site asked the application to stay away (a 429 or 503 it
 reported) and nothing is granted until then; empty if it isn't blocked.
 .TP
 .I lastUsed
-When anybody last asked for, or gave back, a permit for it.
+When the application last asked for, or gave back, a permit for it.
 .RE
 .SH EXAMPLE
 .PP
 .RS
 .nf
-euclid-cli eap list-egress-sites
+euclid-cli eap list-egress-sites --application-id downloader
 .fi
 .RE
 .SH SEE ALSO
