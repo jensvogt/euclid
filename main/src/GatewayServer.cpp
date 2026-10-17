@@ -290,13 +290,18 @@ namespace Euclid::main {
         try {
             // Held together so the stream, the buffer being read into and the response outlive
             // this function and stay alive for exactly as long as the chain below needs them.
+            //
+            // The response is read through a parser for the same reason requests are: read straight
+            // into a message, Beast's default response limit of 8MB applies, and a module's answer
+            // above it - get-object on an image of any size - came back as "502 body limit exceeded".
             struct Exchange {
                 explicit Exchange(asio::io_context &ioc) : stream(ioc) {}
                 beast::basic_stream<local::stream_protocol> stream;
                 beast::flat_buffer buf;
-                http::response<http::string_body> res;
+                http::response_parser<http::string_body> res;
             };
             auto exchange = std::make_shared<Exchange>(ioc);
+            exchange->res.body_limit(MaxBodySize());
             exchange->stream.expires_after(BackendTimeout());
 
             // req is captured by reference, which is safe for exactly one reason: done owns the
@@ -323,7 +328,7 @@ namespace Euclid::main {
                                                     done(errorResponse(http::status::bad_gateway, readEc.message()));
                                                     return;
                                                 }
-                                                done(std::move(exchange->res));
+                                                done(exchange->res.release());
                                             });
                                 });
                     });
