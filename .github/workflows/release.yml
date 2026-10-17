@@ -895,7 +895,18 @@ jobs:
             useradd --system --gid euclid --home-dir /usr/local/euclid \
                     --shell /usr/sbin/nologin --comment "Euclid Cloud Services" euclid
           fi
-          chown -R euclid:euclid /usr/local/euclid
+          # What the package ships, recursively - it is small. Not data/: that is ESM's object
+          # store, millions of files on a working installation, and walking it on every upgrade
+          # took longer than the upgrade itself (and was killed part-way under memory pressure,
+          # leaving the package half-configured). It only needs repairing once, coming from a
+          # release that ran as root - which is when data/ itself is not euclid's yet. Its top
+          # directory is changed last, so a repair cut short is simply done again next time.
+          chown euclid:euclid /usr/local/euclid
+          find /usr/local/euclid -mindepth 1 -maxdepth 1 ! -name data -exec chown -R euclid:euclid {} +
+          if [ -d /usr/local/euclid/data ] && [ "\$(stat -c %U:%G /usr/local/euclid/data)" != "euclid:euclid" ]; then
+            find /usr/local/euclid/data -mindepth 1 -exec chown -h euclid:euclid {} +
+            chown euclid:euclid /usr/local/euclid/data
+          fi
 
           # The manager's configuration holds the signing secret and the database password, and the
           # gateway's key is a private key: none of them is anybody's but the manager's account.
@@ -1116,7 +1127,18 @@ jobs:
             useradd --system --gid euclid --home-dir /usr/local/euclid \
                     --shell /usr/sbin/nologin --comment "Euclid Cloud Services" euclid
           fi
-          chown -R euclid:euclid /usr/local/euclid
+          # What the package ships, recursively - it is small. Not data/: that is ESM's object
+          # store, millions of files on a working installation, and walking it on every upgrade
+          # took longer than the upgrade itself (and was killed part-way under memory pressure,
+          # leaving the package half-configured). It only needs repairing once, coming from a
+          # release that ran as root - which is when data/ itself is not euclid's yet. Its top
+          # directory is changed last, so a repair cut short is simply done again next time.
+          chown euclid:euclid /usr/local/euclid
+          find /usr/local/euclid -mindepth 1 -maxdepth 1 ! -name data -exec chown -R euclid:euclid {} +
+          if [ -d /usr/local/euclid/data ] && [ "\$(stat -c %U:%G /usr/local/euclid/data)" != "euclid:euclid" ]; then
+            find /usr/local/euclid/data -mindepth 1 -exec chown -h euclid:euclid {} +
+            chown euclid:euclid /usr/local/euclid/data
+          fi
 
           # The secret-holding files, and the local node's group - see the DEB postinstall above.
           chmod 0640 /usr/local/euclid/etc/euclid.json
