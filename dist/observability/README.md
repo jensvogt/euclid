@@ -54,7 +54,7 @@ OPENSEARCH_PASSWORD=... ./opensearch/setup.sh -u https://opensearch:9200
 
 # 2. The collector.
 cp fluent-bit.conf parsers.conf /etc/fluent-bit/
-install -d -o fluent-bit -g fluent-bit /var/lib/fluent-bit/storage
+install -d /var/lib/fluent-bit/storage   # the packaged unit runs as root; there is no fluent-bit user
 
 # 3. Where it ships to, which does not belong in a file the repository carries.
 install -D fluent-bit.service.d-euclid.conf /etc/systemd/system/fluent-bit.service.d/euclid.conf

@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <string_view>
 
@@ -215,39 +216,102 @@ namespace Euclid::Core::Launch {
         return out;
     }
 
+    namespace {
+
+        using Severity = boost::log::trivial::severity_level;
+
+        // A level as Logback, Log4j, java.util.logging, Python's logging and Boost.Log spell it, in
+        // capitals only - "Error" or "error" in the first words of a line is far more often part
+        // of what it says than what it is.
+        std::optional<Severity> levelWord(std::string_view word) {
+            while (!word.empty() && word.front() == '[') word.remove_prefix(1);
+            // "INFO:root:message" (Python) and "ERROR:" alike: the level is what comes before.
+            if (const auto colon = word.find(':'); colon != std::string_view::npos) word = word.substr(0, colon);
+            while (!word.empty() && word.back() == ']') word.remove_suffix(1);
+            if (word == "TRACE" || word == "FINEST" || word == "FINER") return Severity::trace;
+            if (word == "DEBUG" || word == "FINE") return Severity::debug;
+            if (word == "INFO") return Severity::info;
+            if (word == "WARN" || word == "WARNING") return Severity::warning;
+            if (word == "ERROR" || word == "SEVERE") return Severity::error;
+            if (word == "FATAL" || word == "CRITICAL") return Severity::fatal;
+            return std::nullopt;
+        }
+
+        // The level a plain-text line says it has, if it says one where layouts put it: among the
+        // first few words, after a date, a time, a thread or a pid. Spring Boot's default
+        // ("2026-10-18T00:54:56.811+02:00  INFO 4711 --- [main] ..."), a Logback pattern
+        // ("2026-10-18 00:54:56.811 [worker-0] DEBUG d.l.p.Client : ..."), Log4j's "[INFO ]".
+        // Not further in: a level word deep in a message is the message talking about one.
+        std::optional<Severity> textLevel(const std::string &line) {
+            constexpr std::size_t kWords = 6;
+            constexpr std::size_t kChars = 160;
+            const std::string_view head(line.data(), std::min(line.size(), kChars));
+            std::size_t words = 0;
+            std::size_t i = 0;
+            while (i < head.size() && words < kWords) {
+                while (i < head.size() && (head[i] == ' ' || head[i] == '\t')) ++i;
+                const auto start = i;
+                while (i < head.size() && head[i] != ' ' && head[i] != '\t') ++i;
+                if (i == start) break;
+                ++words;
+                if (const auto level = levelWord(head.substr(start, i - start))) return level;
+            }
+            return std::nullopt;
+        }
+
+        // A line that carries on the record before it rather than starting one: a stack frame, a
+        // cause, anything indented. It belongs at the level of the line it continues - an ERROR's
+        // trace recorded as info would be split across two levels, and a channel at "error" would
+        // show the error without the trace that explains it.
+        bool continuesPrevious(const std::string &line) {
+            if (line.empty()) return false;
+            if (line.front() == ' ' || line.front() == '\t') return true;
+            return line.starts_with("Caused by:") || line.starts_with("Suppressed:");
+        }
+
+    }// namespace
+
     boost::log::trivial::severity_level OutputSeverity(const std::string &line, const bool fromStderr) {
+        return OutputSeverity(line, fromStderr, std::nullopt);
+    }
+
+    boost::log::trivial::severity_level OutputSeverity(const std::string &line, const bool fromStderr,
+                                                       const std::optional<boost::log::trivial::severity_level> previous) {
 
         const auto fallback = fromStderr ? boost::log::trivial::error : boost::log::trivial::info;
 
-        // Cheap enough to be worth doing before parsing: almost every line from a program that does
-        // not log JSON fails this, and parsing each of those would be the cost of the feature for
+        // JSON first, and cheaply: almost every line from a program that does not log JSON fails
+        // the first character, and parsing each of those would be the cost of the feature for
         // everybody who does not use it.
-        if (line.size() < 2 || line.front() != '{') return fallback;
+        if (line.size() >= 2 && line.front() == '{') {
+            boost::system::error_code ec;
+            const auto parsed = boost::json::parse(line, ec);
+            if (!ec && parsed.is_object()) {
+                const auto *level = parsed.as_object().if_contains("level");
+                if (level == nullptr || !level->is_string()) return fallback;
+                auto name = std::string(level->as_string());
+                std::ranges::transform(name, name.begin(), [](const unsigned char c) { return static_cast<char>(std::toupper(c)); });
+                return levelWord(name).value_or(fallback);
+            }
+        }
 
-        boost::system::error_code ec;
-        const auto parsed = boost::json::parse(line, ec);
-        if (ec || !parsed.is_object()) return fallback;
-
-        const auto *level = parsed.as_object().if_contains("level");
-        if (level == nullptr || !level->is_string()) return fallback;
-
-        auto name = std::string(level->as_string());
-        std::ranges::transform(name, name.begin(), [](const unsigned char c) { return static_cast<char>(std::tolower(c)); });
-
-        // Logback's names, and the two SLF4J spells differently from Boost.Log.
-        if (name == "trace") return boost::log::trivial::trace;
-        if (name == "debug") return boost::log::trivial::debug;
-        if (name == "info") return boost::log::trivial::info;
-        if (name == "warn" || name == "warning") return boost::log::trivial::warning;
-        if (name == "error" || name == "severe") return boost::log::trivial::error;
-        if (name == "fatal") return boost::log::trivial::fatal;
+        if (const auto level = textLevel(line)) return *level;
+        if (previous && continuesPrevious(line)) return *previous;
         return fallback;
     }
 
     void EmitOutput(const std::string &channel, const std::string &line, const bool fromStderr, const std::string &fields) {
+        std::optional<boost::log::trivial::severity_level> previous;
+        EmitOutput(channel, line, fromStderr, fields, previous);
+    }
+
+    void EmitOutput(const std::string &channel, const std::string &line, const bool fromStderr, const std::string &fields,
+                    std::optional<boost::log::trivial::severity_level> &previous) {
         // Sanitised first, and the severity read from what the program actually wrote.
         const auto sanitized = SanitizeOutput(line);
-        LogStream::LogVerbatim(channel, OutputSeverity(sanitized, fromStderr), sanitized, fields);
+        const auto severity = OutputSeverity(sanitized, fromStderr, previous);
+        previous = severity;
+        LogStream::LogVerbatim(channel, severity, sanitized, fields);
     }
 
     std::chrono::seconds CredentialsTtl() {
