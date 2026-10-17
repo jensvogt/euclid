@@ -253,6 +253,58 @@ BOOST_FIXTURE_TEST_SUITE(JsonLogFormatTest, Fixture)
         BOOST_TEST(textOf(record, "application.id") == "parser");
     }
 
+    // Logback's encoder writes local time with an offset and nanoseconds. Fluent Bit's parser takes
+    // one format, and warned on every line of an application that wrote another - so the
+    // application's moment is kept, in euclid's form: UTC, milliseconds, Z.
+    BOOST_AUTO_TEST_CASE(AnApplicationsTimestampIsBroughtToUtcMilliseconds) {
+
+        const auto stampOf = [](const std::string &stamp) {
+            const CapturedLog captured;
+            LogStream::LogVerbatim("app.file-copy", trivial::info,
+                                   R"({"@timestamp":")" + stamp + R"(","level":"INFO","message":"x"})", {});
+            return textOf(captured.lastObject(), "@timestamp");
+        };
+
+        BOOST_TEST(stampOf("2026-10-18T01:26:51.899898343+02:00") == "2026-10-17T23:26:51.899Z");
+        BOOST_TEST(stampOf("2026-10-18T01:26:51.9+0200") == "2026-10-17T23:26:51.900Z");
+        BOOST_TEST(stampOf("2026-10-18T01:26:51-05:30") == "2026-10-18T06:56:51.000Z");
+        BOOST_TEST(stampOf("2026-10-18 01:26:51,123") == "2026-10-18T01:26:51.123Z");
+        BOOST_TEST(stampOf("2026-09-20T12:00:00.000Z") == "2026-09-20T12:00:00.000Z");
+        // Across a month boundary, which is where hand-done date arithmetic goes wrong.
+        BOOST_TEST(stampOf("2026-03-01T00:30:00.000+01:00") == "2026-02-28T23:30:00.000Z");
+    }
+
+    // A timestamp nothing can read is replaced by the moment euclid read the line, rather than sent
+    // on to be refused.
+    BOOST_AUTO_TEST_CASE(AnUnreadableTimestampBecomesEuclids) {
+
+        const CapturedLog captured;
+        LogStream::LogVerbatim("app.file-copy", trivial::info, R"({"@timestamp":"yesterday","message":"x"})", {});
+
+        const auto stamp = textOf(captured.lastObject(), "@timestamp");
+        BOOST_TEST(stamp.size() == 24U);
+        BOOST_TEST(stamp.back() == 'Z');
+    }
+
+    // logback-spring.xml in the PIM services adds "service" as a custom field; euclid adds
+    // "service.name". OpenSearch would have to store "service" as a value and an object at once, and
+    // refuses the whole document - so the application's value moves under labels instead.
+    BOOST_AUTO_TEST_CASE(AnApplicationFieldThatWouldCollideMovesUnderLabels) {
+
+        const CapturedLog captured;
+        LogStream::LogVerbatim("app.file-copy", trivial::info,
+                               R"({"message":"x","service":"file-copy","kubernetes.namespace_name":"pim-dev"})",
+                               R"({"service.name":"file-copy","application.id":"file-copy"})");
+
+        const auto record = captured.lastObject();
+        BOOST_TEST(!record.contains("service"));
+        BOOST_TEST(textOf(record, "labels.service") == "file-copy");
+        BOOST_TEST(textOf(record, "service.name") == "file-copy");
+        // Nothing else is touched.
+        BOOST_TEST(textOf(record, "kubernetes.namespace_name") == "pim-dev");
+        BOOST_TEST(textOf(record, "message") == "x");
+    }
+
     // An application is not allowed to say it is somewhere it is not.
     BOOST_AUTO_TEST_CASE(AnApplicationCannotOverwriteEuclidsOwnFields) {
 
