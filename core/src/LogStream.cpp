@@ -10,9 +10,14 @@
 #include <boost/json.hpp>
 
 // C++ includes
+#include <algorithm>
+#include <chrono>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <string_view>
 #include <utility>
+#include <vector>
 //#include <awsmock/core/logging/LoggingServer.h>
 
 namespace Euclid::Core {
@@ -112,6 +117,111 @@ namespace Euclid::Core {
         return boost::posix_time::to_iso_extended_string(when).substr(0, 23) + "Z";
     }
 
+    // An application's @timestamp in the one form the collector parses: UTC, milliseconds, "Z".
+    //
+    // Logback's encoder writes local time with an offset and nanoseconds
+    // ("2026-10-18T01:26:51.899898343+02:00"), other programs whatever they like; Fluent Bit's
+    // parser takes one format and logged a warning for every line of an application that wrote
+    // another. Converted rather than replaced, because the application's moment of writing is the
+    // more exact one. Empty if it does not parse - the caller then uses euclid's own.
+    static std::string normalizedTimestamp(const std::string &value) {
+
+        // yyyy-mm-ddThh:mm:ss, then an optional fraction, then Z, +hh:mm, +hhmm or nothing (UTC).
+        if (value.size() < 19 || value[4] != '-' || value[7] != '-' || (value[10] != 'T' && value[10] != ' ') ||
+            value[13] != ':' || value[16] != ':') {
+            return {};
+        }
+        const auto number = [&](const std::size_t at, const std::size_t length, int &out) {
+            out = 0;
+            for (std::size_t i = at; i < at + length; ++i) {
+                if (value[i] < '0' || value[i] > '9') return false;
+                out = out * 10 + (value[i] - '0');
+            }
+            return true;
+        };
+        int year, month, day, hour, minute, second;
+        if (!number(0, 4, year) || !number(5, 2, month) || !number(8, 2, day) ||
+            !number(11, 2, hour) || !number(14, 2, minute) || !number(17, 2, second)) {
+            return {};
+        }
+
+        std::size_t i = 19;
+        int millis = 0;
+        if (i < value.size() && (value[i] == '.' || value[i] == ',')) {
+            ++i;
+            int digits = 0;
+            while (i < value.size() && value[i] >= '0' && value[i] <= '9') {
+                if (digits < 3) millis = millis * 10 + (value[i] - '0');
+                ++digits;
+                ++i;
+            }
+            if (digits == 0) return {};
+            for (; digits < 3; ++digits) millis *= 10;
+        }
+
+        int offsetMinutes = 0;
+        if (i < value.size()) {
+            if (value[i] == 'Z' || value[i] == 'z') {
+                ++i;
+            } else if (value[i] == '+' || value[i] == '-') {
+                const int sign = value[i] == '-' ? -1 : 1;
+                int oh, om;
+                if (i + 3 > value.size() || !number(i + 1, 2, oh)) return {};
+                std::size_t at = i + 3;
+                if (at < value.size() && value[at] == ':') ++at;
+                if (at + 2 > value.size() || !number(at, 2, om)) return {};
+                offsetMinutes = sign * (oh * 60 + om);
+                i = at + 2;
+            }
+        }
+        if (i != value.size()) return {};
+
+        using namespace std::chrono;
+        const year_month_day date{std::chrono::year{year}, std::chrono::month{static_cast<unsigned>(month)},
+                                  std::chrono::day{static_cast<unsigned>(day)}};
+        if (!date.ok() || hour > 23 || minute > 59 || second > 60) return {};
+        const auto utc = sys_days{date} + hours{hour} + minutes{minute} + seconds{second} + milliseconds{millis} -
+                         minutes{offsetMinutes};
+
+        const auto utcDays = floor<days>(utc);
+        const year_month_day utcDate{utcDays};
+        const hh_mm_ss time{floor<milliseconds>(utc - utcDays)};
+        char out[32];
+        std::snprintf(out, sizeof(out), "%04d-%02u-%02uT%02d:%02d:%02d.%03dZ",
+                      static_cast<int>(utcDate.year()), static_cast<unsigned>(utcDate.month()), static_cast<unsigned>(utcDate.day()),
+                      static_cast<int>(time.hours().count()), static_cast<int>(time.minutes().count()),
+                      static_cast<int>(time.seconds().count()), static_cast<int>(time.subseconds().count()));
+        return out;
+    }
+
+    // A field that OpenSearch would have to store as both a value and an object: "service" next to
+    // euclid's "service.name", which makes service an object. The whole document is then refused
+    // ("tried to parse field [service] as object, but found a concrete value"), and Fluent Bit,
+    // told the bulk failed, retries the chunk for ever. An application is free to log what it
+    // likes, so whatever of its fields would collide is moved under "labels." - where ECS keeps
+    // custom values - rather than dropped: "service" becomes "labels.service".
+    static void moveCollidingFields(boost::json::object &out) {
+        std::vector<std::string> colliding;
+        for (const auto &field: out) {
+            if (field.value().is_object()) continue;
+            const std::string key(field.key());
+            const auto prefix = key + ".";
+            for (const auto &other: out) {
+                if (std::string_view(other.key()).starts_with(prefix)) {
+                    colliding.push_back(key);
+                    break;
+                }
+            }
+        }
+        for (const auto &key: colliding) {
+            auto label = key;
+            std::ranges::replace(label, '.', '_');
+            auto value = out.at(key);
+            out.erase(key);
+            out["labels." + label] = std::move(value);
+        }
+    }
+
     // One JSON object per line, which is what a collector tailing this file expects: it reads a
     // line, parses it, and ships the fields as they are. Nothing here is formatted for a person -
     // the text formatter above is still what a console gets.
@@ -156,7 +266,12 @@ namespace Euclid::Core {
         if (!spliced) {
             out["message"] = std::string(message);
         }
-        if (!out.contains("@timestamp")) out["@timestamp"] = isoTimestamp(rec);
+        if (const auto *stamp = out.if_contains("@timestamp"); stamp != nullptr && stamp->is_string()) {
+            const auto normalized = normalizedTimestamp(std::string(stamp->as_string()));
+            out["@timestamp"] = normalized.empty() ? isoTimestamp(rec) : normalized;
+        } else {
+            out["@timestamp"] = isoTimestamp(rec);
+        }
         if (!out.contains("log.level")) {
             std::ostringstream level;
             level << rec[boost::log::trivial::severity];
@@ -189,6 +304,10 @@ namespace Euclid::Core {
                 for (const auto &field: parsed.as_object()) out[field.key()] = field.value();
             }
         }
+
+        // Last, once every field is in - the collision is between an application's field and one
+        // of euclid's, so only the finished record shows it.
+        if (spliced) moveCollidingFields(out);
 
         strm << boost::json::serialize(out);
     }
