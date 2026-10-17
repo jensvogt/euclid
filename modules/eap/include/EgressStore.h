@@ -130,7 +130,8 @@ namespace Euclid::EAP::Egress {
             const auto defaults = defaultEgressLimits();
             s.limits = Limits{.requestsPerSecond = numberOr(ld, "requestsPerSecond", defaults.requestsPerSecond),
                               .burst = numberOr(ld, "burst", defaults.burst),
-                              .concurrent = int64Or(ld, "concurrent", defaults.concurrent)};
+                              // Explicit: long is 32 bits on Windows, and braces refuse a silent narrowing.
+                              .concurrent = static_cast<long>(int64Or(ld, "concurrent", defaults.concurrent))};
         }
         return s;
     }
