@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.2.29](https://github.com/jensvogt/euclid/compare/1.2.28...v1.2.29) (2026-10-17)
+
+
+### Bug Fixes
+
+* rate limiter ([427c80d](https://github.com/jensvogt/euclid/commit/427c80d2f0bfda13edaf2eac767e9a245724d638))
+* rate limiter ([a802ba6](https://github.com/jensvogt/euclid/commit/a802ba63bb0f9fd1ee798297a20a0673549f5bd2))
+* set rate limiter per application ([6eb8d5d](https://github.com/jensvogt/euclid/commit/6eb8d5d6bb7a269f3dab280271c980af74ab369d))
+* set rate limiter per application ([8b785f1](https://github.com/jensvogt/euclid/commit/8b785f1a545e56170c412d213d5304ae63556d61))
+
 ## [1.2.28](https://github.com/jensvogt/euclid/compare/1.2.27...v1.2.28) (2026-10-15)
 
 
