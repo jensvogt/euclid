@@ -209,6 +209,49 @@ BOOST_AUTO_TEST_CASE(OtherwiseThePipeDecides) {
     BOOST_TEST(Launch::OutputSeverity(R"({"level":"chatty"})", true) == severity_level::error);
 }
 
+// What a text-logging application writes says its level too, among the first words - and that
+// word, not the pipe, is what the line is recorded at. Before this, every line of such an
+// application was info, its DEBUG lines included, and no channel level could turn them off.
+BOOST_AUTO_TEST_CASE(ATextLinesOwnLevelIsTakenAtItsWord) {
+
+    using boost::log::trivial::severity_level;
+    // Logback with a thread in brackets - what file-delivery writes.
+    BOOST_TEST(Launch::OutputSeverity("2026-10-18 00:54:56.811 [-file-delivery-0] DEBUG d.l.p.f.a.EqsClient.EqsClient.java:34 : Send MIDDLE priority", false) == severity_level::debug);
+    BOOST_TEST(Launch::OutputSeverity("2026-10-18 00:54:56.809 [-file-delivery-0] INFO  ageService.DistributionMessageService.java:33 : Sending file", false) == severity_level::info);
+    // Spring Boot's default layout, and a stdout line that says ERROR is an error.
+    BOOST_TEST(Launch::OutputSeverity("2026-10-18T00:54:56.811+02:00 ERROR 4711 --- [main] o.s.boot.SpringApplication : failed", false) == severity_level::error);
+    BOOST_TEST(Launch::OutputSeverity("2026-10-18T00:54:56.811+02:00  WARN 4711 --- [main] o.s.b.Foo : careful", false) == severity_level::warning);
+    // Log4j's bracketed, padded level; Python's logging; java.util.logging's names.
+    BOOST_TEST(Launch::OutputSeverity("[INFO ] 2026-10-18 started", true) == severity_level::info);
+    BOOST_TEST(Launch::OutputSeverity("WARNING:root:disk almost full", false) == severity_level::warning);
+    // java.util.logging's second line, which is where it puts the level.
+    BOOST_TEST(Launch::OutputSeverity("SEVERE: gone", false) == severity_level::error);
+    // And a stderr line saying INFO is info: a JVM logging to stderr is not failing.
+    BOOST_TEST(Launch::OutputSeverity("2026-10-18 00:54:56,084 [t-6] INFO  d.l.p.Listener - processing", true) == severity_level::info);
+}
+
+BOOST_AUTO_TEST_CASE(ALevelWordDeepInTheMessageIsTheMessageTalking) {
+
+    using boost::log::trivial::severity_level;
+    // Lower case, or beyond the first six words: not where a layout puts the level.
+    BOOST_TEST(Launch::OutputSeverity("an error happened", false) == severity_level::info);
+    BOOST_TEST(Launch::OutputSeverity("processed 12 files in 3 seconds without any ERROR", false) == severity_level::info);
+    BOOST_TEST(Launch::OutputSeverity("Error: something", true) == severity_level::error);
+}
+
+// A stack trace's frames carry no level of their own. They go with the line they continue, so an
+// ERROR and its trace stay together - and a frame after nothing at all is the pipe's.
+BOOST_AUTO_TEST_CASE(AContinuationLineKeepsTheLevelOfTheLineBefore) {
+
+    using boost::log::trivial::severity_level;
+    BOOST_TEST(Launch::OutputSeverity("\tat d.l.p.Foo.bar(Foo.java:12)", false, severity_level::error) == severity_level::error);
+    BOOST_TEST(Launch::OutputSeverity("Caused by: java.io.IOException: closed", false, severity_level::error) == severity_level::error);
+    BOOST_TEST(Launch::OutputSeverity("    ... 42 more", false, severity_level::warning) == severity_level::warning);
+    BOOST_TEST(Launch::OutputSeverity("\tat d.l.p.Foo.bar(Foo.java:12)", false) == severity_level::info);
+    // A new record is not a continuation, whatever came before.
+    BOOST_TEST(Launch::OutputSeverity("plain text", false, severity_level::error) == severity_level::info);
+}
+
 BOOST_AUTO_TEST_CASE(ControlBytesNeverReachTheJournalRaw) {
 
     BOOST_TEST(Launch::SanitizeOutput("a\x1b[31mb") == "a\\x1b[31mb");

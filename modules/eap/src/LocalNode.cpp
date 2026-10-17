@@ -209,23 +209,36 @@ namespace Euclid::EAP::LocalNode {
         }
         if (!runtimes.empty()) worker["runtimes"] = runtimes;
 
+        boost::json::object logging{
+                // The node's own level if one is set, and the manager's if not. A manager kept at
+                // warning does not mean its worker has nothing worth saying: inherited, a healthy
+                // local node wrote nothing at all to the file it had just been handed, so the only
+                // thing that ever appeared in it was a failure.
+                {"level", configuration.getOr<std::string>("euclid.modules.eap.local-node.log-level",
+                                                           configuration.getOr<std::string>("euclid.logging.level", "info"))},
+                // Inherited rather than decided here: a manager that writes a log file has a local
+                // node that writes one too, and one that logs only to the journal has a node that
+                // does the same.
+                {"file-active", configuration.getOr<bool>("euclid.logging.file-active", false)},
+                {"dir", configuration.getOr<std::string>("euclid.modules.eap.local-node.log-dir", "/var/lib/euclid-wrk/log")},
+                {"prefix", "euclid-wrk"}};
+
+        // The file's format: the node's own if one is set, the manager's if not. This node's file
+        // carries every application instance's output, so it is the one a log shipper reads - and
+        // without this it could only ever be text, since this file is rewritten whenever EAP starts
+        // and an edit to it by hand is gone with the next one. Only written when one of the two is
+        // set, so an installation that never asked keeps the file it always had.
+        if (const auto format = configuration.getOr<std::string>(
+                    "euclid.modules.eap.local-node.log-file-format",
+                    configuration.getOr<std::string>("euclid.logging.file-format", ""));
+            !format.empty()) {
+            logging["file-format"] = format;
+        }
+
         return boost::json::object{
                 {"euclid", boost::json::object{
                                    {"worker", worker},
-                                   {"logging", boost::json::object{
-                                                       // The node's own level if one is set, and the manager's if not. A
-                                                       // manager kept at warning does not mean its worker has nothing
-                                                       // worth saying: inherited, a healthy local node wrote nothing at
-                                                       // all to the file it had just been handed, so the only thing that
-                                                       // ever appeared in it was a failure.
-                                                       {"level", configuration.getOr<std::string>("euclid.modules.eap.local-node.log-level",
-                                                                                                  configuration.getOr<std::string>("euclid.logging.level", "info"))},
-                                                       // Inherited rather than decided here: a manager that writes a log
-                                                       // file has a local node that writes one too, and one that logs only
-                                                       // to the journal has a node that does the same.
-                                                       {"file-active", configuration.getOr<bool>("euclid.logging.file-active", false)},
-                                                       {"dir", configuration.getOr<std::string>("euclid.modules.eap.local-node.log-dir", "/var/lib/euclid-wrk/log")},
-                                                       {"prefix", "euclid-wrk"}}}}}};
+                                   {"logging", logging}}}};
     }
 
     void Provision() {

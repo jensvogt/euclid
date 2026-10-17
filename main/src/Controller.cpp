@@ -95,7 +95,9 @@ namespace Euclid::main {
         char ch;
         // Sanitised, and recorded at the severity the program itself wrote where it said one - see
         // Core::Launch::EmitOutput, which a worker records its instances' output with too.
-        auto emit = [&](const std::string &raw) { Core::Launch::EmitOutput(channel, raw, isError, fields); };
+        // The level of the line before, which a stack frame or "Caused by:" carries on.
+        std::optional<boost::log::trivial::severity_level> previous;
+        auto emit = [&](const std::string &raw) { Core::Launch::EmitOutput(channel, raw, isError, fields, previous); };
 #if defined(_WIN32)
         while (Platform::PipeRead(fd, &ch, 1) == 1) {
 #else

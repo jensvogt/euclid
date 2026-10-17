@@ -66,6 +66,8 @@ namespace Euclid::Worker {
         // only difference is the name of the call.
         void drainOutput(const int fd, const bool fromStderr, const std::string channel, const std::string fields) {
             std::string line;
+            // The level of the line before, which a stack frame or "Caused by:" carries on.
+            std::optional<boost::log::trivial::severity_level> previous;
             char buffer[4096];
 #ifdef _WIN32
             int got;
@@ -77,14 +79,14 @@ namespace Euclid::Worker {
                 for (decltype(got) i = 0; i < got; ++i) {
                     if (buffer[i] == '\n') {
                         if (!line.empty() && line.back() == '\r') line.pop_back();
-                        Core::Launch::EmitOutput(channel, line, fromStderr, fields);
+                        Core::Launch::EmitOutput(channel, line, fromStderr, fields, previous);
                         line.clear();
                     } else {
                         line += buffer[i];
                     }
                 }
             }
-            if (!line.empty()) Core::Launch::EmitOutput(channel, line, fromStderr, fields);
+            if (!line.empty()) Core::Launch::EmitOutput(channel, line, fromStderr, fields, previous);
 #ifdef _WIN32
             _close(fd);
 #else

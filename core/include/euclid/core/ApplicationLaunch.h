@@ -243,10 +243,29 @@ namespace Euclid::Core {
          * @par
          * An application that logs JSON has already said what its record means - "level", with
          * Logback's and SLF4J's spellings understood - and taking its word for it is what makes a
-         * channel level worth setting. Otherwise the pipe decides: stderr is an error, so a channel
-         * left at "error" still shows what went wrong, and stdout is info.
+         * channel level worth setting. One that logs text has usually said it too, among the first
+         * words of the line ("... [main] DEBUG d.l.p.Client : ..."), and is taken at that word -
+         * in capitals, within the first six words. Otherwise the pipe decides: stderr is an error,
+         * so a channel left at "error" still shows what went wrong, and stdout is info.
+         *
+         * @par
+         * Without that, every line of a text-logging application was info - its DEBUG lines
+         * included, which no channel level could then turn off.
          */
         [[nodiscard]] boost::log::trivial::severity_level OutputSeverity(const std::string &line, bool fromStderr);
+
+        /**
+         * @brief The same, for a line that may continue the one before it.
+         *
+         * @par
+         * A stack frame, a "Caused by:", anything indented carries no level of its own and is
+         * recorded at @p previous - the level of the line it continues - so an ERROR and its trace
+         * stay together under one level.
+         *
+         * @param previous the severity the previous line of the same pipe was recorded at, if any
+         */
+        [[nodiscard]] boost::log::trivial::severity_level OutputSeverity(const std::string &line, bool fromStderr,
+                                                                         std::optional<boost::log::trivial::severity_level> previous);
 
         /**
          * @brief Records one line of a child's output on @p channel: sanitised, at its own severity,
@@ -258,6 +277,14 @@ namespace Euclid::Core {
          * is this.
          */
         void EmitOutput(const std::string &channel, const std::string &line, bool fromStderr, const std::string &fields);
+
+        /**
+         * @brief The same, for one of a sequence of lines from the same pipe: @p previous is the
+         * severity the line before was recorded at, and is set to this line's - see the
+         * three-argument OutputSeverity(). Keep one per pipe.
+         */
+        void EmitOutput(const std::string &channel, const std::string &line, bool fromStderr, const std::string &fields,
+                        std::optional<boost::log::trivial::severity_level> &previous);
 
         /**
          * @brief What the credentials file is called in an application's directory.
