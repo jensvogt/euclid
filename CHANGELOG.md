@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.30](https://github.com/jensvogt/euclid/compare/v1.2.29...v1.2.30) (2026-10-17)
+
+
+### Bug Fixes
+
+* native application support ([775fc9c](https://github.com/jensvogt/euclid/commit/775fc9ccec1c44777931d011ebae7bb1afa1469c))
+
 ## [1.2.29](https://github.com/jensvogt/euclid/compare/1.2.28...v1.2.29) (2026-10-17)
 
 
