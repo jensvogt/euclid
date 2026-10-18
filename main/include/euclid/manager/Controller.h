@@ -344,11 +344,13 @@ namespace Euclid::main {
          * is better - see Manager::Placement::ChooseRebalance.
          *
          * @par
-         * Only after the pool has lost an instance (see _rebalancePending), only once it is settled
+         * Only after the pool has lost an instance, or an operator has asked for it with
+         * "eap rebalance-application" (see _rebalancePending), only once it is settled
          * - as many slots as it wants, every one of them RUNNING - and at most one move per pass.
          * The move withdraws a slot and lets the next pass place its replacement, so a pool is one
          * instance short for as long as that takes; settling first keeps two moves from overlapping.
-         * Never a JOB: moving one would run it again. Off with euclid.modules.eap.rebalance.
+         * Never a JOB: moving one would run it again. Off with euclid.modules.eap.rebalance, except
+         * when asked for.
          */
         void rebalanceNodeApplication(const Database::Entity::EAP::Application &application,
                                       const std::string &runtimeName,
@@ -874,6 +876,26 @@ namespace Euclid::main {
          * would have happened, not a wrong one.
          */
         std::set<std::string> _rebalancePending;
+
+        /**
+         * @brief Node applications whose pending rebalance an operator asked for with
+         * "eap rebalance-application", rather than the loss of an instance - which
+         * euclid.modules.eap.rebalance does not turn off. Cleared with _rebalancePending.
+         */
+        std::set<std::string> _rebalanceRequested;
+
+        /**
+         * @brief The newest rebalance request acted on, per node application - the application's
+         * "rebalanceRequested" as it was read. A newer one is a new request.
+         */
+        std::map<std::string, std::chrono::system_clock::time_point> _rebalanceRequestSeen;
+
+        /**
+         * @brief When this controller started. A request older than that counts as acted on: a
+         * manager that restarts would otherwise rebalance every application anybody ever asked to,
+         * all at once - and one asked for while it was down has, at worst, to be asked for again.
+         */
+        std::chrono::system_clock::time_point _rebalanceRequestsSince = std::chrono::system_clock::now();
 
 
         /**

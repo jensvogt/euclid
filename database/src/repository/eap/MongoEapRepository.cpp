@@ -320,6 +320,24 @@ namespace Euclid::Database {
         return false;
     }
 
+    bool MongoEapRepository::requestRebalance(const std::string &accountId, const std::string &nameSpace,
+                                              const std::string &applicationId) {
+
+        try {
+            const auto collection = Database::instance().collection(COLLECTION);
+
+            // The database's clock, as touchApplication() uses for "modified": the manager compares
+            // this with the last request it acted on, which it read from this same document.
+            const auto result = collection.update_one(applicationFilter(accountId, nameSpace, applicationId).view(),
+                                                      make_document(kvp("$currentDate", make_document(kvp("rebalanceRequested", true)))).view());
+            return result && result->matched_count() > 0;
+
+        } catch (const std::exception &e) {
+            log_error << "Request rebalance failed, applicationId: " << applicationId << ", error: " << e.what();
+        }
+        return false;
+    }
+
     // ── Worker nodes ────────────────────────────────────────────────────────────────────────────
 
     bsoncxx::document::value MongoEapRepository::nodeFilter(const std::string &accountId, const std::string &name) {

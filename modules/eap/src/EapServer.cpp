@@ -1978,6 +1978,58 @@ namespace Euclid::EAP {
                                                                 {"instances", instances}}));
     }
 
+    // Asks the manager to move an application's instances to where placement would put them now:
+    // onto a node that has joined since they were placed, off one that is busier than the others.
+    // The manager does that by itself after an instance goes away; this is for every other time -
+    // a new node, or a pool that ended up lopsided and was never scaled since.
+    //
+    // Only writes down the request, as restart-application does. The manager moves one instance
+    // per pass, each move withdrawing a slot and placing its replacement on the next, until no move
+    // would help - so a pool is one instance short while a move is under way, never more, and one
+    // already balanced is left exactly as it is. Done regardless of euclid.modules.eap.rebalance,
+    // which turns off the automatic kind: an operator asking is an operator who means it.
+    static response<string_body> handleRebalanceApplication(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "rebalance-application");
+
+        AuthResult auth;
+        if (const auto denied = requireAdmin(req, auth)) return *denied;
+
+        boost::json::value jv;
+        if (const auto err = EapServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+
+        const auto applicationId = stringField(jv.as_object(), "applicationId");
+        const auto ns = std::string(req["x-euclid-namespace"]);
+        const auto repo = Database::RepositoryFactory::instance().eapRepository();
+        const auto application = repo->findApplicationByApplicationId(auth.user->accountId, ns, applicationId);
+        if (!application.has_value()) {
+            return EapServer::ErrorResponse(req, status::not_found, "Application not found: " + applicationId);
+        }
+
+        // A job's instance is a run of it, and moving one would start that run again.
+        if (Database::Entity::EAP::IsJob(application->type)) {
+            return EapServer::ErrorResponse(req, status::bad_request,
+                                            "Refusing to rebalance '" + applicationId + "': it is a JOB, and moving a run would start it again");
+        }
+
+        if (!repo->requestRebalance(auth.user->accountId, ns, applicationId)) {
+            return EapServer::ErrorResponse(req, status::internal_server_error, "Could not request a rebalance: " + applicationId);
+        }
+
+        // What there is to rebalance now; where each instance ends up is the manager's to decide
+        // over the next passes, and nothing has moved when this is answered.
+        const auto instances = static_cast<long>(applicationEndpoints(Database::Entity::EAP::RuntimeName(*application)).size());
+
+        log_info << "EAP rebalance application requested, applicationId: " << applicationId
+                 << ", instances: " << instances << ", user: " << auth.user->userId;
+
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"applicationId", applicationId},
+                                                                {"rebalancing", true},
+                                                                {"instances", instances}}));
+    }
+
     // Records the level an application's own output is logged at. Like start-application and
     // stop-application, this only writes down an intention: the manager reads the applications it
     // runs on every reconcile and applies the level to that application's log channel.
@@ -3242,6 +3294,7 @@ namespace Euclid::EAP {
         if (action == "start-application") return handleSetState(req, ApplicationState::RUNNING);
         if (action == "stop-application") return handleSetState(req, ApplicationState::STOPPED);
         if (action == "restart-application") return handleRestartApplication(req);
+        if (action == "rebalance-application") return handleRebalanceApplication(req);
         if (action == "set-log-level") return handleSetLogLevel(req);
         if (action == "apply-infrastructure") return handleApplyInfrastructure(req);
         if (action == "report-load") return handleReportLoad(req);

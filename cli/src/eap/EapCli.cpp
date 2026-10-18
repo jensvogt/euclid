@@ -151,6 +151,7 @@ namespace Euclid::CLI {
                 {"list-nodes", "List the registered worker nodes and whether they are live"},
                 {"redeploy-application", "Deploy a new build of an application from a local file"},
                 {"restart-application", "Ask the manager to start an application's instances again"},
+                {"rebalance-application", "Ask the manager to spread an application's instances over the nodes again"},
                 {"set-egress-limit", "Set how fast one application may call an outside site"},
                 {"set-log-level", "Turn an application's own logging up, down or off"},
                 {"scale-application", "Change how many instances an application runs, without restarting it"},
@@ -194,6 +195,7 @@ namespace Euclid::CLI {
         if (action == "start-application") return setState(args, true);
         if (action == "stop-application") return setState(args, false);
         if (action == "restart-application") return restartApplication(args);
+        if (action == "rebalance-application") return rebalanceApplication(args);
         if (action == "set-log-level") return setLogLevel(args);
         if (action == "apply") return applyManifest(args);
         if (action == "list-nodes") return listNodes(args);
@@ -1181,6 +1183,54 @@ namespace Euclid::CLI {
             const HttpResponse response = client.Post("eap", action, boost::json::object{{"applicationId", vm["application-id"].as<std::string>()}});
             if (!response.IsSuccess()) {
                 std::cerr << "error: " << action << " failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EapCli::rebalanceApplication(const std::vector<std::string> &args) const {
+
+        po::options_description desc("rebalance an application");
+        desc.add_options()
+                ("application-id,n", po::value<std::string>()->required(), "name of the application");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eap", "rebalance-application", "--application-id <name>",
+                                   "Asks the manager to spread this application's instances over the worker nodes again, the "
+                                   "way placement would put them today - onto a node that has joined since they were placed, off "
+                                   "one that holds more than its share for its cores, off one that is drained or no longer "
+                                   "matches the application's node labels.\n\n"
+                                   "The manager does this by itself after an instance goes away; this is for every other time. "
+                                   "It moves one instance per pass: each move stops an instance and starts its replacement on "
+                                   "the better node on the next pass, so the pool is at most one instance short while a move is "
+                                   "under way, and an application that is already balanced is left exactly as it is. Nothing "
+                                   "else restarts. Applies even when euclid.modules.eap.rebalance turns the automatic kind off.\n\n"
+                                   "Returns as soon as the request is recorded; \"eap get-application\" and \"emm list-modules\" "
+                                   "show where the instances are as they move. A JOB is refused: moving one of its runs would "
+                                   "start that run again.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eap", "rebalance-application",
+                                                      boost::json::object{{"applicationId", vm["application-id"].as<std::string>()}});
+            if (!response.IsSuccess()) {
+                std::cerr << "error: rebalance-application failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);

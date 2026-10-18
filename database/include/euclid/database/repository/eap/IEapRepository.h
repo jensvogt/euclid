@@ -232,6 +232,23 @@ namespace Euclid::Database {
         virtual bool touchApplication(const std::string &accountId, const std::string &nameSpace,
                                       const std::string &applicationId) = 0;
 
+        /**
+         * @brief Asks the manager to rebalance an application's instances across the nodes.
+         *
+         * @par
+         * Stamps "rebalanceRequested" with the database's clock, and nothing else: the manager
+         * compares it with the last request it acted on - the same way touchApplication() asks for a
+         * restart through "modified", but without being a change of definition, so nothing restarts
+         * because it was asked.
+         *
+         * @param accountId account the application belongs to
+         * @param nameSpace namespace within accountId
+         * @param applicationId application to rebalance
+         * @return true if an application of that name was stamped
+         */
+        virtual bool requestRebalance(const std::string &accountId, const std::string &nameSpace,
+                                      const std::string &applicationId) = 0;
+
         // ── Worker nodes ────────────────────────────────────────────────────────────────────────
         //
         // A node is a host that runs applications euclid placed there and is not the manager's

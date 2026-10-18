@@ -97,7 +97,7 @@ namespace Euclid::CLI {
                 ("port,p", po::value<long>()->required(), "TCP port to listen on; must not be used by another transfer server")
                 ("bucket,b", po::value<std::string>()->required(), "name of the ESM bucket this server's clients read and write")
                 ("address,a", po::value<std::string>()->default_value("0.0.0.0"), "address to bind to")
-                ("home-dir,H", po::value<std::string>(), "key prefix each client is rooted at, with {user} standing for the login name, e.g. \"{user}\"; default is the bucket root, shared by every client")
+                ("home-dir,H", po::value<std::string>(), "key prefix each client is rooted at, with {user} standing for the login name; default \"{user}\", a home of each client's own; \"\" for the bucket root, shared by every client")
                 ("users,u", po::value<std::string>(), "comma-separated EAM user IDs allowed to log in")
                 ("groups,g", po::value<std::string>(), "comma-separated EAM user groups whose members may log in")
                 ("directories,D", po::value<std::string>(), "comma-separated directories every session should find under its home, e.g. incoming/mix,incoming/split,feedback; created at login, relative to --home-dir")
@@ -114,11 +114,11 @@ namespace Euclid::CLI {
                                    "authenticate with their EAM credentials and are admitted if they are named by "
                                    "--users or belong to one of --groups; whatever they upload is stored as an object "
                                    "in the bucket, which is what every listing and download then reads back. "
-                                   "Without --home-dir every client shares one flat key space at the bucket root, so "
-                                   "the key of an upload is exactly the path the client typed; --home-dir \"{user}\" "
-                                   "roots each session at a prefix named after the user that logged in, which is what "
-                                   "keeps one client's files out of another's and puts the delivering user into the "
-                                   "object key. "
+                                   "Each session is rooted at a prefix named after the user that logged in - --home-dir "
+                                   "\"{user}\", the default - which is what keeps one client's files out of another's and "
+                                   "puts the delivering user into the object key. --home-dir \"\" instead gives every "
+                                   "client one shared, flat key space at the bucket root, where the key of an upload is "
+                                   "exactly the path the client typed. "
                                    "The server is created stopped - use \"ets start-server\" to run it.",
                                    desc);
         }

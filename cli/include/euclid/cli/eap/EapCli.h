@@ -169,6 +169,15 @@ namespace Euclid::CLI {
         int restartApplication(const std::vector<std::string> &args) const;
 
         /**
+         * @brief Asks the manager to spread an application's instances over the nodes again.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int rebalanceApplication(const std::vector<std::string> &args) const;
+
+        /**
          * @brief Sets the level an application's own output is logged at.
          *
          * @param args command line arguments

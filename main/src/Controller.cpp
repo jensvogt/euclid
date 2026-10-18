@@ -1233,6 +1233,16 @@ namespace Euclid::main {
         }
         _heldSlots[runtimeName] = have;
 
+        // Or an operator has asked for one - "eap rebalance-application", which stamps the
+        // application with the time of asking. Newer than the last one acted on is a new request.
+        if (auto &seen = _rebalanceRequestSeen.try_emplace(runtimeName, _rebalanceRequestsSince).first->second;
+            application.rebalanceRequested > seen) {
+            seen = application.rebalanceRequested;
+            _rebalancePending.insert(runtimeName);
+            _rebalanceRequested.insert(runtimeName);
+            log_info << "Rebalance requested, application: " << runtimeName;
+        }
+
         // Surplus given back one slot at a time, which is the pace NextDesiredCount() lowers the
         // target at anyway. Withdrawn rather than deleted, exactly as a stopped application's slots
         // are: the manager cannot stop a process on another machine, but a slot that is no longer
@@ -1350,10 +1360,13 @@ namespace Euclid::main {
 
         if (!_rebalancePending.contains(runtimeName)) return;
 
-        // A job's instance is a run of it, and moving one would run it again from the start.
+        // A job's instance is a run of it, and moving one would run it again from the start. And
+        // the automatic kind can be turned off - but not one an operator asked for.
         if (Database::Entity::EAP::IsJob(application.type) ||
-            !Core::Configuration::instance().getOr<bool>("euclid.modules.eap.rebalance", true)) {
+            (!_rebalanceRequested.contains(runtimeName) &&
+             !Core::Configuration::instance().getOr<bool>("euclid.modules.eap.rebalance", true))) {
             _rebalancePending.erase(runtimeName);
+            _rebalanceRequested.erase(runtimeName);
             return;
         }
 
@@ -1387,6 +1400,7 @@ namespace Euclid::main {
         const auto move = Manager::Placement::ChooseRebalance(candidates, constraints);
         if (!move.has_value()) {
             // Balanced, as far as one move at a time can tell. Nothing more until the next loss.
+            if (_rebalanceRequested.erase(runtimeName) > 0) log_info << "Rebalance done, application: " << runtimeName;
             _rebalancePending.erase(runtimeName);
             log_debug << "Node application balanced, application: " << runtimeName;
             return;

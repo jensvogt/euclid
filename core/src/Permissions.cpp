@@ -94,7 +94,7 @@ namespace Euclid::Core {
                 "eam:user-group-add-user",
                 "eam:user-group-remove-user",
 
-                // eap - 30 actions
+                // eap - 31 actions
                 "eap:acquire-egress-permit",
                 "eap:apply-infrastructure",
                 "eap:assign-instance",
@@ -111,6 +111,7 @@ namespace Euclid::Core {
                 "eap:list-applications",
                 "eap:list-egress-sites",
                 "eap:list-nodes",
+                "eap:rebalance-application",
                 "eap:redeploy-application",
                 "eap:register-node",
                 "eap:release-egress-permit",

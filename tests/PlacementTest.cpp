@@ -483,7 +483,7 @@ BOOST_AUTO_TEST_CASE(RebalancingAlwaysSettles) {
         for (unsigned i = 0; i < nodes; ++i) {
             const long count = static_cast<long>(next(6));
             instances += count;
-            candidates.push_back(node("node-" + std::to_string(i), count, 0.0, cores[next(cores.size())]));
+            candidates.push_back(node("node-" + std::to_string(i), count, 0.0, cores[next(static_cast<unsigned>(cores.size()))]));
         }
 
         long moves = 0;

@@ -1,0 +1,74 @@
+.TH EUCLID-CLI-EAP-REBALANCE-APPLICATION 1 "October 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eap-rebalance-application \- spread an application's instances over the worker nodes again
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+.B eap rebalance-application
+\fB\-\-application\-id\fR \fIname\fR
+.SH DESCRIPTION
+Asks the manager to move an application's instances to where placement
+would put them today:
+.IP \(bu 3
+onto a node that has joined since they were placed,
+.IP \(bu 3
+off a node that holds more than its share for the cores it has,
+.IP \(bu 3
+off a node that is drained, no longer live, or no longer matches the
+application's node labels.
+.PP
+The manager does this by itself after an instance goes away (scaled
+down, stopped, taken off a node). This command is for every other time:
+a new node, or a pool that ended up lopsided and has not been scaled
+since.
+.PP
+The manager moves one instance per pass. Each move stops one instance
+and starts its replacement on the better node on the next pass, so the
+pool is at most one instance short while a move is under way, and only
+once all its instances are running. Moves continue until no move would
+help; an application that is already balanced is left exactly as it is.
+Nothing else is restarted.
+.PP
+It applies even when
+.I euclid.modules.eap.rebalance
+is
+.IR false ,
+which turns off only the automatic kind.
+.PP
+The command returns as soon as the request is recorded.
+.BR euclid-cli-emm-list-modules (1)
+shows where the instances are as they move, and the manager's log has
+"Rebalancing a node application" for each move and "Rebalance done"
+at the end.
+.PP
+A
+.I JOB
+is refused: moving one of its runs would start that run again. The
+caller must be an administrator.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-application\-id " " \fIname\fR
+The application to rebalance, in the caller's account and namespace.
+.SH OUTPUT
+The JSON response has
+.IR applicationId ,
+.I rebalancing
+.RI ( true )
+and
+.IR instances ,
+the number of instances the application has now.
+.SH EXAMPLE
+.PP
+.RS
+.nf
+euclid-cli eap rebalance-application --application-id file-pickup
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eap (1),
+.BR euclid-cli-eap-restart-application (1),
+.BR euclid-cli-eap-scale-application (1),
+.BR euclid-cli-eap-list-nodes (1),
+.BR euclid-cli-emm-list-modules (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>
