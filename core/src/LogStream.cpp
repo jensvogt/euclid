@@ -494,6 +494,33 @@ namespace Euclid::Core {
     // the moment the thing you were trying to watch has already stopped. A manager logging at
     // warning writes a handful of records a minute; the cost of flushing each one is nothing
     // against being unable to see any of them until it is too late to matter.
+    long LogStream::FileSizeFromConfiguration() {
+        constexpr long kMegabyte = 1024L * 1024L;
+        constexpr long kMinMegabytes = 1;
+        constexpr long kMaxMegabytes = 10L * 1024L;
+        const auto megabytes = Configuration::instance().getOr<long>("euclid.logging.file-size-mb", DEFAULT_LOG_SIZE / kMegabyte);
+        if (megabytes < kMinMegabytes || megabytes > kMaxMegabytes) {
+            // Said rather than clamped silently: a value of 0 or a typo of 100000 is a mistake
+            // somebody will want to hear about, and the default is a safer answer than a bound.
+            log_warning << "euclid.logging.file-size-mb must be between " << kMinMegabytes << " and " << kMaxMegabytes
+                        << ", using " << DEFAULT_LOG_SIZE / kMegabyte << ", given: " << megabytes;
+            return DEFAULT_LOG_SIZE;
+        }
+        return megabytes * kMegabyte;
+    }
+
+    int LogStream::FileCountFromConfiguration() {
+        constexpr long kMinFiles = 1;
+        constexpr long kMaxFiles = 1000;
+        const auto count = Configuration::instance().getOr<long>("euclid.logging.file-count", DEFAULT_LOG_COUNT);
+        if (count < kMinFiles || count > kMaxFiles) {
+            log_warning << "euclid.logging.file-count must be between " << kMinFiles << " and " << kMaxFiles
+                        << ", using " << DEFAULT_LOG_COUNT << ", given: " << count;
+            return DEFAULT_LOG_COUNT;
+        }
+        return static_cast<int>(count);
+    }
+
     void LogStream::AddFile(const std::string &dir, const std::string &prefix, long size, int count) {
 
         // Tried here, because the sink opens its file lazily, on the first record - and a file it

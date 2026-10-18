@@ -787,7 +787,8 @@ static int RunManager(const CliOptions &opts, [[maybe_unused]] const bool report
     raiseOpenFileLimit();
 
     if (cfg.getOr<bool>("euclid.logging.file-active", false)) {
-        Euclid::Core::LogStream::AddFile(cfg.getOr<std::string>("euclid.logging.dir", "/var/log/euclid"), cfg.getOr<std::string>("euclid.logging.prefix", "euclid"));
+        Euclid::Core::LogStream::AddFile(cfg.getOr<std::string>("euclid.logging.dir", "/var/log/euclid"), cfg.getOr<std::string>("euclid.logging.prefix", "euclid"),
+                                         Euclid::Core::LogStream::FileSizeFromConfiguration(), Euclid::Core::LogStream::FileCountFromConfiguration());
     }
 
     // ── Initialize Database ─────────────────────────────

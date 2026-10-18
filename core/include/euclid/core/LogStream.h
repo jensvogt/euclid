@@ -55,8 +55,8 @@
 // Euclid includes
 //#include <awsmock/core/logging/LogWebsocketSink.h>
 
-#define DEFAULT_LOG_SIZE (10 * 1024 * 1024)
-#define DEFAULT_LOG_COUNT 5
+#define DEFAULT_LOG_SIZE (50 * 1024 * 1024)
+#define DEFAULT_LOG_COUNT 10
 
 // Named rather than written into the macro below, which would otherwise read the comma in the
 // template argument list as a second macro argument.
@@ -105,6 +105,7 @@ namespace Euclid::Core {
     class LogStream {
 
     public:
+
         /**
          * @brief The channel a record carries when nothing else is said: the process's own.
          */
@@ -276,6 +277,25 @@ namespace Euclid::Core {
         static void AddFile(const std::string &dir, const std::string &prefix, long size = DEFAULT_LOG_SIZE, int count = DEFAULT_LOG_COUNT);
 
         /**
+         * @brief How large one log file grows before it is rotated, in bytes:
+         * euclid.logging.file-size-mb, in megabytes.
+         *
+         * @par
+         * Together with FileCountFromConfiguration() this is how much history a log file keeps -
+         * which on a worker running busy applications was six minutes at 10 MB per file, too little
+         * to look anything up once it had happened. 1 MB to 10 GB; the default
+         * (DEFAULT_LOG_SIZE) when the setting is missing or outside that range.
+         */
+        static long FileSizeFromConfiguration();
+
+        /**
+         * @brief How many rotated log files are kept besides the live one:
+         * euclid.logging.file-count. 1 to 1000; the default (DEFAULT_LOG_COUNT) when the setting is
+         * missing or outside that range.
+         */
+        static int FileCountFromConfiguration();
+
+        /**
          * @brief Adds a web socket sink
          *
          * @param ws websocket
@@ -414,7 +434,7 @@ namespace Euclid::Core {
         //        static boost::shared_ptr<webSocketSink_t> webSocketSink;
     };
 
-} // namespace Euclid::Core
+}// namespace Euclid::Core
 
 #if defined(_WIN32) || defined(CYGWIN)
 #define EUCLID_LOG_FUNCTION __FUNCTION__

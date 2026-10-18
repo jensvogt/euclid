@@ -153,6 +153,30 @@ BOOST_AUTO_TEST_CASE(TheNodesLogLevelIsItsOwnIfSetAndTheManagersIfNot) {
     BOOST_TEST(own.at("level").as_string() == "info");
 }
 
+// How much history the node's log file keeps, the same way as its level: the manager's if the node
+// is told nothing, its own if it is - and nothing at all if neither is, so an installation that
+// never asked keeps the file it always had. This file is rewritten whenever EAP starts, so a value
+// edited into it by hand would not last; this is the only way to set it.
+BOOST_AUTO_TEST_CASE(TheNodesLogFileSizeAndCountAreItsOwnIfSetAndTheManagersIfNot) {
+
+    freshInstallation(true);
+    const auto none = LocalNode::WorkerConfiguration(kDirectory / "credentials").at("euclid").at("logging").as_object();
+    BOOST_TEST(!none.contains("file-size-mb"));
+    BOOST_TEST(!none.contains("file-count"));
+
+    Configuration::instance().set<long>("euclid.logging.file-size-mb", 20);
+    Configuration::instance().set<long>("euclid.logging.file-count", 4);
+    const auto inherited = LocalNode::WorkerConfiguration(kDirectory / "credentials").at("euclid").at("logging").as_object();
+    BOOST_TEST(inherited.at("file-size-mb").as_int64() == 20);
+    BOOST_TEST(inherited.at("file-count").as_int64() == 4);
+
+    Configuration::instance().set<long>("euclid.modules.eap.local-node.log-file-size-mb", 100);
+    Configuration::instance().set<long>("euclid.modules.eap.local-node.log-file-count", 30);
+    const auto own = LocalNode::WorkerConfiguration(kDirectory / "credentials").at("euclid").at("logging").as_object();
+    BOOST_TEST(own.at("file-size-mb").as_int64() == 100);
+    BOOST_TEST(own.at("file-count").as_int64() == 30);
+}
+
 BOOST_AUTO_TEST_CASE(TheLocalNodeDoesNotReportTheHostTheMonitoringModuleAlreadyReads) {
 
     freshInstallation(true);

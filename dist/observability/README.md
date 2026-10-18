@@ -36,6 +36,28 @@ Nothing else changes: the channels, levels and `eap set-log-level` all work exac
 they are still the way to turn a talkative application down. That matters more once logs cost
 storage than it did when they scrolled past.
 
+How much history the file keeps is set in the same block:
+
+```json
+"logging": {
+  "file-size-mb": 50,
+  "file-count": 10
+}
+```
+
+A file is rotated at `file-size-mb` megabytes (1 to 10240), and `file-count` rotated files are kept
+besides the live one (1 to 1000); anything outside those ranges falls back to the defaults shown,
+with a warning. This is the window Fluent Bit has to catch up in after an outage, and what is left
+to read on the host itself: a worker running busy applications at `info` writes several megabytes a
+minute, and at 10 MB × 5 kept only six minutes of it. Both apply to the manager's `euclid.json` and
+a worker's `euclid-wrk.json` alike.
+
+The manager's own worker (the local node) is the exception: its `euclid-wrk.json` is written by EAP
+every time EAP starts, so an edit to it does not last. It inherits the manager's two values, and
+takes its own from `euclid.modules.eap.local-node.log-file-size-mb` and `log-file-count` in the
+manager's `euclid.json` when those are set - worth doing, since that node's file carries every
+application instance's output and is the busiest one there is.
+
 ## Why files and not journald
 
 euclid writes to stdout, and under systemd that lands in journald, which Fluent Bit can read
