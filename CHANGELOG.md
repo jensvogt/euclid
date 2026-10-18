@@ -1,5 +1,65 @@
 # Changelog
 
+## [1.2.31](https://github.com/jensvogt/euclid/compare/1.2.30...v1.2.31) (2026-10-18)
+
+
+### Bug Fixes
+
+* logging stream ([7058a05](https://github.com/jensvogt/euclid/commit/7058a0531f90c83e36a954e9d59024ecb73af318))
+* logging stream ([4dd0efb](https://github.com/jensvogt/euclid/commit/4dd0efbc848feea094c5ec6a4256d1db7bcf8e21))
+* logging stream ([a6dbe13](https://github.com/jensvogt/euclid/commit/a6dbe13580ceadfea35093004af18a86e3946d0a))
+
+## [1.2.30](https://github.com/jensvogt/euclid/compare/v1.2.29...v1.2.30) (2026-10-17)
+
+
+### Bug Fixes
+
+* native application support ([775fc9c](https://github.com/jensvogt/euclid/commit/775fc9ccec1c44777931d011ebae7bb1afa1469c))
+
+## [1.2.29](https://github.com/jensvogt/euclid/compare/1.2.28...v1.2.29) (2026-10-17)
+
+
+### Bug Fixes
+
+* rate limiter ([427c80d](https://github.com/jensvogt/euclid/commit/427c80d2f0bfda13edaf2eac767e9a245724d638))
+* rate limiter ([a802ba6](https://github.com/jensvogt/euclid/commit/a802ba63bb0f9fd1ee798297a20a0673549f5bd2))
+* set rate limiter per application ([6eb8d5d](https://github.com/jensvogt/euclid/commit/6eb8d5d6bb7a269f3dab280271c980af74ab369d))
+* set rate limiter per application ([8b785f1](https://github.com/jensvogt/euclid/commit/8b785f1a545e56170c412d213d5304ae63556d61))
+
+## [1.2.28](https://github.com/jensvogt/euclid/compare/1.2.27...v1.2.28) (2026-10-15)
+
+
+### Bug Fixes
+
+* EQS file copy problems ([0225219](https://github.com/jensvogt/euclid/commit/022521993ee84f612bcd57b7752a0722c6d11be6))
+* EQS file copy problems ([7c0ed83](https://github.com/jensvogt/euclid/commit/7c0ed8344b29eac5c97beac86b4856654dc2703b))
+
+## [1.2.27](https://github.com/jensvogt/euclid/compare/1.2.26...v1.2.27) (2026-10-15)
+
+
+### Bug Fixes
+
+* ENS pugre topic ([bf62607](https://github.com/jensvogt/euclid/commit/bf6260722e7037473c6957ea6fc3be0b5ed4de8e))
+* EQS file copy problems ([e70b01a](https://github.com/jensvogt/euclid/commit/e70b01a602a135af5346554a63ffac184c63f382))
+* load measurements ([c851e85](https://github.com/jensvogt/euclid/commit/c851e8522d9a48e5d7592a2b087e9f9beb4f3fe3))
+
+## [1.2.26](https://github.com/jensvogt/euclid/compare/1.2.25...v1.2.26) (2026-10-14)
+
+
+### Bug Fixes
+
+* load measurements ([19dcfe7](https://github.com/jensvogt/euclid/commit/19dcfe7dc93919f5c53c5207c7f4270f74b9acef))
+* load measurements ([4bf1749](https://github.com/jensvogt/euclid/commit/4bf17494005ce49ad31891c89c10306e29229834))
+
+## [1.2.25](https://github.com/jensvogt/euclid/compare/1.2.24...v1.2.25) (2026-10-14)
+
+
+### Bug Fixes
+
+* load measurements ([b11c778](https://github.com/jensvogt/euclid/commit/b11c778d05588757130e32ef263b12f7ec3d0a0c))
+* load measurements ([19ccc53](https://github.com/jensvogt/euclid/commit/19ccc53229c453d927d4e5f0bee2f44713b17860))
+* load measurements ([4416961](https://github.com/jensvogt/euclid/commit/4416961f7771ab5640bd7cb804025616789be61a))
+
 ## [1.2.24](https://github.com/jensvogt/euclid/compare/v1.2.23...v1.2.24) (2026-10-14)
 
 
