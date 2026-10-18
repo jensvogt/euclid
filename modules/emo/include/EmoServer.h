@@ -185,11 +185,6 @@ namespace Euclid::Monitoring {
         std::string _cpuUsageTaskId;
         std::string _systemLoadTaskId;
         std::string _memoryUsageTaskId;
-        std::string _queueCountsTaskId;
-
-        std::string _bucketCountsTaskId;
-
-        std::string _topicCountsTaskId;
 
         std::string _moduleInstancesTaskId;
     };

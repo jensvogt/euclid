@@ -9,8 +9,10 @@
 // C++ includes
 #include <algorithm>
 #include <chrono>
+#include <map>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 // Euclid includes
@@ -124,6 +126,12 @@ namespace Euclid::Database {
             // is what the result is grouped by, so the index also delivers the groups in order.
             objectCollection.create_index(make_document(kvp("status", 1), kvp("bucketErn", 1), kvp("directory", 1), kvp("size", 1)));
 
+            // One level of one bucket, in key order: an equality on the first two fields and a
+            // sort served by the third. This is what makes listing a folder a lookup rather than
+            // a prefix match over every key in the bucket - and what keeps the paging offsets
+            // small, since the result set is the level itself and not everything beneath it.
+            objectCollection.create_index(make_document(kvp("bucketErn", 1), kvp("parent", 1), kvp("key", 1)));
+
             auto subscriptionCollection = Database::instance().collection(SUBSCRIPTION_COLLECTION);
             mongocxx::options::index subscriptionOpts;
             subscriptionOpts.unique(true);
@@ -132,6 +140,92 @@ namespace Euclid::Database {
         } catch (const std::exception &e) {
             log_error << "Ensure storage indexes failed, error: " << e.what();
         }
+
+        backfillObjectParents();
+    }
+
+    void MongoEsmRepository::backfillObjectParents() {
+
+        // Off the startup path. The pass is bounded but not instant - an installation of a few
+        // hundred thousand objects is a few hundred writes of a few thousand ids - and a module
+        // that cannot start until a migration finishes is a module that looks hung. Listings of a
+        // level are short of whatever has not been reached yet while it runs, and complete when
+        // it is done; both states are in the log.
+        std::thread([] {
+            try {
+                auto objectCollection = Database::instance().collection(OBJECT_COLLECTION);
+
+                // Only the objects written before the field existed. An equality on a missing
+                // field is not the same as one on "" - a key at a bucket's root legitimately has
+                // no parent - so the two are told apart by existence, and a document that has
+                // been through upsertObject() since is left alone.
+                const auto missing = make_document(kvp("parent", make_document(kvp("$exists", false))));
+                if (objectCollection.count_documents(missing.view()) == 0) return;
+
+                log_info << "ESM object parents missing, backfilling";
+
+                // Derived here rather than by the server: the rule is ParentOfKey()'s, and a
+                // pipeline doing it again would be a second copy that can drift from the first -
+                // besides which the first attempt at one was refused outright ("Unrecognized
+                // expression '$lastIndexOfBytes'"), and a migration that depends on which
+                // operators a deployment implements is not one to rely on.
+                //
+                // Written by id. The obvious filter - every key under one level - has no indexed
+                // field to stand on here and is a collection scan per level, which on a few
+                // hundred levels is tens of millions of reads and looks exactly like a hang. A
+                // batch of ids is bounded, indexed, and finishes.
+                constexpr int kBatch = 2000;
+                long updated = 0;
+                long levels = 0;
+
+                while (true) {
+                    mongocxx::options::find options;
+                    options.limit(kBatch);
+                    options.projection(make_document(kvp("_id", 1), kvp("key", 1)));
+
+                    std::map<std::string, std::vector<bsoncxx::oid>> byLevel;
+                    long read = 0;
+                    for (auto cursor = objectCollection.find(missing.view(), options); const auto &doc: cursor) {
+                        ++read;
+                        const auto key = doc["key"];
+                        const auto id = doc["_id"];
+                        if (!id || id.type() != bsoncxx::type::k_oid) continue;
+                        const auto name = key && key.type() == bsoncxx::type::k_string
+                                                  ? std::string(key.get_string().value) : std::string{};
+                        byLevel[Entity::ESM::ParentOfKey(name)].push_back(id.get_oid().value);
+                    }
+                    if (read == 0) break;
+
+                    long written = 0;
+                    for (const auto &[level, ids]: byLevel) {
+                        bsoncxx::builder::basic::array list;
+                        for (const auto &id: ids) list.append(id);
+                        const auto filter = make_document(kvp("_id", make_document(kvp("$in", list.extract()))));
+                        if (const auto outcome = objectCollection.update_many(
+                                    filter.view(), make_document(kvp("$set", make_document(kvp("parent", level)))))) {
+                            written += outcome->modified_count();
+                        }
+                    }
+                    updated += written;
+                    levels += static_cast<long>(byLevel.size());
+
+                    // A batch that wrote nothing would be read again unchanged on the next pass.
+                    // Stopping says so rather than spinning on it.
+                    if (written == 0) {
+                        log_warning << "ESM object parent backfill made no progress, giving up, written so far: " << updated;
+                        return;
+                    }
+                    log_debug << "ESM object parents backfilled so far: " << updated;
+                }
+
+                log_info << "ESM object parents backfilled, objects: " << updated << ", level writes: " << levels;
+
+            } catch (const std::exception &e) {
+                // Not fatal, and not silent: what it costs is that a level listing cannot see the
+                // objects it did not reach, which is worth a line somebody can act on.
+                log_error << "Backfilling ESM object parents failed, error: " << e.what();
+            }
+        }).detach();
     }
 
     bool MongoEsmRepository::bucketExists(const std::string &accountId, const std::string &nameSpace, const std::string &name) const {
@@ -547,9 +641,11 @@ namespace Euclid::Database {
 
     Entity::ESM::Object MongoEsmRepository::upsertObject(Entity::ESM::Object &object) {
 
-        // Derived here rather than by each caller, so it cannot disagree with the key it describes
-        // - the counters read this field and never look at the key.
+        // Derived here rather than by each caller, so they cannot disagree with the key they
+        // describe - the counters read the first of these and a level listing the second, and
+        // neither looks at the key.
         object.directory = Entity::ESM::IsDirectoryKey(object.key);
+        object.parent = Entity::ESM::ParentOfKey(object.key);
 
         try {
 
@@ -663,6 +759,102 @@ namespace Euclid::Database {
             log_error << "Count encrypted objects failed, ern: " << bucketErn << ", error: " << e.what();
         }
         return -1;
+    }
+
+    namespace {
+        // Everything in the index range under one level: "DEMODLI/" matches "DEMODLI/a/" and
+        // "DEMODLI/a/b/" alike, which is what makes a folder holding only folders visible.
+        bsoncxx::document::value levelSubtree(const std::string &bucketErn, const std::string &parent) {
+            if (parent.empty()) return make_document(kvp("bucketErn", bucketErn));
+            return make_document(kvp("bucketErn", bucketErn),
+                                 kvp("parent", make_document(kvp("$regex", "^" + QuotePrefix(parent)))));
+        }
+    }// namespace
+
+    std::vector<Entity::ESM::Object> MongoEsmRepository::listLevel(const std::string &bucketErn, const std::string &parent, const long pageSize, const long pageIndex, const std::string &sortDirection, const bool includeDirectories) const {
+
+        try {
+            document filter = {};
+            filter.append(kvp("bucketErn", bucketErn), kvp("parent", parent));
+            // A marker of this level is a key in its own right and sits here like anything else;
+            // whoever manages directories asks for them, and nobody else is shown them.
+            if (!includeDirectories) {
+                filter.append(kvp("directory", make_document(kvp("$ne", true))));
+            }
+
+            mongocxx::options::find opts;
+            // By key, always: the index is (bucketErn, parent, key), so this sort is read from it
+            // rather than performed, and any other column would throw that away.
+            opts.sort(make_document(kvp("key", sortDirection == "desc" ? -1 : 1)));
+            if (pageSize > 0) {
+                opts.limit(pageSize);
+                opts.skip(std::max<long>(pageIndex, 0) * pageSize);
+            }
+
+            std::vector<Entity::ESM::Object> objects;
+            auto objectCollection = Database::instance().collection(OBJECT_COLLECTION);
+            for (auto cursor = objectCollection.find(filter.view(), opts); auto object: cursor) {
+                objects.push_back(Entity::ESM::Object::fromDocument(object));
+            }
+            return objects;
+
+        } catch (const std::exception &e) {
+            log_error << "List level failed, bucket: " << bucketErn << ", parent: " << parent << ", error: " << e.what();
+            return {};
+        }
+    }
+
+    long MongoEsmRepository::countLevel(const std::string &bucketErn, const std::string &parent, const bool includeDirectories) const {
+
+        try {
+            document filter = {};
+            filter.append(kvp("bucketErn", bucketErn), kvp("parent", parent));
+            if (!includeDirectories) {
+                filter.append(kvp("directory", make_document(kvp("$ne", true))));
+            }
+            return Database::instance().collection(OBJECT_COLLECTION).count_documents(filter.view());
+
+        } catch (const std::exception &e) {
+            log_error << "Count level failed, bucket: " << bucketErn << ", parent: " << parent << ", error: " << e.what();
+            return -1;
+        }
+    }
+
+    std::vector<std::string> MongoEsmRepository::listSubdirectories(const std::string &bucketErn, const std::string &parent) const {
+
+        try {
+            // The first segment of every parent below this level, grouped. $match is the index
+            // range, and what follows streams it - the documents themselves are never read.
+            mongocxx::pipeline pipeline;
+            pipeline.match(levelSubtree(bucketErn, parent).view());
+            pipeline.project(make_document(
+                    kvp("segment", make_document(kvp("$arrayElemAt", make_array(
+                            make_document(kvp("$split", make_array(
+                                    make_document(kvp("$substrBytes", make_array("$parent",
+                                                                                 static_cast<int64_t>(parent.size()),
+                                                                                 static_cast<int64_t>(-1)))),
+                                    "/"))),
+                            0))))));
+            pipeline.group(make_document(kvp("_id", "$segment")));
+            pipeline.sort(make_document(kvp("_id", 1)));
+
+            std::vector<std::string> directories;
+            auto objectCollection = Database::instance().collection(OBJECT_COLLECTION);
+            for (auto cursor = objectCollection.aggregate(pipeline); const auto &doc: cursor) {
+                const auto id = doc["_id"];
+                if (!id || id.type() != bsoncxx::type::k_string) continue;
+                const auto segment = std::string(id.get_string().value);
+                // The level itself contributes an empty segment - its own objects' parent is
+                // exactly this level - and that is not a directory inside it.
+                if (segment.empty()) continue;
+                directories.push_back(parent + segment + "/");
+            }
+            return directories;
+
+        } catch (const std::exception &e) {
+            log_error << "List subdirectories failed, bucket: " << bucketErn << ", parent: " << parent << ", error: " << e.what();
+            return {};
+        }
     }
 
     std::vector<Entity::ESM::Object> MongoEsmRepository::listObjects(const std::string &bucketErn, const std::string &prefix, const long pageSize, const long pageIndex, const std::string &sortColumn, const std::string &sortDirection, const bool includeDirectories) const {

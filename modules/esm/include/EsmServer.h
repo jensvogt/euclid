@@ -125,6 +125,13 @@ namespace Euclid::ESM {
          */
         std::string _purgeSweepTaskId;
 
+        /**
+         * @brief Id of the periodic task that recounts every bucket's counters, used to cancel it
+         * on destruction. Only the instance that claims the run does the work - see
+         * Database::ClaimPeriodicRun().
+         */
+        std::string _recountTaskId;
+
     public:
 
     protected:

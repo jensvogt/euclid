@@ -133,6 +133,13 @@ namespace Euclid::EQS {
          * it on destruction.
          */
         std::string _flushCountersTaskId;
+
+        /**
+         * @brief Id of the periodic task that recounts every queue's counters, used to cancel it
+         * on destruction. Only the instance that claims the run does the work - see
+         * Database::ClaimPeriodicRun().
+         */
+        std::string _recountTaskId;
     };
 
 }// namespace Euclid::EQS
