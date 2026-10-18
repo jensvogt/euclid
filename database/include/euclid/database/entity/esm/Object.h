@@ -111,6 +111,30 @@ namespace Euclid::Database::Entity::ESM {
         bool directory{};
 
         /**
+         * @brief The key's parent path: everything up to and including its last "/", or empty for
+         * an object at the bucket's root.
+         *
+         * @par
+         * "DEMODLI/sub/a.jpg" has the parent "DEMODLI/sub/"; "a.jpg" has none. A directory marker
+         * is a key in its own right, so "DEMODLI/sub/" has the parent "DEMODLI/".
+         *
+         * @par
+         * Derivable from the key, and stored anyway, for the reason @ref directory is: a listing
+         * of one level is the question clients actually ask, and without this it can only be
+         * answered by a prefix match over every key in the bucket and a walk to find where one
+         * folder's block ends. As a stored field it is an equality - served from the index
+         * (bucketErn, parent, key), paged and sorted without a deep skip.
+         *
+         * @par
+         * Absent on objects written before this field existed, which read as empty - and an
+         * equality on "" would then list them at the root wherever they really sit. The one-off
+         * backfill that fills it in is MongoEsmRepository::backfillObjectParents(), run at
+         * startup; until it has, a level listing cannot see those objects at all, which is why it
+         * runs before anything serves a request.
+         */
+        std::string parent;
+
+        /**
          * @brief MIME content type, determined during post-processing (complete-upload); empty
          * until status reaches COMPLETED.
          */
@@ -193,6 +217,31 @@ namespace Euclid::Database::Entity::ESM {
      */
     inline bool IsDirectoryKey(const std::string &key) {
         return !key.empty() && key.back() == '/';
+    }
+
+    /**
+     * @brief The level a key sits in: everything up to and including its last "/".
+     *
+     * @par
+     * A directory marker names the directory itself, so it belongs to the level above it rather
+     * than to its own - "a/b/" sits in "a/", the same place "a/b.txt" does. That is what makes a
+     * marker show up beside its siblings instead of inside itself.
+     *
+     * @param key object key.
+     * @return the parent path, empty for a key at the bucket's root.
+     */
+    inline std::string ParentOfKey(const std::string &key) {
+        if (key.empty()) return {};
+        // The trailing "/" of a marker is its own, not a separator from a parent, so the search
+        // for the one above it starts before it.
+        const auto from = IsDirectoryKey(key) ? key.size() - 1 : key.size();
+        if (from == 0) return {};
+        const auto slash = key.rfind('/', from - 1);
+        if (slash == std::string::npos) return {};
+        const auto parent = key.substr(0, slash + 1);
+        // A key that is nothing but separators has no level above it; returning itself would make
+        // it its own parent, and a walk upwards would never end.
+        return parent == key ? std::string{} : parent;
     }
 
 }// namespace Euclid::Database::Entity::ESM

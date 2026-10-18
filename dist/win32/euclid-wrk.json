@@ -21,7 +21,9 @@
       "level": "info",
       "file-active": true,
       "dir": "C:\\Program Files\\euclid-wrk\\log",
-      "prefix": "euclid-wrk"
+      "prefix": "euclid-wrk",
+      "file-size-mb": 50,
+      "file-count": 10
     }
   }
 }

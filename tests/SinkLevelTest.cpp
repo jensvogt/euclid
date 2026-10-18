@@ -297,3 +297,53 @@ BOOST_AUTO_TEST_CASE(WithoutPerSinkFormatsBothFollowTheGlobalOne) {
 
     std::filesystem::remove_all(dir);
 }
+
+// How much history a log file keeps is the configuration's to say: file-size-mb per file, and
+// file-count of them. A worker running busy applications kept six minutes at the size it was
+// built with - too little to look up anything once it had happened.
+BOOST_AUTO_TEST_CASE(TheConfigurationDecidesTheFileSizeAndCount) {
+
+    Configuration::instance().set<long>("euclid.logging.file-size-mb", 7);
+    Configuration::instance().set<long>("euclid.logging.file-count", 3);
+    BOOST_TEST(LogStream::FileSizeFromConfiguration() == 7L * 1024L * 1024L);
+    BOOST_TEST(LogStream::FileCountFromConfiguration() == 3);
+
+    // A value nobody meant gives the default, not a log that never rotates or keeps nothing.
+    Configuration::instance().set<long>("euclid.logging.file-size-mb", 0);
+    Configuration::instance().set<long>("euclid.logging.file-count", 100000);
+    BOOST_TEST(LogStream::FileSizeFromConfiguration() == static_cast<long>(DEFAULT_LOG_SIZE));
+    BOOST_TEST(LogStream::FileCountFromConfiguration() == DEFAULT_LOG_COUNT);
+
+    Configuration::instance().set<long>("euclid.logging.file-size-mb", DEFAULT_LOG_SIZE / (1024L * 1024L));
+    Configuration::instance().set<long>("euclid.logging.file-count", DEFAULT_LOG_COUNT);
+}
+
+// And the count is what is kept on disk: rotated files beyond it are deleted, so a busy log is a
+// bounded one.
+BOOST_AUTO_TEST_CASE(NoMoreRotatedFilesAreKeptThanTheCountSays) {
+
+    const auto dir = freshLogDir();
+
+    Configuration::instance().set<std::string>("euclid.logging.level", "info");
+    Configuration::instance().set<std::string>("euclid.logging.file-level", "info");
+
+    LogStream::RemoveConsoleLogs();
+    LogStream::RemoveFile();
+    LogStream::Initialize();
+    LogStream::SetSeverity("info");
+    LogStream::SetProcessChannel("mgr");
+
+    LogStream::AddFile(dir.string(), "euclid", 1024L * 1024L, 2);
+    const std::string line(1000, 'x');
+    for (int i = 0; i < 3500; ++i) log_info << line;
+    LogStream::RemoveFile();
+
+    long rotated = 0;
+    for (const auto &entry: std::filesystem::directory_iterator(dir)) {
+        if (entry.path().filename().string().starts_with("euclid_")) ++rotated;
+    }
+    BOOST_TEST(rotated >= 1L);
+    BOOST_TEST(rotated <= 2L);
+
+    std::filesystem::remove_all(dir);
+}

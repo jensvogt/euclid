@@ -4,6 +4,8 @@
 
 // Euclid includes
 #include <EsmServer.h>
+
+#include <euclid/database/PeriodicClaim.h>
 #include <euclid/database/BackgroundWork.h>
 #include <euclid/database/entity/eqs/MessagePriority.h>
 
@@ -2631,10 +2633,36 @@ namespace Euclid::ESM {
         }
         if (const auto denied = denyUngrantedBucket(req, auth, request.bucketErn)) return *denied;
 
+        Dto::ESM::ListObjectsResponse response;
+
+        // Two different questions, and the delimiter is which one was asked. Without it the
+        // prefix is matched against every key and the answer is the whole subtree; with it the
+        // prefix names one level, and what is below that level comes back as the directories it
+        // holds rather than as the keys inside them.
+        if (!request.delimiter.empty()) {
+            if (request.delimiter != "/") {
+                return ErrorResponse(req, status::bad_request, R"(delimiter must be "/" - it is the separator a key's parent path is cut at)");
+            }
+            // A level is a path that ends in its separator. Taking "DEMODLI" to mean "DEMODLI/"
+            // would answer about a level the caller did not name - and quietly, since both exist
+            // as far as a flat bucket is concerned.
+            if (!request.prefix.empty() && !request.prefix.ends_with('/')) {
+                return ErrorResponse(req, status::bad_request, "prefix must end in \"/\" when a delimiter is given: it names a level, not a partial key");
+            }
+
+            const auto level = repo->listLevel(request.bucketErn, request.prefix, request.pageSize, request.pageIndex, request.sortDirection, request.includeDirectories);
+            response.objects = Dto::ESM::EsmMapper::toDto(level);
+            response.total = repo->countLevel(request.bucketErn, request.prefix, request.includeDirectories);
+            response.commonPrefixes = repo->listSubdirectories(request.bucketErn, request.prefix);
+
+            log_info << "ESM got object level, bucket: " << request.bucketErn << ", level: " << request.prefix
+                     << ", objects: " << response.objects.size() << ", directories: " << response.commonPrefixes.size();
+            return JsonResponse(req, status::ok, response.toJson());
+        }
+
         const std::vector<Database::Entity::ESM::Object> objects = repo->listObjects(request.bucketErn, request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection, request.includeDirectories);
         log_info << "ESM got object list, bucket: " << request.bucketErn << ", count: " << objects.size();
 
-        Dto::ESM::ListObjectsResponse response;
         response.objects = Dto::ESM::EsmMapper::toDto(objects);
         response.total = repo->countObjects(request.bucketErn, request.prefix, request.includeDirectories);
 
@@ -3881,10 +3909,36 @@ namespace Euclid::ESM {
                     }
                 },
                 std::chrono::duration_cast<std::chrono::milliseconds>(period));
+
+        // A bucket's object count and size are kept by deltas, so an upload or a delete an
+        // instance was holding when it died leaves a figure that nothing corrects on its own.
+        // This used to be EMO's timer: the correction stopped whenever the monitoring module did,
+        // and a bucket went on reporting objects it no longer had for as long as that lasted. It
+        // belongs to the module whose numbers they are.
+        //
+        // Claimed, unlike the purge sweep above: that one wants every instance trying, because
+        // the work is per job and claimPurgeJob() settles who gets which. A recount is one piece
+        // of work about every bucket, and ten instances doing it is ten times the same answer.
+        const auto recountPeriod = std::chrono::seconds(
+                Core::Configuration::instance().getOr<long>("euclid.modules.esm.recount-period",
+                        // The key this moved from, so an installation that tuned it keeps its setting.
+                        Core::Configuration::instance().getOr<long>("euclid.modules.emo.bucket-count-period", 3600)));
+        _recountTaskId = Core::Scheduler::instance().SchedulePeriodic(
+                "buckets-recount",
+                [recountPeriod] {
+                    try {
+                        if (!Database::ClaimPeriodicRun("esm-recount-buckets", recountPeriod)) return;
+                        Database::RepositoryFactory::instance().esmRepository()->recountBuckets();
+                    } catch (const std::exception &e) {
+                        log_error << "ESM bucket recount failed, error: " << e.what();
+                    }
+                },
+                std::chrono::duration_cast<std::chrono::milliseconds>(recountPeriod));
     }
 
     EsmServer::~EsmServer() {
         if (!_purgeSweepTaskId.empty()) std::ignore = Core::Scheduler::instance().Cancel(_purgeSweepTaskId);
+        if (!_recountTaskId.empty()) std::ignore = Core::Scheduler::instance().Cancel(_recountTaskId);
     }
 
     response<string_body> EsmServer::DispatchAction(const request<string_body> &req) {

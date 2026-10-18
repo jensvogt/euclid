@@ -293,7 +293,8 @@ static int RunWorker(const CliOptions &options, const bool reportServiceStatus) 
     if (const auto &configuration = Euclid::Core::Configuration::instance();
         configuration.getOr<bool>("euclid.logging.file-active", false)) {
         Euclid::Core::LogStream::AddFile(configuration.getOr<std::string>("euclid.logging.dir", std::string(defaultDataDir()) + "/log"),
-                                         configuration.getOr<std::string>("euclid.logging.prefix", "euclid-wrk"));
+                                         configuration.getOr<std::string>("euclid.logging.prefix", "euclid-wrk"),
+                                         Euclid::Core::LogStream::FileSizeFromConfiguration(), Euclid::Core::LogStream::FileCountFromConfiguration());
     }
 
     // The first line the log gets, as the manager's is: which build this is. Here, as soon as there

@@ -19,6 +19,8 @@
     "logging": {
       "level": "info",
       "file-active": true,
+      "file-size-mb": 50,
+      "file-count": 10,
       "dir": "/var/lib/euclid-wrk/log",
       "prefix": "euclid-wrk"
     }

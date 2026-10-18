@@ -363,6 +363,8 @@
       "level": "warning",
       "dir": "/usr/local/euclid/log",
       "prefix": "euclid",
+      "file-size-mb": 50,
+      "file-count": 10,
       "channels": {
         "app": "info",
         "module": "info"

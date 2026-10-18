@@ -57,6 +57,24 @@ namespace Euclid::Dto::ESM {
         bool includeDirectories = false;
 
         /**
+         * @brief Set to "/" to list one level instead of a whole subtree.
+         *
+         * @par
+         * Without it, @ref prefix is matched against every key in the bucket and the answer is
+         * everything beneath it - "DEMODLI/" returns the two hundred thousand objects under it,
+         * a page at a time, with no way to tell which of them sit in it and which are further
+         * down. With it, @ref prefix names a level: the answer is the objects whose parent is
+         * exactly that, and the directories one step below it come back separately as
+         * ListObjectsResponse::commonPrefixes.
+         *
+         * @par
+         * Only "/" is accepted. The field exists because that is the convention every S3-style
+         * client already speaks, not because another separator would mean anything here: a
+         * parent path is what the objects are indexed by, and it is cut at "/".
+         */
+        std::string delimiter;
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -73,6 +91,7 @@ namespace Euclid::Dto::ESM {
             r.pageIndex = Core::GetLongValue(v, "pageIndex");
             r.sortColumn = Core::GetStringValue(v, "sortColumn");
             r.sortDirection = Core::GetStringValue(v, "sortDirection");
+            r.delimiter = Core::GetStringValue(v, "delimiter");
             r.includeDirectories = Core::GetBoolValue(v, "includeDirectories");
             return r;
         }
@@ -86,6 +105,7 @@ namespace Euclid::Dto::ESM {
                     {"sortColumn", obj.sortColumn},
                     {"sortDirection", obj.sortDirection},
                     {"includeDirectories", obj.includeDirectories},
+                    {"delimiter", obj.delimiter},
             };
         }
     };

@@ -8,6 +8,8 @@
 // Euclid includes
 #include <EqsServer.h>
 
+#include <euclid/database/PeriodicClaim.h>
+
 #include <boost/asio/query.hpp>
 #include <boost/asio/query.hpp>
 
@@ -1919,6 +1921,25 @@ namespace Euclid::EQS {
                                                           },
                                                           std::chrono::seconds(1));
 
+        // The counters this module keeps are its own to correct. They are maintained by deltas -
+        // see adjustQueueCounters() - so a delivery an instance was holding when it died is a
+        // count that stays wrong until something recounts, and nothing else will: this used to be
+        // EMO's timer, which meant the correction stopped whenever the monitoring module did, and
+        // a queue could report messages it no longer had for as long as EMO stayed down.
+        //
+        // Claimed rather than simply run: this module has up to four instances and the recount is
+        // about every queue, not about the instance doing it.
+        const auto recountPeriod = std::chrono::seconds(
+                Core::Configuration::instance().getOr<long>("euclid.modules.eqs.recount-period",
+                        // The key this moved from, so an installation that tuned it keeps its setting.
+                        Core::Configuration::instance().getOr<long>("euclid.modules.emo.queue-count-period", 300)));
+        _recountTaskId = scheduler.SchedulePeriodic("queues-recount",
+                                                    [recountPeriod] {
+                                                        if (!Database::ClaimPeriodicRun("eqs-recount-queues", recountPeriod)) return;
+                                                        Database::RepositoryFactory::instance().eqsRepository()->recountQueues();
+                                                    },
+                                                    std::chrono::duration_cast<std::chrono::milliseconds>(recountPeriod));
+
         Database::EventBus::instance().Subscribe("eqs", "ens.message.published", handleSubscriptionDelivery);
         Database::EventBus::instance().Subscribe("eqs", "esm.subscription.delivery", handleSubscriptionDelivery);
         Database::EventBus::instance().Start("eqs");
@@ -1927,6 +1948,7 @@ namespace Euclid::EQS {
     EqsServer::~EqsServer() {
         Core::Scheduler::instance().Cancel(_resetMessagesTaskId);
         Core::Scheduler::instance().Cancel(_flushCountersTaskId);
+        Core::Scheduler::instance().Cancel(_recountTaskId);
 
         // And once more on the way out, so what this instance counted last is not lost with it.
         Database::RepositoryFactory::instance().eqsRepository()->flushQueueCounters();

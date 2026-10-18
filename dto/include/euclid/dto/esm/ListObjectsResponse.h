@@ -30,6 +30,20 @@ namespace Euclid::Dto::ESM {
         long total{};
 
         /**
+         * @brief The directories one level below the prefix, each ending in "/".
+         *
+         * @par
+         * Only filled when the request named a delimiter - see ListObjectsRequest::delimiter.
+         * Empty otherwise, and empty in a level that holds nothing but objects.
+         *
+         * @par
+         * A directory here is not an object: it is a path that objects lie under, whether or not
+         * anything was ever written to mark it. A bucket is flat, so these are derived rather
+         * than stored.
+         */
+        std::vector<std::string> commonPrefixes;
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -43,6 +57,12 @@ namespace Euclid::Dto::ESM {
             static_cast<BaseDto &>(r) = GetMetadata(v);
             r.objects = boost::json::value_to<std::vector<Object> >(v.at("objects"));
             r.total = Core::GetLongValue(v, "total");
+            if (const auto *prefixes = v.is_object() ? v.as_object().if_contains("commonPrefixes") : nullptr;
+                prefixes != nullptr && prefixes->is_array()) {
+                for (const auto &prefix: prefixes->as_array()) {
+                    if (prefix.is_string()) r.commonPrefixes.emplace_back(prefix.as_string());
+                }
+            }
             return r;
         }
 
@@ -50,6 +70,7 @@ namespace Euclid::Dto::ESM {
             jv = {
                     {"objects", boost::json::value_from(obj.objects)},
                     {"total", obj.total},
+                    {"commonPrefixes", boost::json::value_from(obj.commonPrefixes)},
             };
         }
     };

@@ -8,6 +8,8 @@
 
 // Euclid includes
 #include <EnsServer.h>
+
+#include <euclid/database/PeriodicClaim.h>
 #include <euclid/database/BackgroundWork.h>
 
 #include "euclid/core/HttpUtils.h"
@@ -1692,12 +1694,39 @@ namespace Euclid::ENS {
 
     EnsServer::EnsServer(std::string socketPath, const int threads) : HttpActionServer("ENS", std::move(socketPath), threads) {
         installErnResolver();
+
+        // A topic's counters are kept by deltas, so a publish or a purge an instance was holding
+        // when it died leaves a count that nothing corrects on its own. This used to be EMO's
+        // timer: the correction stopped whenever the monitoring module did, and a topic went on
+        // reporting messages it no longer had for as long as that lasted. It belongs to the module
+        // whose numbers they are.
+        //
+        // Claimed rather than simply run: this module has up to four instances, and the recount is
+        // about every topic rather than about the instance doing it.
+        const auto recountPeriod = std::chrono::seconds(
+                Core::Configuration::instance().getOr<long>("euclid.modules.ens.recount-period",
+                        // The key this moved from, so an installation that tuned it keeps its setting.
+                        Core::Configuration::instance().getOr<long>("euclid.modules.emo.topic-count-period", 3600)));
+        _recountTaskId = Core::Scheduler::instance().SchedulePeriodic(
+                "topics-recount",
+                [recountPeriod] {
+                    try {
+                        if (!Database::ClaimPeriodicRun("ens-recount-topics", recountPeriod)) return;
+                        Database::RepositoryFactory::instance().ensRepository()->recountTopics();
+                    } catch (const std::exception &e) {
+                        // A recount that throws must not take the scheduler thread with it.
+                        log_error << "ENS topic recount failed, error: " << e.what();
+                    }
+                },
+                std::chrono::duration_cast<std::chrono::milliseconds>(recountPeriod));
+
         Database::EventBus::instance().Subscribe("ens", "esm.subscription.publication", handleObjectPublishedNotification);
         Database::EventBus::instance().Start("ens");
     }
 
     EnsServer::~EnsServer() {
         Core::Scheduler::instance().Cancel(_resetMessagesTaskId);
+        Core::Scheduler::instance().Cancel(_recountTaskId);
     }
 
     response<string_body> EnsServer::DispatchAction(const request<string_body> &req) {

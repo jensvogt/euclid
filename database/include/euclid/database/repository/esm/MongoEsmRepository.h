@@ -211,6 +211,12 @@ namespace Euclid::Database {
         [[nodiscard]]
         std::vector<Entity::ESM::Object> listObjects(const std::string &bucketErn, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection, bool includeDirectories) const override;
 
+        std::vector<Entity::ESM::Object> listLevel(const std::string &bucketErn, const std::string &parent, long pageSize, long pageIndex, const std::string &sortDirection, bool includeDirectories) const override;
+
+        long countLevel(const std::string &bucketErn, const std::string &parent, bool includeDirectories) const override;
+
+        std::vector<std::string> listSubdirectories(const std::string &bucketErn, const std::string &parent) const override;
+
         /**
          * @brief Removes a object entity by ERN
          *
@@ -302,6 +308,21 @@ namespace Euclid::Database {
          * @brief Creates the indexes required for efficient bucket lookup, if they do not already exist.
          */
         static void ensureIndexes();
+
+        /**
+         * @brief Fills in Entity::ESM::Object::parent on objects written before it existed.
+         *
+         * @par
+         * Run once, from ensureIndexes(), and a no-op from then on: it looks for documents where
+         * the field is absent, which is not the same as one holding "" - an object at a bucket's
+         * root legitimately has no parent. A document that has been through upsertObject() since
+         * the field was added already has it.
+         *
+         * @par
+         * It matters more than a tidy-up: a level listing is an equality on this field, so an
+         * object without it does not appear in its own folder at all.
+         */
+        static void backfillObjectParents();
     };
 
 }// namespace Euclid::Database

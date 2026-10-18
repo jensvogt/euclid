@@ -309,6 +309,51 @@ namespace Euclid::Database {
         virtual std::vector<Entity::ESM::Object> listObjects(const std::string &bucketErn, const std::string &prefix, long pageSize, long pageIndex, const std::string &sortColumn, const std::string &sortDirection = "asc", bool includeDirectories = false) const = 0;
 
         /**
+         * @brief The objects that sit directly in one level of a bucket, not those beneath it.
+         *
+         * @par
+         * An equality on Entity::ESM::Object::parent, served by the index (bucketErn, parent,
+         * key) - as opposed to listObjects(), which matches a prefix against every key in the
+         * bucket and therefore returns the whole subtree. The difference is what lets a client
+         * page one folder without paging everything inside it.
+         *
+         * @param bucketErn          the bucket.
+         * @param parent             the level, ending in "/", or empty for the bucket's root.
+         * @param pageSize           rows per page, 0 for all of them.
+         * @param pageIndex          which page.
+         * @param sortDirection      "asc" or "desc", by key.
+         * @param includeDirectories whether directory markers of this level are listed with it.
+         * @return the objects in that level.
+         */
+        virtual std::vector<Entity::ESM::Object> listLevel(const std::string &bucketErn, const std::string &parent, long pageSize, long pageIndex, const std::string &sortDirection = "asc", bool includeDirectories = false) const = 0;
+
+        /**
+         * @brief How many objects sit directly in one level.
+         *
+         * @param bucketErn          the bucket.
+         * @param parent             the level, ending in "/", or empty for the bucket's root.
+         * @param includeDirectories whether directory markers of this level are counted.
+         * @return the count.
+         */
+        virtual long countLevel(const std::string &bucketErn, const std::string &parent, bool includeDirectories = false) const = 0;
+
+        /**
+         * @brief The directories one level below @p parent, whether or not anything sits directly
+         * in them.
+         *
+         * @par
+         * Derived from the parents of everything below, not from the parents themselves: a folder
+         * that holds only other folders is nobody's parent, and listing the distinct parent values
+         * would leave it out. So the index range under @p parent is scanned and the first segment
+         * after it is grouped - index-only work, with no document fetched.
+         *
+         * @param bucketErn the bucket.
+         * @param parent    the level, ending in "/", or empty for the bucket's root.
+         * @return the full paths of the directories, each ending in "/", in key order.
+         */
+        virtual std::vector<std::string> listSubdirectories(const std::string &bucketErn, const std::string &parent) const = 0;
+
+        /**
          * @brief Removes a object by its ERN.
          *
          * @param ern The Euclid resource name (ERN) of the object to be removed.

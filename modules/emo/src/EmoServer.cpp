@@ -65,9 +65,6 @@ namespace Euclid::Monitoring {
         // short-polling listener asks the count before it fetches - so a counter that drifted to
         // zero once left 796,171 messages unread and their pool scaled down to one for the best part
         // of an hour. Twelve passes an hour is still a twentieth of what four a minute cost.
-        constexpr auto kQueueCountPeriod = std::chrono::seconds(300);
-        constexpr auto kBucketCountPeriod = std::chrono::seconds(3600);
-        constexpr auto kTopicCountPeriod = std::chrono::seconds(3600);
 
         // How often each pool's instance count and load is sampled. Shorter than EMO's averaging
         // bucket on purpose: a ramp that happens inside one bucket should leave more than one
@@ -378,21 +375,12 @@ namespace Euclid::Monitoring {
         _dayRollupTaskId = scheduler.SchedulePeriodic("monitoring-rollup-day", [] { rollup(Resolution::HOUR, Resolution::DAY); },
                                                       std::chrono::duration_cast<std::chrono::milliseconds>(dayRollupPeriod));
 
-        // Recount mein counters
-        const auto queueCountPeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.modules.emo.queue-count-period", kQueueCountPeriod.count()));
-        _queueCountsTaskId = scheduler.SchedulePeriodic("monitoring-queue-counts",
-                                                        [] { Database::RepositoryFactory::instance().eqsRepository()->recountQueues(); },
-                                                        std::chrono::duration_cast<std::chrono::milliseconds>(queueCountPeriod));
-        // Its own id, not _queueCountsTaskId: assigning both to one member left the queue task
-        // unreferenced, so nothing could cancel it and the destructor cancelled the bucket task twice.
-        const auto bucketCountPeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.modules.emo.bucket-count-period", kBucketCountPeriod.count()));
-        _bucketCountsTaskId = scheduler.SchedulePeriodic("monitoring-bucket-counts",
-                                                         [] { Database::RepositoryFactory::instance().esmRepository()->recountBuckets(); },
-                                                         std::chrono::duration_cast<std::chrono::milliseconds>(bucketCountPeriod));
-        const auto topicCountPeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.modules.emo.topic-count-period", kTopicCountPeriod.count()));
-        _topicCountsTaskId = scheduler.SchedulePeriodic("monitoring-topic-counts",
-                                                        [] { Database::RepositoryFactory::instance().ensRepository()->recountTopics(); },
-                                                        std::chrono::duration_cast<std::chrono::milliseconds>(topicCountPeriod));
+        // The queue, bucket and topic recounts used to be scheduled here. They are each module's
+        // own now - EqsServer, EsmServer and EnsServer - because they correct counters those
+        // modules maintain, and running them from the monitoring module meant the correction
+        // stopped whenever monitoring did. A queue reporting messages it no longer held, for as
+        // long as EMO stayed down, is what that cost. The intervals are still read from the keys
+        // they were configured under here, so nothing an operator set has to move.
 
         // What each pool is doing, sampled from the module records the manager keeps - so a graph
         // can answer "when did parser-dev ramp, and what was it reacting to" rather than only
@@ -436,9 +424,6 @@ namespace Euclid::Monitoring {
         scheduler.Cancel(_pruneTaskId);
         scheduler.Cancel(_hourRollupTaskId);
         scheduler.Cancel(_dayRollupTaskId);
-        scheduler.Cancel(_queueCountsTaskId);
-        scheduler.Cancel(_bucketCountsTaskId);
-        scheduler.Cancel(_topicCountsTaskId);
         scheduler.Cancel(_moduleInstancesTaskId);
         scheduler.Cancel(_databaseSizeTaskId);
         scheduler.Cancel(_cpuUsageTaskId);

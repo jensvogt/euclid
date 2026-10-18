@@ -235,6 +235,20 @@ namespace Euclid::EAP::LocalNode {
             logging["file-format"] = format;
         }
 
+        // How much history that file keeps, the same way: the node's own if set, the manager's if
+        // not, and absent when neither is - the worker's defaults then. The node's file is the busy
+        // one (every instance's output), so it is the one most likely to want more than the
+        // manager's; and an edit to this file by hand would not survive EAP's next start.
+        const auto inherit = [&](const char *nodeKey, const char *managerKey, const char *field) {
+            if (configuration.has(nodeKey)) {
+                logging[field] = configuration.getOr<long>(nodeKey, 0);
+            } else if (configuration.has(managerKey)) {
+                logging[field] = configuration.getOr<long>(managerKey, 0);
+            }
+        };
+        inherit("euclid.modules.eap.local-node.log-file-size-mb", "euclid.logging.file-size-mb", "file-size-mb");
+        inherit("euclid.modules.eap.local-node.log-file-count", "euclid.logging.file-count", "file-count");
+
         return boost::json::object{
                 {"euclid", boost::json::object{
                                    {"worker", worker},
