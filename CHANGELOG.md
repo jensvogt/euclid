@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.31](https://github.com/jensvogt/euclid/compare/1.2.30...v1.2.31) (2026-10-18)
+
+
+### Bug Fixes
+
+* logging stream ([7058a05](https://github.com/jensvogt/euclid/commit/7058a0531f90c83e36a954e9d59024ecb73af318))
+* logging stream ([4dd0efb](https://github.com/jensvogt/euclid/commit/4dd0efbc848feea094c5ec6a4256d1db7bcf8e21))
+* logging stream ([a6dbe13](https://github.com/jensvogt/euclid/commit/a6dbe13580ceadfea35093004af18a86e3946d0a))
+
 ## [1.2.30](https://github.com/jensvogt/euclid/compare/v1.2.29...v1.2.30) (2026-10-17)
 
 
