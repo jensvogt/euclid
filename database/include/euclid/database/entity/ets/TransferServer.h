@@ -135,9 +135,16 @@ namespace Euclid::Database::Entity::ETS {
          * @par
          * Expanded per session by Transfer::HomePrefix, with {user} standing for the EAM user ID
          * that logged in: "{user}" gives every client its own corner of the bucket, the way an
-         * FTP server's per-user home directory always has, while empty - the default, and what
-         * every server defined before this existed has - leaves all of them sharing one flat key
-         * space at the root.
+         * FTP server's per-user home directory always has, while empty leaves all of them sharing
+         * one flat key space at the root.
+         *
+         * @par
+         * "{user}" is what create-server gives a server it is not told about: at the root, every
+         * client sees and can overwrite every other's files, and an upload's key no longer says
+         * who delivered it - which the services reading the bucket take from its first segment.
+         * The root is still there to be chosen, with an empty string. Servers defined before the
+         * default changed keep what they were stored with, empty included: moving their clients
+         * into homes would hide everything those clients had already uploaded.
          *
          * @par
          * A template rather than a per-user mapping because a server admits users by group as

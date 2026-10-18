@@ -20,6 +20,10 @@ namespace Euclid::ETS {
     namespace {
         constexpr auto kServiceTimer = "ets-service-time";
         constexpr auto kServiceCounter = "ets-service-count";
+
+        // Where a new server roots each client's session when create-server is not told: a home of
+        // its own, named after the user that logged in. See TransferServer::homeDirectory.
+        constexpr auto kDefaultHomeDirectory = "{user}";
     }// namespace
 
     using Database::Entity::ETS::TransferProtocol;
@@ -249,7 +253,10 @@ namespace Euclid::ETS {
         server.port = port;
         server.bucketName = bucket->name;
         server.bucketErn = bucket->ern;
-        server.homeDirectory = stringField(obj, "homeDirectory");
+        // Each client in a home of its own unless the request says otherwise - see
+        // TransferServer::homeDirectory. "Says otherwise" includes an empty string, which is how a
+        // server is deliberately given one shared key space at the bucket root.
+        server.homeDirectory = obj.contains("homeDirectory") ? stringField(obj, "homeDirectory") : std::string(kDefaultHomeDirectory);
         server.userIds = stringArray(obj, "userIds");
         server.userGroups = stringArray(obj, "userGroups");
         server.directories = stringArray(obj, "directories");

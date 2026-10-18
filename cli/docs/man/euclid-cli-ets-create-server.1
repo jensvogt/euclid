@@ -84,6 +84,21 @@ Cannot be changed later - delete the server and create it again instead.
 .BR \-a ", " \-\-address " " \fIADDRESS\fR
 Address to bind to. Defaults to \fI0.0.0.0\fR.
 .TP
+.BR \-H ", " \-\-home\-dir " " \fIPREFIX\fR
+Key prefix each client's session is rooted at, with \fI{user}\fR
+standing for the user that logged in. Defaults to \fI{user}\fR: every
+client has a home of its own, sees only its own files, and every upload's
+key starts with the user that delivered it (\fIDEMODLI/...\fR) - which
+the services reading the bucket rely on. A fixed part may come first,
+e.g. \fIsuppliers/{user}\fR.
+.IP
+\fB\-\-home\-dir ""\fR roots every client at the bucket root instead: one
+shared, flat key space, where every client sees and can overwrite
+every other's files and the key of an upload is exactly the path the
+client typed. Change it later with
+.BR euclid-cli-ets-update-server (1),
+which moves no existing objects.
+.TP
 .BR \-u ", " \-\-users " " \fILIST\fR
 Comma-separated EAM user IDs allowed to log in, e.g.
 \fIalice,bob\fR.
