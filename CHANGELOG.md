@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.32](https://github.com/jensvogt/euclid/compare/1.2.31...v1.2.32) (2026-10-18)
+
+
+### Bug Fixes
+
+* EMO crash, vcpkg baseline bump. ([9c26c16](https://github.com/jensvogt/euclid/commit/9c26c164feb2b15dcd1a04fb694383b0ec1444eb))
+* euclid worker logging defaults ([bd0de94](https://github.com/jensvogt/euclid/commit/bd0de94f238eae2ef06d6437af3972ccf2060dd2))
+* euclid worker logging defaults ([eff6d0f](https://github.com/jensvogt/euclid/commit/eff6d0f25e6e72e5da4d045d939510428fda01b1))
+
 ## [1.2.31](https://github.com/jensvogt/euclid/compare/1.2.30...v1.2.31) (2026-10-18)
 
 
