@@ -17,6 +17,7 @@
 #include <boost/json.hpp>
 
 // Euclid includes
+#include <euclid/core/ApplicationLaunch.h>
 #include <euclid/core/Configuration.h>
 #include <euclid/core/LogStream.h>
 
@@ -223,99 +224,149 @@ BOOST_FIXTURE_TEST_SUITE(JsonLogFormatTest, Fixture)
 
     // ── lines read back from an application ─────────────────────────────────
 
-    BOOST_AUTO_TEST_CASE(AnApplicationsJsonIsSplicedRatherThanWrapped) {
+    // ── an application's JSON, translated ──────────────────────────────────
+    //
+    // Launch::EmitOutput is what the worker and the manager run every line of an application's
+    // output through. A JSON line comes out as a record of euclid's own: its message, level and
+    // moment as the record's, the rest as ECS fields - one schema whoever logged.
+    //
+    // The record is read after the capture has ended, not inside it: Boost.Test reports a failed
+    // check on std::cout, which the capture has taken over - so a check inside it fails silently.
 
-        const CapturedLog captured;
-        LogStream::LogVerbatim("app.parser", trivial::info,
-                               R"({"@timestamp":"2026-09-20T12:00:00.000Z","level":"WARN","message":"slow batch",)"
-                               R"("logger_name":"de.libri.Parser","thread_name":"main","batchSize":4096})",
-                               R"({"service.name":"parser","application.id":"parser","namespace":"development"})");
+    boost::json::object emitted(const std::string &line, const std::string &fields = {}) {
+        boost::json::object record;
+        {
+            const CapturedLog captured;
+            Euclid::Core::Launch::EmitOutput("app.file-copy", line, false, fields);
+            record = captured.lastObject();
+        }
+        return record;
+    }
 
-        const auto record = captured.lastObject();
-        BOOST_REQUIRE(!record.empty());
+    BOOST_AUTO_TEST_CASE(ALogstashRecordBecomesARecordOfEuclidsOwn) {
 
-        // The application's own fields, queryable rather than buried in a string.
-        BOOST_TEST(textOf(record, "message") == "slow batch");
-        BOOST_TEST(textOf(record, "logger_name") == "de.libri.Parser");
-        BOOST_TEST(textOf(record, "thread_name") == "main");
-        BOOST_TEST(record.contains("batchSize"));
+        // What the PIM services' LogstashEncoder writes.
+        const auto record = emitted(
+                R"({"@timestamp":"2026-10-18T01:26:51.899898343+02:00","@version":"1","message":"Starting Application",)"
+                R"("logger_name":"l.p.l.f.Application","thread_name":"main","level":"WARN","level_value":30000,)"
+                R"("caller_class_name":"org.springframework.boot.StartupInfoLogger","caller_method_name":"logStarting",)"
+                R"("caller_file_name":"StartupInfoLogger.java","caller_line_number":54,"batchSize":4096})",
+                R"({"service.name":"file-copy","application.id":"file-copy","namespace":"development"})");
 
-        // Its own timestamp, not the moment euclid happened to read the line.
-        BOOST_TEST(textOf(record, "@timestamp") == "2026-09-20T12:00:00.000Z");
-
-        // Logback calls it "level"; everything reading this calls it "log.level".
-        BOOST_TEST(textOf(record, "log.level") == "WARN");
+        BOOST_TEST(textOf(record, "message") == "Starting Application");
+        // euclid's level spelling, so log.level:warning finds application and euclid records alike.
+        BOOST_TEST(textOf(record, "log.level") == "warning");
+        // The application's moment, in the collector's form.
+        BOOST_TEST(textOf(record, "@timestamp") == "2026-10-17T23:26:51.899Z");
+        // Under ECS names.
+        BOOST_TEST(textOf(record, "log.logger") == "l.p.l.f.Application");
+        BOOST_TEST(textOf(record, "process.thread.name") == "main");
+        BOOST_TEST(textOf(record, "log.origin.function") == "org.springframework.boot.StartupInfoLogger.logStarting");
+        BOOST_TEST(textOf(record, "log.origin.file.name") == "StartupInfoLogger.java");
+        BOOST_TEST(record.contains("log.origin.file.line"));
+        // Its own field, under labels; the encoder's bookkeeping, nowhere.
+        BOOST_TEST(record.contains("labels.batchSize"));
+        BOOST_TEST(!record.contains("batchSize"));
         BOOST_TEST(!record.contains("level"));
+        BOOST_TEST(!record.contains("@version"));
+        BOOST_TEST(!record.contains("level_value"));
+        // And euclid's account of where it came from.
+        BOOST_TEST(textOf(record, "channel") == "app.file-copy");
+        BOOST_TEST(textOf(record, "application.id") == "file-copy");
+    }
 
-        // And euclid's own account of where it came from.
-        BOOST_TEST(textOf(record, "channel") == "app.parser");
-        BOOST_TEST(textOf(record, "namespace") == "development");
-        BOOST_TEST(textOf(record, "application.id") == "parser");
+    // logback-spring.xml in the PIM services adds "service" as a custom field; euclid adds
+    // "service.name". At the top level OpenSearch had to store "service" as a value and an object at
+    // once, and refused every record. Under labels it cannot collide with anything.
+    BOOST_AUTO_TEST_CASE(AnApplicationsOwnFieldsGoUnderLabels) {
+
+        const auto record = emitted(R"({"message":"x","service":"file-copy","kubernetes.namespace_name":"pim-dev"})",
+                                    R"({"service.name":"file-copy"})");
+
+        BOOST_TEST(!record.contains("service"));
+        BOOST_TEST(textOf(record, "labels.service") == "file-copy");
+        BOOST_TEST(textOf(record, "labels.kubernetes_namespace_name") == "pim-dev");
+        BOOST_TEST(textOf(record, "service.name") == "file-copy");
+    }
+
+    // ECS, nested the way Spring Boot's "ecs" format writes some of it: already euclid's vocabulary,
+    // so kept where it is.
+    BOOST_AUTO_TEST_CASE(AnEcsRecordKeepsItsEcsFields) {
+
+        const auto record = emitted(
+                R"({"@timestamp":"2026-10-18T10:00:00.000Z","log":{"level":"ERROR","logger":"d.l.Parser"},)"
+                R"("process":{"thread":{"name":"worker-1"}},"message":"parse failed",)"
+                R"("error":{"type":"java.io.IOException","stack_trace":"java.io.IOException: closed\n\tat d.l.Parser.run"},)"
+                R"("ecs":{"version":"8.11"}})");
+
+        BOOST_TEST(textOf(record, "log.level") == "error");
+        BOOST_TEST(textOf(record, "log.logger") == "d.l.Parser");
+        BOOST_TEST(textOf(record, "process.thread.name") == "worker-1");
+        BOOST_TEST(textOf(record, "error.type") == "java.io.IOException");
+        BOOST_TEST(textOf(record, "error.stack_trace").starts_with("java.io.IOException: closed"));
+        BOOST_TEST(!record.contains("ecs.version"));
+        BOOST_TEST(textOf(record, "@timestamp") == "2026-10-18T10:00:00.000Z");
+    }
+
+    // Python's logging with a JSON formatter.
+    BOOST_AUTO_TEST_CASE(APythonRecordIsReadToo) {
+
+        const auto record = emitted(R"({"asctime":"2026-10-18 01:26:51,123","levelname":"INFO","name":"importer","message":"done"})");
+
+        BOOST_TEST(textOf(record, "message") == "done");
+        BOOST_TEST(textOf(record, "log.level") == "info");
+        BOOST_TEST(textOf(record, "@timestamp") == "2026-10-18T01:26:51.123Z");
+        // "name" is too common a word to take for the logger; it stays the application's own.
+        BOOST_TEST(textOf(record, "labels.name") == "importer");
     }
 
     // Logback's encoder writes local time with an offset and nanoseconds. Fluent Bit's parser takes
-    // one format, and warned on every line of an application that wrote another - so the
-    // application's moment is kept, in euclid's form: UTC, milliseconds, Z.
+    // one format and warned on every line that had another - so the application's moment is kept,
+    // in euclid's form.
     BOOST_AUTO_TEST_CASE(AnApplicationsTimestampIsBroughtToUtcMilliseconds) {
 
         const auto stampOf = [](const std::string &stamp) {
-            const CapturedLog captured;
-            LogStream::LogVerbatim("app.file-copy", trivial::info,
-                                   R"({"@timestamp":")" + stamp + R"(","level":"INFO","message":"x"})", {});
-            return textOf(captured.lastObject(), "@timestamp");
+            return textOf(emitted(R"({"@timestamp":")" + stamp + R"(","message":"x"})"), "@timestamp");
         };
 
-        BOOST_TEST(stampOf("2026-10-18T01:26:51.899898343+02:00") == "2026-10-17T23:26:51.899Z");
         BOOST_TEST(stampOf("2026-10-18T01:26:51.9+0200") == "2026-10-17T23:26:51.900Z");
         BOOST_TEST(stampOf("2026-10-18T01:26:51-05:30") == "2026-10-18T06:56:51.000Z");
-        BOOST_TEST(stampOf("2026-10-18 01:26:51,123") == "2026-10-18T01:26:51.123Z");
         BOOST_TEST(stampOf("2026-09-20T12:00:00.000Z") == "2026-09-20T12:00:00.000Z");
         // Across a month boundary, which is where hand-done date arithmetic goes wrong.
         BOOST_TEST(stampOf("2026-03-01T00:30:00.000+01:00") == "2026-02-28T23:30:00.000Z");
     }
 
-    // A timestamp nothing can read is replaced by the moment euclid read the line, rather than sent
-    // on to be refused.
+    // A timestamp nothing can read gives way to the moment euclid read the line - and stays, under
+    // labels, for whoever wants to know what the application wrote.
     BOOST_AUTO_TEST_CASE(AnUnreadableTimestampBecomesEuclids) {
 
-        const CapturedLog captured;
-        LogStream::LogVerbatim("app.file-copy", trivial::info, R"({"@timestamp":"yesterday","message":"x"})", {});
+        const auto record = emitted(R"({"@timestamp":"yesterday","message":"x"})");
 
-        const auto stamp = textOf(captured.lastObject(), "@timestamp");
+        const auto stamp = textOf(record, "@timestamp");
         BOOST_TEST(stamp.size() == 24U);
         BOOST_TEST(stamp.back() == 'Z');
-    }
-
-    // logback-spring.xml in the PIM services adds "service" as a custom field; euclid adds
-    // "service.name". OpenSearch would have to store "service" as a value and an object at once, and
-    // refuses the whole document - so the application's value moves under labels instead.
-    BOOST_AUTO_TEST_CASE(AnApplicationFieldThatWouldCollideMovesUnderLabels) {
-
-        const CapturedLog captured;
-        LogStream::LogVerbatim("app.file-copy", trivial::info,
-                               R"({"message":"x","service":"file-copy","kubernetes.namespace_name":"pim-dev"})",
-                               R"({"service.name":"file-copy","application.id":"file-copy"})");
-
-        const auto record = captured.lastObject();
-        BOOST_TEST(!record.contains("service"));
-        BOOST_TEST(textOf(record, "labels.service") == "file-copy");
-        BOOST_TEST(textOf(record, "service.name") == "file-copy");
-        // Nothing else is touched.
-        BOOST_TEST(textOf(record, "kubernetes.namespace_name") == "pim-dev");
-        BOOST_TEST(textOf(record, "message") == "x");
+        BOOST_TEST(textOf(record, "labels.@timestamp") == "yesterday");
     }
 
     // An application is not allowed to say it is somewhere it is not.
     BOOST_AUTO_TEST_CASE(AnApplicationCannotOverwriteEuclidsOwnFields) {
 
-        const CapturedLog captured;
-        LogStream::LogVerbatim("app.parser", trivial::info,
-                               R"({"message":"hi","namespace":"production","channel":"app.something-else"})",
-                               R"({"namespace":"development"})");
+        const auto record = emitted(R"({"message":"hi","namespace":"production","channel":"app.something-else","service.name":"evil"})",
+                                    R"({"namespace":"development","service.name":"file-copy"})");
 
-        const auto record = captured.lastObject();
         BOOST_TEST(textOf(record, "namespace") == "development");
-        BOOST_TEST(textOf(record, "channel") == "app.parser");
+        BOOST_TEST(textOf(record, "channel") == "app.file-copy");
+        BOOST_TEST(textOf(record, "service.name") == "file-copy");
+        // What it said is kept, where it cannot be mistaken for euclid's.
+        BOOST_TEST(textOf(record, "labels.namespace") == "production");
+    }
+
+    // A JSON line without a message is still a line somebody wanted written.
+    BOOST_AUTO_TEST_CASE(AJsonLineWithoutAMessageKeepsTheLine) {
+
+        const auto record = emitted(R"({"event":"tick","count":3})");
+        BOOST_TEST(textOf(record, "message") == R"({"event":"tick","count":3})");
+        BOOST_TEST(textOf(record, "log.level") == "info");
     }
 
     // A program that logs plain text is the ordinary case and must keep working: its line becomes

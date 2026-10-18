@@ -10,6 +10,7 @@
 #include <string>
 
 // Euclid includes
+#include <euclid/core/ApplicationLaunch.h>
 #include <euclid/core/Configuration.h>
 #include <euclid/core/LogStream.h>
 
@@ -198,6 +199,36 @@ BOOST_AUTO_TEST_SUITE(LogChannelTest)
 
         LogStream::ClearChannelSeverity("app.parser");
         LogStream::ClearChannelSeverity("app.pim");
+    }
+
+    // An application logging JSON, read by a person: its level, its logger, its message and the
+    // stack trace beneath - not the JSON line. And its own DEBUG is a debug record, which the
+    // channel's level turns off like any other; as text at "info" it could not be.
+    BOOST_AUTO_TEST_CASE(AnApplicationsJsonReadsAsALogLineAndItsLevelCounts) {
+
+        std::ostringstream captured;
+        auto *previous = std::cout.rdbuf(captured.rdbuf());
+
+        LogStream::Initialize();
+        LogStream::SetProcessChannel("esm");
+        LogStream::SetSeverity("info");
+        BOOST_REQUIRE(LogStream::SetChannelSeverity("app.file-copy", "info"));
+
+        Euclid::Core::Launch::EmitOutput("app.file-copy",
+                                         R"({"level":"DEBUG","logger_name":"d.l.p.EqsClient","message":"the debug line"})",
+                                         false, {});
+        Euclid::Core::Launch::EmitOutput("app.file-copy",
+                                         R"({"level":"ERROR","logger_name":"d.l.p.FileCopy","message":"copy failed",)"
+                                         R"("stack_trace":"java.io.IOException: closed\n\tat d.l.p.FileCopy.run"})",
+                                         false, {});
+
+        std::cout.rdbuf(previous);
+        const auto output = captured.str();
+        LogStream::ClearChannelSeverity("app.file-copy");
+
+        BOOST_CHECK(!output.contains("the debug line"));
+        BOOST_CHECK(output.contains("error d.l.p.FileCopy : copy failed\njava.io.IOException: closed\n\tat d.l.p.FileCopy.run"));
+        BOOST_CHECK(!output.contains(R"("logger_name")"));
     }
 
 BOOST_AUTO_TEST_SUITE_END()
