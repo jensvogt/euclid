@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.33](https://github.com/jensvogt/euclid/compare/1.2.32...v1.2.33) (2026-10-18)
+
+
+### Bug Fixes
+
+* add on demand rebalacing ([32f25cc](https://github.com/jensvogt/euclid/commit/32f25ccf4be61dc4d94e1c42261d427e77dfe879))
+* FTP/SFTP home dir settings, default directories ([c50b94f](https://github.com/jensvogt/euclid/commit/c50b94f5ab9a5dc8e77ae77e5dcc6c0ec69463fc))
+
 ## [1.2.32](https://github.com/jensvogt/euclid/compare/1.2.31...v1.2.32) (2026-10-18)
 
 
