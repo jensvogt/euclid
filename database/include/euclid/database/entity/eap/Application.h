@@ -339,6 +339,18 @@ namespace Euclid::Database::Entity::EAP {
         std::string logLevel;
 
         /**
+         * @brief When a rebalance of the application's instances was last asked for - see the EAP
+         * module's rebalance-application action. The epoch if never.
+         *
+         * @par
+         * A request rather than a state: the manager compares it with the last one it acted on,
+         * and a newer one has it look at the pool again - moving instances, one per pass, to where
+         * placement would put them now. Like @ref logLevel, written on its own and not a change of
+         * definition: nothing restarts because it was asked for, only what a move withdraws.
+         */
+        system_clock::time_point rebalanceRequested{};
+
+        /**
          * @brief Creation date
          */
         system_clock::time_point created = system_clock::now();

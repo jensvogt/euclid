@@ -161,6 +161,12 @@ namespace Euclid::Database {
         bool touchApplication(const std::string &accountId, const std::string &nameSpace,
                               const std::string &applicationId) override;
 
+        /**
+         * @brief Stamps "rebalanceRequested" with the database's clock - see the interface.
+         */
+        bool requestRebalance(const std::string &accountId, const std::string &nameSpace,
+                              const std::string &applicationId) override;
+
         // ── Worker nodes ────────────────────────────────────────────────────────────────────────
 
         Entity::EAP::Node upsertNode(Entity::EAP::Node &node) override;

@@ -329,6 +329,11 @@ Asks for a running application's instances to be started again, without
 changing anything about it. See
 .BR euclid-cli-eap-restart-application (1).
 .TP
+.B rebalance-application
+Asks for an application's instances to be spread over the worker nodes
+again, the way placement would put them now, one move at a time. See
+.BR euclid-cli-eap-rebalance-application (1).
+.TP
 .B set-log-level
 Turns an application's own logging up, down or off, while it runs. See
 .BR euclid-cli-eap-set-log-level (1).
@@ -481,6 +486,7 @@ euclid-cli eap update-application --application-id inbox --artifact inbox.jar
 .BR euclid-cli-eap-start-application (1),
 .BR euclid-cli-eap-stop-application (1),
 .BR euclid-cli-eap-restart-application (1),
+.BR euclid-cli-eap-rebalance-application (1),
 .BR euclid-cli-eap-list-nodes (1),
 .BR euclid-cli-eap-get-node (1),
 .BR euclid-cli-eap-delete-node (1),

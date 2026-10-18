@@ -89,6 +89,7 @@ namespace Euclid::Database::Entity::EAP {
                 bsoncxx::builder::basic::kvp("schedule", schedule),
                 bsoncxx::builder::basic::kvp("nextRunAt", bsoncxx::types::b_date(nextRunAt)),
                 bsoncxx::builder::basic::kvp("logLevel", logLevel),
+                bsoncxx::builder::basic::kvp("rebalanceRequested", bsoncxx::types::b_date(rebalanceRequested)),
                 bsoncxx::builder::basic::kvp("created", bsoncxx::types::b_date(created)),
                 bsoncxx::builder::basic::kvp("modified", bsoncxx::types::b_date(modified)))
                                                         .view()));
@@ -146,6 +147,7 @@ namespace Euclid::Database::Entity::EAP {
             else if (key == "schedule") application.schedule = std::string(field.get_string().value);
             else if (key == "nextRunAt") application.nextRunAt = std::chrono::system_clock::time_point{field.get_date().value};
             else if (key == "logLevel") application.logLevel = std::string(field.get_string().value);
+            else if (key == "rebalanceRequested") application.rebalanceRequested = std::chrono::system_clock::time_point{field.get_date().value};
             else if (key == "created") application.created = std::chrono::system_clock::time_point{field.get_date().value};
             else if (key == "modified") application.modified = std::chrono::system_clock::time_point{field.get_date().value};
         }

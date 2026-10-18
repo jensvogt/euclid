@@ -455,6 +455,39 @@ BOOST_AUTO_TEST_CASE(ARestartIsAChangeOfRevision) {
     BOOST_TEST(!repository.touchApplication("999999999999", "development", "orders"));
 }
 
+// A rebalance is asked for the way a restart is - a date the manager compares with the last one it
+// acted on - but in a field of its own. "modified" is the revision the manager restarts a pool for,
+// so a rebalance that moved it would stop and start every instance rather than move one.
+BOOST_AUTO_TEST_CASE(ARebalanceRequestIsNotAChangeOfRevision) {
+    Euclid::Database::Database::instance().initializeMemory();
+    MongoEapRepository repository;
+
+    auto application = demoApplication();
+    const auto stored = repository.upsertApplication(application);
+    BOOST_TEST((stored.rebalanceRequested == std::chrono::system_clock::time_point{}));
+
+    // A millisecond apart at least, as ARestartIsAChangeOfRevision explains.
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+
+    BOOST_TEST_REQUIRE(repository.requestRebalance("000000000000", "development", "orders"));
+    const auto requested = repository.findApplicationByApplicationId("000000000000", "development", "orders");
+    BOOST_TEST_REQUIRE(requested.has_value());
+
+    BOOST_TEST((requested->rebalanceRequested > stored.modified));
+    BOOST_TEST((requested->modified == stored.modified));
+    BOOST_TEST((requested->desiredState == stored.desiredState));
+    BOOST_TEST(requested->artifactKey == stored.artifactKey);
+
+    // A second request is a newer one, which is what makes the manager act on it again.
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    BOOST_TEST_REQUIRE(repository.requestRebalance("000000000000", "development", "orders"));
+    BOOST_TEST((repository.findApplicationByApplicationId("000000000000", "development", "orders")->rebalanceRequested >
+                requested->rebalanceRequested));
+
+    BOOST_TEST(!repository.requestRebalance("000000000000", "development", "nothing-of-that-name"));
+    BOOST_TEST(!repository.requestRebalance("000000000000", "production", "orders"));
+}
+
 BOOST_AUTO_TEST_CASE(TechnicalPrincipalIsAnIdentityThatCannotLogIn) {
     // The identity an application runs as: created by EAP alongside the application, no password,
     // no way in through eam login, one access key to sign its calls with. The flag is what the
