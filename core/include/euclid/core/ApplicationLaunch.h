@@ -238,6 +238,56 @@ namespace Euclid::Core {
         [[nodiscard]] std::string SanitizeOutput(const std::string &raw);
 
         /**
+         * @brief A line of an application's JSON output, translated into euclid's terms.
+         */
+        struct ApplicationRecord {
+
+            /**
+             * @brief What the record says - its "message" (or "msg"); the whole line if it has none.
+             */
+            std::string message;
+
+            /**
+             * @brief The level it was written at, if it said one euclid understands.
+             */
+            std::optional<boost::log::trivial::severity_level> severity;
+
+            /**
+             * @brief When it was written, in UTC with milliseconds and a Z; empty if it did not say
+             * in a form euclid reads, and the record then takes the moment euclid read it.
+             */
+            std::string timestamp;
+
+            /**
+             * @brief Everything else, under ECS names: log.logger, process.thread.name,
+             * error.stack_trace, log.origin.*, fields the application already wrote in ECS, and
+             * the rest under labels.*.
+             */
+            boost::json::object fields;
+        };
+
+        /**
+         * @brief Reads one line of output as an application's JSON log record.
+         *
+         * @par
+         * An application that logs JSON has said what its record means, and euclid records it as
+         * one of its own rather than as a string of text: the message becomes the record's
+         * message, the level its severity, the timestamp its moment - from wherever the format
+         * keeps them: Logback's Logstash encoder and Spring Boot's "logstash" format ("level",
+         * "logger_name", "thread_name", "stack_trace", "caller_*"), ECS ("log.level", "log.logger",
+         * nested or dotted), Python's JSON formatters ("levelname", "name", "asctime").
+         *
+         * @par
+         * Whatever else it carries is the application's own and goes under "labels.", never at the
+         * top level - so one schema reaches the collector whoever logged, and no field name an
+         * application picks can collide with euclid's ("service" next to "service.name" made
+         * OpenSearch refuse every record of the PIM services).
+         *
+         * @return the record, or nothing if the line is not a JSON object
+         */
+        [[nodiscard]] std::optional<ApplicationRecord> ParseApplicationRecord(const std::string &line);
+
+        /**
          * @brief The severity a line of a child's output is recorded at.
          *
          * @par

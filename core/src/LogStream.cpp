@@ -73,6 +73,10 @@ namespace Euclid::Core {
     // Marks a record that is to be written exactly as it was given - see LogStream::LogVerbatim.
     constexpr auto kVerbatimAttribute = "Verbatim";
 
+    // When a verbatim record says it was written, already in the collector's form - see
+    // LogStream::LogVerbatim and Launch::ParseApplicationRecord.
+    constexpr auto kTimestampAttribute = "VerbatimTimestamp";
+
     // Reads a level name, including "off" - which is not a severity at all but the absence of one,
     // and is how a channel is silenced rather than merely turned down.
     std::optional<std::optional<boost::log::trivial::severity_level> > ParseLevel(const std::string &lvl) {
@@ -92,7 +96,7 @@ namespace Euclid::Core {
 
     // Whatever identifies this process in a log aggregated from many of them. Read once, because
     // neither changes while it runs.
-    const std::string &hostName() {
+    static const std::string &hostName() {
         static const std::string host = [] {
             char buffer[256] = {};
             if (gethostname(buffer, sizeof(buffer) - 1) != 0) return std::string{};
@@ -101,14 +105,14 @@ namespace Euclid::Core {
         return host;
     }
 
-    const std::string &regionName() {
-        static const std::string region = Configuration::instance().getOr<std::string>("euclid.region", "");
+    static const std::string &regionName() {
+        static const auto region = Configuration::instance().getOr<std::string>("euclid.region", "");
         return region;
     }
 
     // ISO 8601 with milliseconds and a Z, which is what every collector and OpenSearch itself
     // read as a date without being told a format.
-    std::string isoTimestamp(const boost::log::record_view &rec) {
+    static std::string isoTimestamp(const boost::log::record_view &rec) {
         // "UtcTimeStamp", not "TimeStamp": the latter is local time - see LogStream::Init(). The
         // fallback is UTC for the same reason, so a record that somehow arrives without the
         // attribute is still an instant and not a wall clock reading.
@@ -117,166 +121,34 @@ namespace Euclid::Core {
         return boost::posix_time::to_iso_extended_string(when).substr(0, 23) + "Z";
     }
 
-    // An application's @timestamp in the one form the collector parses: UTC, milliseconds, "Z".
-    //
-    // Logback's encoder writes local time with an offset and nanoseconds
-    // ("2026-10-18T01:26:51.899898343+02:00"), other programs whatever they like; Fluent Bit's
-    // parser takes one format and logged a warning for every line of an application that wrote
-    // another. Converted rather than replaced, because the application's moment of writing is the
-    // more exact one. Empty if it does not parse - the caller then uses euclid's own.
-    static std::string normalizedTimestamp(const std::string &value) {
-
-        // yyyy-mm-ddThh:mm:ss, then an optional fraction, then Z, +hh:mm, +hhmm or nothing (UTC).
-        if (value.size() < 19 || value[4] != '-' || value[7] != '-' || (value[10] != 'T' && value[10] != ' ') ||
-            value[13] != ':' || value[16] != ':') {
-            return {};
-        }
-        const auto number = [&](const std::size_t at, const std::size_t length, int &out) {
-            out = 0;
-            for (std::size_t i = at; i < at + length; ++i) {
-                if (value[i] < '0' || value[i] > '9') return false;
-                out = out * 10 + (value[i] - '0');
-            }
-            return true;
-        };
-        int year, month, day, hour, minute, second;
-        if (!number(0, 4, year) || !number(5, 2, month) || !number(8, 2, day) ||
-            !number(11, 2, hour) || !number(14, 2, minute) || !number(17, 2, second)) {
-            return {};
-        }
-
-        std::size_t i = 19;
-        int millis = 0;
-        if (i < value.size() && (value[i] == '.' || value[i] == ',')) {
-            ++i;
-            int digits = 0;
-            while (i < value.size() && value[i] >= '0' && value[i] <= '9') {
-                if (digits < 3) millis = millis * 10 + (value[i] - '0');
-                ++digits;
-                ++i;
-            }
-            if (digits == 0) return {};
-            for (; digits < 3; ++digits) millis *= 10;
-        }
-
-        int offsetMinutes = 0;
-        if (i < value.size()) {
-            if (value[i] == 'Z' || value[i] == 'z') {
-                ++i;
-            } else if (value[i] == '+' || value[i] == '-') {
-                const int sign = value[i] == '-' ? -1 : 1;
-                int oh, om;
-                if (i + 3 > value.size() || !number(i + 1, 2, oh)) return {};
-                std::size_t at = i + 3;
-                if (at < value.size() && value[at] == ':') ++at;
-                if (at + 2 > value.size() || !number(at, 2, om)) return {};
-                offsetMinutes = sign * (oh * 60 + om);
-                i = at + 2;
-            }
-        }
-        if (i != value.size()) return {};
-
-        using namespace std::chrono;
-        const year_month_day date{std::chrono::year{year}, std::chrono::month{static_cast<unsigned>(month)},
-                                  std::chrono::day{static_cast<unsigned>(day)}};
-        if (!date.ok() || hour > 23 || minute > 59 || second > 60) return {};
-        const auto utc = sys_days{date} + hours{hour} + minutes{minute} + seconds{second} + milliseconds{millis} -
-                         minutes{offsetMinutes};
-
-        const auto utcDays = floor<days>(utc);
-        const year_month_day utcDate{utcDays};
-        const hh_mm_ss time{floor<milliseconds>(utc - utcDays)};
-        char out[32];
-        std::snprintf(out, sizeof(out), "%04d-%02u-%02uT%02d:%02d:%02d.%03dZ",
-                      static_cast<int>(utcDate.year()), static_cast<unsigned>(utcDate.month()), static_cast<unsigned>(utcDate.day()),
-                      static_cast<int>(time.hours().count()), static_cast<int>(time.minutes().count()),
-                      static_cast<int>(time.seconds().count()), static_cast<int>(time.subseconds().count()));
-        return out;
-    }
-
-    // A field that OpenSearch would have to store as both a value and an object: "service" next to
-    // euclid's "service.name", which makes service an object. The whole document is then refused
-    // ("tried to parse field [service] as object, but found a concrete value"), and Fluent Bit,
-    // told the bulk failed, retries the chunk for ever. An application is free to log what it
-    // likes, so whatever of its fields would collide is moved under "labels." - where ECS keeps
-    // custom values - rather than dropped: "service" becomes "labels.service".
-    static void moveCollidingFields(boost::json::object &out) {
-        std::vector<std::string> colliding;
-        for (const auto &field: out) {
-            if (field.value().is_object()) continue;
-            const std::string key(field.key());
-            const auto prefix = key + ".";
-            for (const auto &other: out) {
-                if (std::string_view(other.key()).starts_with(prefix)) {
-                    colliding.push_back(key);
-                    break;
-                }
-            }
-        }
-        for (const auto &key: colliding) {
-            auto label = key;
-            std::ranges::replace(label, '.', '_');
-            auto value = out.at(key);
-            out.erase(key);
-            out["labels." + label] = std::move(value);
-        }
-    }
-
     // One JSON object per line, which is what a collector tailing this file expects: it reads a
     // line, parses it, and ships the fields as they are. Nothing here is formatted for a person -
     // the text formatter above is still what a console gets.
     //
-    // An application's own line is spliced in rather than wrapped. A program logging JSON has
-    // already decided what its record means, and putting that inside a "message" string would
-    // leave every field it carries unqueryable - the whole reason for asking applications to log
-    // JSON in the first place. euclid's own fields are written after it and therefore win on the
-    // few names that can collide, because "which channel did this come from" is a question about
-    // euclid rather than about the application.
+    // An application's JSON is not parsed here. Launch::EmitOutput has already translated it into a
+    // record of euclid's own - its message as the message, its level as the severity, its moment
+    // as kTimestampAttribute, everything else as ECS fields in kFieldsAttribute - so every record,
+    // euclid's or an application's, is written the same way with the same schema.
     static void JsonLogFormatter(boost::log::record_view const &rec, boost::log::formatting_ostream &strm) {
 
         boost::json::object out;
 
-        const auto message = rec[boost::log::expressions::smessage].get();
         const auto verbatim = boost::log::extract<bool>(kVerbatimAttribute, rec).get_ptr() != nullptr;
 
-        auto spliced = false;
-        if (verbatim) {
-            boost::system::error_code ec;
-            if (const auto parsed = boost::json::parse(message, ec); !ec && parsed.is_object()) {
-                out = parsed.as_object();
+        out["message"] = std::string(rec[boost::log::expressions::smessage].get());
 
-                // Logback's JSON encoder calls it "level"; ECS and everything reading this call it
-                // "log.level". Renamed rather than duplicated, so one query finds every record
-                // whatever wrote it.
-                //
-                // Copied out before anything is inserted. "level" points into "out", and
-                // out["log.level"] inserts a key that is not there yet - which can reallocate the
-                // object's storage and leave that pointer dangling, so the value written would be
-                // whatever the freed memory held. AddressSanitizer found it; the effect would have
-                // been a corrupted log.level on exactly the application records this exists for.
-                if (const auto *level = out.if_contains("level"); level != nullptr && level->is_string()) {
-                    auto value = *level;
-                    out.erase("level");
-                    out["log.level"] = std::move(value);
-                }
-                spliced = true;
-            }
-        }
-
-        if (!spliced) {
-            out["message"] = std::string(message);
-        }
-        if (const auto *stamp = out.if_contains("@timestamp"); stamp != nullptr && stamp->is_string()) {
-            const auto normalized = normalizedTimestamp(std::string(stamp->as_string()));
-            out["@timestamp"] = normalized.empty() ? isoTimestamp(rec) : normalized;
+        // The moment the application says it wrote the line, when it said one; otherwise this one.
+        if (const auto stamp = boost::log::extract<std::string>(kTimestampAttribute, rec); stamp && !stamp->empty()) {
+            out["@timestamp"] = stamp.get();
         } else {
             out["@timestamp"] = isoTimestamp(rec);
         }
-        if (!out.contains("log.level")) {
-            std::ostringstream level;
-            level << rec[boost::log::trivial::severity];
-            out["log.level"] = level.str();
-        }
+
+        // Boost.Log's names, lower case - the same for an application's records as for euclid's,
+        // so one query finds both.
+        std::ostringstream level;
+        level << rec[boost::log::trivial::severity];
+        out["log.level"] = level.str();
 
         const auto channelName = boost::log::extract<std::string>("Channel", rec);
         out["channel"] = channelName ? channelName.get() : std::string{};
@@ -305,10 +177,6 @@ namespace Euclid::Core {
             }
         }
 
-        // Last, once every field is in - the collision is between an application's field and one
-        // of euclid's, so only the finished record shows it.
-        if (spliced) moveCollidingFields(out);
-
         strm << boost::json::serialize(out);
     }
 
@@ -318,7 +186,22 @@ namespace Euclid::Core {
         // it. Putting a second timestamp and a source location from this process in front of an
         // application's own log line helps nobody read either.
         if (boost::log::extract<bool>(kVerbatimAttribute, rec)) {
+            // A JSON record an application wrote has been taken apart by now (see
+            // Launch::ParseApplicationRecord): written for a person, it is its level, its logger
+            // and its message - and its stack trace below, which a JSON line carries in a field.
+            const auto fields = boost::log::extract<std::string>(kFieldsAttribute, rec);
+            std::string logger;
+            std::string trace;
+            if (fields && (fields->find("log.logger") != std::string::npos || fields->find("error.stack_trace") != std::string::npos)) {
+                boost::system::error_code ec;
+                if (const auto parsed = boost::json::parse(fields.get(), ec); !ec && parsed.is_object()) {
+                    if (const auto *l = parsed.as_object().if_contains("log.logger"); l && l->is_string()) logger = std::string(l->as_string());
+                    if (const auto *t = parsed.as_object().if_contains("error.stack_trace"); t && t->is_string()) trace = std::string(t->as_string());
+                }
+            }
+            if (!logger.empty()) strm << rec[boost::log::trivial::severity] << " " << logger << " : ";
             strm << rec[boost::log::expressions::smessage];
+            if (!trace.empty()) strm << "\n" << trace;
             return;
         }
 
@@ -579,10 +462,11 @@ namespace Euclid::Core {
     }
 
     void LogStream::LogVerbatim(const std::string &channel, const boost::log::trivial::severity_level severity,
-                                const std::string &message, const std::string &fields) {
+                                const std::string &message, const std::string &fields, const std::string &timestamp) {
         BOOST_LOG_CHANNEL_SEV(my_logger::get(), channel, severity)
                 << boost::log::add_value(kVerbatimAttribute, true)
-                << boost::log::add_value(kFieldsAttribute, fields) << message;
+                << boost::log::add_value(kFieldsAttribute, fields)
+                << boost::log::add_value(kTimestampAttribute, timestamp) << message;
     }
 
     std::string LogStream::GetSeverity() {

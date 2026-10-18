@@ -5,13 +5,17 @@
 // C++ includes
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <optional>
 #include <sstream>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #ifndef _WIN32
 #include <unistd.h>
@@ -263,6 +267,98 @@ namespace Euclid::Core::Launch {
         // cause, anything indented. It belongs at the level of the line it continues - an ERROR's
         // trace recorded as info would be split across two levels, and a channel at "error" would
         // show the error without the trace that explains it.
+        // An application's timestamp in euclid's form: UTC, milliseconds, "Z". Empty if it does not
+        // parse. Logback writes local time with an offset and nanoseconds
+        // ("2026-10-18T01:26:51.899898343+02:00"), Python "2026-10-18 01:26:51,899" - and the
+        // collector's parser takes one format.
+        std::string normalizedTimestamp(const std::string &value) {
+
+            // yyyy-mm-ddThh:mm:ss, an optional fraction, then Z, +hh:mm, +hhmm or nothing (UTC).
+            if (value.size() < 19 || value[4] != '-' || value[7] != '-' || (value[10] != 'T' && value[10] != ' ') ||
+                value[13] != ':' || value[16] != ':') {
+                return {};
+            }
+            const auto number = [&](const std::size_t at, const std::size_t length, int &out) {
+                out = 0;
+                for (std::size_t i = at; i < at + length; ++i) {
+                    if (value[i] < '0' || value[i] > '9') return false;
+                    out = out * 10 + (value[i] - '0');
+                }
+                return true;
+            };
+            int year, month, day, hour, minute, second;
+            if (!number(0, 4, year) || !number(5, 2, month) || !number(8, 2, day) ||
+                !number(11, 2, hour) || !number(14, 2, minute) || !number(17, 2, second)) {
+                return {};
+            }
+
+            std::size_t i = 19;
+            int millis = 0;
+            if (i < value.size() && (value[i] == '.' || value[i] == ',')) {
+                ++i;
+                int digits = 0;
+                while (i < value.size() && value[i] >= '0' && value[i] <= '9') {
+                    if (digits < 3) millis = millis * 10 + (value[i] - '0');
+                    ++digits;
+                    ++i;
+                }
+                if (digits == 0) return {};
+                for (; digits < 3; ++digits) millis *= 10;
+            }
+
+            int offsetMinutes = 0;
+            if (i < value.size()) {
+                if (value[i] == 'Z' || value[i] == 'z') {
+                    ++i;
+                } else if (value[i] == '+' || value[i] == '-') {
+                    const int sign = value[i] == '-' ? -1 : 1;
+                    int oh, om;
+                    if (i + 3 > value.size() || !number(i + 1, 2, oh)) return {};
+                    std::size_t at = i + 3;
+                    if (at < value.size() && value[at] == ':') ++at;
+                    if (at + 2 > value.size() || !number(at, 2, om)) return {};
+                    offsetMinutes = sign * (oh * 60 + om);
+                    i = at + 2;
+                }
+            }
+            if (i != value.size()) return {};
+
+            using namespace std::chrono;
+            const year_month_day date{std::chrono::year{year}, std::chrono::month{static_cast<unsigned>(month)},
+                                      std::chrono::day{static_cast<unsigned>(day)}};
+            if (!date.ok() || hour > 23 || minute > 59 || second > 60) return {};
+            const auto utc = sys_days{date} + hours{hour} + minutes{minute} + seconds{second} + milliseconds{millis} -
+                             minutes{offsetMinutes};
+
+            const auto utcDays = floor<days>(utc);
+            const year_month_day utcDate{utcDays};
+            const hh_mm_ss time{floor<milliseconds>(utc - utcDays)};
+            char out[32];
+            std::snprintf(out, sizeof(out), "%04d-%02u-%02uT%02d:%02d:%02d.%03dZ",
+                          static_cast<int>(utcDate.year()), static_cast<unsigned>(utcDate.month()), static_cast<unsigned>(utcDate.day()),
+                          static_cast<int>(time.hours().count()), static_cast<int>(time.minutes().count()),
+                          static_cast<int>(time.seconds().count()), static_cast<int>(time.subseconds().count()));
+            return out;
+        }
+
+        // A JSON record's fields one level deep, nested objects spelled with dots - Spring Boot's ECS
+        // format nests some ({"log":{"logger":...}}), Logstash's encoder writes them flat, and from
+        // here on both look the same.
+        void flatten(const boost::json::object &object, const std::string &prefix, std::vector<std::pair<std::string, boost::json::value> > &out) {
+            for (const auto &field: object) {
+                auto key = prefix.empty() ? std::string(field.key()) : prefix + "." + std::string(field.key());
+                if (field.value().is_object()) {
+                    flatten(field.value().as_object(), key, out);
+                } else {
+                    out.emplace_back(std::move(key), field.value());
+                }
+            }
+        }
+
+        bool oneOf(const std::string &key, const std::initializer_list<std::string_view> names) {
+            return std::ranges::find(names, std::string_view(key)) != names.end();
+        }
+
         bool continuesPrevious(const std::string &line) {
             if (line.empty()) return false;
             if (line.front() == ' ' || line.front() == '\t') return true;
@@ -275,26 +371,94 @@ namespace Euclid::Core::Launch {
         return OutputSeverity(line, fromStderr, std::nullopt);
     }
 
+    std::optional<ApplicationRecord> ParseApplicationRecord(const std::string &line) {
+
+        // Cheap enough to be worth doing before parsing: almost every line from a program that does
+        // not log JSON fails this, and parsing each of those would be the cost of the feature for
+        // everybody who does not use it.
+        if (line.size() < 2 || line.front() != '{') return std::nullopt;
+        boost::system::error_code ec;
+        const auto parsed = boost::json::parse(line, ec);
+        if (ec || !parsed.is_object()) return std::nullopt;
+
+        std::vector<std::pair<std::string, boost::json::value> > fields;
+        flatten(parsed.as_object(), "", fields);
+
+        ApplicationRecord record;
+        std::string callerClass;
+        std::string callerMethod;
+        bool haveMessage = false;
+
+        for (auto &[key, value]: fields) {
+            const auto *text = value.if_string();
+
+            // What a record is: its message, its level, its moment. Taken from wherever the format
+            // at hand keeps them, and not stored again as a field of their own.
+            if (oneOf(key, {"message", "msg"}) && text != nullptr && !haveMessage) {
+                record.message = std::string(*text);
+                haveMessage = true;
+                continue;
+            }
+            if (oneOf(key, {"level", "log.level", "levelname", "severity"}) && text != nullptr) {
+                if (!record.severity) {
+                    auto name = std::string(*text);
+                    std::ranges::transform(name, name.begin(), [](const unsigned char c) { return static_cast<char>(std::toupper(c)); });
+                    record.severity = levelWord(name);
+                }
+                continue;
+            }
+            if (oneOf(key, {"@timestamp", "timestamp", "time", "asctime"}) && text != nullptr && record.timestamp.empty()) {
+                if (auto normalized = normalizedTimestamp(std::string(*text)); !normalized.empty()) {
+                    record.timestamp = std::move(normalized);
+                    continue;
+                }
+            }
+
+            // Bookkeeping of the encoder's own, which says nothing about the record.
+            if (oneOf(key, {"@version", "level_value", "ecs.version"})) continue;
+
+            // The rest of what Logback, Spring Boot and Python's JSON formatters write, under the
+            // ECS names euclid's own records use - so "which logger" is one field whoever logged.
+            if (oneOf(key, {"logger_name", "logger", "log.logger"})) { record.fields["log.logger"] = value; continue; }
+            if (oneOf(key, {"thread_name", "thread", "threadName", "process.thread.name"})) { record.fields["process.thread.name"] = value; continue; }
+            if (oneOf(key, {"stack_trace", "exception", "exc_info", "error.stack_trace"})) { record.fields["error.stack_trace"] = value; continue; }
+            if (key == "caller_class_name" && text != nullptr) { callerClass = std::string(*text); continue; }
+            if (key == "caller_method_name" && text != nullptr) { callerMethod = std::string(*text); continue; }
+            if (key == "caller_file_name") { record.fields["log.origin.file.name"] = value; continue; }
+            if (key == "caller_line_number") { record.fields["log.origin.file.line"] = value; continue; }
+
+            // Fields already in ECS's vocabulary, from an application logging ECS itself. Kept where
+            // they are: they mean what euclid's would.
+            if (key.starts_with("log.") || key.starts_with("process.thread.") || key.starts_with("error.") ||
+                key.starts_with("event.") || key.starts_with("trace.") || key.starts_with("span.") ||
+                key.starts_with("transaction.") || key.starts_with("service.") || key.starts_with("labels.") ||
+                key == "tags") {
+                record.fields[key] = value;
+                continue;
+            }
+
+            // Anything else is the application's own: under "labels.", where ECS keeps custom values.
+            // Never at the top level, where a name of its choosing ("service" next to euclid's
+            // "service.name") can make OpenSearch refuse the whole document.
+            auto label = key;
+            std::ranges::replace(label, '.', '_');
+            record.fields["labels." + label] = value;
+        }
+
+        if (!callerMethod.empty()) {
+            record.fields["log.origin.function"] = callerClass.empty() ? callerMethod : callerClass + "." + callerMethod;
+        }
+        // A JSON line without a message is still a line somebody wanted written.
+        if (!haveMessage) record.message = line;
+        return record;
+    }
+
     boost::log::trivial::severity_level OutputSeverity(const std::string &line, const bool fromStderr,
                                                        const std::optional<boost::log::trivial::severity_level> previous) {
 
         const auto fallback = fromStderr ? boost::log::trivial::error : boost::log::trivial::info;
 
-        // JSON first, and cheaply: almost every line from a program that does not log JSON fails
-        // the first character, and parsing each of those would be the cost of the feature for
-        // everybody who does not use it.
-        if (line.size() >= 2 && line.front() == '{') {
-            boost::system::error_code ec;
-            const auto parsed = boost::json::parse(line, ec);
-            if (!ec && parsed.is_object()) {
-                const auto *level = parsed.as_object().if_contains("level");
-                if (level == nullptr || !level->is_string()) return fallback;
-                auto name = std::string(level->as_string());
-                std::ranges::transform(name, name.begin(), [](const unsigned char c) { return static_cast<char>(std::toupper(c)); });
-                return levelWord(name).value_or(fallback);
-            }
-        }
-
+        if (const auto record = ParseApplicationRecord(line)) return record->severity.value_or(fallback);
         if (const auto level = textLevel(line)) return *level;
         if (previous && continuesPrevious(line)) return *previous;
         return fallback;
@@ -307,8 +471,30 @@ namespace Euclid::Core::Launch {
 
     void EmitOutput(const std::string &channel, const std::string &line, const bool fromStderr, const std::string &fields,
                     std::optional<boost::log::trivial::severity_level> &previous) {
-        // Sanitised first, and the severity read from what the program actually wrote.
+
+        // Sanitised first, and everything after read from what the program actually wrote.
         const auto sanitized = SanitizeOutput(line);
+
+        // A JSON line is translated into a record of euclid's own rather than passed on as text:
+        // its message, its level and its moment become the record's, the rest becomes ECS fields.
+        // Parsed once, here - the formatters then write what they are given.
+        if (auto record = ParseApplicationRecord(sanitized)) {
+            const auto severity = record->severity.value_or(fromStderr ? boost::log::trivial::error : boost::log::trivial::info);
+            previous = severity;
+
+            // euclid's own fields last, so an application cannot claim another application's id
+            // or namespace by logging a field of the same name.
+            auto merged = std::move(record->fields);
+            if (!fields.empty()) {
+                boost::system::error_code ec;
+                if (const auto own = boost::json::parse(fields, ec); !ec && own.is_object()) {
+                    for (const auto &field: own.as_object()) merged[field.key()] = field.value();
+                }
+            }
+            LogStream::LogVerbatim(channel, severity, record->message, boost::json::serialize(merged), record->timestamp);
+            return;
+        }
+
         const auto severity = OutputSeverity(sanitized, fromStderr, previous);
         previous = severity;
         LogStream::LogVerbatim(channel, severity, sanitized, fields);

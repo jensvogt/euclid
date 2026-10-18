@@ -249,6 +249,8 @@ namespace Euclid::Core {
          * @param severity severity to record it at.
          * @param message the line, verbatim.
          * @param fields a JSON object of extra fields to record alongside it, or empty.
+         * @param timestamp when the line says it was written - ISO 8601, UTC, milliseconds, Z - or
+         *                  empty for the moment it is logged. See Launch::ParseApplicationRecord.
          *
          * @par
          * The fields are for what the caller knows about the process the line came from and the
@@ -258,7 +260,7 @@ namespace Euclid::Core {
          * of the same name cannot claim to be in another namespace than the one it is in.
          */
         static void LogVerbatim(const std::string &channel, boost::log::trivial::severity_level severity,
-                                const std::string &message, const std::string &fields = {});
+                                const std::string &message, const std::string &fields = {}, const std::string &timestamp = {});
 
         /**
          * @brief Add a file logging sink
