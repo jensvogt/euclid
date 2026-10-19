@@ -126,11 +126,10 @@ namespace Euclid::Database::Entity::ESM {
          * (bucketErn, parent, key), paged and sorted without a deep skip.
          *
          * @par
-         * Absent on objects written before this field existed, which read as empty - and an
-         * equality on "" would then list them at the root wherever they really sit. The one-off
-         * backfill that fills it in is MongoEsmRepository::backfillObjectParents(), run at
-         * startup; until it has, a level listing cannot see those objects at all, which is why it
-         * runs before anything serves a request.
+         * Set on every write - MongoEsmRepository::upsertObject() derives it from the key - so
+         * every object has it. Objects written before the field existed were given it by a one-off
+         * backfill at startup; that ran on every ESM start, as a scan of the whole collection, long
+         * after there was nothing left for it to do, and was removed once none were left.
          */
         std::string parent;
 
