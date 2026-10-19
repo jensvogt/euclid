@@ -706,7 +706,7 @@ namespace Euclid::EQS {
         boost::json::value jv;
         if (const auto err = EqsServer::ParseJsonBody(req, jv)) return *err;
 
-        const auto request = boost::json::value_to<Dto::EQS::ReceiveMessagesRequest>(jv);
+        const auto [ern, maxCount, waitTime] = boost::json::value_to<Dto::EQS::ReceiveMessagesRequest>(jv);
         // At info for a real consumer, at debug for the system polling itself. A receive is worth
         // a line when somebody is waiting for work; the same call made every few seconds by a
         // metric collector or a heartbeat says nothing and would bury everything that does. The
@@ -714,12 +714,12 @@ namespace Euclid::EQS {
         // guessing from a rate.
         const bool internalTraffic = std::string(req["x-euclid-internal"]) == "true";
         if (internalTraffic) {
-            log_debug << "EQS ReceiveMessages ern: " << request.ern;
+            log_debug << "EQS ReceiveMessages ern: " << ern;
         } else {
-            log_info << "EQS ReceiveMessages ern: " << request.ern;
+            log_info << "EQS ReceiveMessages ern: " << ern;
         }
 
-        if (const auto denied = denyUngrantedQueue(req, auth, request.ern)) return *denied;
+        if (const auto denied = denyUngrantedQueue(req, auth, ern)) return *denied;
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
 
@@ -730,9 +730,9 @@ namespace Euclid::EQS {
         // From the queue cache, since this is every poll of every consumer. A stop made through
         // this instance is seen at once; one made through another EQS instance once the entry
         // expires (euclid.modules.eqs.queue-cache-seconds).
-        if (const auto queue = repo->findQueueByErnCached(request.ern);
+        if (const auto queue = repo->findQueueByErnCached(ern);
             queue.has_value() && queue->status == Database::Entity::EQS::QueueStatus::STOPPED) {
-            return EqsServer::ErrorResponse(req, status::conflict, "Queue is stopped, ern: " + request.ern);
+            return EqsServer::ErrorResponse(req, status::conflict, "Queue is stopped, ern: " + ern);
         }
 
         // Without a slot the wait is skipped rather than queued: the queue is checked once and
@@ -740,22 +740,22 @@ namespace Euclid::EQS {
         // stays empty. The consumer asks again; a producer gets a thread meanwhile.
         const auto slot = longPollSlots.acquire();
         std::vector<Database::Entity::EQS::Message> messages =
-                repo->receiveMessages(request.ern, request.maxCount, slot.held() ? request.waitTime : 0);
+                repo->receiveMessages(ern, maxCount, slot.held() ? waitTime : 0);
 
         // Counted per message handed out, so a message received twice (its visibility timeout ran
         // out before it was deleted) counts twice - that redelivery is real traffic, and the gap
         // between this and eqs-messages-sent is what makes it visible.
         long receivedBytes = 0;
         for (const auto &message: messages) receivedBytes += message.size;
-        recordMessagesReceived(request.ern, static_cast<long>(messages.size()), receivedBytes);
+        recordMessagesReceived(ern, static_cast<long>(messages.size()), receivedBytes);
 
         Dto::EQS::ReceiveMessagesResponse response;
         response.messages = Dto::EQS::EqsMapper::toDto(messages);
 
         if (internalTraffic) {
-            log_debug << "EQS ReceiveMessages ern: " << request.ern << ", count: " << response.messages.size();
+            log_debug << "EQS ReceiveMessages ern: " << ern << ", count: " << response.messages.size();
         } else {
-            log_info << "EQS ReceiveMessages ern: " << request.ern << ", count: " << response.messages.size();
+            log_info << "EQS ReceiveMessages ern: " << ern << ", count: " << response.messages.size();
         }
 
         applyMetadata(response, *auth.user);
@@ -1566,10 +1566,6 @@ namespace Euclid::EQS {
         if (action == "send-message") return Command::SendMessage;
         if (action == "send-message-batch") return Command::SendMessageBatch;
         if (action == "receive-messages") return Command::ReceiveMessages;
-        // Two spellings, one command. "set-message-visibility" is the name that says what it
-        // changes, and pairs with "set-queue-visibility"; "set-visibility" is what it was called
-        // first and what euclid-jdk still sends, so it keeps working rather than breaking every
-        // client built against it.
         if (action == "set-visibility" || action == "set-message-visibility") return Command::SetVisibility;
         if (action == "set-queue-visibility") return Command::SetQueueVisibility;
         if (action == "set-queue-delay") return Command::SetQueueDelay;
