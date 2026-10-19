@@ -5,7 +5,9 @@
 #pragma once
 
 // C++ includes
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -415,13 +417,55 @@ namespace Euclid::Database {
          * any other claimer until the lease expires, and comes back if it is never acked - so a
          * consumer that crashes mid-work loses nothing.
          *
+         * @par
+         * Claimed as a batch, the way pollOnce() claims for a module: about three round trips
+         * however many events come back, where it used to be one find_one_and_update per event.
+         *
          * @param subscriber subscriber name.
-         * @param maxEvents largest number of events to claim.
+         * @param maxEvents largest number of events to claim, capped at kBatchSize.
          * @param visibility how long the claim holds before the events become claimable again.
          * @return the claimed events, oldest first.
          */
         [[nodiscard]]
         std::vector<EventEnvelope> ClaimEvents(const std::string &subscriber, long maxEvents, std::chrono::seconds visibility);
+
+        /**
+         * @brief ClaimEvents(), waiting until deadline for something to arrive when nothing is there.
+         *
+         * @par
+         * The long poll behind receive-events. It used to be a loop around ClaimEvents() with a
+         * 250 ms sleep, which is eighty queries for one idle twenty-second wait, per client, all
+         * of them answering nothing. This waits on a condition variable instead, woken when an
+         * event for the subscriber is inserted - by StartExternalWatch()'s change stream for one
+         * published in another process, or by Publish() directly for one published in this one.
+         *
+         * @par
+         * The wake-up only says "look again"; the claim is still the atomic one, so two instances
+         * woken by the same insert cannot both get the event. Without a change stream - a
+         * standalone MongoDB, the in-memory or EMD backend, or one that is reconnecting - it looks
+         * again every 250 ms, as it always did; with one, every 2 s as a safety net for what an
+         * insert-only stream cannot see, such as a lease running out.
+         *
+         * @param subscriber subscriber name.
+         * @param maxEvents largest number of events to claim.
+         * @param visibility how long the claim holds.
+         * @param deadline when to give up and answer with nothing; one already passed claims once.
+         * @return the claimed events, oldest first, or none if the deadline passed first.
+         */
+        [[nodiscard]]
+        std::vector<EventEnvelope> ReceiveEvents(const std::string &subscriber, long maxEvents, std::chrono::seconds visibility,
+                                                 std::chrono::steady_clock::time_point deadline);
+
+        /**
+         * @brief Starts the change stream that wakes ReceiveEvents() waiters in this process.
+         *
+         * @par
+         * One per process, whatever number of subscribers it serves, and filtered on the server
+         * to inserts for external subscribers - module deliveries never reach it. Idempotent. A
+         * no-op on the in-memory and EMD backends, which have no change stream; waiters there
+         * fall back to polling.
+         */
+        void StartExternalWatch();
 
         /**
          * @brief Deletes a claimed event, which is what "processed" means here.
@@ -431,6 +475,16 @@ namespace Euclid::Database {
          * @return true if an event was deleted.
          */
         bool AckEvent(const std::string &subscriber, const std::string &eventId);
+
+        /**
+         * @brief AckEvent() for many events in one statement.
+         *
+         * @param subscriber subscriber name the events were claimed under.
+         * @param eventIds IDs from the claimed envelopes.
+         * @return how many were deleted; an ID that is no longer there is not counted and is not
+         * an error.
+         */
+        long AckEvents(const std::string &subscriber, const std::vector<std::string> &eventIds);
 
         /**
          * @brief Number of events waiting for a subscriber, claimed or not.
@@ -536,6 +590,30 @@ namespace Euclid::Database {
 
         void watchLoop(const std::string &moduleType);
 
+        /**
+         * @brief The ReceiveEvents() calls waiting on one subscriber name in this process.
+         *
+         * @par
+         * The generation is what keeps a wake-up from being lost: a waiter reads it before it
+         * claims, and an insert that lands between that claim finding nothing and the wait
+         * starting has already moved it on, so the wait returns at once instead of sleeping
+         * through the event.
+         */
+        struct ExternalWaiter {
+            std::condition_variable cv;
+            std::uint64_t generation = 0;
+            int waiters = 0;
+        };
+
+        void externalWatchLoop();
+
+        /**
+         * @brief Wakes whatever is waiting for a target, if it is an external subscriber's.
+         *
+         * @param target the envelope's targetModule, "client:<name>" for an external subscriber.
+         */
+        void wakeExternal(std::string_view target);
+
         static void reap();
 
         static void moveToDlq(const bsoncxx::document::view &doc, const std::string &reason);
@@ -589,6 +667,10 @@ namespace Euclid::Database {
         // "The $changeStream stage is only supported on replica sets or mongos" - see watchLoop(),
         // which stops watching rather than reconnecting when the server says this.
         static constexpr int kChangeStreamUnsupported = 40573;
+        // How often a ReceiveEvents() waiter looks again without being woken: rarely while the
+        // external change stream is running, as often as the old sleep loop while it is not.
+        static constexpr auto kWaitFallbackWatched = std::chrono::seconds(2);
+        static constexpr auto kWaitFallbackPolled = std::chrono::milliseconds(250);
 
         std::once_flag _indexesOnce;
         std::string _instanceId;
@@ -613,6 +695,11 @@ namespace Euclid::Database {
 
         std::mutex _handlersMutex;
         std::unordered_map<std::string, std::function<bool(const EventEnvelope &)> > _handlers;// keyed by eventType
+
+        std::mutex _waitMutex;
+        std::unordered_map<std::string, std::shared_ptr<ExternalWaiter> > _waiters;// keyed by subscriber name
+        std::once_flag _externalWatchOnce;
+        std::atomic<bool> _externalWatchActive{false};
     };
 
 }// namespace Euclid::Database
