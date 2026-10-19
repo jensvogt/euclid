@@ -6,7 +6,6 @@
 #include <chrono>
 #include <optional>
 #include <string>
-#include <thread>
 #include <vector>
 
 // Euclid includes
@@ -233,14 +232,11 @@ namespace Euclid::EES {
         // that clients waiting for events can never take the last thread away from a client with
         // something to do. Without a slot this answers with whatever is there right now, which is
         // what a long poll returns anyway when nothing arrives; the client asks again.
+        //
+        // The wait itself is a wake-up rather than a poll - see EventBus::ReceiveEvents().
         const auto slot = longPollSlots.acquire();
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(slot.held() ? waitTime : 0);
-        std::vector<Database::EventEnvelope> events;
-        while (true) {
-            events = bus.ClaimEvents(subscriber, maxEvents, visibility);
-            if (!events.empty() || std::chrono::steady_clock::now() >= deadline) break;
-            std::this_thread::sleep_for(std::chrono::milliseconds(250));
-        }
+        const auto events = bus.ReceiveEvents(subscriber, maxEvents, visibility, deadline);
 
         boost::json::array payload;
         for (const auto &event: events) payload.push_back(toJson(event));
@@ -271,18 +267,18 @@ namespace Euclid::EES {
 
         // An event that is not there any more is not an error: a redelivery acknowledged twice,
         // or one whose retention ran out, both end here and both mean the same thing to a caller.
-        long acknowledged = 0;
-        for (const auto &eventId: eventIds) {
-            if (bus.AckEvent(subscriber, eventId)) ++acknowledged;
-        }
+        const auto acknowledged = bus.AckEvents(subscriber, eventIds);
 
         log_debug << "EES acknowledged, subscriber: " << subscriber << ", count: " << acknowledged;
 
+        // No "waiting" count here any more. Counting is a scan of the subscriber's whole backlog,
+        // and paying for it on every acknowledgement - the hottest call a busy consumer makes -
+        // cost more than the delete it reported on. list-subscriptions still counts, which is
+        // where the number is actually looked at: a UI's refresh, an operator checking a backlog.
         return EesServer::JsonResponse(req, status::ok,
                                        boost::json::serialize(boost::json::object{
                                                {"subscriber", subscriber},
-                                               {"acknowledged", acknowledged},
-                                               {"waiting", bus.CountEvents(subscriber)}}));
+                                               {"acknowledged", acknowledged}}));
     }
 
     // ── Request dispatcher ───────────────────────────────────────────────────
@@ -309,6 +305,9 @@ namespace Euclid::EES {
 
     EesServer::EesServer(std::string socketPath, const int threads) : HttpActionServer("EES", std::move(socketPath), threads) {
         longPollSlots.limit(threads - 1);
+
+        // What wakes a waiting receive-events when an event for it is published elsewhere.
+        Database::EventBus::instance().StartExternalWatch();
     }
 
     response<string_body> EesServer::DispatchAction(const request<string_body> &req) {

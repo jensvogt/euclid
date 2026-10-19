@@ -3,6 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 // C++ includes
+#include <algorithm>
 #include <ranges>
 #include <set>
 #include <thread>
@@ -12,6 +13,7 @@
 #include <bsoncxx/builder/basic/array.hpp>
 #include <bsoncxx/builder/basic/document.hpp>
 #include <bsoncxx/builder/basic/kvp.hpp>
+#include <bsoncxx/types.hpp>
 #include <mongocxx/change_stream.hpp>
 #include <mongocxx/exception/exception.hpp>
 #include <mongocxx/options/change_stream.hpp>
@@ -312,6 +314,11 @@ namespace Euclid::Database {
 
             const auto inserted = Database::instance().collection(EVENT_COLLECTION).insert_many(documents);
 
+            // Every external target, whether or not an event in this batch matched it: a waiter
+            // woken for nothing claims, finds nothing and waits again, which is cheaper than
+            // working out here which ones matched.
+            for (const auto &target: externalTargets) wakeExternal(target);
+
             // Live subscribers are deliberately not served here. A push is per event and goes over
             // a connection rather than into the store, so there is no round trip to batch away -
             // and a batch is by definition a bulk operation, where a consumer that wanted every
@@ -413,6 +420,7 @@ namespace Euclid::Database {
                         kvp("createdAt", bsoncxx::types::b_date{now}),
                         kvp("expiresAt", bsoncxx::types::b_date{now + std::chrono::seconds(kExternalRetentionSeconds)}));
                 eventCollection.insert_one(doc.view());
+                wakeExternal(target);
             }
 
             // Pushed after the writes, never instead of them: for a durable subscriber the store
@@ -695,29 +703,57 @@ namespace Euclid::Database {
 
             auto eventCollection = Database::instance().collection(EVENT_COLLECTION);
 
-            // The same atomic claim the module path makes, one event at a time: find-and-update
-            // is what makes two instances of one subscriber safe to run at once.
+            // Pending, or claimed by somebody whose lease has run out. Asked twice - once to find
+            // candidates and again in the claim itself - because a sibling instance can claim a
+            // candidate in between, and the second asking is what stops this one taking it back.
+            const auto claimable = [&now] {
+                return make_array(
+                        make_document(kvp("status", kPending)),
+                        make_document(kvp("status", kClaimed), kvp("visibleAt", make_document(kvp("$lte", bsoncxx::types::b_date{now})))));
+            };
+
+            // ── 1. what is waiting ──────────────────────────────────────────
+            mongocxx::options::find findOpts;
+            findOpts.sort(make_document(kvp("createdAt", 1)));
+            findOpts.limit(std::clamp<long>(maxEvents, 1, kBatchSize));
+
+            bsoncxx::builder::basic::array candidateIds;
+            long candidates = 0;
+            for (const auto filter = make_document(kvp("targetModule", target), kvp("$or", claimable()));
+                 const auto &doc: eventCollection.find(filter.view(), findOpts)) {
+                candidateIds.append(doc["_id"].get_oid());
+                ++candidates;
+            }
+            if (candidates == 0) return claimed;
+
+            // ── 2. claim them ───────────────────────────────────────────────
+            // A token per call, for the same reason pollOnce() uses one: two instances of one
+            // subscriber share its name, so claimedBy cannot tell this call's events from a
+            // sibling's, and the token can.
+            const auto claimToken = Core::UuidUtils::CreateRandomUuid();
             const auto selector = make_document(
-                    kvp("targetModule", target),
-                    kvp("$or", bsoncxx::builder::basic::make_array(
-                                make_document(kvp("status", kPending)),
-                                make_document(kvp("status", kClaimed), kvp("visibleAt", make_document(kvp("$lte", bsoncxx::types::b_date{now})))))));
+                    kvp("_id", make_document(kvp("$in", candidateIds))),
+                    kvp("$or", claimable()));
             const auto update = make_document(
                     kvp("$set", make_document(
                                 kvp("status", kClaimed),
                                 kvp("claimedBy", subscriber),
+                                kvp("claimToken", claimToken),
                                 kvp("visibleAt", bsoncxx::types::b_date{now + visibility}))),
                     kvp("$inc", make_document(kvp("attempts", static_cast<int64_t>(1)))));
 
-            mongocxx::options::find_one_and_update opts;
-            opts.sort(make_document(kvp("createdAt", 1)));
-            opts.return_document(mongocxx::options::return_document::k_after);
+            const auto claimResult = eventCollection.update_many(selector.view(), update.view());
+            if (!claimResult || claimResult->modified_count() == 0) return claimed;// every one lost to a sibling
 
-            for (long i = 0; i < std::max(1L, maxEvents); ++i) {
-                const auto result = eventCollection.find_one_and_update(selector.view(), update.view(), opts);
-                if (!result) break;
+            // ── 3. read back exactly what was won ───────────────────────────
+            const auto mine = make_document(
+                    kvp("_id", make_document(kvp("$in", candidateIds))),
+                    kvp("claimToken", claimToken));
+            mongocxx::options::find mineOpts;
+            mineOpts.sort(make_document(kvp("createdAt", 1)));
 
-                const auto view = result->view();
+            for (const auto &view: eventCollection.find(mine.view(), mineOpts)) {
+
                 EventEnvelope envelope;
                 envelope.eventId = std::string(view["eventId"].get_string().value);
                 envelope.eventType = std::string(view["eventType"].get_string().value);
@@ -760,6 +796,158 @@ namespace Euclid::Database {
         } catch (const std::exception &e) {
             log_error << "EventBus ack failed, subscriber: " << subscriber << ", eventId: " << eventId << ", error: " << e.what();
             return false;
+        }
+    }
+
+    long EventBus::AckEvents(const std::string &subscriber, const std::vector<std::string> &eventIds) {
+
+        if (eventIds.empty()) return 0;
+
+        try {
+            bsoncxx::builder::basic::array ids;
+            for (const auto &eventId: eventIds) ids.append(eventId);
+
+            // One statement for the batch, served by the eventId index; the targetModule term is
+            // what keeps one subscriber from acknowledging another's events by ID.
+            const auto result = Database::instance().collection(EVENT_COLLECTION).delete_many(
+                    make_document(kvp("targetModule", externalTarget(subscriber)), kvp("eventId", make_document(kvp("$in", ids)))).view());
+            return result ? static_cast<long>(result->deleted_count()) : 0;
+
+        } catch (const std::exception &e) {
+            log_error << "EventBus ack failed, subscriber: " << subscriber << ", events: " << eventIds.size() << ", error: " << e.what();
+            return 0;
+        }
+    }
+
+    std::vector<EventEnvelope> EventBus::ReceiveEvents(const std::string &subscriber, const long maxEvents, const std::chrono::seconds visibility,
+                                                       const std::chrono::steady_clock::time_point deadline) {
+
+        // Registered before the first claim, not after it comes back empty: an insert between the
+        // two would otherwise wake nobody, and this would sleep through the event it was waiting for.
+        std::shared_ptr<ExternalWaiter> waiter;
+        {
+            std::lock_guard lock(_waitMutex);
+            auto &entry = _waiters[subscriber];
+            if (!entry) entry = std::make_shared<ExternalWaiter>();
+            waiter = entry;
+            ++waiter->waiters;
+        }
+
+        // Released whichever way this returns, so a name nobody is waiting on does not stay in
+        // the map.
+        struct Release {
+            EventBus &bus;
+            const std::string &subscriber;
+            ~Release() {
+                std::lock_guard lock(bus._waitMutex);
+                if (const auto it = bus._waiters.find(subscriber); it != bus._waiters.end() && --it->second->waiters == 0) {
+                    bus._waiters.erase(it);
+                }
+            }
+        } release{*this, subscriber};
+
+        while (true) {
+            std::uint64_t seen;
+            {
+                std::lock_guard lock(_waitMutex);
+                seen = waiter->generation;
+            }
+
+            auto events = ClaimEvents(subscriber, maxEvents, visibility);
+            const auto now = std::chrono::steady_clock::now();
+            if (!events.empty() || now >= deadline) return events;
+
+            const auto fallback = _externalWatchActive.load(std::memory_order_relaxed)
+                                          ? std::chrono::duration_cast<std::chrono::milliseconds>(kWaitFallbackWatched)
+                                          : kWaitFallbackPolled;
+
+            std::unique_lock lock(_waitMutex);
+            waiter->cv.wait_until(lock, std::min(deadline, now + fallback), [&] { return waiter->generation != seen; });
+        }
+    }
+
+    void EventBus::wakeExternal(const std::string_view target) {
+
+        const std::string_view prefix = kExternalPrefix;
+        if (!target.starts_with(prefix)) return;
+        const std::string subscriber(target.substr(prefix.size()));
+
+        std::lock_guard lock(_waitMutex);
+        if (const auto it = _waiters.find(subscriber); it != _waiters.end()) {
+            ++it->second->generation;
+            it->second->cv.notify_all();
+        }
+    }
+
+    void EventBus::StartExternalWatch() {
+
+        ensureIndexes();
+
+        std::call_once(_externalWatchOnce, [this] {
+            // No change stream on either store - see Start(). Waiters poll instead, at the rate
+            // they always did.
+            if (Database::instance().inMemory()) {
+                log_info << "EventBus external receive polling only, no change stream on the in-memory backend";
+                return;
+            }
+            std::thread([this] { externalWatchLoop(); }).detach();
+        });
+    }
+
+    void EventBus::externalWatchLoop() {
+
+        // Held for as long as the regex built from it is used below - b_regex keeps a view.
+        const std::string externalPattern = "^" + std::string(kExternalPrefix);
+
+        while (true) {
+            try {
+                const auto entry = Database::instance().client();
+                auto eventCollection = (*entry)[Database::instance().databaseName()][EVENT_COLLECTION];
+
+                // Inserts for external subscribers only, filtered on the server, and only the one
+                // field a wake-up needs: a module delivery or a payload never crosses the wire.
+                mongocxx::pipeline pipeline;
+                pipeline.match(make_document(
+                        kvp("operationType", "insert"),
+                        kvp("fullDocument.targetModule", bsoncxx::types::b_regex{externalPattern})));
+                pipeline.project(make_document(kvp("fullDocument.targetModule", 1)));
+
+                mongocxx::options::change_stream options;
+                options.max_await_time(std::chrono::seconds(30));
+
+                auto stream = eventCollection.watch(pipeline, options);
+                _externalWatchActive.store(true, std::memory_order_relaxed);
+                log_info << "EventBus external change stream opened";
+
+                // An empty begin() is a quiet max_await_time, not a dead stream - see watchLoop().
+                for (auto it = stream.begin();; it = stream.begin()) {
+                    for (; it != stream.end(); ++it) {
+                        const auto full = (*it)["fullDocument"];
+                        if (!full || full.type() != bsoncxx::type::k_document) continue;
+                        if (const auto target = full.get_document().value["targetModule"]; target && target.type() == bsoncxx::type::k_string) {
+                            wakeExternal(std::string(target.get_string().value));
+                        }
+                    }
+                }
+
+            } catch (const mongocxx::exception &e) {
+
+                // Back to polling while there is no stream, so nothing waits on a wake-up that
+                // cannot come.
+                _externalWatchActive.store(false, std::memory_order_relaxed);
+                if (e.code().value() == kChangeStreamUnsupported) {
+                    log_warning << "EventBus external receive polling only, this MongoDB deployment is a standalone and has"
+                                   " no oplog to tail; start it as a replica set to get immediate delivery";
+                    return;
+                }
+                log_error << "EventBus external change stream failed, error: " << e.what() << ", reconnecting";
+
+            } catch (const std::exception &e) {
+                _externalWatchActive.store(false, std::memory_order_relaxed);
+                log_error << "EventBus external change stream failed, error: " << e.what() << ", reconnecting";
+            }
+
+            std::this_thread::sleep_for(kWatchReconnectDelay);
         }
     }
 

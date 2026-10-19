@@ -346,7 +346,8 @@ namespace Euclid::CLI {
                                    "acknowledged it is only leased, and comes back when the lease runs out. "
                                    "An event that is not there any more is not an error - a redelivery acknowledged "
                                    "twice and one whose retention ran out both mean the same thing to a caller - so "
-                                   "the answer reports how many were actually deleted, and how many are still waiting.",
+                                   "the answer reports how many were actually deleted. list-subscriptions says how "
+                                   "many are still waiting.",
                                    desc);
         }
 

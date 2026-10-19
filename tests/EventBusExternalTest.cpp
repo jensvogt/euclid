@@ -7,6 +7,7 @@
 
 // C++ includes
 #include <chrono>
+#include <cstdint>
 #include <string>
 #include <thread>
 
@@ -202,6 +203,92 @@ BOOST_AUTO_TEST_CASE(ResubscribingChangesTheMode) {
 
     bus.Publish(fixture.eventType, boost::json::value{{"n", 1}}, "test");
     BOOST_TEST(bus.CountEvents(fixture.subscriber) == 1);
+}
+
+BOOST_AUTO_TEST_CASE(ABatchIsClaimedOldestFirstAndCappedAtMaxEvents) {
+    if (!databaseAvailable()) return;
+    Fixture fixture;
+
+    auto &bus = EventBus::instance();
+    bus.SubscribeExternal(fixture.subscriber, fixture.eventType, {}, "000000000000");
+    for (int n = 0; n < 5; ++n) {
+        bus.Publish(fixture.eventType, boost::json::value{{"n", n}}, "test");
+        // createdAt has millisecond resolution; without a gap the order between two events is a tie.
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+
+    // Claimed as a batch now rather than one find-and-update at a time, which must not change
+    // either what comes back or in which order.
+    const auto first = bus.ClaimEvents(fixture.subscriber, 3, std::chrono::seconds(60));
+    BOOST_TEST_REQUIRE(first.size() == 3U);
+    for (std::size_t i = 0; i < first.size(); ++i) {
+        BOOST_TEST(first[i].payload.at("n").as_int64() == static_cast<std::int64_t>(i));
+        BOOST_TEST(first[i].attempts == 1);
+    }
+
+    const auto rest = bus.ClaimEvents(fixture.subscriber, 10, std::chrono::seconds(60));
+    BOOST_TEST_REQUIRE(rest.size() == 2U);
+    BOOST_TEST(rest[0].payload.at("n").as_int64() == 3);
+}
+
+BOOST_AUTO_TEST_CASE(AckEventsRemovesExactlyTheNamedEvents) {
+    if (!databaseAvailable()) return;
+    Fixture fixture;
+
+    auto &bus = EventBus::instance();
+    bus.SubscribeExternal(fixture.subscriber, fixture.eventType, {}, "000000000000");
+    for (int n = 0; n < 3; ++n) bus.Publish(fixture.eventType, boost::json::value{{"n", n}}, "test");
+
+    const auto claimed = bus.ClaimEvents(fixture.subscriber, 10, std::chrono::seconds(60));
+    BOOST_TEST_REQUIRE(claimed.size() == 3U);
+
+    // Two of three, plus one that does not exist: the unknown ID is not an error and not counted.
+    BOOST_TEST(bus.AckEvents(fixture.subscriber, {claimed[0].eventId, claimed[1].eventId, "no-such-event"}) == 2);
+    BOOST_TEST(bus.CountEvents(fixture.subscriber) == 1);
+
+    // Another subscriber's name cannot acknowledge them.
+    BOOST_TEST(bus.AckEvents("someone-else-" + fixture.subscriber, {claimed[2].eventId}) == 0);
+    BOOST_TEST(bus.CountEvents(fixture.subscriber) == 1);
+}
+
+BOOST_AUTO_TEST_CASE(AWaitingReceiveIsWokenByAPublish) {
+    if (!databaseAvailable()) return;
+    Fixture fixture;
+
+    auto &bus = EventBus::instance();
+    bus.SubscribeExternal(fixture.subscriber, fixture.eventType, {}, "000000000000");
+
+    // Published while the receive is already waiting. It has to come back well before its
+    // deadline - that it comes back at all would be true of a poll, too.
+    std::thread publisher([&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        bus.Publish(fixture.eventType, boost::json::value{{"key", "late.csv"}}, "test");
+    });
+
+    const auto started = std::chrono::steady_clock::now();
+    const auto events = bus.ReceiveEvents(fixture.subscriber, 10, std::chrono::seconds(60), started + std::chrono::seconds(10));
+    const auto took = std::chrono::steady_clock::now() - started;
+    publisher.join();
+
+    BOOST_TEST_REQUIRE(events.size() == 1U);
+    BOOST_TEST(events[0].payload.at("key").as_string() == "late.csv");
+    BOOST_TEST(took < std::chrono::seconds(2));
+}
+
+BOOST_AUTO_TEST_CASE(AReceiveWithNothingToGetAnswersAtItsDeadline) {
+    if (!databaseAvailable()) return;
+    Fixture fixture;
+
+    auto &bus = EventBus::instance();
+    bus.SubscribeExternal(fixture.subscriber, fixture.eventType, {}, "000000000000");
+
+    const auto started = std::chrono::steady_clock::now();
+    const auto events = bus.ReceiveEvents(fixture.subscriber, 10, std::chrono::seconds(60), started + std::chrono::milliseconds(600));
+    const auto took = std::chrono::steady_clock::now() - started;
+
+    BOOST_TEST(events.empty());
+    BOOST_TEST(took >= std::chrono::milliseconds(600));
+    BOOST_TEST(took < std::chrono::seconds(3));
 }
 
 BOOST_AUTO_TEST_CASE(UnsubscribingTakesTheBacklogWithIt) {
