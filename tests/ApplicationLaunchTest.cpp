@@ -230,6 +230,20 @@ BOOST_AUTO_TEST_CASE(ATextLinesOwnLevelIsTakenAtItsWord) {
     BOOST_TEST(Launch::OutputSeverity("2026-10-18 00:54:56,084 [t-6] INFO  d.l.p.Listener - processing", true) == severity_level::info);
 }
 
+// euclid's own processes - the modules the manager runs - write the level in brackets and lower
+// case. Read as anything less than it is, a module's error went to a "module" channel at warning
+// as info, and was dropped: an EAM request answered 500 with nothing in any log.
+BOOST_AUTO_TEST_CASE(AModulesBracketedLevelIsTakenInAnyCase) {
+
+    using boost::log::trivial::severity_level;
+    BOOST_TEST(Launch::OutputSeverity("2026-10-18 23:30:00.945016 [error] [1322] [UnixSocketServer:78] EAM request handler threw, error: x", false) == severity_level::error);
+    BOOST_TEST(Launch::OutputSeverity("2026-10-18 23:21:46.473419 [warning] [1322] [main::reconcile:690] restarting", false) == severity_level::warning);
+    BOOST_TEST(Launch::OutputSeverity("2026-10-18 23:21:46.473419 [debug] [1322] [x:1] detail", false) == severity_level::debug);
+    BOOST_TEST(Launch::OutputSeverity("2026-10-18 23:21:46.473419 [Info] [1322] [x:1] started", true) == severity_level::info);
+    // Lower case without brackets is still prose.
+    BOOST_TEST(Launch::OutputSeverity("an error happened", false) == severity_level::info);
+}
+
 BOOST_AUTO_TEST_CASE(ALevelWordDeepInTheMessageIsTheMessageTalking) {
 
     using boost::log::trivial::severity_level;

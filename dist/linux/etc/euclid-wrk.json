@@ -1,6 +1,7 @@
 {
   "euclid": {
     "worker": {
+      "stop-grace-seconds": 20,
       "endpoint": "https://euclid.example:5566",
       "ca-cert": "",
       "address": "",

@@ -177,6 +177,25 @@ BOOST_AUTO_TEST_CASE(TheNodesLogFileSizeAndCountAreItsOwnIfSetAndTheManagersIfNo
     BOOST_TEST(own.at("file-count").as_int64() == 30);
 }
 
+// Whether the node logs to its console (the journal, under systemd): its own setting if it has one,
+// the manager's if not, and absent - the worker's default, on - when neither says. An edit to the
+// node's file by hand is gone with EAP's next start, so this is the only place it can be set.
+BOOST_AUTO_TEST_CASE(TheNodesConsoleIsItsOwnIfSetAndTheManagersIfNot) {
+
+    freshInstallation(true);
+    const auto none = LocalNode::WorkerConfiguration(kDirectory / "credentials").at("euclid").at("logging").as_object();
+    BOOST_TEST(!none.contains("console-active"));
+
+    Configuration::instance().set<bool>("euclid.logging.console-active", true);
+    const auto inherited = LocalNode::WorkerConfiguration(kDirectory / "credentials").at("euclid").at("logging").as_object();
+    BOOST_TEST(inherited.at("console-active").as_bool());
+
+    // The manager keeps its journal; the node, whose console is every application's output, does not.
+    Configuration::instance().set<bool>("euclid.modules.eap.local-node.log-console-active", false);
+    const auto own = LocalNode::WorkerConfiguration(kDirectory / "credentials").at("euclid").at("logging").as_object();
+    BOOST_TEST(!own.at("console-active").as_bool());
+}
+
 BOOST_AUTO_TEST_CASE(TheLocalNodeDoesNotReportTheHostTheMonitoringModuleAlreadyReads) {
 
     freshInstallation(true);

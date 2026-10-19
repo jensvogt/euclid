@@ -23,6 +23,7 @@
 #include <euclid/dto/eam/GetUserGroupRequest.h>
 #include <euclid/dto/eam/GetUserRequest.h>
 #include <euclid/dto/eam/CreateAccessKeyResponse.h>
+#include <euclid/dto/eam/ChangeEmailRequest.h>
 #include <euclid/dto/eam/ChangeNamespaceRequest.h>
 #include <euclid/dto/eam/ChangePasswordRequest.h>
 #include <euclid/dto/eam/ChangeUserIdRequest.h>
@@ -221,6 +222,20 @@ namespace Euclid::CLI {
          */
         [[nodiscard]]
         int changeUserId(const std::vector<std::string> &args) const;
+
+        /**
+         * @brief Gives a user a different email address
+         *
+         * @par
+         * Administrator-only, and the user is named outright - an address is a way in, since login
+         * accepts one in place of a user id, so this is an action on somebody rather than one that
+         * means "me" when it names nobody. Refused when another user holds the address.
+         *
+         * @param args action arguments
+         * @return the process exit code
+         */
+        [[nodiscard]]
+        int changeEmail(const std::vector<std::string> &args) const;
 
         /**
          * @brief Creates a new SigV4 access key for the caller and stores it locally

@@ -49,7 +49,8 @@ namespace Euclid::Core {
                 "eag:list-routes",
                 "eag:update-route",
 
-                // eam - 41 actions
+                // eam - 42 actions
+                "eam:change-email",
                 "eam:change-namespace",
                 "eam:change-password",
                 "eam:change-userid",

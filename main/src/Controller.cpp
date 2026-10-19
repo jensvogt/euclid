@@ -1271,15 +1271,27 @@ namespace Euclid::main {
                         .acceptsWork = node != nodes.end() && node->acceptsWork(leaseSeconds, now)});
             }
 
-            const auto from = Manager::Placement::ChooseToWithdraw(holders);
-            for (const auto &instance: std::ranges::reverse_view(existing->instances)) {
-                if (instance.assignedTo.empty() || instance.assignedTo != from) continue;
-                log_info << "Scaling down an application, application: " << runtimeName
-                         << ", instance: " << instance.instanceId << ", node: " << instance.assignedTo
-                         << ", have: " << have << ", wanted: " << wanted;
-                std::ignore = emm->assignInstance(runtimeName, instance.instanceId, {}, {});
-                break;
+            // An instance with work in hand is not one to stop: the worker gives it a grace period,
+            // but work that outlasts it is cut off, and a transaction with it. So the node
+            // ChooseToWithdraw picked, and within it the last slot with nothing in hand; failing
+            // that, the last such slot anywhere; failing that, none this pass - the next one will
+            // find somebody done. backgroundTasks is report-load's "active", 0 for an instance that
+            // does not report it, which is what it always was taken for.
+            // Never one with work in hand - see Placement::ChooseSlotToStop. backgroundTasks is
+            // report-load's "active".
+            std::vector<Manager::Placement::Slot> slots;
+            for (const auto &instance: existing->instances) {
+                slots.push_back({.instanceId = instance.instanceId, .node = instance.assignedTo, .inHand = instance.backgroundTasks});
             }
+            const auto chosen = Manager::Placement::ChooseSlotToStop(slots, Manager::Placement::ChooseToWithdraw(holders));
+            if (!chosen.has_value()) {
+                log_debug << "Not scaling down an application, every instance has work in hand, application: " << runtimeName;
+                return;
+            }
+            log_info << "Scaling down an application, application: " << runtimeName
+                     << ", instance: " << chosen->instanceId << ", node: " << chosen->node
+                     << ", have: " << have << ", wanted: " << wanted;
+            std::ignore = emm->assignInstance(runtimeName, chosen->instanceId, {}, {});
             return;
         }
 
@@ -1568,16 +1580,20 @@ namespace Euclid::main {
 
                     long nodePending = 0;
                     long nodeReporting = 0;
+                    bool nodeWorking = false;
                     for (const auto &reported: module.instances) {
                         if (reported.utilisation < 0 || reported.loadReportedAt < fresh) continue;
                         ++nodeReporting;
                         if (reported.backlog > 0) nodePending += reported.backlog;
+                        // Busy by its own account, or holding work it has started: either way not a
+                        // pool to take an instance from. backgroundTasks is report-load's "active".
+                        if (IsWorking(reported.utilisation) || reported.backgroundTasks > 0) nodeWorking = true;
                     }
 
                     // Only when something reported. A pool nobody is measuring keeps the target it
                     // has rather than being told its backlog is zero, which would walk it down to
                     // the floor every tick an application was restarting.
-                    if (nodeReporting > 0) applyNodeApplicationBacklog(module, nodePending, nodeReporting);
+                    if (nodeReporting > 0) applyNodeApplicationBacklog(module, nodePending, nodeReporting, nodeWorking, now);
                     continue;
                 }
 
@@ -1770,7 +1786,8 @@ namespace Euclid::main {
     }
 
     void ServiceController::applyNodeApplicationBacklog(const Database::Entity::Module &module, const long pending,
-                                                        const long reporting) {
+                                                        const long reporting, const bool working,
+                                                        const std::chrono::steady_clock::time_point now) {
 
         if (reporting <= 0) return;
 
@@ -1795,8 +1812,23 @@ namespace Euclid::main {
         auto &target = _nodeApplicationTargets[module.name];
         if (target < floor) target = floor;
 
+        // How long it has been idle - nothing working, nothing in hand. Kept on every tick, so the
+        // timer is already running when the backlog falls under the threshold.
+        if (working) {
+            _nodeApplicationIdleSince.erase(module.name);
+        } else {
+            _nodeApplicationIdleSince.try_emplace(module.name, now);
+        }
+
         const auto previous = target;
-        target = NextDesiredCount(target, wanted, floor, ceiling);
+        const auto next = NextDesiredCount(target, wanted, floor, ceiling);
+
+        // Down only once idle for scale-down-idle-seconds - see NodeTargetAfterIdle().
+        std::optional<std::chrono::seconds> idleFor;
+        if (const auto idle = _nodeApplicationIdleSince.find(module.name); idle != _nodeApplicationIdleSince.end()) {
+            idleFor = std::chrono::duration_cast<std::chrono::seconds>(now - idle->second);
+        }
+        target = NodeTargetAfterIdle(previous, next, idleFor, std::chrono::seconds(_scaleDownIdleSeconds));
         if (target == previous) return;
 
         log_info << "Application backlog, application: " << module.name

@@ -774,11 +774,22 @@ namespace Euclid::main {
          * getGroup() returns nothing and the load that was just reported had nowhere to go. Every
          * application sat at its floor however deep its queues were, which is what this restores.
          *
+         * @par
+         * Up at once, down only once the pool has been idle - no instance working, none with work
+         * in hand - for scale-down-idle-seconds. The backlog alone cannot tell a pool with nothing
+         * to do from one draining the last hundred messages with every instance busy: both are
+         * under the threshold, and lowering the target on that stopped instances in the middle of
+         * a transaction.
+         *
          * @param module the application's module record, for its name and its instance bounds.
          * @param pending messages waiting, summed over the instances that reported.
          * @param reporting how many instances that sum came from.
+         * @param working whether any reporting instance is working: utilisation at or above
+         *        IsWorking(), or work in hand (backgroundTasks, eap report-load's "active").
+         * @param now this tick, for the idle timer.
          */
-        void applyNodeApplicationBacklog(const Database::Entity::Module &module, long pending, long reporting);
+        void applyNodeApplicationBacklog(const Database::Entity::Module &module, long pending, long reporting,
+                                         bool working, std::chrono::steady_clock::time_point now);
 
         /**
          * @brief How many instances a node-run application should have this tick: its floor until
@@ -841,6 +852,12 @@ namespace Euclid::main {
          * the next load report raise it again, rather than inherit a target nobody is measuring.
          */
         std::map<std::string, int> _nodeApplicationTargets;
+
+        /**
+         * @brief Since when each node application has been idle - nothing working, nothing in hand -
+         * by runtime name. Absent while it is working. See applyNodeApplicationBacklog().
+         */
+        std::map<std::string, std::chrono::steady_clock::time_point> _nodeApplicationIdleSince;
 
         /**
          * @brief Each node-run application's own instance bounds, as its definition states them,

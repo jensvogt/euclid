@@ -56,7 +56,10 @@ The manager's own worker (the local node) is the exception: its `euclid-wrk.json
 every time EAP starts, so an edit to it does not last. It inherits the manager's two values, and
 takes its own from `euclid.modules.eap.local-node.log-file-size-mb` and `log-file-count` in the
 manager's `euclid.json` when those are set - worth doing, since that node's file carries every
-application instance's output and is the busiest one there is.
+application instance's output and is the busiest one there is. The same goes for whether it logs to
+its console (the journal, under systemd): `euclid.modules.eap.local-node.log-console-active`, or the
+manager's `console-active` when that is not set. Once the file is being shipped, `false` there keeps
+journald from storing every application line a second time.
 
 ## Why files and not journald
 

@@ -249,6 +249,17 @@ namespace Euclid::EAP::LocalNode {
         inherit("euclid.modules.eap.local-node.log-file-size-mb", "euclid.logging.file-size-mb", "file-size-mb");
         inherit("euclid.modules.eap.local-node.log-file-count", "euclid.logging.file-count", "file-count");
 
+        // Whether the node logs to its console - under systemd, the journal - the same way. Turned
+        // off where the file is what gets read: a node's console carries every application
+        // instance's output, and journald then stores all of it a second time, rate-limited and
+        // rotated by rules of its own. Without this, "console-active": false in a hand-edited
+        // copy of this file did nothing: EAP writes the file again on every start.
+        if (configuration.has("euclid.modules.eap.local-node.log-console-active")) {
+            logging["console-active"] = configuration.getOr<bool>("euclid.modules.eap.local-node.log-console-active", true);
+        } else if (configuration.has("euclid.logging.console-active")) {
+            logging["console-active"] = configuration.getOr<bool>("euclid.logging.console-active", true);
+        }
+
         return boost::json::object{
                 {"euclid", boost::json::object{
                                    {"worker", worker},
