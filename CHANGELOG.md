@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.0.0](https://github.com/jensvogt/euclid/compare/1.2.34...v2.0.0) (2026-10-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* ack-events no longer returns "waiting". Counting scans the subscriber's whole backlog on every acknowledgement; list-subscriptions still reports it.
+
+### Features
+
+* wake EES long polls instead of polling, batch claim and ack ([d59f8e5](https://github.com/jensvogt/euclid/commit/d59f8e5ace6846f06ff54fbf87ed63d1ca15cd6e))
+
+
+### Bug Fixes
+
+* load average emitting ([91a7c68](https://github.com/jensvogt/euclid/commit/91a7c685e792cb93a676883cdefd0763c0166969))
+
 ## [1.2.34](https://github.com/jensvogt/euclid/compare/1.2.33...v1.2.34) (2026-10-19)
 
 
