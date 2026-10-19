@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.34](https://github.com/jensvogt/euclid/compare/1.2.33...v1.2.34) (2026-10-19)
+
+
+### Bug Fixes
+
+* auto-scaling corrected ([1ca51f0](https://github.com/jensvogt/euclid/commit/1ca51f061134e30b2b0e63de9bf677aafa7506be))
+* auto-scaling corrected ([6545f6e](https://github.com/jensvogt/euclid/commit/6545f6e0d2a3ee259540b1d64db3f2d12cb5eb58))
+
 ## [1.2.33](https://github.com/jensvogt/euclid/compare/1.2.32...v1.2.33) (2026-10-18)
 
 
