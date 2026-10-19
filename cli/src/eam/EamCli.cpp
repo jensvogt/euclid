@@ -352,6 +352,7 @@ namespace Euclid::CLI {
      */
     const std::vector<std::pair<std::string, std::string> > &EamCli::Actions() {
         static const std::vector<std::pair<std::string, std::string> > kActions = {
+                {"change-email", "Give a user a different email address"},
                 {"change-namespace", "Switch the active namespace for this session"},
                 {"change-password", "Change your own password, or reset another user's"},
                 {"change-userid", "Give a user a different user ID"},
@@ -411,6 +412,9 @@ namespace Euclid::CLI {
         }
         if (action == "change-userid") {
             return changeUserId(args);
+        }
+        if (action == "change-email") {
+            return changeEmail(args);
         }
         if (action == "create-access-key") {
             return createAccessKey(args);
@@ -1150,6 +1154,63 @@ namespace Euclid::CLI {
                         << "' - the session this used names the old id\n";
             }
             return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::changeEmail(const std::vector<std::string> &args) const {
+        po::options_description desc("eam change-email options");
+        desc.add_options()
+                ("user,u", po::value<std::string>()->required(), "user whose address is changing")
+                ("email,e", po::value<std::string>()->required(), "the address they should have from now on");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "change-email", "--user <userId> --email <address>",
+                                   "Gives a user a different email address. Requires administrator privileges.\n\n"
+                                   "An address is a way in and not merely a detail recorded about a user: login "
+                                   "accepts one in place of a user id. Which is why this is an action on somebody, "
+                                   "named outright, rather than one that means 'me' when it names nobody.\n\n"
+                                   "Refused when another user already holds the address - addresses are unique "
+                                   "across the installation, and two users sharing one would make login ambiguous.\n\n"
+                                   "Nothing else about the user changes: the user id, the ERN built from it, their "
+                                   "grants, their group memberships and their access keys all stay as they were. A "
+                                   "session already open keeps working, and the next login has to use the new "
+                                   "address - or the user id, which never stopped working.\n\n"
+                                   "There is no way to clear an address here. An empty one is refused rather than "
+                                   "stored, because an account with no address and an account stored with an empty "
+                                   "one are not the same thing to the index that keeps addresses unique.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        Dto::EAM::ChangeEmailRequest request;
+        request.userId = vm["user"].as<std::string>();
+        request.email = vm["email"].as<std::string>();
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+
+            const HttpResponse response = client.Post("eam", "change-email", boost::json::value_from(request));
+            if (!response.IsSuccess()) {
+                reportFailure("change-email", response);
+                return 1;
+            }
+
+            // The user as get-user would report them, so a script can read back what was stored
+            // rather than assume it.
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+
         } catch (const std::exception &ex) {
             std::cerr << "error: " << ex.what() << std::endl;
             return 1;

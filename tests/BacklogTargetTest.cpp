@@ -260,3 +260,24 @@ BOOST_AUTO_TEST_CASE(AWorkersApplicationIsNeverAskedForLessThanItsFloor) {
     // promised two instances gets two.
     BOOST_TEST(NextDesiredCount(1, 99, 2, 1) == 2);
 }
+
+// A node application's pool shrinks only once it has been idle. The backlog alone cannot tell a pool
+// with nothing to do from one with every instance busy on the last of a queue - both are under the
+// threshold - and shrinking the second stopped instances in the middle of a Postgres transaction.
+BOOST_AUTO_TEST_CASE(ANodePoolShrinksOnlyOnceItHasBeenIdle) {
+
+    using Euclid::main::NodeTargetAfterIdle;
+    using namespace std::chrono_literals;
+    constexpr auto threshold = 60s;
+
+    // Working: held, however small the backlog.
+    BOOST_TEST(NodeTargetAfterIdle(8, 7, std::nullopt, threshold) == 8);
+    // Idle, but not for long enough.
+    BOOST_TEST(NodeTargetAfterIdle(8, 7, 59s, threshold) == 8);
+    // Idle long enough: down, one step at a time as NextDesiredCount() gives it.
+    BOOST_TEST(NodeTargetAfterIdle(8, 7, 60s, threshold) == 7);
+    // Up is never held back, working or not.
+    BOOST_TEST(NodeTargetAfterIdle(3, 6, std::nullopt, threshold) == 6);
+    BOOST_TEST(NodeTargetAfterIdle(3, 6, 600s, threshold) == 6);
+    BOOST_TEST(NodeTargetAfterIdle(4, 4, std::nullopt, threshold) == 4);
+}

@@ -498,3 +498,36 @@ BOOST_AUTO_TEST_CASE(RebalancingAlwaysSettles) {
         BOOST_TEST(after == instances);
     }
 }
+
+// ── which slot a shrinking pool stops ──────────────────────────────────────────────────────────
+
+// An instance with work in hand is not one to stop: what outlasts the worker's grace is cut off,
+// and a transaction with it. The node ChooseToWithdraw() picked first, then any node, then none.
+BOOST_AUTO_TEST_CASE(AShrinkingPoolStopsOnlyAnInstanceWithNothingInHand) {
+
+    using Euclid::Manager::Placement::ChooseSlotToStop;
+    using Euclid::Manager::Placement::Slot;
+
+    const std::vector<Slot> slots{{.instanceId = "a1", .node = "pi", .inHand = 0},
+                                  {.instanceId = "a2", .node = "pi", .inHand = 3},
+                                  {.instanceId = "b1", .node = "desktop", .inHand = 0},
+                                  {.instanceId = "b2", .node = "desktop", .inHand = 1}};
+
+    // On the preferred node, the last free one - not its last slot, which is busy.
+    BOOST_TEST(ChooseSlotToStop(slots, std::string("pi"))->instanceId == "a1");
+    BOOST_TEST(ChooseSlotToStop(slots, std::string("desktop"))->instanceId == "b1");
+
+    // Nothing free there: the last free one anywhere.
+    const std::vector<Slot> busyPi{{.instanceId = "a1", .node = "pi", .inHand = 2},
+                                   {.instanceId = "b1", .node = "desktop", .inHand = 0}};
+    BOOST_TEST(ChooseSlotToStop(busyPi, std::string("pi"))->instanceId == "b1");
+
+    // Everybody busy: nobody, this pass.
+    const std::vector<Slot> allBusy{{.instanceId = "a1", .node = "pi", .inHand = 1},
+                                    {.instanceId = "b1", .node = "desktop", .inHand = 4}};
+    BOOST_TEST(!ChooseSlotToStop(allBusy, std::string("pi")).has_value());
+
+    // An unheld slot is not a candidate either: it is running nowhere.
+    const std::vector<Slot> unheld{{.instanceId = "x", .node = "", .inHand = 0}};
+    BOOST_TEST(!ChooseSlotToStop(unheld, std::nullopt).has_value());
+}

@@ -358,6 +358,45 @@ namespace Euclid::Manager {
             return Move{.from = from->name, .to = *chosen};
         }
 
+        /**
+         * @brief One slot of a pool, as far as choosing one to stop is concerned.
+         */
+        struct Slot {
+            std::string instanceId;
+            std::string node;
+            /**
+             * @brief Work it has started and not finished - eap report-load's "active". 0 for an
+             * instance that does not report it.
+             */
+            long inHand{};
+        };
+
+        /**
+         * @brief Which slot a shrinking pool stops: the last on @p preferredNode with nothing in
+         * hand, else the last anywhere with nothing in hand, else none - every instance is in the
+         * middle of something, and the next pass will find one that is done.
+         *
+         * @par
+         * An instance with work in hand is not one to stop: the worker gives it a grace period,
+         * but work that outlasts it is cut off, and a transaction with it.
+         *
+         * @param slots the pool's slots, in the order they were placed.
+         * @param preferredNode the node ChooseToWithdraw() picked, if any.
+         */
+        [[nodiscard]] inline std::optional<Slot> ChooseSlotToStop(const std::vector<Slot> &slots,
+                                                                   const std::optional<std::string> &preferredNode) {
+            const auto lastFree = [&](const std::optional<std::string> &node) -> std::optional<Slot> {
+                for (auto it = slots.rbegin(); it != slots.rend(); ++it) {
+                    if (it->node.empty() || it->inHand > 0) continue;
+                    if (node.has_value() && it->node != *node) continue;
+                    return *it;
+                }
+                return std::nullopt;
+            };
+            if (auto onPreferred = lastFree(preferredNode)) return onPreferred;
+            return lastFree(std::nullopt);
+        }
+
     }// namespace Placement
 
 }// namespace Euclid::Manager

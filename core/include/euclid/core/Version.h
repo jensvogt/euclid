@@ -1,6 +1,6 @@
 #pragma once
 
-#define APP_VERSION "1.2.24"
+#define APP_VERSION "1.2.33"
 #define APP_VERSION_MAJOR 1
 #define APP_VERSION_MINOR 2
-#define APP_VERSION_PATCH 24
+#define APP_VERSION_PATCH 33

@@ -51,8 +51,19 @@ namespace Euclid::Worker {
 
     namespace {
 
-        // How long an instance asked to stop is given before it is killed.
-        constexpr auto kStopGrace = std::chrono::seconds{10};
+        // How long an instance asked to stop is given before it is killed:
+        // euclid.worker.stop-grace-seconds, 20 by default.
+        //
+        // Long enough for an application to finish what it has started - euclid-spring's listener
+        // container stops fetching and waits for its handlers, a Postgres transaction among them,
+        // for a little less than this. Ten seconds cut those off on every scale-down. Not longer
+        // than 30: stops run on the loop that renews this node's lease, and a tick plus the grace
+        // has to stay inside the 45-second lease or the node loses everything it runs.
+        std::chrono::seconds stopGrace() {
+            constexpr long kDefault = 20;
+            constexpr long kMax = 30;
+            return std::chrono::seconds{std::clamp(Core::Configuration::instance().getOr<long>("euclid.worker.stop-grace-seconds", kDefault), 1L, kMax)};
+        }
 
         std::string textField(const boost::json::value &value, const std::string &key) {
             if (!value.is_object()) return {};
@@ -796,7 +807,15 @@ namespace Euclid::Worker {
         // Stops first. A revision change is a stop and a start of the same slot, and starting the
         // replacement before the old one is gone would have two processes on one slot for as long
         // as the stop takes - which is the thing this whole design is about.
-        for (const auto &running: plan.stop) stop(running, std::chrono::steady_clock::now() + kStopGrace);
+        //
+        // Asked all at once, then one grace period shared between them, as StopAll() does: one after
+        // another, each with a grace of its own, a scale-down of three would hold this loop for
+        // three grace periods - long enough for the lease to run out.
+        for (const auto &running: plan.stop) {
+            if (const auto found = _instances.find(running.instanceId); found != _instances.end()) askToStop(found->second);
+        }
+        const auto deadline = std::chrono::steady_clock::now() + stopGrace();
+        for (const auto &running: plan.stop) stop(running, deadline);
         for (const auto &assignment: plan.start) std::ignore = start(assignment);
     }
 
@@ -941,7 +960,7 @@ namespace Euclid::Worker {
         // would take five grace periods to stop, well past what a service is given to stop in.
         for (const auto &[instanceId, instance]: _instances) askToStop(instance);
 
-        const auto deadline = std::chrono::steady_clock::now() + kStopGrace;
+        const auto deadline = std::chrono::steady_clock::now() + stopGrace();
         for (const auto &running: Running()) stop(running, deadline);
     }
 

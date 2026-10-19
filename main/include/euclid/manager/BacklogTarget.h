@@ -4,6 +4,9 @@
 
 #pragma once
 
+#include <chrono>
+#include <optional>
+
 namespace Euclid::main {
 
     /**
@@ -96,6 +99,28 @@ namespace Euclid::main {
         // step lands exactly on it rather than below.
         const int stepped = current - 1;
         return stepped < clamped ? clamped : stepped;
+    }
+
+    /**
+     * @brief The target a node application moves to this tick, once idleness is taken into account.
+     *
+     * @par
+     * Up as NextDesiredCount() says, at once. Down only once the pool has been idle - no instance
+     * working, none with work in hand - for @p idleThreshold. The backlog alone cannot tell a pool
+     * with nothing to do from one with every instance busy on the last of a queue: both are under
+     * kBacklogScaleUpMessages, and shrinking the second stopped instances in the middle of their
+     * work - Postgres transactions cut off, the messages redelivered and done twice.
+     *
+     * @param previous the target now.
+     * @param next what NextDesiredCount() asks for this tick.
+     * @param idleFor how long the pool has been idle; empty while it is working.
+     * @param idleThreshold scale-down-idle-seconds.
+     */
+    constexpr int NodeTargetAfterIdle(const int previous, const int next, const std::optional<std::chrono::seconds> idleFor,
+                                      const std::chrono::seconds idleThreshold) {
+        if (next >= previous) return next;
+        if (!idleFor.has_value() || *idleFor < idleThreshold) return previous;
+        return next;
     }
 
 }// namespace Euclid::main

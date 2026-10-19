@@ -14,6 +14,7 @@
 #include <euclid/core/Scheduler.h>
 #include <euclid/core/monitoring/MetricEventBus.h>
 #include <euclid/core/monitoring/MonitoringTimer.h>
+#include <euclid/dto/eam/ChangeEmailRequest.h>
 #include <euclid/dto/eam/ChangeNamespaceRequest.h>
 #include <euclid/dto/eam/ChangePasswordRequest.h>
 #include <euclid/dto/eam/ChangeUserIdRequest.h>
@@ -1045,6 +1046,109 @@ namespace Euclid::EAM {
         response.user = Dto::EAM::EamMapper::toDto(*renamed);
 
         return EamServer::JsonResponse(req, status::ok, response.toJson());
+    }
+
+    /**
+     * @brief Gives a user a different email address.
+     *
+     * @par
+     * Administrator-only, and about somebody rather than about yourself - the bargain
+     * change-userid makes rather than the one change-password makes. An email is not a detail
+     * recorded about a user, it is a way in: doLogin() accepts it in place of the user id. Letting
+     * whoever holds a session change the address on it quietly turns a borrowed terminal into an
+     * account somebody else owns, so this asks for the privilege that the other ways of changing
+     * who a user is already ask for.
+     *
+     * @par Why an empty address is refused rather than taken as "clear it"
+     * The unique index on email is sparse, which skips documents that have no email field - not
+     * documents whose email is the empty string. Writing "" here would collide with any other user
+     * stored that way, and the failure would arrive as a duplicate key error naming an address
+     * nobody typed. Clearing an address is not something this action offers.
+     *
+     * @par What does not change
+     * The user id, the ERN built from it, grants, group memberships and access keys: nothing is
+     * keyed on the address. A session already open keeps working - its token names the user id -
+     * and the next login has to use the new address, or the user id, which never stopped working.
+     */
+    static response<string_body> handleChangeEmail(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "change-email");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) {
+            return unauthorized(req, auth);
+        }
+        if (!isAdmin(*auth.user)) {
+            return EamServer::ErrorResponse(req, status::forbidden, "Administrator privileges required");
+        }
+
+        boost::json::value jv;
+        if (const auto err = EamServer::ParseJsonBody(req, jv)) return *err;
+
+        const auto request = boost::json::value_to<Dto::EAM::ChangeEmailRequest>(jv);
+        if (request.userId.empty()) {
+            return EamServer::ErrorResponse(req, status::bad_request, "userId is required");
+        }
+        if (request.email.empty()) {
+            return EamServer::ErrorResponse(req, status::bad_request, "email is required");
+        }
+
+        // Enough of an address to be one, and no more. A pattern that tries to decide which
+        // addresses exist refuses valid ones - the rule is longer than anybody expects and the
+        // delivery attempt is the only real test - so this only catches what is plainly not an
+        // address at all: a name with no domain, a domain with no name, whitespace in the middle.
+        const auto at = request.email.find('@');
+        if (at == std::string::npos || at == 0 || at + 1 >= request.email.size() ||
+            request.email.find('@', at + 1) != std::string::npos ||
+            request.email.find_first_of(" \t\r\n") != std::string::npos ||
+            request.email.find('.', at) == std::string::npos ||
+            request.email.back() == '.') {
+            return EamServer::ErrorResponse(req, status::bad_request, "Not an email address: " + request.email);
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().eamRepository();
+        auto user = repo->findUserByUserId(request.userId);
+        if (!user.has_value()) {
+            return EamServer::ErrorResponse(req, status::not_found, "User not found, userId: " + request.userId);
+        }
+        if (user->email == request.email) {
+            // The same refusal change-userid makes when both ids match, for the same reason: two
+            // identical values is a form filled in twice, not a retry. A retry of a change that
+            // went through is this request again and is answered the same way - which is honest,
+            // because the address is already what the caller is asking for.
+            return EamServer::ErrorResponse(req, status::bad_request, "That is the address the user already has: " + request.email);
+        }
+
+        // Checked before the write as well as caught after it: the index is what guarantees this,
+        // but a duplicate key error names the index and not the person holding the address, and
+        // "jane.doe already has that address" is the sentence an administrator can act on.
+        if (const auto holder = repo->findUserByEmail(request.email); holder.has_value()) {
+            return EamServer::ErrorResponse(req, status::conflict,
+                                            "Email address already in use by user: " + holder->userId);
+        }
+
+        user->email = request.email;
+        user->modified = std::chrono::system_clock::now();
+
+        try {
+            const auto saved = repo->upsertUser(*user);
+
+            log_info << "User email changed, userId: " << saved.userId << ", email: " << saved.email
+                     << ", by: " << auth.user->userId;
+
+            Dto::EAM::GetUserResponse response;
+            response.user = Dto::EAM::EamMapper::toDto(saved);
+
+            return EamServer::JsonResponse(req, status::ok, response.toJson());
+
+        } catch (const std::exception &e) {
+            // Two administrators setting the same address at once: the check above passed for both
+            // and the index refused the second. Reported as the conflict it is rather than as the
+            // 500 an unhandled repository failure would become.
+            log_warning << "Email change failed, userId: " << request.userId << ", error: " << e.what();
+            return EamServer::ErrorResponse(req, status::conflict,
+                                            "Email address could not be changed, it may have just been taken: " + request.email);
+        }
     }
 
     // Replaces a password. Two things wear this one name, and what separates them is what each
@@ -2269,6 +2373,7 @@ namespace Euclid::EAM {
             DeleteNamespace,
             ChangeNamespace,
             ChangeUserId,
+            ChangeEmail,
             CreateRole,
             UpdateRole,
             GetRole,
@@ -2300,6 +2405,7 @@ namespace Euclid::EAM {
         if (action == "delete-user") return Action::DeleteUser;
         if (action == "change-password") return Action::ChangePassword;
         if (action == "change-userid") return Action::ChangeUserId;
+        if (action == "change-email") return Action::ChangeEmail;
         if (action == "create-access-key") return Action::CreateAccessKey;
         if (action == "list-access-keys") return Action::ListAccessKeys;
         if (action == "delete-access-key") return Action::DeleteAccessKey;
@@ -2375,6 +2481,9 @@ namespace Euclid::EAM {
 
             case Action::ChangeUserId:
                 return handleChangeUserId(req);
+
+            case Action::ChangeEmail:
+                return handleChangeEmail(req);
 
             case Action::CreateAccessKey:
                 return handleCreateAccessKey(req);

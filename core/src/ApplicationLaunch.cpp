@@ -258,7 +258,17 @@ namespace Euclid::Core::Launch {
                 while (i < head.size() && head[i] != ' ' && head[i] != '\t') ++i;
                 if (i == start) break;
                 ++words;
-                if (const auto level = levelWord(head.substr(start, i - start))) return level;
+                const auto word = head.substr(start, i - start);
+                if (const auto level = levelWord(word)) return level;
+                // In brackets, any case: "[error]" is how euclid's own processes - the modules
+                // the manager runs - and Boost.Log's default format write the level, and a word in
+                // brackets is a marker rather than prose. Without this every module's error was
+                // recorded as info, and dropped by a "module" channel at warning.
+                if (word.starts_with('[')) {
+                    std::string upper(word);
+                    std::ranges::transform(upper, upper.begin(), [](const unsigned char c) { return static_cast<char>(std::toupper(c)); });
+                    if (const auto level = levelWord(upper)) return level;
+                }
             }
             return std::nullopt;
         }
