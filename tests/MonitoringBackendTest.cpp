@@ -15,6 +15,7 @@
 using Euclid::Database::Database;
 using Euclid::Database::MongoEmoRepository;
 using Euclid::Database::MonitoringQuery;
+using Euclid::Database::Entity::Monitoring::Dashboard;
 using Euclid::Database::Entity::Monitoring::MetricType;
 using Euclid::Database::Entity::Monitoring::MonitoringData;
 using Euclid::Database::Entity::Monitoring::Resolution;
@@ -194,4 +195,118 @@ BOOST_AUTO_TEST_CASE(ASeriesIsIdentifiedByItsWholeLabelSet) {
     again.value = 9;
     repository.upsert(again);
     BOOST_TEST(repository.list(query).size() == 2U);
+}
+
+// ── Saved dashboards ─────────────────────────────────────────────────────────
+// Layouts rather than measurements, and the one thing this module stores on a person's behalf.
+// What has to hold is that a layout comes back exactly as it went in, that re-saving replaces
+// rather than accumulates, and above all that the user id partitions the collection: two users
+// keeping an "Overview" each must be two dashboards, and neither must be able to read, overwrite
+// or delete the other's by asking for it by name.
+
+namespace {
+
+    Dashboard dashboard(const std::string &userId, const std::string &name, const std::string &document) {
+
+        Dashboard saved;
+        saved.userId = userId;
+        saved.name = name;
+        saved.document = document;
+        saved.created = std::chrono::system_clock::now();
+        saved.modified = saved.created;
+        return saved;
+    }
+
+}// namespace
+
+BOOST_AUTO_TEST_CASE(ADashboardComesBackExactlyAsItWasSaved) {
+
+    Database::instance().initializeMemory();
+    MongoEmoRepository repository;
+
+    // Keys with dots, a unicode value, a float and a deep nesting - the things that would not
+    // survive being stored as BSON, which is why the layout is stored as text.
+    const std::string layout = R"({"name":"Overview","panels":[{"id":"p1","w":8.5,"labels":{"euclid.module":"eqs"},"title":"Löwe · 90%"}]})";
+    repository.upsertDashboard(dashboard("jvo", "Overview", layout));
+
+    const auto found = repository.getDashboard("jvo", "Overview");
+    BOOST_TEST_REQUIRE(found.has_value());
+    BOOST_TEST(found->userId == "jvo");
+    BOOST_TEST(found->name == "Overview");
+    BOOST_TEST(found->document == layout);
+}
+
+BOOST_AUTO_TEST_CASE(SavingAgainReplacesRatherThanAccumulates) {
+
+    Database::instance().initializeMemory();
+    MongoEmoRepository repository;
+
+    repository.upsertDashboard(dashboard("jvo", "Overview", R"({"panels":[]})"));
+    repository.upsertDashboard(dashboard("jvo", "Overview", R"({"panels":[{"id":"p1"}]})"));
+
+    const auto all = repository.listDashboards("jvo");
+    BOOST_TEST_REQUIRE(all.size() == 1U);
+    BOOST_TEST(all[0].document == R"({"panels":[{"id":"p1"}]})");
+}
+
+BOOST_AUTO_TEST_CASE(TwoUsersEachKeepTheirOwnOverview) {
+
+    Database::instance().initializeMemory();
+    MongoEmoRepository repository;
+
+    repository.upsertDashboard(dashboard("jvo", "Overview", R"({"owner":"jvo"})"));
+    repository.upsertDashboard(dashboard("admin", "Overview", R"({"owner":"admin"})"));
+
+    // Same name, two rows: the pair is the identity, not the name.
+    const auto mine = repository.getDashboard("jvo", "Overview");
+    const auto theirs = repository.getDashboard("admin", "Overview");
+    BOOST_TEST_REQUIRE(mine.has_value());
+    BOOST_TEST_REQUIRE(theirs.has_value());
+    BOOST_TEST(mine->document == R"({"owner":"jvo"})");
+    BOOST_TEST(theirs->document == R"({"owner":"admin"})");
+
+    // And a list is one user's own, not everything stored.
+    BOOST_TEST(repository.listDashboards("jvo").size() == 1U);
+    BOOST_TEST(repository.listDashboards("admin").size() == 1U);
+}
+
+BOOST_AUTO_TEST_CASE(OneUserCannotReachAnothersDashboard) {
+
+    Database::instance().initializeMemory();
+    MongoEmoRepository repository;
+
+    repository.upsertDashboard(dashboard("jvo", "Private", R"({"owner":"jvo"})"));
+
+    // Asking for it as somebody else finds nothing rather than finding it by name.
+    BOOST_TEST(!repository.getDashboard("admin", "Private").has_value());
+
+    // And deleting it as somebody else removes nothing - the row is still jvo's afterwards.
+    BOOST_TEST(repository.deleteDashboard("admin", "Private") == 0);
+    BOOST_TEST(repository.getDashboard("jvo", "Private").has_value());
+}
+
+BOOST_AUTO_TEST_CASE(AMissingDashboardIsAnAnswerRatherThanAFailure) {
+
+    Database::instance().initializeMemory();
+    MongoEmoRepository repository;
+
+    BOOST_TEST(!repository.getDashboard("jvo", "NeverSaved").has_value());
+    BOOST_TEST(repository.listDashboards("nobody").empty());
+    BOOST_TEST(repository.deleteDashboard("jvo", "NeverSaved") == 0);
+}
+
+BOOST_AUTO_TEST_CASE(ADashboardIsRemovedByNameForItsOwner) {
+
+    Database::instance().initializeMemory();
+    MongoEmoRepository repository;
+
+    repository.upsertDashboard(dashboard("jvo", "Scratch", R"({"panels":[]})"));
+    repository.upsertDashboard(dashboard("jvo", "Keep", R"({"panels":[]})"));
+
+    BOOST_TEST(repository.deleteDashboard("jvo", "Scratch") == 1);
+    BOOST_TEST(!repository.getDashboard("jvo", "Scratch").has_value());
+
+    const auto left = repository.listDashboards("jvo");
+    BOOST_TEST_REQUIRE(left.size() == 1U);
+    BOOST_TEST(left[0].name == "Keep");
 }

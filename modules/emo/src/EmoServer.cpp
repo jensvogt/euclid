@@ -335,6 +335,147 @@ namespace Euclid::Monitoring {
         return EmoServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{{"average", result}}));
     }
 
+    // ── Dashboard action handlers ────────────────────────────────────────────
+    //
+    // Authenticated but deliberately *not* admin-only, unlike "list" and "average" above. Those
+    // read everything this module has recorded about the installation, which is an administrator's
+    // business; these read and write one user's own saved layouts, and a feature called "save my
+    // dashboard" that only administrators can use is not the feature.
+    //
+    // The owner is always auth.user->userId - the subject the gateway authenticated - and never a
+    // field of the request body. That is the whole of the access control here: there is no way to
+    // name another user, so there is no way to read or overwrite their dashboards, and no
+    // per-request permission check to get wrong.
+
+    // Shared preamble: authenticate, parse, and pull out "name".
+    struct DashboardRequest {
+        std::optional<response<string_body>> failure;
+        std::string userId;
+        std::string name;
+        boost::json::value body;
+    };
+
+    static DashboardRequest readDashboardRequest(const request<string_body> &req, const bool requireName) {
+
+        DashboardRequest result;
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) {
+            result.failure = unauthorized(req, auth);
+            return result;
+        }
+        result.userId = auth.user->userId;
+
+        if (const auto err = EmoServer::ParseJsonBody(req, result.body)) {
+            result.failure = *err;
+            return result;
+        }
+
+        if (result.body.is_object()) {
+            if (const auto *v = result.body.as_object().if_contains("name"); v && v->is_string()) {
+                result.name = v->as_string().c_str();
+            }
+        }
+        if (requireName && result.name.empty()) {
+            result.failure = EmoServer::ErrorResponse(req, status::bad_request, R"(Expected a non-empty "name")");
+        }
+        return result;
+    }
+
+    static response<string_body> handleSaveDashboard(const request<string_body> &req) {
+
+        auto parsed = readDashboardRequest(req, true);
+        if (parsed.failure) return *parsed.failure;
+
+        const auto *layout = parsed.body.is_object() ? parsed.body.as_object().if_contains("dashboard") : nullptr;
+        if (!layout || !layout->is_object()) {
+            return EmoServer::ErrorResponse(req, status::bad_request, R"(Expected a "dashboard" object)");
+        }
+
+        auto &repository = *Database::RepositoryFactory::instance().emoRepository();
+
+        // Keeps the original "created" when there already is one, so that re-saving a layout does
+        // not make it look new. Everything else about the row is replaced.
+        const auto now = std::chrono::system_clock::now();
+        const auto existing = repository.getDashboard(parsed.userId, parsed.name);
+
+        Database::Entity::Monitoring::Dashboard dashboard;
+        dashboard.userId = parsed.userId;
+        dashboard.name = parsed.name;
+        // Re-serialised from the parsed value rather than taken as a slice of the request body:
+        // what is stored is then known to be exactly one JSON object, whatever surrounded it.
+        dashboard.document = boost::json::serialize(*layout);
+        dashboard.created = existing ? existing->created : now;
+        dashboard.modified = now;
+
+        repository.upsertDashboard(dashboard);
+
+        return EmoServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"name", dashboard.name},
+                                                                {"userId", dashboard.userId},
+                                                                {"modified", Core::DateTimeUtils::ToISO8601(dashboard.modified)}}));
+    }
+
+    static response<string_body> handleGetDashboard(const request<string_body> &req) {
+
+        auto parsed = readDashboardRequest(req, true);
+        if (parsed.failure) return *parsed.failure;
+
+        const auto dashboard = Database::RepositoryFactory::instance().emoRepository()->getDashboard(parsed.userId, parsed.name);
+        if (!dashboard) {
+            return EmoServer::ErrorResponse(req, status::not_found, "No dashboard called '" + parsed.name + "'");
+        }
+
+        // Parsed back into the response rather than embedded as a string, so a client reads the
+        // layout as JSON exactly as it sent it. A row whose text somehow will not parse is
+        // reported rather than passed on as a string the client would mistake for a layout.
+        boost::system::error_code ec;
+        const auto layout = boost::json::parse(dashboard->document, ec);
+        if (ec || !layout.is_object()) {
+            return EmoServer::ErrorResponse(req, status::internal_server_error, "Stored dashboard '" + parsed.name + "' is not readable");
+        }
+
+        return EmoServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"name", dashboard->name},
+                                                                {"dashboard", layout},
+                                                                {"created", Core::DateTimeUtils::ToISO8601(dashboard->created)},
+                                                                {"modified", Core::DateTimeUtils::ToISO8601(dashboard->modified)}}));
+    }
+
+    static response<string_body> handleListDashboards(const request<string_body> &req) {
+
+        auto parsed = readDashboardRequest(req, false);
+        if (parsed.failure) return *parsed.failure;
+
+        const auto dashboards = Database::RepositoryFactory::instance().emoRepository()->listDashboards(parsed.userId);
+
+        boost::json::array items;
+        for (const auto &dashboard: dashboards) {
+            // Names and times only. The layouts are in the rows, but a chooser needs a list of
+            // names and sending every panel of every dashboard to draw one is a waste of a wire.
+            items.push_back(boost::json::object{
+                    {"name", dashboard.name},
+                    {"created", Core::DateTimeUtils::ToISO8601(dashboard.created)},
+                    {"modified", Core::DateTimeUtils::ToISO8601(dashboard.modified)}});
+        }
+
+        return EmoServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"userId", parsed.userId},
+                                                                {"items", items}}));
+    }
+
+    static response<string_body> handleDeleteDashboard(const request<string_body> &req) {
+
+        auto parsed = readDashboardRequest(req, true);
+        if (parsed.failure) return *parsed.failure;
+
+        if (Database::RepositoryFactory::instance().emoRepository()->deleteDashboard(parsed.userId, parsed.name) == 0) {
+            return EmoServer::ErrorResponse(req, status::not_found, "No dashboard called '" + parsed.name + "'");
+        }
+
+        return EmoServer::JsonResponse(req, status::ok);
+    }
+
     // ── Request dispatcher ───────────────────────────────────────────────────
 
     static response<string_body> dispatch(const request<string_body> &req) {
@@ -348,6 +489,10 @@ namespace Euclid::Monitoring {
         if (action == "list") return handleList(req);
         if (action == "average") return handleAverage(req);
         if (action == "push-metrics") return handlePushMetrics(req);
+        if (action == "save-dashboard") return handleSaveDashboard(req);
+        if (action == "get-dashboard") return handleGetDashboard(req);
+        if (action == "list-dashboards") return handleListDashboards(req);
+        if (action == "delete-dashboard") return handleDeleteDashboard(req);
 
         return EmoServer::ErrorResponse(req, status::not_found, "Action not implemented: " + action);
     }

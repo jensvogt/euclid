@@ -148,6 +148,15 @@ namespace Euclid::Database {
             ttlOptions.expire_after(std::chrono::seconds(0));
             collection.create_index(make_document(kvp("expiresAt", 1)), ttlOptions);
 
+            // Identity of a saved dashboard, and the filter every one of its reads uses. Unique
+            // over the pair rather than over the name, so that two users may each keep an
+            // "Overview" while neither can end up with two of their own. Leading with userId also
+            // serves listDashboards(), which asks for one user and nothing else.
+            auto dashboards = Database::instance().collection(DASHBOARD_COLLECTION);
+            mongocxx::options::index dashboardOptions;
+            dashboardOptions.unique(true);
+            dashboards.create_index(make_document(kvp("userId", 1), kvp("name", 1)), dashboardOptions);
+
         } catch (const std::exception &e) {
             log_error << "Ensure monitoring indexes failed, error: " << e.what();
         }
@@ -382,6 +391,81 @@ namespace Euclid::Database {
             log_error << "Database stats failed, error: " << e.what();
         }
         return std::nullopt;
+    }
+
+    // ── Saved dashboards ──────────────────────────────────────────────────────
+    //
+    // Every one of these filters on userId as well as name, including the ones that already have a
+    // name to go on. Not belt and braces: a name is not unique across the collection - two users
+    // may each keep an "Overview" - so a get or a delete that trusted the name alone would hand
+    // over, or destroy, whichever of them the index happened to reach first.
+
+    void MongoEmoRepository::upsertDashboard(const Entity::Monitoring::Dashboard &dashboard) {
+
+        try {
+            auto collection = Database::instance().collection(DASHBOARD_COLLECTION);
+
+            const auto filter = make_document(kvp("userId", dashboard.userId), kvp("name", dashboard.name));
+
+            mongocxx::options::replace options;
+            options.upsert(true);
+            collection.replace_one(filter.view(), dashboard.toDocument().view(), options);
+
+        } catch (const std::exception &e) {
+            log_error << "Upsert dashboard failed, error: " << e.what();
+        }
+    }
+
+    std::optional<Entity::Monitoring::Dashboard> MongoEmoRepository::getDashboard(const std::string &userId, const std::string &name) const {
+
+        try {
+            auto collection = Database::instance().collection(DASHBOARD_COLLECTION);
+
+            if (const auto doc = collection.find_one(make_document(kvp("userId", userId), kvp("name", name)).view())) {
+                return Entity::Monitoring::Dashboard::fromDocument(doc->view());
+            }
+            // Not an error: "this user has no dashboard by that name" is an ordinary answer, and
+            // the caller is what turns it into a 404.
+            return std::nullopt;
+
+        } catch (const std::exception &e) {
+            log_error << "Get dashboard failed, error: " << e.what();
+            return std::nullopt;
+        }
+    }
+
+    std::vector<Entity::Monitoring::Dashboard> MongoEmoRepository::listDashboards(const std::string &userId) const {
+
+        try {
+            mongocxx::options::find opts;
+            opts.sort(make_document(kvp("modified", -1)));
+
+            auto collection = Database::instance().collection(DASHBOARD_COLLECTION);
+
+            std::vector<Entity::Monitoring::Dashboard> result;
+            for (auto cursor = collection.find(make_document(kvp("userId", userId)).view(), opts); const auto &doc: cursor) {
+                result.push_back(Entity::Monitoring::Dashboard::fromDocument(doc));
+            }
+            return result;
+
+        } catch (const std::exception &e) {
+            log_error << "List dashboards failed, error: " << e.what();
+            return {};
+        }
+    }
+
+    long MongoEmoRepository::deleteDashboard(const std::string &userId, const std::string &name) {
+
+        try {
+            auto collection = Database::instance().collection(DASHBOARD_COLLECTION);
+
+            const auto result = collection.delete_one(make_document(kvp("userId", userId), kvp("name", name)).view());
+            return result ? static_cast<long>(result->deleted_count()) : 0;
+
+        } catch (const std::exception &e) {
+            log_error << "Delete dashboard failed, error: " << e.what();
+            return 0;
+        }
     }
 
 }// namespace Euclid::Database

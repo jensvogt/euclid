@@ -15,6 +15,7 @@
 #include <vector>
 
 // Euclid includes
+#include <euclid/database/entity/emo/Dashboard.h>
 #include <euclid/database/entity/emo/MonitoringData.h>
 
 namespace Euclid::Database {
@@ -174,6 +175,58 @@ namespace Euclid::Database {
          * @return number of data points deleted.
          */
         virtual long deleteExpired(std::chrono::system_clock::time_point now) = 0;
+
+        // ── Saved dashboards ──────────────────────────────────────────────────
+        //
+        // Layouts rather than measurements, kept here because a dashboard describes what to read
+        // out of this module. They are stored apart from the data points and share none of their
+        // behaviour: no resolution, no rollup, and above all no retention - see Entity::Dashboard.
+
+        /**
+         * @brief Writes a dashboard, replacing whatever that user had stored under that name.
+         *
+         * @par
+         * Upsert rather than insert because saving is what the client does on every explicit save
+         * of a layout somebody is still editing, and an "already exists" on the second save would
+         * mean the client had to ask first and then write - two round trips to answer a question
+         * the write itself answers.
+         *
+         * @param dashboard the dashboard to write; identified by userId and name.
+         */
+        virtual void upsertDashboard(const Entity::Monitoring::Dashboard &dashboard) = 0;
+
+        /**
+         * @brief Reads one user's dashboard by name.
+         *
+         * @param userId owner, as EAM knows them.
+         * @param name dashboard name.
+         * @return the dashboard, or nothing when that user has none by that name.
+         */
+        [[nodiscard]]
+        virtual std::optional<Entity::Monitoring::Dashboard> getDashboard(const std::string &userId, const std::string &name) const = 0;
+
+        /**
+         * @brief Lists one user's dashboards, most recently modified first.
+         *
+         * @par
+         * The layouts come back with them. A list is read to populate a chooser, which needs only
+         * the names - but a user has a handful of dashboards, not thousands, and a second round
+         * trip per name to open one is worse than sending a few kilobytes nobody reads.
+         *
+         * @param userId owner, as EAM knows them.
+         * @return that user's dashboards; empty when they have none.
+         */
+        [[nodiscard]]
+        virtual std::vector<Entity::Monitoring::Dashboard> listDashboards(const std::string &userId) const = 0;
+
+        /**
+         * @brief Removes one user's dashboard by name.
+         *
+         * @param userId owner, as EAM knows them.
+         * @param name dashboard name.
+         * @return number of dashboards removed: 1, or 0 when there was no such dashboard.
+         */
+        virtual long deleteDashboard(const std::string &userId, const std::string &name) = 0;
     };
 
 }// namespace Euclid::Database
