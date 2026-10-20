@@ -13,6 +13,9 @@
 // MongoDB includes
 #include <bsoncxx/builder/basic/document.hpp>
 #include <bsoncxx/builder/basic/kvp.hpp>
+#include <mongocxx/bulk_write.hpp>
+#include <mongocxx/model/update_one.hpp>
+#include <mongocxx/options/bulk_write.hpp>
 
 // Euclid includes
 #include <euclid/core/LogStream.h>
@@ -128,6 +131,33 @@ namespace Euclid::Database {
 
         const auto result = _store->UpdateMany(_name, filter.view(), update.view());
         return UpdateOutcome(result.matched, result.modified, result.upsertedId);
+    }
+
+    std::optional<UpdateOutcome> Collection::update_each(const std::vector<std::pair<bsoncxx::document::value, bsoncxx::document::value> > &updates) const {
+
+        if (updates.empty()) return UpdateOutcome(0, 0, std::nullopt);
+
+        if (_collection.has_value()) {
+            mongocxx::options::bulk_write options;
+            options.ordered(false);
+
+            auto bulk = _collection->create_bulk_write(options);
+            for (const auto &[filter, update]: updates) {
+                bulk.append(mongocxx::model::update_one{filter.view(), update.view()});
+            }
+            const auto result = bulk.execute();
+            if (!result) return std::nullopt;
+            return UpdateOutcome(result->matched_count(), result->modified_count(), std::nullopt);
+        }
+
+        long matched = 0;
+        long modified = 0;
+        for (const auto &[filter, update]: updates) {
+            const auto result = _store->UpdateOne(_name, filter.view(), update.view(), false);
+            matched += result.matched;
+            modified += result.modified;
+        }
+        return UpdateOutcome(matched, modified, std::nullopt);
     }
 
     std::optional<UpdateOutcome> Collection::update_many(const bsoncxx::document::view_or_value filter, const mongocxx::pipeline &update) const {

@@ -14,6 +14,8 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 // Euclid includes
@@ -1144,42 +1146,109 @@ namespace Euclid::Database {
                 }
                 const auto takeCounts = Entity::EQS::ComputeReceiveCounts(maxCount, availableCounts, weights);
 
+                // Claimed a batch per priority rather than a message at a time: find what is
+                // waiting, claim it in one bulk write, read back what was won. That is three round
+                // trips for a tier however many messages it hands out, where it used to be one
+                // find_one_and_update per message - ten for a full receive, and every one of them
+                // waited on in turn.
                 for (const auto priority: priorityOrder) {
                     const long target = takeCounts.at(priority);
                     long taken = 0;
 
-                    while (taken < target && static_cast<long>(result.size()) < maxCount) {
-                        const auto receiptHandle = Core::UuidUtils::CreateRandomUuid();
-                        const auto filter = make_document(
-                                kvp("queueErn", queueErn),
-                                kvp("status", MessageStatusToString(Entity::EQS::MessageStatus::AVAILABLE)),
-                                kvp("priority", Entity::EQS::MessagePriorityToString(priority)));
-                        const auto update = make_document(
-                                kvp("$set", make_document(
-                                            kvp("status", MessageStatusToString(Entity::EQS::MessageStatus::INVISIBLE)),
-                                            kvp("receiptHandle", receiptHandle))),
-                                kvp("$inc", make_document(
-                                            kvp("receivedCount", 1))),
-                                kvp("$currentDate", make_document(
-                                            kvp("modified", true),
-                                            kvp("lastReceived", true)
-                                            )));
+                    // A few passes rather than one, for the two things that leave a tier short of
+                    // its target: messages a sibling claimed between the find and the claim, and
+                    // messages that went to the dead letter queue instead of to the caller. The
+                    // old loop simply asked for the next message; bounded here so that a tier
+                    // fought over by many consumers cannot keep one of them looping.
+                    for (int pass = 0; pass < kClaimPasses && taken < target && static_cast<long>(result.size()) < maxCount; ++pass) {
+                        const long want = std::min(target - taken, maxCount - static_cast<long>(result.size()));
 
-                        mongocxx::options::find_one_and_update opts;
-                        opts.return_document(mongocxx::options::return_document::k_after);
-
-                        const auto claimed = [&] {
+                        // ── 1. what is waiting ──────────────────────────────
+                        std::vector<bsoncxx::oid> candidates;
+                        {
                             Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "receiveMessages.claim");
-                            return messageCollection.find_one_and_update(filter.view(), update.view(), opts);
-                        }();
-                        if (!claimed) break;
+                            mongocxx::options::find findOpts;
+                            findOpts.limit(want);
+                            for (const auto filter = make_document(
+                                         kvp("queueErn", queueErn),
+                                         kvp("status", MessageStatusToString(Entity::EQS::MessageStatus::AVAILABLE)),
+                                         kvp("priority", Entity::EQS::MessagePriorityToString(priority)));
+                                 const auto &doc: messageCollection.find(filter.view(), findOpts)) {
+                                candidates.push_back(doc["_id"].get_oid().value);
+                            }
+                        }
+                        if (candidates.empty()) break;
 
-                        Entity::EQS::Message message;
-                        message.FromDocument(claimed->view());
-                        ++claimedCount;
+                        // ── 2. claim them, a receipt handle each ────────────
+                        // A handle per message, which is why this is a bulk write and not an
+                        // update_many: deleting a message and changing its visibility both find it
+                        // by its handle. Each claim is conditional on the message still being
+                        // AVAILABLE, so one a sibling took in the meantime is simply not matched.
+                        std::vector<std::pair<bsoncxx::document::value, bsoncxx::document::value> > claims;
+                        bsoncxx::builder::basic::array candidateIds;
+                        bsoncxx::builder::basic::array handles;
+                        claims.reserve(candidates.size());
+                        for (const auto &oid: candidates) {
+                            const auto receiptHandle = Core::UuidUtils::CreateRandomUuid();
+                            candidateIds.append(oid);
+                            handles.append(receiptHandle);
+                            claims.emplace_back(
+                                    make_document(
+                                            kvp("_id", oid),
+                                            kvp("status", MessageStatusToString(Entity::EQS::MessageStatus::AVAILABLE))),
+                                    make_document(
+                                            kvp("$set", make_document(
+                                                        kvp("status", MessageStatusToString(Entity::EQS::MessageStatus::INVISIBLE)),
+                                                        kvp("receiptHandle", receiptHandle))),
+                                            kvp("$inc", make_document(
+                                                        kvp("receivedCount", 1))),
+                                            kvp("$currentDate", make_document(
+                                                        kvp("modified", true),
+                                                        kvp("lastReceived", true)))));
+                        }
 
-                        // Move to dead letter queue if existing
-                        if (!deadLetterQueueErn.empty() && message.receivedCount > maxReceiveCount) {
+                        std::vector<Entity::EQS::Message> won;
+                        {
+                            Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "receiveMessages.claim");
+                            const auto claimResult = messageCollection.update_each(claims);
+                            if (!claimResult || claimResult->modified_count() == 0) continue;// every one lost to a sibling
+
+                            // ── 3. read back exactly what was won ───────────
+                            // By handle as well as _id: a handle is this call's alone, so what
+                            // comes back is what this call claimed and nothing a sibling did.
+                            std::unordered_map<std::string, Entity::EQS::Message> byId;
+                            for (const auto mine = make_document(
+                                         kvp("_id", make_document(kvp("$in", candidateIds))),
+                                         kvp("receiptHandle", make_document(kvp("$in", handles))));
+                                 const auto &doc: messageCollection.find(mine.view())) {
+                                Entity::EQS::Message message;
+                                message.FromDocument(doc);
+                                byId.emplace(message.oid, std::move(message));
+                            }
+                            // In the order they were found, which is the order the old loop
+                            // claimed them in.
+                            for (const auto &oid: candidates) {
+                                if (const auto it = byId.find(oid.to_string()); it != byId.end()) won.push_back(std::move(it->second));
+                            }
+                        }
+                        claimedCount += static_cast<long>(won.size());
+
+                        // ── 4. the dead letter queue, in one write ──────────
+                        bsoncxx::builder::basic::array deadIds;
+                        long deadCount = 0;
+                        std::vector<Entity::EQS::Message> delivered;
+                        delivered.reserve(won.size());
+                        for (auto &message: won) {
+                            if (!deadLetterQueueErn.empty() && message.receivedCount > maxReceiveCount) {
+                                deadIds.append(bsoncxx::oid{message.oid});
+                                ++deadCount;
+                                movedBytes += message.size;
+                                log_debug << "Message moved to dead letter queue, ern: " << queueErn << ", dlqErn: " << deadLetterQueueErn << ", messageId: " << message.messageId;
+                                continue;
+                            }
+                            delivered.push_back(std::move(message));
+                        }
+                        if (deadCount > 0) {
                             Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "receiveMessages.redrive");
                             const auto moveUpdate = make_document(
                                     kvp("$set", make_document(
@@ -1194,39 +1263,46 @@ namespace Euclid::Database {
                                                 kvp("receiptHandle", ""))),
                                     kvp("$currentDate", make_document(
                                                 kvp("modified", true))));
-                            // One write for the move: the message's own queueErn is what moves it.
-                            // Both queues' counters are adjusted for it on the way out of this
-                            // call, together with everything else it did.
-                            std::ignore = messageCollection.update_one(make_document(kvp("messageId", message.messageId)).view(), moveUpdate.view());
-                            ++movedToDlq;
-                            movedBytes += message.size;
-
-                            log_debug << "Message moved to dead letter queue, ern: " << queueErn << ", dlqErn: " << deadLetterQueueErn << ", messageId: " << message.messageId;
-                            continue;
+                            // One write for every message the batch dead-lettered: the message's
+                            // own queueErn is what moves it. Both queues' counters are adjusted for
+                            // them on the way out of this call, together with everything else it did.
+                            std::ignore = messageCollection.update_many(make_document(kvp("_id", make_document(kvp("$in", deadIds)))).view(), moveUpdate.view());
+                            movedToDlq += deadCount;
                         }
 
-                        // The lease this receive holds is the queue's, as it is now - not the figure
-                        // the message was sent with. A queue whose visibility is raised otherwise
-                        // goes on leasing the old one for every message already in it, which is how
-                        // a topic queue created with 30 seconds and set to 90 kept giving 30 to a
-                        // consumer that needed 40: every message expired mid-export, was taken
-                        // again, and dead-lettered on its third receive. AWS SQS applies the queue's
-                        // timeout at receive for the same reason.
+                        // ── 5. the queue's visibility, in one write ─────────
+                        // The lease this receive holds is the queue's, as it is now - not the
+                        // figure the message was sent with. A queue whose visibility is raised
+                        // otherwise goes on leasing the old one for every message already in it,
+                        // which is how a topic queue created with 30 seconds and set to 90 kept
+                        // giving 30 to a consumer that needed 40: every message expired mid-export,
+                        // was taken again, and dead-lettered on its third receive. AWS SQS applies
+                        // the queue's timeout at receive for the same reason.
                         //
-                        // A separate write, and only when the two differ - which is never, for a
-                        // queue whose visibility has not been changed. Conditional on this receive's
-                        // receipt handle, so it cannot touch a lease somebody else has since taken.
-                        // A message whose own timeout was set before it was received keeps it - see
+                        // Only for the messages where the two differ - none, for a queue whose
+                        // visibility has not been changed - and conditional on this receive's
+                        // handles, so it cannot touch a lease somebody else has since taken. A
+                        // message whose own timeout was set before it was received keeps it - see
                         // Message::visibilityPinned.
-                        if (!message.visibilityPinned && queueVisibility > 0 && message.visibilityTimeout != queueVisibility) {
-                            std::ignore = messageCollection.update_one(
-                                    make_document(kvp("_id", bsoncxx::oid{message.oid}), kvp("receiptHandle", receiptHandle)).view(),
-                                    make_document(kvp("$set", make_document(kvp("visibilityTimeout", static_cast<int32_t>(queueVisibility))))).view());
+                        bsoncxx::builder::basic::array staleIds;
+                        long staleCount = 0;
+                        for (auto &message: delivered) {
+                            if (message.visibilityPinned || queueVisibility <= 0 || message.visibilityTimeout == queueVisibility) continue;
+                            staleIds.append(bsoncxx::oid{message.oid});
+                            ++staleCount;
                             message.visibilityTimeout = queueVisibility;
                         }
+                        if (staleCount > 0) {
+                            std::ignore = messageCollection.update_many(
+                                    make_document(
+                                            kvp("_id", make_document(kvp("$in", staleIds))),
+                                            kvp("receiptHandle", make_document(kvp("$in", handles))))
+                                            .view(),
+                                    make_document(kvp("$set", make_document(kvp("visibilityTimeout", static_cast<int32_t>(queueVisibility))))).view());
+                        }
 
-                        result.push_back(message);
-                        taken += 1;
+                        taken += static_cast<long>(delivered.size());
+                        for (auto &message: delivered) result.push_back(std::move(message));
                     }
                 }
 

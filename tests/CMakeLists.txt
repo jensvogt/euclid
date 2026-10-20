@@ -423,6 +423,15 @@ target_link_libraries(${EQS_LONG_POLL_BINARY} PRIVATE eucliddb Boost::unit_test_
 
 add_test(NAME ${EQS_LONG_POLL_BINARY} COMMAND ${EQS_LONG_POLL_BINARY})
 
+set(EQS_BATCHED_RECEIVE_BINARY euclid-eqs-batched-receive-tests)
+
+add_executable(${EQS_BATCHED_RECEIVE_BINARY} EqsBatchedReceiveTest.cpp)
+set_target_properties(${EQS_BATCHED_RECEIVE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${EQS_BATCHED_RECEIVE_BINARY} PRIVATE eucliddb Boost::unit_test_framework Boost::thread)
+
+add_test(NAME ${EQS_BATCHED_RECEIVE_BINARY} COMMAND ${EQS_BATCHED_RECEIVE_BINARY})
+
 set(ENS_DELETE_AFTER_DELIVERY_BINARY euclid-ens-delete-after-delivery-tests)
 
 add_executable(${ENS_DELETE_AFTER_DELIVERY_BINARY} EnsDeleteAfterDeliveryTest.cpp)

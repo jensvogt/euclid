@@ -393,6 +393,12 @@ namespace Euclid::Database {
         // a queue's configuration is read once per queue rather than once per message.
         static constexpr auto kQueueConfigTtl = std::chrono::seconds(30);
 
+        // How many find-claim-read passes one receive makes per priority to fill its share. Each
+        // claims everything it finds, so a second pass is only for messages a sibling took first
+        // or the dead letter queue did; more than a few means the tier is being fought over, and
+        // the caller is better answered with what it has.
+        static constexpr int kClaimPasses = 4;
+
         static inline std::mutex _queueConfigMutex;
         static inline std::unordered_map<std::string, QueueConfig> _queueConfigs;
 

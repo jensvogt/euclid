@@ -166,6 +166,20 @@ namespace Euclid::Database {
                                                  const mongocxx::options::update &options = {}) const;
 
         /**
+         * @brief Many update_one()s, each with its own filter and update, in a single round trip.
+         *
+         * @par
+         * For a batch whose documents each need a different value, which update_many() cannot
+         * give them - a receipt handle per claimed message, say. Sent as one unordered bulk write,
+         * so one update that matches nothing does not stop the others. The in-memory store runs
+         * them one after another: there is no round trip there to save.
+         *
+         * @param updates filter and update for each document; an empty list writes nothing.
+         * @return what they did between them.
+         */
+        std::optional<UpdateOutcome> update_each(const std::vector<std::pair<bsoncxx::document::value, bsoncxx::document::value> > &updates) const;
+
+        /**
          * @brief Applies an aggregation-pipeline update to every matching document.
          *
          * @par
