@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.1](https://github.com/jensvogt/euclid/compare/v2.1.0...v2.1.1) (2026-10-20)
+
+
+### Bug Fixes
+
+* batch claim for EQS ([3719821](https://github.com/jensvogt/euclid/commit/3719821f44ef43b3be2a6326ca87fa65fc413e6f))
+
 ## [2.1.0](https://github.com/jensvogt/euclid/compare/2.0.0...v2.1.0) (2026-10-20)
 
 
