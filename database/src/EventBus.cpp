@@ -317,7 +317,7 @@ namespace Euclid::Database {
             // Every external target, whether or not an event in this batch matched it: a waiter
             // woken for nothing claims, finds nothing and waits again, which is cheaper than
             // working out here which ones matched.
-            for (const auto &target: externalTargets) wakeExternal(target);
+            for (const auto &target: externalTargets) _receiveWaiters.Wake(target);
 
             // Live subscribers are deliberately not served here. A push is per event and goes over
             // a connection rather than into the store, so there is no round trip to batch away -
@@ -420,7 +420,7 @@ namespace Euclid::Database {
                         kvp("createdAt", bsoncxx::types::b_date{now}),
                         kvp("expiresAt", bsoncxx::types::b_date{now + std::chrono::seconds(kExternalRetentionSeconds)}));
                 eventCollection.insert_one(doc.view());
-                wakeExternal(target);
+                _receiveWaiters.Wake(target);
             }
 
             // Pushed after the writes, never instead of them: for a durable subscriber the store
@@ -822,60 +822,15 @@ namespace Euclid::Database {
     std::vector<EventEnvelope> EventBus::ReceiveEvents(const std::string &subscriber, const long maxEvents, const std::chrono::seconds visibility,
                                                        const std::chrono::steady_clock::time_point deadline) {
 
-        // Registered before the first claim, not after it comes back empty: an insert between the
+        // Enrolled before the first claim, not after it comes back empty: an insert between the
         // two would otherwise wake nobody, and this would sleep through the event it was waiting for.
-        std::shared_ptr<ExternalWaiter> waiter;
-        {
-            std::lock_guard lock(_waitMutex);
-            auto &entry = _waiters[subscriber];
-            if (!entry) entry = std::make_shared<ExternalWaiter>();
-            waiter = entry;
-            ++waiter->waiters;
-        }
-
-        // Released whichever way this returns, so a name nobody is waiting on does not stay in
-        // the map.
-        struct Release {
-            EventBus &bus;
-            const std::string &subscriber;
-            ~Release() {
-                std::lock_guard lock(bus._waitMutex);
-                if (const auto it = bus._waiters.find(subscriber); it != bus._waiters.end() && --it->second->waiters == 0) {
-                    bus._waiters.erase(it);
-                }
-            }
-        } release{*this, subscriber};
+        const auto waiter = _receiveWaiters.Enroll(externalTarget(subscriber));
 
         while (true) {
-            std::uint64_t seen;
-            {
-                std::lock_guard lock(_waitMutex);
-                seen = waiter->generation;
-            }
-
+            const auto seen = waiter.Generation();
             auto events = ClaimEvents(subscriber, maxEvents, visibility);
-            const auto now = std::chrono::steady_clock::now();
-            if (!events.empty() || now >= deadline) return events;
-
-            const auto fallback = _externalWatchActive.load(std::memory_order_relaxed)
-                                          ? std::chrono::duration_cast<std::chrono::milliseconds>(kWaitFallbackWatched)
-                                          : kWaitFallbackPolled;
-
-            std::unique_lock lock(_waitMutex);
-            waiter->cv.wait_until(lock, std::min(deadline, now + fallback), [&] { return waiter->generation != seen; });
-        }
-    }
-
-    void EventBus::wakeExternal(const std::string_view target) {
-
-        const std::string_view prefix = kExternalPrefix;
-        if (!target.starts_with(prefix)) return;
-        const std::string subscriber(target.substr(prefix.size()));
-
-        std::lock_guard lock(_waitMutex);
-        if (const auto it = _waiters.find(subscriber); it != _waiters.end()) {
-            ++it->second->generation;
-            it->second->cv.notify_all();
+            if (!events.empty() || std::chrono::steady_clock::now() >= deadline) return events;
+            waiter.Wait(seen, deadline);
         }
     }
 
@@ -883,72 +838,14 @@ namespace Euclid::Database {
 
         ensureIndexes();
 
-        std::call_once(_externalWatchOnce, [this] {
-            // No change stream on either store - see Start(). Waiters poll instead, at the rate
-            // they always did.
-            if (Database::instance().inMemory()) {
-                log_info << "EventBus external receive polling only, no change stream on the in-memory backend";
-                return;
-            }
-            std::thread([this] { externalWatchLoop(); }).detach();
-        });
-    }
-
-    void EventBus::externalWatchLoop() {
-
-        // Held for as long as the regex built from it is used below - b_regex keeps a view.
+        // Inserts for external subscribers only, filtered on the server: a module delivery never
+        // crosses the wire. The regex is copied into the document, so the string need not outlive it.
         const std::string externalPattern = "^" + std::string(kExternalPrefix);
-
-        while (true) {
-            try {
-                const auto entry = Database::instance().client();
-                auto eventCollection = (*entry)[Database::instance().databaseName()][EVENT_COLLECTION];
-
-                // Inserts for external subscribers only, filtered on the server, and only the one
-                // field a wake-up needs: a module delivery or a payload never crosses the wire.
-                mongocxx::pipeline pipeline;
-                pipeline.match(make_document(
-                        kvp("operationType", "insert"),
-                        kvp("fullDocument.targetModule", bsoncxx::types::b_regex{externalPattern})));
-                pipeline.project(make_document(kvp("fullDocument.targetModule", 1)));
-
-                mongocxx::options::change_stream options;
-                options.max_await_time(std::chrono::seconds(30));
-
-                auto stream = eventCollection.watch(pipeline, options);
-                _externalWatchActive.store(true, std::memory_order_relaxed);
-                log_info << "EventBus external change stream opened";
-
-                // An empty begin() is a quiet max_await_time, not a dead stream - see watchLoop().
-                for (auto it = stream.begin();; it = stream.begin()) {
-                    for (; it != stream.end(); ++it) {
-                        const auto full = (*it)["fullDocument"];
-                        if (!full || full.type() != bsoncxx::type::k_document) continue;
-                        if (const auto target = full.get_document().value["targetModule"]; target && target.type() == bsoncxx::type::k_string) {
-                            wakeExternal(std::string(target.get_string().value));
-                        }
-                    }
-                }
-
-            } catch (const mongocxx::exception &e) {
-
-                // Back to polling while there is no stream, so nothing waits on a wake-up that
-                // cannot come.
-                _externalWatchActive.store(false, std::memory_order_relaxed);
-                if (e.code().value() == kChangeStreamUnsupported) {
-                    log_warning << "EventBus external receive polling only, this MongoDB deployment is a standalone and has"
-                                   " no oplog to tail; start it as a replica set to get immediate delivery";
-                    return;
-                }
-                log_error << "EventBus external change stream failed, error: " << e.what() << ", reconnecting";
-
-            } catch (const std::exception &e) {
-                _externalWatchActive.store(false, std::memory_order_relaxed);
-                log_error << "EventBus external change stream failed, error: " << e.what() << ", reconnecting";
-            }
-
-            std::this_thread::sleep_for(kWatchReconnectDelay);
-        }
+        _receiveWaiters.Watch(EVENT_COLLECTION,
+                              make_document(
+                                      kvp("operationType", "insert"),
+                                      kvp("fullDocument.targetModule", bsoncxx::types::b_regex{externalPattern})),
+                              "targetModule");
     }
 
     long EventBus::CountEvents(const std::string &subscriber) const {

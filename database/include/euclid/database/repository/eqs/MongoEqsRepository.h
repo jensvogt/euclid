@@ -17,6 +17,7 @@
 
 // Euclid includes
 #include <euclid/core/LogStream.h>
+#include <euclid/database/ChangeWaiters.h>
 #include <euclid/database/Database.h>
 #include <euclid/database/entity/emm/Module.h>
 #include <euclid/database/entity/eqs/PriorityWeights.h>
@@ -190,6 +191,12 @@ namespace Euclid::Database {
          * @return up to maxCount messages; empty if none became available within waitTime
          */
         std::vector<Entity::EQS::Message> receiveMessages(const std::string &queueErn, long maxCount, long waitTime) override;
+
+        /**
+         * @brief Opens the change stream that wakes waiting receives when a message is sent to
+         * their queue from any process - see ChangeWaiters.
+         */
+        void startReceiveWatch() override;
 
         /**
          * @brief Deletes a message entity
@@ -430,6 +437,13 @@ namespace Euclid::Database {
 
         static inline std::mutex _pendingCountersMutex;
         static inline std::unordered_map<std::string, PendingCounters> _pendingCounters;
+
+        // Waiting receives, keyed by queue ERN, and shared by every instance of this class in the
+        // process the way the caches above are. Woken by the change stream for an AVAILABLE
+        // message inserted anywhere, and directly for anything this process makes available.
+        // The fallback covers the rest - another process's visibility reset or redrive: 2 s while
+        // the stream runs, and while it does not, the 100 ms the old poll loop slept.
+        static inline ChangeWaiters _receiveWaiters{"EQS receive", std::chrono::seconds(2), std::chrono::milliseconds(100)};
 
     };
 

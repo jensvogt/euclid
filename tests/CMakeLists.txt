@@ -25,6 +25,15 @@ target_link_libraries(${EVENTBUS_BINARY} PRIVATE eucliddb Boost::unit_test_frame
 
 add_test(NAME ${EVENTBUS_BINARY} COMMAND ${EVENTBUS_BINARY})
 
+set(CHANGE_WAITERS_BINARY euclid-change-waiters-tests)
+
+add_executable(${CHANGE_WAITERS_BINARY} ChangeWaitersTest.cpp)
+set_target_properties(${CHANGE_WAITERS_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${CHANGE_WAITERS_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${CHANGE_WAITERS_BINARY} COMMAND ${CHANGE_WAITERS_BINARY})
+
 set(EAP_APPLICATION_BINARY euclid-eap-application-tests)
 
 add_executable(${EAP_APPLICATION_BINARY} EapApplicationTest.cpp)
@@ -404,6 +413,15 @@ set_target_properties(${VISIBILITY_TIMEOUT_BINARY} PROPERTIES CXX_SCAN_FOR_MODUL
 target_link_libraries(${VISIBILITY_TIMEOUT_BINARY} PRIVATE eucliddb Boost::unit_test_framework Boost::thread)
 
 add_test(NAME ${VISIBILITY_TIMEOUT_BINARY} COMMAND ${VISIBILITY_TIMEOUT_BINARY})
+
+set(EQS_LONG_POLL_BINARY euclid-eqs-long-poll-tests)
+
+add_executable(${EQS_LONG_POLL_BINARY} EqsLongPollTest.cpp)
+set_target_properties(${EQS_LONG_POLL_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${EQS_LONG_POLL_BINARY} PRIVATE eucliddb Boost::unit_test_framework Boost::thread)
+
+add_test(NAME ${EQS_LONG_POLL_BINARY} COMMAND ${EQS_LONG_POLL_BINARY})
 
 set(ENS_DELETE_AFTER_DELIVERY_BINARY euclid-ens-delete-after-delivery-tests)
 

@@ -5,9 +5,7 @@
 #pragma once
 
 // C++ includes
-#include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -25,6 +23,9 @@
 
 // Mongodb includes
 #include <bsoncxx/document/view.hpp>
+
+// Euclid includes
+#include <euclid/database/ChangeWaiters.h>
 
 namespace Euclid::Database {
 
@@ -590,30 +591,6 @@ namespace Euclid::Database {
 
         void watchLoop(const std::string &moduleType);
 
-        /**
-         * @brief The ReceiveEvents() calls waiting on one subscriber name in this process.
-         *
-         * @par
-         * The generation is what keeps a wake-up from being lost: a waiter reads it before it
-         * claims, and an insert that lands between that claim finding nothing and the wait
-         * starting has already moved it on, so the wait returns at once instead of sleeping
-         * through the event.
-         */
-        struct ExternalWaiter {
-            std::condition_variable cv;
-            std::uint64_t generation = 0;
-            int waiters = 0;
-        };
-
-        void externalWatchLoop();
-
-        /**
-         * @brief Wakes whatever is waiting for a target, if it is an external subscriber's.
-         *
-         * @param target the envelope's targetModule, "client:<name>" for an external subscriber.
-         */
-        void wakeExternal(std::string_view target);
-
         static void reap();
 
         static void moveToDlq(const bsoncxx::document::view &doc, const std::string &reason);
@@ -667,10 +644,6 @@ namespace Euclid::Database {
         // "The $changeStream stage is only supported on replica sets or mongos" - see watchLoop(),
         // which stops watching rather than reconnecting when the server says this.
         static constexpr int kChangeStreamUnsupported = 40573;
-        // How often a ReceiveEvents() waiter looks again without being woken: rarely while the
-        // external change stream is running, as often as the old sleep loop while it is not.
-        static constexpr auto kWaitFallbackWatched = std::chrono::seconds(2);
-        static constexpr auto kWaitFallbackPolled = std::chrono::milliseconds(250);
 
         std::once_flag _indexesOnce;
         std::string _instanceId;
@@ -696,10 +669,11 @@ namespace Euclid::Database {
         std::mutex _handlersMutex;
         std::unordered_map<std::string, std::function<bool(const EventEnvelope &)> > _handlers;// keyed by eventType
 
-        std::mutex _waitMutex;
-        std::unordered_map<std::string, std::shared_ptr<ExternalWaiter> > _waiters;// keyed by subscriber name
-        std::once_flag _externalWatchOnce;
-        std::atomic<bool> _externalWatchActive{false};
+        // ReceiveEvents() waiters, keyed by targetModule ("client:<name>"). Looked at again every
+        // 2 s without a wake-up while the change stream runs - a safety net for what an
+        // insert-only stream cannot see, such as a lease running out - and every 250 ms, the old
+        // poll rate, while it does not.
+        ChangeWaiters _receiveWaiters{"EventBus external receive", std::chrono::seconds(2), std::chrono::milliseconds(250)};
     };
 
 }// namespace Euclid::Database
