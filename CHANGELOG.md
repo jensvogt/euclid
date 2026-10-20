@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.2](https://github.com/jensvogt/euclid/compare/2.1.1...v2.1.2) (2026-10-20)
+
+
+### Bug Fixes
+
+* add AMO saving of dashboards ([3653262](https://github.com/jensvogt/euclid/commit/365326231b8e7ef172c49579e047ef546f5d1918))
+* add AMO saving of dashboards ([581f1b6](https://github.com/jensvogt/euclid/commit/581f1b6e18b03797b5e7b6519d101013b101c2a2))
+
 ## [2.1.1](https://github.com/jensvogt/euclid/compare/v2.1.0...v2.1.1) (2026-10-20)
 
 
