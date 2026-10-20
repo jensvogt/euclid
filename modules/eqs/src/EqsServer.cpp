@@ -1897,6 +1897,9 @@ namespace Euclid::EQS {
         installErnResolver();
         longPollSlots.limit(threads - 1);
 
+        // What wakes a waiting receive when a message is sent to its queue from another process.
+        Database::RepositoryFactory::instance().eqsRepository()->startReceiveWatch();
+
         auto &scheduler = Core::Scheduler::instance();
         scheduler.Start();
         _resetMessagesTaskId = scheduler.SchedulePeriodic("queues-reset-expired-messages", [] {

@@ -307,9 +307,10 @@ namespace Euclid::Database {
          *
          * Available messages are claimed and moved to status "busy" (in-flight) before being
          * returned, so that concurrent receivers don't get the same message. If no messages are
-         * immediately available and waitTime is greater than zero, the repository is polled
-         * repeatedly (long polling) until either a message becomes available or waitTime seconds
-         * have elapsed, whichever comes first.
+         * immediately available and waitTime is greater than zero, the call waits (long polling)
+         * until either a message becomes available or waitTime seconds have elapsed, whichever
+         * comes first - woken by a message arriving where the backend can say so (see
+         * startReceiveWatch()), and looking again on a timer where it cannot.
          *
          * The maxCount slots are apportioned across the three priority tiers (HIGH/MEDIUM/LOW)
          * proportionally to the configurable weights returned by
@@ -323,6 +324,16 @@ namespace Euclid::Database {
          * @return up to maxCount messages; empty if none became available within waitTime.
          */
         virtual std::vector<Entity::EQS::Message> receiveMessages(const std::string &queueErn, long maxCount, long waitTime) = 0;
+
+        /**
+         * @brief Starts whatever lets a waiting receiveMessages() be woken by a message sent from
+         * another process, rather than finding it on its next look. Call once at module start.
+         *
+         * @par
+         * A no-op by default, which leaves a waiting receive looking again on a timer - correct,
+         * only slower and more expensive.
+         */
+        virtual void startReceiveWatch() {}
 
         /**
          * @brief Deletes a message from the repository.

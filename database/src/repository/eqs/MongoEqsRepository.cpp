@@ -423,6 +423,7 @@ namespace Euclid::Database {
             if (moved > 0) {
                 adjustQueueCounters(deadLetterQueueErn, -moved, 0, 0, -movedBytes);
                 adjustQueueCounters(targetQueueErn, moved, 0, 0, movedBytes);
+                _receiveWaiters.Wake(targetQueueErn);
             }
 
             log_info << "Messages redriven, dlqErn: " << deadLetterQueueErn << ", targetErn: " << targetQueueErn << ", count: " << moved;
@@ -967,6 +968,7 @@ namespace Euclid::Database {
             // count a message that then fails to store, and nothing would ever take it back.
             const auto delayed = message.status == Entity::EQS::MessageStatus::DELAYED;
             adjustQueueCounters(queueErn, delayed ? 0 : 1, 0, delayed ? 1 : 0, message.size);
+            if (!delayed) _receiveWaiters.Wake(queueErn);
 
             log_debug << "Message sent, ern: " << ern << ", messageId: " << message.messageId;
 
@@ -1060,6 +1062,7 @@ namespace Euclid::Database {
             if (inserted > 0) {
                 const auto delayed = !messages.empty() && messages.front().status == Entity::EQS::MessageStatus::DELAYED;
                 adjustQueueCounters(queueErn, delayed ? 0 : inserted, 0, delayed ? inserted : 0, bytes);
+                if (!delayed) _receiveWaiters.Wake(queueErn);
             }
 
             log_debug << "Message batch sent, queueErn: " << queueErn << ", messages: " << inserted;
@@ -1101,16 +1104,23 @@ namespace Euclid::Database {
             adjustQueueCounters(queueErn, -claimedCount, claimedCount - movedToDlq, 0, -movedBytes);
             if (movedToDlq > 0) {
                 adjustQueueCounters(deadLetterQueueErn, movedToDlq, 0, 0, movedBytes);
+                _receiveWaiters.Wake(deadLetterQueueErn);
             }
             claimedCount = 0;
             movedToDlq = 0;
             movedBytes = 0;
         };
 
+        // Enrolled before the first look, not after it comes back empty: a message sent in between
+        // would otherwise wake nobody, and this would wait out its fallback with the message there.
+        const auto waiter = _receiveWaiters.Enroll(queueErn);
+
         try {
             while (true) {
+                const auto seen = waiter.Generation();
+
                 // Acquire a pool entry for this polling attempt only, so the connection is
-                // not held checked-out for the whole long-poll wait/sleep below.
+                // not held checked-out for the whole long-poll wait below.
                 auto queueCollection = Database::instance().collection(QUEUE_COLLECTION);
                 auto messageCollection = Database::instance().collection(MESSAGE_COLLECTION);
 
@@ -1232,7 +1242,11 @@ namespace Euclid::Database {
                     settleCounters();
                     return result;
                 }
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+                // Was a 100 ms sleep: three counts and a claim attempt ten times a second, per
+                // waiting consumer, nearly all of them on an empty queue. Now the next look is
+                // when a message arrives - or at the fallback, for what nothing reports.
+                waiter.Wait(seen, deadline);
             }
         } catch (const std::exception &e) {
             log_error << "Receive messages failed, ern: " << queueErn << ", error: " << e.what();
@@ -1432,6 +1446,18 @@ namespace Euclid::Database {
         }
     }
 
+    void MongoEqsRepository::startReceiveWatch() {
+        // Inserts only, and only AVAILABLE ones: a delayed message has nothing for a receive until
+        // the reset sweep makes it available, which wakes this process's waiters itself. An update
+        // carries no queueErn without a lookup per event, which a busy queue cannot afford - the
+        // updates that make a message available elsewhere are left to the fallback.
+        _receiveWaiters.Watch(MESSAGE_COLLECTION,
+                              make_document(
+                                      kvp("operationType", "insert"),
+                                      kvp("fullDocument.status", MessageStatusToString(Entity::EQS::MessageStatus::AVAILABLE))),
+                              "queueErn");
+    }
+
     long MongoEqsRepository::resetExpiredMessages() {
         Core::Monitoring::MonitoringTimer measure(kRepositoryTimer, kRepositoryCounter, "operation", "resetExpiredMessages");
 
@@ -1498,9 +1524,11 @@ namespace Euclid::Database {
             // messages visible again across two queues writes two rows.
             for (const auto &[queueErn, count]: resetCountByQueue) {
                 adjustQueueCounters(queueErn, count, -count, 0, 0);
+                _receiveWaiters.Wake(queueErn);
             }
             for (const auto &[queueErn, count]: delayedResetCountByQueue) {
                 adjustQueueCounters(queueErn, count, 0, -count, 0);
+                _receiveWaiters.Wake(queueErn);
             }
 
             if (resetCount > 0)
