@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.1.0](https://github.com/jensvogt/euclid/compare/2.0.0...v2.1.0) (2026-10-20)
+
+
+### Features
+
+* wake EQS long polls instead of polling every 100 ms ([3a5e34d](https://github.com/jensvogt/euclid/commit/3a5e34d3b314edf7664f71c65134a72208cf322f))
+* wake EQS long polls instead of polling every 100 ms ([53d3d4e](https://github.com/jensvogt/euclid/commit/53d3d4ebdacd41a32b7b252d9c29715c12d8314f))
+
+
+### Bug Fixes
+
+* EQS performance ([2c69a00](https://github.com/jensvogt/euclid/commit/2c69a00d4525bb9e1a4dbe8a666c3a276703fa2b))
+
 ## [2.0.0](https://github.com/jensvogt/euclid/compare/1.2.34...v2.0.0) (2026-10-19)
 
 
