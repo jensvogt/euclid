@@ -27,7 +27,7 @@ RUN mkdir -p /usr/share/aclocal && mkdir -p /vcpkg-cache
 # Pinning it puts the commit in the layer's cache key, so moving the baseline rebuilds the clone.
 # Keep this equal to "builtin-baseline" in vcpkg.json; the build stage below checks that it is and
 # recovers if it is not.
-ARG VCPKG_BASELINE=319504a5326aa870edde46438c5455fa76305a56
+ARG VCPKG_BASELINE=001713e802f5cf619a64461b918161be6a0634f0
 WORKDIR /usr/local/vcpkg
 RUN git clone https://github.com/microsoft/vcpkg.git . && git checkout "$VCPKG_BASELINE"
 RUN ./bootstrap-vcpkg.sh
@@ -35,13 +35,18 @@ RUN ./bootstrap-vcpkg.sh
 WORKDIR /usr/src
 ARG BUILD_VERSION
 RUN git clone https://github.com/jensvogt/euclid.git
+# Moving the clone to another commit also has to re-bootstrap: each vcpkg commit names the
+# vcpkg-tool release its ports are written for (scripts/vcpkg-tool-metadata.txt), and the binary
+# bootstrapped above is the old commit's. Run against newer ports it fails "vcpkg install" within
+# a second or two, which CMake then reports only as an unset compiler and make program.
 RUN --mount=type=cache,target=/vcpkg-cache \
     cd /usr/src/euclid && \
     BASELINE="$(sed -n 's/.*"builtin-baseline"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{40\}\)".*/\1/p' vcpkg.json)" && \
     if [ -n "$BASELINE" ] && ! git -C "$VCPKG_ROOT" cat-file -e "$BASELINE^{commit}" 2>/dev/null; then \
         echo "vcpkg clone predates the manifest baseline $BASELINE - fetching" && \
         git -C "$VCPKG_ROOT" fetch --quiet origin && \
-        git -C "$VCPKG_ROOT" checkout --quiet "$BASELINE"; \
+        git -C "$VCPKG_ROOT" checkout --quiet "$BASELINE" && \
+        "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics; \
     fi && \
     mkdir build && \
     cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake \
