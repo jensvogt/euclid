@@ -241,6 +241,19 @@ namespace Euclid::CLI {
         int deleteEgressLimit(const std::vector<std::string> &args) const;
 
         /**
+         * @brief Forgets one outside site of one application entirely.
+         *
+         * @par
+         * Its limit, its bucket, its slots and when it was last called. Not a ban: a site the
+         * application still calls is listed again on its next request for a permit.
+         *
+         * @param args command line arguments
+         * @return ok
+         */
+        [[nodiscard]]
+        int deleteEgressSite(const std::vector<std::string> &args) const;
+
+        /**
          * @brief Posts one egress action and prints its answer.
          *
          * @param action  the eap action

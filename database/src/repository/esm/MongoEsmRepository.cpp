@@ -12,7 +12,6 @@
 #include <map>
 #include <optional>
 #include <string>
-#include <thread>
 #include <vector>
 
 // Euclid includes
@@ -140,92 +139,6 @@ namespace Euclid::Database {
         } catch (const std::exception &e) {
             log_error << "Ensure storage indexes failed, error: " << e.what();
         }
-
-        backfillObjectParents();
-    }
-
-    void MongoEsmRepository::backfillObjectParents() {
-
-        // Off the startup path. The pass is bounded but not instant - an installation of a few
-        // hundred thousand objects is a few hundred writes of a few thousand ids - and a module
-        // that cannot start until a migration finishes is a module that looks hung. Listings of a
-        // level are short of whatever has not been reached yet while it runs, and complete when
-        // it is done; both states are in the log.
-        std::thread([] {
-            try {
-                auto objectCollection = Database::instance().collection(OBJECT_COLLECTION);
-
-                // Only the objects written before the field existed. An equality on a missing
-                // field is not the same as one on "" - a key at a bucket's root legitimately has
-                // no parent - so the two are told apart by existence, and a document that has
-                // been through upsertObject() since is left alone.
-                const auto missing = make_document(kvp("parent", make_document(kvp("$exists", false))));
-                if (objectCollection.count_documents(missing.view()) == 0) return;
-
-                log_info << "ESM object parents missing, backfilling";
-
-                // Derived here rather than by the server: the rule is ParentOfKey()'s, and a
-                // pipeline doing it again would be a second copy that can drift from the first -
-                // besides which the first attempt at one was refused outright ("Unrecognized
-                // expression '$lastIndexOfBytes'"), and a migration that depends on which
-                // operators a deployment implements is not one to rely on.
-                //
-                // Written by id. The obvious filter - every key under one level - has no indexed
-                // field to stand on here and is a collection scan per level, which on a few
-                // hundred levels is tens of millions of reads and looks exactly like a hang. A
-                // batch of ids is bounded, indexed, and finishes.
-                constexpr int kBatch = 2000;
-                long updated = 0;
-                long levels = 0;
-
-                while (true) {
-                    mongocxx::options::find options;
-                    options.limit(kBatch);
-                    options.projection(make_document(kvp("_id", 1), kvp("key", 1)));
-
-                    std::map<std::string, std::vector<bsoncxx::oid>> byLevel;
-                    long read = 0;
-                    for (auto cursor = objectCollection.find(missing.view(), options); const auto &doc: cursor) {
-                        ++read;
-                        const auto key = doc["key"];
-                        const auto id = doc["_id"];
-                        if (!id || id.type() != bsoncxx::type::k_oid) continue;
-                        const auto name = key && key.type() == bsoncxx::type::k_string
-                                                  ? std::string(key.get_string().value) : std::string{};
-                        byLevel[Entity::ESM::ParentOfKey(name)].push_back(id.get_oid().value);
-                    }
-                    if (read == 0) break;
-
-                    long written = 0;
-                    for (const auto &[level, ids]: byLevel) {
-                        bsoncxx::builder::basic::array list;
-                        for (const auto &id: ids) list.append(id);
-                        const auto filter = make_document(kvp("_id", make_document(kvp("$in", list.extract()))));
-                        if (const auto outcome = objectCollection.update_many(
-                                    filter.view(), make_document(kvp("$set", make_document(kvp("parent", level)))))) {
-                            written += outcome->modified_count();
-                        }
-                    }
-                    updated += written;
-                    levels += static_cast<long>(byLevel.size());
-
-                    // A batch that wrote nothing would be read again unchanged on the next pass.
-                    // Stopping says so rather than spinning on it.
-                    if (written == 0) {
-                        log_warning << "ESM object parent backfill made no progress, giving up, written so far: " << updated;
-                        return;
-                    }
-                    log_debug << "ESM object parents backfilled so far: " << updated;
-                }
-
-                log_info << "ESM object parents backfilled, objects: " << updated << ", level writes: " << levels;
-
-            } catch (const std::exception &e) {
-                // Not fatal, and not silent: what it costs is that a level listing cannot see the
-                // objects it did not reach, which is worth a line somebody can act on.
-                log_error << "Backfilling ESM object parents failed, error: " << e.what();
-            }
-        }).detach();
     }
 
     bool MongoEsmRepository::bucketExists(const std::string &accountId, const std::string &nameSpace, const std::string &name) const {

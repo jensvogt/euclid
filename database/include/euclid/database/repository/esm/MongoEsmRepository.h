@@ -308,21 +308,6 @@ namespace Euclid::Database {
          * @brief Creates the indexes required for efficient bucket lookup, if they do not already exist.
          */
         static void ensureIndexes();
-
-        /**
-         * @brief Fills in Entity::ESM::Object::parent on objects written before it existed.
-         *
-         * @par
-         * Run once, from ensureIndexes(), and a no-op from then on: it looks for documents where
-         * the field is absent, which is not the same as one holding "" - an object at a bucket's
-         * root legitimately has no parent. A document that has been through upsertObject() since
-         * the field was added already has it.
-         *
-         * @par
-         * It matters more than a tidy-up: a level listing is an equality on this field, so an
-         * object without it does not appear in its own folder at all.
-         */
-        static void backfillObjectParents();
     };
 
 }// namespace Euclid::Database
