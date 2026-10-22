@@ -142,6 +142,7 @@ namespace Euclid::CLI {
                 {"create-application", "Define a new application from an artifact in an ESM bucket"},
                 {"delete-application", "Delete an application definition"},
                 {"delete-egress-limit", "Remove an application's egress limit for an outside site"},
+                {"delete-egress-site", "Forget an outside site of an application: its limit, bucket and slots"},
                 {"delete-node", "Remove a worker node's registration, freeing its name"},
                 {"deploy-infrastructure", "Store an application's declaration beside its artifact and apply it"},
                 {"get-application", "Show one application's definition"},
@@ -204,6 +205,7 @@ namespace Euclid::CLI {
         if (action == "list-egress-sites") return listEgressSites(args);
         if (action == "set-egress-limit") return setEgressLimit(args);
         if (action == "delete-egress-limit") return deleteEgressLimit(args);
+        if (action == "delete-egress-site") return deleteEgressSite(args);
 
         std::cerr << "error: unknown eap action '" << action << "'\n";
         return 1;
@@ -1074,6 +1076,38 @@ namespace Euclid::CLI {
         }
         return postEgress("delete-egress-limit", boost::json::object{{"applicationId", vm["application-id"].as<std::string>()},
                                                                      {"site", vm["site"].as<std::string>()}});
+    }
+
+    int EapCli::deleteEgressSite(const std::vector<std::string> &args) const {
+        po::options_description desc("delete an egress site");
+        desc.add_options()
+                ("application-id,n", po::value<std::string>()->required(), "the application the site belongs to")
+                ("site,s", po::value<std::string>()->required(), "host name of the outside site, or \"*\" for the application's default");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eap", "delete-egress-site", "--application-id <id> --site <host|*>",
+                                   "Forgets one outside site of one application entirely: its limit, its token bucket, its "
+                                   "concurrency slots and when it was last called. Where delete-egress-limit takes back a "
+                                   "decision and leaves the site listed, this leaves nothing.\n\n"
+                                   "Not a ban. A site is listed because the application asked for a permit to call it, so "
+                                   "one it still calls is listed again on its next request, held to whatever it inherits. "
+                                   "This is for the site that is finished with - a decommissioned host, or a limit set on a "
+                                   "name that turned out to be a typo.\n\n"
+                                   "Anything in flight for the site loses its slots at once: the permits were counted in "
+                                   "the state this removes. The release that follows finds nothing and does nothing.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << std::endl << std::endl << desc << std::endl;
+            return 1;
+        }
+        return postEgress("delete-egress-site", boost::json::object{{"applicationId", vm["application-id"].as<std::string>()},
+                                                                    {"site", vm["site"].as<std::string>()}});
     }
 
     int EapCli::getNode(const std::vector<std::string> &args) const {

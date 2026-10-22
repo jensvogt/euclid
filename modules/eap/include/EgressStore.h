@@ -223,6 +223,27 @@ namespace Euclid::EAP::Egress {
         return outcome.has_value() && outcome->matched_count() == 1;
     }
 
+    // Forgets one application's state for one site outright: its limit, its bucket, its slots and
+    // when it was last called. Not a version-checked write like storeSite(), deliberately - there
+    // is no state to carry forward and so nothing for a concurrent writer to lose. Whoever wrote a
+    // moment ago wrote a document that this was asked to remove.
+    //
+    // What this is not is a ban. A site is in this collection because the application asked for a
+    // permit to call it, so one it still calls simply reappears on the next request, holding
+    // whatever it inherits. Removing a site that is in flight frees its slots at once, and the
+    // release that follows finds no document and writes none.
+    //
+    // @return true if a document was there to remove.
+    inline bool removeSite(const std::string &application, const std::string &site) {
+        try {
+            const auto outcome = egressCollection().delete_one(siteKey(application, site));
+            return outcome.has_value() && outcome->deleted_count() > 0;
+        } catch (const std::exception &e) {
+            log_warning << "EAP egress: cannot remove site " << site << " of " << application << ": " << e.what();
+            return false;
+        }
+    }
+
     // Reads one application's state for a site, lets `change` decide, writes the result - again
     // from the read if another instance wrote in between. `change` returns false to write nothing.
     //

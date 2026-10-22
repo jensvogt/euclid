@@ -3209,6 +3209,47 @@ namespace Euclid::EAP {
                                                                 {"applicationId", application.applicationId}, {"site", site}, {"limits", limitsJson(now)}}));
     }
 
+    // Forgets one site of one application: its limit, its bucket, its slots, when it was last
+    // called. delete-egress-limit's bigger sibling - that one takes back a decision and leaves the
+    // site listed, this one leaves nothing.
+    //
+    // Worth being plain about what it is not: a ban. A site is listed because the application asked
+    // for a permit to call it, so one it still calls is back on the next request, holding whatever
+    // it inherits. What this is for is the site that is finished with - a host that has been
+    // decommissioned, a limit set on a name that turned out to be a typo - where leaving the row
+    // standing says somebody is still deciding something about it.
+    static response<string_body> handleDeleteEgressSite(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-egress-site");
+
+        AuthResult auth;
+        if (const auto denied = requireAdmin(req, auth)) return *denied;
+
+        boost::json::value jv;
+        if (const auto err = EapServer::ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return EapServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+        const auto &obj = jv.as_object();
+
+        const auto site = siteOrAllField(obj);
+        if (site.empty()) return EapServer::ErrorResponse(req, status::bad_request, R"(site is required: a host name, or "*")");
+        const auto scope = egressScope(req, auth, obj, false);
+        if (scope.refusal) return *scope.refusal;
+        const auto &application = *scope.application;
+
+        if (!Egress::removeSite(application.ern, site)) {
+            // Nothing there to remove, which a caller asking about a site it has just seen listed
+            // would rather be told than thanked for: either somebody else removed it, or the name
+            // is not the one that is listed.
+            return EapServer::ErrorResponse(req, status::not_found,
+                                            "application " + application.applicationId + " has no state for site " + site);
+        }
+
+        log_info << "EAP egress site removed, application: " << application.applicationId << ", site: " << site
+                 << ", user: " << auth.user->userId;
+        return EapServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                                                {"applicationId", application.applicationId}, {"site", site}, {"removed", true}}));
+    }
+
     // Every application's sites, or one application's with applicationId: what each is allowed and
     // how it stands now.
     static response<string_body> handleListEgressSites(const request<string_body> &req) {
@@ -3312,6 +3353,7 @@ namespace Euclid::EAP {
         if (action == "report-egress-throttled") return handleReportEgressThrottled(req);
         if (action == "set-egress-limit") return handleSetEgressLimit(req);
         if (action == "delete-egress-limit") return handleDeleteEgressLimit(req);
+        if (action == "delete-egress-site") return handleDeleteEgressSite(req);
         if (action == "list-egress-sites") return handleListEgressSites(req);
         if (action == "get-metrics") return EapServer::MetricsResponse(req);
 
