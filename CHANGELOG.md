@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.5](https://github.com/jensvogt/euclid/compare/2.1.4...v2.1.5) (2026-10-22)
+
+
+### Bug Fixes
+
+* docker build ([b163851](https://github.com/jensvogt/euclid/commit/b16385173b41cae59680d351c41d7f76253c734e))
+
 ## [2.1.4](https://github.com/jensvogt/euclid/compare/v2.1.3...v2.1.4) (2026-10-22)
 
 
