@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.4](https://github.com/jensvogt/euclid/compare/v2.1.3...v2.1.4) (2026-10-22)
+
+
+### Bug Fixes
+
+* remove egress rate limits ([31a2419](https://github.com/jensvogt/euclid/commit/31a2419197593095ac21e982d756d3e49d622182))
+* remove egress rate limits ([be5f3e6](https://github.com/jensvogt/euclid/commit/be5f3e68e748fbbd42d4c7883ef666dd5d27465b))
+
 ## [2.1.3](https://github.com/jensvogt/euclid/compare/2.1.2...v2.1.3) (2026-10-22)
 
 
