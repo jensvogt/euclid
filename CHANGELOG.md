@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.6](https://github.com/jensvogt/euclid/compare/2.1.5...v2.1.6) (2026-10-23)
+
+
+### Bug Fixes
+
+* emo dashboard save ([ee6ac3b](https://github.com/jensvogt/euclid/commit/ee6ac3ba564e584896452569ff1bf44956dd7cff))
+
 ## [2.1.5](https://github.com/jensvogt/euclid/compare/2.1.4...v2.1.5) (2026-10-22)
 
 
