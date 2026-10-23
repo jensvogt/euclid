@@ -349,7 +349,7 @@ namespace Euclid::Monitoring {
 
     // Shared preamble: authenticate, parse, and pull out "name".
     struct DashboardRequest {
-        std::optional<response<string_body>> failure;
+        std::optional<response<string_body> > failure;
         std::string userId;
         std::string name;
         boost::json::value body;
@@ -411,9 +411,9 @@ namespace Euclid::Monitoring {
         repository.upsertDashboard(dashboard);
 
         return EmoServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
-                                                                {"name", dashboard.name},
-                                                                {"userId", dashboard.userId},
-                                                                {"modified", Core::DateTimeUtils::ToISO8601(dashboard.modified)}}));
+                                               {"name", dashboard.name},
+                                               {"userId", dashboard.userId},
+                                               {"modified", Core::DateTimeUtils::ToISO8601(dashboard.modified)}}));
     }
 
     static response<string_body> handleGetDashboard(const request<string_body> &req) {
@@ -436,10 +436,10 @@ namespace Euclid::Monitoring {
         }
 
         return EmoServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
-                                                                {"name", dashboard->name},
-                                                                {"dashboard", layout},
-                                                                {"created", Core::DateTimeUtils::ToISO8601(dashboard->created)},
-                                                                {"modified", Core::DateTimeUtils::ToISO8601(dashboard->modified)}}));
+                                               {"name", dashboard->name},
+                                               {"dashboard", layout},
+                                               {"created", Core::DateTimeUtils::ToISO8601(dashboard->created)},
+                                               {"modified", Core::DateTimeUtils::ToISO8601(dashboard->modified)}}));
     }
 
     static response<string_body> handleListDashboards(const request<string_body> &req) {
@@ -460,8 +460,8 @@ namespace Euclid::Monitoring {
         }
 
         return EmoServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
-                                                                {"userId", parsed.userId},
-                                                                {"items", items}}));
+                                               {"userId", parsed.userId},
+                                               {"items", items}}));
     }
 
     static response<string_body> handleDeleteDashboard(const request<string_body> &req) {
@@ -540,7 +540,7 @@ namespace Euclid::Monitoring {
         // with them, which meant a Windows installation recorded nothing about its own database.
         const auto databaseSizePeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.modules.emo.database-size-period", kDatabaseSizePeriod.count()));
         _databaseSizeTaskId = scheduler.SchedulePeriodic("monitoring-database-size", [] { collectDatabaseSize(); },
-                                                        std::chrono::duration_cast<std::chrono::milliseconds>(databaseSizePeriod));
+                                                         std::chrono::duration_cast<std::chrono::milliseconds>(databaseSizePeriod));
 
 #if defined(__linux__) || defined(_WIN32)
         // What the host itself is doing. Read from /proc on Linux and from the Windows performance
@@ -573,8 +573,6 @@ namespace Euclid::Monitoring {
         scheduler.Cancel(_databaseSizeTaskId);
         scheduler.Cancel(_cpuUsageTaskId);
         scheduler.Cancel(_systemLoadTaskId);
-        // Scheduled since it was added and never cancelled until now: a task that outlives the
-        // server it calls into fires into freed memory on the next tick.
         scheduler.Cancel(_memoryUsageTaskId);
     }
 
@@ -612,8 +610,7 @@ namespace Euclid::Monitoring {
             row.expiresAt = expiresAt;
             repo->upsert(row);
 
-            log_debug << "Monitoring flushed, name: " << row.name << ", labels: " << row.labelKey()
-                    << ", value: " << row.value;
+            log_debug << "Monitoring flushed, name: " << row.name << ", labels: " << row.labelKey() << ", value: " << row.value;
         }
     }
 
@@ -646,8 +643,7 @@ namespace Euclid::Monitoring {
         const auto previous = previousCpuTimes();
         previousCpuTimes() = current;
 
-        // The first call only primes previousCpuTimes() - a percentage needs a delta between two
-        // readings.
+        // The first call only primes previousCpuTimes() - a percentage needs a delta between tworeadings.
         if (!previous.has_value()) return;
 
         // The arithmetic is Core::SystemUtils::CpuUsagePercent's, because a worker reporting its
@@ -700,11 +696,6 @@ namespace Euclid::Monitoring {
         // Three series rather than one, labelled by the window they average over, so a dashboard
         // can put the 1-minute figure against the 15-minute one - which is the whole point of the
         // kernel reporting all three. Spiking or subsiding is the difference between them.
-        //
-        // Recorded as samples like everything else, so they are bucket-aligned and the rollups can
-        // aggregate them. Note what the rollup's max then means here: the highest one-minute
-        // average seen in the bucket, which is a reasonable "how bad did it get" - the average of
-        // an average is the weaker figure of the two.
         recordSample("system-load-average", {{"host", host}, {"interval", "1m"}}, load->oneMinute, MetricType::GAUGE);
         recordSample("system-load-average", {{"host", host}, {"interval", "5m"}}, load->fiveMinutes, MetricType::GAUGE);
         recordSample("system-load-average", {{"host", host}, {"interval", "15m"}}, load->fifteenMinutes, MetricType::GAUGE);
@@ -713,8 +704,6 @@ namespace Euclid::Monitoring {
         // across hosts or even read without knowing the machine: a load of 8 is a third of a
         // 24-core host and four times a two-core one. One is the saturation point here, whatever
         // the hardware, which is what makes this the series worth alerting on.
-        //
-        // Skipped rather than guessed at if the CPU count is unknown - see ReadLoadAverage().
         if (load->cpuCount > 0) {
             const auto perCore = load->oneMinute / static_cast<double>(load->cpuCount);
             recordSample("system-load-per-core", "host", host, perCore, MetricType::GAUGE);
@@ -726,8 +715,7 @@ namespace Euclid::Monitoring {
 
         for (const auto &module: Database::RepositoryFactory::instance().emmRepository()->findAll()) {
 
-            // The mean-and-total rule lives with the entity so it can be tested - see
-            // Entity::SummarisePool().
+            // The mean-and-total rule lives with the entity so it can be tested - see Entity::SummarisePool().
             const auto load = Database::Entity::SummarisePool(module);
 
             // Recorded even at zero, and this is the one that has to be: a pool that has scaled to
