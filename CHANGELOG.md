@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.7](https://github.com/jensvogt/euclid/compare/2.1.6...v2.1.7) (2026-10-24)
+
+
+### Bug Fixes
+
+* ESM directory indexes ([b90c584](https://github.com/jensvogt/euclid/commit/b90c584a2035d668b1b40092e9004332bd5fe191))
+
 ## [2.1.6](https://github.com/jensvogt/euclid/compare/2.1.5...v2.1.6) (2026-10-23)
 
 
