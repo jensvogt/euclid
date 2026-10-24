@@ -174,6 +174,20 @@ BOOST_AUTO_TEST_SUITE(InfrastructureDeclarationTest)
         BOOST_TEST(!grants("buckets", "write", "esm:list-objects"));
     }
 
+    BOOST_AUTO_TEST_CASE(ReadingABucketCarriesTheMultipartActions) {
+
+        // An object over the inline limit is answered 413 by get-object and downloaded no other
+        // way, so a reader without these fails on exactly the files worth reading.
+        BOOST_TEST(grants("buckets", "read", "esm:get-object"));
+        BOOST_TEST(grants("buckets", "read", "esm:create-download"));
+        BOOST_TEST(grants("buckets", "read", "esm:download-part"));
+        BOOST_TEST(grants("buckets", "read", "esm:complete-download"));
+
+        // And reading is not writing.
+        BOOST_TEST(!grants("buckets", "read", "esm:put-object"));
+        BOOST_TEST(!grants("buckets", "read", "esm:create-upload"));
+    }
+
     BOOST_AUTO_TEST_CASE(EveryLevelInTheTableIsReachableFromItsKind) {
 
         // What an error message offers has to be what the table actually holds, or the message sends

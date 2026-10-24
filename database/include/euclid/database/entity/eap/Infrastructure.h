@@ -179,11 +179,15 @@ namespace Euclid::Database::Entity::EAP {
                     {{"topics", "subscribe"}, {"ens:get-topic-ern", "ens:subscribe", "ens:unsubscribe",
                                                "ens:list-subscriptions"}},
 
-                    // A bucket is read, written, or watched. Writing carries the multipart actions:
-                    // an object over the part size is uploaded no other way, and a writer that could
-                    // only put small objects would fail on exactly the files worth storing.
+                    // A bucket is read, written, or watched. Both directions carry the multipart
+                    // actions: an object over the part size is uploaded no other way, and one over
+                    // the inline limit is downloaded no other way - get-object answers it 413 and
+                    // the SDK's downloadFile goes on to create-download. A reader or a writer that
+                    // could only handle small objects would fail on exactly the files worth
+                    // storing.
                     {{"buckets", "read"}, {"esm:get-bucket-ern", "esm:get-object", "esm:list-objects",
-                                           "esm:list-object-attributes"}},
+                                           "esm:list-object-attributes", "esm:create-download",
+                                           "esm:download-part", "esm:complete-download"}},
                     {{"buckets", "write"}, {"esm:get-bucket-ern", "esm:put-object", "esm:create-upload",
                                             "esm:upload-part", "esm:complete-upload", "esm:abort-upload",
                                             "esm:set-object-attribute", "esm:add-object-attribute"}},
