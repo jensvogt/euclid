@@ -314,11 +314,16 @@ namespace Euclid::EAG {
          * Takes a Backend rather than a port because an application instance need not be on this
          * machine - see Entity::ModuleInstance::host. euclid's own gateway always is, and is
          * passed Backend::loopback().
+         *
+         * @par
+         * timeout bounds the whole exchange with the backend - connect, send, and the wait for
+         * its answer - and is the route's own (Route::timeout) when it names one.
          */
         void proxyTo(const std::shared_ptr<ClientStream> &stream,
                      const std::shared_ptr<boost::beast::http::request<boost::beast::http::string_body> > &request,
                      const Backend &backend, const std::string &routeId,
-                     const std::string &euclidTarget, const std::string &euclidAction);
+                     const std::string &euclidTarget, const std::string &euclidAction,
+                     std::chrono::seconds timeout);
 
         /**
          * @brief Proxies to euclid's own gateway over TLS.
@@ -332,7 +337,8 @@ namespace Euclid::EAG {
         void proxyToTls(const std::shared_ptr<ClientStream> &stream,
                         const std::shared_ptr<boost::beast::http::request<boost::beast::http::string_body> > &request,
                         int port, const std::string &routeId,
-                        const std::string &euclidTarget, const std::string &euclidAction);
+                        const std::string &euclidTarget, const std::string &euclidAction,
+                        std::chrono::seconds timeout);
 
         /**
          * @brief Writes one response to the caller and closes the connection.

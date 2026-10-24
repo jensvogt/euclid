@@ -64,6 +64,26 @@ namespace Euclid::EAG {
         // object is not thousands of round trips.
         constexpr std::int64_t kDefaultPartSize = 5LL * 1024 * 1024;
 
+        // The longest a route may give its backend, in seconds. A request held open longer than an
+        // hour is a job, not a request: it ties up a connection to the caller and one to the
+        // instance for all of it, and is better started asynchronously and polled for.
+        constexpr std::int64_t kMaxRouteTimeout = 3600;
+
+        // A route's "timeout": nothing when it is not named, or an error when it is named as
+        // something other than a whole number of seconds within range. Refused rather than
+        // clamped: "timeout": "300" ignored, or 7200 quietly made 3600, would be a route cut off
+        // sooner than its author was told.
+        std::optional<long> timeoutField(const boost::json::object &obj, std::string &error) {
+            const auto *value = obj.if_contains("timeout");
+            if (!value) return std::nullopt;
+            if (!value->is_int64() || value->as_int64() < 0 || value->as_int64() > kMaxRouteTimeout) {
+                error = "timeout must be a whole number of seconds from 0 to " + std::to_string(kMaxRouteTimeout)
+                        + ", 0 being the gateway's default";
+                return std::nullopt;
+            }
+            return static_cast<long>(value->as_int64());
+        }
+
         // The euclid modules a route may name. Kept as a list so a typo is refused at configuration
         // time: a route naming "emm " or "eeam" would otherwise be accepted, published, and answer
         // 404 from the gateway forever with nothing saying why.
@@ -172,6 +192,7 @@ namespace Euclid::EAG {
                     {"moduleAction", route.moduleAction},
                     {"methods", boost::json::array(route.methods.begin(), route.methods.end())},
                     {"authentication", RouteAuthenticationToString(route.authentication)},
+                    {"timeout", route.timeout},
                     {"active", route.active},
                     {"created", Core::DateTimeUtils::ToISO8601(route.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(route.modified)}};
@@ -357,6 +378,12 @@ namespace Euclid::EAG {
             return EagServer::ErrorResponse(req, status::bad_request,
                                             R"(An upload route must set authentication to "EUCLID" or "BASIC")");
         }
+
+        std::string timeoutError;
+        const auto timeout = timeoutField(obj, timeoutError);
+        if (!timeoutError.empty()) return EagServer::ErrorResponse(req, status::bad_request, timeoutError);
+        route.timeout = timeout.value_or(0);
+
         if (const auto *active = obj.if_contains("active"); active && active->is_bool()) route.active = active->as_bool();
 
         // A route that was not stored must not come back looking as though it was - the caller
@@ -496,6 +523,11 @@ namespace Euclid::EAG {
             return EagServer::ErrorResponse(req, status::bad_request,
                                             "Name either an application or a euclid module, not both and not neither");
         }
+
+        std::string timeoutError;
+        if (const auto timeout = timeoutField(obj, timeoutError)) route->timeout = *timeout;
+        if (!timeoutError.empty()) return EagServer::ErrorResponse(req, status::bad_request, timeoutError);
+
         if (const auto *active = obj.if_contains("active"); active && active->is_bool()) route->active = active->as_bool();
 
         const auto saved = repository->upsertRoute(*route);

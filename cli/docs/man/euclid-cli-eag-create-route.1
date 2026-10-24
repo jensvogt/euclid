@@ -21,6 +21,8 @@ euclid-cli-eag-create-route \- publish a path through the API gateway
 .IR NAME ]
 .RB [ \-\-authentication | \-A
 .IR none | euclid | basic ]
+.RB [ \-\-timeout | \-T
+.IR SECONDS ]
 .RB [ \-\-inactive | \-i ]
 .SH DESCRIPTION
 Publishes a path prefix on the API gateway's port and sends everything
@@ -138,6 +140,36 @@ password. See
 for what that costs and why only the gateway accepts it.
 .RE
 .TP
+.BR \-T ", " \-\-timeout " " \fISECONDS\fR
+How long the backend has to answer a request on this route, from 1 to
+3600 seconds. The time covers connecting, sending the request and waiting
+for the whole answer. A backend that runs out of time is answered with
+504 Gateway Timeout, naming the timeout that applied. A backend that
+fails in any other way gets 502.
+.RS
+.PP
+Omit it, or give 0, and the route follows the gateway's own setting,
+.I euclid.gateway.http.backend\-timeout
+(60 seconds unless changed). Leaving it at 0 rather than writing that
+value in means the route picks up a later change to the setting.
+.PP
+Per route because it describes what is behind the path. A search that
+answers in milliseconds and a bulk export that takes minutes can share
+one gateway, and one setting would either cut off the export or leave a
+hung search instance holding its caller just as long.
+.PP
+Only routes that forward a request use it, to an application or to a
+euclid module. An upload route writes into a bucket itself and has
+nothing to wait for.
+.PP
+A module route (\fB\-\-module\fR) is forwarded through euclid's own
+gateway, which puts its own limit on the call it makes to the module:
+.IR euclid.gateway.http.backend\-timeout\-seconds .
+A module route therefore waits no longer than that, whatever
+\fB\-\-timeout\fR says. Raise that setting as well if a module action
+needs more time.
+.RE
+.TP
 .BR \-i ", " \-\-inactive
 Create the route but leave it out of service. Nothing is served for its
 path until
@@ -198,6 +230,18 @@ euclid-cli eag create-route \e
     --path /api/produkte \e
     --application pim-writer \e
     --methods POST,PUT,DELETE
+.fi
+.RE
+.PP
+Give a slow bulk export five minutes instead of the gateway's default:
+.PP
+.RS
+.nf
+euclid-cli eag create-route \e
+    --route-id export \e
+    --path /resource/export \e
+    --application onix-parser \e
+    --timeout 300
 .fi
 .RE
 .PP

@@ -13,6 +13,8 @@ euclid-cli-eag-update-route \- change an existing gateway route
 .IR LIST ]
 .RB [ \-\-authentication | \-A
 .IR none | euclid | basic ]
+.RB [ \-\-timeout | \-T
+.IR SECONDS ]
 .RB [ \-\-active
 .IR true | false ]
 .SH DESCRIPTION
@@ -65,6 +67,14 @@ Must not overlap with another route on the same path; see
 .TP
 .BR \-A ", " \-\-authentication " " \fInone\fR|\fIeuclid\fR|\fIbasic\fR
 What the gateway requires of a caller. See
+.BR euclid-cli-eag-create-route (1).
+.TP
+.BR \-T ", " \-\-timeout " " \fISECONDS\fR
+How long the backend has to answer a request on this route, 1 to 3600;
+.B 0
+puts the route back on the gateway's default,
+.IR euclid.gateway.http.backend\-timeout .
+See
 .BR euclid-cli-eag-create-route (1).
 .TP
 .BR \-\-active " " \fItrue\fR|\fIfalse\fR

@@ -211,6 +211,27 @@ namespace Euclid::Database::Entity::EAG {
         RouteAuthentication authentication = RouteAuthentication::NONE;
 
         /**
+         * @brief Seconds the backend has to answer a request on this route, or 0 for the gateway's
+         * default, euclid.gateway.http.backend-timeout.
+         *
+         * @par
+         * Per route because it describes what is behind the path, not the gateway: a search that
+         * answers in milliseconds and a bulk republish that walks a whole table in minutes share
+         * one gateway, and a single setting either cuts off the second or leaves a hung instance
+         * of the first holding its caller for as long as the second needs.
+         *
+         * @par
+         * 0 rather than the default's value written in, so a route that never chose one follows
+         * the installation's setting when it changes.
+         *
+         * @par
+         * A module route reaches its module through euclid's own gateway, which bounds that call
+         * with euclid.gateway.http.backend-timeout-seconds. The two are similarly named but
+         * separate settings, and a module route waits for the shorter of the two.
+         */
+        long timeout{};
+
+        /**
          * @brief Whether the gateway serves this route at all.
          *
          * @par

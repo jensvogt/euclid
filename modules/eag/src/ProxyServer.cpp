@@ -13,6 +13,7 @@
 // Boost includes
 #include <boost/asio/connect.hpp>
 #include <boost/asio/ssl.hpp>
+#include <boost/asio/strand.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/ssl.hpp>
 #include <boost/json.hpp>
@@ -40,8 +41,19 @@ namespace Euclid::EAG {
 
     namespace {
 
-        // How long a backend has to answer before the caller is told it did not.
-        constexpr auto kBackendTimeout = std::chrono::seconds(60);
+        // How long a caller has for each step of talking to the gateway - the handshake, the
+        // headers, each chunk of an upload, and the response being written back. Fixed, because
+        // it guards the gateway against slow or idle callers rather than describing any backend.
+        constexpr auto kClientTimeout = std::chrono::seconds(60);
+
+        // How long a backend has to answer before the caller is told it did not. Configurable,
+        // because what is long enough is the slowest call an installation carries - a bulk
+        // republish that walks a whole table answers in minutes, not seconds.
+        std::chrono::seconds backendTimeout() {
+            constexpr long long kDefaultBackendTimeout = 60;
+            return std::chrono::seconds(std::max<long long>(1,
+                    Core::Configuration::instance().getOr<long long>("euclid.gateway.http.backend-timeout", kDefaultBackendTimeout)));
+        }
 
         // The request's path, without its query string - the route table matches on paths.
         std::string pathOf(const std::string &target) {
@@ -75,6 +87,19 @@ namespace Euclid::EAG {
             res.body() = R"({"error":")" + std::string(message) + R"("})";
             res.prepare_payload();
             return res;
+        }
+
+        // What the caller is told when the backend's answer never came. 504 for a backend that
+        // ran out of time, so a caller - or whoever reads its log - can tell "too slow for this
+        // route's timeout" from "broken", which 502 says; the body names the timeout that applied,
+        // since that is the number to change if the backend is merely slow.
+        http::response<http::string_body> backendFailure(const http::request<http::string_body> &req,
+                                                         const beast::error_code &ec, const std::chrono::seconds timeout) {
+            if (ec == beast::error::timeout) {
+                return errorResponse(req, http::status::gateway_timeout,
+                                     "the backend did not answer within " + std::to_string(timeout.count()) + " seconds");
+            }
+            return errorResponse(req, http::status::bad_gateway, ec.message());
         }
 
     }// namespace
@@ -211,7 +236,12 @@ namespace Euclid::EAG {
 
     void ProxyServer::accept(const std::size_t index) {
 
-        _acceptors[index].async_accept([this, index](const boost::system::error_code &ec, tcp::socket socket) {
+        // Each connection on a strand of its own. The io_context runs on several threads, and a
+        // Beast stream off a strand races its own timeout: the timer closes the socket and only
+        // then records that it timed out, so the operation it aborted can complete on another
+        // thread in between and report "Operation canceled" instead. See proxyTo(), where that
+        // turned every backend timeout into a 502 that said nothing about time.
+        _acceptors[index].async_accept(asio::make_strand(_ioc), [this, index](const boost::system::error_code &ec, tcp::socket socket) {
             if (ec) {
                 // Expected once per listener, when stop() closes the acceptors to unblock these.
                 if (_running.load()) log_warning << "API gateway accept failed on port " << _listeners[index].port << ": " << ec.message();
@@ -249,7 +279,7 @@ namespace Euclid::EAG {
 
         const auto nameSpace = _listeners[index].nameSpace;
 
-        stream->ExpiresAfter(kBackendTimeout);
+        stream->ExpiresAfter(kClientTimeout);
 
         // Unconditional, because a plain connection is simply one whose handshake is already
         // done - see ClientStream::Handshake. What follows is then the same either way.
@@ -261,7 +291,7 @@ namespace Euclid::EAG {
                 log_debug << "TLS handshake failed on port " << _listeners[index].port << ": " << handshakeEc.message();
                 return;
             }
-            stream->ExpiresAfter(kBackendTimeout);
+            stream->ExpiresAfter(kClientTimeout);
             stream->AsyncReadHeader(*buffer, *header, [this, stream, buffer, header, nameSpace](const beast::error_code &ec) {
                 if (ec) {
                     if (ec != http::error::end_of_stream) log_debug << "API gateway read failed: " << ec.message();
@@ -294,6 +324,11 @@ namespace Euclid::EAG {
                                                                        stream->ExchangeElapsedMs());
         }
 
+        // A fresh deadline for the write. The last one was set before the headers were read and
+        // has been running ever since, so a backend that took most of it - or timed out - would
+        // otherwise leave the write failing at once and the caller with an empty reply instead of
+        // the answer, or the 502 saying there was none.
+        stream->ExpiresAfter(kClientTimeout);
         stream->AsyncWrite(*response, [stream, response](const beast::error_code &ec) {
             if (ec) {
                 log_debug << "API gateway write failed: " << ec.message();
@@ -672,7 +707,7 @@ namespace Euclid::EAG {
         upload->reader->get().body().data = upload->part.data();
         upload->reader->get().body().size = upload->part.size();
 
-        upload->stream->ExpiresAfter(kBackendTimeout);
+        upload->stream->ExpiresAfter(kClientTimeout);
         upload->stream->AsyncReadSome(*upload->buffer, *upload->reader, [this, upload](const beast::error_code &ec) {
             // need_buffer is not a failure: it is the reader saying it filled what it was given and
             // has more to put somewhere. Every other error ends the upload.
@@ -902,17 +937,20 @@ namespace Euclid::EAG {
             request->set("x-euclid-user-id", *userId);
         }
 
+        // What the backend is given to answer in: the route's own, when it names one.
+        const auto timeout = match.timeout > 0 ? std::chrono::seconds(match.timeout) : backendTimeout();
+
         // A route naming a module goes to euclid's own gateway rather than to an application:
         // modules listen on Unix domain sockets and have no address anything outside the host
         // could reach, and the gateway is what turns a target and an action into a call on one.
         if (!match.moduleTarget.empty()) {
             if (_euclidGatewayTls) {
-                proxyToTls(stream, request, _euclidGatewayPort, match.routeId, match.moduleTarget, match.moduleAction);
+                proxyToTls(stream, request, _euclidGatewayPort, match.routeId, match.moduleTarget, match.moduleAction, timeout);
             } else {
                 // euclid's own gateway, which is this process's sibling on this machine - the one
                 // backend that is loopback by construction rather than by where it happened to be
                 // started.
-                proxyTo(stream, request, Backend::loopback(_euclidGatewayPort), match.routeId, match.moduleTarget, match.moduleAction);
+                proxyTo(stream, request, Backend::loopback(_euclidGatewayPort), match.routeId, match.moduleTarget, match.moduleAction, timeout);
             }
             return;
         }
@@ -931,7 +969,7 @@ namespace Euclid::EAG {
             return;
         }
 
-        proxyTo(stream, request, *backend, match.routeId, {}, {});
+        proxyTo(stream, request, *backend, match.routeId, {}, {}, timeout);
     }
 
     // The request as the backend should see it: the caller's own, with the hop rewritten and -
@@ -974,12 +1012,14 @@ namespace Euclid::EAG {
     void ProxyServer::proxyToTls(const std::shared_ptr<ClientStream> &stream,
                                  const std::shared_ptr<http::request<http::string_body> > &request,
                                  const int port, const std::string &routeId,
-                                 const std::string &euclidTarget, const std::string &euclidAction) {
+                                 const std::string &euclidTarget, const std::string &euclidAction,
+                                 const std::chrono::seconds timeout) {
 
         const auto forwarded = forwardedRequest(stream, request, Backend::loopback(port).authority(), euclidTarget, euclidAction);
 
         struct Exchange {
-            Exchange(asio::io_context &ioc, asio::ssl::context &ctx) : backend(ioc, ctx) {}
+            // On a strand, like the caller's connection - see accept().
+            Exchange(asio::io_context &ioc, asio::ssl::context &ctx) : backend(asio::make_strand(ioc), ctx) {}
             beast::ssl_stream<beast::tcp_stream> backend;
             beast::flat_buffer buffer;
             http::response<http::string_body> response;
@@ -991,17 +1031,17 @@ namespace Euclid::EAG {
         if (!SSL_set_tlsext_host_name(exchange->backend.native_handle(), "localhost")) {
             log_warning << "Could not set the TLS server name, route: " << routeId;
         }
-        beast::get_lowest_layer(exchange->backend).expires_after(kBackendTimeout);
+        beast::get_lowest_layer(exchange->backend).expires_after(timeout);
 
         const tcp::endpoint endpoint{asio::ip::make_address("127.0.0.1"), static_cast<unsigned short>(port)};
-        beast::get_lowest_layer(exchange->backend).async_connect(endpoint, [this, exchange, stream, request, forwarded, port, routeId](const beast::error_code &ec) {
+        beast::get_lowest_layer(exchange->backend).async_connect(endpoint, [this, exchange, stream, request, forwarded, port, routeId, timeout](const beast::error_code &ec) {
             if (ec) {
                 log_warning << "Could not reach the euclid gateway on port " << port << ", route: " << routeId << ", error: " << ec.message();
                 respond(stream, std::make_shared<http::response<http::string_body> >(
                                         errorResponse(*request, http::status::bad_gateway, ec.message())));
                 return;
             }
-            exchange->backend.async_handshake(asio::ssl::stream_base::client, [this, exchange, stream, request, forwarded, port, routeId](const beast::error_code &shakeEc) {
+            exchange->backend.async_handshake(asio::ssl::stream_base::client, [this, exchange, stream, request, forwarded, port, routeId, timeout](const beast::error_code &shakeEc) {
                 if (shakeEc) {
                     // Almost always the certificate: euclid.gateway.tls.cert-file could not be
                     // read, or the gateway was given one this process does not trust.
@@ -1011,18 +1051,18 @@ namespace Euclid::EAG {
                                                           "TLS handshake with the euclid gateway failed: " + shakeEc.message())));
                     return;
                 }
-                http::async_write(exchange->backend, *forwarded, [this, exchange, stream, request, forwarded, port, routeId](const beast::error_code &writeEc, std::size_t) {
+                http::async_write(exchange->backend, *forwarded, [this, exchange, stream, request, forwarded, port, routeId, timeout](const beast::error_code &writeEc, std::size_t) {
                     if (writeEc) {
                         respond(stream, std::make_shared<http::response<http::string_body> >(
                                                 errorResponse(*request, http::status::bad_gateway, writeEc.message())));
                         return;
                     }
                     http::async_read(exchange->backend, exchange->buffer, exchange->response,
-                                     [this, exchange, stream, request, port, routeId](const beast::error_code &readEc, std::size_t) {
+                                     [this, exchange, stream, request, port, routeId, timeout](const beast::error_code &readEc, std::size_t) {
                                          if (readEc) {
                                              log_warning << "The euclid gateway on port " << port << " did not answer, route: " << routeId << ", error: " << readEc.message();
                                              respond(stream, std::make_shared<http::response<http::string_body> >(
-                                                                     errorResponse(*request, http::status::bad_gateway, readEc.message())));
+                                                                     backendFailure(*request, readEc, timeout)));
                                              return;
                                          }
                                          auto response = std::make_shared<http::response<http::string_body> >(std::move(exchange->response));
@@ -1038,7 +1078,8 @@ namespace Euclid::EAG {
     void ProxyServer::proxyTo(const std::shared_ptr<ClientStream> &stream,
                               const std::shared_ptr<http::request<http::string_body> > &request,
                               const Backend &backend, const std::string &routeId,
-                              const std::string &euclidTarget, const std::string &euclidAction) {
+                              const std::string &euclidTarget, const std::string &euclidAction,
+                              const std::chrono::seconds timeout) {
 
         // The application is told who really called and over what, because after this it cannot
         // tell: every request it sees arrives from this process.
@@ -1050,7 +1091,11 @@ namespace Euclid::EAG {
         const auto where = backend.authority();
 
         struct Exchange {
-            explicit Exchange(asio::io_context &ioc) : backend(ioc) {}
+            // On a strand of its own. Without one, on a gateway running several threads, a backend
+            // that ran out of time was reported as "Operation canceled" - a 502 - most of the time
+            // rather than as the timeout it was: Beast's timer closes the socket before it marks
+            // the timeout, and the aborted read completed on another thread in between.
+            explicit Exchange(asio::io_context &ioc) : backend(asio::make_strand(ioc)) {}
             beast::tcp_stream backend;
             beast::flat_buffer buffer;
             // Buffered whole, both ways. That is the right shape for the REST calls this carries
@@ -1060,31 +1105,31 @@ namespace Euclid::EAG {
             http::response<http::string_body> response;
         };
         auto exchange = std::make_shared<Exchange>(_ioc);
-        exchange->backend.expires_after(kBackendTimeout);
+        exchange->backend.expires_after(timeout);
 
         // Resolved when the backend list was refreshed, not here: a name lookup in front of every
         // proxied request would cost every request, and the answer changes on the timescale the
         // manager starts and stops instances on rather than the one requests arrive on.
         const tcp::endpoint endpoint{backend.address, static_cast<unsigned short>(backend.port)};
-        exchange->backend.async_connect(endpoint, [this, exchange, stream, request, forwarded, where, routeId](const beast::error_code &ec) {
+        exchange->backend.async_connect(endpoint, [this, exchange, stream, request, forwarded, where, routeId, timeout](const beast::error_code &ec) {
             if (ec) {
                 log_warning << "Could not reach backend " << where << ", route: " << routeId << ", error: " << ec.message();
                 respond(stream, std::make_shared<http::response<http::string_body> >(
                                         errorResponse(*request, http::status::bad_gateway, ec.message())));
                 return;
             }
-            http::async_write(exchange->backend, *forwarded, [this, exchange, stream, request, forwarded, where, routeId](const beast::error_code &writeEc, std::size_t) {
+            http::async_write(exchange->backend, *forwarded, [this, exchange, stream, request, forwarded, where, routeId, timeout](const beast::error_code &writeEc, std::size_t) {
                 if (writeEc) {
                     respond(stream, std::make_shared<http::response<http::string_body> >(
                                             errorResponse(*request, http::status::bad_gateway, writeEc.message())));
                     return;
                 }
                 http::async_read(exchange->backend, exchange->buffer, exchange->response,
-                                 [this, exchange, stream, request, where, routeId](const beast::error_code &readEc, std::size_t) {
+                                 [this, exchange, stream, request, where, routeId, timeout](const beast::error_code &readEc, std::size_t) {
                                      if (readEc) {
                                          log_warning << "Backend " << where << " did not answer, route: " << routeId << ", error: " << readEc.message();
                                          respond(stream, std::make_shared<http::response<http::string_body> >(
-                                                                 errorResponse(*request, http::status::bad_gateway, readEc.message())));
+                                                                 backendFailure(*request, readEc, timeout)));
                                          return;
                                      }
                                      auto response = std::make_shared<http::response<http::string_body> >(std::move(exchange->response));
