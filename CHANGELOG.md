@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.8](https://github.com/jensvogt/euclid/compare/2.1.7...v2.1.8) (2026-10-24)
+
+
+### Bug Fixes
+
+* EAG add route timeout ([83413c7](https://github.com/jensvogt/euclid/commit/83413c745568d312f8b1e5458892ce7d1c072d95))
+* EAG add route timeout ([6706193](https://github.com/jensvogt/euclid/commit/670619363b1d509019251dd67a16282a253d360e))
+
 ## [2.1.7](https://github.com/jensvogt/euclid/compare/2.1.6...v2.1.7) (2026-10-24)
 
 
