@@ -119,6 +119,18 @@ BOOST_AUTO_TEST_CASE(OperatorDoesNotAdministerAccess) {
     BOOST_TEST(!grants(BuiltinRoles::Operator, "eam:list-users"));
 }
 
+// Where the work happens is not who may do it. An operator holding every permission EQS and ESM
+// have still cannot open a session without this one: signing in picks a namespace from this list,
+// and every request afterwards names the namespace it chose.
+BOOST_AUTO_TEST_CASE(OperatorCanFindTheNamespacesItWorksIn) {
+
+    BOOST_TEST(grants(BuiltinRoles::Operator, "eam:list-namespaces"));
+
+    // And no further into EAM than that: the neighbouring namespace actions are administration.
+    BOOST_TEST(!grants(BuiltinRoles::Operator, "eam:create-namespace"));
+    BOOST_TEST(!grants(BuiltinRoles::Operator, "eam:delete-namespace"));
+}
+
 // The rule is applied to the vocabulary rather than transcribed from it, so this holds for actions
 // nobody has written yet.
 BOOST_AUTO_TEST_CASE(OperatorIsExactlyTheRuleItClaims) {
@@ -126,7 +138,8 @@ BOOST_AUTO_TEST_CASE(OperatorIsExactlyTheRuleItClaims) {
     for (const auto &permission: Permissions::All()) {
         const auto action = permission.substr(permission.find(':') + 1);
         const bool destructive = action.starts_with("delete-") || action.starts_with("purge-");
-        const bool accessManagement = permission.starts_with("eam:");
+        // Every eam action except the one that says where work happens - see isWorkplaceLookup().
+        const bool accessManagement = permission.starts_with("eam:") && permission != "eam:list-namespaces";
 
         BOOST_TEST(grants(BuiltinRoles::Operator, permission) == (!destructive && !accessManagement),
                    permission + " is on the wrong side of the operator rule");

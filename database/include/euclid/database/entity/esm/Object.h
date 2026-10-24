@@ -123,7 +123,8 @@ namespace Euclid::Database::Entity::ESM {
          * of one level is the question clients actually ask, and without this it can only be
          * answered by a prefix match over every key in the bucket and a walk to find where one
          * folder's block ends. As a stored field it is an equality - served from the index
-         * (bucketErn, parent, key), paged and sorted without a deep skip.
+         * (bucketErn, parent, directory, key), counted and paged from the index alone, and the
+         * folders inside a level found by seeking from one to the next through it.
          *
          * @par
          * Set on every write - MongoEsmRepository::upsertObject() derives it from the key - so

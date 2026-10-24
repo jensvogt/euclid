@@ -12,6 +12,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 // Euclid includes
@@ -125,11 +126,7 @@ namespace Euclid::Database {
             // is what the result is grouped by, so the index also delivers the groups in order.
             objectCollection.create_index(make_document(kvp("status", 1), kvp("bucketErn", 1), kvp("directory", 1), kvp("size", 1)));
 
-            // One level of one bucket, in key order: an equality on the first two fields and a
-            // sort served by the third. This is what makes listing a folder a lookup rather than
-            // a prefix match over every key in the bucket - and what keeps the paging offsets
-            // small, since the result set is the level itself and not everything beneath it.
-            objectCollection.create_index(make_document(kvp("bucketErn", 1), kvp("parent", 1), kvp("key", 1)));
+            ensureLevelIndex();
 
             auto subscriptionCollection = Database::instance().collection(SUBSCRIPTION_COLLECTION);
             mongocxx::options::index subscriptionOpts;
@@ -674,13 +671,57 @@ namespace Euclid::Database {
         return -1;
     }
 
+    void MongoEsmRepository::ensureLevelIndex() {
+
+        // (bucketErn, parent, directory, key) replaces (bucketErn, parent, key). With "directory"
+        // in the index, "this level without its markers" is the equality directory: false - a
+        // plain index range, counted and skipped through without a document being read. Filtered
+        // as $ne: true against the old index, every object of the level had to be fetched just
+        // to look at that one field: 77 seconds to count a 4.1 million object folder, against 4
+        // from the index alone.
+        //
+        // On a thread of its own because on a populated collection the build takes minutes, and
+        // this runs while the repository is being constructed - every ESM start would wait for
+        // it. Nothing depends on it existing: no query names an index, so until the build is done
+        // the planner keeps using the old one, as fast or as slow as before.
+        //
+        // The in-memory backend has nothing to build from and nothing to drop, so it gets the
+        // index inline rather than a thread that would outlive whoever reset the store.
+        const auto levelKey = make_document(kvp("bucketErn", 1), kvp("parent", 1), kvp("directory", 1), kvp("key", 1));
+        if (!Database::instance().collection(OBJECT_COLLECTION).supports_aggregation()) {
+            Database::instance().collection(OBJECT_COLLECTION).create_index(levelKey.view());
+            return;
+        }
+
+        std::thread([levelKey] {
+            try {
+                const auto objectCollection = Database::instance().collection(OBJECT_COLLECTION);
+
+                // Returns at once when the index already exists, so only a real build is timed.
+                const auto started = std::chrono::steady_clock::now();
+                objectCollection.create_index(levelKey.view());
+                if (const auto took = std::chrono::steady_clock::now() - started; took > std::chrono::seconds(5)) {
+                    log_info << "ESM level index built, seconds: " << std::chrono::duration_cast<std::chrono::seconds>(took).count();
+                }
+
+                // Only once its replacement exists, so there is never a moment with neither. Every
+                // query the old one served, the new one serves too. Nothing to drop is a no-op.
+                objectCollection.drop_index("bucketErn_1_parent_1_key_1");
+
+            } catch (const std::exception &e) {
+                log_error << "Ensure ESM level index failed, error: " << e.what();
+            }
+        }).detach();
+    }
+
     namespace {
-        // Everything in the index range under one level: "DEMODLI/" matches "DEMODLI/a/" and
-        // "DEMODLI/a/b/" alike, which is what makes a folder holding only folders visible.
-        bsoncxx::document::value levelSubtree(const std::string &bucketErn, const std::string &parent) {
-            if (parent.empty()) return make_document(kvp("bucketErn", bucketErn));
-            return make_document(kvp("bucketErn", bucketErn),
-                                 kvp("parent", make_document(kvp("$regex", "^" + QuotePrefix(parent)))));
+        // The first string after every string that starts with prefix, as an exclusive upper bound
+        // for a range over them: the last byte incremented, any trailing 0xff bytes dropped first.
+        // Empty when there is none (an empty prefix, or nothing but 0xff), meaning "no bound".
+        std::string PrefixUpperBound(std::string prefix) {
+            while (!prefix.empty() && static_cast<unsigned char>(prefix.back()) == 0xff) prefix.pop_back();
+            if (!prefix.empty()) prefix.back() = static_cast<char>(static_cast<unsigned char>(prefix.back()) + 1);
+            return prefix;
         }
     }// namespace
 
@@ -691,13 +732,20 @@ namespace Euclid::Database {
             filter.append(kvp("bucketErn", bucketErn), kvp("parent", parent));
             // A marker of this level is a key in its own right and sits here like anything else;
             // whoever manages directories asks for them, and nobody else is shown them.
-            if (!includeDirectories) {
-                filter.append(kvp("directory", make_document(kvp("$ne", true))));
+            //
+            // Both as equalities on "directory", never left out: the index has it between parent
+            // and key, so only with it pinned does the index deliver key order - two ranges merged
+            // when markers are wanted, one when not. Left unconstrained, the level would be read
+            // whole and sorted in memory before the first page could be returned.
+            if (includeDirectories) {
+                filter.append(kvp("directory", make_document(kvp("$in", make_array(false, true)))));
+            } else {
+                filter.append(kvp("directory", false));
             }
 
             mongocxx::options::find opts;
-            // By key, always: the index is (bucketErn, parent, key), so this sort is read from it
-            // rather than performed, and any other column would throw that away.
+            // By key, always: the index is (bucketErn, parent, directory, key), so this sort is
+            // read from it rather than performed, and any other column would throw that away.
             opts.sort(make_document(kvp("key", sortDirection == "desc" ? -1 : 1)));
             if (pageSize > 0) {
                 opts.limit(pageSize);
@@ -722,8 +770,9 @@ namespace Euclid::Database {
         try {
             document filter = {};
             filter.append(kvp("bucketErn", bucketErn), kvp("parent", parent));
+            // An equality, so the count is read from the index - see listLevel().
             if (!includeDirectories) {
-                filter.append(kvp("directory", make_document(kvp("$ne", true))));
+                filter.append(kvp("directory", false));
             }
             return Database::instance().collection(OBJECT_COLLECTION).count_documents(filter.view());
 
@@ -736,31 +785,51 @@ namespace Euclid::Database {
     std::vector<std::string> MongoEsmRepository::listSubdirectories(const std::string &bucketErn, const std::string &parent) const {
 
         try {
-            // The first segment of every parent below this level, grouped. $match is the index
-            // range, and what follows streams it - the documents themselves are never read.
-            mongocxx::pipeline pipeline;
-            pipeline.match(levelSubtree(bucketErn, parent).view());
-            pipeline.project(make_document(
-                    kvp("segment", make_document(kvp("$arrayElemAt", make_array(
-                            make_document(kvp("$split", make_array(
-                                    make_document(kvp("$substrBytes", make_array("$parent",
-                                                                                 static_cast<int64_t>(parent.size()),
-                                                                                 static_cast<int64_t>(-1)))),
-                                    "/"))),
-                            0))))));
-            pipeline.group(make_document(kvp("_id", "$segment")));
-            pipeline.sort(make_document(kvp("_id", 1)));
+            // A skip scan: one index seek per subdirectory, never a read of what is inside one.
+            // Each seek finds the smallest parent after the last subdirectory found; its first
+            // segment below this level is the next subdirectory, and the next seek starts past
+            // everything under that one - at "<parent><segment>0", "0" being the byte after "/".
+            //
+            // Grouping every parent below the level instead, as this did before, costs one
+            // document per object in the subtree: 221 seconds to find the 7 folders at the root of
+            // a bucket of 7.9 million objects, which this finds in 8 seeks and 28 ms. The projection
+            // names only "parent", so each seek is answered from the index without a fetch.
+            const auto upper = PrefixUpperBound(parent);
+
+            mongocxx::options::find opts;
+            opts.projection(make_document(kvp("_id", 0), kvp("parent", 1)));
+            opts.sort(make_document(kvp("parent", 1)));
+            opts.limit(1);
 
             std::vector<std::string> directories;
             auto objectCollection = Database::instance().collection(OBJECT_COLLECTION);
-            for (auto cursor = objectCollection.aggregate(pipeline); const auto &doc: cursor) {
-                const auto id = doc["_id"];
-                if (!id || id.type() != bsoncxx::type::k_string) continue;
-                const auto segment = std::string(id.get_string().value);
-                // The level itself contributes an empty segment - its own objects' parent is
-                // exactly this level - and that is not a directory inside it.
-                if (segment.empty()) continue;
-                directories.push_back(parent + segment + "/");
+
+            // Strictly after the level itself, whose own objects have exactly it as their parent.
+            std::string from = parent;
+            bool inclusive = false;
+            for (;;) {
+                document range = {};
+                range.append(kvp(std::string(inclusive ? "$gte" : "$gt"), from));
+                if (!upper.empty()) range.append(kvp("$lt", upper));
+
+                auto cursor = objectCollection.find(
+                        make_document(kvp("bucketErn", bucketErn), kvp("parent", range.extract())), opts);
+                const auto found = cursor.begin();
+                if (found == cursor.end()) break;
+
+                const auto element = (*found)["parent"];
+                if (!element || element.type() != bsoncxx::type::k_string) break;
+                const std::string next(element.get_string().value);
+                if (next.size() <= parent.size() || next.compare(0, parent.size(), parent) != 0) break;
+
+                const auto rest = next.substr(parent.size());
+                const auto segment = rest.substr(0, rest.find('/'));
+                // "a//b" has the parent "a//": an empty segment, which is not a directory of its
+                // own. Skipped as the grouping skipped it, and the seek moves past it the same way.
+                if (!segment.empty()) directories.push_back(parent + segment + "/");
+
+                from = parent + segment + "0";
+                inclusive = true;
             }
             return directories;
 

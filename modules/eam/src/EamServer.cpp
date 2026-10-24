@@ -5,6 +5,7 @@
 // C++ includes
 #include <algorithm>
 #include <map>
+#include <set>
 
 // Euclid includes
 #include <EamServer.h>
@@ -29,6 +30,7 @@
 #include <euclid/dto/eam/GetAccountResponse.h>
 #include <euclid/dto/eam/ListAccountsRequest.h>
 #include <euclid/dto/eam/ListAccountsResponse.h>
+#include <euclid/dto/eam/ListMyAccountsResponse.h>
 #include <euclid/dto/eam/ListNamespacesRequest.h>
 #include <euclid/dto/eam/ListNamespacesResponse.h>
 #include <euclid/dto/eam/ListUserGroupsRequest.h>
@@ -1588,6 +1590,81 @@ namespace Euclid::EAM {
         return EamServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::value_from(response)));
     }
 
+    /**
+     * @brief The accounts the caller may work in.
+     *
+     * @par
+     * The one listing of accounts that is not administrator-only, because it is not a listing of
+     * the installation: it is the answer to "where may I work", and the caller is entitled to know
+     * that about themselves. list-accounts stays what it was - every account there is, for whoever
+     * runs the place.
+     *
+     * @par What is in it
+     * The home account, always: that is where the caller's own things live and it is the account
+     * every session worked in before anything could be chosen. Then one per account named by a
+     * grant they hold, their own and their groups' alike - which is the same set Authorize() will
+     * consult when they actually try something there, so the list cannot offer an account that
+     * then refuses them outright.
+     *
+     * @par
+     * An administrator gets all of them. Being in the administrator group is permission everywhere
+     * rather than a grant anywhere, so collecting their grants would hand the one person who may
+     * work in every account the shortest list of all.
+     *
+     * @par
+     * An account named by a grant but missing from the accounts collection is still offered, under
+     * its id. The grant is what authorization reads, so refusing to show it would hide an account
+     * the caller can nonetheless work in - and the id is what a client sends back anyway.
+     */
+    static response<string_body> handleListMyAccounts(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-my-accounts");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) {
+            return unauthorized(req, auth);
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().eamRepository();
+
+        // Ordered and de-duplicated: a user with several grants in one account should see it once,
+        // and the order a client lists them in should not depend on which grant was written first.
+        std::set<std::string> accountIds;
+        if (!auth.user->accountId.empty()) {
+            accountIds.insert(auth.user->accountId);
+        }
+
+        if (isAdmin(*auth.user)) {
+            for (const auto &account: repo->listAccounts("", 0, 0, "name")) {
+                accountIds.insert(account.accountId);
+            }
+        } else {
+            for (const auto &grant: Database::CachedGrantsOf(*auth.user)) {
+                if (!grant.accountId.empty()) accountIds.insert(grant.accountId);
+            }
+        }
+
+        Dto::EAM::ListMyAccountsResponse response;
+        response.homeAccountId = auth.user->accountId;
+        for (const auto &accountId: accountIds) {
+            if (const auto account = repo->findAccountByAccountId(accountId)) {
+                response.accounts.push_back(Dto::EAM::EamMapper::toDto(*account));
+            } else {
+                Dto::Account bare;
+                bare.accountId = accountId;
+                // Named after itself rather than left blank: a client shows the name, and a row
+                // with nothing in it is worse than one showing the id it is about to send.
+                bare.name = accountId;
+                response.accounts.push_back(bare);
+            }
+        }
+        response.total = static_cast<long>(response.accounts.size());
+
+        log_debug << "EAM ListMyAccounts, userId: " << auth.user->userId << ", accounts: " << response.total;
+
+        return EamServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::value_from(response)));
+    }
+
     // Reads one account, by account ID or by ERN - the two things that name one. Administrator-only,
     // like the listing it answers a single row of.
     static response<string_body> handleGetAccount(const request<string_body> &req) {
@@ -1720,7 +1797,8 @@ namespace Euclid::EAM {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "list-namespaces");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) {
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) {
             return unauthorized(req, auth);
         }
 
@@ -1731,17 +1809,54 @@ namespace Euclid::EAM {
         if (request.accountId.empty()) {
             return EamServer::ErrorResponse(req, status::bad_request, "accountId is required");
         }
-        // if (!isAccountAdmin(*auth.user, request.accountId)) {
-        //     return EamServer::ErrorResponse(req, status::forbidden, "Administrator privileges required for this account");
-        // }
 
         const auto repo = Database::RepositoryFactory::instance().eamRepository();
-        const auto namespaces = repo->listNamespaces(request.accountId, request.prefix, request.pageSize, request.pageIndex, request.sortColumn, request.sortDirection);
-        log_info << "EAM ListNamespaces, accountId: " << request.accountId << (!request.prefix.empty() ? ", prefix: " + request.prefix : "");
+
+        // Read whole and paged below, because what the caller may see is decided here rather than
+        // by the query: a page taken first and filtered afterwards would be short of its own page
+        // size and would say so wrongly in `total`. An account holds a handful of namespaces.
+        const auto all = repo->listNamespaces(request.accountId, request.prefix, 0, 0, request.sortColumn, request.sortDirection);
+
+        // The namespaces this caller may work in, which is what somebody picking one at sign-in is
+        // choosing between. Offering the rest would be offering a choice that is refused the moment
+        // it is acted on - and the gate cannot make this check itself: the request names no
+        // namespace yet, since listing them is how one gets named. See Permissions::UngatedActions().
+        std::vector<Database::Entity::EAM::Namespace> visible;
+        if (isAccountAdmin(*auth.user, request.accountId)) {
+            visible = all;
+        } else {
+            bool everything = false;
+            std::set<std::string> granted;
+            for (const auto &grant: Database::CachedGrantsOf(*auth.user)) {
+                if (grant.accountId != request.accountId) continue;
+                if (std::ranges::contains(grant.namespaces, "*")) {
+                    everything = true;
+                    break;
+                }
+                granted.insert(grant.namespaces.begin(), grant.namespaces.end());
+            }
+            for (const auto &nameSpace: all) {
+                if (everything || granted.contains(nameSpace.name)) visible.push_back(nameSpace);
+            }
+        }
+
+        const auto total = static_cast<long>(visible.size());
+
+        // The window the caller asked for, over what they may see. A page size of zero or less is
+        // "all of it", which is what the repository means by it and what the CLI sends by default.
+        if (request.pageSize > 0) {
+            const auto from = std::min<std::size_t>(static_cast<std::size_t>(std::max(0L, request.pageIndex)) * static_cast<std::size_t>(request.pageSize), visible.size());
+            const auto to = std::min<std::size_t>(from + static_cast<std::size_t>(request.pageSize), visible.size());
+            visible = std::vector(visible.begin() + static_cast<long>(from), visible.begin() + static_cast<long>(to));
+        }
+
+        log_info << "EAM ListNamespaces, accountId: " << request.accountId
+                 << (!request.prefix.empty() ? ", prefix: " + request.prefix : "")
+                 << ", visible: " << total << " of " << all.size() << ", user: " << auth.user->userId;
 
         Dto::EAM::ListNamespacesResponse response;
-        response.namespaces = Dto::EAM::EamMapper::toDto(namespaces);
-        response.total = repo->countNamespaces(request.accountId);
+        response.namespaces = Dto::EAM::EamMapper::toDto(visible);
+        response.total = total;
         return EamServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::value_from(response)));
     }
 
@@ -2367,6 +2482,7 @@ namespace Euclid::EAM {
             CreateAccount,
             GetAccount,
             ListAccounts,
+            ListMyAccounts,
             DeleteAccount,
             CreateNamespace,
             ListNamespaces,
@@ -2417,6 +2533,7 @@ namespace Euclid::EAM {
         if (action == "create-account") return Action::CreateAccount;
         if (action == "get-account") return Action::GetAccount;
         if (action == "list-accounts") return Action::ListAccounts;
+        if (action == "list-my-accounts") return Action::ListMyAccounts;
         if (action == "delete-account") return Action::DeleteAccount;
         if (action == "create-namespace") return Action::CreateNamespace;
         if (action == "list-namespaces") return Action::ListNamespaces;
@@ -2523,6 +2640,9 @@ namespace Euclid::EAM {
 
             case Action::ListAccounts:
                 return handleListAccounts(req);
+
+            case Action::ListMyAccounts:
+                return handleListMyAccounts(req);
 
             case Action::DeleteAccount:
                 return handleDeleteAccount(req);

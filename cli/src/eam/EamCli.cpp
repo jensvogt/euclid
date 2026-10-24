@@ -377,6 +377,7 @@ namespace Euclid::CLI {
                 {"list-accounts", "List accounts"},
                 {"list-grants", "List grants: by principal, by role, or a whole account"},
                 {"list-permissions", "List every permission a role can hold"},
+                {"list-my-accounts", "List the accounts you may work in"},
                 {"list-namespaces", "List namespaces under an account"},
                 {"list-roles", "List the roles this account can bind"},
                 {"list-user-groups", "List user groups"},
@@ -484,6 +485,9 @@ namespace Euclid::CLI {
         }
         if (action == "list-accounts") {
             return listAccounts(args);
+        }
+        if (action == "list-my-accounts") {
+            return listMyAccounts(args);
         }
         if (action == "delete-account") {
             return deleteAccount(args);
@@ -1610,6 +1614,38 @@ namespace Euclid::CLI {
                 return 1;
             }
 
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EamCli::listMyAccounts(const std::vector<std::string> &args) const {
+        po::options_description desc("eam list-my-accounts options");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("eam", "list-my-accounts", "",
+                                   "Lists the accounts you may work in, as the signed-in user: your home account - the "
+                                   "one you were registered in - and every account a role granted to you, or to a group "
+                                   "you are in, names.\n\n"
+                                   "Unlike list-accounts, which is an administrator's view of every account there is, "
+                                   "this one is about the caller and needs no privileges. An administrator asking gets "
+                                   "all of them, since being an administrator is permission everywhere rather than a "
+                                   "grant anywhere.\n\n"
+                                   "The answer also carries homeAccountId, which is the account to work in when nothing "
+                                   "else has been chosen.",
+                                   desc);
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eam", "list-my-accounts", boost::json::object{});
+            if (!response.IsSuccess()) {
+                reportFailure("list-my-accounts", response);
+                return 1;
+            }
             Core::WriteJson(std::cout, response.body, _pretty);
             return 0;
         } catch (const std::exception &ex) {

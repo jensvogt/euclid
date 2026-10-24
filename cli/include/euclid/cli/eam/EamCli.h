@@ -390,6 +390,19 @@ namespace Euclid::CLI {
         int listAccounts(const std::vector<std::string> &args) const;
 
         /**
+         * @brief Lists the accounts the signed-in user may work in.
+         *
+         * @par
+         * Their home account and every account a grant of theirs names. Needs no privileges: it
+         * is about the caller, not about the installation.
+         *
+         * @param args action arguments
+         * @return the process exit code
+         */
+        [[nodiscard]]
+        int listMyAccounts(const std::vector<std::string> &args) const;
+
+        /**
          * @brief Deletes an existing account
          *
          * @param args action arguments
