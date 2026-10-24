@@ -6,6 +6,7 @@
 #include <boost/test/unit_test.hpp>
 
 // C++ includes
+#include <cstdint>
 #include <string>
 
 // MongoDB includes
@@ -156,4 +157,38 @@ BOOST_AUTO_TEST_CASE(APartialUploadDocumentReadsAsEmpty) {
     BOOST_TEST(read.upload.keyPrefix.empty());
     BOOST_TEST(read.upload.maxBytes == 0L);
     BOOST_TEST(read.upload.contentTypes.empty());
+}
+
+// ── The backend timeout ─────────────────────────────────────────────────────
+
+BOOST_AUTO_TEST_CASE(ARouteTimeoutSurvivesARoundTrip) {
+    Route route;
+    route.routeId = "export";
+    route.path = "/resource/export";
+    route.applicationId = "onix-parser";
+    route.timeout = 300;
+
+    const auto read = Route::fromDocument(route.toDocument().view());
+
+    BOOST_TEST(read.timeout == 300L);
+}
+
+// Every route written before the field existed has none, and keeps the gateway's own timeout -
+// which 0 means - rather than reading as a route that may wait no time at all.
+BOOST_AUTO_TEST_CASE(ARouteStoredWithoutATimeoutUsesTheGatewayDefault) {
+    const auto document = bsoncxx::builder::basic::make_document(
+            bsoncxx::builder::basic::kvp("routeId", "legacy"),
+            bsoncxx::builder::basic::kvp("path", "/legacy"),
+            bsoncxx::builder::basic::kvp("applicationId", "legacy-service"));
+
+    BOOST_TEST(Route::fromDocument(document.view()).timeout == 0L);
+}
+
+// Written from a shell or another client, a small number is stored as a 32-bit integer.
+BOOST_AUTO_TEST_CASE(ATimeoutStoredAsAThirtyTwoBitIntegerIsRead) {
+    const auto document = bsoncxx::builder::basic::make_document(
+            bsoncxx::builder::basic::kvp("routeId", "shell"),
+            bsoncxx::builder::basic::kvp("timeout", std::int32_t{120}));
+
+    BOOST_TEST(Route::fromDocument(document.view()).timeout == 120L);
 }

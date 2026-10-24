@@ -53,6 +53,7 @@ namespace Euclid::Database::Entity::EAG {
                 bsoncxx::builder::basic::kvp("moduleAction", moduleAction),
                 bsoncxx::builder::basic::kvp("methods", methodArray),
                 bsoncxx::builder::basic::kvp("authentication", RouteAuthenticationToString(authentication)),
+                bsoncxx::builder::basic::kvp("timeout", static_cast<std::int64_t>(timeout)),
                 bsoncxx::builder::basic::kvp("active", active),
                 bsoncxx::builder::basic::kvp("created", bsoncxx::types::b_date{std::chrono::duration_cast<std::chrono::milliseconds>(created.time_since_epoch())}),
                 bsoncxx::builder::basic::kvp("modified", bsoncxx::types::b_date{std::chrono::duration_cast<std::chrono::milliseconds>(modified.time_since_epoch())}));
@@ -101,6 +102,12 @@ namespace Euclid::Database::Entity::EAG {
                 // RouteAuthenticationFromString. Refusing to load the route instead would take a
                 // working path offline over a byte in the database.
                 route.authentication = RouteAuthenticationFromString(std::string(field.get_string().value)).value_or(RouteAuthentication::NONE);
+            }
+            // Absent on every route written before it existed, which then keeps the default of 0 -
+            // the gateway's own timeout, which is what those routes have always had.
+            else if (key == "timeout") {
+                if (field.type() == bsoncxx::type::k_int64) route.timeout = static_cast<long>(field.get_int64().value);
+                else if (field.type() == bsoncxx::type::k_int32) route.timeout = field.get_int32().value;
             }
             else if (key == "active") route.active = field.get_bool().value;
             else if (key == "created") route.created = std::chrono::system_clock::time_point{field.get_date().value};

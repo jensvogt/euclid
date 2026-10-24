@@ -156,6 +156,7 @@ namespace Euclid::CLI {
                 ("region,R", po::value<std::string>(), "region requests on this route act in; defaults to your own")
                 ("namespace,N", po::value<std::string>(), "namespace requests on this route act in; defaults to the one you are working in")
                 ("authentication,A", po::value<std::string>()->default_value("none"), "none (anybody may call it), euclid (a bearer token, RFC 9421 signature or SigV4) or basic (HTTP Basic against a euclid user password)")
+                ("timeout,T", po::value<std::int64_t>(), "seconds the backend has to answer, 1 to 3600; omit or 0 for the gateway's default (euclid.gateway.http.backend-timeout)")
                 ("inactive,i", po::bool_switch(), "create the route but leave it out of service until update-route activates it");
 
         if (IsHelpRequest(args)) {
@@ -164,7 +165,7 @@ namespace Euclid::CLI {
                                    "(--application <name> | --module <name> --action <name> | --type upload --bucket <ern>) "
                                    "[--methods <list>] [--region <name>] [--namespace <name>] "
                                    "[--authentication none|euclid|basic] [--key-prefix <prefix>] [--max-bytes <n>] "
-                                   "[--part-size <n>] [--content-types <list>] [--inactive]",
+                                   "[--part-size <n>] [--content-types <list>] [--timeout <seconds>] [--inactive]",
                                    "Publishes a path prefix on the gateway's port and sends everything beneath it to "
                                    "an application, one instance at a time in turn. The path is forwarded unchanged, "
                                    "so a route on /resource reaches the application as "
@@ -205,6 +206,10 @@ namespace Euclid::CLI {
                                    "to reach for when the caller is a person at a browser or a script with nothing but "
                                    "curl. With none it forwards everything, which is what a route behind an external "
                                    "gateway or an application doing its own authentication wants. "
+                                   "--timeout is how long the backend has to answer a request on this route before the "
+                                   "caller is given 504 Gateway Timeout. Without it the route follows the gateway's "
+                                   "own setting, euclid.gateway.http.backend-timeout, 60 seconds unless changed; set it "
+                                   "for a route whose calls are known to take longer, such as a bulk export. "
                                    "\n\n"
                                    "--type upload makes the gateway the endpoint rather than a way to one: the body is "
                                    "streamed into the bucket named by --bucket, under the key given by the rest of the "
@@ -296,6 +301,7 @@ namespace Euclid::CLI {
         // carries the routes of no namespace whatever it is bound to, and was unmanageable.
         if (vm.contains("region")) request["region"] = vm["region"].as<std::string>();
         if (vm.contains("namespace")) request["namespace"] = vm["namespace"].as<std::string>();
+        if (vm.contains("timeout")) request["timeout"] = vm["timeout"].as<std::int64_t>();
 
         if (type == "upload") {
             request["bucket"] = vm["bucket"].as<std::string>();
@@ -326,12 +332,13 @@ namespace Euclid::CLI {
                 ("region,R", po::value<std::string>(), "region requests on this route act in")
                 ("namespace,N", po::value<std::string>(), "namespace requests on this route act in")
                 ("authentication,A", po::value<std::string>(), "none, euclid or basic")
+                ("timeout,T", po::value<std::int64_t>(), "seconds the backend has to answer, 1 to 3600; 0 to go back to the gateway's default")
                 ("active", po::value<bool>(), "true to put the route into service, false to take it out");
 
         if (IsHelpRequest(args)) {
             return PrintActionHelp("eag", "update-route",
                                    "--route-id <id> [--path <prefix>] [--application <name>] [--methods <list>] "
-                                   "[--authentication none|euclid|basic] [--active true|false]",
+                                   "[--authentication none|euclid|basic] [--timeout <seconds>] [--active true|false]",
                                    "Changes an existing route. Anything not named is left as it is, so one setting can "
                                    "be changed without restating the rest. "
                                    "The gateway re-reads its routes every few seconds, so a change takes effect "
@@ -341,6 +348,8 @@ namespace Euclid::CLI {
                                    "--active false is the way to take a path out of service without losing its "
                                    "definition: the gateway stops carrying it and answers 404, and --active true puts "
                                    "it back exactly as it was. "
+                                   "--timeout changes how long the backend has to answer before the caller is given "
+                                   "504, and \"--timeout 0\" puts the route back on the gateway's default. "
                                    "\n\n"
                                    "The upload settings - --bucket, --key-prefix, --max-bytes, --part-size and "
                                    "--content-types - apply to a route of --type upload. What makes a route coherent "
@@ -391,6 +400,7 @@ namespace Euclid::CLI {
             if (!ValidAuthentication(authentication, "update-route")) return 1;
             request["authentication"] = authentication;
         }
+        if (vm.contains("timeout")) request["timeout"] = vm["timeout"].as<std::int64_t>();
         if (vm.contains("active")) request["active"] = vm["active"].as<bool>();
 
         return Send(_endpoint, _authentication, _caCertPath, _pretty, "update-route", request);

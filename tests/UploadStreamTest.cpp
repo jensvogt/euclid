@@ -8,6 +8,7 @@
 // C++ includes
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -22,6 +23,7 @@
 
 // Euclid includes
 #include <ProxyServer.h>
+#include <euclid/core/Configuration.h>
 #include <euclid/core/HttpActionServer.h>
 #include <euclid/core/JwtUtils.h>
 #include <euclid/database/Database.h>
@@ -203,7 +205,7 @@ namespace {
     // MongoDB, which is what lets this run anywhere.
     struct Gateway {
 
-        explicit Gateway(const Route &route, const unsigned short esmPort = 0) : port(nextPort()) {
+        explicit Gateway(const Route &route, const unsigned short esmPort = 0, const int threads = 1) : port(nextPort()) {
             Euclid::Database::Database::instance().initializeMemory();
 
             auto stored = route;
@@ -214,7 +216,7 @@ namespace {
                     // A one-second refresh, because stop() joins the refresh thread and that
                     // thread sleeps for a whole interval between ticks - so the interval is also
                     // how long shutting the gateway down can take.
-                    1, 1, 60, esmPort, false, "");
+                    threads, 1, 60, esmPort, false, "");
             server->start();
         }
 
@@ -269,6 +271,59 @@ namespace {
         boost::system::error_code ignored;
         socket.shutdown(tcp::socket::shutdown_both, ignored);
         return response;
+    }
+
+
+    /**
+     * @brief A backend that takes the connection and the request, and never answers - what a
+     * hung instance looks like from the gateway. Connections are held open until it is destroyed,
+     * so it is the gateway's timeout that ends the exchange and not the socket closing.
+     */
+    struct SilentBackend {
+
+        SilentBackend() : port(nextPort()) {
+            _acceptor.open(tcp::v4());
+            _acceptor.set_option(asio::socket_base::reuse_address(true));
+            _acceptor.bind(tcp::endpoint(tcp::v4(), port));
+            _acceptor.listen();
+            accept();
+            _thread = std::thread([this] { _ioc.run(); });
+        }
+
+        ~SilentBackend() {
+            _ioc.stop();
+            if (_thread.joinable()) _thread.join();
+        }
+
+        unsigned short port;
+
+    private:
+
+        void accept() {
+            _acceptor.async_accept([this](const boost::system::error_code &ec, tcp::socket socket) {
+                if (ec) return;
+                _held.push_back(std::move(socket));
+                accept();
+            });
+        }
+
+        asio::io_context _ioc;
+        tcp::acceptor _acceptor{_ioc};
+        std::vector<tcp::socket> _held;
+        std::thread _thread;
+    };
+
+    // A module route, because that is the one the fixture can point at a backend of its own: it
+    // forwards to euclid's gateway port, which Gateway passes as the ESM port.
+    Route moduleRoute(const long timeout) {
+        Route route;
+        route.routeId = "slow-test";
+        route.path = "/slow";
+        route.moduleTarget = "eam";
+        route.moduleAction = "list-users";
+        route.active = true;
+        route.timeout = timeout;
+        return route;
     }
 
 }// namespace
@@ -466,4 +521,73 @@ BOOST_AUTO_TEST_CASE(AProxyRouteStillTakesTheProxyPath) {
     const auto response = put(gateway.port, "/api/orders", 1024);
 
     BOOST_TEST(response.result_int() == 503);
+}
+
+BOOST_AUTO_TEST_CASE(ABackendSlowerThanTheRouteTimeoutIsAGatewayTimeout) {
+
+    const SilentBackend backend;
+    const Gateway gateway(moduleRoute(1), backend.port);
+
+    const auto started = std::chrono::steady_clock::now();
+    const auto response = put(gateway.port, "/slow/anything", 16);
+    const auto took = std::chrono::steady_clock::now() - started;
+
+    // 504 and not 502: the backend was reached and was too slow, which is a different thing to
+    // fix from one that is broken. The body names the timeout that applied.
+    BOOST_TEST(response.result_int() == 504);
+    BOOST_TEST(response.body().find("within 1 seconds") != std::string::npos);
+    // The route's second, not the gateway's default minute.
+    BOOST_TEST(took < std::chrono::seconds(10));
+}
+
+BOOST_AUTO_TEST_CASE(ARouteWithoutATimeoutUsesTheGatewaysDefault) {
+
+    Euclid::Core::Configuration::instance().set<long long>("euclid.gateway.http.backend-timeout", 2);
+
+    const SilentBackend backend;
+    const Gateway gateway(moduleRoute(0), backend.port);
+
+    const auto response = put(gateway.port, "/slow/anything", 16);
+
+    Euclid::Core::Configuration::instance().set<long long>("euclid.gateway.http.backend-timeout", 60);
+
+    BOOST_TEST(response.result_int() == 504);
+    BOOST_TEST(response.body().find("within 2 seconds") != std::string::npos);
+}
+
+BOOST_AUTO_TEST_CASE(ARouteTimeoutWinsOverTheGatewaysDefault) {
+
+    Euclid::Core::Configuration::instance().set<long long>("euclid.gateway.http.backend-timeout", 2);
+
+    const SilentBackend backend;
+    const Gateway gateway(moduleRoute(1), backend.port);
+
+    const auto response = put(gateway.port, "/slow/anything", 16);
+
+    Euclid::Core::Configuration::instance().set<long long>("euclid.gateway.http.backend-timeout", 60);
+
+    BOOST_TEST(response.result_int() == 504);
+    BOOST_TEST(response.body().find("within 1 seconds") != std::string::npos);
+}
+
+// The real gateway runs its io_context on several threads, and a Beast stream that is not on a
+// strand then races its own timeout: the timer closes the socket and only afterwards records that
+// it timed out, so the read it aborted can complete on another thread in between and report
+// "Operation canceled" - a 502 - instead of the timeout. Several requests at once, on several
+// threads, so the window has a chance to open.
+BOOST_AUTO_TEST_CASE(ATimeoutIsAGatewayTimeoutOnAMultiThreadedGateway) {
+
+    const SilentBackend backend;
+    const Gateway gateway(moduleRoute(1), backend.port, 8);
+
+    constexpr int kRequests = 32;
+    std::vector<int> statuses(kRequests);
+    std::vector<std::thread> callers;
+    for (int i = 0; i < kRequests; ++i) {
+        callers.emplace_back([&statuses, &gateway, i] { statuses[i] = put(gateway.port, "/slow/anything", 16).result_int(); });
+    }
+    for (auto &caller: callers) caller.join();
+
+    const auto timeouts = std::ranges::count(statuses, 504);
+    BOOST_TEST(timeouts == kRequests);
 }
