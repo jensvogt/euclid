@@ -49,7 +49,7 @@ namespace Euclid::Core {
                 "eag:list-routes",
                 "eag:update-route",
 
-                // eam - 42 actions
+                // eam - 43 actions
                 "eam:change-email",
                 "eam:change-namespace",
                 "eam:change-password",
@@ -75,6 +75,7 @@ namespace Euclid::Core {
                 "eam:list-access-keys",
                 "eam:list-accounts",
                 "eam:list-grants",
+                "eam:list-my-accounts",
                 "eam:list-namespaces",
                 "eam:list-permissions",
                 "eam:list-roles",
@@ -346,11 +347,26 @@ namespace Euclid::Core {
 
     const std::vector<std::string> &Permissions::UngatedActions() {
 
-        // The gate cannot ask the right question about this one: the namespace being moved to is in
-        // the request body, and the gate sees only the headers - so it was checking the caller's
-        // grants against the namespace they are leaving. handleChangeNamespace() makes the real
-        // check, against the same grants, having read the body. See Permissions.h.
-        static const std::vector<std::string> kUngated = {"eam:change-namespace"};
+        // The gate cannot ask the right question about change-namespace: the namespace being moved
+        // to is in the request body, and the gate sees only the headers - so it was checking the
+        // caller's grants against the namespace they are leaving. handleChangeNamespace() makes the
+        // real check, against the same grants, having read the body. See Permissions.h.
+        //
+        // list-my-accounts is here for the other reason a gate asks the wrong question: it is about
+        // the caller rather than about an account, and gating it on a grant in the account the
+        // session is currently in makes it answerable only by somebody who already has what they
+        // are asking about. A user with no grants anywhere - which is every user until somebody
+        // gives them one - was refused the list of where they may work, which is exactly when the
+        // answer matters: at sign-in, before a client knows which account to ask about. The handler
+        // scopes it to the caller itself and reports nothing about anybody else.
+        // list-namespaces is here for the same reason as change-namespace, one step earlier: the
+        // gate matches the caller's grants against x-euclid-namespace, and at sign-in there is no
+        // namespace to match - listing them is how one gets chosen. A grant narrowed to a single
+        // namespace therefore failed to cover the very call that finds it, so the people most
+        // likely to hold one could not open a session at all. handleListNamespaces() answers with
+        // the namespaces the caller may work in, which is the check the gate was reaching for.
+        static const std::vector<std::string> kUngated = {"eam:change-namespace", "eam:list-my-accounts",
+                                                          "eam:list-namespaces"};
         return kUngated;
     }
 

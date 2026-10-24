@@ -50,6 +50,18 @@ namespace Euclid::Core {
             return action.starts_with("delete-") || action.starts_with("purge-");
         }
 
+        // The EAM actions that say *where* work happens rather than *who* may do it, and so are not
+        // the access management an operator is deliberately kept out of.
+        //
+        // Listing namespaces is the one an operator cannot do without. Signing in picks a namespace
+        // from this list, and every module request afterwards names the namespace it chose, so an
+        // operator without it holds every permission EQS and ESM have and still cannot get past the
+        // login dialog. That reads as the whole installation refusing them rather than as one
+        // missing permission, which is how it was found.
+        bool isWorkplaceLookup(const std::string_view permission) {
+            return permission == "eam:list-namespaces";
+        }
+
         const std::vector<std::string> &empty() {
             static const std::vector<std::string> kEmpty;
             return kEmpty;
@@ -182,9 +194,12 @@ namespace Euclid::Core {
                 built[std::string(BuiltinRoles::AccountAdministrator)] = {std::string(Permissions::Everything)};
 
                 // Everything that is not destructive and is not access management. An operator runs
-                // the installation; deciding who may use it is a different job.
+                // the installation; deciding who may use it is a different job - but finding out
+                // which namespaces there are to run it in is not that job, and is where the work
+                // starts. See isWorkplaceLookup().
                 built[std::string(BuiltinRoles::Operator)] = select([](const std::string_view permission) {
-                    return !isDestructive(permission) && moduleOf(permission) != "eam";
+                    if (isDestructive(permission)) return false;
+                    return moduleOf(permission) != "eam" || isWorkplaceLookup(permission);
                 });
 
                 built[std::string(BuiltinRoles::Reader)] = select(isRead);

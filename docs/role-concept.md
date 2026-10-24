@@ -174,7 +174,7 @@ Nobody should have to write out 189 permissions to get started.
 | Role | Roughly |
 |---|---|
 | `account-administrator` | `*:*` within one account. Today's `AccountGrant.isAdmin`. Note that `*:*` does not include `emm`. |
-| `operator` | Every action except `delete-*`, `purge-*` and `eam:*`. The on-call role. |
+| `operator` | Every action except `delete-*`, `purge-*` and `eam:*`, plus `eam:list-namespaces` — signing in picks a namespace from that list, so the role cannot open a session without it. The on-call role. |
 | `reader` | `list-*`, `get-*`, `describe-*` across all modules. |
 | `publisher` | `ens:publish-message`, `eqs:send-message`, plus the `get-*-ern` lookups needed to address them. |
 | `consumer` | `eqs:receive-messages`, `eqs:delete-message`, `eqs:set-visibility`, `ens:subscribe`, `ens:unsubscribe`. |

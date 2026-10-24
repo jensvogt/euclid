@@ -308,6 +308,13 @@ namespace Euclid::Database {
          * @brief Creates the indexes required for efficient bucket lookup, if they do not already exist.
          */
         static void ensureIndexes();
+
+        /**
+         * @brief Builds the (bucketErn, parent, directory, key) index that one-level listings run
+         * on, in the background, and drops the (bucketErn, parent, key) index it replaces once it
+         * exists.
+         */
+        static void ensureLevelIndex();
     };
 
 }// namespace Euclid::Database

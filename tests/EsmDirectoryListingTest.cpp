@@ -100,3 +100,71 @@ BOOST_AUTO_TEST_CASE(PagingAppliesAfterDirectoriesAreFilteredOut) {
     BOOST_TEST_REQUIRE(secondPage.size() == 1U);
     BOOST_TEST(secondPage[0].key == "report.json");
 }
+
+namespace {
+
+    // A tree whose folders are found only through what is inside them - "deep/" has no marker and
+    // no object of its own, just a grandchild - next to siblings whose names sort around the
+    // "/" separator ("a!", "a0"), which is where a skip scan that jumps past one folder's block
+    // would swallow its neighbour if the bound were wrong.
+    void populateTree(MongoEsmRepository &repo) {
+        store(repo, "top.txt", 1);
+        store(repo, "a/one.txt", 1);
+        store(repo, "a/two.txt", 1);
+        store(repo, "a/sub/", 0);
+        store(repo, "a/sub/three.txt", 1);
+        store(repo, "a!/bang.txt", 1);
+        store(repo, "a0/zero.txt", 1);
+        store(repo, "deep/x/y/z.txt", 1);
+    }
+
+}// namespace
+
+BOOST_AUTO_TEST_CASE(SubdirectoriesAreTheFirstSegmentBelowTheLevel) {
+    Euclid::Database::Database::instance().initializeMemory();
+    MongoEsmRepository repo;
+    populateTree(repo);
+
+    const auto root = repo.listSubdirectories(kBucketErn, "");
+    BOOST_TEST_REQUIRE(root.size() == 4U);
+    BOOST_TEST(root[0] == "a!/");
+    BOOST_TEST(root[1] == "a/");
+    BOOST_TEST(root[2] == "a0/");
+    BOOST_TEST(root[3] == "deep/");
+
+    const auto a = repo.listSubdirectories(kBucketErn, "a/");
+    BOOST_TEST_REQUIRE(a.size() == 1U);
+    BOOST_TEST(a[0] == "a/sub/");
+
+    // A folder that holds only folders is still a folder - found through its grandchild.
+    const auto deep = repo.listSubdirectories(kBucketErn, "deep/");
+    BOOST_TEST_REQUIRE(deep.size() == 1U);
+    BOOST_TEST(deep[0] == "deep/x/");
+
+    BOOST_TEST(repo.listSubdirectories(kBucketErn, "a/sub/").empty());
+}
+
+BOOST_AUTO_TEST_CASE(ALevelCountsAndListsWithoutItsMarkersUnlessAsked) {
+    Euclid::Database::Database::instance().initializeMemory();
+    MongoEsmRepository repo;
+    populateTree(repo);
+
+    BOOST_TEST(repo.countLevel(kBucketErn, "a/", false) == 2);
+    BOOST_TEST(repo.countLevel(kBucketErn, "a/", true) == 3);
+
+    const auto files = repo.listLevel(kBucketErn, "a/", -1, -1, "asc", false);
+    BOOST_TEST_REQUIRE(files.size() == 2U);
+    BOOST_TEST(files[0].key == "a/one.txt");
+    BOOST_TEST(files[1].key == "a/two.txt");
+
+    // Markers and files in one key order, not markers first: the listing merges the two.
+    const auto all = repo.listLevel(kBucketErn, "a/", -1, -1, "asc", true);
+    BOOST_TEST_REQUIRE(all.size() == 3U);
+    BOOST_TEST(all[0].key == "a/one.txt");
+    BOOST_TEST(all[1].key == "a/sub/");
+    BOOST_TEST(all[2].key == "a/two.txt");
+
+    const auto page = repo.listLevel(kBucketErn, "a/", 1, 1, "asc", false);
+    BOOST_TEST_REQUIRE(page.size() == 1U);
+    BOOST_TEST(page[0].key == "a/two.txt");
+}
