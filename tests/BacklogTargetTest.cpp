@@ -281,3 +281,26 @@ BOOST_AUTO_TEST_CASE(ANodePoolShrinksOnlyOnceItHasBeenIdle) {
     BOOST_TEST(NodeTargetAfterIdle(3, 6, 600s, threshold) == 6);
     BOOST_TEST(NodeTargetAfterIdle(4, 4, std::nullopt, threshold) == 4);
 }
+
+// ── Busy, for a module ──────────────────────────────────────────────────────
+
+// The flap of 2026-10-25: a module answering one request at a time - a renewal, a load report - out
+// of eight threads is not a module that needs a second instance.
+BOOST_AUTO_TEST_CASE(OneRequestAtATimeDoesNotSaturateAModuleWithThreadsToSpare) {
+    BOOST_TEST(!Euclid::main::RequestsSaturate(1, 8));
+    BOOST_TEST(!Euclid::main::RequestsSaturate(7, 8));
+}
+
+BOOST_AUTO_TEST_CASE(EveryThreadTakenSaturatesIt) {
+    BOOST_TEST(Euclid::main::RequestsSaturate(8, 8));
+    // More than its threads is a queue in front of it, which is more than full, not less.
+    BOOST_TEST(Euclid::main::RequestsSaturate(9, 8));
+}
+
+// A count nobody could work out reads as one thread, so any request is saturation - the old
+// behaviour, and the safe direction to be wrong in.
+BOOST_AUTO_TEST_CASE(AnUnknownThreadCountCountsAsOne) {
+    BOOST_TEST(Euclid::main::RequestsSaturate(1, 0));
+    BOOST_TEST(Euclid::main::RequestsSaturate(1, -1));
+    BOOST_TEST(!Euclid::main::RequestsSaturate(0, 0));
+}

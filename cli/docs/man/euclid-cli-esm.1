@@ -286,6 +286,15 @@ Sets the priority the notifications this bucket sends are given \(em the
 bucket itself does nothing with it. See
 .BR euclid-cli-esm-set-bucket-priority (1).
 .TP
+.B stop-bucket
+Holds a bucket's events in EES: still made, not delivered until it is
+started. See
+.BR euclid-cli-esm-stop-bucket (1).
+.TP
+.B start-bucket
+Delivers a stopped bucket's held events, and stops holding new ones. See
+.BR euclid-cli-esm-start-bucket (1).
+.TP
 .B delete-objects
 Deletes several objects from a bucket, by key or by prefix. See
 .BR euclid-cli-esm-delete-objects (1).

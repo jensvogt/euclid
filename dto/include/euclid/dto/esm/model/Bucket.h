@@ -83,6 +83,11 @@ namespace Euclid::Dto::ESM {
         std::string priority;
 
         /**
+         * @brief Whether the bucket's events are held - see "esm stop-bucket".
+         */
+        bool stopped = false;
+
+        /**
          * @brief Creation date
          */
         system_clock::time_point created;
@@ -122,6 +127,7 @@ namespace Euclid::Dto::ESM {
             r.encryptionKeyErn = Core::GetStringValue(v, "encryptionKeyErn");
             r.internal = Core::GetBoolValue(v, "internal");
             r.priority = Core::GetStringValue(v, "priority");
+            r.stopped = Core::GetBoolValue(v, "stopped");
             r.created = Core::GetDatetimeValue(v, "created");
             r.modified = Core::GetDatetimeValue(v, "modified");
             return r;
@@ -140,6 +146,7 @@ namespace Euclid::Dto::ESM {
                     {"encryptionKeyErn", obj.encryptionKeyErn},
                     {"internal", obj.internal},
                     {"priority", obj.priority},
+                    {"stopped", obj.stopped},
                     {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
             };

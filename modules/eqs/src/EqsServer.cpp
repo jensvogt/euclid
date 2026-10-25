@@ -8,6 +8,7 @@
 // Euclid includes
 #include <EqsServer.h>
 
+#include <euclid/database/entity/eap/InfrastructureApply.h>
 #include <euclid/database/PeriodicClaim.h>
 
 #include <boost/asio/query.hpp>
@@ -162,6 +163,16 @@ namespace Euclid::EQS {
         const auto request = boost::json::value_to<Dto::EQS::CreateQueueRequest>(jv);
         const auto ns = std::string(req["x-euclid-namespace"]);
 
+        // Read and then never stored, until now: a queue asked for at LOW came up at MEDIUM.
+        // Empty is "not given" - the SDKs pass along whatever their caller handed them - and a
+        // name that is not a priority is refused, like a message's.
+        const auto priority = request.priority.empty()
+                                      ? std::optional{Database::Entity::EQS::MessagePriority::MEDIUM}
+                                      : Database::Entity::EQS::TryMessagePriorityFromString(request.priority);
+        if (!priority.has_value()) {
+            return EqsServer::ErrorResponse(req, status::bad_request, R"(priority must be "LOW", "MEDIUM" or "HIGH", not ")" + request.priority + R"(")");
+        }
+
         Database::Entity::EQS::Queue dlqSaved;
         if (!request.dlqName.empty()) {
             Database::Entity::EQS::Queue dlQueue;
@@ -175,6 +186,7 @@ namespace Euclid::EQS {
             dlQueue.region = auth.user->region;
             dlQueue.owner = auth.user->userId;
             dlQueue.delay = request.delay;
+            dlQueue.priority = *priority;
             // Hidden exactly as its source queue is. A dead letter queue is part of the plumbing
             // the source queue already is - a listener's delivery queue and the place its failures
             // go are one arrangement, not two - so offering one in list-queues while hiding the
@@ -202,6 +214,7 @@ namespace Euclid::EQS {
         // dead letter queue created above takes the same flag - see there.
         queue.internal = request.internal;
         queue.delay = request.delay;
+        queue.priority = *priority;
         queue.created = std::chrono::system_clock::now();
         queue.modified = std::chrono::system_clock::now();
 
@@ -1266,6 +1279,20 @@ namespace Euclid::EQS {
         return EqsServer::JsonResponse(req, status::ok, boost::json::serialize(body));
     }
 
+    // The tag that records which application owns an object - see
+    // Entity::EAP::Infrastructure::kOwnerTag. `eap apply` writes it, and what it says decides what an
+    // apply adopts, refuses and removes; anybody who could write it could take an object over or
+    // hand one to another application to delete. So only an administrator may write or remove it
+    // through the API, whatever else their role allows on the object.
+    static std::optional<response<string_body> > refuseOwnerTag(const request<string_body> &req, const std::string &userId,
+                                                               const std::string &key) {
+        if (key != Database::Entity::EAP::Infrastructure::kOwnerTag) return std::nullopt;
+        if (Database::IsEamAdmin(*Database::RepositoryFactory::instance().eamRepository(), userId)) return std::nullopt;
+        return EqsServer::ErrorResponse(req, status::forbidden,
+                                     std::string("The tag ") + Database::Entity::EAP::Infrastructure::kOwnerTag
+                                             + " records which application owns this, and is written by \"eap apply\"");
+    }
+
     static response<string_body> handleAddQueueTag(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "add-queue-tag");
@@ -1278,11 +1305,18 @@ namespace Euclid::EQS {
 
         const auto [ern, key, value] = boost::json::value_to<Dto::EQS::AddQueueTagRequest>(jv);
         log_info << "EQS AddQueueTag, ern: " << ern << ", key: " << key;
+        if (const auto refused = refuseOwnerTag(req, auth.user->userId, key)) return *refused;
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
         std::optional<Database::Entity::EQS::Queue> queue = repo->findQueueByErn(ern);
         if (!queue.has_value()) {
             return EqsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + ern);
+        }
+        // Resource-checked, which it was not: an application holds this to stamp the heartbeat on
+        // its own delivery queue, and nothing stopped it tagging any queue in the account. Its own
+        // plumbing is let through, as for delete-queue; anything else needs a grant on the queue.
+        if (!isOwnInternalQueue(queue, auth)) {
+            if (const auto denied = denyUngrantedQueue(req, auth, ern)) return *denied;
         }
         queue->tags[key] = value;
         queue = repo->upsertQueue(queue.value());
@@ -1475,11 +1509,18 @@ namespace Euclid::EQS {
 
         const auto [ern, key, value] = boost::json::value_to<Dto::EQS::AddQueueTagRequest>(jv);
         log_info << "EQS SetQueueTag, ern: " << ern << ", key: " << key;
+        if (const auto refused = refuseOwnerTag(req, auth.user->userId, key)) return *refused;
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
         std::optional<Database::Entity::EQS::Queue> queue = repo->findQueueByErn(ern);
         if (!queue.has_value()) {
             return EqsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + ern);
+        }
+        // Resource-checked, which it was not: an application holds this to stamp the heartbeat on
+        // its own delivery queue, and nothing stopped it tagging any queue in the account. Its own
+        // plumbing is let through, as for delete-queue; anything else needs a grant on the queue.
+        if (!isOwnInternalQueue(queue, auth)) {
+            if (const auto denied = denyUngrantedQueue(req, auth, ern)) return *denied;
         }
         if (!queue.value().tags.contains(key)) {
             return EqsServer::ErrorResponse(req, status::not_found, "Tag not found, key: " + key);
@@ -1502,11 +1543,18 @@ namespace Euclid::EQS {
 
         const auto [ern, key] = boost::json::value_to<Dto::EQS::DeleteQueueTagRequest>(jv);
         log_info << "EQS DeleteQueueTag, ern: " << ern << ", key: " << key;
+        if (const auto refused = refuseOwnerTag(req, auth.user->userId, key)) return *refused;
 
         const auto repo = Database::RepositoryFactory::instance().eqsRepository();
         std::optional<Database::Entity::EQS::Queue> queue = repo->findQueueByErn(ern);
         if (!queue.has_value()) {
             return EqsServer::ErrorResponse(req, status::not_found, "Queue not found, ern: " + ern);
+        }
+        // Resource-checked, which it was not: an application holds this to stamp the heartbeat on
+        // its own delivery queue, and nothing stopped it tagging any queue in the account. Its own
+        // plumbing is let through, as for delete-queue; anything else needs a grant on the queue.
+        if (!isOwnInternalQueue(queue, auth)) {
+            if (const auto denied = denyUngrantedQueue(req, auth, ern)) return *denied;
         }
         queue->tags.erase(key);
         queue = repo->upsertQueue(queue.value());

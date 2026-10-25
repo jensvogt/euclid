@@ -88,6 +88,14 @@ namespace Euclid::Database {
         virtual long deleteTable(const std::string &accountId, const std::string &nameSpace, const std::string &name) = 0;
 
         /**
+         * @brief Sets one tag on a table, leaving its key and its items alone.
+         *
+         * @return false when there is no such table.
+         */
+        virtual bool setTableTag(const std::string &accountId, const std::string &nameSpace, const std::string &name,
+                                 const std::string &key, const std::string &value) = 0;
+
+        /**
          * @brief Writes an item, replacing whatever was stored under its key.
          *
          * @param item the item, with its key already taken from its attributes and its namespace

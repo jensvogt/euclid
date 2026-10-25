@@ -103,8 +103,19 @@ namespace Euclid::EKV {
             return std::nullopt;
         }
 
-        const auto table = Database::RepositoryFactory::instance().ekvRepository()->findTable(
-                auth.user->accountId, std::string(req["x-euclid-namespace"]), name);
+        // Resource-checked, which no table action was: any principal holding ekv:get-item could read
+        // every table in its namespace, and a grant naming one table meant nothing. Against the ERN
+        // the name would have, before the lookup, so a narrow grant cannot be used to find out which
+        // tables exist. A grant on "*" - every one an installation had when this was added - is
+        // still everything.
+        const auto ns = std::string(req["x-euclid-namespace"]);
+        if (auto denied = EkvServer::AuthorizeResource(req, Core::createEkvTableErn(auth.user->accountId, ns, name))) {
+            log_warning << "EKV resource denied, userId: " << auth.user->userId << ", table: " << name;
+            refusal = std::move(denied);
+            return std::nullopt;
+        }
+
+        const auto table = Database::RepositoryFactory::instance().ekvRepository()->findTable(auth.user->accountId, ns, name);
         if (!table.has_value()) {
             refusal = EkvServer::ErrorResponse(req, status::not_found, "Table does not exist: " + name);
             return std::nullopt;

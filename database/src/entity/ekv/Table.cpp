@@ -62,6 +62,9 @@ namespace Euclid::Database::Entity::EKV {
             document.append(builder::kvp("sortKeyName", sortKey->name),
                             builder::kvp("sortKeyType", ToString(sortKey->type)));
         }
+        builder::document tagsDocument;
+        for (const auto &[key, value]: tags) tagsDocument.append(builder::kvp(key, value));
+        document.append(builder::kvp("tags", tagsDocument.extract()));
         return document.extract();
     }
 
@@ -85,6 +88,12 @@ namespace Euclid::Database::Entity::EKV {
             else if (key == "sortKeyType") sortKeyType = std::string(field.get_string().value);
             else if (key == "created") table.created = std::chrono::system_clock::time_point{field.get_date().value};
             else if (key == "modified") table.modified = std::chrono::system_clock::time_point{field.get_date().value};
+            // Absent on every table made before tags existed, which then has none.
+            else if (key == "tags" && field.type() == bsoncxx::type::k_document) {
+                for (const auto &tag: field.get_document().value) {
+                    if (tag.type() == bsoncxx::type::k_string) table.tags[std::string(tag.key())] = std::string(tag.get_string().value);
+                }
+            }
         }
 
         if (!sortKeyName.empty()) {

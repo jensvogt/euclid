@@ -58,6 +58,9 @@ namespace Euclid::Database {
 
         long deleteTable(const std::string &accountId, const std::string &nameSpace, const std::string &name) override;
 
+        bool setTableTag(const std::string &accountId, const std::string &nameSpace, const std::string &name,
+                         const std::string &key, const std::string &value) override;
+
         Entity::EKV::Item putItem(Entity::EKV::Item &item) override;
 
         [[nodiscard]]

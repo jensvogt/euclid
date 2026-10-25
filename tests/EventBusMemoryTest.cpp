@@ -370,3 +370,78 @@ BOOST_AUTO_TEST_CASE(OneModulesEventsAreNotDeliveredToAnother) {
     bus.pollOnce("eqs");
     BOOST_TEST(eqsCalls == 1L);
 }
+
+// ── held events: a stopped bucket ──────────────────────────────────────────
+
+// Made and kept, and not to be read: what "esm stop-bucket" asks of every event about the bucket.
+BOOST_AUTO_TEST_CASE(AHeldEventIsStoredButNotReceived) {
+
+    Database::instance().initializeMemory();
+    auto &bus = EventBus::instance();
+    bus.SubscribeExternal(kSubscriber, kEventType, {}, kAccount);
+
+    bus.Publish(kEventType, payloadFor("held.txt"), "esm", EventBus::Delivery{.heldBy = "ern:esm:bucket:incoming"});
+
+    BOOST_TEST(bus.ClaimEvents(kSubscriber, 10, std::chrono::seconds(30)).empty());
+    // Not a backlog either: a consumer counting what waits must not poll for what it cannot get.
+    BOOST_TEST(bus.CountEvents(kSubscriber) == 0L);
+    BOOST_TEST(bus.CountHeld("ern:esm:bucket:incoming") == 1L);
+}
+
+// Started again, everything held goes out, in the order it was made.
+BOOST_AUTO_TEST_CASE(ReleasingMakesHeldEventsReceivableInOrder) {
+
+    Database::instance().initializeMemory();
+    auto &bus = EventBus::instance();
+    bus.SubscribeExternal(kSubscriber, kEventType, {}, kAccount);
+
+    const EventBus::Delivery held{.heldBy = "ern:esm:bucket:incoming"};
+    bus.Publish(kEventType, payloadFor("first.txt"), "esm", held);
+    bus.Publish(kEventType, payloadFor("second.txt"), "esm", held);
+    // Another bucket's event, held under its own name, stays where it is.
+    bus.Publish(kEventType, payloadFor("other.txt"), "esm", EventBus::Delivery{.heldBy = "ern:esm:bucket:other"});
+
+    BOOST_TEST(bus.ReleaseHeld("ern:esm:bucket:incoming") == 2L);
+
+    const auto claimed = bus.ClaimEvents(kSubscriber, 10, std::chrono::seconds(30));
+    BOOST_TEST_REQUIRE(claimed.size() == 2U);
+    BOOST_TEST(std::string(claimed[0].payload.at("key").as_string()) == "first.txt");
+    BOOST_TEST(std::string(claimed[1].payload.at("key").as_string()) == "second.txt");
+    BOOST_TEST(bus.CountHeld("ern:esm:bucket:incoming") == 0L);
+    BOOST_TEST(bus.CountHeld("ern:esm:bucket:other") == 1L);
+}
+
+BOOST_AUTO_TEST_CASE(ABatchIsHeldLikeOneByOne) {
+
+    Database::instance().initializeMemory();
+    auto &bus = EventBus::instance();
+    bus.SubscribeExternal(kSubscriber, kEventType, {}, kAccount);
+
+    const EventBus::Delivery held{.heldBy = "ern:esm:bucket:incoming"};
+    bus.PublishBatch(kEventType, {{payloadFor("a.txt"), held}, {payloadFor("b.txt"), held}}, "esm");
+
+    BOOST_TEST(bus.ClaimEvents(kSubscriber, 10, std::chrono::seconds(30)).empty());
+    BOOST_TEST(bus.CountHeld("ern:esm:bucket:incoming") == 2L);
+}
+
+// What stop-bucket does to the deliveries already waiting when it is run: they are held as though
+// they had been published after it. Still counted against the queue they are for, so the queue is
+// not taken for an empty one and deleted with them on their way.
+BOOST_AUTO_TEST_CASE(WaitingDeliveriesFromOneSourceAreHeld) {
+
+    Database::instance().initializeMemory();
+    auto &bus = EventBus::instance();
+    bus.Subscribe("eqs", "esm.subscription.delivery", [](const EventEnvelope &) { return true; });
+
+    bus.Publish("esm.subscription.delivery", boost::json::object{{"body", "x"}}, "esm",
+                EventBus::Delivery{.targetErn = "ern:eqs:queue:orders-in", .sourceErn = "ern:esm:bucket:incoming", .messageId = "m-1"});
+    bus.Publish("esm.subscription.delivery", boost::json::object{{"body", "y"}}, "esm",
+                EventBus::Delivery{.targetErn = "ern:eqs:queue:orders-in", .sourceErn = "ern:esm:bucket:other", .messageId = "m-2"});
+
+    BOOST_TEST(bus.HoldDeliveries("ern:esm:bucket:incoming") == 1L);
+    BOOST_TEST(bus.CountHeld("ern:esm:bucket:incoming") == 1L);
+    BOOST_TEST(bus.PendingDeliveries("ern:eqs:queue:orders-in") == 2L);
+
+    BOOST_TEST(bus.ReleaseHeld("ern:esm:bucket:incoming") == 1L);
+    BOOST_TEST(bus.CountHeld("ern:esm:bucket:incoming") == 0L);
+}

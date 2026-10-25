@@ -661,6 +661,17 @@ namespace Euclid::main {
             int appliedThreads = kThreadsUnobserved;
 
             /**
+             * @brief How many requests one instance serves at once - its request threads - or 0
+             * when not worked out yet. See requestCapacity().
+             *
+             * @par
+             * Cached because acquireInstance() reads it on every request, under the controller's
+             * mutex. Reset to 0 whenever appliedThreads changes, so the next request works it out
+             * again from the new count.
+             */
+            int requestCapacity = 0;
+
+            /**
              * @brief Instances still to be restarted - because the thread count changed, or
              * because somebody asked for a restart - one per reconcile tick. Empty in the
              * ordinary case.
@@ -1065,6 +1076,19 @@ namespace Euclid::main {
          * @return Pointer to the ServiceGroup, or nullptr if not registered. Caller must hold _mutex.
          */
         ServiceGroup *getGroup(const std::string &name);
+
+        /**
+         * @brief The requests one instance of a group serves at once: the thread count it was
+         * started with when that is known, otherwise "euclid.modules.<name>.threads", otherwise 2,
+         * the smallest default any module uses.
+         *
+         * @par
+         * What acquireInstance() measures an instance's concurrent requests against to decide it is
+         * busy - see RequestsSaturate(). 2 when nothing says otherwise errs towards scaling a pool
+         * up sooner, which is the cheaper mistake.
+         */
+        [[nodiscard]]
+        static int requestCapacity(const ServiceGroup &group);
 
         /**
          * @brief Finds a module instance by its process ID (PID), across all service groups.

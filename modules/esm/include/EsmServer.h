@@ -215,6 +215,11 @@ namespace Euclid::ESM {
          */
         static response<string_body> handleSetBucketPriority(const request<string_body> &req);
 
+        /**
+         * @brief stop-bucket and start-bucket: hold a bucket's events in EES, and let them go.
+         */
+        static response<string_body> handleSetBucketStopped(const request<string_body> &req, bool stop);
+
         static response<string_body> handleRenameBucket(const request<string_body> &req);
 
         /**

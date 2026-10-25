@@ -111,6 +111,31 @@ namespace Euclid::Database {
         }
     }
 
+    bool MongoEkvRepository::setTableTag(const std::string &accountId, const std::string &nameSpace, const std::string &name,
+                                         const std::string &key, const std::string &value) {
+
+        try {
+            // The tags field and nothing else, so nothing about the table's key or its items can be
+            // touched by a tag. Written whole rather than as "tags.<key>": the in-memory store does
+            // not set a nested path, and a tag key may itself hold a ':'.
+            auto table = findTable(accountId, nameSpace, name);
+            if (!table.has_value()) return false;
+            table->tags[key] = value;
+
+            bsoncxx::builder::basic::document tags;
+            for (const auto &[k, v]: table->tags) tags.append(kvp(k, v));
+
+            const auto collection = Database::instance().collection(TABLE_COLLECTION);
+            const auto result = collection.update_one(tableFilter(accountId, nameSpace, name).view(),
+                                                      make_document(kvp("$set", make_document(kvp("tags", tags.extract())))));
+            return result.has_value() && result->matched_count() > 0;
+
+        } catch (const std::exception &e) {
+            log_error << "Set table tag failed, table: " << name << ", error: " << e.what();
+            return false;
+        }
+    }
+
     bool MongoEkvRepository::tableExists(const std::string &accountId, const std::string &nameSpace, const std::string &name) const {
 
         try {

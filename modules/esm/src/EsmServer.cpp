@@ -5,6 +5,7 @@
 // Euclid includes
 #include <EsmServer.h>
 
+#include <euclid/database/entity/eap/InfrastructureApply.h>
 #include <euclid/database/PeriodicClaim.h>
 #include <euclid/database/BackgroundWork.h>
 #include <euclid/database/entity/eqs/MessagePriority.h>
@@ -338,7 +339,13 @@ namespace Euclid::ESM {
                                           const boost::json::object &attributes,
                                           const boost::json::object &systemAttributes,
                                           const std::string &bucketPriority,
-                                          const std::vector<Database::Entity::ESM::Subscription> *resolved);
+                                          const std::vector<Database::Entity::ESM::Subscription> *resolved,
+                                          const std::string &heldBy);
+
+    // What holds a bucket's events back: its own ERN while it is stopped, nothing otherwise.
+    static std::string heldByOf(const std::optional<Database::Entity::ESM::Bucket> &bucket) {
+        return bucket.has_value() && bucket->stopped ? bucket->ern : std::string{};
+    }
 
     // @param resolved the bucket's subscriptions, already looked up, or null to look them up here.
     // A bucket's subscriptions do not change while a page of it is being removed, so a purge
@@ -381,11 +388,15 @@ namespace Euclid::ESM {
             return out;
         };
 
+        // A stopped bucket's events are made and kept, and not delivered - see Bucket::stopped. The
+        // bucket's ERN is what holds them, so starting it again finds every one.
+        const auto heldBy = heldByOf(bucket);
+
         notifyBucketSubscriptions(eventType, object.bucketErn, object.key, object.ern, object.size,
                                   object.contentType, object.md5Sum,
                                   Database::Entity::ESM::IsDirectoryKey(object.key),
                                   asJson(object.attributes), asJson(object.systemAttributes),
-                                  bucket.has_value() ? bucket->priority : std::string{}, resolved);
+                                  bucket.has_value() ? bucket->priority : std::string{}, resolved, heldBy);
 
         Database::EventBus::instance().Publish(
                 eventType,
@@ -405,7 +416,7 @@ namespace Euclid::ESM {
                         {"region", object.region},
                         {"namespace", object.nameSpace},
                         {"eventTime", Core::DateTimeUtils::ToISO8601(std::chrono::system_clock::now())}},
-                "esm");
+                "esm", Database::EventBus::Delivery{.heldBy = heldBy});
     }
 
     // The same events publishObjectEvent() writes, for a whole page at once.
@@ -427,6 +438,7 @@ namespace Euclid::ESM {
 
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
         const auto subscriptions = repo->listSubscriptionsBySourceErnCached(objects.front().bucketErn);
+        const auto heldBy = heldByOf(bucket);
 
         const auto asJson = [](const std::map<std::string, Database::Entity::COM::Variant> &source) {
             boost::json::object out;
@@ -482,7 +494,8 @@ namespace Euclid::ESM {
                     const Database::EventBus::Delivery delivery{
                             .targetErn = subscription.targetErn,
                             .sourceErn = object.bucketErn,
-                            .messageId = Core::UuidUtils::CreateRandomUuid()};
+                            .messageId = Core::UuidUtils::CreateRandomUuid(),
+                            .heldBy = heldBy};
                     // See the single-object path above for why this is the bucket's own figure
                     // rather than a resolved one.
                     boost::json::object payloadObject{{"body", body},
@@ -515,7 +528,7 @@ namespace Euclid::ESM {
                                         {"region", object.region},
                                         {"namespace", object.nameSpace},
                                         {"eventTime", Core::DateTimeUtils::ToISO8601(std::chrono::system_clock::now())}},
-                                Database::EventBus::Delivery{});
+                                Database::EventBus::Delivery{.heldBy = heldBy});
         }
 
         auto &bus = Database::EventBus::instance();
@@ -922,7 +935,8 @@ namespace Euclid::ESM {
                                           const boost::json::object &attributes,
                                           const boost::json::object &systemAttributes,
                                           const std::string &bucketPriority,
-                                          const std::vector<Database::Entity::ESM::Subscription> *resolved) {
+                                          const std::vector<Database::Entity::ESM::Subscription> *resolved,
+                                          const std::string &heldBy) {
 
         // Looked up here for a single object event, handed in for a page of them - see
         // publishObjectEvent. Same list either way; the only difference is how often it is asked
@@ -970,7 +984,8 @@ namespace Euclid::ESM {
             const Database::EventBus::Delivery delivery{
                     .targetErn = subscription.targetErn,
                     .sourceErn = bucketErn,
-                    .messageId = Core::UuidUtils::CreateRandomUuid()};
+                    .messageId = Core::UuidUtils::CreateRandomUuid(),
+                    .heldBy = heldBy};
 
             // The object's attributes travel with the delivery, which is the whole point of them:
             // whatever put the object in the bucket knows things about it that the bucket cannot
@@ -1465,6 +1480,71 @@ namespace Euclid::ESM {
                                     {"ern", stored.ern},
                                     {"name", stored.name},
                                     {"priority", stored.priority}}));
+    }
+
+    // Stops or starts a bucket's events - see Bucket::stopped.
+    //
+    // Stopping holds every event published about the bucket from now on, and the deliveries to its
+    // subscribers that were still waiting; starting releases all of them. The objects are not
+    // touched either way. Idempotent: stopping a stopped bucket changes nothing and says so, and
+    // starting one releases whatever is held, which on a bucket that was never stopped is nothing.
+    response<string_body> EsmServer::handleSetBucketStopped(const request<string_body> &req, const bool stop) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", stop ? "stop-bucket" : "start-bucket");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+
+        const auto ern = Core::GetStringValue(jv, "ern");
+        if (ern.empty()) return ErrorResponse(req, status::bad_request, "ern is required");
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        auto bucket = repo->findBucketByErn(ern);
+        if (!bucket.has_value()) return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + ern);
+        if (bucket->accountId != auth.user->accountId) {
+            return ErrorResponse(req, status::forbidden, "Bucket does not belong to the caller's account");
+        }
+        if (const auto denied = denyUngrantedBucket(req, auth, ern)) return *denied;
+
+        auto &bus = Database::EventBus::instance();
+        boost::json::object answer{{"ern", bucket->ern}, {"name", bucket->name}, {"stopped", stop}};
+
+        if (stop) {
+            // The flag before the hold: an event published in between is then held by the flag,
+            // where the other order would leave it pending and delivered while the bucket was
+            // already meant to be stopped.
+            if (!bucket->stopped) {
+                bucket->stopped = true;
+                std::ignore = repo->upsertBucket(*bucket);
+            }
+            const auto held = bus.HoldDeliveries(bucket->ern);
+            if (held < 0) {
+                return ErrorResponse(req, status::internal_server_error,
+                                     "Bucket stopped, but its waiting deliveries could not be held; try stop-bucket again");
+            }
+            answer["held"] = bus.CountHeld(bucket->ern);
+            log_info << "ESM bucket stopped, bucket: " << bucket->name << ", deliveries held now: " << held;
+        } else {
+            // The other way round for the same reason: cleared first, so nothing published from here
+            // on is held, then whatever was held is let go.
+            if (bucket->stopped) {
+                bucket->stopped = false;
+                std::ignore = repo->upsertBucket(*bucket);
+            }
+            const auto released = bus.ReleaseHeld(bucket->ern);
+            if (released < 0) {
+                return ErrorResponse(req, status::internal_server_error,
+                                     "Bucket started, but its held events could not all be released; try start-bucket again");
+            }
+            answer["released"] = released;
+            log_info << "ESM bucket started, bucket: " << bucket->name << ", events released: " << released;
+        }
+
+        return JsonResponse(req, status::ok, boost::json::serialize(answer));
     }
 
     response<string_body> EsmServer::handleRenameBucket(const request<string_body> &req) {
@@ -3310,17 +3390,33 @@ namespace Euclid::ESM {
         return EsmServer::JsonResponse(req, status::ok);
     }
 
+    // The tag that records which application owns an object - see
+    // Entity::EAP::Infrastructure::kOwnerTag. `eap apply` writes it, and what it says decides what an
+    // apply adopts, refuses and removes; anybody who could write it could take an object over or
+    // hand one to another application to delete. So only an administrator may write or remove it
+    // through the API, whatever else their role allows on the object.
+    static std::optional<response<string_body> > refuseOwnerTag(const request<string_body> &req, const std::string &userId,
+                                                               const std::string &key) {
+        if (key != Database::Entity::EAP::Infrastructure::kOwnerTag) return std::nullopt;
+        if (Database::IsEamAdmin(*Database::RepositoryFactory::instance().eamRepository(), userId)) return std::nullopt;
+        return EsmServer::ErrorResponse(req, status::forbidden,
+                                     std::string("The tag ") + Database::Entity::EAP::Infrastructure::kOwnerTag
+                                             + " records which application owns this, and is written by \"eap apply\"");
+    }
+
     static response<string_body> handleAddBucketTag(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "add-bucket-tag");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
 
         const auto [ern, key, value] = boost::json::value_to<Dto::ESM::AddBucketTagRequest>(jv);
         log_info << "ESM AddBucketTag, ern: " << ern << ", key: " << key;
+        if (const auto refused = refuseOwnerTag(req, auth.user->userId, key)) return *refused;
 
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
         std::optional<Database::Entity::ESM::Bucket> bucket = repo->findBucketByErn(ern);
@@ -3337,13 +3433,15 @@ namespace Euclid::ESM {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-bucket-tag");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
 
         const auto [ern, key, value] = boost::json::value_to<Dto::ESM::AddBucketTagRequest>(jv);
         log_info << "ESM SetBucketTag, ern: " << ern << ", key: " << key;
+        if (const auto refused = refuseOwnerTag(req, auth.user->userId, key)) return *refused;
 
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
         std::optional<Database::Entity::ESM::Bucket> bucket = repo->findBucketByErn(ern);
@@ -3363,13 +3461,15 @@ namespace Euclid::ESM {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-bucket-tag");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
 
         const auto [ern, key] = boost::json::value_to<Dto::ESM::DeleteBucketTagRequest>(jv);
         log_info << "ESM DeleteBucketTag, ern: " << ern << ", key: " << key;
+        if (const auto refused = refuseOwnerTag(req, auth.user->userId, key)) return *refused;
 
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
         std::optional<Database::Entity::ESM::Bucket> bucket = repo->findBucketByErn(ern);
@@ -3730,6 +3830,8 @@ namespace Euclid::ESM {
             RenameBucket,
             SetBucketInternal,
             SetBucketPriority,
+            StopBucket,
+            StartBucket,
             TouchObject,
             ListBuckets,
             GetBucket,
@@ -3794,6 +3896,8 @@ namespace Euclid::ESM {
         if (action == "rename-bucket") return Command::RenameBucket;
         if (action == "set-bucket-internal") return Command::SetBucketInternal;
         if (action == "set-bucket-priority") return Command::SetBucketPriority;
+        if (action == "stop-bucket") return Command::StopBucket;
+        if (action == "start-bucket") return Command::StartBucket;
         if (action == "touch-object") return Command::TouchObject;
         if (action == "add-object-attribute") return Command::AddObjectAttribute;
         if (action == "set-object-attribute") return Command::SetObjectAttribute;
@@ -4024,6 +4128,12 @@ namespace Euclid::ESM {
 
             case Command::SetBucketPriority:
                 return handleSetBucketPriority(req);
+
+            case Command::StopBucket:
+                return handleSetBucketStopped(req, true);
+
+            case Command::StartBucket:
+                return handleSetBucketStopped(req, false);
 
             case Command::TouchObject:
                 return handleTouchObject(req);

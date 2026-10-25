@@ -39,6 +39,22 @@ namespace Euclid::Database {
 
         constexpr auto kPending = "PENDING";
         constexpr auto kClaimed = "CLAIMED";
+        // Stored and kept, and not to be delivered yet - see Delivery::heldBy. No query that claims
+        // or receives an event asks for this status, which is all it takes to hold one.
+        constexpr auto kHeld = "HELD";
+
+        // An envelope as written, held or not. Held: no expiry, since a source may stay stopped for
+        // longer than the retention period, and the whole point is that nothing is lost meanwhile;
+        // ReleaseHeld() gives it one when it becomes deliverable.
+        void appendStatus(bsoncxx::builder::basic::document &doc, const std::string &heldBy,
+                          const std::chrono::system_clock::time_point expiresAt) {
+            using bsoncxx::builder::basic::kvp;
+            if (heldBy.empty()) {
+                doc.append(kvp("status", kPending), kvp("expiresAt", bsoncxx::types::b_date{expiresAt}));
+            } else {
+                doc.append(kvp("status", kHeld), kvp("heldBy", heldBy));
+            }
+        }
 
     }// namespace
 
@@ -87,6 +103,13 @@ namespace Euclid::Database {
                 // than a scan: without it, delete-queue reads every pending event in the
                 // installation and the caller times out long before it finishes.
                 events.create_index(make_document(kvp("targetErn", 1)));
+
+                // What holds an event back, for a release to find them all and a count to say how
+                // many are waiting. Sparse: almost no event is held, and an index over the rest
+                // would be one entry per event for nothing.
+                mongocxx::options::index heldOpts;
+                heldOpts.sparse(true);
+                events.create_index(make_document(kvp("heldBy", 1)), heldOpts);
 
                 // Only external envelopes carry expiresAt, so this expires an abandoned
                 // consumer's backlog and leaves module deliveries - which have no such field -
@@ -262,21 +285,21 @@ namespace Euclid::Database {
                 const auto &payloadObject = payload.is_object() ? payload.as_object() : boost::json::object{};
 
                 for (const auto &target: targets) {
-                    documents.push_back(make_document(
-                            kvp("eventId", Core::UuidUtils::CreateRandomUuid()),
-                            kvp("eventType", eventType),
-                            kvp("sourceModule", sourceModule),
-                            kvp("targetModule", target),
-                            kvp("targetErn", delivery.targetErn),
-                            kvp("sourceErn", delivery.sourceErn),
-                            kvp("messageId", delivery.messageId),
-                            kvp("payload", payloadJson),
-                            kvp("status", kPending),
-                            kvp("claimedBy", ""),
-                            kvp("attempts", static_cast<int64_t>(0)),
-                            kvp("visibleAt", bsoncxx::types::b_date{now}),
-                            kvp("createdAt", bsoncxx::types::b_date{now}),
-                            kvp("expiresAt", bsoncxx::types::b_date{now + std::chrono::seconds(kModuleRetentionSeconds)})));
+                    bsoncxx::builder::basic::document doc;
+                    doc.append(kvp("eventId", Core::UuidUtils::CreateRandomUuid()),
+                               kvp("eventType", eventType),
+                               kvp("sourceModule", sourceModule),
+                               kvp("targetModule", target),
+                               kvp("targetErn", delivery.targetErn),
+                               kvp("sourceErn", delivery.sourceErn),
+                               kvp("messageId", delivery.messageId),
+                               kvp("payload", payloadJson),
+                               kvp("claimedBy", ""),
+                               kvp("attempts", static_cast<int64_t>(0)),
+                               kvp("visibleAt", bsoncxx::types::b_date{now}),
+                               kvp("createdAt", bsoncxx::types::b_date{now}));
+                    appendStatus(doc, delivery.heldBy, now + std::chrono::seconds(kModuleRetentionSeconds));
+                    documents.push_back(doc.extract());
                 }
 
                 for (const auto &record: *subscribers) {
@@ -297,18 +320,18 @@ namespace Euclid::Database {
                         continue;
                     }
 
-                    documents.push_back(make_document(
-                            kvp("eventId", Core::UuidUtils::CreateRandomUuid()),
-                            kvp("eventType", eventType),
-                            kvp("sourceModule", sourceModule),
-                            kvp("targetModule", record.target),
-                            kvp("payload", payloadJson),
-                            kvp("status", kPending),
-                            kvp("claimedBy", ""),
-                            kvp("attempts", static_cast<int64_t>(0)),
-                            kvp("visibleAt", bsoncxx::types::b_date{now}),
-                            kvp("createdAt", bsoncxx::types::b_date{now}),
-                            kvp("expiresAt", bsoncxx::types::b_date{now + std::chrono::seconds(kExternalRetentionSeconds)})));
+                    bsoncxx::builder::basic::document doc;
+                    doc.append(kvp("eventId", Core::UuidUtils::CreateRandomUuid()),
+                               kvp("eventType", eventType),
+                               kvp("sourceModule", sourceModule),
+                               kvp("targetModule", record.target),
+                               kvp("payload", payloadJson),
+                               kvp("claimedBy", ""),
+                               kvp("attempts", static_cast<int64_t>(0)),
+                               kvp("visibleAt", bsoncxx::types::b_date{now}),
+                               kvp("createdAt", bsoncxx::types::b_date{now}));
+                    appendStatus(doc, delivery.heldBy, now + std::chrono::seconds(kExternalRetentionSeconds));
+                    documents.push_back(doc.extract());
                 }
             }
 
@@ -385,49 +408,52 @@ namespace Euclid::Database {
             const auto payloadJson = boost::json::serialize(payload);
             auto eventCollection = Database::instance().collection(EVENT_COLLECTION);
 
+            const auto held = !delivery.heldBy.empty();
+
             for (const auto &target: targets) {
-                const auto doc = make_document(
-                        kvp("eventId", Core::UuidUtils::CreateRandomUuid()),
-                        kvp("eventType", eventType),
-                        kvp("sourceModule", sourceModule),
-                        kvp("targetModule", target),
-                        kvp("targetErn", delivery.targetErn),
-                        kvp("sourceErn", delivery.sourceErn),
-                        kvp("messageId", delivery.messageId),
-                        kvp("payload", payloadJson),
-                        kvp("status", kPending),
-                        kvp("claimedBy", ""),
-                        kvp("attempts", static_cast<int64_t>(0)),
-                        kvp("visibleAt", bsoncxx::types::b_date{now}),
-                        kvp("createdAt", bsoncxx::types::b_date{now}),
-                        // The backstop. Acking is still what normally removes one of these; this
-                        // is what removes the ones nobody ever takes - see kModuleRetentionSeconds.
-                        kvp("expiresAt", bsoncxx::types::b_date{now + std::chrono::seconds(kModuleRetentionSeconds)}));
-                eventCollection.insert_one(doc.view());
+                bsoncxx::builder::basic::document doc;
+                doc.append(kvp("eventId", Core::UuidUtils::CreateRandomUuid()),
+                           kvp("eventType", eventType),
+                           kvp("sourceModule", sourceModule),
+                           kvp("targetModule", target),
+                           kvp("targetErn", delivery.targetErn),
+                           kvp("sourceErn", delivery.sourceErn),
+                           kvp("messageId", delivery.messageId),
+                           kvp("payload", payloadJson),
+                           kvp("claimedBy", ""),
+                           kvp("attempts", static_cast<int64_t>(0)),
+                           kvp("visibleAt", bsoncxx::types::b_date{now}),
+                           kvp("createdAt", bsoncxx::types::b_date{now}));
+                // The expiry is the backstop. Acking is still what normally removes one of these;
+                // this is what removes the ones nobody ever takes - see kModuleRetentionSeconds.
+                appendStatus(doc, delivery.heldBy, now + std::chrono::seconds(kModuleRetentionSeconds));
+                eventCollection.insert_one(doc.extract().view());
             }
 
             for (const auto &target: externalTargets) {
-                const auto doc = make_document(
-                        kvp("eventId", Core::UuidUtils::CreateRandomUuid()),
-                        kvp("eventType", eventType),
-                        kvp("sourceModule", sourceModule),
-                        kvp("targetModule", target),
-                        kvp("payload", payloadJson),
-                        kvp("status", kPending),
-                        kvp("claimedBy", ""),
-                        kvp("attempts", static_cast<int64_t>(0)),
-                        kvp("visibleAt", bsoncxx::types::b_date{now}),
-                        kvp("createdAt", bsoncxx::types::b_date{now}),
-                        kvp("expiresAt", bsoncxx::types::b_date{now + std::chrono::seconds(kExternalRetentionSeconds)}));
-                eventCollection.insert_one(doc.view());
-                _receiveWaiters.Wake(target);
+                bsoncxx::builder::basic::document doc;
+                doc.append(kvp("eventId", Core::UuidUtils::CreateRandomUuid()),
+                           kvp("eventType", eventType),
+                           kvp("sourceModule", sourceModule),
+                           kvp("targetModule", target),
+                           kvp("payload", payloadJson),
+                           kvp("claimedBy", ""),
+                           kvp("attempts", static_cast<int64_t>(0)),
+                           kvp("visibleAt", bsoncxx::types::b_date{now}),
+                           kvp("createdAt", bsoncxx::types::b_date{now}));
+                appendStatus(doc, delivery.heldBy, now + std::chrono::seconds(kExternalRetentionSeconds));
+                eventCollection.insert_one(doc.extract().view());
+                if (!held) _receiveWaiters.Wake(target);
             }
 
             // Pushed after the writes, never instead of them: for a durable subscriber the store
             // is the truth and this only saves it the trouble of asking. A push that fails costs
             // latency - the subscriber finds the event on its next receive-events - which is why
             // nothing here is retried or waited on.
-            pushToSessions(eventType, payloadObject, externalTargets, liveTargets);
+            //
+            // Not for a held event, which is not to be read yet. A live subscriber - pushed to,
+            // stored nowhere - therefore does not get one at all: there is nothing to hold it in.
+            if (!held) pushToSessions(eventType, payloadObject, externalTargets, liveTargets);
 
             log_info << "EventBus published, eventType: " << eventType << ", modules: " << targets.size()
                     << ", subscribers: " << externalTargets.size() << ", live: " << liveTargets.size();
@@ -852,7 +878,10 @@ namespace Euclid::Database {
 
         try {
             return static_cast<long>(Database::instance().collection(EVENT_COLLECTION).count_documents(
-                    make_document(kvp("targetModule", externalTarget(subscriber))).view()));
+                    make_document(kvp("targetModule", externalTarget(subscriber)),
+                                                           // Not what is held: those cannot be received yet, and a backlog
+                                                           // that counted them would keep a consumer polling for nothing.
+                                                           kvp("status", make_document(kvp("$in", make_array(kPending, kClaimed))))).view()));
 
         } catch (const std::exception &e) {
             log_error << "EventBus count failed, subscriber: " << subscriber << ", error: " << e.what();
@@ -1013,6 +1042,85 @@ namespace Euclid::Database {
             log_error << "EventBus could not discard deliveries, targetErn: " << targetErn << ", error: " << e.what();
         }
         return 0;
+    }
+
+    long EventBus::HoldDeliveries(const std::string &sourceErn) {
+
+        if (sourceErn.empty()) return 0;
+
+        try {
+            // The expiry goes with the hold: a held event waits for as long as its source is
+            // stopped, which may be longer than any retention period.
+            const auto result = Database::instance().collection(EVENT_COLLECTION).update_many(
+                    make_document(kvp("sourceErn", sourceErn), kvp("status", kPending)).view(),
+                    make_document(kvp("$set", make_document(kvp("status", kHeld), kvp("heldBy", sourceErn))),
+                                  kvp("$unset", make_document(kvp("expiresAt", "")))).view());
+            return result ? static_cast<long>(result->modified_count()) : 0;
+
+        } catch (const std::exception &e) {
+            log_error << "EventBus could not hold deliveries, sourceErn: " << sourceErn << ", error: " << e.what();
+        }
+        return -1;
+    }
+
+    long EventBus::ReleaseHeld(const std::string &heldBy) {
+
+        if (heldBy.empty()) return 0;
+
+        try {
+            auto eventCollection = Database::instance().collection(EVENT_COLLECTION);
+            const auto now = std::chrono::system_clock::now();
+
+            // One update per event rather than one for all: each gets the retention of its own kind
+            // back - a module's envelope and an external subscriber's are kept for different times -
+            // and which it is, is only known by reading it. In pages, so a source stopped for a
+            // long time does not come back as one enormous statement.
+            constexpr long kPage = 1000;
+            long released = 0;
+            std::set<std::string> woken;
+            for (;;) {
+                mongocxx::options::find opts;
+                opts.limit(kPage);
+                std::vector<std::pair<bsoncxx::document::value, bsoncxx::document::value> > updates;
+                for (const auto &doc: eventCollection.find(make_document(kvp("heldBy", heldBy), kvp("status", kHeld)).view(), opts)) {
+                    const auto target = std::string(doc["targetModule"].get_string().value);
+                    const auto external = target.starts_with(kExternalPrefixValue());
+                    const auto retention = std::chrono::seconds(external ? kExternalRetentionSeconds : kModuleRetentionSeconds);
+                    if (external) woken.insert(target);
+                    updates.emplace_back(make_document(kvp("_id", doc["_id"].get_oid())),
+                                         make_document(kvp("$set", make_document(kvp("status", kPending),
+                                                                                 kvp("visibleAt", bsoncxx::types::b_date{now}),
+                                                                                 kvp("expiresAt", bsoncxx::types::b_date{now + retention}))),
+                                                       kvp("$unset", make_document(kvp("heldBy", "")))));
+                }
+                if (updates.empty()) break;
+                const auto result = eventCollection.update_each(updates);
+                released += result ? static_cast<long>(result->modified_count()) : 0;
+                if (static_cast<long>(updates.size()) < kPage) break;
+            }
+
+            // Whoever is waiting on a receive is told now, rather than finding out on its next
+            // poll; module pollers find them on their own next pass.
+            for (const auto &target: woken) _receiveWaiters.Wake(target);
+            return released;
+
+        } catch (const std::exception &e) {
+            log_error << "EventBus could not release held events, heldBy: " << heldBy << ", error: " << e.what();
+        }
+        return -1;
+    }
+
+    long EventBus::CountHeld(const std::string &heldBy) const {
+
+        if (heldBy.empty()) return 0;
+
+        try {
+            return static_cast<long>(Database::instance().collection(EVENT_COLLECTION)
+                                             .count_documents(make_document(kvp("heldBy", heldBy), kvp("status", kHeld)).view()));
+        } catch (const std::exception &e) {
+            log_error << "EventBus could not count held events, heldBy: " << heldBy << ", error: " << e.what();
+        }
+        return -1;
     }
 
     void EventBus::pollOnce(const std::string &moduleType) {

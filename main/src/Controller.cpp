@@ -1968,6 +1968,7 @@ namespace Euclid::main {
             // every module that has ever had its thread count set.
             if (group->appliedThreads == ServiceGroup::kThreadsUnobserved) {
                 group->appliedThreads = module.desiredThreads;
+                group->requestCapacity = 0;
                 continue;
             }
             if (module.desiredThreads == group->appliedThreads) continue;
@@ -1979,6 +1980,7 @@ namespace Euclid::main {
             // A thread count is fixed when the io_context's threads are created, so the only way
             // to apply a new one is to start the process again.
             group->appliedThreads = module.desiredThreads;
+            group->requestCapacity = 0;
             queueRoll(*group);
         }
     }
@@ -2348,7 +2350,14 @@ namespace Euclid::main {
                 svc->inFlightRequests++;
                 if (countsAsLoad) {
                     svc->activeRequests++;
-                    svc->wasBusySinceLastCheck = true;
+                    // Busy - "another instance would help" - only once every request thread is
+                    // taken. Any request at all used to count, so a module answering one request
+                    // a second out of 8 threads looked saturated, and every pool flapped between
+                    // one instance and two. See RequestsSaturate().
+                    if (group->requestCapacity <= 0) group->requestCapacity = requestCapacity(*group);
+                    if (RequestsSaturate(svc->activeRequests, group->requestCapacity)) svc->wasBusySinceLastCheck = true;
+                    // Still activity, at any load: a pool serving a trickle is not idle, and its
+                    // idle timer must not run out from under it.
                     group->lastActivityAt = std::chrono::steady_clock::now();
                 }
                 return InstanceHandle{.socketPath = svc->instanceSocketPath, .pid = svc->pid};
@@ -2371,6 +2380,15 @@ namespace Euclid::main {
             if (svc->activeRequests == 0) svc->lastIdleAt = std::chrono::steady_clock::now();
             return;
         }
+    }
+
+    int ServiceController::requestCapacity(const ServiceGroup &group) {
+        // What the instances were started with, when the module record says: "emm set-threads"
+        // wins over the file, which is the order the module itself reads them in - see
+        // Core::HttpActionServer::ConfiguredWorkerThreads().
+        if (group.appliedThreads > 0) return group.appliedThreads;
+        const auto configured = Core::Configuration::instance().getOr<long>("euclid.modules." + group.config.name + ".threads", 2);
+        return static_cast<int>(std::clamp<long>(configured, 1, 1024));
     }
 
     bool ServiceController::declareExpectedConcurrency(const std::string &name, const int desired) {

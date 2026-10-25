@@ -580,14 +580,14 @@ BOOST_AUTO_TEST_CASE(ATimeoutIsAGatewayTimeoutOnAMultiThreadedGateway) {
     const SilentBackend backend;
     const Gateway gateway(moduleRoute(1), backend.port, 8);
 
-    constexpr int kRequests = 32;
-    std::vector<int> statuses(kRequests);
+    constexpr std::size_t kRequests = 32;
+    std::vector<unsigned> statuses(kRequests);
     std::vector<std::thread> callers;
-    for (int i = 0; i < kRequests; ++i) {
+    for (std::size_t i = 0; i < kRequests; ++i) {
         callers.emplace_back([&statuses, &gateway, i] { statuses[i] = put(gateway.port, "/slow/anything", 16).result_int(); });
     }
     for (auto &caller: callers) caller.join();
 
-    const auto timeouts = std::ranges::count(statuses, 504);
+    const auto timeouts = static_cast<std::size_t>(std::ranges::count(statuses, 504U));
     BOOST_TEST(timeouts == kRequests);
 }

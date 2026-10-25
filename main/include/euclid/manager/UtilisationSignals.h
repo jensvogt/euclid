@@ -73,4 +73,28 @@ namespace Euclid::main {
         return utilisation >= kSaturatedUtilisationPercent;
     }
 
+    /**
+     * @brief Whether the requests a module instance is serving at once mean another would help.
+     *
+     * @par
+     * The same question as IsSaturated(), for a euclid module, whose load is the gateway requests
+     * it is handed rather than a percentage. An instance serves as many at once as it has request
+     * threads, so it is full when every thread is taken - not when it has served a request at all.
+     *
+     * @par What "any request" did
+     * Every module pool flapped between one instance and two, all the time. A module answering a
+     * steady trickle - lease renewals, load reports, route refreshes - receives at least one
+     * request in every one-second tick, and with one instance that alone made "every running
+     * instance was busy" true. Three such ticks in a row is all the sustained-saturation guard asks
+     * for, so a second instance was started; the next tick one of the two had nothing, the pool
+     * was over its target, and the newcomer was stopped again. On 2026-10-25 esm, eap, ekv and ens
+     * did this continuously, each instance serving one request at a time out of 8 to 32 threads.
+     *
+     * @param active the requests counted as load that the instance is serving right now.
+     * @param threads the instance's request threads; anything below one is treated as one.
+     */
+    constexpr bool RequestsSaturate(const int active, const int threads) {
+        return active >= (threads < 1 ? 1 : threads);
+    }
+
 }// namespace Euclid::main

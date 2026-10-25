@@ -233,6 +233,18 @@ namespace Euclid::Database {
              * @brief Identity of the message being delivered.
              */
             std::string messageId;
+
+            /**
+             * @brief What is holding this event back, or empty to deliver it as usual.
+             *
+             * @par
+             * Set by a stopped source - a bucket somebody ran "esm stop-bucket" on. The event is
+             * stored as it always is, for every subscriber it always was, but HELD: nothing claims
+             * it, nothing receives it, it is pushed to nobody, and it does not expire. ReleaseHeld()
+             * with the same value makes it an ordinary pending event again. Usable on a domain event
+             * too, which addresses nobody and so leaves the other three fields empty.
+             */
+            std::string heldBy;
         };
 
         void Publish(const std::string &eventType, const boost::json::value &payload, const std::string &sourceModule,
@@ -400,6 +412,36 @@ namespace Euclid::Database {
          * reason Euclid::CLI::Exists has a third answer rather than folding could-not-tell into no.
          */
         [[nodiscard]] long PendingDeliveries(const std::string &targetErn) const;
+
+        /**
+         * @brief Holds the deliveries from one source that are still waiting, as though they had
+         * been published while it was stopped - see Delivery::heldBy.
+         *
+         * @par
+         * Only the pending ones. One claimed already is being delivered right now and is left to
+         * finish; holding it would leave its delivery half done. Domain events cannot be found by
+         * their source - it is inside a payload stored as text - so only those published after the
+         * source stopped are held.
+         *
+         * @param sourceErn the bucket or topic the deliveries came from.
+         * @return how many were held, or -1 when that could not be done.
+         */
+        long HoldDeliveries(const std::string &sourceErn);
+
+        /**
+         * @brief Makes every event held under this value an ordinary pending event again, with a
+         * fresh retention period, and wakes whoever waits to receive one.
+         *
+         * @return how many were released, or -1 when that could not be done.
+         */
+        long ReleaseHeld(const std::string &heldBy);
+
+        /**
+         * @brief How many events are held under this value.
+         *
+         * @return the count, or -1 when it could not be counted.
+         */
+        [[nodiscard]] long CountHeld(const std::string &heldBy) const;
 
         /**
          * @brief Lists a subscriber's subscriptions.

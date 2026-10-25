@@ -6,11 +6,15 @@
 #include <boost/test/unit_test.hpp>
 
 // C++ includes
+#include <filesystem>
+#include <fstream>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 // Euclid includes
 #include <euclid/database/entity/eap/Infrastructure.h>
+#include <euclid/database/entity/eap/InfrastructureApply.h>
 
 using namespace Euclid::Database::Entity::EAP::Infrastructure;
 
@@ -98,9 +102,9 @@ BOOST_AUTO_TEST_SUITE(InfrastructureDeclarationTest)
 
         // Not ignored. A kind euclid does not know is a section that would silently do nothing, and
         // the author would be left believing they had declared something.
-        const auto read = Read(parse(R"({"version": 1, "creates": {"tables": [{"name": "t"}]}})"));
+        const auto read = Read(parse(R"({"version": 1, "creates": {"streams": [{"name": "t"}]}})"));
         BOOST_TEST(!read.error.empty());
-        BOOST_TEST(read.error.find("tables") != std::string::npos);
+        BOOST_TEST(read.error.find("streams") != std::string::npos);
     }
 
     BOOST_AUTO_TEST_CASE(AnAccessLevelThatDoesNotExistForThatKindIsRefused) {
@@ -192,7 +196,7 @@ BOOST_AUTO_TEST_SUITE(InfrastructureDeclarationTest)
 
         // What an error message offers has to be what the table actually holds, or the message sends
         // somebody to a level that does not work.
-        for (const auto &kind: {"queues", "topics", "buckets", "secrets"}) {
+        for (const auto &kind: {"queues", "topics", "buckets", "secrets", "tables"}) {
             BOOST_TEST_CONTEXT(kind) {
                 const auto levels = AccessLevelsFor(kind);
                 BOOST_TEST(!levels.empty());
@@ -201,7 +205,10 @@ BOOST_AUTO_TEST_SUITE(InfrastructureDeclarationTest)
                 }
             }
         }
-        BOOST_TEST(AccessLevelsFor("tables").empty());
+        // A route is reached over HTTP, not through an access level; and a kind that does not exist
+        // has none either.
+        BOOST_TEST(AccessLevelsFor("routes").empty());
+        BOOST_TEST(AccessLevelsFor("streams").empty());
     }
 
     // A secret is the one kind with a single verb, and the only one an application may name but
@@ -397,6 +404,258 @@ BOOST_AUTO_TEST_SUITE(InfrastructureDeclarationTest)
         const auto merged = Merge({one.declaration, two.declaration});
         BOOST_REQUIRE(merged.error.empty());
         BOOST_TEST(merged.declaration.applicationId == "file-copy");
+    }
+
+    // ── settings ───────────────────────────────────────────────────────────
+
+    // The four queues euclid-pim already declared settings for, which the deploy dropped: a
+    // file that was right all along has to keep reading.
+    BOOST_AUTO_TEST_CASE(AQueuesSettingsAreReadNotDropped) {
+        const auto read = Read(parse(R"({"version":1,"creates":{"queues":[
+            {"name":"export-katalogdaten-prepared-queue","visibility":900,"maxRetries":3},
+            {"name":"export-katalogdaten-csv-publishing-queue","visibility":900,"maxMessageLength":1048576}]}})"));
+        BOOST_TEST_REQUIRE(read.error.empty(), read.error);
+        BOOST_TEST_REQUIRE(read.declaration.creates.size() == 2U);
+        BOOST_TEST(read.declaration.creates[0].settings.at("visibility").as_int64() == 900);
+        BOOST_TEST(read.declaration.creates[0].settings.at("maxRetries").as_int64() == 3);
+        BOOST_TEST(!read.declaration.creates[0].settings.contains("name"));
+    }
+
+    // Passed through, a misspelt key was a queue at the default and a file that looked right.
+    BOOST_AUTO_TEST_CASE(AMisspeltSettingIsRefusedAndTheRealOnesNamed) {
+        const auto read = Read(parse(R"({"version":1,"creates":{"queues":[{"name":"q","visibilty":900}]}})"));
+        BOOST_TEST(read.error.find("no setting \"visibilty\"") != std::string::npos, read.error);
+        BOOST_TEST(read.error.find("visibility") != std::string::npos, read.error);
+    }
+
+    // 0 is the value that made every received message visible again at once.
+    BOOST_AUTO_TEST_CASE(AVisibilityOfZeroIsRefused) {
+        const auto read = Read(parse(R"({"version":1,"creates":{"queues":[{"name":"q","visibility":0}]}})"));
+        BOOST_TEST(read.error.find("\"visibility\" has to be a whole number from 1") != std::string::npos, read.error);
+    }
+
+    BOOST_AUTO_TEST_CASE(ASettingOfTheWrongTypeIsRefused) {
+        BOOST_TEST(!Read(parse(R"({"version":1,"creates":{"queues":[{"name":"q","visibility":"900"}]}})")).error.empty());
+        BOOST_TEST(!Read(parse(R"({"version":1,"creates":{"queues":[{"name":"q","priority":"URGENT"}]}})")).error.empty());
+        BOOST_TEST(Read(parse(R"({"version":1,"creates":{"queues":[{"name":"q","priority":"LOW"}]}})")).error.empty());
+    }
+
+    BOOST_AUTO_TEST_CASE(AQueueCannotBeItsOwnDeadLetterQueue) {
+        const auto read = Read(parse(R"({"version":1,"creates":{"queues":[{"name":"q","deadLetterQueue":"q"}]}})"));
+        BOOST_TEST(read.error.find("names the queue itself") != std::string::npos, read.error);
+    }
+
+    // Topics have two settings and buckets none, and each says so rather than ignoring the key.
+    BOOST_AUTO_TEST_CASE(EachKindAcceptsOnlyItsOwnSettings) {
+        BOOST_TEST(Read(parse(R"({"version":1,"creates":{"topics":[{"name":"t","retention":86400}]}})")).error.empty());
+        BOOST_TEST(!Read(parse(R"({"version":1,"creates":{"topics":[{"name":"t","visibility":30}]}})")).error.empty());
+        const auto bucket = Read(parse(R"({"version":1,"creates":{"buckets":[{"name":"b","encryption":true}]}})"));
+        BOOST_TEST(bucket.error.find("they take none") != std::string::npos, bucket.error);
+    }
+
+    BOOST_AUTO_TEST_CASE(SettingsSurviveAWriteAndAReadBack) {
+        const auto read = Read(parse(R"({"version":1,"creates":{"queues":[{"name":"q","visibility":600,"deadLetterQueue":"q-dlq"},{"name":"q-dlq"}]}})"));
+        BOOST_TEST_REQUIRE(read.error.empty(), read.error);
+        const auto again = Read(Write(read.declaration));
+        BOOST_TEST_REQUIRE(again.error.empty(), again.error);
+        BOOST_TEST((again.declaration.creates == read.declaration.creates));
+    }
+
+    // ── what a file may say ────────────────────────────────────────────────
+
+    BOOST_AUTO_TEST_CASE(AUsedObjectIsReachedNotConfigured) {
+        const auto read = Read(parse(R"({"version":1,"uses":{"queues":[{"name":"q","access":"consume","visibility":30}]}})"));
+        BOOST_TEST(read.error.find("unknown field \"visibility\"") != std::string::npos, read.error);
+    }
+
+    // A skipped "create" is a deploy that comes up having made nothing.
+    BOOST_AUTO_TEST_CASE(AMisspeltSectionIsRefusedNotSkipped) {
+        const auto read = Read(parse(R"({"version":1,"create":{"queues":[{"name":"q"}]}})"));
+        BOOST_TEST(read.error.find("unknown section \"create\"") != std::string::npos, read.error);
+    }
+
+    BOOST_AUTO_TEST_CASE(ANameIsANameAndNotAnErn) {
+        BOOST_TEST(!Read(parse(R"({"version":1,"creates":{"queues":[{"name":"ern:eqs:eu-central-1:000000000000:production:queue:q"}]}})")).error.empty());
+        BOOST_TEST(!Read(parse(R"({"version":1,"uses":{"queues":[{"name":"my queue","access":"consume"}]}})")).error.empty());
+    }
+
+    // ── a folder ───────────────────────────────────────────────────────────
+
+    namespace {
+        struct Folder {
+            std::filesystem::path path = std::filesystem::temp_directory_path() / ("euclid-folder-" + std::to_string(::getpid()));
+            Folder() { std::filesystem::create_directories(path); }
+            ~Folder() { std::filesystem::remove_all(path); }
+            void write(const std::string &name, const std::string &content) const { std::ofstream(path / name, std::ios::binary) << content; }
+        };
+    }// namespace
+
+    BOOST_AUTO_TEST_CASE(AFolderOfFilesBecomesOneDeclaration) {
+        const Folder folder;
+        folder.write("queues.json", R"({"version":1,"applicationId":"orders","creates":{"queues":[{"name":"orders-in","visibility":300}]}})");
+        folder.write("access.json", R"({"version":1,"applicationId":"orders","uses":{"topics":[{"name":"prices","access":"subscribe"}]}})");
+        folder.write("README.md", "not a declaration");
+
+        const auto loaded = LoadFolder(folder.path);
+        BOOST_TEST_REQUIRE(loaded.error.empty(), loaded.error);
+        BOOST_TEST(loaded.present);
+        BOOST_TEST(loaded.files == 2U);
+        BOOST_TEST(loaded.declaration.applicationId == "orders");
+        BOOST_TEST_REQUIRE(loaded.declaration.creates.size() == 1U);
+        BOOST_TEST(loaded.declaration.creates[0].settings.at("visibility").as_int64() == 300);
+        BOOST_TEST(loaded.declaration.uses.size() == 1U);
+    }
+
+    // Most applications declare nothing; that is not a failure, and the caller decides what it means.
+    BOOST_AUTO_TEST_CASE(AMissingFolderIsNotAnError) {
+        const auto loaded = LoadFolder(std::filesystem::temp_directory_path() / "euclid-no-such-folder");
+        BOOST_TEST(!loaded.present);
+        BOOST_TEST(loaded.error.empty());
+    }
+
+    // What every Windows editor writes by default, and invisible.
+    BOOST_AUTO_TEST_CASE(AByteOrderMarkIsSkipped) {
+        const Folder folder;
+        folder.write("queues.json", "\xEF\xBB\xBF" R"({"version":1,"creates":{"queues":[{"name":"q"}]}})");
+        const auto loaded = LoadFolder(folder.path);
+        BOOST_TEST(loaded.error.empty(), loaded.error);
+    }
+
+    BOOST_AUTO_TEST_CASE(AProblemNamesItsFile) {
+        const Folder folder;
+        folder.write("queues.json", R"({"version":1,"creates":{"queues":[{"name":"q","visibilty":1}]}})");
+        const auto loaded = LoadFolder(folder.path);
+        BOOST_TEST(loaded.error.starts_with("queues.json: "), loaded.error);
+    }
+
+    // ── applying ───────────────────────────────────────────────────────────
+
+    BOOST_AUTO_TEST_CASE(WhoseAnObjectIsDecidesWhatHappensToIt) {
+        BOOST_TEST((ClaimOn(false, {}, "orders") == Claim::Create));
+        BOOST_TEST((ClaimOn(true, {}, "orders") == Claim::Adopt));
+        BOOST_TEST((ClaimOn(true, {{kOwnerTag, "orders"}}, "orders") == Claim::Mine));
+        // The deploy used to record such an object as owned, for the owner's reconcile to delete.
+        BOOST_TEST((ClaimOn(true, {{kOwnerTag, "billing"}}, "orders") == Claim::Clash));
+    }
+
+    BOOST_AUTO_TEST_CASE(OnlyWhatIsStillOursIsEverRemoved) {
+        BOOST_TEST(MayRemove({{kOwnerTag, "orders"}}, "orders", false));
+        // Made by the deploy before the tag existed: the record is the claim.
+        BOOST_TEST(MayRemove({}, "orders", true));
+        BOOST_TEST(!MayRemove({}, "orders", false));
+        // Taken over since: somebody else's, whatever the record says.
+        BOOST_TEST(!MayRemove({{kOwnerTag, "billing"}}, "orders", true));
+    }
+
+    BOOST_AUTO_TEST_CASE(ApplyingSettingsChangesOnlyWhatIsNamed) {
+        Euclid::Database::Entity::EQS::Queue queue;
+        queue.maxReceiveCount = 7;// changed by hand, and not named in the file
+        const auto changes = ApplyQueueSettings(queue, boost::json::object{{"visibility", 900}, {"priority", "HIGH"}});
+        BOOST_TEST(queue.visibility == 900L);
+        BOOST_TEST((queue.priority == Euclid::Database::Entity::EQS::MessagePriority::HIGH));
+        BOOST_TEST(queue.maxReceiveCount == 7L);
+        BOOST_TEST_REQUIRE(changes.size() == 2U);
+        BOOST_TEST(changes[0] == "visibility 30 -> 900");
+        BOOST_TEST(changes[1] == "priority MEDIUM -> HIGH");
+    }
+
+    BOOST_AUTO_TEST_CASE(ApplyingTheSameSettingsAgainChangesNothing) {
+        Euclid::Database::Entity::EQS::Queue queue;
+        const boost::json::object settings{{"visibility", 600}, {"maxRetries", 5}};
+        std::ignore = ApplyQueueSettings(queue, settings);
+        BOOST_TEST(ApplyQueueSettings(queue, settings).empty());
+    }
+
+    BOOST_AUTO_TEST_CASE(ADeadLetterQueueIsLinkedByItsErn) {
+        Euclid::Database::Entity::EQS::Queue queue;
+        const auto changes = ApplyQueueSettings(queue, boost::json::object{{"deadLetterQueue", "q-dlq"}}, "ern:eqs:r:a:n:queue:q-dlq");
+        BOOST_TEST(queue.deadLetterQueueErn == "ern:eqs:r:a:n:queue:q-dlq");
+        BOOST_TEST(changes.size() == 1U);
+    }
+
+    BOOST_AUTO_TEST_CASE(ATopicTakesItsTwoSettings) {
+        Euclid::Database::Entity::ENS::Topic topic;
+        const auto changes = ApplyTopicSettings(topic, boost::json::object{{"retention", 86400}});
+        BOOST_TEST(topic.retentionPeriod == 86400L);
+        BOOST_TEST(changes.size() == 1U);
+    }
+
+    // ── the levels that replace the hand-written pim-* roles ────────────────
+
+    BOOST_AUTO_TEST_CASE(DeletingMovingAndRenamingAreLevelsOfTheirOwn) {
+        BOOST_TEST(grants("buckets", "delete", "esm:delete-object"));
+        BOOST_TEST(grants("buckets", "delete", "esm:delete-objects"));
+        BOOST_TEST(grants("buckets", "move", "esm:copy-object"));
+        BOOST_TEST(grants("buckets", "move", "esm:move-object"));
+        BOOST_TEST(grants("buckets", "rename", "esm:rename-object"));
+        BOOST_TEST(grants("queues", "control", "eqs:stop-queue"));
+        BOOST_TEST(grants("queues", "control", "eqs:start-queue"));
+        // A writer is not a remover: dropping files into a bucket is not removing what others put there.
+        BOOST_TEST(!grants("buckets", "write", "esm:delete-object"));
+    }
+
+    BOOST_AUTO_TEST_CASE(OwningIsEveryLevelOfTheKind) {
+        for (const auto &level: AccessLevelsFor("buckets")) {
+            for (const auto &permission: PermissionsFor("buckets", level)) {
+                BOOST_TEST(grants("buckets", kOwnAccess, permission), permission);
+            }
+        }
+        BOOST_TEST(grants("queues", kOwnAccess, "eqs:send-message"));
+        BOOST_TEST(grants("queues", kOwnAccess, "eqs:receive-messages"));
+        BOOST_TEST(grants("queues", kOwnAccess, "eqs:stop-queue"));
+        // Nobody owns a secret.
+        BOOST_TEST(PermissionsFor("secrets", kOwnAccess).empty());
+    }
+
+    BOOST_AUTO_TEST_CASE(OwnIsNotSomethingAUsesEntryCanAskFor) {
+        const auto read = Read(parse(R"({"version":1,"uses":{"buckets":[{"name":"b","access":"own"}]}})"));
+        BOOST_TEST(read.error.find("\"own\" is what creates means") != std::string::npos, read.error);
+    }
+
+    // ── tables and routes ──────────────────────────────────────────────────
+
+    BOOST_AUTO_TEST_CASE(ATableIsDeclaredWithItsKey) {
+        const auto read = Read(parse(R"({"version":1,"creates":{"tables":[
+            {"name":"libri-product-export","partitionKey":"exportStartTime","sortKey":"composedSortKey"},
+            {"name":"datenlieferant","partitionKey":"datenlieferantId","partitionKeyType":"string"}]}})"));
+        BOOST_TEST_REQUIRE(read.error.empty(), read.error);
+        BOOST_TEST(read.declaration.creates.size() == 2U);
+    }
+
+    BOOST_AUTO_TEST_CASE(ATableWithoutAKeyIsRefused) {
+        const auto read = Read(parse(R"({"version":1,"creates":{"tables":[{"name":"t"}]}})"));
+        BOOST_TEST(read.error.find("needs \"partitionKey\"") != std::string::npos, read.error);
+    }
+
+    BOOST_AUTO_TEST_CASE(AKeyThatCannotBeAKeyIsRefused) {
+        BOOST_TEST(!Read(parse(R"({"version":1,"creates":{"tables":[{"name":"t","partitionKey":"$id"}]}})")).error.empty());
+        BOOST_TEST(!Read(parse(R"({"version":1,"creates":{"tables":[{"name":"t","partitionKey":"a","sortKeyType":"number"}]}})")).error.empty());
+        BOOST_TEST(!Read(parse(R"({"version":1,"creates":{"tables":[{"name":"t","partitionKey":"a","sortKey":"a"}]}})")).error.empty());
+        BOOST_TEST(!Read(parse(R"({"version":1,"creates":{"tables":[{"name":"t","partitionKey":"a","partitionKeyType":"date"}]}})")).error.empty());
+    }
+
+    BOOST_AUTO_TEST_CASE(ATableIsReadOrWritten) {
+        BOOST_TEST(grants("tables", "read", "ekv:query"));
+        BOOST_TEST(grants("tables", "write", "ekv:put-item"));
+        BOOST_TEST(grants("tables", "write", "ekv:delete-item"));
+        BOOST_TEST(!grants("tables", "read", "ekv:put-item"));
+        BOOST_TEST(Read(parse(R"({"version":1,"uses":{"tables":[{"name":"t","access":["read","write"]}]}})")).error.empty());
+    }
+
+    BOOST_AUTO_TEST_CASE(ARouteIsDeclaredWithItsPath) {
+        const auto read = Read(parse(R"({"version":1,"creates":{"routes":[
+            {"name":"suppliers-api","path":"/api/datenlieferant","methods":["get","POST"],"authentication":"EUCLID","timeout":300}]}})"));
+        BOOST_TEST_REQUIRE(read.error.empty(), read.error);
+        BOOST_TEST(!Read(parse(R"({"version":1,"creates":{"routes":[{"name":"r"}]}})")).error.empty());
+        BOOST_TEST(!Read(parse(R"({"version":1,"creates":{"routes":[{"name":"r","path":"api"}]}})")).error.empty());
+        BOOST_TEST(!Read(parse(R"({"version":1,"creates":{"routes":[{"name":"r","path":"/a","methods":["FETCH"]}]}})")).error.empty());
+        BOOST_TEST(!Read(parse(R"({"version":1,"creates":{"routes":[{"name":"r","path":"/a","timeout":7200}]}})")).error.empty());
+    }
+
+    // A route is published by the application it reaches.
+    BOOST_AUTO_TEST_CASE(ARouteIsNotSomethingAnApplicationUses) {
+        const auto read = Read(parse(R"({"version":1,"uses":{"routes":[{"name":"r","access":"read"}]}})"));
+        BOOST_TEST(read.error.find("is a route") != std::string::npos, read.error);
     }
 
 BOOST_AUTO_TEST_SUITE_END()

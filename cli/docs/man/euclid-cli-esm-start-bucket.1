@@ -1,0 +1,30 @@
+.TH EUCLID-CLI-ESM-START-BUCKET 1 "October 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-start-bucket \- deliver a stopped bucket's held events
+.SH SYNOPSIS
+.B euclid-cli esm start-bucket
+.BR \-\-bucket | \-b
+.I NAME|ERN
+.SH DESCRIPTION
+Starts a bucket stopped with
+.BR euclid-cli-esm-stop-bucket (1).
+Every event held for it becomes deliverable again, oldest first, with a
+fresh retention period, and new events are delivered as they are made.
+.PP
+Safe to run on a bucket that is not stopped, which releases nothing.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-bucket " " \fINAME|ERN\fR
+The bucket. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The bucket is started. The answer says how many events were released.
+.TP
+.B 1
+No such bucket, not permitted, or the server failed.
+.SH SEE ALSO
+.BR euclid-cli-esm-stop-bucket (1),
+.BR euclid-cli-esm (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

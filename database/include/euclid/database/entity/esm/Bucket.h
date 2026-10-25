@@ -113,6 +113,19 @@ namespace Euclid::Database::Entity::ESM {
         std::string priority;
 
         /**
+         * @brief Whether the bucket's events are being held - see "esm stop-bucket".
+         *
+         * @par
+         * The objects are untouched either way: a stopped bucket is read and written as before. What
+         * stops is the telling: every event about it is still published to EES, for every
+         * subscriber it would have reached, but held there - not delivered, not received, not
+         * expiring - until the bucket is started again, when they all go out in the order they
+         * were made. What a deployment wants while a downstream consumer is being fixed, without
+         * losing anything that arrives meanwhile.
+         */
+        bool stopped = false;
+
+        /**
          * @brief Bucket size in bytes
          */
         int64_t size{};
