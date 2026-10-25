@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.9](https://github.com/jensvogt/euclid/compare/2.1.8...v2.1.9) (2026-10-25)
+
+
+### Bug Fixes
+
+* new deployment scheme, ESM add stop/start bucket ([dd31ff8](https://github.com/jensvogt/euclid/commit/dd31ff87dff1d6478e8f602e78544daf9b4d12f6))
+
 ## [2.1.8](https://github.com/jensvogt/euclid/compare/2.1.7...v2.1.8) (2026-10-24)
 
 
