@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.11](https://github.com/jensvogt/euclid/compare/2.1.10...v2.1.11) (2026-10-25)
+
+
+### Bug Fixes
+
+* access.json import and EKV tables, ESM get-object-size ([c1a788d](https://github.com/jensvogt/euclid/commit/c1a788da01d4354aadc9987608ba0dfc8c91bceb))
+
 ## [2.1.10](https://github.com/jensvogt/euclid/compare/v2.1.9...v2.1.10) (2026-10-25)
 
 
