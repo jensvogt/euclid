@@ -175,6 +175,11 @@ namespace Euclid::ESM {
         [[nodiscard]]
         static response<string_body> handleGetBucketSize(const request<string_body> &req);
 
+        /**
+         * @brief get-object-size: one object's size in bytes, by its ERN or by bucket and key.
+         */
+        static response<string_body> handleGetObjectSize(const request<string_body> &req);
+
         [[nodiscard]]
         static response<string_body> handleDeleteBucket(const request<string_body> &req);
 

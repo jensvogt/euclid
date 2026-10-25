@@ -92,6 +92,7 @@ namespace Euclid::CLI {
                 {"get-bucket-ern", "Resolve a bucket's ERN by name"},
                 {"exists-bucket", "Whether a bucket exists; exit 0 yes, 1 no, 2 could not tell"},
                 {"get-bucket-size", "Returns the bucket size in bytes"},
+                {"get-object-size", "Returns an object's size in bytes"},
                 {"get-object-count", "Return a bucket's stored object count, without counting"},
                 {"list-buckets", "List buckets"},
                 {"list-objects", "List objects"},
@@ -156,6 +157,9 @@ namespace Euclid::CLI {
         if (action == "exists-bucket") return existsBucket(args);
         if (action == "get-bucket-ern") {
             return getBucketErn(args);
+        }
+        if (action == "get-object-size") {
+            return getObjectSize(args);
         }
         if (action == "get-bucket-size") {
             return getBucketSize(args);
@@ -555,6 +559,61 @@ namespace Euclid::CLI {
             if (!response.IsSuccess()) {
                 std::cerr << "error: get-bucket-size failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EsmCli::getObjectSize(const std::vector<std::string> &args) const {
+        po::options_description desc("get object size options");
+        desc.add_options()
+                ("bucket,b", po::value<std::string>(), "the object's bucket; a name is enough, a full ERN also works")
+                ("key,k", po::value<std::string>(), "the object's key within the bucket")
+                ("ern,e", po::value<std::string>(), "the object's ERN, instead of --bucket and --key")
+                ("bytes", po::bool_switch(), "print the size alone, as a number, for a script");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("esm", "get-object-size", "(--bucket <name|ern> --key <key> | --ern <object ern>) [--bytes]",
+                                   "Returns an object's size in bytes, without downloading it. An object whose upload has "
+                                   "not finished has no final size yet, and is refused saying so. With --bytes only the "
+                                   "number is printed, e.g. size=$(euclid-cli esm get-object-size -b incoming -k a.xml --bytes).",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        boost::json::object request;
+        if (vm.contains("ern") && !vm.contains("bucket") && !vm.contains("key")) {
+            request["ern"] = vm["ern"].as<std::string>();
+        } else if (!vm.contains("ern") && vm.contains("bucket") && vm.contains("key")) {
+            request["bucketErn"] = vm["bucket"].as<std::string>();
+            request["key"] = vm["key"].as<std::string>();
+        } else {
+            std::cerr << "error: name the object either with --bucket and --key, or with --ern\n";
+            return 1;
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("esm", "get-object-size", request);
+            if (!response.IsSuccess()) {
+                std::cerr << "error: get-object-size failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            if (vm["bytes"].as<bool>()) {
+                std::cout << Core::GetLongValue(response.body, "size") << std::endl;
+                return 0;
             }
             Core::WriteJson(std::cout, response.body, _pretty);
             return 0;

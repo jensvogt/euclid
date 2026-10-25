@@ -1178,7 +1178,8 @@ namespace Euclid::ESM {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-bucket-size");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EsmServer::ParseJsonBody(req, jv)) return *err;
@@ -1186,17 +1187,69 @@ namespace Euclid::ESM {
         const auto request = boost::json::value_to<Dto::ESM::GetBucketSizeRequest>(jv);
 
         const std::optional<Database::Entity::ESM::Bucket> bucket = Database::RepositoryFactory::instance().esmRepository()->findBucketByErn(request.ern);
-        log_debug << "ESM bucket size, ern: " << request.ern << ", size: " << bucket->size;
-
+        // Checked before it is read: this used to log bucket->size first, which for a bucket that
+        // does not exist dereferenced an empty optional.
         if (!bucket.has_value()) {
             return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + request.ern);
         }
+        // And held to the caller's grants like every other read of a bucket, which it was not.
+        if (const auto denied = denyUngrantedBucket(req, auth, request.ern)) return *denied;
+        log_debug << "ESM bucket size, ern: " << request.ern << ", size: " << bucket->size;
 
         Dto::ESM::GetBucketSizeResponse response;
         response.ern = bucket->ern;
         response.size = bucket->size;
 
         return JsonResponse(req, status::ok, response.toJson());
+    }
+
+    // One object's size, in bytes, without fetching it.
+    //
+    // Named either way a caller is likely to hold it: by the object's ERN, or by its bucket and key
+    // - the bucket by name or ERN, resolved like every other bucketErn. An object whose upload has
+    // not finished has no size worth reporting yet, so it is answered as get-object answers it.
+    response<string_body> EsmServer::handleGetObjectSize(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-object-size");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+
+        const auto ern = Core::GetStringValue(jv, "ern");
+        const auto bucketErn = Core::GetStringValue(jv, "bucketErn");
+        const auto key = Core::GetStringValue(jv, "key");
+        if (ern.empty() == (bucketErn.empty() || key.empty())) {
+            return ErrorResponse(req, status::bad_request, "name the object either by ern, or by bucketErn and key");
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        // By bucket and key, the grant is checked before the lookup, so a caller without one
+        // cannot learn which keys exist; by ERN the bucket is only known once the object is found.
+        if (!bucketErn.empty()) {
+            if (const auto denied = denyUngrantedBucket(req, auth, bucketErn)) return *denied;
+        }
+        const auto object = ern.empty() ? repo->findObjectByBucketAndKey(bucketErn, key) : repo->findObjectByErn(ern);
+        if (!object.has_value()) {
+            return ErrorResponse(req, status::not_found, ern.empty() ? "Object not found, bucket: " + bucketErn + ", key: " + key
+                                                                     : "Object not found, ern: " + ern);
+        }
+        if (!ern.empty()) {
+            if (const auto denied = denyUngrantedBucket(req, auth, object->bucketErn)) return *denied;
+        }
+        if (!Database::Entity::ESM::IsDownloadable(object->status)) {
+            return ErrorResponse(req, status::conflict,
+                                 "Object has no final size yet, status: " + Database::Entity::ESM::ObjectStatusToString(object->status));
+        }
+
+        return JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                    {"ern", object->ern},
+                                    {"bucketErn", object->bucketErn},
+                                    {"key", object->key},
+                                    {"size", static_cast<std::int64_t>(object->size)}}));
     }
 
     response<string_body> EsmServer::handleDeleteBucket(const request<string_body> &req) {
@@ -3837,6 +3890,7 @@ namespace Euclid::ESM {
             GetBucket,
             GetBucketErn,
             GetBucketSize,
+            GetObjectSize,
             AddBucketTag,
             SetBucketTag,
             DeleteBucketTag,
@@ -3878,6 +3932,7 @@ namespace Euclid::ESM {
         if (action == "get-bucket") return Command::GetBucket;
         if (action == "get-bucket-ern") return Command::GetBucketErn;
         if (action == "get-bucket-size") return Command::GetBucketSize;
+        if (action == "get-object-size") return Command::GetObjectSize;
         if (action == "put-object") return Command::PutObject;
         if (action == "create-upload") return Command::CreateUpload;
         if (action == "upload-part") return Command::UploadPart;
@@ -4078,6 +4133,9 @@ namespace Euclid::ESM {
 
             case Command::GetBucketSize:
                 return handleGetBucketSize(req);
+
+            case Command::GetObjectSize:
+                return handleGetObjectSize(req);
 
             case Command::PutObject:
                 return handlePutObject(req);
