@@ -8,8 +8,8 @@
 // C++ includes
 #include <filesystem>
 #include <fstream>
+#include <random>
 #include <string>
-#include <unistd.h>
 #include <vector>
 
 // Euclid includes
@@ -483,7 +483,7 @@ BOOST_AUTO_TEST_SUITE(InfrastructureDeclarationTest)
 
     namespace {
         struct Folder {
-            std::filesystem::path path = std::filesystem::temp_directory_path() / ("euclid-folder-" + std::to_string(::getpid()));
+            std::filesystem::path path = std::filesystem::temp_directory_path() / ("euclid-folder-" + std::to_string(std::random_device{}()));
             Folder() { std::filesystem::create_directories(path); }
             ~Folder() { std::filesystem::remove_all(path); }
             void write(const std::string &name, const std::string &content) const { std::ofstream(path / name, std::ios::binary) << content; }

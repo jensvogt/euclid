@@ -7,8 +7,8 @@
 
 // C++ includes
 #include <filesystem>
+#include <random>
 #include <string>
-#include <unistd.h>
 
 // Boost includes
 #include <boost/asio/local/stream_protocol.hpp>
@@ -38,7 +38,7 @@ namespace {
     constexpr auto kNamespace = "development";
 
     std::filesystem::path scratch() {
-        static const auto path = std::filesystem::temp_directory_path() / ("euclid-ekv-access-test-" + std::to_string(::getpid()));
+        static const auto path = std::filesystem::temp_directory_path() / ("euclid-ekv-access-test-" + std::to_string(std::random_device{}()));
         return path;
     }
 
