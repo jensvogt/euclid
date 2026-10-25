@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.10](https://github.com/jensvogt/euclid/compare/v2.1.9...v2.1.10) (2026-10-25)
+
+
+### Bug Fixes
+
+* windows build ([6c4f5d4](https://github.com/jensvogt/euclid/commit/6c4f5d4b55f23d0ad22905014b288f8525e6b85f))
+
 ## [2.1.9](https://github.com/jensvogt/euclid/compare/2.1.8...v2.1.9) (2026-10-25)
 
 
