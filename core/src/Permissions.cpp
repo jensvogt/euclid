@@ -96,9 +96,10 @@ namespace Euclid::Core {
                 "eam:user-group-add-user",
                 "eam:user-group-remove-user",
 
-                // eap - 32 actions
+                // eap - 37 actions
                 "eap:acquire-egress-permit",
                 "eap:apply-infrastructure",
+                "eap:apply-platform",
                 "eap:assign-instance",
                 "eap:copy-application",
                 "eap:create-application",
@@ -110,10 +111,14 @@ namespace Euclid::Core {
                 "eap:get-application",
                 "eap:get-metrics",
                 "eap:get-node",
+                "eap:get-platform",
                 "eap:issue-instance-credentials",
                 "eap:list-applications",
                 "eap:list-egress-sites",
                 "eap:list-nodes",
+                "eap:list-platforms",
+                "eap:plan-infrastructure",
+                "eap:plan-platform",
                 "eap:rebalance-application",
                 "eap:redeploy-application",
                 "eap:register-node",
@@ -240,7 +245,7 @@ namespace Euclid::Core {
                 "eqs:stop-queue",
                 "eqs:update-message-body",
 
-                // esm - 41 actions
+                // esm - 43 actions
                 "esm:abort-upload",
                 "esm:add-bucket-tag",
                 "esm:add-object-attribute",
@@ -278,6 +283,8 @@ namespace Euclid::Core {
                 "esm:set-bucket-priority",
                 "esm:set-bucket-tag",
                 "esm:set-object-attribute",
+                "esm:start-bucket",
+                "esm:stop-bucket",
                 "esm:subscribe",
                 "esm:touch-object",
                 "esm:unsubscribe",

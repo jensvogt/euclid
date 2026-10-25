@@ -1,0 +1,53 @@
+.TH EUCLID-CLI-ESM-STOP-BUCKET 1 "October 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-stop-bucket \- hold a bucket's events until it is started again
+.SH SYNOPSIS
+.B euclid-cli esm stop-bucket
+.BR \-\-bucket | \-b
+.I NAME|ERN
+.SH DESCRIPTION
+Stops a bucket's events. The objects are untouched: they are put, read,
+moved and deleted exactly as before. Every event about them is still made
+and stored in EES, for every subscriber it would have reached, but
+.BR held :
+no queue subscribed to the bucket is sent one, no
+.B ees receive-events
+returns one, and none of them expires, however long the bucket stays
+stopped.
+.PP
+The deliveries to the bucket's subscribers that were still waiting when it
+was stopped are held too. A delivery already being handed over finishes.
+.PP
+What it is for: a consumer downstream is broken, or being redeployed, and
+what arrives meanwhile should wait for it rather than be lost or pile up as
+failures.
+.PP
+.BR euclid-cli-esm-start-bucket (1)
+lets them all go, oldest first.
+.B esm get-bucket
+shows
+.B stopped
+for a stopped bucket.
+.SH CAVEATS
+A subscriber that is only pushed events live, and stores none, gets none of
+those made while the bucket is stopped: there is nothing to hold them in.
+.PP
+Events of the bucket that were already waiting for an EES subscriber, as
+opposed to a subscribed queue, when the bucket was stopped are delivered: only
+the ones made after the stop are held.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-bucket " " \fINAME|ERN\fR
+The bucket. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The bucket is stopped. The answer says how many events it now holds.
+.TP
+.B 1
+No such bucket, not permitted, or the server failed.
+.SH SEE ALSO
+.BR euclid-cli-esm-start-bucket (1),
+.BR euclid-cli-esm (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

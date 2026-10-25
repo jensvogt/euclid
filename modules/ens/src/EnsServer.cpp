@@ -9,6 +9,7 @@
 // Euclid includes
 #include <EnsServer.h>
 
+#include <euclid/database/entity/eap/InfrastructureApply.h>
 #include <euclid/database/PeriodicClaim.h>
 #include <euclid/database/BackgroundWork.h>
 
@@ -853,17 +854,33 @@ namespace Euclid::ENS {
     //     return EnsServer::JsonResponse(req, status::ok, boost::json::serialize(body));
     // }
     //
+    // The tag that records which application owns an object - see
+    // Entity::EAP::Infrastructure::kOwnerTag. `eap apply` writes it, and what it says decides what an
+    // apply adopts, refuses and removes; anybody who could write it could take an object over or
+    // hand one to another application to delete. So only an administrator may write or remove it
+    // through the API, whatever else their role allows on the object.
+    static std::optional<response<string_body> > refuseOwnerTag(const request<string_body> &req, const std::string &userId,
+                                                               const std::string &key) {
+        if (key != Database::Entity::EAP::Infrastructure::kOwnerTag) return std::nullopt;
+        if (Database::IsEamAdmin(*Database::RepositoryFactory::instance().eamRepository(), userId)) return std::nullopt;
+        return EnsServer::ErrorResponse(req, status::forbidden,
+                                     std::string("The tag ") + Database::Entity::EAP::Infrastructure::kOwnerTag
+                                             + " records which application owns this, and is written by \"eap apply\"");
+    }
+
     static response<string_body> handleAddTopicTag(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "add-topic-tag");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
 
         const auto [ern, key, value] = boost::json::value_to<Dto::ENS::AddTopicTagRequest>(jv);
         log_info << "ENS AddTopicTag, ern: " << ern << ", key: " << key;
+        if (const auto refused = refuseOwnerTag(req, auth.user->userId, key)) return *refused;
 
         const auto repo = Database::RepositoryFactory::instance().ensRepository();
         std::optional<Database::Entity::ENS::Topic> topic = repo->findTopicByErn(ern);
@@ -880,13 +897,15 @@ namespace Euclid::ENS {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "set-topic-tag");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
 
         const auto [ern, key, value] = boost::json::value_to<Dto::ENS::AddTopicTagRequest>(jv);
         log_info << "ENS SetTopicTag, ern: " << ern << ", key: " << key;
+        if (const auto refused = refuseOwnerTag(req, auth.user->userId, key)) return *refused;
 
         const auto repo = Database::RepositoryFactory::instance().ensRepository();
         std::optional<Database::Entity::ENS::Topic> topic = repo->findTopicByErn(ern);
@@ -1324,13 +1343,15 @@ namespace Euclid::ENS {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "delete-topic-tag");
 
-        if (const auto auth = authenticate(req); !auth.user.has_value()) return unauthorized(req, auth);
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
 
         boost::json::value jv;
         if (const auto err = EnsServer::ParseJsonBody(req, jv)) return *err;
 
         const auto [ern, key] = boost::json::value_to<Dto::ENS::DeleteTopicTagRequest>(jv);
         log_info << "ENS DeleteTopicTag, ern: " << ern << ", key: " << key;
+        if (const auto refused = refuseOwnerTag(req, auth.user->userId, key)) return *refused;
 
         const auto repo = Database::RepositoryFactory::instance().ensRepository();
         std::optional<Database::Entity::ENS::Topic> topic = repo->findTopicByErn(ern);

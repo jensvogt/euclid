@@ -123,6 +123,11 @@ namespace Euclid::CLI {
         int deployInfrastructure(const std::vector<std::string> &args) const;
 
         /**
+         * @brief get-platform and list-platforms: what the platform declarations of a namespace own.
+         */
+        int platformInfo(const std::string &action, const std::vector<std::string> &args) const;
+
+        /**
          * @brief Lists applications, with how many instances of each are actually running.
          *
          * @param args command line arguments

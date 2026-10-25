@@ -183,6 +183,11 @@ namespace Euclid::CLI {
         int setBucketPriority(const std::vector<std::string> &args) const;
 
         /**
+         * @brief stop-bucket and start-bucket: hold a bucket's events in EES, and let them go.
+         */
+        int setBucketStopped(const std::string &action, const std::vector<std::string> &args) const;
+
+        /**
          * @brief Delete a bucket
          *
          * @param args command line arguments

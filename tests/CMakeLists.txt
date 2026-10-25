@@ -53,6 +53,51 @@ target_link_libraries(${EAP_APPLICATION_BUCKET_BINARY} PRIVATE eucliddto Boost::
 
 add_test(NAME ${EAP_APPLICATION_BUCKET_BINARY} COMMAND ${EAP_APPLICATION_BUCKET_BINARY})
 
+# `eap apply` and every deploy run one engine; this drives it through apply-infrastructure.
+set(EAP_APPLY_INFRASTRUCTURE_BINARY euclid-eap-apply-infrastructure-tests)
+
+add_executable(${EAP_APPLY_INFRASTRUCTURE_BINARY} EapApplyInfrastructureTest.cpp ${CMAKE_SOURCE_DIR}/modules/eap/src/EapServer.cpp)
+set_target_properties(${EAP_APPLY_INFRASTRUCTURE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${EAP_APPLY_INFRASTRUCTURE_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/eap/include)
+target_link_libraries(${EAP_APPLY_INFRASTRUCTURE_BINARY} PRIVATE eucliddto Boost::unit_test_framework)
+
+add_test(NAME ${EAP_APPLY_INFRASTRUCTURE_BINARY} COMMAND ${EAP_APPLY_INFRASTRUCTURE_BINARY})
+
+# Who may tag a queue: an application its own delivery queue and what it is granted, and only an
+# administrator the owner tag `eap apply` decides by.
+set(EQS_QUEUE_TAG_BINARY euclid-eqs-queue-tag-tests)
+
+add_executable(${EQS_QUEUE_TAG_BINARY} EqsQueueTagTest.cpp ${CMAKE_SOURCE_DIR}/modules/eqs/src/EqsServer.cpp)
+set_target_properties(${EQS_QUEUE_TAG_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${EQS_QUEUE_TAG_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/eqs/include)
+target_link_libraries(${EQS_QUEUE_TAG_BINARY} PRIVATE eucliddto Boost::thread Boost::unit_test_framework)
+
+add_test(NAME ${EQS_QUEUE_TAG_BINARY} COMMAND ${EQS_QUEUE_TAG_BINARY})
+
+# A grant on one table is a grant on that table.
+set(EKV_TABLE_ACCESS_BINARY euclid-ekv-table-access-tests)
+
+add_executable(${EKV_TABLE_ACCESS_BINARY} EkvTableAccessTest.cpp ${CMAKE_SOURCE_DIR}/modules/ekv/src/EkvServer.cpp)
+set_target_properties(${EKV_TABLE_ACCESS_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${EKV_TABLE_ACCESS_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/ekv/include)
+target_link_libraries(${EKV_TABLE_ACCESS_BINARY} PRIVATE eucliddto Boost::thread Boost::unit_test_framework)
+
+add_test(NAME ${EKV_TABLE_ACCESS_BINARY} COMMAND ${EKV_TABLE_ACCESS_BINARY})
+
+# esm stop-bucket / start-bucket: events made and held, then delivered in order.
+set(ESM_STOP_BUCKET_BINARY euclid-esm-stop-bucket-tests)
+
+add_executable(${ESM_STOP_BUCKET_BINARY} EsmStopBucketTest.cpp ${CMAKE_SOURCE_DIR}/modules/esm/src/EsmServer.cpp)
+set_target_properties(${ESM_STOP_BUCKET_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${ESM_STOP_BUCKET_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/esm/include)
+target_link_libraries(${ESM_STOP_BUCKET_BINARY} PRIVATE eucliddto Boost::thread Boost::unit_test_framework)
+
+add_test(NAME ${ESM_STOP_BUCKET_BINARY} COMMAND ${ESM_STOP_BUCKET_BINARY})
+
 # The worker on the manager's own host, as EAP provisions it - docs/worker-nodes.md §13.3.
 set(LOCAL_NODE_BINARY euclid-local-node-tests)
 
@@ -513,15 +558,6 @@ target_include_directories(${STICKY_CALL_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/ext
 target_link_libraries(${STICKY_CALL_BINARY} PRIVATE eucliddb euclidcore Boost::unit_test_framework)
 
 add_test(NAME ${STICKY_CALL_BINARY} COMMAND ${STICKY_CALL_BINARY})
-
-set(APPLICATION_MANIFEST_BINARY euclid-application-manifest-tests)
-
-add_executable(${APPLICATION_MANIFEST_BINARY} ApplicationManifestTest.cpp)
-set_target_properties(${APPLICATION_MANIFEST_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
-
-target_link_libraries(${APPLICATION_MANIFEST_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
-
-add_test(NAME ${APPLICATION_MANIFEST_BINARY} COMMAND ${APPLICATION_MANIFEST_BINARY})
 
 set(DELETE_IF_EMPTY_BINARY euclid-delete-if-empty-tests)
 

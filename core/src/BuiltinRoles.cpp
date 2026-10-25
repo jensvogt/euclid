@@ -226,6 +226,15 @@ namespace Euclid::Core {
                                 "eqs:create-queue",
                                 "eqs:delete-queue",
                                 "eqs:list-queues",
+                                // And the heartbeat stamped on it every minute, which is how the
+                                // next run's sweep tells a queue still being read from an orphan.
+                                // Missing until 2026-10-25: every heartbeat was refused 403 - some
+                                // 26,000 of them from two applications - so no delivery queue ever
+                                // carried one, and the sweep judged each by its age instead and
+                                // could delete one a running instance was reading. EQS lets this
+                                // through on the caller's own delivery queue and on queues it is
+                                // granted, and never for the owner tag.
+                                "eqs:add-queue-tag",
                                 // And the subscriptions that feed it. list-subscriptions is what
                                 // makes a restart idempotent - a listener checks whether it is
                                 // already subscribed rather than subscribing twice.

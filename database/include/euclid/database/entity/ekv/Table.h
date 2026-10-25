@@ -10,6 +10,7 @@
 
 // C++ includes
 #include <chrono>
+#include <map>
 #include <optional>
 #include <string>
 
@@ -112,6 +113,16 @@ namespace Euclid::Database::Entity::EKV {
          * @brief The attribute items within a partition are ordered by, if the table has one.
          */
         std::optional<KeySchema> sortKey;
+
+        /**
+         * @brief Free-form tags, as queues, topics and buckets have.
+         *
+         * @par
+         * Added for the one that matters: `euclid:application`, which says which application's
+         * declaration made the table - and is what lets `eap apply` adopt an untagged one, refuse
+         * one another application owns, and remove one its owner no longer declares.
+         */
+        std::map<std::string, std::string> tags;
 
         /**
          * @brief Creation timestamp.

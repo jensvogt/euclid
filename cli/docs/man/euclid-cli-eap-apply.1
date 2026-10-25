@@ -1,0 +1,203 @@
+.TH EUCLID-CLI-EAP-APPLY 1 "October 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eap-apply \- make the installation match an application's euclid/ folder
+.SH SYNOPSIS
+.B euclid-cli eap apply
+.RB ( \-\-application\-id | \-n
+.I NAME
+|
+.BR \-\-platform | \-P
+.RI [ NAME ])
+.RB [ \-\-directory | \-d
+.IR FOLDER ]
+.RB [ \-\-dry\-run ]
+.RB [ \-\-no\-prune ]
+.RB [ \-\-json ]
+.SH DESCRIPTION
+Reads an application's
+.I euclid/
+folder, merges its files into one declaration, stores it beside the
+artifact in the application's own bucket as
+.IR <application-id>.euclid.json ,
+and asks EAP to apply it. EAP applies the stored declaration again on every
+create, update and redeploy of the application, so the folder is the
+statement of record every time it is deployed.
+.PP
+With
+.B \-\-dry\-run
+nothing is stored or changed: EAP is handed the folder through
+.B plan-infrastructure
+and answers what it would do. It is the same code a deploy runs, so what a
+dry run shows is what a deploy does. An EAP too old to know that action
+refuses it, rather than applying anything.
+.SH THE FOLDER
+Every
+.I *.json
+directly in the folder is read and merged; how they are split is the
+author's business.
+.PP
+.RS
+.nf
+{ "version": 1,
+  "applicationId": "parsing",
+  "creates": { "queues": [ {"name": "parsing-in", "visibility": 300,
+                            "maxRetries": 5, "deadLetterQueue": "parsing-in-dlq"},
+                           {"name": "parsing-in-dlq"} ] },
+  "uses":    { "buckets": [ {"name": "transfer-server",
+                             "access": ["subscribe", "read"],
+                             "owner": "ftp-server"} ] } }
+.fi
+.RE
+.PP
+.B creates
+is what the application owns. Every field but
+.I name
+is a setting. Queues take
+.IR visibility ,
+.IR maxRetries ,
+.IR maxMessageLength ,
+.IR delay ,
+.IR retention ,
+.I priority
+and
+.IR deadLetterQueue ;
+topics take
+.I maxMessageLength
+and
+.IR retention ;
+tables take
+.I partitionKey
+(required),
+.IR partitionKeyType ,
+.I sortKey
+and
+.IR sortKeyType ,
+fixed for the table's life;
+routes take
+.I path
+(required),
+.IR methods ,
+.I authentication
+and
+.IR timeout ,
+and always send to the application declaring them; buckets take none yet. A setting is applied when the object is made and
+again to an existing one; a setting left out is left alone. An unknown key,
+or a value out of range, is refused naming the file.
+.PP
+.B uses
+is what somebody else owns, with the
+.I access
+the application needs:
+.IR read ,
+.IR write ,
+.IR delete ,
+.IR move ,
+.I rename
+or
+.I subscribe
+on a bucket,
+.IR consume ,
+.I produce
+or
+.I control
+on a queue,
+.I produce
+or
+.I subscribe
+on a topic,
+.I read
+on a secret,
+.I read
+or
+.I write
+on a table. Nothing is created; something used that does not exist stops
+the apply.
+.SH WHAT IT DOES
+.TP
+.B create
+An owned object that is not there is made, with its settings, and tagged
+.I euclid:application
+with the application's id.
+.TP
+.B update
+An owned object that is there has the settings its file names brought into
+line.
+.TP
+.B adopt
+An object that exists untagged is claimed. One tagged for another
+application is refused and the apply stops.
+.TP
+.B remove
+An object this application owns and no longer declares is removed \- only
+when empty.
+.TP
+.B keep
+One that still holds messages, deliveries, objects or subscriptions is kept,
+listed with what it holds, and stays owned.
+.B \-\-no\-prune
+keeps everything no longer declared.
+.TP
+.BR grant ", " revoke
+The application's
+.I access-*
+grants are made exactly what the folder asks for: the levels named under
+.BR uses ,
+and everything on what it
+.BR creates . Grants under any other role are never touched.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-application\-id " " \fINAME\fR
+The application the folder belongs to. A folder that names a different
+.I applicationId
+is refused. Required.
+.TP
+.BR \-P ", " \-\-platform " [" \fINAME\fR "]"
+Apply the folder as a platform: the shared objects of the namespace that no
+application owns, such as the bucket an FTP server writes into. It may only
+create; what it owns is tagged
+.IR platform:<name> ,
+and applications reach it with
+.BR uses .
+The name defaults to
+.IR platform .
+The declaration is kept on the platform's record in EAP; see
+.BR euclid-cli-eap-get-platform (1).
+Instead of
+.BR \-\-application\-id .
+.TP
+.BR \-d ", " \-\-directory " " \fIFOLDER\fR
+The folder.
+.I \-\-dir
+is the same. Defaults to
+.IR ./euclid .
+.TP
+.B \-\-dry\-run
+Say what would be done, and do none of it.
+.TP
+.B \-\-no\-prune
+Keep owned objects that are no longer declared, even when they are empty.
+.TP
+.B \-\-json
+Print EAP's answer as JSON rather than one line per step.
+.SH EXIT STATUS
+.TP
+.B 0
+Applied, or on a dry run, could be applied.
+.TP
+.B 1
+The folder could not be read, or EAP could not apply it \- the message says
+why. Nothing is half-applied out of a folder that did not parse.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli eap apply -n parsing -d ./euclid --dry-run
+euclid-cli eap apply -n parsing -d ./euclid
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-eap (1),
+.BR euclid-cli-eap-get-platform (1),
+.BR euclid-cli-eap-create-application (1),
+.BR euclid-cli-eap-redeploy-application (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

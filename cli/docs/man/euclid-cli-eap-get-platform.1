@@ -1,0 +1,18 @@
+.TH EUCLID-CLI-EAP-GET-PLATFORM 1 "October 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-eap-get-platform \- show a platform declaration
+.SH SYNOPSIS
+.B euclid-cli eap get-platform
+.RB [ \-\-name | \-n
+.IR NAME ]
+.SH DESCRIPTION
+Shows a platform declaration of the current namespace: the objects it owns,
+and the declaration last applied with
+.BR "eap apply \-\-platform" .
+The name defaults to
+.IR platform .
+.SH SEE ALSO
+.BR euclid-cli-eap-apply (1),
+.BR euclid-cli-eap-list-platforms (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

@@ -103,6 +103,8 @@ namespace Euclid::CLI {
                 {"rename-object", "Renames an object within its bucket"},
                 {"set-bucket-internal", "Hide a bucket from listings, or stop hiding it"},
                 {"set-bucket-priority", "Set the priority this bucket's notifications are sent with"},
+                {"stop-bucket", "Hold a bucket's events in EES: still made, not delivered until start-bucket"},
+                {"start-bucket", "Deliver a stopped bucket's held events, and stop holding new ones"},
                 {"set-bucket-tag", "Sets the value of an existing bucket tag"},
                 {"set-object-attribute", "Sets the value of an existing object attribute"},
                 {"subscribe", "Subscribes a target resource (an EQS queue or an ENS topic) to a bucket's object-created events"},
@@ -122,6 +124,9 @@ namespace Euclid::CLI {
         }
         if (action == "set-bucket-internal") {
             return setBucketInternal(args);
+        }
+        if (action == "stop-bucket" || action == "start-bucket") {
+            return setBucketStopped(action, args);
         }
         if (action == "set-bucket-priority") {
             return setBucketPriority(args);
@@ -2089,6 +2094,60 @@ namespace Euclid::CLI {
             const HttpResponse response = client.Post("esm", "set-bucket-priority", request);
             if (!response.IsSuccess()) {
                 std::cerr << "error: set-bucket-priority failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EsmCli::setBucketStopped(const std::string &action, const std::vector<std::string> &args) const {
+        const auto stop = action == "stop-bucket";
+        po::options_description desc(action + " options");
+        desc.add_options()
+                ("bucket,b", po::value<std::string>()->required(), "the bucket; a name is enough, a full ERN also works");
+
+        if (IsHelpRequest(args)) {
+            if (stop) {
+                return PrintActionHelp("esm", "stop-bucket", "--bucket <name|ern>",
+                                       "Stops a bucket's events. Objects are put, read, moved and deleted exactly as before, "
+                                       "and every event about them is still made and stored in EES for every subscriber it "
+                                       "would have reached - but held there: no queue subscribed to the bucket is sent one, "
+                                       "no receive-events returns one, and none of them expires. The deliveries that were "
+                                       "still waiting when the bucket was stopped are held too.\n\n"
+                                       "What it is for: a consumer downstream is broken or being redeployed, and what arrives "
+                                       "in the meantime should wait for it rather than be lost or pile up as failures.\n\n"
+                                       "\"esm start-bucket\" lets them all go, oldest first. A subscriber that is only pushed "
+                                       "events live, and stores none, misses those made while the bucket was stopped: there "
+                                       "is nothing to hold them in. \"esm get-bucket\" shows whether a bucket is stopped.",
+                                       desc);
+            }
+            return PrintActionHelp("esm", "start-bucket", "--bucket <name|ern>",
+                                   "Starts a bucket stopped with \"esm stop-bucket\": every event held for it becomes "
+                                   "deliverable again, with a fresh retention period, and new events are delivered as "
+                                   "they are made. Answers how many were released. Safe to run on a bucket that is not "
+                                   "stopped, which releases nothing.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        const boost::json::object request{{"ern", vm["bucket"].as<std::string>()}};
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("esm", action, request);
+            if (!response.IsSuccess()) {
+                std::cerr << "error: " << action << " failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
                 return 1;
             }
             Core::WriteJson(std::cout, response.body, _pretty);

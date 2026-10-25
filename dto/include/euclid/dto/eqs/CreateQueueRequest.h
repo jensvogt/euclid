@@ -88,12 +88,15 @@ namespace Euclid::Dto::EQS {
         friend CreateQueueRequest tag_invoke(boost::json::value_to_tag<CreateQueueRequest>, boost::json::value const &v) {
             CreateQueueRequest r;
             r.name = Core::GetStringValue(v, "name");
-            r.visibility = Core::GetLongValue(v, "visibility");
-            r.maxRetries = Core::GetLongValue(v, "maxRetries");
+            // The defaults the fields are declared with, not GetLongValue's 0: a queue created
+            // without naming its visibility came up at 0, which makes every received message
+            // visible again at once and hands it to a second consumer while the first works on it.
+            r.visibility = Core::GetLongValue(v, "visibility", r.visibility);
+            r.maxRetries = Core::GetLongValue(v, "maxRetries", r.maxRetries);
             r.maxMessageLength = Core::GetLongValue(v, "maxMessageLength", 1024 * 1024);
             r.dlqName = Core::GetStringValue(v, "dlqName");
             r.delay = Core::GetLongValue(v, "delay");
-            r.priority = Core::GetStringValue(v, "priority");
+            r.priority = Core::GetStringValue(v, "priority", r.priority);
             r.internal = Core::GetBoolValue(v, "internal");
             return r;
         }

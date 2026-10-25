@@ -12,7 +12,6 @@
 #include <fstream>
 #include <algorithm>
 #include <euclid/cli/eap/EapCli.h>
-#include <euclid/core/ApplicationManifest.h>
 #include <euclid/cli/esm/EsmCli.h>
 #include <euclid/core/CryptoUtils.h>
 #include <euclid/database/entity/eap/Application.h>
@@ -74,10 +73,9 @@ namespace Euclid::CLI {
         // what it needs can only safely be read as needing everything in its namespace.
         bool addManifestResources(const std::filesystem::path &directory, boost::json::object &request) {
 
-            const auto loaded = Core::LoadApplicationManifest(directory);
-            if (!loaded.ok()) {
-                std::cerr << "error: " << directory.string() << " cannot be read:\n";
-                for (const auto &problem: loaded.errors) std::cerr << "  " << problem << "\n";
+            const auto loaded = Database::Entity::EAP::Infrastructure::LoadFolder(directory);
+            if (!loaded.error.empty()) {
+                std::cerr << "error: " << directory.string() << " cannot be read: " << loaded.error << "\n";
                 return false;
             }
 
@@ -86,28 +84,19 @@ namespace Euclid::CLI {
             boost::json::array topics;
             boost::json::array secrets;
 
-            const auto add = [&](const Core::ApplicationManifest::Kind kind, const std::string &name) {
-                switch (kind) {
-                    case Core::ApplicationManifest::Kind::Bucket:
-                        buckets.push_back(boost::json::string(name));
-                        break;
-                    case Core::ApplicationManifest::Kind::Queue:
-                        queues.push_back(boost::json::string(name));
-                        break;
-                    case Core::ApplicationManifest::Kind::Topic:
-                        topics.push_back(boost::json::string(name));
-                        break;
-                    // Named here for the same reason the other three are: the application role
-                    // holds ess:get-secret and that action is resource-checked, so a deployment
-                    // that did not name its secrets would reach every secret in the namespace.
-                    case Core::ApplicationManifest::Kind::Secret:
-                        secrets.push_back(boost::json::string(name));
-                        break;
-                }
+            // Named for the same reason as the other three, secrets included: the application role
+            // holds ess:get-secret and that action is resource-checked, so a deployment that did
+            // not name its secrets would reach every secret in the namespace.
+            // Tables and routes are not among them: a table is granted by EAP from the folder itself,
+            // and a route is reached over HTTP rather than through a permission.
+            const auto add = [&](const Database::Entity::EAP::Infrastructure::Resource &resource) {
+                if (resource.kind == "buckets") buckets.push_back(boost::json::string(resource.name));
+                else if (resource.kind == "queues") queues.push_back(boost::json::string(resource.name));
+                else if (resource.kind == "topics") topics.push_back(boost::json::string(resource.name));
+                else if (resource.kind == "secrets") secrets.push_back(boost::json::string(resource.name));
             };
-
-            for (const auto &declaration: loaded.manifest.creates) add(declaration.kind, declaration.name);
-            for (const auto &declaration: loaded.manifest.uses) add(declaration.kind, declaration.name);
+            for (const auto &resource: loaded.declaration.creates) add(resource);
+            for (const auto &resource: loaded.declaration.uses) add(resource);
 
             if (buckets.empty() && queues.empty() && topics.empty() && secrets.empty()) {
                 // A manifest that declares nothing would otherwise send four empty lists, and EAP
@@ -137,14 +126,16 @@ namespace Euclid::CLI {
      */
     const std::vector<std::pair<std::string, std::string> > &EapCli::Actions() {
         static const std::vector<std::pair<std::string, std::string> > kActions = {
-                {"apply", "Create and check the objects an application's euclid/ manifest declares"},
+                {"apply", "Make the installation match an application's euclid/ folder: objects, settings and access"},
                 {"copy-application", "Define the same application again in another namespace"},
                 {"create-application", "Define a new application from an artifact in an ESM bucket"},
                 {"delete-application", "Delete an application definition"},
                 {"delete-egress-limit", "Remove an application's egress limit for an outside site"},
                 {"delete-egress-site", "Forget an outside site of an application: its limit, bucket and slots"},
                 {"delete-node", "Remove a worker node's registration, freeing its name"},
-                {"deploy-infrastructure", "Store an application's declaration beside its artifact and apply it"},
+                {"deploy-infrastructure", "The same as apply, under its older name"},
+                {"get-platform", "Show a platform declaration: what it owns, and the declaration last applied"},
+                {"list-platforms", "List the platform declarations of the namespace"},
                 {"get-application", "Show one application's definition"},
                 {"get-node", "Show one worker node's registration"},
                 {"list-egress-sites", "List each application's outside sites, egress limits and how they stand"},
@@ -189,6 +180,7 @@ namespace Euclid::CLI {
         if (action == "copy-application") return copyApplication(args);
         if (action == "scale-application") return scaleApplication(args);
         if (action == "deploy-infrastructure") return deployInfrastructure(args);
+        if (action == "get-platform" || action == "list-platforms") return platformInfo(action, args);
         if (action == "redeploy-application") return redeployApplication(args);
         if (action == "list-applications") return listApplications(args);
         if (action == "get-application") return getApplication(args);
@@ -523,32 +515,102 @@ namespace Euclid::CLI {
         }
     }
 
+    namespace {
+
+        // "ern:eqs:eu-central-1:000000000000:development:queue:orders" -> "queue orders", which is
+        // how a person names it. The ERN itself when it is not one of those.
+        std::string Describe(const std::string &ern) {
+            std::vector<std::string> parts;
+            std::size_t from = 0;
+            for (int i = 0; i < 5; ++i) {
+                const auto colon = ern.find(':', from);
+                if (colon == std::string::npos) return ern;
+                from = colon + 1;
+            }
+            const auto colon = ern.find(':', from);
+            if (colon == std::string::npos) return ern;
+            return ern.substr(from, colon - from) + " " + ern.substr(colon + 1);
+        }
+
+        // "access-queue-consume on <ern>" -> "access-queue-consume on queue orders".
+        std::string DescribeGrant(const std::string &grant) {
+            const auto on = grant.find(" on ");
+            return on == std::string::npos ? grant : grant.substr(0, on) + " on " + Describe(grant.substr(on + 4));
+        }
+
+        // The plan EAP answered with, one line per step. Answers how many steps there were.
+        std::size_t PrintPlan(const boost::json::value &plan) {
+
+            std::size_t steps = 0;
+            const auto each = [&](const char *field, const auto &print) {
+                const auto *entries = plan.is_object() ? plan.as_object().if_contains(field) : nullptr;
+                if (entries == nullptr || !entries->is_array()) return;
+                for (const auto &entry: entries->as_array()) {
+                    print(entry);
+                    ++steps;
+                }
+            };
+            const auto text = [](const boost::json::value &value, const char *field = nullptr) {
+                const auto &v = field == nullptr ? value : value.as_object().at(field);
+                return v.is_string() ? std::string(v.as_string()) : boost::json::serialize(v);
+            };
+
+            each("created", [&](const auto &e) { std::cout << "  create  " << Describe(text(e)) << "\n"; });
+            each("adopted", [&](const auto &e) { std::cout << "  adopt   " << Describe(text(e)) << " - existed untagged, now recorded as this application's\n"; });
+            each("updated", [&](const auto &e) {
+                std::cout << "  update  " << Describe(text(e, "ern")) << ":";
+                bool first = true;
+                for (const auto &change: e.as_object().at("changes").as_array()) {
+                    std::cout << (first ? " " : ", ") << change.as_string();
+                    first = false;
+                }
+                std::cout << "\n";
+            });
+            each("deleted", [&](const auto &e) { std::cout << "  remove  " << Describe(text(e)) << " - no longer declared\n"; });
+            each("kept", [&](const auto &e) { std::cout << "  keep    " << Describe(text(e, "ern")) << " - " << text(e, "reason") << "\n"; });
+            each("granted", [&](const auto &e) { std::cout << "  grant   " << DescribeGrant(text(e)) << "\n"; });
+            each("revoked", [&](const auto &e) { std::cout << "  revoke  " << DescribeGrant(text(e)) << "\n"; });
+            return steps;
+        }
+
+    }// namespace
+
+    // `apply` and `deploy-infrastructure` are one command. They used to be two, with two readers of
+    // the folder and two engines - one in this CLI and one in EAP - which disagreed about settings,
+    // about whose an object was, and about access. Now the folder is read here, and EAP does the
+    // rest, exactly as it does on every deploy.
     int EapCli::deployInfrastructure(const std::vector<std::string> &args) const {
 
-        po::options_description desc("deploy infrastructure options");
+        po::options_description desc("apply options");
         desc.add_options()
-                ("application-id,n", po::value<std::string>()->required(), "application the declaration belongs to")
-                ("dir,d", po::value<std::string>()->default_value("euclid"), "folder of declaration files")
-                ("dry-run", po::bool_switch(), "print the merged declaration and stop, uploading nothing");
+                ("application-id,n", po::value<std::string>(), "the application the folder belongs to")
+                ("platform,P", po::value<std::string>()->implicit_value("platform"),
+                 "apply the folder as a platform - the shared objects no application owns - under this name; \"platform\" if none")
+                ("directory,d", po::value<std::string>(), "the application's euclid/ folder; defaults to ./euclid")
+                ("dir", po::value<std::string>(), "the same as --directory")
+                ("dry-run", po::bool_switch(), "say what would be done, and do none of it")
+                ("no-prune", po::bool_switch(), "keep owned objects the folder no longer declares, even when they are empty")
+                ("json", po::bool_switch(), "print EAP's answer as JSON rather than one line per step");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eap", "deploy-infrastructure",
-                                   "--application-id <name> [--dir <folder>] [--dry-run]",
-                                   "Merges an application's declaration folder into one document, stores it beside the "
-                                   "artifact in the application's own bucket as \"<application-id>.euclid.json\", and "
-                                   "asks EAP to apply it.\n\n"
-                                   "The folder is the application's own: one file naming the queues and topics it owns, "
-                                   "another the buckets somebody else owns that it has to reach. How the files are split "
-                                   "is the author's business - they are merged by section and kind, not by filename - but "
-                                   "two of them naming the same resource is refused rather than resolved, because "
-                                   "whichever a merge preferred, the other author would have been overruled silently.\n\n"
-                                   "Applying is a full reconcile: what the application owns is created, what it owned "
-                                   "and no longer declares is DELETED, and its access grants are replaced with exactly "
-                                   "the ones the file asks for. A deleted queue takes its messages with it and a deleted "
-                                   "bucket its objects, so what went is named in the answer. Run --dry-run first.\n\n"
-                                   "Nothing is created for a resource the application only uses: a service that could "
-                                   "conjure another team's queue by naming it would make ownership meaningless, so a "
-                                   "\"uses\" entry naming something absent is refused.",
+            return PrintActionHelp("eap", "apply",
+                                   "(--application-id <name> | --platform [<name>]) [--directory <folder>] [--dry-run] [--no-prune] [--json]",
+                                   "Makes the installation match an application's euclid/ folder. The folder is merged into one "
+                                   "declaration, stored beside the artifact as \"<application-id>.euclid.json\" - which is what every "
+                                   "later create, update and redeploy applies again - and applied by EAP. With --dry-run nothing is "
+                                   "stored or changed: EAP is handed the folder and answers what it would do.\n\n"
+                                   "What the application creates is made with the settings its file names - a queue's visibility, "
+                                   "maxRetries, maxMessageLength, delay, retention, priority and deadLetterQueue; a topic's "
+                                   "maxMessageLength and retention - and an existing one has its named settings brought into line. "
+                                   "A setting left out is left alone. An object that exists untagged is adopted; one another "
+                                   "application owns is refused.\n\n"
+                                   "What it owned and no longer declares is removed, but only when empty: a queue with messages, a "
+                                   "bucket with objects or a topic with subscriptions is kept and listed. --no-prune keeps them all.\n\n"
+                                   "What it uses is resolved, never created, and its access grants are made exactly the ones the "
+                                   "folder asks for.\n\n"
+                                   "--platform applies a folder of the shared objects no application owns - the bucket an FTP server "
+                                   "writes into, a topic several services publish to. It may only create; what it owns is tagged "
+                                   "\"platform:<name>\", and applications reach it with uses. See docs/application-manifest.md.",
                                    desc);
         }
 
@@ -561,53 +623,31 @@ namespace Euclid::CLI {
             return 1;
         }
 
-        const auto applicationId = vm["application-id"].as<std::string>();
-        const auto directory = vm["dir"].as<std::string>();
+        if (vm.contains("application-id") == vm.contains("platform")) {
+            std::cerr << "error: name either --application-id or --platform, not both and not neither" << std::endl;
+            return 1;
+        }
+        const auto platform = vm.contains("platform") ? vm["platform"].as<std::string>() : std::string{};
+        const auto applicationId = platform.empty() ? vm["application-id"].as<std::string>() : std::string{};
+        const auto directory = vm.contains("directory") ? vm["directory"].as<std::string>()
+                               : vm.contains("dir")     ? vm["dir"].as<std::string>()
+                                                        : std::string("euclid");
         const auto dryRun = vm["dry-run"].as<bool>();
+        const auto prune = !vm["no-prune"].as<bool>();
+        const auto json = vm["json"].as<bool>();
 
-        std::error_code ec;
-        if (!std::filesystem::is_directory(directory, ec)) {
+        namespace Infra = Database::Entity::EAP::Infrastructure;
+        auto loaded = Infra::LoadFolder(directory);
+        if (!loaded.present) {
             std::cerr << "error: not a directory: " << directory << std::endl;
             return 1;
         }
-
-        // Every *.json in the folder, in name order so that a run over the same folder reads them
-        // the same way twice - the merge sorts its output, but a stable read order keeps an error
-        // message about one file meaning the same file next time.
-        std::vector<std::filesystem::path> files;
-        for (const auto &entry: std::filesystem::directory_iterator(directory, ec)) {
-            if (entry.is_regular_file() && entry.path().extension() == ".json") files.push_back(entry.path());
-        }
-        std::ranges::sort(files);
-        if (files.empty()) {
-            std::cerr << "error: no .json files in " << directory << std::endl;
+        if (!loaded.error.empty()) {
+            std::cerr << "error: " << directory << ": " << loaded.error << std::endl;
             return 1;
         }
-
-        std::vector<Database::Entity::EAP::Infrastructure::Declaration> declarations;
-        for (const auto &file: files) {
-            std::ifstream in(file, std::ios::binary);
-            std::ostringstream buffer;
-            buffer << in.rdbuf();
-
-            boost::json::value parsed;
-            try {
-                parsed = boost::json::parse(buffer.str());
-            } catch (const std::exception &ex) {
-                std::cerr << "error: " << file.filename().string() << " is not JSON: " << ex.what() << std::endl;
-                return 1;
-            }
-            auto read = Database::Entity::EAP::Infrastructure::Read(parsed);
-            if (!read.error.empty()) {
-                std::cerr << "error: " << file.filename().string() << ": " << read.error << std::endl;
-                return 1;
-            }
-            declarations.push_back(std::move(read.declaration));
-        }
-
-        auto merged = Database::Entity::EAP::Infrastructure::Merge(declarations);
-        if (!merged.error.empty()) {
-            std::cerr << "error: " << merged.error << std::endl;
+        if (loaded.files == 0) {
+            std::cerr << "error: no .json files in " << directory << std::endl;
             return 1;
         }
 
@@ -615,66 +655,87 @@ namespace Euclid::CLI {
         // rather than relying on the key it happens to be stored under. EAP refuses one that names a
         // different application - which is what stops a mistyped --application-id handing one
         // service's queues and topics to another, for that one to delete on its next reconcile.
-        if (merged.declaration.applicationId.empty()) merged.declaration.applicationId = applicationId;
-        if (merged.declaration.applicationId != applicationId) {
-            std::cerr << "error: these files declare \"" << merged.declaration.applicationId
+        // A platform's folder names no application; one that does is that application's.
+        if (!platform.empty() && !loaded.declaration.applicationId.empty()) {
+            std::cerr << "error: these files declare application \"" << loaded.declaration.applicationId
+                    << "\"; a platform's folder names none" << std::endl;
+            return 1;
+        }
+        if (platform.empty() && loaded.declaration.applicationId.empty()) loaded.declaration.applicationId = applicationId;
+        if (platform.empty() && loaded.declaration.applicationId != applicationId) {
+            std::cerr << "error: these files declare \"" << loaded.declaration.applicationId
                     << "\", not \"" << applicationId << "\"" << std::endl;
             return 1;
         }
-
-        const auto document = boost::json::serialize(Database::Entity::EAP::Infrastructure::Write(merged.declaration));
-        const auto key = Database::Entity::EAP::Infrastructure::ObjectKey(applicationId);
-
-        if (dryRun) {
-            std::cout << "would store " << files.size() << " file(s) as " << key << ":" << std::endl;
-            Core::WriteJson(std::cout, boost::json::parse(document), _pretty);
-            return 0;
-        }
+        const auto declaration = Infra::Write(loaded.declaration);
 
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
 
-            // The application's own bucket rather than a configured one: the declaration belongs
-            // beside the artifact, and where that is, is something only the application record knows.
-            const HttpResponse current = client.Post("eap", "get-application",
-                                                     boost::json::object{{"applicationId", applicationId}});
-            if (!current.IsSuccess()) {
-                std::cerr << "error: get-application failed (HTTP " << current.statusCode << "): "
-                        << boost::json::serialize(current.body) << std::endl;
-                return 1;
-            }
-            // Read off the top level: get-application answers with the application's own fields,
-            // not with the definition nested under a key. And through GetStringValue rather than
-            // at(), which throws for a field that is not there - a missing bucketErn should be this
-            // command's explanation, not boost's.
-            const auto bucketErn = Core::GetStringValue(current.body, "bucketErn");
-            if (bucketErn.empty()) {
-                std::cerr << "error: " << applicationId << " has no bucket to store a declaration beside" << std::endl;
-                return 1;
+            boost::json::object request{{"applicationId", applicationId}, {"prune", prune}};
+
+            if (!platform.empty()) {
+                // No artifact to store it beside: the declaration travels with the request, and EAP
+                // keeps it on the platform's record.
+                request = {{"name", platform}, {"prune", prune}, {"declaration", declaration}};
+            } else if (dryRun) {
+                // Handed over rather than stored: a dry run must not replace the declaration the next
+                // deploy applies.
+                request["declaration"] = declaration;
+            } else {
+                // The application's own bucket rather than a configured one: the declaration belongs
+                // beside the artifact, and where that is, is something only the application record
+                // knows.
+                const HttpResponse current = client.Post("eap", "get-application", boost::json::object{{"applicationId", applicationId}});
+                if (!current.IsSuccess()) {
+                    std::cerr << "error: get-application failed (HTTP " << current.statusCode << "): "
+                            << boost::json::serialize(current.body) << std::endl;
+                    return 1;
+                }
+                const auto bucketErn = Core::GetStringValue(current.body, "bucketErn");
+                if (bucketErn.empty()) {
+                    std::cerr << "error: " << applicationId << " has no bucket to store a declaration beside" << std::endl;
+                    return 1;
+                }
+
+                // Written out and uploaded rather than sent inline: this is an ordinary object, and
+                // uploadOneFile is the same put-object path every other upload takes.
+                const auto key = Infra::ObjectKey(applicationId);
+                const auto temporary = std::filesystem::temp_directory_path() / key;
+                {
+                    std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
+                    out << boost::json::serialize(declaration);
+                }
+                const EsmCli esm(_endpoint, _authentication, _pretty, _caCertPath);
+                boost::json::value uploaded;
+                const auto result = esm.uploadOneFile(bucketErn, key, temporary.string(), 0, 0, uploaded);
+                std::error_code ec;
+                std::filesystem::remove(temporary, ec);
+                if (result != 0) return result;
             }
 
-            // Written out and uploaded rather than sent inline: this is an ordinary object, and
-            // uploadOneFile is the same put-object path every other upload takes.
-            const auto temporary = std::filesystem::temp_directory_path() / key;
-            {
-                std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
-                out << document;
-            }
-
-            const EsmCli esm(_endpoint, _authentication, _pretty, _caCertPath);
-            boost::json::value uploaded;
-            const auto result = esm.uploadOneFile(bucketErn, key, temporary.string(), 0, 0, uploaded);
-            std::filesystem::remove(temporary, ec);
-            if (result != 0) return result;
-
-            const HttpResponse applied = client.Post("eap", "apply-infrastructure",
-                                                     boost::json::object{{"applicationId", applicationId}});
+            // A dry run is an action of its own: an EAP that predates it refuses it as unknown,
+            // where a flag on apply-infrastructure would be ignored and the apply done for real.
+            const auto action = !platform.empty() ? (dryRun ? "plan-platform" : "apply-platform")
+                                                  : (dryRun ? "plan-infrastructure" : "apply-infrastructure");
+            const HttpResponse applied = client.Post("eap", action, request);
             if (!applied.IsSuccess()) {
-                std::cerr << "error: apply-infrastructure failed (HTTP " << applied.statusCode << "): "
-                        << boost::json::serialize(applied.body) << std::endl;
+                std::cerr << "error: " << (dryRun ? "the folder cannot be applied" : "apply failed")
+                        << " (HTTP " << applied.statusCode << "): " << Core::GetStringValue(applied.body, "error", boost::json::serialize(applied.body))
+                        << std::endl;
                 return 1;
             }
-            Core::WriteJson(std::cout, applied.body, _pretty);
+            if (json) {
+                Core::WriteJson(std::cout, applied.body, _pretty);
+                return 0;
+            }
+
+            const auto nameSpace = _authentication.nameSpace.empty() ? std::string("the session's namespace") : "namespace " + _authentication.nameSpace;
+            std::cout << (platform.empty() ? "Application '" + applicationId + "'" : "Platform '" + platform + "'")
+                      << " in " << nameSpace << (dryRun ? ", dry run" : "") << ":\n";
+            const auto steps = PrintPlan(applied.body);
+            if (steps == 0) std::cout << "  nothing to change\n";
+            if (dryRun) std::cout << "\n--dry-run: nothing was changed.\n";
             return 0;
 
         } catch (const std::exception &ex) {
@@ -1383,218 +1444,17 @@ namespace Euclid::CLI {
         }
     }
 
-    namespace {
+    int EapCli::platformInfo(const std::string &action, const std::vector<std::string> &args) const {
 
-        // The tag that says whose object this is. Written when a manifest is applied rather than
-        // when the object is created, which is the difference that keeps euclid-spring's per-run
-        // delivery queues - created by the listener container, declared by nobody - out of range of
-        // a prune that is about declarations.
-        constexpr auto kOwnerTag = "euclid:application";
-
-        struct ModuleActions {
-            std::string module;
-            std::string lookupErn;
-            std::string get;
-            std::string create;
-            std::string addTag;
-        };
-
-        ModuleActions actionsFor(const Core::ApplicationManifest::Kind kind) {
-            switch (kind) {
-                case Core::ApplicationManifest::Kind::Queue:
-                    return {"eqs", "get-queue-ern", "get-queue", "create-queue", "add-queue-tag"};
-                case Core::ApplicationManifest::Kind::Topic:
-                    return {"ens", "get-topic-ern", "get-topic", "create-topic", "add-topic-tag"};
-                case Core::ApplicationManifest::Kind::Secret:
-                    // Only the module is meaningful. A secret is never created, adopted, tagged or
-                    // pruned from here - it is written by an operator and only ever used - so the
-                    // verbs that do those things have no spelling for it, and lookupErn below
-                    // answers for a secret without coming through this table. Present as its own
-                    // case rather than left to the default, which would silently look a secret up
-                    // as though it were a bucket.
-                    return {"ess", {}, {}, {}, {}};
-                case Core::ApplicationManifest::Kind::Bucket:
-                default:
-                    return {"esm", "get-bucket-ern", "get-bucket", "create-bucket", "add-bucket-tag"};
-            }
-        }
-
-        // Three answers rather than two, for the reason Euclid::CLI::Exists has three: "the gateway
-        // did not answer" is not "the object is not there", and applying a manifest on that reading
-        // creates a second one.
-        struct Lookup {
-            bool known{};
-            std::string ern;
-            std::string problem;
-
-            [[nodiscard]] bool found() const { return known && !ern.empty(); }
-            [[nodiscard]] bool absent() const { return known && ern.empty(); }
-        };
-
-        // The ERN of a secret, from the listing. ESS has no get-secret-ern: the only action that
-        // takes a secret's name is get-secret, and that one decrypts and returns the value - which
-        // is not a thing a tool checking whether a declaration resolves should ever ask for. So the
-        // name is looked up through list-secrets instead, whose rows carry the ERN and nothing
-        // sensitive. The prefix narrows the page; the exact name is matched here, because "pim-db"
-        // is a prefix of "pim-db-password" and a prefix match would resolve the wrong secret.
-        Lookup lookupSecretErn(const HttpClient &client, const std::string &name) {
-
-            try {
-                const HttpResponse response = client.Post("ess", "list-secrets", boost::json::object{{"prefix", name}});
-                if (!response.IsSuccess()) {
-                    return {.known = false, .problem = "HTTP " + std::to_string(response.statusCode) + ": " + boost::json::serialize(response.body)};
-                }
-
-                const auto *secrets = response.body.is_object() ? response.body.as_object().if_contains("secrets") : nullptr;
-                if (secrets == nullptr || !secrets->is_array()) return {.known = true, .ern = {}};
-
-                for (const auto &entry: secrets->as_array()) {
-                    if (!entry.is_object()) continue;
-                    const auto &object = entry.as_object();
-                    const auto *found = object.if_contains("name");
-                    if (found == nullptr || !found->is_string() || std::string(found->as_string()) != name) continue;
-                    const auto *ern = object.if_contains("ern");
-                    if (ern != nullptr && ern->is_string()) return {.known = true, .ern = std::string(ern->as_string())};
-                }
-                return {.known = true, .ern = {}};
-
-            } catch (const std::exception &ex) {
-                return {.known = false, .problem = ex.what()};
-            }
-        }
-
-        Lookup lookupErn(const HttpClient &client, const Core::ApplicationManifest::Kind kind, const std::string &name) {
-
-            if (kind == Core::ApplicationManifest::Kind::Secret) return lookupSecretErn(client, name);
-
-            const auto actions = actionsFor(kind);
-            try {
-                const HttpResponse response = client.Post(actions.module, actions.lookupErn, boost::json::object{{"name", name}});
-                if (response.IsSuccess()) {
-                    const auto *ern = response.body.is_object() ? response.body.as_object().if_contains("ern") : nullptr;
-                    if (ern != nullptr && ern->is_string()) return {.known = true, .ern = std::string(ern->as_string())};
-                    return {.known = true, .ern = {}};
-                }
-                if (response.statusCode == 404) return {.known = true, .ern = {}};
-
-                return {.known = false, .problem = "HTTP " + std::to_string(response.statusCode) + ": " + boost::json::serialize(response.body)};
-
-            } catch (const std::exception &ex) {
-                return {.known = false, .problem = ex.what()};
-            }
-        }
-
-        // The owner tag, out of whatever shape the module answers get-<thing> with. Read from the
-        // JSON rather than through each module's response DTO: three modules, three wrappers, one
-        // field, and a tool that had to know all three would need changing whenever any of them was
-        // reshaped.
-        const boost::json::object *findTags(const boost::json::value &value, const int depth = 0) {
-
-            if (depth > 3 || !value.is_object()) return nullptr;
-            const auto &object = value.as_object();
-
-            if (const auto *tags = object.if_contains("tags"); tags != nullptr && tags->is_object()) return &tags->as_object();
-            for (const auto &field: object) {
-                if (const auto *found = findTags(field.value(), depth + 1)) return found;
-            }
-            return nullptr;
-        }
-
-        std::string ownerOf(const HttpClient &client, const Core::ApplicationManifest::Kind kind, const std::string &ern) {
-
-            const auto actions = actionsFor(kind);
-            try {
-                const HttpResponse response = client.Post(actions.module, actions.get, boost::json::object{{"ern", ern}});
-                if (!response.IsSuccess()) return {};
-
-                const auto *tags = findTags(response.body);
-                if (tags == nullptr) return {};
-
-                const auto *owner = tags->if_contains(kOwnerTag);
-                return owner != nullptr && owner->is_string() ? std::string(owner->as_string()) : std::string{};
-
-            } catch (const std::exception &) {
-                return {};
-            }
-        }
-
-        // Every object of one kind this application owns, by the tag apply wrote. The list is how
-        // pruning knows what it used to have: the manifest says what should exist now, and the
-        // difference is what a previous version of the manifest created and this one does not
-        // mention. Nothing untagged is ever in this list, so nothing an application did not declare
-        // can be removed by it.
-        std::vector<std::pair<std::string, std::string> > ownedObjects(const HttpClient &client,
-                                                                       const Core::ApplicationManifest::Kind kind,
-                                                                       const std::string &application, bool &known) {
-
-            static const std::map<std::string, std::string> kListActions{
-                    {"esm", "list-buckets"},
-                    {"eqs", "list-queues"},
-                    {"ens", "list-topics"},
-            };
-            static const std::map<std::string, std::string> kCollections{
-                    {"esm", "buckets"},
-                    {"eqs", "queues"},
-                    {"ens", "topics"},
-            };
-
-            known = false;
-            std::vector<std::pair<std::string, std::string> > owned;
-
-            const auto actions = actionsFor(kind);
-            try {
-                const HttpResponse response = client.Post(actions.module, kListActions.at(actions.module),
-                                                          boost::json::object{{"pageSize", 10000}, {"pageIndex", 0}});
-                if (!response.IsSuccess() || !response.body.is_object()) return owned;
-
-                const auto *collection = response.body.as_object().if_contains(kCollections.at(actions.module));
-                if (collection == nullptr || !collection->is_array()) return owned;
-
-                known = true;
-                for (const auto &entry: collection->as_array()) {
-                    if (!entry.is_object()) continue;
-                    const auto &object = entry.as_object();
-
-                    const auto *tags = object.if_contains("tags");
-                    if (tags == nullptr || !tags->is_object()) continue;
-                    const auto *owner = tags->as_object().if_contains(kOwnerTag);
-                    if (owner == nullptr || !owner->is_string() || std::string(owner->as_string()) != application) continue;
-
-                    const auto *name = object.if_contains("name");
-                    const auto *ern = object.if_contains("ern");
-                    if (name == nullptr || !name->is_string() || ern == nullptr || !ern->is_string()) continue;
-
-                    owned.emplace_back(std::string(name->as_string()), std::string(ern->as_string()));
-                }
-            } catch (const std::exception &) {
-                known = false;
-            }
-            return owned;
-        }
-
-
-    }// namespace
-
-    int EapCli::applyManifest(const std::vector<std::string> &args) const {
-
-        po::options_description desc("apply an application manifest");
-        desc.add_options()
-                ("application-id,n", po::value<std::string>()->required(), "the application these objects belong to; recorded as their owner")
-                ("directory,d", po::value<std::string>()->default_value("euclid"), "the application's euclid/ directory")
-                ("dry-run", po::bool_switch()->default_value(false), "say what would be done, and do none of it")
-                ("no-prune", po::bool_switch()->default_value(false), "leave objects this application owns that the manifest no longer lists");
+        po::options_description desc(action + " options");
+        if (action == "get-platform") desc.add_options()("name,n", po::value<std::string>()->default_value("platform"), "the platform's name");
 
         if (IsHelpRequest(args)) {
-            return PrintActionHelp("eap", "apply", "--application-id <name> [--directory <path>] [--dry-run]",
-                                   "Reads an application's euclid/ directory and makes the installation match it: creates the "
-                                   "queues, topics and buckets the application owns, and checks that the ones it says it uses "
-                                   "are there. What it owns is tagged with its name, which is what lets a later run remove what "
-                                   "the manifest no longer lists - and what stops it removing anything it does not own. "
-                                   "Objects are created in the namespace of the current session. "
-                                   "Everything is printed before anything is done, and --dry-run stops there. "
-                                   "Exits 0 when the installation matches the manifest, 1 when it does not and could not be "
-                                   "made to, and 2 when the question could not be asked at all - an expired session, an "
-                                   "unreachable gateway. See docs/application-manifest.md.",
+            return PrintActionHelp("eap", action, action == "get-platform" ? "[--name <name>]" : "",
+                                   action == "get-platform"
+                                           ? "Shows a platform declaration: the objects it owns and the declaration last applied with "
+                                             "\"eap apply --platform\"."
+                                           : "Lists the platform declarations of the namespace, with what each owns.",
                                    desc);
         }
 
@@ -1603,271 +1463,29 @@ namespace Euclid::CLI {
             po::store(po::command_line_parser(args).options(desc).run(), vm);
             po::notify(vm);
         } catch (const po::error &ex) {
-            std::cerr << "error: " << ex.what() << "\n\n"
-                    << desc << std::endl;
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
             return 1;
         }
 
-        const auto application = vm["application-id"].as<std::string>();
-        const auto directory = std::filesystem::path(vm["directory"].as<std::string>());
-        const auto dryRun = vm["dry-run"].as<bool>();
-        const auto prune = !vm["no-prune"].as<bool>();
-
-        const auto loaded = Core::LoadApplicationManifest(directory);
-        if (!loaded.ok()) {
-            std::cerr << "error: " << directory.string() << " cannot be applied:\n";
-            for (const auto &problem: loaded.errors) std::cerr << "  " << problem << "\n";
+        boost::json::object request;
+        if (action == "get-platform") request["name"] = vm["name"].as<std::string>();
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("eap", action, request);
+            if (!response.IsSuccess()) {
+                std::cerr << "error: " << action << " failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
             return 1;
         }
-        if (loaded.manifest.empty()) {
-            std::cout << "Nothing declared in " << directory.string() << "; nothing to do.\n";
-            return 0;
-        }
+    }
 
-        const auto nameSpace = _authentication.nameSpace.empty() ? std::string("(the session default)") : _authentication.nameSpace;
-        std::cout << "Application '" << application << "' in namespace " << nameSpace << ":\n\n";
-
-        const HttpClient client(_endpoint, _authentication, _caCertPath);
-
-        struct Work {
-            const Core::ApplicationManifest::Creates *declaration{};
-            bool create{};
-            std::string ern;
-        };
-
-        std::vector<Work> work;
-        bool blocked = false;
-        bool unanswerable = false;
-        int adoptions = 0;
-
-        // ── What this application owns ──────────────────────────────────────────────────────
-        for (const auto &declaration: loaded.manifest.creates) {
-
-            const auto kind = Core::ToString(declaration.kind);
-            const auto found = lookupErn(client, declaration.kind, declaration.name);
-
-            if (!found.known) {
-                std::cout << "  ?       " << kind << " " << declaration.name << " - could not be looked up: " << found.problem << "\n";
-                unanswerable = true;
-                continue;
-            }
-            if (found.absent()) {
-                std::cout << "  create  " << kind << " " << declaration.name << "  (" << declaration.source << ")\n";
-                work.push_back({.declaration = &declaration, .create = true});
-                continue;
-            }
-
-            if (const auto owner = ownerOf(client, declaration.kind, found.ern); owner == application) {
-                std::cout << "  ok      " << kind << " " << declaration.name << " - already there\n";
-            } else if (owner.empty()) {
-                // Untagged, so nobody has claimed it: it predates the manifest, or was made by
-                // hand. Claimed here rather than left alone, because an object an application owns
-                // and cannot manage is a manifest that lies. Printed as its own verb precisely
-                // because it is the one step that takes something over.
-                std::cout << "  adopt   " << kind << " " << declaration.name << " - exists untagged, to be recorded as owned by " << application << "\n";
-                work.push_back({.declaration = &declaration, .create = false, .ern = found.ern});
-                adoptions++;
-            } else {
-                std::cout << "  CLASH   " << kind << " " << declaration.name << " - already owned by '" << owner << "'\n";
-                blocked = true;
-            }
-        }
-
-        // ── What it borrows ─────────────────────────────────────────────────────────────────
-        for (const auto &declaration: loaded.manifest.uses) {
-
-            const auto kind = Core::ToString(declaration.kind);
-            const auto found = lookupErn(client, declaration.kind, declaration.name);
-
-            if (!found.known) {
-                std::cout << "  ?       " << kind << " " << declaration.name << " - could not be looked up: " << found.problem << "\n";
-                unanswerable = true;
-                continue;
-            }
-            if (found.found()) {
-                std::cout << "  use     " << kind << " " << declaration.name << " as " << Core::ToString(declaration.access) << "\n";
-                continue;
-            }
-
-            // Not created here: the producer owns it, so a missing one is a deployment-order
-            // problem. Naming the application that should have made it is the difference between a
-            // fix and a support call.
-            std::cout << "  MISSING " << kind << " " << declaration.name << " - used but does not exist"
-                    << (declaration.owner.empty() ? "" : "; created by '" + declaration.owner + "'") << "\n";
-            blocked = true;
-        }
-
-        // ── What it used to own and no longer declares ──────────────────────────────────────
-        //
-        // The manifest is the desired state, so an object this application owns and no longer
-        // mentions is one a previous version of the manifest created. Only ever objects carrying
-        // this application's owner tag: nothing untagged, and nothing another application's, can be
-        // reached from here however the manifest is edited.
-        struct Removal {
-            Core::ApplicationManifest::Kind kind{};
-            std::string name;
-            std::string ern;
-        };
-        std::vector<Removal> removals;
-
-        if (prune && !blocked && !unanswerable) {
-            // Three kinds, not four. Pruning is about objects this application owns, and it can
-            // never own a secret - a manifest may only use one - so there is nothing of that kind
-            // a previous manifest could have left behind. Which is the answer to the obvious
-            // worry too: removing a secret from a manifest narrows the grant and does not go near
-            // the value, so a credential cannot be deleted by editing the file that reads it.
-            for (const auto kind: {Core::ApplicationManifest::Kind::Bucket,
-                                   Core::ApplicationManifest::Kind::Queue,
-                                   Core::ApplicationManifest::Kind::Topic}) {
-
-                bool listed = false;
-                const auto owned = ownedObjects(client, kind, application, listed);
-                if (!listed) {
-                    // Refusing to prune on a list that may be short is the only safe reading: what
-                    // is missing from it looks exactly like an object the manifest still declares.
-                    std::cout << "  ?       " << Core::ToString(kind) << "s could not be listed; nothing of this kind will be removed\n";
-                    continue;
-                }
-
-                for (const auto &[name, ern]: owned) {
-                    const auto declared = std::ranges::any_of(loaded.manifest.creates, [&](const auto &declaration) {
-                        return declaration.kind == kind && declaration.name == name;
-                    });
-                    if (declared) continue;
-
-                    std::cout << "  remove  " << Core::ToString(kind) << " " << name << " - owned here, no longer declared\n";
-                    removals.push_back({.kind = kind, .name = name, .ern = ern});
-                }
-            }
-        }
-
-        std::cout << "\n";
-
-        if (unanswerable) {
-            std::cerr << "error: some objects could not be looked up; nothing was changed\n";
-            return 2;
-        }
-        if (blocked) {
-            std::cerr << "error: the manifest cannot be applied as it stands; nothing was changed\n";
-            return 1;
-        }
-        if (dryRun) {
-            std::cout << "--dry-run: nothing was changed.\n";
-            return 0;
-        }
-        if (work.empty() && removals.empty()) {
-            std::cout << "Already matches the manifest.\n";
-            return 0;
-        }
-
-        // ── Do it ───────────────────────────────────────────────────────────────────────────
-        int created = 0;
-
-        for (auto &item: work) {
-
-            const auto kind = Core::ToString(item.declaration->kind);
-            const auto actions = actionsFor(item.declaration->kind);
-
-            if (item.create) {
-                // The name, plus whatever else the declaration said, passed through as written. The
-                // rule about a visibility timeout lives in the module, so the module is what
-                // rejects a value it does not like.
-                boost::json::object body = item.declaration->settings;
-                body["name"] = item.declaration->name;
-
-                try {
-                    const HttpResponse response = client.Post(actions.module, actions.create, body);
-                    if (!response.IsSuccess()) {
-                        std::cerr << "error: could not create " << kind << " " << item.declaration->name
-                                << " (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << "\n";
-                        return 1;
-                    }
-                } catch (const std::exception &ex) {
-                    std::cerr << "error: could not create " << kind << " " << item.declaration->name << ": " << ex.what() << "\n";
-                    return 1;
-                }
-
-                // Asked for rather than read out of the answer: what a create returns differs by
-                // module, and the tag below needs an ERN from all three.
-                const auto found = lookupErn(client, item.declaration->kind, item.declaration->name);
-                if (!found.found()) {
-                    std::cerr << "error: created " << kind << " " << item.declaration->name
-                            << " but could not resolve its ERN to record ownership\n";
-                    return 1;
-                }
-                item.ern = found.ern;
-                created++;
-            }
-
-            try {
-                const HttpResponse response = client.Post(actions.module, actions.addTag,
-                                                          boost::json::object{{"ern", item.ern}, {"key", kOwnerTag}, {"value", application}});
-                if (!response.IsSuccess()) {
-                    // The object is there either way; what is missing is the record of whose it is.
-                    // Said plainly, because an untagged object is one the next run offers to adopt
-                    // rather than one it can prune - which is the safe way round, but only if
-                    // somebody knows.
-                    std::cerr << "warning: " << kind << " " << item.declaration->name
-                            << " exists but could not be tagged as owned by " << application
-                            << " (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << "\n";
-                }
-            } catch (const std::exception &ex) {
-                std::cerr << "warning: " << kind << " " << item.declaration->name << " exists but could not be tagged: " << ex.what() << "\n";
-            }
-        }
-
-        // ── Remove what is no longer declared ───────────────────────────────────────────────
-        int removed = 0;
-        std::vector<std::string> orphans;
-
-        for (const auto &removal: removals) {
-
-            const auto kind = Core::ToString(removal.kind);
-            const auto actions = actionsFor(removal.kind);
-            const auto deleteAction = removal.kind == Core::ApplicationManifest::Kind::Bucket
-                                          ? "delete-bucket"
-                                          : removal.kind == Core::ApplicationManifest::Kind::Queue
-                                          ? "delete-queue"
-                                          : "delete-topic";
-
-            try {
-                // ifEmpty, always. An object this application owns may still hold a delivery
-                // somebody is waiting for, and a line removed from a file is not a decision to
-                // destroy it - see docs/application-manifest.md. A topic has no ifEmpty because it
-                // holds nothing: what it has is subscriptions, and ENS refuses a topic that still
-                // has them on its own.
-                boost::json::object body{{"ern", removal.ern}};
-                if (removal.kind != Core::ApplicationManifest::Kind::Topic) body["ifEmpty"] = true;
-
-                const HttpResponse response = client.Post(actions.module, deleteAction, body);
-                if (response.IsSuccess()) {
-                    std::cout << "  removed " << kind << " " << removal.name << "\n";
-                    removed++;
-                    continue;
-                }
-                if (response.statusCode == 409) {
-                    // Not a failure. It is the answer the rule asks for: still in use, so still
-                    // here, and now somebody's to decide about.
-                    orphans.push_back(kind + " " + removal.name + " - " + boost::json::serialize(response.body));
-                    continue;
-                }
-                orphans.push_back(kind + " " + removal.name + " - HTTP " + std::to_string(response.statusCode) + ": " + boost::json::serialize(response.body));
-
-            } catch (const std::exception &ex) {
-                orphans.push_back(kind + " " + removal.name + " - " + ex.what());
-            }
-        }
-
-        std::cout << "Created " << created << ", adopted " << adoptions << ", removed " << removed << ".\n";
-
-        if (!orphans.empty()) {
-            // Reported rather than counted away: these are objects nothing declares any more, which
-            // nobody will look for again unless they are named here. They keep their owner tag, so
-            // the next run offers them again.
-            std::cout << "\nLeft in place, no longer declared by " << application << ":\n";
-            for (const auto &orphan: orphans) std::cout << "  " << orphan << "\n";
-        }
-        return 0;
+    int EapCli::applyManifest(const std::vector<std::string> &args) const {
+        return deployInfrastructure(args);
     }
 
 }// namespace Euclid::CLI
