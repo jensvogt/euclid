@@ -217,7 +217,7 @@ namespace Euclid::Database::Entity::EAP {
                     // the SDK's downloadFile goes on to create-download. A reader or a writer that
                     // could only handle small objects would fail on exactly the files worth
                     // storing.
-                    {{"buckets", "read"}, {"esm:get-bucket-ern", "esm:get-object", "esm:list-objects",
+                    {{"buckets", "read"}, {"esm:get-bucket-ern", "esm:get-object", "esm:get-object-size", "esm:list-objects",
                                            "esm:list-object-attributes", "esm:create-download",
                                            "esm:download-part", "esm:complete-download"}},
                     {{"buckets", "write"}, {"esm:get-bucket-ern", "esm:put-object", "esm:create-upload",

@@ -1,0 +1,58 @@
+.TH EUCLID-CLI-ESM-GET-OBJECT-SIZE 1 "October 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-get-object-size \- an object's size in bytes
+.SH SYNOPSIS
+.B euclid-cli esm get-object-size
+.RB ( \-\-bucket | \-b
+.I NAME|ERN
+.BR \-\-key | \-k
+.I KEY
+|
+.BR \-\-ern | \-e
+.IR ERN )
+.RB [ \-\-bytes ]
+.SH DESCRIPTION
+Returns an object's size in bytes, without downloading it: the object's ERN,
+bucket, key and
+.BR size .
+.PP
+An object whose upload has not finished has no final size yet and is refused
+with its status, as
+.B get-object
+refuses it.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-bucket " " \fINAME|ERN\fR
+The object's bucket, by name or ERN. With
+.BR \-\-key .
+.TP
+.BR \-k ", " \-\-key " " \fIKEY\fR
+The object's key within the bucket.
+.TP
+.BR \-e ", " \-\-ern " " \fIERN\fR
+The object's ERN, instead of
+.B \-\-bucket
+and
+.BR \-\-key .
+.TP
+.B \-\-bytes
+Print only the size, as a number, for a script.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli esm get-object-size -b incoming -k deliveries/onix.xml
+size=$(euclid-cli esm get-object-size -b incoming -k deliveries/onix.xml --bytes)
+.fi
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+The size was printed.
+.TP
+.B 1
+No such object, an upload not yet finished, not permitted, or invalid arguments.
+.SH SEE ALSO
+.BR euclid-cli-esm-get-bucket-size (1),
+.BR euclid-cli-esm (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

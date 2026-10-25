@@ -220,6 +220,9 @@ namespace Euclid::Core {
                 built[std::string(BuiltinRoles::Application)] =
                         merged(publisherPermissions(), consumerPermissions(),
                                {"esm:get-object",
+                                // How big an object is before fetching it - whether to stream it, or
+                                // how much room it needs - without the round trip get-object costs.
+                                "esm:get-object-size",
                                 "esm:put-object",
                                 // Its own delivery queue: created on startup, listed to find the
                                 // orphans of runs that did not shut down, deleted on the way out.

@@ -180,6 +180,11 @@ namespace Euclid::CLI {
          * @return ok
          */
         [[nodiscard]]
+        /**
+         * @brief get-object-size: one object's size in bytes.
+         */
+        int getObjectSize(const std::vector<std::string> &args) const;
+
         int setBucketPriority(const std::vector<std::string> &args) const;
 
         /**

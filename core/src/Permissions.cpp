@@ -245,7 +245,7 @@ namespace Euclid::Core {
                 "eqs:stop-queue",
                 "eqs:update-message-body",
 
-                // esm - 43 actions
+                // esm - 44 actions
                 "esm:abort-upload",
                 "esm:add-bucket-tag",
                 "esm:add-object-attribute",
@@ -270,6 +270,7 @@ namespace Euclid::Core {
                 "esm:get-metrics",
                 "esm:get-object",
                 "esm:get-object-count",
+                "esm:get-object-size",
                 "esm:list-buckets",
                 "esm:list-object-attributes",
                 "esm:list-objects",

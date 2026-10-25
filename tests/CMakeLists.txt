@@ -98,6 +98,17 @@ target_link_libraries(${ESM_STOP_BUCKET_BINARY} PRIVATE eucliddto Boost::thread 
 
 add_test(NAME ${ESM_STOP_BUCKET_BINARY} COMMAND ${ESM_STOP_BUCKET_BINARY})
 
+# esm get-object-size, and get-bucket-size on a bucket that is not there.
+set(ESM_OBJECT_SIZE_BINARY euclid-esm-object-size-tests)
+
+add_executable(${ESM_OBJECT_SIZE_BINARY} EsmObjectSizeTest.cpp ${CMAKE_SOURCE_DIR}/modules/esm/src/EsmServer.cpp)
+set_target_properties(${ESM_OBJECT_SIZE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${ESM_OBJECT_SIZE_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/esm/include)
+target_link_libraries(${ESM_OBJECT_SIZE_BINARY} PRIVATE eucliddto Boost::thread Boost::unit_test_framework)
+
+add_test(NAME ${ESM_OBJECT_SIZE_BINARY} COMMAND ${ESM_OBJECT_SIZE_BINARY})
+
 # The worker on the manager's own host, as EAP provisions it - docs/worker-nodes.md §13.3.
 set(LOCAL_NODE_BINARY euclid-local-node-tests)
 
