@@ -3,10 +3,17 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 // C++ includes
+#include <atomic>
 #include <chrono>
+#include <filesystem>
 #include <map>
 #include <mutex>
 #include <optional>
+#if defined(__linux__)
+#include <cerrno>
+#include <sys/syscall.h>
+#include <unistd.h>
+#endif
 
 // Boost includes
 #include <boost/beast/core.hpp>
@@ -15,6 +22,8 @@
 #include <EmoServer.h>
 #include <euclid/core/Configuration.h>
 #include <euclid/core/DateTimeUtils.h>
+#include <euclid/core/DirUtils.h>
+#include <euclid/database/PeriodicClaim.h>
 #include <euclid/core/SystemUtils.h>
 #include <euclid/database/entity/eam/User.h>
 
@@ -45,20 +54,60 @@ namespace Euclid::Monitoring {
         // Slower than the rest: these move at the pace a database grows, and dbStats is a
         // round trip per tick that tells you nothing new a second later.
         constexpr auto kDatabaseSizePeriod = std::chrono::seconds(300);
+
+        // Hourly: a walk of ESM's directory is minutes of disk work - see collectDiskUsage() - and
+        // a data directory grows by the day, not by the minute.
+        constexpr auto kDiskUsagePeriod = std::chrono::seconds(3600);
+        // How often a walk is asked for, and how soon after a start the first time - see where the
+        // task is scheduled for why these are not the period.
+        constexpr auto kDiskUsageTick = std::chrono::seconds(300);
+        constexpr auto kDiskUsageFirstTick = std::chrono::seconds(60);
+
+        // A walk in progress, so a slow one is never joined by the next, and the module stopping,
+        // so a walk does not hold the shutdown for the minutes it takes.
+        std::atomic s_diskWalkRunning{false};
+        std::atomic s_stopping{false};
+
+        // Where the modules keep their files: every directory directly in euclid.data-dir, by its
+        // name, and any module whose own data-dir is somewhere else.
+        std::map<std::string, std::filesystem::path> moduleDataDirectories() {
+            const auto &configuration = Core::Configuration::instance();
+            const std::filesystem::path root = configuration.getOr<std::string>("euclid.data-dir", "/usr/local/euclid/data");
+
+            std::map<std::string, std::filesystem::path> directories;
+            std::error_code ec;
+            for (const auto &entry: std::filesystem::directory_iterator(root, ec)) {
+                if (std::error_code typeError; entry.is_directory(typeError) && !entry.is_symlink(typeError)) {
+                    directories[entry.path().filename().string()] = entry.path();
+                }
+            }
+
+            const auto rootText = std::filesystem::weakly_canonical(root, ec).string();
+            for (const auto &module: configuration.getKeys("euclid.modules")) {
+                const auto configured = configuration.getOr<std::string>("euclid.modules." + module + ".data-dir", "");
+                if (configured.empty()) continue;
+                const auto resolved = std::filesystem::weakly_canonical(configured, ec);
+                // Inside the root it is already counted, under its directory's name.
+                if (resolved.string().starts_with(rootText + "/") || resolved.string() == rootText) continue;
+                directories[module] = resolved;
+            }
+            return directories;
+        }
+
+#if defined(__linux__)
+        // Idle I/O priority for the calling thread: the walk only gets the disk when nothing else
+        // wants it, so a busy ESM is not slowed down to measure it. The kernel's own numbers,
+        // since glibc wraps none of this.
+        void lowerIoPriority() {
+            constexpr int kIoprioWhoProcess = 1;
+            constexpr int kIoprioClassIdle = 3;
+            constexpr int kIoprioClassShift = 13;
+            if (::syscall(SYS_ioprio_set, kIoprioWhoProcess, 0, kIoprioClassIdle << kIoprioClassShift) != 0) {
+                log_debug << "Monitoring disk-usage could not lower its I/O priority, errno: " << errno;
+            }
+        }
+#endif
         // How long the counters may carry the drift that nothing else can correct.
-        //
-        // These three are no longer what produces the numbers - queues, buckets and topics all
-        // maintain their counters as the messages and objects move, so what a queue reports is
-        // right as each send and receive happens rather than as of the last pass here. What is
-        // left for a scan to find is what happens where no application code runs: the TTL index
-        // removing an expired message the moment it expires, and a process dying between writing
-        // something and accounting for it.
-        //
-        // That is worth correcting hourly, not every fifteen seconds. Each pass reads every
-        // message and every object in the installation and gets more expensive as they fill - on
-        // an installation holding four million published messages it was the most expensive thing
-        // in the database, and it was running four times a minute to correct a drift that mostly
-        // was not there.
         //
         // Queues every five minutes rather than hourly, though: their counters are not only a
         // figure on a dashboard. The autoscaler sizes a pool from a queue's backlog, and a
@@ -78,7 +127,7 @@ namespace Euclid::Monitoring {
         constexpr auto kDayRollupPeriod = std::chrono::hours(1);
 
         // Default retention per tier, in days. Roughly 2000 rows per series in total, against the
-        // ~525,000 five-minute rows five years of undownsampled history would cost.
+        // ~525,000 five-minute rows five years of unsampled history would cost.
         constexpr long kRawRetentionDays = 7;
         constexpr long kHourRetentionDays = 90;
         constexpr long kDayRetentionDays = 1825;
@@ -134,8 +183,7 @@ namespace Euclid::Monitoring {
 
         // Single entry point for every sample, whichever side it arrives from, so that all of them
         // land in the same bucket-aligned rows that the rollups can then aggregate.
-        void recordSample(const std::string &name, const std::map<std::string, std::string> &labels,
-                          const double value, const MetricType type) {
+        void recordSample(const std::string &name, const std::map<std::string, std::string> &labels, const double value, const MetricType type) {
 
             std::lock_guard lock(accumulatorsMutex());
             auto &acc = accumulators()[SeriesKey{.name = name, .labels = labels}];
@@ -154,8 +202,7 @@ namespace Euclid::Monitoring {
         // The one-dimensional form, which is every metric euclid records about itself: a service
         // time by method, an instance count by module. An empty label name records the series with
         // no dimensions at all rather than one called "".
-        void recordSample(const std::string &name, const std::string &labelName, const std::string &labelValue,
-                          const double value, const MetricType type) {
+        void recordSample(const std::string &name, const std::string &labelName, const std::string &labelValue, const double value, const MetricType type) {
             std::map<std::string, std::string> labels;
             if (!labelName.empty()) labels[labelName] = labelValue;
             recordSample(name, labels, value, type);
@@ -347,13 +394,15 @@ namespace Euclid::Monitoring {
     // name another user, so there is no way to read or overwrite their dashboards, and no
     // per-request permission check to get wrong.
 
-    // Shared preamble: authenticate, parse, and pull out "name".
-    struct DashboardRequest {
-        std::optional<response<string_body> > failure;
-        std::string userId;
-        std::string name;
-        boost::json::value body;
-    };
+    namespace {
+        // Shared preamble: authenticate, parse, and pull out "name".
+        struct DashboardRequest {
+            std::optional<response<string_body> > failure;
+            std::string userId;
+            std::string name;
+            boost::json::value body;
+        };
+    }
 
     static DashboardRequest readDashboardRequest(const request<string_body> &req, const bool requireName) {
 
@@ -542,6 +591,26 @@ namespace Euclid::Monitoring {
         _databaseSizeTaskId = scheduler.SchedulePeriodic("monitoring-database-size", [] { collectDatabaseSize(); },
                                                          std::chrono::duration_cast<std::chrono::milliseconds>(databaseSizePeriod));
 
+        // The volume's free space is one call and moves with every upload, so as often as the
+        // database size; what each module's directory holds takes a walk, so far less often.
+        // A period of 0 turns the walk off.
+        _diskSpaceTaskId = scheduler.SchedulePeriodic("monitoring-disk-space", [] { collectDiskSpace(); },
+                                                      std::chrono::duration_cast<std::chrono::milliseconds>(databaseSizePeriod));
+        //
+        // Asked often and done rarely: the task only asks whether a walk is due, and the periodic
+        // claim - see collectDiskUsage() - is what holds walks to the period. Scheduled at the period
+        // itself, as it first was, the first walk came two hours after a start: the first tick waits
+        // a whole period, and the first claim of a job only records it and is never granted. Now a
+        // start is measured within minutes, a restart does not push the next walk back by an hour,
+        // and a walk an instance misses is picked up by whichever asks next.
+        if (const auto diskUsagePeriod = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.modules.emo.disk-usage-period", kDiskUsagePeriod.count()));
+            diskUsagePeriod.count() > 0) {
+            const auto tick = std::min(diskUsagePeriod, kDiskUsageTick);
+            _diskUsageTaskId = scheduler.SchedulePeriodic("monitoring-disk-usage", [] { collectDiskUsage(); },
+                                                          std::chrono::duration_cast<std::chrono::milliseconds>(tick),
+                                                          std::chrono::duration_cast<std::chrono::milliseconds>(kDiskUsageFirstTick));
+        }
+
 #if defined(__linux__) || defined(_WIN32)
         // What the host itself is doing. Read from /proc on Linux and from the Windows performance
         // counters on Windows - see Core::SystemUtils, which is where the difference lives. Still
@@ -564,7 +633,12 @@ namespace Euclid::Monitoring {
     }
 
     EmoServer::~EmoServer() {
+        // First: a walk in progress checks this between entries and gives up, rather than holding
+        // the scheduler's shutdown - which waits for running tasks - for the minutes it takes.
+        s_stopping.store(true);
         auto &scheduler = Core::Scheduler::instance();
+        scheduler.Cancel(_diskUsageTaskId);
+        scheduler.Cancel(_diskSpaceTaskId);
         scheduler.Cancel(_flushTaskId);
         scheduler.Cancel(_pruneTaskId);
         scheduler.Cancel(_hourRollupTaskId);
@@ -768,6 +842,63 @@ namespace Euclid::Monitoring {
         recordSample("database-total-size", "database", name, static_cast<double>(stats->totalSize), MetricType::GAUGE);
         recordSample("database-objects", "database", name, static_cast<double>(stats->objects), MetricType::GAUGE);
         recordSample("database-collections", "database", name, static_cast<double>(stats->collections), MetricType::GAUGE);
+    }
+
+    void EmoServer::collectDiskUsage() {
+
+        // One walk at a time. A period shorter than a walk would otherwise start a second over the
+        // same files while the first is still going, and each would slow the other down.
+        if (s_diskWalkRunning.exchange(true)) {
+            log_debug << "Monitoring disk-usage skipped, the previous walk is still running";
+            return;
+        }
+        struct Done {
+            ~Done() { s_diskWalkRunning.store(false); }
+        } done;
+
+        // One EMO instance per period: every instance on the host sees the same directories, and
+        // walking them once is already the expensive part. This is also what holds walks to the
+        // period - the task asks far more often than that.
+        if (const auto period = std::chrono::seconds(Core::Configuration::instance().getOr<long>("euclid.modules.emo.disk-usage-period", kDiskUsagePeriod.count())); !Database::ClaimPeriodicRun("emo-disk-usage", period)) return;
+
+#if defined(__linux__)
+        lowerIoPriority();
+#endif
+
+        for (const auto &[module, directory]: moduleDataDirectories()) {
+            const auto started = std::chrono::steady_clock::now();
+            const auto usage = Core::DirUtils::MeasureDiskUsage(directory, &s_stopping);
+            if (s_stopping.load()) return;
+            const auto seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+
+            // A walk that could not finish has counted part of the directory, and a part would read
+            // as the directory shrinking. Said, and not recorded.
+            if (!usage.complete) {
+                log_warning << "Monitoring disk-usage could not walk all of " << directory.string() << ", module: " << module << ", unreadable entries: " << usage.unreadable;
+                continue;
+            }
+            recordSample("module-disk-usage", "module", module, static_cast<double>(usage.bytes), MetricType::GAUGE);
+            recordSample("module-disk-files", "module", module, static_cast<double>(usage.files), MetricType::GAUGE);
+            recordSample("module-disk-scan-seconds", "module", module, seconds, MetricType::GAUGE);
+            log_info << "Monitoring disk-usage, module: " << module << ", bytes: " << usage.bytes << ", files: " << usage.files
+                     << ", seconds: " << static_cast<long>(seconds);
+        }
+    }
+
+    void EmoServer::collectDiskSpace() {
+
+        const auto root = Core::Configuration::instance().getOr<std::string>("euclid.data-dir", "/usr/local/euclid/data");
+        std::error_code ec;
+        const auto space = std::filesystem::space(root, ec);
+        if (ec) {
+            log_warning << "Monitoring disk-space could not read the volume of " << root << ", error: " << ec.message();
+            return;
+        }
+        // Free and available differ by what the filesystem keeps back for root: available is what
+        // euclid can actually still write, and the one to alert on.
+        recordSample("disk-capacity", "path", root, static_cast<double>(space.capacity), MetricType::GAUGE);
+        recordSample("disk-free", "path", root, static_cast<double>(space.free), MetricType::GAUGE);
+        recordSample("disk-available", "path", root, static_cast<double>(space.available), MetricType::GAUGE);
     }
 
     response<string_body> EmoServer::DispatchAction(const request<string_body> &req) {

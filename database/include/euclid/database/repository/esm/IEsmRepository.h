@@ -9,8 +9,10 @@
 #pragma once
 
 // C++ includes
+#include <chrono>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 // Euclid includes
@@ -359,6 +361,76 @@ namespace Euclid::Database {
          * @param ern The Euclid resource name (ERN) of the object to be removed.
          */
         virtual void deleteObjectByErn(const std::string &ern) = 0;
+
+        /**
+         * @brief Records that an object was used - see Object::lastAccessed. That one field and
+         * nothing else, so it cannot race the object's other writes.
+         *
+         * @return false when there is no such object, or it could not be written.
+         */
+        virtual bool recordObjectAccess(const std::string &ern, std::chrono::system_clock::time_point when) = 0;
+
+        /**
+         * @brief Moves an object from one lifecycle state to another - the only write of
+         * Object::lifecycleState, archivedAt, restoredAt and restoredUntil, which are taken from
+         * @p object (an absent time is removed).
+         *
+         * @par
+         * Conditional on the object still being in @p from and still stored under
+         * object.internalName: an object re-uploaded, deleted or moved by someone else since it was
+         * read is not changed, and the caller - who has just moved a file on that understanding -
+         * learns so and can put the file back.
+         *
+         * @return true when the object was changed.
+         */
+        virtual bool setObjectLifecycle(const Entity::ESM::Object &object, Entity::ESM::LifecycleState from) = 0;
+
+        /**
+         * @brief Puts a rewritten object back to STANDARD with no archive or restore times - what
+         * new bytes under a new internalName are, whatever the key held before. Unconditional on
+         * the state it finds, because the sweep may archive the old bytes between the writer
+         * reading the object and replacing it, and that state would otherwise stay on the row and
+         * describe the new bytes. Conditional on object.internalName, so it never touches a newer
+         * write than the caller's.
+         *
+         * @return true when there was something to clear.
+         */
+        virtual bool clearObjectLifecycle(const Entity::ESM::Object &object) = 0;
+
+        /**
+         * @brief Whether any object is still archived in a zip - see Object::archiveFile. True
+         * as well when that could not be found out, since the caller deletes the zip on false.
+         */
+        [[nodiscard]]
+        virtual bool archiveInUse(const std::string &archiveFile) const = 0;
+
+        /**
+         * @brief Every bucket that has at least one lifecycle rule, in ERN order - what the
+         * lifecycle sweep walks.
+         */
+        [[nodiscard]]
+        virtual std::vector<Entity::ESM::Bucket> listBucketsWithLifecycleRules() const = 0;
+
+        /**
+         * @brief Where the lifecycle sweep stopped: the bucket it was in and the last key it
+         * looked at. Nothing when it has not run, or has just finished a pass.
+         */
+        [[nodiscard]]
+        virtual std::optional<std::pair<std::string, std::string> > lifecycleCursor() const = 0;
+
+        /**
+         * @brief Records where the lifecycle sweep stopped; an empty bucket ERN starts the next run
+         * from the beginning.
+         */
+        virtual void setLifecycleCursor(const std::string &bucketErn, const std::string &afterKey) = 0;
+
+        /**
+         * @brief Up to @p limit objects of a bucket whose key sorts after @p afterKey, in key
+         * order - a walk through a bucket of any size that can stop and pick up where it left off.
+         * Directory markers included.
+         */
+        [[nodiscard]]
+        virtual std::vector<Entity::ESM::Object> listObjectsAfter(const std::string &bucketErn, const std::string &afterKey, long limit) const = 0;
 
         /**
          * @brief Deletes many objects by ERN in a single statement.

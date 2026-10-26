@@ -1,0 +1,117 @@
+.TH EUCLID-CLI-ESM-SET-BUCKET-LIFECYCLE 1 "October 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-set-bucket-lifecycle, get-bucket-lifecycle, delete-bucket-lifecycle \- the rules that archive a bucket's unused objects
+.SH SYNOPSIS
+.B euclid-cli esm set-bucket-lifecycle
+.BR \-\-bucket | \-b
+.I NAME|ERN
+.BR \-\-rule | \-r
+.I RULE
+\&...
+.br
+.B euclid-cli esm get-bucket-lifecycle
+.BR \-\-bucket | \-b
+.I NAME|ERN
+.br
+.B euclid-cli esm delete-bucket-lifecycle
+.BR \-\-bucket | \-b
+.I NAME|ERN
+.SH DESCRIPTION
+An object is in one of two lifecycle states.
+.B STANDARD
+is online: it reads as it always has.
+.B ARCHIVED
+is offline: its bytes have been moved into a zip in
+.B euclid.modules.esm.archive-dir
+(which may be a cheaper disk), and
+.BR get-object ,
+.BR create-download ,
+.B copy-object
+and
+.B move-object
+refuse it with 409 until it is restored with
+.BR "esm restore-object" .
+Its key, attributes, size and listing entry stay where they were, and it can be
+deleted or written over as before; writing over it puts the new bytes online.
+.PP
+Archives are ordinary zip files (Zip64), one per bucket and month, appended to as
+objects are archived:
+.IR archive-dir / account / namespace /archive- bucket - MMYYYY .zip,
+for example
+.BR 000000000000/development/archive-file-delivery-012026.zip .
+Each member is named by the object's key and deflated unless its bytes are
+encrypted or already compressed;
+.B unzip
+or any other zip tool opens them. A restore copies the member back out and leaves
+it in the zip. A zip that no object is archived in any more \- everything in it
+restored, deleted or overwritten \- is deleted by the lifecycle sweep once it
+has not been written to for a day.
+.PP
+.B set-bucket-lifecycle
+replaces a bucket's rules with the ones given. A rule archives every object
+under its prefix (the whole bucket without one) that has not been used for
+.I after
+days \- used meaning read, written, copied or moved, as
+.B lastAccessed
+in
+.B "esm list-objects"
+shows it. Where several rules match a key, the one with the longest prefix
+decides. Invalid rules are refused as a whole: a bucket never ends up with half
+of a set.
+.PP
+A restore keeps an object online for the rule's
+.I restore
+days, the grace period. If nobody reads it in that time it is archived again at
+the end of it; if somebody does, the rule counts from that read, as for any
+other object.
+.PP
+The rules are applied by a background sweep. A pass over every bucket with
+rules starts at most every
+.B euclid.modules.esm.lifecycle-sweep-period
+seconds (an hour by default), works for up to
+.B euclid.modules.esm.lifecycle-sweep-budget
+seconds (240) per run, and carries on from where it stopped every five minutes
+until it is done. A new rule therefore takes effect within about the period,
+plus however long a pass over the bucket takes.
+.PP
+.B delete-bucket-lifecycle
+removes all of a bucket's rules. Nothing more is archived; what is archived
+already stays archived.
+.PP
+Euclid's internal buckets cannot have rules: the modules that read them read
+their files directly.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-bucket " " \fINAME|ERN\fR
+The bucket, by name or ERN.
+.TP
+.BR \-r ", " \-\-rule " " \fIRULE\fR
+One rule, repeatable:
+.BI id= ID ,after= DAYS ,restore= DAYS
+optionally followed by
+.BI ,prefix= PREFIX
+and
+.BR ,disabled .
+Both day counts are from 1 to 36500; ids are unique within the bucket.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli esm set-bucket-lifecycle -b incoming \e
+    --rule id=cold,after=90,restore=7 \e
+    --rule id=logs,prefix=logs/,after=14,restore=2
+euclid-cli esm get-bucket-lifecycle -b incoming
+euclid-cli esm delete-bucket-lifecycle -b incoming
+.fi
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+The rules were set, shown or removed.
+.TP
+.B 1
+No such bucket, an invalid rule, not permitted, or invalid arguments.
+.SH SEE ALSO
+.BR euclid-cli-esm-archive-object (1),
+.BR euclid-cli-esm (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

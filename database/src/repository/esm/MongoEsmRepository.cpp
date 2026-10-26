@@ -7,6 +7,7 @@
 //
 
 // C++ includes
+#include <array>
 #include <algorithm>
 #include <chrono>
 #include <map>
@@ -127,6 +128,7 @@ namespace Euclid::Database {
             objectCollection.create_index(make_document(kvp("status", 1), kvp("bucketErn", 1), kvp("directory", 1), kvp("size", 1)));
 
             ensureLevelIndex();
+            ensureArchiveIndex();
 
             auto subscriptionCollection = Database::instance().collection(SUBSCRIPTION_COLLECTION);
             mongocxx::options::index subscriptionOpts;
@@ -588,6 +590,191 @@ namespace Euclid::Database {
         }
     }
 
+    bool MongoEsmRepository::recordObjectAccess(const std::string &ern, const std::chrono::system_clock::time_point when) {
+
+        try {
+            const auto result = Database::instance().collection(OBJECT_COLLECTION).update_one(
+                    make_document(kvp("ern", ern)).view(),
+                    make_document(kvp("$set", make_document(kvp("lastAccessed", bsoncxx::types::b_date{
+                                                                        std::chrono::duration_cast<std::chrono::milliseconds>(when.time_since_epoch())})))).view());
+            return result.has_value() && result->matched_count() > 0;
+
+        } catch (const std::exception &e) {
+            log_error << "Record object access failed, ern: " << ern << ", error: " << e.what();
+            return false;
+        }
+    }
+
+    namespace {
+        // An archived object's place in its zip - see Object::archiveMember.
+        constexpr std::array kArchiveFields{"archiveFile", "archiveOffset", "archiveCompressedSize", "archiveSize", "archiveCrc", "archiveMethod"};
+    }// namespace
+
+    bool MongoEsmRepository::archiveInUse(const std::string &archiveFile) const {
+
+        try {
+            return Database::instance().collection(OBJECT_COLLECTION).count_documents(make_document(kvp("archiveFile", archiveFile)).view(), 1) > 0;
+        } catch (const std::exception &e) {
+            log_error << "Count objects in an archive failed, file: " << archiveFile << ", error: " << e.what();
+            // Answered as "still in use": the caller deletes the zip on a no.
+            return true;
+        }
+    }
+
+    bool MongoEsmRepository::setObjectLifecycle(const Entity::ESM::Object &object, const Entity::ESM::LifecycleState from) {
+
+        const auto date = [](const std::chrono::system_clock::time_point when) {
+            return bsoncxx::types::b_date{std::chrono::duration_cast<std::chrono::milliseconds>(when.time_since_epoch())};
+        };
+        try {
+            document filter;
+            filter.append(kvp("ern", object.ern), kvp("internalName", object.internalName));
+            // STANDARD is also every object that has never had a state written at all.
+            if (from == Entity::ESM::LifecycleState::ARCHIVED) filter.append(kvp("lifecycleState", "ARCHIVED"));
+            else filter.append(kvp("lifecycleState", make_document(kvp("$ne", "ARCHIVED"))));
+
+            document set, unset;
+            set.append(kvp("lifecycleState", Entity::ESM::LifecycleStateToString(object.lifecycleState)));
+            bool anyUnset = false;
+            const auto time = [&](const std::string &name, const std::optional<std::chrono::system_clock::time_point> &value) {
+                if (value.has_value()) set.append(kvp(name, date(*value)));
+                else {
+                    unset.append(kvp(name, ""));
+                    anyUnset = true;
+                }
+            };
+            time("archivedAt", object.archivedAt);
+            time("restoredAt", object.restoredAt);
+            time("restoredUntil", object.restoredUntil);
+            // Where the bytes are, for exactly as long as they are there.
+            if (!object.archiveFile.empty()) {
+                const auto &member = object.archiveMember;
+                set.append(kvp("archiveFile", object.archiveFile),
+                           kvp("archiveOffset", static_cast<std::int64_t>(member.offset)),
+                           kvp("archiveCompressedSize", static_cast<std::int64_t>(member.compressedSize)),
+                           kvp("archiveSize", static_cast<std::int64_t>(member.size)),
+                           kvp("archiveCrc", static_cast<std::int64_t>(member.crc)),
+                           kvp("archiveMethod", static_cast<std::int32_t>(member.method)));
+            } else {
+                for (const auto *name: kArchiveFields) unset.append(kvp(std::string(name), ""));
+                anyUnset = true;
+            }
+
+            document update;
+            update.append(kvp("$set", set.extract()));
+            if (anyUnset) update.append(kvp("$unset", unset.extract()));
+
+            const auto result = Database::instance().collection(OBJECT_COLLECTION).update_one(filter.view(), update.view());
+            return result.has_value() && result->matched_count() > 0;
+
+        } catch (const std::exception &e) {
+            log_error << "Set object lifecycle failed, ern: " << object.ern << ", error: " << e.what();
+            return false;
+        }
+    }
+
+    bool MongoEsmRepository::clearObjectLifecycle(const Entity::ESM::Object &object) {
+
+        try {
+            // Only rows that carry something, so the common case - an object that was never
+            // archived nor restored - is a lookup and no write.
+            const auto filter = make_document(
+                    kvp("ern", object.ern), kvp("internalName", object.internalName),
+                    kvp("$or", make_array(make_document(kvp("lifecycleState", "ARCHIVED")),
+                                          make_document(kvp("archivedAt", make_document(kvp("$exists", true)))),
+                                          make_document(kvp("restoredUntil", make_document(kvp("$exists", true)))))));
+            document unset;
+            unset.append(kvp("archivedAt", ""), kvp("restoredAt", ""), kvp("restoredUntil", ""));
+            for (const auto *name: kArchiveFields) unset.append(kvp(std::string(name), ""));
+            const auto update = make_document(
+                    kvp("$set", make_document(kvp("lifecycleState", "STANDARD"))),
+                    kvp("$unset", unset.extract()));
+            const auto result = Database::instance().collection(OBJECT_COLLECTION).update_one(filter.view(), update.view());
+            return result.has_value() && result->modified_count() > 0;
+
+        } catch (const std::exception &e) {
+            log_error << "Clear object lifecycle failed, ern: " << object.ern << ", error: " << e.what();
+            return false;
+        }
+    }
+
+    std::vector<Entity::ESM::Bucket> MongoEsmRepository::listBucketsWithLifecycleRules() const {
+
+        try {
+            mongocxx::options::find opts;
+            opts.sort(make_document(kvp("ern", 1)));
+
+            std::vector<Entity::ESM::Bucket> buckets;
+            for (auto cursor = Database::instance().collection(BUCKET_COLLECTION).find(
+                         // Neither absent nor empty, said with operators the in-memory store
+                         // knows too - it has no positional "lifecycleRules.0".
+                         make_document(kvp("$nor", make_array(make_document(kvp("lifecycleRules", make_document(kvp("$exists", false)))),
+                                                              make_document(kvp("lifecycleRules", make_document(kvp("$size", 0))))))).view(), opts);
+                 const auto &bucket: cursor) {
+                buckets.push_back(Entity::ESM::Bucket::fromDocument(bucket));
+            }
+            return buckets;
+
+        } catch (const std::exception &e) {
+            log_error << "List buckets with lifecycle rules failed, error: " << e.what();
+            return {};
+        }
+    }
+
+    std::optional<std::pair<std::string, std::string> > MongoEsmRepository::lifecycleCursor() const {
+
+        try {
+            const auto found = Database::instance().collection(LIFECYCLE_CURSOR_COLLECTION).find_one(make_document(kvp("_id", "sweep")).view());
+            if (!found.has_value()) return std::nullopt;
+            const auto view = found->view();
+            const auto text = [&view](const char *name) {
+                const auto field = view[name];
+                return field && field.type() == bsoncxx::type::k_string ? std::string(field.get_string().value) : std::string{};
+            };
+            if (text("bucketErn").empty()) return std::nullopt;
+            return std::make_pair(text("bucketErn"), text("afterKey"));
+
+        } catch (const std::exception &e) {
+            log_error << "Read lifecycle cursor failed, error: " << e.what();
+            return std::nullopt;
+        }
+    }
+
+    void MongoEsmRepository::setLifecycleCursor(const std::string &bucketErn, const std::string &afterKey) {
+
+        try {
+            mongocxx::options::update opts;
+            opts.upsert(true);
+            Database::instance().collection(LIFECYCLE_CURSOR_COLLECTION).update_one(
+                    make_document(kvp("_id", "sweep")).view(),
+                    make_document(kvp("$set", make_document(kvp("bucketErn", bucketErn), kvp("afterKey", afterKey)))).view(), opts);
+
+        } catch (const std::exception &e) {
+            log_error << "Write lifecycle cursor failed, error: " << e.what();
+        }
+    }
+
+    std::vector<Entity::ESM::Object> MongoEsmRepository::listObjectsAfter(const std::string &bucketErn, const std::string &afterKey, const long limit) const {
+
+        try {
+            mongocxx::options::find opts;
+            opts.sort(make_document(kvp("key", 1)));
+            opts.limit(limit);
+
+            std::vector<Entity::ESM::Object> objects;
+            for (auto cursor = Database::instance().collection(OBJECT_COLLECTION).find(
+                         make_document(kvp("bucketErn", bucketErn), kvp("key", make_document(kvp("$gt", afterKey)))).view(), opts);
+                 const auto &object: cursor) {
+                objects.push_back(Entity::ESM::Object::fromDocument(object));
+            }
+            return objects;
+
+        } catch (const std::exception &e) {
+            log_error << "List objects after a key failed, bucketErn: " << bucketErn << ", error: " << e.what();
+            return {};
+        }
+    }
+
     std::optional<Entity::ESM::Object> MongoEsmRepository::findObjectByBucketAndKey(const std::string &bucketErn, const std::string &key) const {
 
         try {
@@ -710,6 +897,29 @@ namespace Euclid::Database {
 
             } catch (const std::exception &e) {
                 log_error << "Ensure ESM level index failed, error: " << e.what();
+            }
+        }).detach();
+    }
+
+    void MongoEsmRepository::ensureArchiveIndex() {
+
+        // Serves archiveInUse(). Sparse: only archived objects carry the field, so the index is
+        // as small as the archive and a build over a collection with none in it is one scan.
+        // On a thread for the reason the level index is.
+        const auto build = [] {
+            mongocxx::options::index opts;
+            opts.sparse(true);
+            Database::instance().collection(OBJECT_COLLECTION).create_index(make_document(kvp("archiveFile", 1)).view(), opts);
+        };
+        if (!Database::instance().collection(OBJECT_COLLECTION).supports_aggregation()) {
+            build();
+            return;
+        }
+        std::thread([build] {
+            try {
+                build();
+            } catch (const std::exception &e) {
+                log_error << "Ensure ESM archive index failed, error: " << e.what();
             }
         }).detach();
     }

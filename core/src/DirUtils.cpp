@@ -91,4 +91,49 @@ namespace Euclid::Core {
         return removed;
     }
 
+    DirUtils::DiskUsage DirUtils::MeasureDiskUsage(const std::filesystem::path &root, const std::atomic<bool> *cancel) {
+
+        DiskUsage usage;
+        std::error_code ec;
+        std::filesystem::recursive_directory_iterator it(root, std::filesystem::directory_options::skip_permission_denied, ec);
+        if (ec) return usage;
+
+        const std::filesystem::recursive_directory_iterator end;
+        while (it != end) {
+            if (cancel != nullptr && cancel->load(std::memory_order_relaxed)) return usage;
+
+            const auto &entry = *it;
+            std::error_code statError;
+            const auto status = entry.symlink_status(statError);
+            if (statError) {
+                ++usage.unreadable;
+            } else if (std::filesystem::is_directory(status)) {
+                ++usage.directories;
+            } else if (std::filesystem::is_regular_file(status)) {
+                const auto size = entry.file_size(statError);
+                if (statError) {
+                    ++usage.unreadable;
+                } else {
+                    usage.bytes += size;
+                    ++usage.files;
+                }
+            }
+
+            it.increment(ec);
+            if (ec) {
+                // A directory that went away, or cannot be listed, under the entry just counted.
+                // Stepped out of rather than retried: an increment that failed may leave the
+                // iterator where it was, and retrying it would be a walk that never ends.
+                ++usage.unreadable;
+                ec.clear();
+                // Short of the end either way, so not complete.
+                if (it == end || it.depth() == 0) return usage;
+                it.pop(ec);
+                if (ec) return usage;
+            }
+        }
+        usage.complete = true;
+        return usage;
+    }
+
 }// namespace Euclid::Core

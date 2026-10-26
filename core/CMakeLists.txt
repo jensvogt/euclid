@@ -5,7 +5,7 @@ set(SOURCES src/LogStream.cpp src/Configuration.cpp src/SystemUtils.cpp src/Http
         src/HttpSignature.cpp src/Permissions.cpp src/BuiltinRoles.cpp
         src/ModuleClient.cpp src/ArtifactFetcher.cpp src/ApplicationLaunch.cpp src/WindowsProcess.cpp
         src/ContentTypeUtils.cpp src/DirUtils.cpp src/ObjectCipher.cpp src/Federation.cpp src/OidcClient.cpp src/SamlProvider.cpp src/Totp.cpp src/WebClient.cpp include/euclid/core/ErnUtils.h src/monitoring/MonitoringCollector.cpp
-        src/monitoring/MetricsPusher.cpp src/ZipUtils.cpp src/WsFrame.cpp src/EventPusher.cpp)
+        src/monitoring/MetricsPusher.cpp src/ZipUtils.cpp src/ArchiveZip.cpp src/WsFrame.cpp src/EventPusher.cpp)
 
 add_library(${LIBRARY} STATIC ${SOURCES})
 set_target_properties(${LIBRARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)

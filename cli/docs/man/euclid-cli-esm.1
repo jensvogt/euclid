@@ -299,6 +299,27 @@ started. See
 Delivers a stopped bucket's held events, and stops holding new ones. See
 .BR euclid-cli-esm-start-bucket (1).
 .TP
+.B set-bucket-lifecycle
+Sets the rules that archive a bucket's unused objects. See
+.BR euclid-cli-esm-set-bucket-lifecycle (1).
+.TP
+.B get-bucket-lifecycle
+Shows a bucket's lifecycle rules. See
+.BR euclid-cli-esm-set-bucket-lifecycle (1).
+.TP
+.B delete-bucket-lifecycle
+Removes a bucket's lifecycle rules; archived objects stay archived. See
+.BR euclid-cli-esm-set-bucket-lifecycle (1).
+.TP
+.B archive-object
+Moves an object to the archive: kept and listed, but not readable until it is
+restored. See
+.BR euclid-cli-esm-archive-object (1).
+.TP
+.B restore-object
+Brings an archived object back online for a grace period. See
+.BR euclid-cli-esm-archive-object (1).
+.TP
 .B delete-objects
 Deletes several objects from a bucket, by key or by prefix. See
 .BR euclid-cli-esm-delete-objects (1).

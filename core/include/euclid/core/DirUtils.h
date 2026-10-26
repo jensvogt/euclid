@@ -9,6 +9,8 @@
 #pragma once
 
 // C++ includes
+#include <atomic>
+#include <cstdint>
 #include <filesystem>
 #include <string>
 
@@ -111,6 +113,41 @@ namespace Euclid::Core {
          */
         [[nodiscard]]
         static std::filesystem::path FindFilePath(const std::filesystem::path &rootDir, const std::string &name);
+
+        /**
+         * @brief What a directory holds, everything beneath it included.
+         */
+        struct DiskUsage {
+            /// Bytes in the regular files - their sizes as stat reports them, as `du -b` sums them.
+            std::uint64_t bytes = 0;
+            std::uint64_t files = 0;
+            std::uint64_t directories = 0;
+            /// Entries that could not be read - permission, or gone while it was being walked.
+            std::uint64_t unreadable = 0;
+            /// False when the walk was stopped before the end, in which case the counts are short.
+            bool complete = false;
+        };
+
+        /**
+         * @brief Walks a directory and everything beneath it, adding up what is in it.
+         *
+         * @par
+         * A stat per file, the same cost as `du`, and as slow: ESM's directory holds a file per
+         * object, and on the development installation one walk of it takes minutes. So it is a
+         * thing to run rarely and on a thread of its own, and @p cancel is checked between entries
+         * so a process shutting down is not held for the length of a walk.
+         *
+         * @par
+         * Symbolic links are counted as nothing and not followed: a link out of the directory would
+         * count somebody else's disk, and a link back into it would count the same files twice.
+         * Entries that vanish mid-walk - an upload part assembled, a temp file removed - are normal on
+         * a live store and only counted as unreadable.
+         *
+         * @param root the directory.
+         * @param cancel set to true to stop the walk early; may be null.
+         * @return what it holds; complete false if it was stopped, or the root could not be opened.
+         */
+        static DiskUsage MeasureDiskUsage(const std::filesystem::path &root, const std::atomic<bool> *cancel = nullptr);
 
         /**
          * @brief Removes a file from wherever it is, fanned out or flat.

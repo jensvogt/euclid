@@ -77,6 +77,9 @@ namespace Euclid::Dto::ESM {
         }
         dto.created = entity.created;
         dto.modified = entity.modified;
+        dto.lastAccessed = Database::Entity::ESM::LastUsed(entity);
+        dto.lifecycleState = Database::Entity::ESM::LifecycleStateToString(entity.lifecycleState);
+        if (entity.restoredUntil) dto.restoredUntil = Core::DateTimeUtils::ToISO8601(*entity.restoredUntil);
         return dto;
     }
 

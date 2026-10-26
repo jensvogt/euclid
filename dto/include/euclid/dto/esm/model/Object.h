@@ -77,6 +77,23 @@ namespace Euclid::Dto::ESM {
         system_clock::time_point modified;
 
         /**
+         * @brief When the object was last used: its last access, or its last modification for an
+         * object with no access recorded yet - what a lifecycle rule reads, see
+         * Database::Entity::ESM::LastUsed().
+         */
+        system_clock::time_point lastAccessed;
+
+        /**
+         * @brief STANDARD (online) or ARCHIVED - see Database::Entity::ESM::LifecycleState.
+         */
+        std::string lifecycleState = "STANDARD";
+
+        /**
+         * @brief Until when a restored object stays online - its grace period - or empty.
+         */
+        std::string restoredUntil;
+
+        /**
          * @brief Serializes this request to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -106,6 +123,9 @@ namespace Euclid::Dto::ESM {
             r.attributes = Core::GetMapFromObject<std::string, COM::Variant>(v, "attributes");
             r.created = Core::GetDatetimeValue(v, "created");
             r.modified = Core::GetDatetimeValue(v, "modified");
+            r.lastAccessed = Core::GetDatetimeValue(v, "lastAccessed");
+            r.lifecycleState = Core::GetStringValue(v, "lifecycleState", "STANDARD");
+            r.restoredUntil = Core::GetStringValue(v, "restoredUntil");
             return r;
         }
 
@@ -122,7 +142,10 @@ namespace Euclid::Dto::ESM {
                     {"attributes", boost::json::value_from(obj.attributes)},
                     {"created", Core::DateTimeUtils::ToISO8601(obj.created)},
                     {"modified", Core::DateTimeUtils::ToISO8601(obj.modified)},
+                    {"lastAccessed", Core::DateTimeUtils::ToISO8601(obj.lastAccessed)},
+                    {"lifecycleState", obj.lifecycleState},
             };
+            if (!obj.restoredUntil.empty()) jv.as_object()["restoredUntil"] = obj.restoredUntil;
         }
     };
 

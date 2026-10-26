@@ -6,6 +6,9 @@
 // Created by vogje01 on 03/09/2023.
 //
 
+#include <bsoncxx/builder/basic/array.hpp>
+#include <bsoncxx/builder/basic/document.hpp>
+
 #include <euclid/database/entity/esm/Bucket.h>
 
 namespace Euclid::Database::Entity::ESM {
@@ -43,6 +46,18 @@ namespace Euclid::Database::Entity::ESM {
                 bsoncxx::builder::basic::kvp("internal", internal),
                 bsoncxx::builder::basic::kvp("priority", priority),
                 bsoncxx::builder::basic::kvp("stopped", stopped),
+                bsoncxx::builder::basic::kvp("lifecycleRules", [this] {
+                    bsoncxx::builder::basic::array rules;
+                    for (const auto &rule: lifecycleRules) {
+                        rules.append(bsoncxx::builder::basic::make_document(
+                                bsoncxx::builder::basic::kvp("id", rule.id),
+                                bsoncxx::builder::basic::kvp("prefix", rule.prefix),
+                                bsoncxx::builder::basic::kvp("archiveAfterDays", static_cast<std::int64_t>(rule.archiveAfterDays)),
+                                bsoncxx::builder::basic::kvp("restoreDays", static_cast<std::int64_t>(rule.restoreDays)),
+                                bsoncxx::builder::basic::kvp("enabled", rule.enabled)));
+                    }
+                    return rules.extract();
+                }()),
                 bsoncxx::builder::basic::kvp("tags", tagsDoc),
                 bsoncxx::builder::basic::kvp("size", static_cast<int64_t>(size)),
                 bsoncxx::builder::basic::kvp("objects", static_cast<int64_t>(objects)),
@@ -66,6 +81,26 @@ namespace Euclid::Database::Entity::ESM {
             else if (key == "priority") bucket.priority = std::string(field.get_string().value);
             // Absent on every bucket written before buckets could be stopped, which were not.
             else if (key == "stopped" && field.type() == bsoncxx::type::k_bool) bucket.stopped = field.get_bool().value;
+            // Absent on every bucket made before lifecycle rules existed, which has none.
+            else if (key == "lifecycleRules" && field.type() == bsoncxx::type::k_array) {
+                for (const auto &entry: field.get_array().value) {
+                    if (entry.type() != bsoncxx::type::k_document) continue;
+                    LifecycleRule rule;
+                    for (const auto &part: entry.get_document().value) {
+                        const auto name = part.key();
+                        const auto asLong = [&part] {
+                            return part.type() == bsoncxx::type::k_int64 ? static_cast<long>(part.get_int64().value)
+                                   : part.type() == bsoncxx::type::k_int32 ? static_cast<long>(part.get_int32().value) : 0L;
+                        };
+                        if (name == "id" && part.type() == bsoncxx::type::k_string) rule.id = std::string(part.get_string().value);
+                        else if (name == "prefix" && part.type() == bsoncxx::type::k_string) rule.prefix = std::string(part.get_string().value);
+                        else if (name == "archiveAfterDays") rule.archiveAfterDays = asLong();
+                        else if (name == "restoreDays") rule.restoreDays = asLong();
+                        else if (name == "enabled" && part.type() == bsoncxx::type::k_bool) rule.enabled = part.get_bool().value;
+                    }
+                    bucket.lifecycleRules.push_back(rule);
+                }
+            }
             else if (key == "size") bucket.size = getBsonInt(field);
             else if (key == "objects") bucket.objects = getBsonInt(field);
             else if (key == "directories") bucket.directories = getBsonInt(field);

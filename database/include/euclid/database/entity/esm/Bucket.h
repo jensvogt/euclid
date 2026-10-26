@@ -13,12 +13,14 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <vector>
 
 // MongoDB includes
 #include <bsoncxx/builder/basic/document.hpp>
 #include <bsoncxx/document/value-fwd.hpp>
 
 // Euclid includes
+#include <euclid/database/entity/esm/Lifecycle.h>
 #include <euclid/database/entity/BaseEntity.h>
 
 namespace Euclid::Database::Entity::ESM {
@@ -124,6 +126,12 @@ namespace Euclid::Database::Entity::ESM {
          * losing anything that arrives meanwhile.
          */
         bool stopped = false;
+
+        /**
+         * @brief What to archive, and when - see LifecycleRule. Empty: nothing in the bucket is ever
+         * archived by a rule, which is every bucket made before rules existed.
+         */
+        std::vector<LifecycleRule> lifecycleRules;
 
         /**
          * @brief Bucket size in bytes

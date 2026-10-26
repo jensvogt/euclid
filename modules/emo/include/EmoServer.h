@@ -174,6 +174,31 @@ namespace Euclid::Monitoring {
         static void collectDatabaseSize();
 
         /**
+         * @brief Records how much each module's data directory holds on disk, everything beneath it
+         * included: module-disk-usage (bytes), module-disk-files and module-disk-scan-seconds,
+         * labelled by module.
+         *
+         * @par
+         * A walk of the directory, a stat per file, which for ESM - a file per object - is the
+         * expensive part: 23.3 million files, 977 GB and eleven and a half minutes on the
+         * development installation. So it runs rarely (euclid.modules.emo.disk-usage-period, an hour
+         * by default), in one EMO instance per period, never twice at once, at idle I/O priority on
+         * Linux, and is abandoned when the module stops.
+         *
+         * @par
+         * What it measures is the files - not ESM's own accounting of its objects, which the bucket
+         * counters already give - so a part left behind by an abandoned upload, or a file whose
+         * object is gone, shows up here and nowhere else.
+         */
+        static void collectDiskUsage();
+
+        /**
+         * @brief Records the volume the data directory is on: disk-capacity, disk-free and
+         * disk-available, labelled by that directory. One statvfs, so as often as the database size.
+         */
+        static void collectDiskSpace();
+
+        /**
          * @brief Ids of the scheduled flush/rollup/prune/cpu-usage tasks, used to cancel them on destruction.
          */
         std::string _flushTaskId;
@@ -181,6 +206,8 @@ namespace Euclid::Monitoring {
         std::string _hourRollupTaskId;
         std::string _dayRollupTaskId;
         std::string _databaseSizeTaskId;
+        std::string _diskUsageTaskId;
+        std::string _diskSpaceTaskId;
 
         std::string _cpuUsageTaskId;
         std::string _systemLoadTaskId;

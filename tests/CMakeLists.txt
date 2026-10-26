@@ -109,6 +109,28 @@ target_link_libraries(${ESM_OBJECT_SIZE_BINARY} PRIVATE eucliddto Boost::thread 
 
 add_test(NAME ${ESM_OBJECT_SIZE_BINARY} COMMAND ${ESM_OBJECT_SIZE_BINARY})
 
+# Object::lastAccessed: which actions record it, and at most once per granularity.
+set(ESM_LAST_ACCESS_BINARY euclid-esm-last-access-tests)
+
+add_executable(${ESM_LAST_ACCESS_BINARY} EsmLastAccessTest.cpp ${CMAKE_SOURCE_DIR}/modules/esm/src/EsmServer.cpp)
+set_target_properties(${ESM_LAST_ACCESS_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${ESM_LAST_ACCESS_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/esm/include)
+target_link_libraries(${ESM_LAST_ACCESS_BINARY} PRIVATE eucliddto Boost::thread Boost::unit_test_framework)
+
+add_test(NAME ${ESM_LAST_ACCESS_BINARY} COMMAND ${ESM_LAST_ACCESS_BINARY})
+
+# ESM lifecycle: bucket rules, STANDARD/ARCHIVED, the archive directory, restore grace, the sweep.
+set(ESM_LIFECYCLE_BINARY euclid-esm-lifecycle-tests)
+
+add_executable(${ESM_LIFECYCLE_BINARY} EsmLifecycleTest.cpp ${CMAKE_SOURCE_DIR}/modules/esm/src/EsmServer.cpp)
+set_target_properties(${ESM_LIFECYCLE_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${ESM_LIFECYCLE_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/esm/include)
+target_link_libraries(${ESM_LIFECYCLE_BINARY} PRIVATE eucliddto Boost::thread Boost::unit_test_framework)
+
+add_test(NAME ${ESM_LIFECYCLE_BINARY} COMMAND ${ESM_LIFECYCLE_BINARY})
+
 # The worker on the manager's own host, as EAP provisions it - docs/worker-nodes.md §13.3.
 set(LOCAL_NODE_BINARY euclid-local-node-tests)
 
@@ -707,6 +729,16 @@ set_target_properties(${DIR_UTILS_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 target_link_libraries(${DIR_UTILS_BINARY} PRIVATE euclidcore Boost::unit_test_framework)
 
 add_test(NAME ${DIR_UTILS_BINARY} COMMAND ${DIR_UTILS_BINARY})
+
+# The appendable zip ESM archives into, read back by offset, by listing, and by libarchive.
+set(ARCHIVE_ZIP_BINARY euclid-archive-zip-tests)
+
+add_executable(${ARCHIVE_ZIP_BINARY} ArchiveZipTest.cpp)
+set_target_properties(${ARCHIVE_ZIP_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_link_libraries(${ARCHIVE_ZIP_BINARY} PRIVATE euclidcore LibArchive::LibArchive Boost::unit_test_framework)
+
+add_test(NAME ${ARCHIVE_ZIP_BINARY} COMMAND ${ARCHIVE_ZIP_BINARY})
 
 # ---------------------------------------------------------------------------------------------
 # JSON log format
