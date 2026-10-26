@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.12](https://github.com/jensvogt/euclid/compare/2.1.11...v2.1.12) (2026-10-26)
+
+
+### Bug Fixes
+
+* ESM lifecycle, archive objects on demand ([00caa89](https://github.com/jensvogt/euclid/commit/00caa890bad08b437ddd2bbc8e2627a68958683c))
+
 ## [2.1.11](https://github.com/jensvogt/euclid/compare/2.1.10...v2.1.11) (2026-10-25)
 
 
