@@ -5,6 +5,8 @@
 // Euclid includes
 #include <euclid/cli/esm/EsmCli.h>
 
+#include <boost/algorithm/string.hpp>
+
 namespace Euclid::CLI {
 
     namespace po = boost::program_options;
@@ -76,12 +78,14 @@ namespace Euclid::CLI {
                 {"abort-upload", "Throw away a multipart upload that will not be finished"},
                 {"add-bucket-tag", "Adds a tag to a bucket"},
                 {"add-object-attribute", "Adds an attribute to an object"},
+                {"archive-object", "Move an object to the archive: kept, but not readable until restore-object"},
                 {"copy-object", "Copies an object to another key or bucket"},
                 {"count-objects", "Count a bucket's objects, optionally under a prefix"},
                 {"create-bucket", "Create a new bucket"},
                 {"delete-objects", "Delete several objects from a bucket, by key or by prefix"},
                 {"delete-bucket", "Delete a bucket"},
                 {"delete-bucket-tag", "Deletes a tag from a bucket"},
+                {"delete-bucket-lifecycle", "Remove a bucket's lifecycle rules; archived objects stay archived"},
                 {"delete-object", "Deletes an object by ERN"},
                 {"delete-object-attribute", "Deletes an attribute from an object"},
                 {"disable-encryption", "Stop encrypting the objects written to a bucket from now on"},
@@ -91,6 +95,7 @@ namespace Euclid::CLI {
                 {"get-bucket", "Show one bucket's definition"},
                 {"get-bucket-ern", "Resolve a bucket's ERN by name"},
                 {"exists-bucket", "Whether a bucket exists; exit 0 yes, 1 no, 2 could not tell"},
+                {"get-bucket-lifecycle", "Show a bucket's lifecycle rules"},
                 {"get-bucket-size", "Returns the bucket size in bytes"},
                 {"get-object-size", "Returns an object's size in bytes"},
                 {"get-object-count", "Return a bucket's stored object count, without counting"},
@@ -102,7 +107,9 @@ namespace Euclid::CLI {
                 {"purge-bucket", "Removes all objects from a bucket"},
                 {"rename-bucket", "Give a bucket another name"},
                 {"rename-object", "Renames an object within its bucket"},
+                {"restore-object", "Bring an archived object back online for a grace period"},
                 {"set-bucket-internal", "Hide a bucket from listings, or stop hiding it"},
+                {"set-bucket-lifecycle", "Set the rules that archive a bucket's unused objects"},
                 {"set-bucket-priority", "Set the priority this bucket's notifications are sent with"},
                 {"stop-bucket", "Hold a bucket's events in EES: still made, not delivered until start-bucket"},
                 {"start-bucket", "Deliver a stopped bucket's held events, and stop holding new ones"},
@@ -128,6 +135,12 @@ namespace Euclid::CLI {
         }
         if (action == "stop-bucket" || action == "start-bucket") {
             return setBucketStopped(action, args);
+        }
+        if (action == "set-bucket-lifecycle" || action == "get-bucket-lifecycle" || action == "delete-bucket-lifecycle") {
+            return bucketLifecycle(action, args);
+        }
+        if (action == "archive-object" || action == "restore-object") {
+            return setObjectArchived(action, args);
         }
         if (action == "set-bucket-priority") {
             return setBucketPriority(args);
@@ -2202,6 +2215,173 @@ namespace Euclid::CLI {
         }
 
         const boost::json::object request{{"ern", vm["bucket"].as<std::string>()}};
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("esm", action, request);
+            if (!response.IsSuccess()) {
+                std::cerr << "error: " << action << " failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EsmCli::bucketLifecycle(const std::string &action, const std::vector<std::string> &args) const {
+        const auto set = action == "set-bucket-lifecycle";
+        po::options_description desc(action + " options");
+        desc.add_options()
+                ("bucket,b", po::value<std::string>()->required(), "the bucket; a name is enough, a full ERN also works");
+        if (set) {
+            desc.add_options()
+                    ("rule,r", po::value<std::vector<std::string> >()->composing(),
+                     "a rule, as id=<id>,after=<days>,restore=<days>[,prefix=<key prefix>][,disabled]; repeatable");
+        }
+
+        if (IsHelpRequest(args)) {
+            if (set) {
+                return PrintActionHelp("esm", "set-bucket-lifecycle", "--bucket <name|ern> --rule id=<id>,after=<days>,restore=<days>[,prefix=<p>][,disabled] ...",
+                                       "Replaces a bucket's lifecycle rules with the ones given. A rule archives every object "
+                                       "under its prefix (the whole bucket without one) that has not been used for <after> days: "
+                                       "read, written, copied or moved - see lastAccessed in \"esm list-objects\". Where several "
+                                       "rules match a key, the one with the longest prefix decides.\n\n"
+                                       "An archived object keeps its key, attributes and listing entry, but its bytes move into "
+                                       "a zip in euclid.modules.esm.archive-dir - one per bucket and month, e.g. "
+                                       "archive-file-delivery-012026.zip - and reading it is refused with 409 until \"esm "
+                                       "restore-object\". A restore keeps it online for <restore> days, the grace period; if "
+                                       "nobody reads it in that time it is archived again, and if somebody does, the rule "
+                                       "counts from that read.\n\n"
+                                       "The sweep runs in the background: a pass starts at most every "
+                                       "euclid.modules.esm.lifecycle-sweep-period seconds (an hour by default), so a rule takes "
+                                       "effect within about that, plus however long a pass over the bucket takes.\n\n"
+                                       "Example: --rule id=cold,after=90,restore=7 --rule id=logs,prefix=logs/,after=14,restore=2",
+                                       desc);
+            }
+            if (action == "get-bucket-lifecycle") {
+                return PrintActionHelp("esm", "get-bucket-lifecycle", "--bucket <name|ern>", "Shows a bucket's lifecycle rules.", desc);
+            }
+            return PrintActionHelp("esm", "delete-bucket-lifecycle", "--bucket <name|ern>",
+                                   "Removes a bucket's lifecycle rules, so nothing more in it is archived. Objects already "
+                                   "archived stay archived; \"esm restore-object\" brings them back.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        boost::json::object request{{"ern", vm["bucket"].as<std::string>()}};
+        if (set) {
+            if (!vm.contains("rule")) {
+                std::cerr << "error: give at least one --rule; \"esm delete-bucket-lifecycle\" removes them all\n";
+                return 1;
+            }
+            boost::json::array rules;
+            for (const auto &text: vm["rule"].as<std::vector<std::string> >()) {
+                boost::json::object rule{{"enabled", true}};
+                std::vector<std::string> parts;
+                boost::split(parts, text, boost::is_any_of(","));
+                for (const auto &part: parts) {
+                    if (part.empty()) continue;
+                    if (part == "disabled") {
+                        rule["enabled"] = false;
+                        continue;
+                    }
+                    const auto eq = part.find('=');
+                    const auto name = part.substr(0, eq);
+                    const auto value = eq == std::string::npos ? std::string{} : part.substr(eq + 1);
+                    try {
+                        if (name == "id") rule["id"] = value;
+                        else if (name == "prefix") rule["prefix"] = value;
+                        else if (name == "after") rule["archiveAfterDays"] = std::stol(value);
+                        else if (name == "restore") rule["restoreDays"] = std::stol(value);
+                        else {
+                            std::cerr << "error: unknown rule field \"" << name << "\" in " << text << "\n";
+                            return 1;
+                        }
+                    } catch (const std::exception &) {
+                        std::cerr << "error: " << name << " has to be a number of days in " << text << "\n";
+                        return 1;
+                    }
+                }
+                rules.push_back(rule);
+            }
+            request["rules"] = rules;
+        }
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("esm", action, request);
+            if (!response.IsSuccess()) {
+                std::cerr << "error: " << action << " failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            Core::WriteJson(std::cout, response.body, _pretty);
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
+
+    int EsmCli::setObjectArchived(const std::string &action, const std::vector<std::string> &args) const {
+        const auto archive = action == "archive-object";
+        po::options_description desc(action + " options");
+        desc.add_options()
+                ("bucket,b", po::value<std::string>(), "the object's bucket; a name is enough, a full ERN also works")
+                ("key,k", po::value<std::string>(), "the object's key within the bucket")
+                ("ern,e", po::value<std::string>(), "the object's ERN, instead of --bucket and --key");
+        if (!archive) {
+            desc.add_options()("days,d", po::value<long>(), "days to keep it online; default: the covering rule's restore days");
+        }
+
+        if (IsHelpRequest(args)) {
+            if (archive) {
+                return PrintActionHelp("esm", "archive-object", "(--bucket <name|ern> --key <key> | --ern <object ern>)",
+                                       "Archives one object now, whatever the bucket's rules say: its bytes are appended to "
+                                       "the bucket's zip for this month in euclid.modules.esm.archive-dir, and reading or "
+                                       "copying it is refused until \"esm "
+                                       "restore-object\". Listing, sizing, attributes and deleting work as before. "
+                                       "Archiving an archived object changes nothing.",
+                                       desc);
+            }
+            return PrintActionHelp("esm", "restore-object", "(--bucket <name|ern> --key <key> | --ern <object ern>) [--days <n>]",
+                                   "Brings an archived object back online. It stays online for --days, or the restore days "
+                                   "of the rule that covers it, or euclid.modules.esm.restore-days (7); after that, if nobody "
+                                   "has read it, the lifecycle sweep archives it again. Restoring an object that is online "
+                                   "changes nothing.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        try {
+            po::store(po::command_line_parser(args).options(desc).run(), vm);
+            po::notify(vm);
+        } catch (const po::error &ex) {
+            std::cerr << "error: " << ex.what() << "\n\n" << desc << std::endl;
+            return 1;
+        }
+
+        boost::json::object request;
+        if (vm.contains("ern") && !vm.contains("bucket") && !vm.contains("key")) {
+            request["ern"] = vm["ern"].as<std::string>();
+        } else if (!vm.contains("ern") && vm.contains("bucket") && vm.contains("key")) {
+            request["bucketErn"] = vm["bucket"].as<std::string>();
+            request["key"] = vm["key"].as<std::string>();
+        } else {
+            std::cerr << "error: name the object either with --bucket and --key, or with --ern\n";
+            return 1;
+        }
+        if (vm.contains("days")) request["days"] = vm["days"].as<long>();
+
         try {
             const HttpClient client(_endpoint, _authentication, _caCertPath);
             const HttpResponse response = client.Post("esm", action, request);

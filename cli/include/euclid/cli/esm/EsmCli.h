@@ -193,6 +193,17 @@ namespace Euclid::CLI {
         int setBucketStopped(const std::string &action, const std::vector<std::string> &args) const;
 
         /**
+         * @brief set-bucket-lifecycle, get-bucket-lifecycle and delete-bucket-lifecycle: a bucket's
+         * archive rules.
+         */
+        int bucketLifecycle(const std::string &action, const std::vector<std::string> &args) const;
+
+        /**
+         * @brief archive-object and restore-object: move one object to the archive, or back.
+         */
+        int setObjectArchived(const std::string &action, const std::vector<std::string> &args) const;
+
+        /**
          * @brief Delete a bucket
          *
          * @param args command line arguments

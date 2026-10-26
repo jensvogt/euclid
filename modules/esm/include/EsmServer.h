@@ -114,6 +114,15 @@ namespace Euclid::ESM {
          */
         ~EsmServer() override;
 
+        /**
+         * @brief One run of the lifecycle sweep: archives what the buckets' lifecycle rules say
+         * should be, for up to @p budget, carrying on from where the previous run stopped.
+         * Public so a test can run it without waiting for the timer.
+         *
+         * @return objects archived.
+         */
+        static long SweepLifecycle(std::chrono::seconds budget);
+
     private:
 
         /**
@@ -131,6 +140,12 @@ namespace Euclid::ESM {
          * Database::ClaimPeriodicRun().
          */
         std::string _recountTaskId;
+
+        /**
+         * @brief Id of the periodic lifecycle sweep - see SweepLifecycle(). Claimed like the
+         * recount, so one instance sweeps at a time.
+         */
+        std::string _lifecycleTaskId;
 
     public:
 
@@ -224,6 +239,23 @@ namespace Euclid::ESM {
          * @brief stop-bucket and start-bucket: hold a bucket's events in EES, and let them go.
          */
         static response<string_body> handleSetBucketStopped(const request<string_body> &req, bool stop);
+
+        /**
+         * @brief set-bucket-lifecycle and delete-bucket-lifecycle: replace a bucket's lifecycle
+         * rules, or remove them.
+         */
+        static response<string_body> handleSetBucketLifecycle(const request<string_body> &req, bool clear);
+
+        /**
+         * @brief get-bucket-lifecycle: a bucket's lifecycle rules.
+         */
+        static response<string_body> handleGetBucketLifecycle(const request<string_body> &req);
+
+        /**
+         * @brief archive-object and restore-object: move one object to the archive, or back
+         * online for a grace period.
+         */
+        static response<string_body> handleSetObjectArchived(const request<string_body> &req, bool archive);
 
         static response<string_body> handleRenameBucket(const request<string_body> &req);
 

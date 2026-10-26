@@ -1,0 +1,87 @@
+.TH EUCLID-CLI-ESM-ARCHIVE-OBJECT 1 "October 2026" "euclid-cli 1.0.53" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-esm-archive-object, restore-object \- move an object to the archive, and back
+.SH SYNOPSIS
+.B euclid-cli esm archive-object
+.RB ( \-\-bucket | \-b
+.I NAME|ERN
+.BR \-\-key | \-k
+.I KEY
+|
+.BR \-\-ern | \-e
+.IR ERN )
+.br
+.B euclid-cli esm restore-object
+.RB ( \-\-bucket | \-b
+.I NAME|ERN
+.BR \-\-key | \-k
+.I KEY
+|
+.BR \-\-ern | \-e
+.IR ERN )
+.RB [ \-\-days | \-d
+.IR N ]
+.SH DESCRIPTION
+.B archive-object
+archives one object now, whatever the bucket's lifecycle rules say: its bytes
+are appended to the bucket's zip for the month in
+.BR euclid.modules.esm.archive-dir ,
+and reading, downloading, copying or moving it is refused with 409 until it is
+restored. Listing it, its size and attributes, and deleting it work as before.
+Only a complete object can be archived, and not one in an internal bucket.
+.PP
+.B restore-object
+extracts an archived object's bytes from its zip, checked against their size and
+CRC, and makes it readable again. It stays
+online for
+.BR \-\-days ,
+or else the restore days of the rule that covers it, or else
+.B euclid.modules.esm.restore-days
+(7). When that grace period is over and nobody has read it, the lifecycle sweep
+archives it again; one that was read is held to its rule from that read.
+.PP
+Both answer the object's lifecycle state, with
+.BR archiveFile ,
+.BR archivedAt ,
+.B restoredAt
+and
+.B restoredUntil
+where they apply, and both are idempotent: an object already where it was asked
+to go is answered as it is.
+.SH OPTIONS
+.TP
+.BR \-b ", " \-\-bucket " " \fINAME|ERN\fR
+The object's bucket, by name or ERN. With
+.BR \-\-key .
+.TP
+.BR \-k ", " \-\-key " " \fIKEY\fR
+The object's key within the bucket.
+.TP
+.BR \-e ", " \-\-ern " " \fIERN\fR
+The object's ERN, instead of
+.B \-\-bucket
+and
+.BR \-\-key .
+.TP
+.BR \-d ", " \-\-days " " \fIN\fR
+restore-object only: days to keep it online, from 1 to 36500.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli esm archive-object -b incoming -k 2024/onix.xml
+euclid-cli esm restore-object -b incoming -k 2024/onix.xml --days 3
+.fi
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+The object is in the state asked for.
+.TP
+.B 1
+No such object, one that cannot be archived, a file that could not be moved,
+not permitted, or invalid arguments.
+.SH SEE ALSO
+.BR euclid-cli-esm-set-bucket-lifecycle (1),
+.BR euclid-cli-esm (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

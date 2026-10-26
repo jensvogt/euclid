@@ -19,6 +19,8 @@
 #include <bsoncxx/builder/basic/document.hpp>
 
 // Euclid includes
+#include <euclid/core/ArchiveZip.h>
+#include <euclid/database/entity/esm/Lifecycle.h>
 #include <euclid/database/entity/BaseEntity.h>
 #include <euclid/database/entity/com/Variant.h>
 #include <euclid/database/entity/esm/ObjectStatus.h>
@@ -187,6 +189,54 @@ namespace Euclid::Database::Entity::ESM {
         system_clock::time_point modified = system_clock::now();
 
         /**
+         * @brief When the object was last read, written, copied or moved - the first piece of
+         * lifecycle management, which decides what to expire or move to colder storage by it.
+         *
+         * @par
+         * Set by put-object and the completion of a multipart upload, by get-object and
+         * create-download, by copy-object (on the source and the copy) and by move-object. Not by
+         * listing, sizing or describing an object: those say nothing about whether it is used.
+         *
+         * @par
+         * Recorded at most once per euclid.modules.esm.last-access-granularity (an hour by
+         * default) on a read - see AccessWorthRecording() - so that the busiest path ESM has does
+         * not become a write per read.
+         *
+         * @par
+         * Empty on every object stored before it existed, and on one not touched since. Not the
+         * same as "never used": see LastUsed(), which is what a lifecycle rule should read. Only
+         * written when set, so rewriting an object for another reason leaves it as it was.
+         */
+        std::optional<system_clock::time_point> lastAccessed;
+
+        /**
+         * @brief Online or archived - see LifecycleState.
+         *
+         * @par
+         * Read from the store and never written by toDocument(), nor are the three times below:
+         * an object rewritten for another reason - an attribute set from a copy read a moment
+         * earlier - would otherwise write STANDARD back over an object the lifecycle sweep had just
+         * archived, leaving its file in the archive and the object claiming to be online. They are
+         * changed by IEsmRepository::setObjectLifecycle() alone.
+         */
+        LifecycleState lifecycleState = LifecycleState::STANDARD;
+
+        /// When it was archived, while it is.
+        std::optional<system_clock::time_point> archivedAt;
+
+        /**
+         * @brief While it is archived: the zip its bytes are in, relative to
+         * euclid.modules.esm.archive-dir - one per bucket and month, e.g.
+         * "000000000000/development/archive-file-delivery-012026.zip" - and where in it.
+         */
+        std::string archiveFile;
+        Core::ZipMember archiveMember;
+
+        /// When it was last restored, and until when the restore keeps it online - the grace period.
+        std::optional<system_clock::time_point> restoredAt;
+        std::optional<system_clock::time_point> restoredUntil;
+
+        /**
          * @brief Converts the entity to a MongoDB document
          *
          * @return entity as a MongoDB document.
@@ -217,6 +267,27 @@ namespace Euclid::Database::Entity::ESM {
      */
     inline bool IsDirectoryKey(const std::string &key) {
         return !key.empty() && key.back() == '/';
+    }
+
+    /**
+     * @brief When an object was last used, as a lifecycle rule should read it: its last access, or
+     * - for one stored before access was recorded, or not touched since - its last modification.
+     * Falling back to "never" instead would expire every old object the first time a rule ran.
+     */
+    inline std::chrono::system_clock::time_point LastUsed(const Object &object) {
+        return object.lastAccessed.value_or(object.modified);
+    }
+
+    /**
+     * @brief Whether a read is worth writing down: the object has no recorded access, or its last
+     * one is at least @p granularity old. The relatime rule - a lifecycle decides in days, and an
+     * object read a thousand times an hour does not need a thousand writes to say so.
+     *
+     * @param granularity zero records every access.
+     */
+    inline bool AccessWorthRecording(const Object &object, const std::chrono::system_clock::time_point now,
+                                     const std::chrono::seconds granularity) {
+        return !object.lastAccessed.has_value() || now - *object.lastAccessed >= granularity;
     }
 
     /**

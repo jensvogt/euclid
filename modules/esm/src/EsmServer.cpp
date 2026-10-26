@@ -5,6 +5,8 @@
 // Euclid includes
 #include <EsmServer.h>
 
+#include <euclid/core/ArchiveZip.h>
+
 #include <euclid/database/entity/eap/InfrastructureApply.h>
 #include <euclid/database/PeriodicClaim.h>
 #include <euclid/database/BackgroundWork.h>
@@ -14,6 +16,7 @@
 #include "euclid/dto/esm/DeleteBucketTagRequest.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
@@ -52,6 +55,13 @@ namespace Euclid::ESM {
         constexpr auto kDefaultDataDir = R"(C:\Program Files\euclid\data\esm)";
 #else
         constexpr auto kDefaultDataDir = "/usr/local/euclid/data/esm";
+#endif
+
+        // Fallback for "euclid.modules.esm.archive-dir": where ARCHIVED objects' files are moved.
+#ifdef _WIN32
+        constexpr auto kDefaultArchiveDir = R"(C:\Program Files\euclid\data\esm-archive)";
+#else
+        constexpr auto kDefaultArchiveDir = "/usr/local/euclid/data/esm-archive";
 #endif
 
         // Name of the per-upload file recording the upload's target bucket/key, written by
@@ -341,6 +351,295 @@ namespace Euclid::ESM {
                                           const std::string &bucketPriority,
                                           const std::vector<Database::Entity::ESM::Subscription> *resolved,
                                           const std::string &heldBy);
+
+    // Records that an object was used, if that is worth a write - see Object::lastAccessed and
+    // AccessWorthRecording(). Never fails the request it is part of: an access that could not be
+    // written costs a lifecycle rule an hour of accuracy, and refusing a read over it would be absurd.
+    static void noteAccess(const Database::Entity::ESM::Object &object) {
+        const auto granularity = std::chrono::seconds(
+                std::max<long>(0, Core::Configuration::instance().getOr<long>("euclid.modules.esm.last-access-granularity", 3600)));
+        const auto now = std::chrono::system_clock::now();
+        if (!Database::Entity::ESM::AccessWorthRecording(object, now, granularity)) return;
+        if (!Database::RepositoryFactory::instance().esmRepository()->recordObjectAccess(object.ern, now)) {
+            log_debug << "ESM could not record an object access, ern: " << object.ern;
+        }
+    }
+
+    // ── Lifecycle ────────────────────────────────────────────────────────────
+
+    static std::filesystem::path esmDataDir() {
+        return Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
+    }
+
+    static std::filesystem::path esmArchiveDir() {
+        return Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.archive-dir", kDefaultArchiveDir);
+    }
+
+    // Removes an object's file from the data directory. An archived object has none there; its
+    // member in the month's zip is simply no longer referenced, and goes with the zip - see
+    // reclaimArchives().
+    static void removeObjectFile(const std::filesystem::path &dataDir, const std::string &internalName) {
+        if (internalName.empty()) return;
+        std::error_code ec;
+        Core::DirUtils::RemoveFile(dataDir, internalName, ec);
+        if (ec) log_warning << "Could not remove object file, internalName: " << internalName << ", error: " << ec.message();
+    }
+
+    // The answer to reading an archived object: not gone, but not here either.
+    static std::optional<response<string_body> > refuseArchived(const request<string_body> &req, const Database::Entity::ESM::Object &object) {
+        if (object.lifecycleState != Database::Entity::ESM::LifecycleState::ARCHIVED) return std::nullopt;
+        return EsmServer::ErrorResponse(req, status::conflict,
+                                        "Object is archived, key: " + object.key + "; restore it first with restore-object");
+    }
+
+    // The zip an object archived now goes into, relative to the archive directory: one per bucket
+    // and month, "archive-<bucket>-<MMYYYY>.zip", under the bucket's account and namespace -
+    // bucket names are only unique within those. The month is the month it was archived in (UTC).
+    static std::string archiveFileFor(const Database::Entity::ESM::Bucket &bucket, const std::chrono::system_clock::time_point when) {
+        const std::chrono::year_month_day day{std::chrono::floor<std::chrono::days>(when)};
+        std::ostringstream name;
+        name << "archive-" << bucket.name << "-" << std::setw(2) << std::setfill('0') << static_cast<unsigned>(day.month())
+             << std::setw(4) << static_cast<int>(day.year()) << ".zip";
+        return (std::filesystem::path(bucket.accountId) / (bucket.nameSpace.empty() ? "default" : bucket.nameSpace) / name.str()).generic_string();
+    }
+
+    // Whether deflating the bytes is worth it: not for ciphertext, and not for formats that are
+    // compressed already, which only get slower to archive and restore.
+    static bool worthDeflating(const Database::Entity::ESM::Object &object) {
+        if (!object.encryptionKeyErn.empty()) return false;
+        const auto &type = object.contentType;
+        if (type.starts_with("image/") && type != "image/svg+xml" && type != "image/bmp" && type != "image/tiff") return false;
+        if (type.starts_with("video/") || type.starts_with("audio/")) return false;
+        for (const auto *packed: {"application/zip", "application/gzip", "application/x-gzip", "application/x-bzip2", "application/x-xz",
+                                  "application/x-7z-compressed", "application/zstd", "application/pdf"}) {
+            if (type == packed) return false;
+        }
+        return true;
+    }
+
+    // Archives one object: its file is appended to the month's zip for its bucket, the object is
+    // marked ARCHIVED with where in the zip it went, and only then is the file removed.
+    //
+    // The mark is conditional on the object being as it was read - still STANDARD, still the same
+    // file - so a re-upload, delete, move or concurrent archive in between wins. What this
+    // appended is then a member nothing refers to, which costs space and nothing else. Until the
+    // mark, the object reads as it always did from its own file.
+    static bool archiveObject(const Database::Entity::ESM::Object &object, const Database::Entity::ESM::Bucket &bucket, std::string &error) {
+
+        const auto source = Core::DirUtils::FindFilePath(esmDataDir(), object.internalName);
+        std::error_code ec;
+        if (!std::filesystem::exists(source, ec)) {
+            error = "the object's file is not on disk";
+            return false;
+        }
+
+        const auto now = std::chrono::system_clock::now();
+        auto archived = object;
+        archived.archiveFile = archiveFileFor(bucket, now);
+        // A key is a path already; a zip member's name may not start with one.
+        auto entryName = object.key;
+        while (entryName.starts_with('/')) entryName.erase(0, 1);
+        if (entryName.empty()) entryName = object.internalName;
+        try {
+            archived.archiveMember = Core::ArchiveZip::Append(esmArchiveDir() / archived.archiveFile, entryName, source, worthDeflating(object));
+        } catch (const std::exception &ex) {
+            error = std::string("could not append to the archive: ") + ex.what();
+            return false;
+        }
+
+        archived.lifecycleState = Database::Entity::ESM::LifecycleState::ARCHIVED;
+        archived.archivedAt = now;
+        archived.restoredAt.reset();
+        archived.restoredUntil.reset();
+        if (!Database::RepositoryFactory::instance().esmRepository()->setObjectLifecycle(archived, Database::Entity::ESM::LifecycleState::STANDARD)) {
+            error = "object changed or is already archived";
+            return false;
+        }
+        removeObjectFile(esmDataDir(), object.internalName);
+        log_info << "ESM object archived, bucket: " << object.bucketErn << ", key: " << object.key << ", archive: " << archived.archiveFile
+                 << ", offset: " << archived.archiveMember.offset << ", size: " << archived.archiveMember.size
+                 << ", stored: " << archived.archiveMember.compressedSize;
+        return true;
+    }
+
+    // Days a restore keeps an object online: what the caller asked for, else the grace period of
+    // the rule that covers it, else euclid.modules.esm.restore-days.
+    static long restoreDaysFor(const Database::Entity::ESM::Object &object, const std::optional<Database::Entity::ESM::Bucket> &bucket, const long requested) {
+        if (requested > 0) return requested;
+        if (bucket.has_value()) {
+            if (const auto *rule = Database::Entity::ESM::RuleFor(bucket->lifecycleRules, object.key)) return rule->restoreDays;
+        }
+        return std::max<long>(1, Core::Configuration::instance().getOr<long>("euclid.modules.esm.restore-days", 7));
+    }
+
+    // Restores one archived object: its member is extracted back to where the object's file
+    // belongs - checked against its size and CRC on the way - and then the object is marked
+    // STANDARD with the grace period that decides when the sweep may take it back. The member
+    // stays in the zip, unreferenced.
+    static bool restoreObject(const Database::Entity::ESM::Object &object, const long days, std::string &error) {
+
+        const auto dataDir = esmDataDir();
+        if (object.archiveFile.empty()) {
+            error = "the object is marked archived but names no archive";
+            return false;
+        }
+        try {
+            Core::ArchiveZip::Extract(esmArchiveDir() / object.archiveFile, object.archiveMember,
+                                      Core::DirUtils::CreateFilePath(dataDir, object.internalName));
+        } catch (const std::exception &ex) {
+            error = std::string("could not extract it from the archive: ") + ex.what();
+            return false;
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        const auto now = std::chrono::system_clock::now();
+        auto restored = object;
+        restored.lifecycleState = Database::Entity::ESM::LifecycleState::STANDARD;
+        restored.archivedAt.reset();
+        restored.archiveFile.clear();
+        restored.archiveMember = {};
+        restored.restoredAt = now;
+        restored.restoredUntil = now + std::chrono::days(days);
+        if (!repo->setObjectLifecycle(restored, Database::Entity::ESM::LifecycleState::ARCHIVED)) {
+            // Restored by somebody else, whose file this is too; or deleted or replaced, in which
+            // case what was just extracted belongs to nothing.
+            if (const auto current = repo->findObjectByErn(object.ern); !current || current->internalName != object.internalName) {
+                removeObjectFile(dataDir, object.internalName);
+            }
+            error = "object changed while it was being restored";
+            return false;
+        }
+        log_info << "ESM object restored, bucket: " << object.bucketErn << ", key: " << object.key << ", days: " << days;
+        return true;
+    }
+
+    // Deletes the zips no object is archived in any more - every member restored, deleted or
+    // overwritten. Left alone for a day after their last append: between an append and the
+    // object being marked ARCHIVED, a zip has a member nothing refers to yet.
+    static long reclaimArchives() {
+        const auto root = esmArchiveDir();
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        const auto settled = std::filesystem::file_time_type::clock::now() - std::chrono::hours(24);
+
+        std::vector<std::filesystem::path> zips;
+        std::error_code ec;
+        for (std::filesystem::recursive_directory_iterator it(root, std::filesystem::directory_options::skip_permission_denied, ec), end; !ec && it != end; it.increment(ec)) {
+            if (it->is_regular_file(ec) && it->path().extension() == ".zip") zips.push_back(it->path());
+        }
+
+        long removed = 0;
+        for (const auto &zip: zips) {
+            if (const auto written = std::filesystem::last_write_time(zip, ec); ec || written > settled) continue;
+            const auto relative = std::filesystem::relative(zip, root, ec).generic_string();
+            if (ec || repo->archiveInUse(relative)) continue;
+            if (Core::ArchiveZip::Remove(zip)) {
+                ++removed;
+                log_info << "ESM archive removed, nothing left in it: " << relative;
+            }
+        }
+        return removed;
+    }
+
+    static boost::json::object lifecycleRuleToJson(const Database::Entity::ESM::LifecycleRule &rule) {
+        return {{"id", rule.id},
+                {"prefix", rule.prefix},
+                {"archiveAfterDays", static_cast<std::int64_t>(rule.archiveAfterDays)},
+                {"restoreDays", static_cast<std::int64_t>(rule.restoreDays)},
+                {"enabled", rule.enabled}};
+    }
+
+    static boost::json::object lifecycleOfObject(const Database::Entity::ESM::Object &object) {
+        boost::json::object out{{"ern", object.ern},
+                                {"bucketErn", object.bucketErn},
+                                {"key", object.key},
+                                {"lifecycleState", Database::Entity::ESM::LifecycleStateToString(object.lifecycleState)}};
+        if (object.archivedAt) out["archivedAt"] = Core::DateTimeUtils::ToISO8601(*object.archivedAt);
+        if (object.restoredAt) out["restoredAt"] = Core::DateTimeUtils::ToISO8601(*object.restoredAt);
+        if (object.restoredUntil) out["restoredUntil"] = Core::DateTimeUtils::ToISO8601(*object.restoredUntil);
+        if (!object.archiveFile.empty()) out["archiveFile"] = object.archiveFile;
+        return out;
+    }
+
+    // Set when the server is going away, so a sweep in the middle of a bucket stops at the next
+    // object instead of holding the shutdown for the rest of its time budget.
+    static std::atomic<bool> s_lifecycleStopping{false};
+
+    // One run of the lifecycle sweep: walks the buckets that have rules, in key order, archiving
+    // what a rule says should be, for up to euclid.modules.esm.lifecycle-sweep-budget seconds.
+    // Where it stopped is stored, so the next run - in this instance or another - carries on from
+    // there instead of starting over; a pass that reaches the end of the last bucket clears it.
+    //
+    // @return objects archived.
+    long EsmServer::SweepLifecycle(const std::chrono::seconds budget) {
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        const auto pageSize = std::max<long>(1, Core::Configuration::instance().getOr<long>("euclid.modules.esm.lifecycle-page-size", 1000));
+        const auto deadline = std::chrono::steady_clock::now() + budget;
+
+        const auto buckets = repo->listBucketsWithLifecycleRules();
+        if (buckets.empty()) {
+            repo->setLifecycleCursor("", "");
+            // Rules removed do not empty the archive; restores and deletes still can.
+            reclaimArchives();
+            return 0;
+        }
+
+        const auto cursor = repo->lifecycleCursor();
+        auto bucketIt = buckets.begin();
+        std::string afterKey;
+        if (cursor.has_value()) {
+            bucketIt = std::lower_bound(buckets.begin(), buckets.end(), cursor->first,
+                                        [](const auto &bucket, const std::string &ern) { return bucket.ern < ern; });
+            // The bucket it stopped in, where it stopped; one that has gone since, from the start
+            // of the next.
+            if (bucketIt != buckets.end() && bucketIt->ern == cursor->first) afterKey = cursor->second;
+        }
+
+        long archived = 0, examined = 0;
+        for (; bucketIt != buckets.end(); ++bucketIt, afterKey.clear()) {
+            while (true) {
+                if (s_lifecycleStopping.load() || std::chrono::steady_clock::now() >= deadline) {
+                    repo->setLifecycleCursor(bucketIt->ern, afterKey);
+                    log_info << "ESM lifecycle sweep paused, examined: " << examined << ", archived: " << archived
+                             << ", at bucket: " << bucketIt->ern;
+                    return archived;
+                }
+                const auto objects = repo->listObjectsAfter(bucketIt->ern, afterKey, pageSize);
+                if (objects.empty()) break;
+
+                const auto now = std::chrono::system_clock::now();
+                for (const auto &object: objects) {
+                    ++examined;
+                    const auto *rule = Database::Entity::ESM::RuleFor(bucketIt->lifecycleRules, object.key);
+                    if (rule == nullptr) continue;
+
+                    const Database::Entity::ESM::LifecycleFacts facts{
+                            .state = object.lifecycleState,
+                            .archivable = Database::Entity::ESM::IsDownloadable(object.status) && !Database::Entity::ESM::IsDirectoryKey(object.key),
+                            .lastUsed = Database::Entity::ESM::LastUsed(object),
+                            .lastAccessed = object.lastAccessed,
+                            .restoredAt = object.restoredAt,
+                            .restoredUntil = object.restoredUntil};
+                    if (!Database::Entity::ESM::ShouldArchive(facts, *rule, now)) continue;
+
+                    if (std::string error; archiveObject(object, *bucketIt, error)) {
+                        ++archived;
+                    } else {
+                        log_warning << "ESM lifecycle sweep could not archive, key: " << object.key << ", error: " << error;
+                    }
+                }
+                afterKey = objects.back().key;
+                repo->setLifecycleCursor(bucketIt->ern, afterKey);
+                if (static_cast<long>(objects.size()) < pageSize) break;
+            }
+        }
+
+        repo->setLifecycleCursor("", "");
+        const auto reclaimed = reclaimArchives();
+        log_info << "ESM lifecycle sweep finished a pass, buckets: " << buckets.size() << ", examined: " << examined << ", archived: " << archived
+                 << ", archives removed: " << reclaimed;
+        return archived;
+    }
 
     // What holds a bucket's events back: its own ERN while it is stopped, nothing otherwise.
     static std::string heldByOf(const std::optional<Database::Entity::ESM::Bucket> &bucket) {
@@ -653,10 +952,7 @@ namespace Euclid::ESM {
         std::vector<std::string> erns;
         erns.reserve(objects.size());
         for (const auto &object: objects) {
-            std::error_code ec;
-            Core::DirUtils::RemoveFile(dataDir, object.internalName, ec);
-            if (ec)
-                log_warning << "Could not remove object file, internalName: " << object.internalName << ", error: " << ec.message();
+            removeObjectFile(dataDir, object.internalName);
             erns.push_back(object.ern);
 
             removed.size += object.size;
@@ -845,6 +1141,8 @@ namespace Euclid::ESM {
             // Observed: a touch of this kind over a bucket of 882,287 objects caught the five that
             // happened to be mid-upload, and every listener that picked one up failed on it.
             if (!Database::Entity::ESM::IsDownloadable(object.status)) continue;
+            // Nor an archived one, for the same reason: get-object would refuse it.
+            if (object.lifecycleState == Database::Entity::ESM::LifecycleState::ARCHIVED) continue;
 
             publishObjectEvent(kObjectCreated, object, bucket, userId);
             ++announced;
@@ -1600,6 +1898,165 @@ namespace Euclid::ESM {
         return JsonResponse(req, status::ok, boost::json::serialize(answer));
     }
 
+    // Replaces a bucket's lifecycle rules - see Database::Entity::ESM::LifecycleRule - or, with
+    // clear, removes them. Validated as a whole, so a bucket never ends up with half of a set.
+    // Objects already archived stay archived either way: rules decide what to archive, not what
+    // to bring back, and that is restore-object's.
+    response<string_body> EsmServer::handleSetBucketLifecycle(const request<string_body> &req, const bool clear) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", clear ? "delete-bucket-lifecycle" : "set-bucket-lifecycle");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+
+        const auto ern = Core::GetStringValue(jv, "ern");
+        if (ern.empty()) return ErrorResponse(req, status::bad_request, "ern is required");
+
+        std::vector<Database::Entity::ESM::LifecycleRule> rules;
+        if (!clear) {
+            const auto *entries = jv.as_object().if_contains("rules");
+            if (entries == nullptr || !entries->is_array()) return ErrorResponse(req, status::bad_request, "rules is required, as an array");
+            for (const auto &entry: entries->as_array()) {
+                if (!entry.is_object()) return ErrorResponse(req, status::bad_request, "every rule has to be an object");
+                Database::Entity::ESM::LifecycleRule rule;
+                try {
+                    rule.id = Core::GetStringValue(entry, "id");
+                    rule.prefix = Core::GetStringValue(entry, "prefix");
+                    rule.archiveAfterDays = Core::GetLongValue(entry, "archiveAfterDays");
+                    rule.restoreDays = Core::GetLongValue(entry, "restoreDays");
+                    rule.enabled = !entry.as_object().contains("enabled") || Core::GetBoolValue(entry, "enabled");
+                } catch (const std::exception &) {
+                    return ErrorResponse(req, status::bad_request, "a rule has a field of the wrong type");
+                }
+                if (const auto problem = Database::Entity::ESM::LifecycleRuleProblem(rule)) return ErrorResponse(req, status::bad_request, *problem);
+                if (std::ranges::any_of(rules, [&rule](const auto &other) { return other.id == rule.id; })) {
+                    return ErrorResponse(req, status::bad_request, "rule " + rule.id + " is given twice");
+                }
+                rules.push_back(rule);
+            }
+        }
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        auto bucket = repo->findBucketByErn(ern);
+        if (!bucket.has_value()) return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + ern);
+        if (bucket->accountId != auth.user->accountId) {
+            return ErrorResponse(req, status::forbidden, "Bucket does not belong to the caller's account");
+        }
+        if (const auto denied = denyUngrantedBucket(req, auth, ern)) return *denied;
+        // Euclid's own buckets - application artifacts, infrastructure declarations - are read
+        // straight off the disk by the modules that use them, which know nothing of an archive.
+        if (bucket->internal && !rules.empty()) {
+            return ErrorResponse(req, status::conflict, "Internal buckets cannot have lifecycle rules");
+        }
+
+        bucket->lifecycleRules = rules;
+        std::ignore = repo->upsertBucket(*bucket);
+        log_info << "ESM bucket lifecycle " << (clear ? "removed" : "set") << ", bucket: " << bucket->name << ", rules: " << rules.size();
+
+        boost::json::array out;
+        for (const auto &rule: rules) out.push_back(lifecycleRuleToJson(rule));
+        return JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                    {"ern", bucket->ern}, {"name", bucket->name}, {"rules", out}}));
+    }
+
+    response<string_body> EsmServer::handleGetBucketLifecycle(const request<string_body> &req) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "get-bucket-lifecycle");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+
+        const auto ern = Core::GetStringValue(jv, "ern");
+        if (ern.empty()) return ErrorResponse(req, status::bad_request, "ern is required");
+
+        const auto bucket = Database::RepositoryFactory::instance().esmRepository()->findBucketByErn(ern);
+        if (!bucket.has_value()) return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + ern);
+        if (bucket->accountId != auth.user->accountId) {
+            return ErrorResponse(req, status::forbidden, "Bucket does not belong to the caller's account");
+        }
+        if (const auto denied = denyUngrantedBucket(req, auth, ern)) return *denied;
+
+        boost::json::array out;
+        for (const auto &rule: bucket->lifecycleRules) out.push_back(lifecycleRuleToJson(rule));
+        return JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{
+                                    {"ern", bucket->ern}, {"name", bucket->name}, {"rules", out}}));
+    }
+
+    // Archives or restores one object by hand - by ern, or by bucketErn and key. Archiving does
+    // not need a rule: it is what an operator does to something they know is not wanted online.
+    // Restoring takes an optional "days", the grace period, defaulting to the covering rule's.
+    // Both are idempotent: an object already where it was asked to go is answered as it is.
+    response<string_body> EsmServer::handleSetObjectArchived(const request<string_body> &req, const bool archive) {
+
+        Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", archive ? "archive-object" : "restore-object");
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+
+        boost::json::value jv;
+        if (const auto err = ParseJsonBody(req, jv)) return *err;
+        if (!jv.is_object()) return ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+
+        const auto ern = Core::GetStringValue(jv, "ern");
+        const auto bucketErn = Core::GetStringValue(jv, "bucketErn");
+        const auto key = Core::GetStringValue(jv, "key");
+        if (ern.empty() == (bucketErn.empty() || key.empty())) {
+            return ErrorResponse(req, status::bad_request, "name the object either by ern, or by bucketErn and key");
+        }
+        long days = 0;
+        try {
+            days = Core::GetLongValue(jv, "days");
+        } catch (const std::exception &) {
+            return ErrorResponse(req, status::bad_request, "days has to be a number");
+        }
+        if (days < 0 || days > 36500) return ErrorResponse(req, status::bad_request, "days has to be from 1 to 36500");
+
+        const auto repo = Database::RepositoryFactory::instance().esmRepository();
+        if (!bucketErn.empty()) {
+            if (const auto denied = denyUngrantedBucket(req, auth, bucketErn)) return *denied;
+        }
+        const auto object = ern.empty() ? repo->findObjectByBucketAndKey(bucketErn, key) : repo->findObjectByErn(ern);
+        if (!object.has_value()) {
+            return ErrorResponse(req, status::not_found, ern.empty() ? "Object not found, bucket: " + bucketErn + ", key: " + key
+                                                                     : "Object not found, ern: " + ern);
+        }
+        if (!ern.empty()) {
+            if (const auto denied = denyUngrantedBucket(req, auth, object->bucketErn)) return *denied;
+        }
+        const auto bucket = repo->findBucketByErn(object->bucketErn);
+        if (bucket.has_value() && bucket->accountId != auth.user->accountId) {
+            return ErrorResponse(req, status::forbidden, "Bucket does not belong to the caller's account");
+        }
+
+        using Database::Entity::ESM::LifecycleState;
+        const auto wanted = archive ? LifecycleState::ARCHIVED : LifecycleState::STANDARD;
+        if (object->lifecycleState != wanted) {
+            if (archive) {
+                if (bucket.has_value() && bucket->internal) {
+                    return ErrorResponse(req, status::conflict, "Objects of internal buckets cannot be archived");
+                }
+                if (!Database::Entity::ESM::IsDownloadable(object->status) || Database::Entity::ESM::IsDirectoryKey(object->key)) {
+                    return ErrorResponse(req, status::conflict, "Only a complete object can be archived, status: " + Database::Entity::ESM::ObjectStatusToString(object->status));
+                }
+            }
+            std::string error;
+            if (archive && !bucket.has_value()) return ErrorResponse(req, status::not_found, "Bucket not found, ern: " + object->bucketErn);
+            const bool done = archive ? archiveObject(*object, *bucket, error) : restoreObject(*object, restoreDaysFor(*object, bucket, days), error);
+            if (!done) return ErrorResponse(req, status::conflict, error);
+        }
+
+        const auto now = repo->findObjectByErn(object->ern);
+        return JsonResponse(req, status::ok, boost::json::serialize(lifecycleOfObject(now.value_or(*object))));
+    }
+
     response<string_body> EsmServer::handleRenameBucket(const request<string_body> &req) {
 
         Core::Monitoring::MonitoringTimer measure(kServiceTimer, kServiceCounter, "method", "rename-bucket");
@@ -1806,7 +2263,11 @@ namespace Euclid::ESM {
         object.encryptionKeyErn = bucket->encryptionKeyErn;
         object.attributes = *attributes;
         object.systemAttributes = *systemAttributes;
+        // Writing it is using it.
+        object.lastAccessed = std::chrono::system_clock::now();
         repo->upsertObject(object);
+        // New bytes are online whatever the key's old ones were - see clearObjectLifecycle().
+        std::ignore = repo->clearObjectLifecycle(object);
 
         // A directory is not one of the bucket's objects as far as its counters are concerned -
         // it holds no bytes and is not something a client stored, so counting it as one would
@@ -1825,10 +2286,7 @@ namespace Euclid::ESM {
 
         // A re-upload to the same key replaces the DB row above; drop the now-unreferenced old file.
         if (existingObject && !existingObject->internalName.empty() && existingObject->internalName != internalName) {
-            std::error_code oldEc;
-            Core::DirUtils::RemoveFile(dataDir, existingObject->internalName, oldEc);
-            if (oldEc)
-                log_warning << "Could not remove superseded object file, internalName: " << existingObject->internalName << ", error: " << oldEc.message();
+            removeObjectFile(dataDir, existingObject->internalName);
         }
 
         log_info << "ESM put object, bucket: " << bucketErn << ", key: " << key << ", internalName: " << internalName << ", size: " << data.size();
@@ -2393,7 +2851,12 @@ namespace Euclid::ESM {
                 for (const auto &[name, value]: systemAttributes) {
                     object.systemAttributes[name] = value;
                 }
+                // Set when the upload is complete, not when it began: until now there was nothing
+                // anybody could use.
+                object.lastAccessed = std::chrono::system_clock::now();
                 repo->upsertObject(object);
+                // New bytes are online whatever the key's old ones were - see clearObjectLifecycle().
+                std::ignore = repo->clearObjectLifecycle(object);
 
                 // No snapshot to go stale: post-processing can take a while for a large file, and
                 // the counters are moved by this object's own contribution rather than written
@@ -2410,10 +2873,7 @@ namespace Euclid::ESM {
 
                 // A re-upload to the same key replaces the DB row above; drop the now-unreferenced old file.
                 if (existingObject && !existingObject->internalName.empty() && existingObject->internalName != internalName) {
-                    std::error_code oldEc;
-                    Core::DirUtils::RemoveFile(dataDir, existingObject->internalName, oldEc);
-                    if (oldEc)
-                        log_warning << "Could not remove superseded object file, internalName: " << existingObject->internalName << ", error: " << oldEc.message();
+                    removeObjectFile(dataDir, existingObject->internalName);
                 }
 
                 log_info << "Completed upload, id: " << uploadId << ", key: " << key << ", internalName: " << internalName << ", size: " << assembledSize;
@@ -2494,9 +2954,11 @@ namespace Euclid::ESM {
         if (!Database::Entity::ESM::IsDownloadable(object->status)) {
             return ErrorResponse(req, status::conflict, "Object is not available for download, status: " + Database::Entity::ESM::ObjectStatusToString(object->status));
         }
+        if (const auto refused = refuseArchived(req, *object)) return *refused;
         if (object->size >= maxInlineSize) {
             return ErrorResponse(req, status::payload_too_large, "Object is too large for a single-request download, size: " + std::to_string(object->size));
         }
+        noteAccess(*object);
 
         // The key the object was actually stored under, which is not necessarily the one the bucket
         // names today - see readKeyForObject().
@@ -2565,6 +3027,9 @@ namespace Euclid::ESM {
         if (!Database::Entity::ESM::IsDownloadable(object->status)) {
             return ErrorResponse(req, status::conflict, "Object is not available for download, status: " + Database::Entity::ESM::ObjectStatusToString(object->status));
         }
+        if (const auto refused = refuseArchived(req, *object)) return *refused;
+        // Once per download, here where it starts: its parts are one use of the object, not many.
+        noteAccess(*object);
 
         const auto downloadId = Core::UuidUtils::CreateRandomUuid();
         const auto downloadDir = downloadDirFor(downloadId);
@@ -2900,10 +3365,7 @@ namespace Euclid::ESM {
                                        wasDirectory ? -1 : 0);
 
             const auto dataDir = Core::Configuration::instance().getOr<std::string>("euclid.modules.esm.data-dir", kDefaultDataDir);
-            std::error_code ec;
-            Core::DirUtils::RemoveFile(dataDir, object->internalName, ec);
-            if (ec)
-                log_warning << "Could not remove object file, internalName: " << object->internalName << ", error: " << ec.message();
+            removeObjectFile(dataDir, object->internalName);
         }
 
         repo->deleteObjectByErn(request.ern);
@@ -3164,6 +3626,9 @@ namespace Euclid::ESM {
         if (!source.has_value()) {
             return EsmServer::ErrorResponse(req, status::not_found, "Object not found, bucket: " + sourceBucketErn + ", key: " + sourceKey);
         }
+        // Its file is not where a copy reads from or a move leaves it, and a moved object would
+        // arrive in a bucket whose rules never chose to archive it.
+        if (const auto refused = refuseArchived(req, *source)) return *refused;
 
         // Refused rather than silently replacing: an operator who meant to overwrite can delete
         // the target first and say so, and one who mistyped a key gets told.
@@ -3236,13 +3701,14 @@ namespace Euclid::ESM {
             repo->deleteObjectByErn(source->ern);
         }
 
+        // The copy, or the object moved, is used by being placed; a copy's source by being read.
+        target.lastAccessed = std::chrono::system_clock::now();
+        if (keepSource) noteAccess(*source);
+
         const auto stored = repo->upsertObject(target);
 
         if (!supersededFile.empty()) {
-            std::error_code oldEc;
-            Core::DirUtils::RemoveFile(dataDir, supersededFile, oldEc);
-            if (oldEc)
-                log_warning << "Could not remove superseded object file, internalName: " << supersededFile << ", error: " << oldEc.message();
+            removeObjectFile(dataDir, supersededFile);
         }
 
         // Each key moves the counter it belongs to, and a marker moves the directory one rather
@@ -3884,6 +4350,11 @@ namespace Euclid::ESM {
             SetBucketInternal,
             SetBucketPriority,
             StopBucket,
+            SetBucketLifecycle,
+            GetBucketLifecycle,
+            DeleteBucketLifecycle,
+            ArchiveObject,
+            RestoreObject,
             StartBucket,
             TouchObject,
             ListBuckets,
@@ -3953,6 +4424,11 @@ namespace Euclid::ESM {
         if (action == "set-bucket-priority") return Command::SetBucketPriority;
         if (action == "stop-bucket") return Command::StopBucket;
         if (action == "start-bucket") return Command::StartBucket;
+        if (action == "set-bucket-lifecycle") return Command::SetBucketLifecycle;
+        if (action == "get-bucket-lifecycle") return Command::GetBucketLifecycle;
+        if (action == "delete-bucket-lifecycle") return Command::DeleteBucketLifecycle;
+        if (action == "archive-object") return Command::ArchiveObject;
+        if (action == "restore-object") return Command::RestoreObject;
         if (action == "touch-object") return Command::TouchObject;
         if (action == "add-object-attribute") return Command::AddObjectAttribute;
         if (action == "set-object-attribute") return Command::SetObjectAttribute;
@@ -4093,11 +4569,47 @@ namespace Euclid::ESM {
                     }
                 },
                 std::chrono::duration_cast<std::chrono::milliseconds>(recountPeriod));
+
+        // Ticks every few minutes, the same arrangement as EMO's disk usage: the claim's first call
+        // only records the schedule, so a timer at the period itself would leave a fresh
+        // installation without a sweep for two periods. Each run works for a bounded time and
+        // stores where it stopped. A pass is started at most once per
+        // euclid.modules.esm.lifecycle-sweep-period, and one that is under way is carried on at
+        // every tick until it is done - a store of tens of millions of objects takes more than one
+        // run, and pausing it for a whole period each time would mean days per pass.
+        //
+        // Two instances can end up in one pass at once, one starting it and one continuing it.
+        // That costs reads, nothing else: every archive is conditional on the object being as it
+        // was read, and the second to try one finds it already done.
+        const auto sweepPeriod = std::chrono::seconds(std::max<long>(
+                60, Core::Configuration::instance().getOr<long>("euclid.modules.esm.lifecycle-sweep-period", 3600)));
+        const auto sweepBudget = std::chrono::seconds(std::max<long>(
+                1, Core::Configuration::instance().getOr<long>("euclid.modules.esm.lifecycle-sweep-budget", 240)));
+        const auto sweepTick = std::min<std::chrono::seconds>(sweepPeriod, std::chrono::seconds(300));
+        s_lifecycleStopping = false;
+        _lifecycleTaskId = Core::Scheduler::instance().SchedulePeriodic(
+                "esm-lifecycle-sweep",
+                [sweepPeriod, sweepBudget, sweepTick] {
+                    try {
+                        const bool midPass = Database::RepositoryFactory::instance().esmRepository()->lifecycleCursor().has_value();
+                        if (!Database::ClaimPeriodicRun(midPass ? "esm-lifecycle-sweep-continue" : "esm-lifecycle-sweep",
+                                                        // Half a tick: claimed at exactly the tick,
+                                                        // jitter would skip every other one.
+                                                        midPass ? sweepTick / 2 : sweepPeriod)) return;
+                        SweepLifecycle(sweepBudget);
+                    } catch (const std::exception &e) {
+                        log_error << "ESM lifecycle sweep failed, error: " << e.what();
+                    }
+                },
+                std::chrono::duration_cast<std::chrono::milliseconds>(sweepTick),
+                std::chrono::milliseconds(60000));
     }
 
     EsmServer::~EsmServer() {
         if (!_purgeSweepTaskId.empty()) std::ignore = Core::Scheduler::instance().Cancel(_purgeSweepTaskId);
         if (!_recountTaskId.empty()) std::ignore = Core::Scheduler::instance().Cancel(_recountTaskId);
+        s_lifecycleStopping = true;
+        if (!_lifecycleTaskId.empty()) std::ignore = Core::Scheduler::instance().Cancel(_lifecycleTaskId);
     }
 
     response<string_body> EsmServer::DispatchAction(const request<string_body> &req) {
@@ -4192,6 +4704,21 @@ namespace Euclid::ESM {
 
             case Command::StartBucket:
                 return handleSetBucketStopped(req, false);
+
+            case Command::SetBucketLifecycle:
+                return handleSetBucketLifecycle(req, false);
+
+            case Command::GetBucketLifecycle:
+                return handleGetBucketLifecycle(req);
+
+            case Command::DeleteBucketLifecycle:
+                return handleSetBucketLifecycle(req, true);
+
+            case Command::ArchiveObject:
+                return handleSetObjectArchived(req, true);
+
+            case Command::RestoreObject:
+                return handleSetObjectArchived(req, false);
 
             case Command::TouchObject:
                 return handleTouchObject(req);

@@ -224,6 +224,26 @@ namespace Euclid::Database {
          */
         void deleteObjectByErn(const std::string &ern) override;
 
+        bool recordObjectAccess(const std::string &ern, std::chrono::system_clock::time_point when) override;
+
+        bool setObjectLifecycle(const Entity::ESM::Object &object, Entity::ESM::LifecycleState from) override;
+
+        bool clearObjectLifecycle(const Entity::ESM::Object &object) override;
+
+        [[nodiscard]]
+        bool archiveInUse(const std::string &archiveFile) const override;
+
+        [[nodiscard]]
+        std::vector<Entity::ESM::Bucket> listBucketsWithLifecycleRules() const override;
+
+        [[nodiscard]]
+        std::optional<std::pair<std::string, std::string> > lifecycleCursor() const override;
+
+        void setLifecycleCursor(const std::string &bucketErn, const std::string &afterKey) override;
+
+        [[nodiscard]]
+        std::vector<Entity::ESM::Object> listObjectsAfter(const std::string &bucketErn, const std::string &afterKey, long limit) const override;
+
         long deleteObjectsByErns(const std::vector<std::string> &erns) override;
 
         std::optional<Entity::ESM::Bucket> renameBucket(const std::string &ern, const std::string &newName, const std::string &newErn) override;
@@ -305,6 +325,11 @@ namespace Euclid::Database {
         static constexpr auto PURGE_JOB_COLLECTION = "esm_purge_job";
 
         /**
+         * @brief The lifecycle sweep's one cursor document - see lifecycleCursor().
+         */
+        static constexpr auto LIFECYCLE_CURSOR_COLLECTION = "esm_lifecycle_cursor";
+
+        /**
          * @brief Creates the indexes required for efficient bucket lookup, if they do not already exist.
          */
         static void ensureIndexes();
@@ -315,6 +340,11 @@ namespace Euclid::Database {
          * exists.
          */
         static void ensureLevelIndex();
+
+        /**
+         * @brief Builds the sparse (archiveFile) index archiveInUse() runs on, in the background.
+         */
+        static void ensureArchiveIndex();
     };
 
 }// namespace Euclid::Database

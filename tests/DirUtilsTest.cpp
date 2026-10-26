@@ -167,4 +167,65 @@ BOOST_AUTO_TEST_SUITE(DirUtilsTest)
         BOOST_CHECK(!ec);
     }
 
+    // ── what a directory holds ─────────────────────────────────────────────
+
+    // Every file beneath it, however deep - which is where ESM keeps them, fanned out two levels down.
+    BOOST_AUTO_TEST_CASE(DiskUsageAddsUpEveryFileBeneathTheDirectory) {
+        const TempDir root;
+        write(root.path / "a.bin", std::string(100, 'a'));
+        write(root.path / "9" / "6" / "b.bin", std::string(250, 'b'));
+        write(root.path / "9" / "7" / "c.bin", std::string(5, 'c'));
+        std::filesystem::create_directories(root.path / "empty");
+
+        const auto usage = DirUtils::MeasureDiskUsage(root.path);
+        BOOST_TEST(usage.complete);
+        BOOST_TEST(usage.bytes == 355U);
+        BOOST_TEST(usage.files == 3U);
+        BOOST_TEST(usage.directories == 4U);// 9, 9/6, 9/7, empty
+    }
+
+    BOOST_AUTO_TEST_CASE(AnEmptyDirectoryHoldsNothing) {
+        const TempDir root;
+        const auto usage = DirUtils::MeasureDiskUsage(root.path);
+        BOOST_TEST(usage.complete);
+        BOOST_TEST(usage.bytes == 0U);
+        BOOST_TEST(usage.files == 0U);
+    }
+
+    // A link out of the directory would count somebody else's disk, and one back into it the same
+    // files twice; neither is followed.
+    BOOST_AUTO_TEST_CASE(ALinkIsNeitherCountedNorFollowed) {
+        const TempDir root;
+        const TempDir elsewhere;
+        write(root.path / "a.bin", std::string(10, 'a'));
+        write(elsewhere.path / "big.bin", std::string(1000, 'x'));
+
+        std::error_code ec;
+        std::filesystem::create_directory_symlink(elsewhere.path, root.path / "out", ec);
+        std::filesystem::create_symlink(root.path / "a.bin", root.path / "a-again", ec);
+        if (ec) return;// a filesystem without links has nothing to test here
+
+        const auto usage = DirUtils::MeasureDiskUsage(root.path);
+        BOOST_TEST(usage.complete);
+        BOOST_TEST(usage.bytes == 10U);
+        BOOST_TEST(usage.files == 1U);
+    }
+
+    BOOST_AUTO_TEST_CASE(ADirectoryThatIsNotThereIsNotComplete) {
+        const auto usage = DirUtils::MeasureDiskUsage(std::filesystem::temp_directory_path() / "euclid-no-such-directory");
+        BOOST_TEST(!usage.complete);
+        BOOST_TEST(usage.bytes == 0U);
+    }
+
+    // What lets a module that is shutting down stop a walk that would otherwise take minutes.
+    BOOST_AUTO_TEST_CASE(ACancelledWalkSaysSo) {
+        const TempDir root;
+        write(root.path / "a.bin");
+        write(root.path / "b.bin");
+        const std::atomic<bool> cancel{true};
+
+        const auto usage = DirUtils::MeasureDiskUsage(root.path, &cancel);
+        BOOST_TEST(!usage.complete);
+    }
+
 BOOST_AUTO_TEST_SUITE_END()

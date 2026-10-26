@@ -245,10 +245,11 @@ namespace Euclid::Core {
                 "eqs:stop-queue",
                 "eqs:update-message-body",
 
-                // esm - 44 actions
+                // esm - 49 actions
                 "esm:abort-upload",
                 "esm:add-bucket-tag",
                 "esm:add-object-attribute",
+                "esm:archive-object",
                 "esm:complete-download",
                 "esm:complete-upload",
                 "esm:copy-object",
@@ -257,6 +258,7 @@ namespace Euclid::Core {
                 "esm:create-download",
                 "esm:create-upload",
                 "esm:delete-bucket",
+                "esm:delete-bucket-lifecycle",
                 "esm:delete-bucket-tag",
                 "esm:delete-object",
                 "esm:delete-object-attribute",
@@ -266,6 +268,7 @@ namespace Euclid::Core {
                 "esm:enable-encryption",
                 "esm:get-bucket",
                 "esm:get-bucket-ern",
+                "esm:get-bucket-lifecycle",
                 "esm:get-bucket-size",
                 "esm:get-metrics",
                 "esm:get-object",
@@ -280,7 +283,9 @@ namespace Euclid::Core {
                 "esm:put-object",
                 "esm:rename-bucket",
                 "esm:rename-object",
+                "esm:restore-object",
                 "esm:set-bucket-internal",
+                "esm:set-bucket-lifecycle",
                 "esm:set-bucket-priority",
                 "esm:set-bucket-tag",
                 "esm:set-object-attribute",
@@ -439,6 +444,15 @@ namespace Euclid::Core {
         // purge-queue, purge-bucket, purge-topic and purge-events all discard somebody else's data
         // irreversibly, which is the entry an audit is most often opened to find.
         if (action.starts_with("purge-")) return false;
+
+        // Taking an object offline and bringing it back are an operator's decisions about what is
+        // available, made by hand and rarely - the lifecycle sweep archives in bulk without a
+        // request, so nothing of it reaches the trail through here. Kept, though each names one
+        // object.
+        constexpr std::array kLifecycleChanges{
+                std::string_view{"archive-object"}, std::string_view{"restore-object"},
+        };
+        if (std::ranges::contains(kLifecycleChanges, action)) return false;
 
         // Second level though the word does not say so. Each acts on messages or items; none of
         // them names one, so the rule below cannot see it.

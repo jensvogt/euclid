@@ -98,9 +98,15 @@
         "socketPath": "/var/run/euclid/euclid-esm.sock",
         "executable": "/usr/local/euclid/bin/euclid-esm",
         "data-dir": "/usr/local/euclid/data/esm",
+        "last-access-granularity": 3600,
+        "archive-dir": "/usr/local/euclid/data/esm-archive",
+        "restore-days": 7,
+        "lifecycle-sweep-period": 3600,
+        "lifecycle-sweep-budget": 240,
+        "lifecycle-page-size": 1000,
         "minInstances": 1,
         "maxInstances": 10,
-        "threads": 8
+        "threads": 64
       },
       "eqs": {
         "dependencies": [
@@ -112,7 +118,7 @@
         "executable": "/usr/local/euclid/bin/euclid-eqs",
         "minInstances": 1,
         "maxInstances": 4,
-        "threads": 8,
+        "threads": 64,
         "retention-period": 345600,
         "max-batch-size": 100,
         "priority-weights": {
@@ -132,7 +138,7 @@
         "minInstances": 1,
         "maxInstances": 4,
         "retention-period": 1209600,
-        "threads": 8
+        "threads": 64
       },
       "emo": {
         "dependencies": [
@@ -144,7 +150,7 @@
         "executable": "/usr/local/euclid/bin/euclid-emo",
         "minInstances": 1,
         "maxInstances": 1,
-        "threads": 2,
+        "threads": 16,
         "average-period": 300,
         "rollup-hour-period": 600,
         "rollup-day-period": 3600,
@@ -154,6 +160,7 @@
         "topic-count-period": 3600,
         "module-instance-period": 15,
         "database-size-period": 300,
+        "disk-usage-period": 3600,
         "retention": {
           "raw": 7,
           "hour": 90,
@@ -170,7 +177,7 @@
         "executable": "/usr/local/euclid/bin/euclid-ekm",
         "minInstances": 1,
         "maxInstances": 4,
-        "threads": 2
+        "threads": 8
       },
       "ekv": {
         "dependencies": [
@@ -182,7 +189,7 @@
         "executable": "/usr/local/euclid/bin/euclid-ekv",
         "minInstances": 1,
         "maxInstances": 4,
-        "threads": 4
+        "threads": 8
       },
       "ess": {
         "dependencies": [
@@ -194,7 +201,7 @@
         "executable": "/usr/local/euclid/bin/euclid-ess",
         "minInstances": 1,
         "maxInstances": 4,
-        "threads": 2
+        "threads": 8
       },
       "emm": {
         "dependencies": [
@@ -206,7 +213,7 @@
         "executable": "/usr/local/euclid/bin/euclid-emm",
         "minInstances": 1,
         "maxInstances": 1,
-        "threads": 2,
+        "threads": 8,
         "backup": {
           "enabled": true,
           "full": false,
@@ -263,7 +270,7 @@
         "data-dir": "/usr/local/euclid/data/eap",
         "minInstances": 1,
         "maxInstances": 32,
-        "threads": 2,
+        "threads": 64,
         "http-port-min": 9000,
         "http-port-max": 9999,
         "local-node": {
@@ -312,7 +319,7 @@
         "executable": "/usr/local/euclid/bin/euclid-eag",
         "minInstances": 1,
         "maxInstances": 1,
-        "threads": 2,
+        "threads": 64,
         "port": 8080,
         "proxy-threads": 8,
         "refresh-seconds": 5,
