@@ -168,10 +168,6 @@ namespace Euclid::ESM {
     // Whether this caller was given this bucket, checked once a handler knows which bucket the
     // request is actually about - the account and namespace were settled before it ran, but which
     // bucket inside them is named in a body or a header only the handler understands.
-    //
-    // Nothing changes for a caller with no resource grants at all, which is every human: this is
-    // for principals deployed with a fixed set of buckets, where the point is that a compromised
-    // application reaches those and nothing else.
     static std::optional<response<string_body> > denyUngrantedBucket(const request<string_body> &req, const AuthResult &auth, const std::string &bucketErn) {
 
         if (!auth.user.has_value()) return std::nullopt;
@@ -224,13 +220,6 @@ namespace Euclid::ESM {
     // back", and they disagree for every object stored before encryption was enabled on the bucket
     // and for every object still under a key that has since been rotated. Reading follows the
     // object, writing follows the bucket, and nothing here ever assumes the two agree.
-    //
-    // The key material itself is read straight from the EKM repository rather than fetched through
-    // EKM's encrypt/decrypt actions: those take the payload over HTTP, which for an object means
-    // sending every byte to another module and back, and a multi-GB upload is not something to
-    // move through a request body twice. The keys are EKM's - created, rotated, revoked and
-    // deleted there - and this only ever reads the material to use it.
-
     namespace {
 
         // The key an object read or write should use, or the reason it cannot happen.
@@ -245,13 +234,11 @@ namespace Euclid::ESM {
             std::string error;
         };
 
-        // Key material a write into this bucket has to use.
-        //
-        // A bucket that names a key that has been revoked, scheduled for deletion or removed
-        // outright fails the write. The alternative - storing the object unencrypted because the
-        // key was unavailable - would leave a bucket whose objects are encrypted apart from the
-        // ones written while nobody was looking, which is the failure mode encryption at rest
-        // exists to rule out.
+        // Key material a write into this bucket has to use. A bucket that names a key that has
+        // been revoked, scheduled for deletion or removed outright fails the write. The alternative
+        // - storing the object unencrypted because the key was unavailable - would leave a bucket
+        // whose objects are encrypted apart from the ones written while nobody was looking, which
+        // is the failure mode encryption at rest exists to rule out.
         KeyLookup writeKeyForBucket(const Database::Entity::ESM::Bucket &bucket) {
 
             if (bucket.encryptionKeyErn.empty()) return {};
@@ -295,10 +282,6 @@ namespace Euclid::ESM {
     // Attributes travel as a header on put-object, because the body is the object's bytes and has
     // no room for anything else. The JSON is the same shape set-object-attributes takes, so a
     // client has one representation of an attribute map to produce rather than two.
-    //
-    // std::nullopt means the header was there but could not be read - reported as a bad request
-    // rather than dropped, since silently storing an object without the metadata a caller asked
-    // for is worse than refusing the upload.
     static std::optional<std::map<std::string, Database::Entity::COM::Variant> > attributesFromHeader(const request<string_body> &req,
                                                                                                       const char *headerName = "x-euclid-attributes") {
 
@@ -382,7 +365,8 @@ namespace Euclid::ESM {
         if (internalName.empty()) return;
         std::error_code ec;
         Core::DirUtils::RemoveFile(dataDir, internalName, ec);
-        if (ec) log_warning << "Could not remove object file, internalName: " << internalName << ", error: " << ec.message();
+        if (ec)
+            log_warning << "Could not remove object file, internalName: " << internalName << ", error: " << ec.message();
     }
 
     // The answer to reading an archived object: not gone, but not here either.
@@ -399,7 +383,7 @@ namespace Euclid::ESM {
         const std::chrono::year_month_day day{std::chrono::floor<std::chrono::days>(when)};
         std::ostringstream name;
         name << "archive-" << bucket.name << "-" << std::setw(2) << std::setfill('0') << static_cast<unsigned>(day.month())
-             << std::setw(4) << static_cast<int>(day.year()) << ".zip";
+                << std::setw(4) << static_cast<int>(day.year()) << ".zip";
         return (std::filesystem::path(bucket.accountId) / (bucket.nameSpace.empty() ? "default" : bucket.nameSpace) / name.str()).generic_string();
     }
 
@@ -600,8 +584,7 @@ namespace Euclid::ESM {
             while (true) {
                 if (s_lifecycleStopping.load() || std::chrono::steady_clock::now() >= deadline) {
                     repo->setLifecycleCursor(bucketIt->ern, afterKey);
-                    log_info << "ESM lifecycle sweep paused, examined: " << examined << ", archived: " << archived
-                             << ", at bucket: " << bucketIt->ern;
+                    log_info << "ESM lifecycle sweep paused, examined: " << examined << ", archived: " << archived << ", at bucket: " << bucketIt->ern;
                     return archived;
                 }
                 const auto objects = repo->listObjectsAfter(bucketIt->ern, afterKey, pageSize);
@@ -1421,13 +1404,14 @@ namespace Euclid::ESM {
         const auto repo = Database::RepositoryFactory::instance().esmRepository();
         const auto ns = std::string(req["x-euclid-namespace"]);
         const auto bucket = request.ern.empty()
-                                    ? repo->findBucketByName(auth.user->accountId, ns, request.name)
-                                    : repo->findBucketByErn(request.ern);
+                                ? repo->findBucketByName(auth.user->accountId, ns, request.name)
+                                : repo->findBucketByErn(request.ern);
 
         if (!bucket.has_value()) {
             return ErrorResponse(req, status::not_found,
-                                 request.ern.empty() ? "Bucket not found, name: " + request.name
-                                                     : "Bucket not found, ern: " + request.ern);
+                                 request.ern.empty()
+                                     ? "Bucket not found, name: " + request.name
+                                     : "Bucket not found, ern: " + request.ern);
         }
 
         // Held to the same grants as anything else that names a bucket: a principal whose grants
@@ -1532,8 +1516,9 @@ namespace Euclid::ESM {
         }
         const auto object = ern.empty() ? repo->findObjectByBucketAndKey(bucketErn, key) : repo->findObjectByErn(ern);
         if (!object.has_value()) {
-            return ErrorResponse(req, status::not_found, ern.empty() ? "Object not found, bucket: " + bucketErn + ", key: " + key
-                                                                     : "Object not found, ern: " + ern);
+            return ErrorResponse(req, status::not_found, ern.empty()
+                                                             ? "Object not found, bucket: " + bucketErn + ", key: " + key
+                                                             : "Object not found, ern: " + ern);
         }
         if (!ern.empty()) {
             if (const auto denied = denyUngrantedBucket(req, auth, object->bucketErn)) return *denied;
@@ -1589,7 +1574,7 @@ namespace Euclid::ESM {
                 log_info << "ESM bucket not deleted, ern: " << request.ern << ", ifEmpty requested and objects remain: " << remaining;
                 return ErrorResponse(req, status::conflict,
                                      "Bucket is not empty: " + std::to_string(remaining) +
-                                             " object(s) remain. Delete them first, or delete the bucket without ifEmpty.");
+                                     " object(s) remain. Delete them first, or delete the bucket without ifEmpty.");
             }
         }
 
@@ -1615,8 +1600,9 @@ namespace Euclid::ESM {
         // counters they are is about to be deleted.
         // Nothing to remove when ifEmpty got this far, and "remove nothing" still means walking the
         // object collection a page at a time to establish it.
-        const auto removed = request.ifEmpty ? RemovedObjects{}
-                                             : removeBucketObjects(request.ern, "", bucket, auth.user->userId);
+        const auto removed = request.ifEmpty
+                                 ? RemovedObjects{}
+                                 : removeBucketObjects(request.ern, "", bucket, auth.user->userId);
         if (removed.count > 0)
             log_info << "ESM bucket objects deleted, ern: " << request.ern << ", count: " << removed.count << ", size: " << removed.size;
 
@@ -1636,7 +1622,7 @@ namespace Euclid::ESM {
                             << ", objects arrived while it was being deleted: " << arrived;
                 return ErrorResponse(req, status::conflict,
                                      "Bucket is not empty: " + std::to_string(arrived) +
-                                             " object(s) arrived while it was being deleted.");
+                                     " object(s) arrived while it was being deleted.");
             }
         }
 
@@ -1821,7 +1807,7 @@ namespace Euclid::ESM {
         bucket->priority = priority.empty()
                                ? std::string{}
                                : Database::Entity::EQS::MessagePriorityToString(
-                                         *Database::Entity::EQS::TryMessagePriorityFromString(priority));
+                                       *Database::Entity::EQS::TryMessagePriorityFromString(priority));
         const auto stored = repo->upsertBucket(*bucket);
 
         log_info << "ESM bucket priority set, bucket: " << stored.name
@@ -2025,8 +2011,9 @@ namespace Euclid::ESM {
         }
         const auto object = ern.empty() ? repo->findObjectByBucketAndKey(bucketErn, key) : repo->findObjectByErn(ern);
         if (!object.has_value()) {
-            return ErrorResponse(req, status::not_found, ern.empty() ? "Object not found, bucket: " + bucketErn + ", key: " + key
-                                                                     : "Object not found, ern: " + ern);
+            return ErrorResponse(req, status::not_found, ern.empty()
+                                                             ? "Object not found, bucket: " + bucketErn + ", key: " + key
+                                                             : "Object not found, ern: " + ern);
         }
         if (!ern.empty()) {
             if (const auto denied = denyUngrantedBucket(req, auth, object->bucketErn)) return *denied;
@@ -2549,7 +2536,7 @@ namespace Euclid::ESM {
         {
             const auto object = repo->findObjectByBucketAndKey(bucketErn, key);
             if (Database::Entity::ESM::RemoveObjectOnAbandonedUpload(
-                        replaces, object.transform([](const auto &found) { return found.status; }))) {
+                    replaces, object.transform([](const auto &found) { return found.status; }))) {
                 repo->deleteObjectByErn(object->ern);
                 objectRemoved = true;
             }
@@ -3915,12 +3902,12 @@ namespace Euclid::ESM {
     // hand one to another application to delete. So only an administrator may write or remove it
     // through the API, whatever else their role allows on the object.
     static std::optional<response<string_body> > refuseOwnerTag(const request<string_body> &req, const std::string &userId,
-                                                               const std::string &key) {
+                                                                const std::string &key) {
         if (key != Database::Entity::EAP::Infrastructure::kOwnerTag) return std::nullopt;
         if (Database::IsEamAdmin(*Database::RepositoryFactory::instance().eamRepository(), userId)) return std::nullopt;
         return EsmServer::ErrorResponse(req, status::forbidden,
-                                     std::string("The tag ") + Database::Entity::EAP::Infrastructure::kOwnerTag
-                                             + " records which application owns this, and is written by \"eap apply\"");
+                                        std::string("The tag ") + Database::Entity::EAP::Infrastructure::kOwnerTag
+                                        + " records which application owns this, and is written by \"eap apply\"");
     }
 
     static response<string_body> handleAddBucketTag(const request<string_body> &req) {
@@ -4556,8 +4543,8 @@ namespace Euclid::ESM {
         // of work about every bucket, and ten instances doing it is ten times the same answer.
         const auto recountPeriod = std::chrono::seconds(
                 Core::Configuration::instance().getOr<long>("euclid.modules.esm.recount-period",
-                        // The key this moved from, so an installation that tuned it keeps its setting.
-                        Core::Configuration::instance().getOr<long>("euclid.modules.emo.bucket-count-period", 3600)));
+                                                            // The key this moved from, so an installation that tuned it keeps its setting.
+                                                            Core::Configuration::instance().getOr<long>("euclid.modules.emo.bucket-count-period", 3600)));
         _recountTaskId = Core::Scheduler::instance().SchedulePeriodic(
                 "buckets-recount",
                 [recountPeriod] {
@@ -4595,7 +4582,8 @@ namespace Euclid::ESM {
                         if (!Database::ClaimPeriodicRun(midPass ? "esm-lifecycle-sweep-continue" : "esm-lifecycle-sweep",
                                                         // Half a tick: claimed at exactly the tick,
                                                         // jitter would skip every other one.
-                                                        midPass ? sweepTick / 2 : sweepPeriod)) return;
+                                                        midPass ? sweepTick / 2 : sweepPeriod))
+                            return;
                         SweepLifecycle(sweepBudget);
                     } catch (const std::exception &e) {
                         log_error << "ESM lifecycle sweep failed, error: " << e.what();
