@@ -6,6 +6,8 @@
 #include <boost/test/unit_test.hpp>
 
 // C++ includes
+#include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -188,4 +190,92 @@ BOOST_AUTO_TEST_CASE(AMissingDirectoryIsAnEmptyListNotAnError) {
 
     BOOST_TEST(!ec);
     BOOST_TEST(backups.empty());
+}
+
+// One run is one file per scope, all with the same name: the top of the directory, each account's
+// directory, and each namespace's in that. All of them are listed, each saying which scope it holds.
+BOOST_AUTO_TEST_CASE(EveryScopesBackupsAreListedWithTheirAccountAndNamespace) {
+
+    const ScratchDirectory dir;
+    std::filesystem::create_directories(dir.path / "000000000000" / "development");
+    dir.write("euclid-backup-2026-10-08T01-00-00.zip", "top");
+    dir.write("000000000000/euclid-backup-2026-10-08T01-00-00.zip", "account");
+    dir.write("000000000000/development/euclid-backup-2026-10-08T01-00-00.zip", "namespace");
+    dir.write("000000000000/development/euclid-backup-2026-10-09T01-00-00.json", "{");
+    // Deeper than the layout goes: somebody else's.
+    std::filesystem::create_directories(dir.path / "000000000000" / "development" / "keep");
+    dir.write("000000000000/development/keep/euclid-backup-2026-10-01T01-00-00.zip", "mine");
+
+    std::error_code ec;
+    const auto backups = Euclid::EMM::ListBackups(dir.path, ec);
+
+    BOOST_TEST(!ec);
+    BOOST_REQUIRE(backups.size() == 4U);
+    BOOST_TEST(backups[0].name == "euclid-backup-2026-10-09T01-00-00.json");
+    BOOST_TEST(backups[0].namespaceName == "development");
+    BOOST_TEST(!backups[0].complete);
+    // The run of the 8th, the top first, then the account, then its namespace.
+    BOOST_TEST(backups[1].accountId.empty());
+    BOOST_TEST(backups[1].namespaceName.empty());
+    BOOST_TEST(backups[2].accountId == "000000000000");
+    BOOST_TEST(backups[2].namespaceName.empty());
+    BOOST_TEST(backups[3].accountId == "000000000000");
+    BOOST_TEST(backups[3].namespaceName == "development");
+    BOOST_TEST(backups[3].path == dir.path / "000000000000" / "development" / "euclid-backup-2026-10-08T01-00-00.zip");
+}
+
+// Retention counts runs, not files: keeping two keeps the two newest names in every directory,
+// and takes every file of an older run - also from a namespace that has had no backup since.
+BOOST_AUTO_TEST_CASE(RetentionKeepsTheNewestRunsInEveryScope) {
+
+    const ScratchDirectory dir;
+    std::filesystem::create_directories(dir.path / "a" / "dev");
+    std::filesystem::create_directories(dir.path / "a" / "gone");
+    for (const auto *stamp: {"2026-10-07T01-00-00", "2026-10-08T01-00-00", "2026-10-09T01-00-00"}) {
+        const std::string name = std::string("euclid-backup-") + stamp + ".zip";
+        dir.write(name, "x");
+        dir.write("a/" + name, "x");
+        dir.write("a/dev/" + name, "x");
+    }
+    dir.write("a/gone/euclid-backup-2026-10-07T01-00-00.zip", "x");
+    // Never retention's to remove, however old.
+    dir.write("a/dev/euclid-backup-2026-10-06T01-00-00.json", "{");
+
+    std::error_code ec;
+    auto removed = Euclid::EMM::BackupPathsToRemove(Euclid::EMM::ListBackups(dir.path, ec), 2);
+    std::ranges::sort(removed);
+
+    BOOST_TEST(!ec);
+    BOOST_REQUIRE(removed.size() == 4U);
+    BOOST_TEST(removed[0] == dir.path / "a" / "dev" / "euclid-backup-2026-10-07T01-00-00.zip");
+    BOOST_TEST(removed[1] == dir.path / "a" / "euclid-backup-2026-10-07T01-00-00.zip");
+    BOOST_TEST(removed[2] == dir.path / "a" / "gone" / "euclid-backup-2026-10-07T01-00-00.zip");
+    BOOST_TEST(removed[3] == dir.path / "euclid-backup-2026-10-07T01-00-00.zip");
+}
+
+// The scope's directory: the top for no account, the account's for its root namespace.
+BOOST_AUTO_TEST_CASE(EachScopeHasItsOwnDirectory) {
+
+    using Euclid::EMM::BackupScope;
+    using Euclid::EMM::BackupScopeDirectory;
+    const std::filesystem::path root("/backup");
+
+    BOOST_TEST(BackupScopeDirectory(root, BackupScope{}) == root);
+    BOOST_TEST(BackupScopeDirectory(root, BackupScope{.accountId = "000000000000"}) == root / "000000000000");
+    BOOST_TEST(BackupScopeDirectory(root, BackupScope{.accountId = "000000000000", .namespaceName = "development"}) ==
+               root / "000000000000" / "development");
+}
+
+// Account ids and namespaces come from the database; none of them may write outside the backup
+// directory, whatever it holds.
+BOOST_AUTO_TEST_CASE(AScopeNameNeverLeavesTheBackupDirectory) {
+
+    using Euclid::EMM::SafeBackupDirectoryName;
+
+    BOOST_TEST(SafeBackupDirectoryName("development") == "development");
+    BOOST_TEST(SafeBackupDirectoryName("team-a_1.x") == "team-a_1.x");
+    BOOST_TEST(SafeBackupDirectoryName("..") == "__");
+    BOOST_TEST(SafeBackupDirectoryName(".") == "_");
+    BOOST_TEST(SafeBackupDirectoryName("../etc") == ".._etc");
+    BOOST_TEST(SafeBackupDirectoryName("a/b\\c") == "a_b_c");
 }

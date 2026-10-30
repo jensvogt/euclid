@@ -216,7 +216,11 @@ namespace Euclid::CLI {
                                    "how the nightly backup is set up (directory, schedule, how many are kept, whether it "
                                    "takes the bulk data and whether it is encrypted). An entry with \"complete\": false "
                                    "is an export that was never zipped: a backup running right now, or one that died "
-                                   "part-way. The directory is the one on the host EMM runs on.",
+                                   "part-way. Each backup is one file per scope, all with the same name: <directory>/ for "
+                                   "what belongs to no account, <directory>/<account>/ for an account's own records and its "
+                                   "root namespace, <directory>/<account>/<namespace>/ for a namespace - each one a complete "
+                                   "export that \"emm import\" restores on its own. The directory is the one on the host EMM "
+                                   "runs on.",
                                    desc);
         }
 
