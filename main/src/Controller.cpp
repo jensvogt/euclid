@@ -4,7 +4,9 @@
 
 // C++ includes
 #include <algorithm>
+#include <array>
 #include <atomic>
+#include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -12,6 +14,7 @@
 #include <optional>
 #include <ranges>
 #include <sstream>
+#include <string_view>
 #include <set>
 #include <thread>
 
@@ -92,22 +95,34 @@ namespace Euclid::main {
     // Runs on a detached background thread; closes fd when done.
     static void drainPipe(const int fd, const bool isError, const std::string channel, const std::string fields) {
         std::string line;
-        char ch;
         // Sanitised, and recorded at the severity the program itself wrote where it said one - see
         // Core::Launch::EmitOutput, which a worker records its instances' output with too.
         // The level of the line before, which a stack frame or "Caused by:" carries on.
         std::optional<boost::log::trivial::severity_level> previous;
         auto emit = [&](const std::string &raw) { Core::Launch::EmitOutput(channel, raw, isError, fields, previous); };
+
+        // A buffer at a time, not a byte: this was one read() per byte, so every instance that logs
+        // a lot cost the manager a system call per character it wrote - over ten minutes of CPU
+        // per busy EQS instance in under six hours, on a thread doing nothing else.
+        std::array<char, 16 * 1024> buffer{};
+        while (true) {
 #if defined(_WIN32)
-        while (Platform::PipeRead(fd, &ch, 1) == 1) {
+            const auto got = Platform::PipeRead(fd, buffer.data(), static_cast<unsigned int>(buffer.size()));
 #else
-        while (read(fd, &ch, 1) == 1) {
+            const auto got = read(fd, buffer.data(), buffer.size());
+            if (got < 0 && errno == EINTR) continue;
 #endif
-            if (ch == '\n') {
+            if (got <= 0) break;
+            const std::string_view chunk(buffer.data(), static_cast<std::size_t>(got));
+            std::size_t start = 0;
+            for (auto newline = chunk.find('\n'); newline != std::string_view::npos; newline = chunk.find('\n', start)) {
+                line.append(chunk.substr(start, newline - start));
                 if (!line.empty() && line.back() == '\r') line.pop_back();
                 emit(line);
                 line.clear();
-            } else line += ch;
+                start = newline + 1;
+            }
+            line.append(chunk.substr(start));
         }
         if (!line.empty()) emit(line);
 #if defined(_WIN32)
