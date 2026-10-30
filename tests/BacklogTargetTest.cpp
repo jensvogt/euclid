@@ -304,3 +304,18 @@ BOOST_AUTO_TEST_CASE(AnUnknownThreadCountCountsAsOne) {
     BOOST_TEST(Euclid::main::RequestsSaturate(1, -1));
     BOOST_TEST(!Euclid::main::RequestsSaturate(0, 0));
 }
+
+// ── Over target ─────────────────────────────────────────────────────────────
+
+// The flap of 2026-10-30: ENS saturated, grew to four, and was shrunk straight back because its
+// target - never a backlog, so still at the floor - read as "too many".
+BOOST_AUTO_TEST_CASE(APoolWithoutABacklogTargetIsNeverOverProvisioned) {
+    BOOST_TEST(!Euclid::main::OverProvisioned(false, 4, 1));
+    BOOST_TEST(!Euclid::main::OverProvisioned(false, 4, 0));
+}
+
+BOOST_AUTO_TEST_CASE(ABacklogPoolAboveItsTargetIs) {
+    BOOST_TEST(Euclid::main::OverProvisioned(true, 4, 3));
+    BOOST_TEST(!Euclid::main::OverProvisioned(true, 3, 3));
+    BOOST_TEST(!Euclid::main::OverProvisioned(true, 2, 3));
+}

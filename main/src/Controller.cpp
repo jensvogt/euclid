@@ -1774,6 +1774,7 @@ namespace Euclid::main {
                                         const std::chrono::steady_clock::time_point now) {
 
         if (reporting <= 0) return;
+        group.backlogTarget = true;
 
         // Any work waiting at all means the pool is not idle, whatever its utilisation says, and
         // this is before the threshold below on purpose: letting the idle timer run out from under
@@ -2835,7 +2836,7 @@ namespace Euclid::main {
             // applyBacklog() maintains, which is why that had to start coming down.
             const bool idleLongEnough =
                     std::chrono::duration_cast<std::chrono::seconds>(now - group.lastActivityAt).count() >= _scaleDownIdleSeconds;
-            const bool overProvisioned = running > group.desiredCount;
+            const bool overProvisioned = OverProvisioned(group.backlogTarget, running, group.desiredCount);
 
             if (idleCandidate && running > group.config.minInstances && (idleLongEnough || overProvisioned)) {
                 // Gated on the GROUP's last activity, not just this instance's: round-robin can
