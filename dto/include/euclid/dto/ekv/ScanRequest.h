@@ -42,6 +42,50 @@ namespace Euclid::Dto::EKV {
         long pageIndex{0};
 
         /**
+         * @brief What to order by: "pk", "sk" or "modified". Anything else, the empty string
+         * included, is key order - which is what a caller that does not care sends.
+         *
+         * @par
+         * Only the columns stored beside the item, never one of its attributes: an attribute is a
+         * field nothing indexes, on a collection a scan is already the expensive way to read.
+         */
+        std::string sortColumn;
+
+        /**
+         * @brief "desc" for descending; anything else ascends.
+         */
+        std::string sortDirection;
+
+        /**
+         * @brief ISO-8601 bounds on when an item was last written. Either may be empty.
+         *
+         * @par
+         * The question a query cannot answer: it is bounded by a partition, and "what changed
+         * since Friday" names none.
+         */
+        std::string modifiedFrom;
+        std::string modifiedTo;
+
+        /**
+         * @brief An attribute to compare, or empty for none. Any attribute, not only a key one -
+         * reaching a key is what a query is for.
+         */
+        std::string attributeName;
+
+        /**
+         * @brief How to compare it: eq, lt, le, gt, ge, between or begins-with, in the vocabulary
+         * a query uses for the sort key. Empty narrows nothing.
+         */
+        std::string attributeOperator;
+
+        /**
+         * @brief What to compare against, and the upper bound for "between". Typed as the value
+         * is written, so a number compares as a number.
+         */
+        boost::json::value attributeValue;
+        boost::json::value attributeUpper;
+
+        /**
          * @brief Serializes this to a JSON string
          */
         [[nodiscard]] std::string toJson() const {
@@ -56,6 +100,16 @@ namespace Euclid::Dto::EKV {
             r.table = Core::GetStringValue(v, "table");
             r.pageSize = Core::GetLongValue(v, "pageSize");
             r.pageIndex = Core::GetLongValue(v, "pageIndex");
+            r.sortColumn = Core::GetStringValue(v, "sortColumn");
+            r.sortDirection = Core::GetStringValue(v, "sortDirection");
+            r.modifiedFrom = Core::GetStringValue(v, "modifiedFrom");
+            r.modifiedTo = Core::GetStringValue(v, "modifiedTo");
+            r.attributeName = Core::GetStringValue(v, "attributeName");
+            r.attributeOperator = Core::GetStringValue(v, "attributeOperator");
+            if (v.is_object()) {
+                if (const auto *value = v.as_object().if_contains("attributeValue")) r.attributeValue = *value;
+                if (const auto *upper = v.as_object().if_contains("attributeUpper")) r.attributeUpper = *upper;
+            }
             return r;
         }
 
@@ -65,6 +119,14 @@ namespace Euclid::Dto::EKV {
                     {"table", obj.table},
                     {"pageSize", obj.pageSize},
                     {"pageIndex", obj.pageIndex},
+                    {"sortColumn", obj.sortColumn},
+                    {"sortDirection", obj.sortDirection},
+                    {"modifiedFrom", obj.modifiedFrom},
+                    {"modifiedTo", obj.modifiedTo},
+                    {"attributeName", obj.attributeName},
+                    {"attributeOperator", obj.attributeOperator},
+                    {"attributeValue", obj.attributeValue},
+                    {"attributeUpper", obj.attributeUpper},
             };
         }
     };

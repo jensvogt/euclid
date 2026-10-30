@@ -84,7 +84,10 @@ namespace Euclid::Database {
         [[nodiscard]]
         std::vector<Entity::EKV::Item> scan(const std::string &accountId, const std::string &nameSpace,
                                             const std::string &tableName,
-                                            long pageSize, long pageIndex) const override;
+                                            long pageSize, long pageIndex,
+                                            const std::string &sortColumn = {},
+                                            const std::string &sortDirection = {},
+                                            const Entity::EKV::ScanFilter &narrow = {}) const override;
 
         [[nodiscard]]
         long countItems(const std::string &accountId, const std::string &nameSpace, const std::string &tableName) const override;
