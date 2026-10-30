@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <string>
 #include <system_error>
+#include <tuple>
 #include <vector>
 
 namespace Euclid::EMM {
@@ -111,14 +112,103 @@ namespace Euclid::EMM {
     }
 
     /**
+     * @brief What one backup file covers.
+     *
+     * @par
+     * A backup is not one file but one per scope, laid out the way ESM lays out its archives:
+     *
+     * @code
+     * backup/euclid-backup-<stamp>.zip                          what belongs to no account (emm)
+     * backup/<accountId>/euclid-backup-<stamp>.zip              the account's own records (eam), and
+     *                                                           resources in its root namespace
+     * backup/<accountId>/<namespace>/euclid-backup-<stamp>.zip  the resources in that namespace
+     * @endcode
+     *
+     * @par
+     * So restoring one namespace is importing one file, and a namespace's backups can be found,
+     * copied or handed over without opening anybody else's. Every file is a complete export on its
+     * own - the same format "export" answers with - and importing all of a run's files restores
+     * what one file used to.
+     */
+    struct BackupScope {
+
+        /**
+         * @brief The account, empty for the file of what belongs to no account.
+         */
+        std::string accountId;
+
+        /**
+         * @brief The namespace, empty for the account's own file - its root namespace.
+         */
+        std::string namespaceName;
+
+        auto operator<=>(const BackupScope &) const = default;
+    };
+
+    /**
+     * @brief An account id or namespace made safe to use as one directory name.
+     *
+     * @par
+     * Both come from the database, and a directory name is a path: one holding a '/' or being ".."
+     * would write a backup somewhere other than the backup directory. Names euclid itself accepts
+     * pass through unchanged; anything else has its offending characters replaced by '_'.
+     *
+     * @param name an account id or namespace, not empty
+     * @return a name with no separator in it, never "." or ".."
+     */
+    inline std::string SafeBackupDirectoryName(const std::string &name) {
+        std::string safe;
+        safe.reserve(name.size());
+        for (const char c: name) {
+            const bool allowed = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+                                 c == '-' || c == '_' || c == '.';
+            safe.push_back(allowed ? c : '_');
+        }
+        if (safe.empty() || safe == "." || safe == "..") safe = std::string(std::max<std::size_t>(safe.size(), 1), '_');
+        return safe;
+    }
+
+    /**
+     * @brief The directory one scope's backups are written to - see BackupScope.
+     *
+     * @param root  the configured backup directory
+     * @param scope what the backup covers
+     * @return root, root/<account>, or root/<account>/<namespace>
+     */
+    inline std::filesystem::path BackupScopeDirectory(const std::filesystem::path &root, const BackupScope &scope) {
+        if (scope.accountId.empty()) return root;
+        auto directory = root / SafeBackupDirectoryName(scope.accountId);
+        if (!scope.namespaceName.empty()) directory /= SafeBackupDirectoryName(scope.namespaceName);
+        return directory;
+    }
+
+    /**
      * @brief One file in the backup directory that belongs to this module.
      */
     struct BackupFile {
 
         /**
          * @brief File name, without its directory.
+         *
+         * @par
+         * The same in every scope's directory for one run, which is what ties a run's files together.
          */
         std::string name;
+
+        /**
+         * @brief Where the file is.
+         */
+        std::filesystem::path path;
+
+        /**
+         * @brief The account directory it is in, empty for one at the top of the backup directory.
+         */
+        std::string accountId;
+
+        /**
+         * @brief The namespace directory it is in, empty for one at the top of an account's.
+         */
+        std::string namespaceName;
 
         /**
          * @brief When the backup started, from the name - see BackupStartedAt().
@@ -143,16 +233,19 @@ namespace Euclid::EMM {
     };
 
     /**
-     * @brief The backups in a directory, newest first.
+     * @brief The backups under a backup directory, newest first.
      *
      * @par
-     * Finished archives and leftover payloads alike, so a backup that dies every night shows up as
-     * what it is rather than as a gap. Anything else in the directory is not listed.
+     * Every scope's - the top of the directory, each account directory and each namespace
+     * directory in those (see BackupScope) - and nothing deeper. Finished archives and leftover
+     * payloads alike, so a backup that dies every night shows up as what it is rather than as a
+     * gap. Anything else in the directory is not listed.
      *
      * @param directory the backup directory
      * @param ec        set if the directory cannot be read; a missing directory is not an error
      *                  but an empty list - no backup has run yet
-     * @return the backups, newest first
+     * @return the backups, newest first, and within one run the top of the directory first, then
+     *         by account and namespace
      */
     inline std::vector<BackupFile> ListBackups(const std::filesystem::path &directory, std::error_code &ec) {
 
@@ -160,33 +253,85 @@ namespace Euclid::EMM {
         std::vector<BackupFile> result;
         if (!std::filesystem::exists(directory, ec)) return result;
 
-        for (const auto &entry: std::filesystem::directory_iterator(directory, ec)) {
-            std::error_code entryEc;
-            if (!entry.is_regular_file(entryEc)) continue;
+        // One level of directory at a time rather than a recursive iterator: the layout is exactly
+        // two deep, and an operator's own subdirectories further down are none of this module's.
+        const auto scan = [&](const std::filesystem::path &dir, const std::string &accountId, const std::string &namespaceName,
+                              const auto &self) -> void {
+            std::error_code dirEc;
+            for (const auto &entry: std::filesystem::directory_iterator(dir, dirEc)) {
+                std::error_code entryEc;
+                auto name = entry.path().filename().string();
 
-            auto name = entry.path().filename().string();
-            const bool archive = IsBackupArchive(name);
-            const bool payload = name.starts_with(kBackupPrefix) && name.ends_with(kBackupPayloadSuffix);
-            if (!archive && !payload) continue;
+                if (entry.is_directory(entryEc) && !entry.is_symlink(entryEc)) {
+                    if (accountId.empty()) self(entry.path(), name, "", self);
+                    else if (namespaceName.empty()) self(entry.path(), accountId, name, self);
+                    continue;
+                }
+                if (!entry.is_regular_file(entryEc)) continue;
 
-            BackupFile file;
-            file.startedAt = BackupStartedAt(name);
-            file.size = entry.file_size(entryEc);
-            if (entryEc) file.size = 0;
-            // file_clock to system_clock without clock_cast, which libc++ does not have everywhere.
-            if (const auto written = entry.last_write_time(entryEc); !entryEc) {
-                file.modified = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
-                        std::chrono::system_clock::now() + (written - std::filesystem::file_time_type::clock::now()));
+                const bool archive = IsBackupArchive(name);
+                const bool payload = name.starts_with(kBackupPrefix) && name.ends_with(kBackupPayloadSuffix);
+                if (!archive && !payload) continue;
+
+                BackupFile file;
+                file.path = entry.path();
+                file.accountId = accountId;
+                file.namespaceName = namespaceName;
+                file.startedAt = BackupStartedAt(name);
+                file.size = entry.file_size(entryEc);
+                if (entryEc) file.size = 0;
+                // file_clock to system_clock without clock_cast, which libc++ does not have everywhere.
+                if (const auto written = entry.last_write_time(entryEc); !entryEc) {
+                    file.modified = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+                            std::chrono::system_clock::now() + (written - std::filesystem::file_time_type::clock::now()));
+                }
+                file.complete = archive;
+                file.name = std::move(name);
+                result.push_back(std::move(file));
             }
-            file.complete = archive;
-            file.name = std::move(name);
-            result.push_back(std::move(file));
-        }
+            // Only the top directory failing is an error; an account directory that cannot be read
+            // costs its own files, not the whole listing.
+            if (dirEc && accountId.empty()) ec = dirEc;
+        };
+        scan(directory, "", "", scan);
         if (ec) return {};
 
         // Names sort by their timestamp (and at the same one, ".zip" before ".json").
-        std::ranges::sort(result, [](const BackupFile &a, const BackupFile &b) { return a.name > b.name; });
+        std::ranges::sort(result, [](const BackupFile &a, const BackupFile &b) {
+            if (a.name != b.name) return a.name > b.name;
+            return std::tie(a.accountId, a.namespaceName) < std::tie(b.accountId, b.namespaceName);
+        });
         return result;
+    }
+
+    /**
+     * @brief Which files retention should delete, across every scope.
+     *
+     * @par
+     * Counted in runs, not in files: one run writes the same name into every scope's directory,
+     * so the newest `keep` names stay everywhere and every file of an older run goes - including
+     * those of a namespace deleted since, whose directory would otherwise keep its last backups
+     * for ever. Payloads are never deleted; see BackupsToRemove for the rest of the rules.
+     *
+     * @param files what ListBackups returned
+     * @param keep  how many runs to keep
+     * @return the paths to delete
+     */
+    inline std::vector<std::filesystem::path> BackupPathsToRemove(const std::vector<BackupFile> &files, const long keep) {
+
+        std::vector<std::string> names;
+        for (const auto &file: files) {
+            if (file.complete) names.push_back(file.name);
+        }
+        std::ranges::sort(names);
+        names.erase(std::ranges::unique(names).begin(), names.end());
+
+        const auto doomed = BackupsToRemove(std::move(names), keep);
+        std::vector<std::filesystem::path> paths;
+        for (const auto &file: files) {
+            if (file.complete && std::ranges::binary_search(doomed, file.name)) paths.push_back(file.path);
+        }
+        return paths;
     }
 
 }// namespace Euclid::EMM

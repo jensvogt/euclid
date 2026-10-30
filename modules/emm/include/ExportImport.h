@@ -58,8 +58,11 @@ namespace Euclid::EMM {
      *
      * @param collection the collection to read.
      * @param out        where the array is written.
+     * @param filter     which documents to write; all of them when empty. The backup writes one
+     *                   account's or namespace's at a time with it.
      */
-    void WriteCollection(const Database::Collection &collection, std::ostream &out);
+    void WriteCollection(const Database::Collection &collection, std::ostream &out,
+                         bsoncxx::document::view_or_value filter = bsoncxx::document::view{});
 
     /**
      * @brief Upserts one collection's worth of documents, by "_id".

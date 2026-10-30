@@ -9,9 +9,16 @@
 #include <fstream>
 #include <optional>
 #include <ranges>
+#include <set>
 #include <sstream>
 #include <thread>
 #include <unordered_set>
+
+// Mongo includes
+#include <bsoncxx/builder/basic/array.hpp>
+#include <bsoncxx/builder/basic/document.hpp>
+#include <bsoncxx/builder/basic/kvp.hpp>
+#include <mongocxx/options/find.hpp>
 
 // Euclid includes
 #include <euclid/core/Scheduler.h>
@@ -139,9 +146,107 @@ namespace Euclid::EMM {
         // An encrypted export is the exception: AES-GCM here seals one buffer, so the payload is
         // gathered in memory before it is sealed. That is why the backup refuses full + passphrase.
         //
+        // ── Backup scopes ────────────────────────────────────────────────────
+        //
+        // Which documents of a collection belong to one BackupScope. Every document lands in exactly
+        // one scope: by its accountId and namespace where it has them, and with no account at all
+        // (emm_module) in the top one. An empty namespace is the account's root namespace, so it
+        // goes with the account's own records rather than into a directory of its own.
+
+        // {field: {$exists: false}} or {field: ""}.
+        bsoncxx::document::value blankOrMissing(const std::string &field) {
+            using bsoncxx::builder::basic::kvp;
+            using bsoncxx::builder::basic::make_array;
+            using bsoncxx::builder::basic::make_document;
+            return make_document(kvp("$or", make_array(make_document(kvp(field, make_document(kvp("$exists", false)))),
+                                                       make_document(kvp(field, "")))));
+        }
+
+        bsoncxx::document::value scopeFilter(const BackupScope &scope) {
+            using bsoncxx::builder::basic::kvp;
+            using bsoncxx::builder::basic::make_array;
+            using bsoncxx::builder::basic::make_document;
+            if (scope.accountId.empty()) return blankOrMissing("accountId");
+            if (scope.namespaceName.empty()) {
+                return make_document(kvp("$and", make_array(make_document(kvp("accountId", scope.accountId)),
+                                                            blankOrMissing("namespace"))));
+            }
+            return make_document(kvp("accountId", scope.accountId), kvp("namespace", scope.namespaceName));
+        }
+
+        // The bulk collections whose documents carry no account or namespace, only the ERN of what
+        // they belong to - a message knows its queue and nothing else. They follow their parent:
+        // the messages of the queues in a scope are that scope's. A message whose queue is gone is
+        // in no scope, which loses nothing a restore could have used - it had nowhere to go.
+        struct ParentLink {
+            std::string parentCollection;
+            std::string field;
+        };
+
+        const std::unordered_map<std::string, ParentLink> &parentLinks() {
+            static const std::unordered_map<std::string, ParentLink> links{
+                    {"eqs_message", {.parentCollection = "eqs_queue", .field = "queueErn"}},
+                    {"ens_message", {.parentCollection = "ens_topic", .field = "topicErn"}},
+            };
+            return links;
+        }
+
+        bsoncxx::document::value collectionScopeFilter(const std::string &collectionName, const BackupScope &scope) {
+            using bsoncxx::builder::basic::kvp;
+            using bsoncxx::builder::basic::make_document;
+
+            const auto link = parentLinks().find(collectionName);
+            if (link == parentLinks().end()) return scopeFilter(scope);
+
+            bsoncxx::builder::basic::array erns;
+            mongocxx::options::find options;
+            options.projection(make_document(kvp("ern", 1)));
+            for (auto cursor = Database::Database::instance().collection(link->second.parentCollection).find(scopeFilter(scope), options);
+                 const auto &doc: cursor) {
+                if (const auto ern = doc["ern"]; ern && ern.type() == bsoncxx::type::k_string) {
+                    erns.append(std::string(ern.get_string().value));
+                }
+            }
+            return make_document(kvp(link->second.field, make_document(kvp("$in", erns))));
+        }
+
+        // Every scope the backed-up modules hold anything in, read off their top-level collections:
+        // the top one always (it holds emm's modules), each account seen, and each namespace in it.
+        // From the data rather than from eam's list of namespaces, because a scope with resources
+        // that eam no longer lists is still something to back up.
+        std::set<BackupScope> backupScopes(const std::vector<std::string> &modules) {
+            using bsoncxx::builder::basic::kvp;
+            using bsoncxx::builder::basic::make_document;
+
+            const auto text = [](const bsoncxx::document::view &doc, const char *field) {
+                const auto element = doc[field];
+                return element && element.type() == bsoncxx::type::k_string ? std::string(element.get_string().value) : std::string();
+            };
+
+            std::set<BackupScope> scopes{BackupScope{}};
+            mongocxx::options::find options;
+            options.projection(make_document(kvp("accountId", 1), kvp("namespace", 1)));
+            for (const auto &module: modules) {
+                for (const auto &collectionName: moduleExportSpecs().at(module).topLevel) {
+                    for (auto cursor = Database::Database::instance().collection(collectionName).find({}, options);
+                         const auto &doc: cursor) {
+                        const auto accountId = text(doc, "accountId");
+                        if (accountId.empty()) continue;
+                        scopes.insert(BackupScope{.accountId = accountId});
+                        if (const auto namespaceName = text(doc, "namespace"); !namespaceName.empty()) {
+                            scopes.insert(BackupScope{.accountId = accountId, .namespaceName = namespaceName});
+                        }
+                    }
+                }
+            }
+            return scopes;
+        }
+
+        // @param scope when given, only the documents of that scope are written (see BackupScope),
+        //              and the file says which one it is. "export" passes none and writes everything.
         // @throws std::runtime_error if a key cannot be derived from the passphrase and salt.
         void writeExport(std::ostream &out, const std::vector<std::string> &modules, const bool full,
-                         const std::string &passphrase, const std::string &salt) {
+                         const std::string &passphrase, const std::string &salt, const BackupScope *scope = nullptr) {
 
             const auto &specs = moduleExportSpecs();
 
@@ -157,7 +262,9 @@ namespace Euclid::EMM {
                     if (!first) to << ',';
                     first = false;
                     to << boost::json::serialize(boost::json::value(collectionName)) << ':';
-                    WriteCollection(Database::Database::instance().collection(collectionName), to);
+                    const auto collection = Database::Database::instance().collection(collectionName);
+                    if (scope) WriteCollection(collection, to, collectionScopeFilter(collectionName, *scope));
+                    else WriteCollection(collection, to);
                 };
                 for (const auto &module: modules) {
                     const auto &spec = specs.at(module);
@@ -186,24 +293,35 @@ namespace Euclid::EMM {
                 // The envelope around it stays readable: which modules, when, and how to derive the
                 // key. Enough to tell what a file is, and to ask for the right passphrase, without
                 // giving away a byte of what it holds.
-                out << boost::json::serialize(boost::json::object{
+                boost::json::object envelope{
                         {"encrypted", true},
                         {"modules", std::move(modulesJson)},
                         {"full", full},
                         {"exportedAt", exportedAt},
-                        {"kdf", kKdfName},
-                        {"iterations", kKdfIterations},
-                        {"salt", saltBase64},
-                        {"cipher", kCipherName},
-                        {"data", Core::CryptoUtils::Base64Encode(sealed)},
-                });
+                };
+                if (scope) {
+                    envelope["accountId"] = scope->accountId;
+                    envelope["namespace"] = scope->namespaceName;
+                }
+                envelope["kdf"] = kKdfName;
+                envelope["iterations"] = kKdfIterations;
+                envelope["salt"] = saltBase64;
+                envelope["cipher"] = kCipherName;
+                envelope["data"] = Core::CryptoUtils::Base64Encode(sealed);
+                out << boost::json::serialize(envelope);
                 return;
             }
 
             out << R"({"modules":)" << boost::json::serialize(modulesJson)
                 << R"(,"full":)" << (full ? "true" : "false")
-                << R"(,"exportedAt":)" << boost::json::serialize(boost::json::value(exportedAt))
-                << R"(,"collections":)";
+                << R"(,"exportedAt":)" << boost::json::serialize(boost::json::value(exportedAt));
+            // Which scope a backup file holds, so it still says once it has been moved out of the
+            // directory that said it. Import reads neither.
+            if (scope) {
+                out << R"(,"accountId":)" << boost::json::serialize(boost::json::value(scope->accountId))
+                    << R"(,"namespace":)" << boost::json::serialize(boost::json::value(scope->namespaceName));
+            }
+            out << R"(,"collections":)";
             writeCollections(out);
             out << '}';
         }
@@ -955,25 +1073,24 @@ namespace Euclid::EMM {
             return modules;
         }
 
-        // Keeps the newest `keep` archives and removes the rest.
+        // Keeps the newest `keep` runs and removes the rest, in every scope's directory.
         //
         // A backup that runs every night and is never pruned fills the disk it is protecting, and
         // does it silently - which is the failure mode where the backup itself takes the
         // installation down. Named by timestamp, so lexicographic order is chronological.
+        //
+        // An account or namespace directory left empty goes too: it is one deleted since, whose
+        // last backups have just aged out.
         void pruneBackups(const std::filesystem::path &directory, const long keep) {
 
             if (keep <= 0) return;
 
-            std::vector<std::string> names;
             std::error_code ec;
-            for (const auto &entry: std::filesystem::directory_iterator(directory, ec)) {
-                if (!entry.is_regular_file(ec)) continue;
-                names.push_back(entry.path().filename().string());
-            }
+            const auto files = ListBackups(directory, ec);
             if (ec) return;
 
-            for (const auto &name: BackupsToRemove(std::move(names), keep)) {
-                const auto path = directory / name;
+            std::set<std::filesystem::path> touched;
+            for (const auto &path: BackupPathsToRemove(files, keep)) {
                 std::error_code removeEc;
                 std::filesystem::remove(path, removeEc);
                 if (removeEc) {
@@ -981,6 +1098,18 @@ namespace Euclid::EMM {
                                 << ", error: " << removeEc.message();
                 } else {
                     log_info << "EMM backup removed an old archive, path: " << path.string();
+                    touched.insert(path.parent_path());
+                }
+            }
+
+            // Deepest first, so a namespace directory going empty can take its account's with it.
+            // remove() refuses a directory that is not empty, which is the whole check.
+            for (auto dir: touched) {
+                while (dir != directory && dir.parent_path() != dir) {
+                    std::error_code removeEc;
+                    if (!std::filesystem::is_empty(dir, removeEc) || removeEc) break;
+                    if (!std::filesystem::remove(dir, removeEc) || removeEc) break;
+                    dir = dir.parent_path();
                 }
             }
         }
@@ -1009,9 +1138,52 @@ namespace Euclid::EMM {
             return stamp;
         }
 
-        // One backup: export the configuration (and the bulk data, if backup.full), write it, zip
-        // it, prune what it replaced. `safeStamp` names its files (see backupStamp); `fullOverride`
-        // replaces backup.full for this one run.
+        // One scope's file of one backup: export, write, zip. Returns the archive's size.
+        //
+        // @throws std::exception if it cannot be written; the half-written payload is removed.
+        std::uintmax_t writeScopeBackup(const std::filesystem::path &root, const BackupScope &scope,
+                                        const std::string &safeStamp, const std::vector<std::string> &modules,
+                                        const bool full, const std::string &passphrase) {
+
+            const auto directory = BackupScopeDirectory(root, scope);
+            std::error_code ec;
+            std::filesystem::create_directories(directory, ec);
+            if (ec) throw std::runtime_error("cannot create " + directory.string() + ": " + ec.message());
+
+            // Written next to the archive rather than in /tmp, so a backup never half-succeeds
+            // because two filesystems disagree about space - and named .json so a reader can tell
+            // an archive being built from one that is finished.
+            const auto archive = directory / (kBackupPrefix + safeStamp + kBackupSuffix);
+            const auto payload = directory / (kBackupPrefix + safeStamp + kBackupPayloadSuffix);
+
+            {
+                std::ofstream out(payload, std::ios::binary | std::ios::trunc);
+                if (!out) throw std::runtime_error("cannot write " + payload.string());
+                // Streamed straight into the file, so a backup costs a document's worth of memory
+                // rather than the database's. Should it fail part-way, the half-written payload goes
+                // with it - retention only ever removes finished archives.
+                try {
+                    writeExport(out, modules, full, passphrase, "", &scope);
+                    out.flush();
+                    if (!out) throw std::runtime_error("write failed (disk full?)");
+                } catch (...) {
+                    out.close();
+                    std::filesystem::remove(payload, ec);
+                    throw;
+                }
+            }
+
+            Core::ZipUtils::Zip(payload.string(), archive.string());
+            std::filesystem::remove(payload, ec);
+
+            const auto size = std::filesystem::file_size(archive, ec);
+            return ec ? 0 : size;
+        }
+
+        // One backup: export the configuration (and the bulk data, if backup.full) one file per
+        // scope (see BackupScope), zip each, prune what they replaced. `safeStamp` names the files
+        // (see backupStamp) - the same name in every directory, which is what makes them one run;
+        // `fullOverride` replaces backup.full for this one run.
         //
         // Runs on the scheduler's own thread, or create-backup's, so nothing here may throw - an
         // exception escaping a scheduled task takes the thread and every other task with it. The
@@ -1044,44 +1216,34 @@ namespace Euclid::EMM {
                     full = false;
                 }
                 const auto started = std::chrono::steady_clock::now();
+                const auto scopes = backupScopes(modules);
 
-                // Written next to the archive rather than in /tmp, so a backup never half-succeeds
-                // because two filesystems disagree about space - and named .tmp so a reader can
-                // tell an archive being built from one that is finished.
-                const auto archive = directory / (kBackupPrefix + safeStamp + kBackupSuffix);
-                const auto payload = directory / (kBackupPrefix + safeStamp + kBackupPayloadSuffix);
-
-                {
-                    std::ofstream out(payload, std::ios::binary | std::ios::trunc);
-                    if (!out) {
-                        log_error << "EMM backup could not write its export, path: " << payload.string();
-                        return;
-                    }
-                    // Streamed straight into the file, so a backup costs a document's worth of
-                    // memory rather than the database's. Should it fail part-way, the half-written
-                    // payload goes with it - retention only ever removes finished archives.
+                // One scope failing costs that scope's file, not the others': a namespace whose
+                // directory cannot be written is no reason to leave every other one without a backup.
+                std::size_t written = 0;
+                std::size_t failed = 0;
+                std::uintmax_t bytes = 0;
+                for (const auto &scope: scopes) {
                     try {
-                        writeExport(out, modules, full, passphrase, "");
-                        out.flush();
-                        if (!out) throw std::runtime_error("write failed (disk full?)");
-                    } catch (...) {
-                        out.close();
-                        std::filesystem::remove(payload, ec);
-                        throw;
+                        bytes += writeScopeBackup(directory, scope, safeStamp, modules, full, passphrase);
+                        ++written;
+                    } catch (const std::exception &e) {
+                        ++failed;
+                        log_error << "EMM backup could not write a scope, accountId: " << scope.accountId
+                                  << ", namespace: " << scope.namespaceName << ", error: " << e.what();
                     }
                 }
 
-                Core::ZipUtils::Zip(payload.string(), archive.string());
-                std::filesystem::remove(payload, ec);
-
-                const auto size = std::filesystem::file_size(archive, ec);
                 const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::steady_clock::now() - started);
-                log_info << "EMM backup written, path: " << archive.string()
+                log_info << "EMM backup written, directory: " << directory.string()
+                         << ", name: " << kBackupPrefix << safeStamp << kBackupSuffix
+                         << ", files: " << written
+                         << ", failed: " << failed
                          << ", modules: " << modules.size()
                          << ", full: " << (full ? "yes" : "no")
                          << ", encrypted: " << (passphrase.empty() ? "no" : "yes")
-                         << ", bytes: " << (ec ? 0 : size)
+                         << ", bytes: " << bytes
                          << ", duration: " << elapsed.count() << "ms";
 
                 pruneBackups(directory, keep);
@@ -1113,8 +1275,8 @@ namespace Euclid::EMM {
     //
     // Answered at once, not when the backup is done: with backup.full it reads every message and
     // object record there is, which takes longer than any client should hold a request open. The
-    // answer names the archive it will write; list-backups shows it incomplete while it is
-    // written, and complete once it is. 409 if a backup is already running.
+    // answer names the archives it will write - one name, in every scope's directory; list-backups
+    // shows each incomplete while it is written, and complete once it is. 409 if a backup is already running.
     //
     // "full" (optional) replaces backup.full for this one backup, and is dropped the same way
     // when a passphrase is set. The rest - directory, passphrase, retention - is the configured
@@ -1167,8 +1329,10 @@ namespace Euclid::EMM {
         }
 
         return EmmServer::JsonResponse(req, status::accepted, boost::json::serialize(boost::json::object{
+                                                                      // The same file name in the backup directory, in
+                                                                      // each account's and in each namespace's.
                                                                       {"name", name},
-                                                                      {"path", (directory / name).string()},
+                                                                      {"directory", directory.string()},
                                                                       {"startedAt", BackupStartedAt(name)},
                                                                       {"full", effectiveFull},
                                                                       {"encrypted", !passphrase.empty()},
@@ -1206,7 +1370,11 @@ namespace Euclid::EMM {
         for (const auto &file: files) {
             backups.push_back(boost::json::object{
                     {"name", file.name},
-                    {"path", (directory / file.name).string()},
+                    {"path", file.path.string()},
+                    // Which scope the file holds, from the directory it is in; both empty for the
+                    // top one, the namespace empty for an account's own.
+                    {"accountId", file.accountId},
+                    {"namespace", file.namespaceName},
                     {"startedAt", file.startedAt},
                     {"modified", Core::DateTimeUtils::ToISO8601(file.modified)},
                     {"size", file.size},
