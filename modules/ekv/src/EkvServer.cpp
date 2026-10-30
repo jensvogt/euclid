@@ -11,6 +11,7 @@
 
 // Euclid includes
 #include <EkvServer.h>
+#include <euclid/core/DateTimeUtils.h>
 
 namespace Euclid::EKV {
 
@@ -506,8 +507,46 @@ namespace Euclid::EKV {
         const auto table = tableFor(req, auth, request.table, refusal);
         if (!table.has_value()) return *refusal;
 
+        // What to narrow the scan to, if anything. Refused rather than ignored where it does not
+        // make sense: a filter that is quietly dropped answers with the whole table, which looks
+        // like a filter that matched everything.
+        Database::Entity::EKV::ScanFilter narrow;
+        try {
+            if (!request.modifiedFrom.empty()) narrow.modifiedFrom = Core::DateTimeUtils::FromISO8601(request.modifiedFrom);
+            if (!request.modifiedTo.empty()) narrow.modifiedTo = Core::DateTimeUtils::FromISO8601(request.modifiedTo);
+        } catch (const std::exception &) {
+            return EkvServer::ErrorResponse(req, status::bad_request, "modifiedFrom and modifiedTo have to be ISO-8601 timestamps");
+        }
+        if (narrow.modifiedFrom.has_value() && narrow.modifiedTo.has_value() && *narrow.modifiedTo < *narrow.modifiedFrom) {
+            return EkvServer::ErrorResponse(req, status::bad_request, "modifiedTo is before modifiedFrom");
+        }
+
+        if (!request.attributeName.empty()) {
+            const auto op = SortCondition::OperatorFromString(request.attributeOperator);
+            if (!op.has_value() || *op == SortCondition::Operator::None) {
+                return EkvServer::ErrorResponse(req, status::bad_request,
+                                                "attributeOperator has to be one of eq, lt, le, gt, ge, between, begins-with");
+            }
+            narrow.attributeName = request.attributeName;
+            narrow.attribute.op = *op;
+            try {
+                narrow.attribute.value = Value::FromJson(request.attributeValue);
+                narrow.attribute.upper = Value::FromJson(request.attributeUpper);
+            } catch (const std::exception &e) {
+                return EkvServer::ErrorResponse(req, status::bad_request, e.what());
+            }
+            if (narrow.attribute.op == SortCondition::Operator::BeginsWith && !narrow.attribute.value.holds<std::string>()) {
+                // The one operator that is not a comparison, as for a sort key: a prefix of a
+                // number is not a thing, and answering nonsense is worse than refusing.
+                return EkvServer::ErrorResponse(req, status::bad_request, "begins-with only applies to a string attribute");
+            }
+        } else if (!request.attributeOperator.empty()) {
+            return EkvServer::ErrorResponse(req, status::bad_request, "attributeOperator needs an attributeName to compare");
+        }
+
         const auto repository = Database::RepositoryFactory::instance().ekvRepository();
-        const auto items = repository->scan(table->accountId, table->nameSpace, table->name, request.pageSize, request.pageIndex);
+        const auto items = repository->scan(table->accountId, table->nameSpace, table->name, request.pageSize, request.pageIndex,
+                                            request.sortColumn, request.sortDirection, narrow);
 
         boost::json::array array;
         array.reserve(items.size());

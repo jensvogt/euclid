@@ -21,6 +21,59 @@ namespace Euclid::Database {
         // the last code point there is, so nothing a caller can store sorts above it.
         constexpr auto kAfterEveryString = "\xF4\x8F\xBF\xBF";
 
+        // One comparison, on whichever field is named. Written once because a query makes it
+        // against the sort key and a scan filter makes the same one against an attribute, and two
+        // copies of it would be two chances for the operators to drift apart.
+        void appendCondition(bsoncxx::builder::basic::document &filter, const std::string &field,
+                             const Entity::EKV::SortCondition &condition) {
+
+            using Operator = Entity::EKV::SortCondition::Operator;
+            using bsoncxx::builder::basic::kvp;
+            using bsoncxx::builder::basic::make_document;
+
+            switch (condition.op) {
+
+                case Operator::Equals:
+                    condition.value.AppendTo(filter, field);
+                    break;
+
+                case Operator::LessThan:
+                case Operator::LessOrEqual:
+                case Operator::GreaterThan:
+                case Operator::GreaterOrEqual: {
+                    const auto *comparison = condition.op == Operator::LessThan      ? "$lt"
+                                             : condition.op == Operator::LessOrEqual ? "$lte"
+                                             : condition.op == Operator::GreaterThan ? "$gt"
+                                                                                     : "$gte";
+                    bsoncxx::builder::basic::document bound;
+                    condition.value.AppendTo(bound, comparison);
+                    filter.append(kvp(field, bound.extract()));
+                    break;
+                }
+
+                case Operator::Between: {
+                    bsoncxx::builder::basic::document bounds;
+                    condition.value.AppendTo(bounds, "$gte");
+                    condition.upper.AppendTo(bounds, "$lte");
+                    filter.append(kvp(field, bounds.extract()));
+                    break;
+                }
+
+                case Operator::BeginsWith: {
+                    // A range rather than a pattern: no regular expression to escape, and an index
+                    // on the field is used. Strings only, which is checked before this is called.
+                    const auto prefix = condition.value.holds<std::string>() ? condition.value.get<std::string>() : std::string{};
+                    filter.append(kvp(field, make_document(kvp("$gte", prefix), kvp("$lt", prefix + kAfterEveryString))));
+                    break;
+                }
+
+                case Operator::None:
+                default:
+                    break;
+            }
+        }
+
+
         long timestampMillis(const std::chrono::system_clock::time_point &when) {
             return std::chrono::duration_cast<std::chrono::milliseconds>(when.time_since_epoch()).count();
         }
@@ -318,47 +371,7 @@ namespace Euclid::Database {
 
             // Every one of these is a bound on the indexed sort key, which is what lets the
             // database walk the range rather than read the partition and discard most of it.
-            using Operator = Entity::EKV::SortCondition::Operator;
-            switch (condition.op) {
-
-                case Operator::Equals:
-                    condition.value.AppendTo(filter, "sk");
-                    break;
-
-                case Operator::LessThan:
-                case Operator::LessOrEqual:
-                case Operator::GreaterThan:
-                case Operator::GreaterOrEqual: {
-                    const auto *comparison = condition.op == Operator::LessThan      ? "$lt"
-                                             : condition.op == Operator::LessOrEqual ? "$lte"
-                                             : condition.op == Operator::GreaterThan ? "$gt"
-                                                                                     : "$gte";
-                    document bound;
-                    condition.value.AppendTo(bound, comparison);
-                    filter.append(kvp("sk", bound.extract()));
-                    break;
-                }
-
-                case Operator::Between: {
-                    document bounds;
-                    condition.value.AppendTo(bounds, "$gte");
-                    condition.upper.AppendTo(bounds, "$lte");
-                    filter.append(kvp("sk", bounds.extract()));
-                    break;
-                }
-
-                case Operator::BeginsWith: {
-                    // A range rather than a pattern: no regular expression to escape, and the index
-                    // is used. Strings only, which is checked before this is called.
-                    const auto prefix = condition.value.holds<std::string>() ? condition.value.get<std::string>() : std::string{};
-                    filter.append(kvp("sk", make_document(kvp("$gte", prefix), kvp("$lt", prefix + kAfterEveryString))));
-                    break;
-                }
-
-                case Operator::None:
-                default:
-                    break;
-            }
+            appendCondition(filter, "sk", condition);
 
             mongocxx::options::find opts;
             opts.sort(make_document(kvp("sk", forward ? 1 : -1)));
@@ -381,7 +394,10 @@ namespace Euclid::Database {
 
     std::vector<Entity::EKV::Item> MongoEkvRepository::scan(const std::string &accountId, const std::string &nameSpace,
                                                             const std::string &tableName,
-                                                            const long pageSize, const long pageIndex) const {
+                                                            const long pageSize, const long pageIndex,
+                                                            const std::string &sortColumn,
+                                                            const std::string &sortDirection,
+                                                            const Entity::EKV::ScanFilter &narrow) const {
 
         std::vector<Entity::EKV::Item> items;
         try {
@@ -390,15 +406,53 @@ namespace Euclid::Database {
             // In key order, so that paging through a scan sees each item once: an unordered scan
             // paged with skip and limit can miss items and repeat others as the collection changes
             // underneath it.
-            opts.sort(make_document(kvp("pk", 1), kvp("sk", 1)));
+            //
+            // A caller that asks for another column gets it, with the key appended rather than
+            // replaced - only the key is unique, and ordering by a column full of ties leaves the
+            // tied items free to come back in a different order on each page, which is the same
+            // defect as not ordering at all. The three that can be asked for are the ones stored
+            // beside the item rather than inside its attributes; an attribute would be a field
+            // nothing indexes, on a collection a scan is already the expensive way to read.
+            const int direction = sortDirection == "desc" ? -1 : 1;
+            if (sortColumn == "modified") {
+                opts.sort(make_document(kvp("modified", direction), kvp("pk", 1), kvp("sk", 1)));
+            } else if (sortColumn == "sk") {
+                opts.sort(make_document(kvp("sk", direction), kvp("pk", 1)));
+            } else if (sortColumn == "pk") {
+                opts.sort(make_document(kvp("pk", direction), kvp("sk", direction)));
+            } else {
+                opts.sort(make_document(kvp("pk", 1), kvp("sk", 1)));
+            }
             if (pageSize > 0) {
                 opts.limit(pageSize);
                 opts.skip(pageIndex * pageSize);
             }
 
+            // The scope, plus whatever the caller is narrowing to. Narrowed by the database
+            // rather than by the caller: the table is read either way, and what changes is how
+            // much of it crosses the wire for somebody to sift through.
+            document filter;
+            filter.append(kvp("accountId", accountId), kvp("namespace", nameSpace), kvp("tableName", tableName));
+            if (narrow.modifiedFrom.has_value() || narrow.modifiedTo.has_value()) {
+                document window;
+                if (narrow.modifiedFrom.has_value()) {
+                    window.append(kvp("$gte", bsoncxx::types::b_date{std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                      narrow.modifiedFrom->time_since_epoch())}));
+                }
+                if (narrow.modifiedTo.has_value()) {
+                    window.append(kvp("$lte", bsoncxx::types::b_date{std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                      narrow.modifiedTo->time_since_epoch())}));
+                }
+                filter.append(kvp("modified", window.extract()));
+            }
+            if (!narrow.attributeName.empty() && narrow.attribute.op != Entity::EKV::SortCondition::Operator::None) {
+                // Where an item's attributes actually live - see Item::toDocument(). Any attribute,
+                // not only a key one: a key is what a query already reaches.
+                appendCondition(filter, "item." + narrow.attributeName, narrow.attribute);
+            }
+
             const auto collection = Database::instance().collection(ITEM_COLLECTION);
-            const auto filter = scopeFilter(accountId, nameSpace, tableName);
-            for (auto cursor = collection.find(filter.view(), opts); const auto &document: cursor) {
+            for (auto cursor = collection.find(filter.extract().view(), opts); const auto &document: cursor) {
                 items.push_back(Entity::EKV::Item::fromDocument(document));
             }
 

@@ -15,6 +15,7 @@
 
 // Euclid includes
 #include <euclid/database/entity/ekv/Item.h>
+#include <euclid/database/entity/ekv/ScanFilter.h>
 #include <euclid/database/entity/ekv/SortCondition.h>
 #include <euclid/database/entity/ekv/Table.h>
 
@@ -147,11 +148,21 @@ namespace Euclid::Database {
          * Every item, a page at a time, in key order. What it costs is what it costs - a scan is a
          * scan - and it is here because a store nobody can enumerate is a store nobody can back
          * up, migrate or debug.
+         *
+         * @par
+         * @p sortColumn is "pk", "sk" or "modified", and anything else - including the empty
+         * string, which is what a caller that does not care sends - is key order. The key is
+         * appended to whichever is chosen, because only the key is unique: paging through a scan
+         * ordered by a column with ties would otherwise see an item twice and another not at all,
+         * the ties being free to come back in a different order on every page.
          */
         [[nodiscard]]
         virtual std::vector<Entity::EKV::Item> scan(const std::string &accountId, const std::string &nameSpace,
                                                     const std::string &tableName,
-                                                    long pageSize, long pageIndex) const = 0;
+                                                    long pageSize, long pageIndex,
+                                                    const std::string &sortColumn = {},
+                                                    const std::string &sortDirection = {},
+                                                    const Entity::EKV::ScanFilter &narrow = {}) const = 0;
 
         /**
          * @brief How many items a table holds.
