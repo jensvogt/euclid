@@ -638,6 +638,12 @@ namespace Euclid::main {
             int saturatedTicks = 0;
 
             /**
+             * @brief Whether desiredCount is a backlog target - set once the group's instances
+             * have reported work waiting through applyBacklog(). See OverProvisioned().
+             */
+            bool backlogTarget = false;
+
+            /**
              * @brief Whether somebody stopped this module through "emm stop-module".
              *
              * @par

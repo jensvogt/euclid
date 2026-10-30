@@ -102,6 +102,27 @@ namespace Euclid::main {
     }
 
     /**
+     * @brief Whether a pool is bigger than its target in the sense that lets evaluateScaling() give
+     * an instance back while the pool is still being used.
+     *
+     * @par
+     * Only for a pool whose target is a backlog - one whose instances report work waiting, so that
+     * applyBacklog() keeps desiredCount meaning "what the queue asks for". Every other pool - each
+     * euclid module - has no such figure: its desiredCount sits at the floor unless a client
+     * declared concurrency, and its growth comes from saturation, which never touches the target.
+     * Reading "above the target" there as "too many" undid every scale-up a tick or two later:
+     * ENS and ESM went 1 -> 4 -> 1 within ten seconds, over and over (2026-10-30). Those pools
+     * shrink the way they always did, once the group has been idle for scale-down-idle-seconds.
+     *
+     * @param hasBacklogTarget whether the pool's target comes from a reported backlog.
+     * @param running instances running.
+     * @param desiredCount the pool's target.
+     */
+    constexpr bool OverProvisioned(const bool hasBacklogTarget, const int running, const int desiredCount) {
+        return hasBacklogTarget && running > desiredCount;
+    }
+
+    /**
      * @brief The target a node application moves to this tick, once idleness is taken into account.
      *
      * @par
