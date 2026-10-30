@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.14](https://github.com/jensvogt/euclid/compare/2.1.13...v2.1.14) (2026-10-30)
+
+
+### Bug Fixes
+
+* EKV sorting ([1554a7d](https://github.com/jensvogt/euclid/commit/1554a7d78635c2f49e5e277acee467f9deaffd20))
+
 ## [2.1.13](https://github.com/jensvogt/euclid/compare/2.1.12...v2.1.13) (2026-10-30)
 
 
