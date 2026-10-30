@@ -108,7 +108,7 @@ BOOST_AUTO_TEST_CASE(AReceiptHandleDeletesExactlyItsOwnMessage) {
     repo.deleteMessage(received[2].receiptHandle);
 
     BOOST_TEST(!repo.findMessageByName(received[2].messageId).has_value());
-    for (const auto index: {0, 1, 3, 4}) {
+    for (const std::size_t index: {0U, 1U, 3U, 4U}) {
         BOOST_TEST(repo.findMessageByName(received[index].messageId).has_value());
     }
 }
