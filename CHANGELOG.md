@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.15](https://github.com/jensvogt/euclid/compare/2.1.14...v2.1.15) (2026-10-30)
+
+
+### Bug Fixes
+
+* backups split into &lt;account&gt;/&lt;namespace&gt; ([f39004f](https://github.com/jensvogt/euclid/commit/f39004f41000f3045e2e79058493637216cac2ba))
+
 ## [2.1.14](https://github.com/jensvogt/euclid/compare/2.1.13...v2.1.14) (2026-10-30)
 
 
