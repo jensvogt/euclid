@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.1.13](https://github.com/jensvogt/euclid/compare/2.1.12...v2.1.13) (2026-10-30)
+
+
+### Bug Fixes
+
+* ENS scaling ([36641c3](https://github.com/jensvogt/euclid/commit/36641c3c4a060bcb1fdbd36495c4b90c07483360))
+* ESM lifecycle, archive objects on demand ([9ea7aef](https://github.com/jensvogt/euclid/commit/9ea7aefa01381126d9002930b98aeaf4b946668a))
+* performance tuning ([56e2269](https://github.com/jensvogt/euclid/commit/56e2269396d638ad619386fea6206cbe7e431fc8))
+
 ## [2.1.12](https://github.com/jensvogt/euclid/compare/2.1.11...v2.1.12) (2026-10-26)
 
 
