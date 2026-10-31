@@ -479,16 +479,26 @@ namespace Euclid::EKV {
             }
         }
 
-        const auto items = Database::RepositoryFactory::instance().ekvRepository()->query(table->accountId, table->nameSpace, table->name, partitionKey,
-                                                                                          condition, request.forward,
-                                                                                          request.pageSize, request.pageIndex);
+        const auto repository = Database::RepositoryFactory::instance().ekvRepository();
+        const auto items = repository->query(table->accountId, table->nameSpace, table->name, partitionKey,
+                                             condition, request.forward,
+                                             request.pageSize, request.pageIndex);
 
         boost::json::array array;
         array.reserve(items.size());
         for (const auto &item: items) array.push_back(itemToJson(item));
 
+        // "count" is what came back and "total" what matched, which differ as soon as a page size is
+        // given - and a client paging through a partition needs the second to know there is a page
+        // after this one. It costs a count of index entries over the range the query just walked: the
+        // filter is a prefix of (accountId, namespace, tableName, pk, sk), so this is not the scan's
+        // "count the whole table" but a count of one partition. See IEkvRepository::countQuery().
+        const auto total = repository->countQuery(table->accountId, table->nameSpace, table->name, partitionKey, condition);
+
         return EkvServer::JsonResponse(req, status::ok,
-                                       boost::json::serialize(boost::json::object{{"items", array}, {"count", static_cast<long>(items.size())}}));
+                                       boost::json::serialize(boost::json::object{{"items", array},
+                                                                                  {"count", static_cast<long>(items.size())},
+                                                                                  {"total", total}}));
     }
 
     static response<string_body> handleScan(const request<string_body> &req) {

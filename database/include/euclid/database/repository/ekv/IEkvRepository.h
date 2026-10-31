@@ -165,6 +165,25 @@ namespace Euclid::Database {
                                                     const Entity::EKV::ScanFilter &narrow = {}) const = 0;
 
         /**
+         * @brief How many items one partition holds, counting only what the same condition takes.
+         *
+         * @par
+         * The count belonging to query(): same filter, counted rather than fetched. It costs what a
+         * query costs and no more - the filter is a prefix of the (accountId, namespace, tableName,
+         * pk, sk) index with a range on its last field, so the database counts index entries over the
+         * range it would have walked anyway, without touching a document or the rest of the table.
+         *
+         * @par
+         * Separate from the query because paging asks the query again and the count does not change
+         * between pages; a caller that pages wants this once.
+         */
+        [[nodiscard]]
+        virtual long countQuery(const std::string &accountId, const std::string &nameSpace,
+                                const std::string &tableName,
+                                const Entity::EKV::Value &partitionKey,
+                                const Entity::EKV::SortCondition &condition) const = 0;
+
+        /**
          * @brief How many items a table holds.
          */
         [[nodiscard]]

@@ -463,6 +463,29 @@ namespace Euclid::Database {
         return items;
     }
 
+    long MongoEkvRepository::countQuery(const std::string &accountId, const std::string &nameSpace,
+                                        const std::string &tableName,
+                                        const Entity::EKV::Value &partitionKey,
+                                        const Entity::EKV::SortCondition &condition) const {
+
+        try {
+            // The query's own filter, built the same way and in the same order, so the count is of
+            // exactly the items the query returns pages of - and so that it is answered from the
+            // (accountId, namespace, tableName, pk, sk) index rather than by reading the partition.
+            document filter;
+            filter.append(kvp("accountId", accountId), kvp("namespace", nameSpace), kvp("tableName", tableName));
+            partitionKey.AppendTo(filter, "pk");
+            appendCondition(filter, "sk", condition);
+
+            const auto collection = Database::instance().collection(ITEM_COLLECTION);
+            return static_cast<long>(collection.count_documents(filter.extract().view()));
+
+        } catch (const std::exception &e) {
+            log_error << "Count query failed, table: " << tableName << ", error: " << e.what();
+        }
+        return 0;
+    }
+
     long MongoEkvRepository::countItems(const std::string &accountId, const std::string &nameSpace, const std::string &tableName) const {
 
         try {
