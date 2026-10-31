@@ -164,6 +164,10 @@
           "raw": 7,
           "hour": 90,
           "day": 1825
+        },
+        "alert": {
+          "max-series-per-rule": 200,
+          "history-retention": 90
         }
       },
       "ekm": {

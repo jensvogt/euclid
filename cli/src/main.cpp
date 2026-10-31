@@ -24,6 +24,7 @@
 #include <euclid/cli/ekv/EkvCli.h>
 #include <euclid/cli/ess/EssCli.h>
 #include <euclid/cli/emm/EmmCli.h>
+#include <euclid/cli/emo/EmoCli.h>
 #include <euclid/cli/ens/EnsCli.h>
 #include <euclid/cli/eqs/EqsCli.h>
 #include <euclid/cli/esm/EsmCli.h>
@@ -56,6 +57,7 @@ namespace {
                 {"esm", "Euclid storage module (buckets, objects)"},
                 {"ees", "Euclid event service (subscribe to what other modules publish)"},
                 {"ead", "Euclid audit (what was run, by whom, in which account)"},
+                {"emo", "Euclid monitoring (threshold alert rules, alerts)"},
                 {"ens", "Euclid notifications system (pub/sub topics, messages)"},
                 {"ekm", "Euclid key management (cryptographic keys, encryption, decryption)"},
                 {"ess", "Euclid secrets store (passwords, connection details, encrypted under an EKM key)"},
@@ -81,6 +83,7 @@ namespace {
         if (module == "eap") actions = &Euclid::CLI::EapCli::Actions();
         if (module == "ets") actions = &Euclid::CLI::EtsCli::Actions();
         if (module == "ead") actions = &Euclid::CLI::EadCli::Actions();
+        if (module == "emo") actions = &Euclid::CLI::EmoCli::Actions();
         if (module == "ees") actions = &Euclid::CLI::EesCli::Actions();
         if (module == "ekv") actions = &Euclid::CLI::EkvCli::Actions();
         if (module == "eag") actions = &Euclid::CLI::EagCli::Actions();
@@ -118,6 +121,7 @@ namespace {
         if (module == "eap") std::ignore = Euclid::CLI::EapCli("").process(action, args);
         if (module == "ets") std::ignore = Euclid::CLI::EtsCli("").process(action, args);
         if (module == "ead") std::ignore = Euclid::CLI::EadCli("").process(action, args);
+        if (module == "emo") std::ignore = Euclid::CLI::EmoCli("").process(action, args);
         if (module == "ees") std::ignore = Euclid::CLI::EesCli("").process(action, args);
         if (module == "ekv") std::ignore = Euclid::CLI::EkvCli("").process(action, args);
         if (module == "eag") std::ignore = Euclid::CLI::EagCli("").process(action, args);
@@ -352,6 +356,11 @@ int main(const int argc, char *argv[]) {
         const auto authToken = Euclid::CLI::Credentials::Load();
         const Euclid::CLI::EadCli ead(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), pretty, caCert);
         return ead.process(action, args);
+    }
+    if (module == "emo") {
+        const auto authToken = Euclid::CLI::Credentials::Load();
+        const Euclid::CLI::EmoCli emo(endpoint, authToken.value_or(Euclid::CLI::Credentials::Entry{}), pretty, caCert);
+        return emo.process(action, args);
     }
     if (module == "ees") {
         const auto authToken = Euclid::CLI::Credentials::Load();

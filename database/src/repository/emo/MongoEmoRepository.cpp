@@ -157,6 +157,25 @@ namespace Euclid::Database {
             dashboardOptions.unique(true);
             dashboards.create_index(make_document(kvp("userId", 1), kvp("name", 1)), dashboardOptions);
 
+            // A rule is the account's ruleId; unique so a second create cannot make two of one.
+            // {accountId, name} serves a lookup by metric.
+            mongocxx::options::index uniqueOptions;
+            uniqueOptions.unique(true);
+            auto rules = Database::instance().collection(ALERT_RULE_COLLECTION);
+            rules.create_index(make_document(kvp("accountId", 1), kvp("ruleId", 1)), uniqueOptions);
+            rules.create_index(make_document(kvp("accountId", 1), kvp("name", 1)));
+
+            // One state per rule and series, which is what the evaluator upserts on.
+            auto states = Database::instance().collection(ALERT_STATE_COLLECTION);
+            states.create_index(make_document(kvp("accountId", 1), kvp("ruleId", 1), kvp("labelKey", 1)), uniqueOptions);
+
+            // The history is read newest first, for one rule or for all of an account's, and
+            // expires row by row like the data points.
+            auto history = Database::instance().collection(ALERT_HISTORY_COLLECTION);
+            history.create_index(make_document(kvp("accountId", 1), kvp("ruleId", 1), kvp("timestamp", -1)));
+            history.create_index(make_document(kvp("accountId", 1), kvp("timestamp", -1)));
+            history.create_index(make_document(kvp("expiresAt", 1)), ttlOptions);
+
         } catch (const std::exception &e) {
             log_error << "Ensure monitoring indexes failed, error: " << e.what();
         }
@@ -465,6 +484,170 @@ namespace Euclid::Database {
         } catch (const std::exception &e) {
             log_error << "Delete dashboard failed, error: " << e.what();
             return 0;
+        }
+    }
+
+    // ── Alerting ─────────────────────────────────────────────────────────────
+
+    namespace {
+        // {accountId, ruleId}, either left out when empty.
+        bsoncxx::document::value ruleFilter(const std::string &accountId, const std::string &ruleId) {
+            bsoncxx::builder::basic::document filter{};
+            if (!accountId.empty()) filter.append(kvp("accountId", accountId));
+            if (!ruleId.empty()) filter.append(kvp("ruleId", ruleId));
+            return filter.extract();
+        }
+    }// namespace
+
+    bool MongoEmoRepository::upsertAlertRule(const Entity::Monitoring::AlertRule &rule) {
+
+        try {
+            auto collection = Database::instance().collection(ALERT_RULE_COLLECTION);
+            mongocxx::options::replace options;
+            options.upsert(true);
+            collection.replace_one(make_document(kvp("accountId", rule.accountId), kvp("ruleId", rule.ruleId)).view(), rule.toDocument().view(), options);
+            return true;
+
+        } catch (const std::exception &e) {
+            log_error << "Upsert alert rule failed, ruleId: " << rule.ruleId << ", error: " << e.what();
+            return false;
+        }
+    }
+
+    std::optional<Entity::Monitoring::AlertRule> MongoEmoRepository::getAlertRule(const std::string &accountId, const std::string &ruleId) const {
+
+        try {
+            auto collection = Database::instance().collection(ALERT_RULE_COLLECTION);
+            if (const auto doc = collection.find_one(make_document(kvp("accountId", accountId), kvp("ruleId", ruleId)).view())) {
+                return Entity::Monitoring::AlertRule::fromDocument(doc->view());
+            }
+            return std::nullopt;
+
+        } catch (const std::exception &e) {
+            log_error << "Get alert rule failed, ruleId: " << ruleId << ", error: " << e.what();
+            return std::nullopt;
+        }
+    }
+
+    std::vector<Entity::Monitoring::AlertRule> MongoEmoRepository::listAlertRules(const std::string &accountId) const {
+
+        try {
+            mongocxx::options::find opts;
+            opts.sort(make_document(kvp("accountId", 1), kvp("ruleId", 1)));
+
+            auto collection = Database::instance().collection(ALERT_RULE_COLLECTION);
+            std::vector<Entity::Monitoring::AlertRule> result;
+            for (auto cursor = collection.find(ruleFilter(accountId, ""), opts); const auto &doc: cursor) {
+                result.push_back(Entity::Monitoring::AlertRule::fromDocument(doc));
+            }
+            return result;
+
+        } catch (const std::exception &e) {
+            log_error << "List alert rules failed, error: " << e.what();
+            return {};
+        }
+    }
+
+    long MongoEmoRepository::deleteAlertRule(const std::string &accountId, const std::string &ruleId) {
+
+        try {
+            auto collection = Database::instance().collection(ALERT_RULE_COLLECTION);
+            const auto result = collection.delete_one(make_document(kvp("accountId", accountId), kvp("ruleId", ruleId)).view());
+            return result ? static_cast<long>(result->deleted_count()) : 0;
+
+        } catch (const std::exception &e) {
+            log_error << "Delete alert rule failed, ruleId: " << ruleId << ", error: " << e.what();
+            return 0;
+        }
+    }
+
+    std::vector<Entity::Monitoring::AlertState> MongoEmoRepository::listAlertStates(const std::string &accountId, const std::string &ruleId) const {
+
+        try {
+            mongocxx::options::find opts;
+            opts.sort(make_document(kvp("accountId", 1), kvp("ruleId", 1), kvp("labelKey", 1)));
+
+            auto collection = Database::instance().collection(ALERT_STATE_COLLECTION);
+            std::vector<Entity::Monitoring::AlertState> result;
+            for (auto cursor = collection.find(ruleFilter(accountId, ruleId), opts); const auto &doc: cursor) {
+                result.push_back(Entity::Monitoring::AlertState::fromDocument(doc));
+            }
+            return result;
+
+        } catch (const std::exception &e) {
+            log_error << "List alert states failed, error: " << e.what();
+            return {};
+        }
+    }
+
+    bool MongoEmoRepository::upsertAlertState(const Entity::Monitoring::AlertState &state) {
+
+        try {
+            auto collection = Database::instance().collection(ALERT_STATE_COLLECTION);
+            mongocxx::options::replace options;
+            options.upsert(true);
+            collection.replace_one(make_document(kvp("accountId", state.accountId), kvp("ruleId", state.ruleId), kvp("labelKey", state.labelKey)).view(),
+                                   state.toDocument().view(), options);
+            return true;
+
+        } catch (const std::exception &e) {
+            log_error << "Upsert alert state failed, ruleId: " << state.ruleId << ", series: " << state.labelKey << ", error: " << e.what();
+            return false;
+        }
+    }
+
+    long MongoEmoRepository::deleteAlertStates(const std::string &accountId, const std::string &ruleId) {
+
+        try {
+            auto collection = Database::instance().collection(ALERT_STATE_COLLECTION);
+            const auto result = collection.delete_many(make_document(kvp("accountId", accountId), kvp("ruleId", ruleId)).view());
+            return result ? static_cast<long>(result->deleted_count()) : 0;
+
+        } catch (const std::exception &e) {
+            log_error << "Delete alert states failed, ruleId: " << ruleId << ", error: " << e.what();
+            return 0;
+        }
+    }
+
+    bool MongoEmoRepository::insertAlertTransition(const Entity::Monitoring::AlertTransition &transition) {
+
+        try {
+            Database::instance().collection(ALERT_HISTORY_COLLECTION).insert_one(transition.toDocument().view());
+            return true;
+
+        } catch (const std::exception &e) {
+            log_error << "Insert alert transition failed, ruleId: " << transition.ruleId << ", error: " << e.what();
+            return false;
+        }
+    }
+
+    std::vector<Entity::Monitoring::AlertTransition> MongoEmoRepository::listAlertHistory(const AlertHistoryQuery &query) const {
+
+        try {
+            bsoncxx::builder::basic::document filter{};
+            if (!query.accountId.empty()) filter.append(kvp("accountId", query.accountId));
+            if (!query.ruleId.empty()) filter.append(kvp("ruleId", query.ruleId));
+            if (constexpr auto epoch = std::chrono::system_clock::time_point{}; query.from != epoch || query.to != epoch) {
+                bsoncxx::builder::basic::document range{};
+                if (query.from != epoch) range.append(kvp("$gte", toDate(query.from)));
+                if (query.to != epoch) range.append(kvp("$lt", toDate(query.to)));
+                filter.append(kvp("timestamp", range.extract()));
+            }
+
+            mongocxx::options::find opts;
+            opts.sort(make_document(kvp("timestamp", -1)));
+            if (query.limit > 0) opts.limit(query.limit);
+
+            auto collection = Database::instance().collection(ALERT_HISTORY_COLLECTION);
+            std::vector<Entity::Monitoring::AlertTransition> result;
+            for (auto cursor = collection.find(filter.extract(), opts); const auto &doc: cursor) {
+                result.push_back(Entity::Monitoring::AlertTransition::fromDocument(doc));
+            }
+            return result;
+
+        } catch (const std::exception &e) {
+            log_error << "List alert history failed, error: " << e.what();
+            return {};
         }
     }
 

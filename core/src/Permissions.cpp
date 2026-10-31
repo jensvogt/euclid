@@ -172,14 +172,20 @@ namespace Euclid::Core {
                 "ekv:query",
                 "ekv:scan",
 
-                // emo - 7 actions
+                // emo - 13 actions
                 "emo:average",
+                "emo:create-alert-rule",
+                "emo:delete-alert-rule",
                 "emo:delete-dashboard",
                 "emo:get-dashboard",
                 "emo:list",
+                "emo:list-alert-history",
+                "emo:list-alert-rules",
+                "emo:list-alerts",
                 "emo:list-dashboards",
                 "emo:push-metrics",
                 "emo:save-dashboard",
+                "emo:update-alert-rule",
 
                 // ens - 26 actions
                 "ens:add-topic-tag",
