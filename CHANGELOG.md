@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.16](https://github.com/jensvogt/euclid/compare/2.1.15...v2.1.16) (2026-10-31)
+
+
+### Bug Fixes
+
+* EKV queries and scans ([a578754](https://github.com/jensvogt/euclid/commit/a578754afa297a96866821c9674d343aab9b1184))
+
 ## [2.1.15](https://github.com/jensvogt/euclid/compare/2.1.14...v2.1.15) (2026-10-30)
 
 
