@@ -18,6 +18,7 @@ namespace Euclid::CLI {
                 {"list-alert-history", "Show the alert state changes, newest first"},
                 {"list-alert-rules", "List the threshold rules"},
                 {"list-alerts", "Show where every series a rule judges stands now"},
+                {"list-metrics", "List every metric EMO has recorded, by name"},
                 {"update-alert-rule", "Change a threshold rule"},
         };
         return kActions;
@@ -33,6 +34,7 @@ namespace Euclid::CLI {
             return 1;
         }
 
+        if (action == "list-metrics") return listMetrics(args);
         if (action == "create-alert-rule") return createAlertRule(args);
         if (action == "update-alert-rule") return updateAlertRule(args);
         if (action == "delete-alert-rule") return deleteAlertRule(args);
@@ -113,6 +115,51 @@ namespace Euclid::CLI {
         }
 
     }// namespace
+
+    int EmoCli::listMetrics(const std::vector<std::string> &args) const {
+
+        po::options_description desc("list metrics options");
+        desc.add_options()
+                ("prefix,p", po::value<std::string>(), "only metrics whose name starts with this, e.g. system-")
+                ("hours", po::value<long>()->default_value(24), "only metrics with data in this many hours")
+                ("names-only,n", "print the names alone, one per line");
+
+        if (IsHelpRequest(args)) {
+            return PrintActionHelp("emo", "list-metrics", "[--prefix <prefix>] [--hours <n>] [--names-only]",
+                                   "Lists every metric EMO has a five-minute row of in the last --hours hours (24 by default), "
+                                   "sorted by name: whether it is a gauge or a rate, how many series it has, the labels that "
+                                   "tell them apart, and when it last reported. The names are what --metric takes in "
+                                   "create-alert-rule, and the label names what --label selects on.",
+                                   desc);
+        }
+
+        po::variables_map vm;
+        if (!parse(args, desc, vm)) return 1;
+
+        boost::json::object request{{"hours", vm["hours"].as<long>()}};
+        if (vm.contains("prefix")) request["prefix"] = vm["prefix"].as<std::string>();
+        if (!vm.contains("names-only")) return send("list-metrics", request);
+
+        try {
+            const HttpClient client(_endpoint, _authentication, _caCertPath);
+            const HttpResponse response = client.Post("emo", "list-metrics", request);
+            if (!response.IsSuccess()) {
+                std::cerr << "error: list-metrics failed (HTTP " << response.statusCode << "): " << boost::json::serialize(response.body) << std::endl;
+                return 1;
+            }
+            if (const auto *items = response.body.is_object() ? response.body.as_object().if_contains("items") : nullptr; items && items->is_array()) {
+                for (const auto &item: items->as_array()) {
+                    if (const auto *name = item.is_object() ? item.as_object().if_contains("name") : nullptr; name && name->is_string()) {
+                        std::cout << name->as_string().c_str() << '\n';
+                    }
+                }
+            }
+            return 0;
+        } catch (const std::exception &ex) {
+            std::cerr << "error: " << ex.what() << std::endl;
+            return 1;
+        }
+    }
 
     int EmoCli::createAlertRule(const std::vector<std::string> &args) const {
 

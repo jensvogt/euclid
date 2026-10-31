@@ -390,6 +390,47 @@ namespace Euclid::Monitoring {
         return EmoServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{{"average", result}}));
     }
 
+    // Every metric there is to graph or to write an alert rule on, by name - the question "list"
+    // cannot answer without already knowing the name. Over the RAW tier of the last "hours" hours,
+    // 24 by default, so a metric written hourly (disk usage) is still in it and one that stopped
+    // reporting a week ago is not.
+    static response<string_body> handleListMetrics(const request<string_body> &req) {
+
+        const auto auth = authenticate(req);
+        if (!auth.user.has_value()) return unauthorized(req, auth);
+        if (!Database::IsEamAdmin(*Database::RepositoryFactory::instance().eamRepository(), auth.user->userId)) {
+            return EmoServer::ErrorResponse(req, status::forbidden, "Administrator privileges required");
+        }
+
+        boost::json::value jv;
+        if (const auto err = EmoServer::ParseJsonBody(req, jv)) return *err;
+
+        long hours = 24;
+        std::string prefix;
+        if (jv.is_object()) {
+            if (const auto *v = jv.as_object().if_contains("hours"); v && v->is_number()) hours = static_cast<long>(v->to_number<double>());
+            if (const auto *v = jv.as_object().if_contains("prefix"); v && v->is_string()) prefix = v->as_string().c_str();
+        }
+        if (hours < 1) return EmoServer::ErrorResponse(req, status::bad_request, R"("hours" must be at least 1)");
+
+        const auto since = std::chrono::system_clock::now() - std::chrono::hours(hours);
+        boost::json::array items;
+        for (const auto &metric: Database::RepositoryFactory::instance().emoRepository()->listMetrics(since)) {
+            if (!metric.name.starts_with(prefix)) continue;
+            boost::json::array labelNames;
+            for (const auto &label: metric.labelNames) labelNames.emplace_back(label);
+            items.push_back(boost::json::object{
+                    {"name", metric.name},
+                    {"type", MetricTypeToString(metric.type)},
+                    {"series", metric.series},
+                    {"labelNames", std::move(labelNames)},
+                    {"lastSeen", Core::DateTimeUtils::ToISO8601(metric.lastSeen)},
+            });
+        }
+        const auto total = static_cast<long>(items.size());
+        return EmoServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{{"items", std::move(items)}, {"total", total}}));
+    }
+
     // ── Dashboard action handlers ────────────────────────────────────────────
     //
     // Authenticated but deliberately *not* admin-only, unlike "list" and "average" above. Those
@@ -1024,6 +1065,7 @@ namespace Euclid::Monitoring {
 
         if (action == "list") return handleList(req);
         if (action == "average") return handleAverage(req);
+        if (action == "list-metrics") return handleListMetrics(req);
         if (action == "push-metrics") return handlePushMetrics(req);
         if (action == "save-dashboard") return handleSaveDashboard(req);
         if (action == "get-dashboard") return handleGetDashboard(req);

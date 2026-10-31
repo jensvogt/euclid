@@ -1,0 +1,74 @@
+.TH EUCLID-CLI-EMO-LIST-ALERT-HISTORY 1 "October 2026" "euclid-cli 2.1.3" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-emo-list-alert-history \- show the alert state changes, newest first
+.SH SYNOPSIS
+.B euclid-cli emo list-alert-history
+[\fB\-\-rule\-id\fR|\fB\-r\fR \fIID\fR]
+[\fB\-\-from\fR \fITIME\fR]
+[\fB\-\-to\fR \fITIME\fR]
+[\fB\-\-limit\fR|\fB\-n\fR \fIN\fR]
+.SH DESCRIPTION
+Every change of state any rule of the account made, newest first: which
+series, from what to what, the figure and the line that decided it, and
+when. A change made because the rule itself changed carries a
+.I reason
+\-
+.IR rule-deleted ,
+.I rule-disabled
+or
+.I rule-changed
+\- and is otherwise empty.
+.PP
+The same changes are published on the event bus as they happen. The bus
+is delivery, and an event is gone once its subscribers have taken it;
+this is the record. Each entry is kept for
+.I euclid.modules.emo.alert.history-retention
+days, 90 as shipped, and then removed by the database.
+.SH OPTIONS
+.TP
+.BR \-r ", " \-\-rule\-id " " \fIID\fR
+Only this rule's changes.
+.TP
+.BR \-\-from " " \fITIME\fR
+From this time, inclusive. ISO 8601, e.g.
+.IR 2026-10-31T00:00:00Z .
+.TP
+.BR \-\-to " " \fITIME\fR
+Until this time, exclusive.
+.TP
+.BR \-n ", " \-\-limit " " \fIN\fR
+How many. Default 100.
+.SH OUTPUT
+.RS
+.nf
+{"items": [{"ruleId": "system-cpu-per-host", "name": "system-cpu-usage",
+            "labels": {"host": "vogje01-pios"}, "previous": "OK",
+            "state": "WARNING", "severity": "warning", "value": 83.4,
+            "threshold": 80, "statistic": "value", "reason": "",
+            "timestamp": "2026-10-31T12:05:00Z", ...}]}
+.fi
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+The changes were printed as JSON.
+.TP
+.B 1
+The caller was not authenticated, or is not an administrator.
+.SH EXAMPLES
+.RS
+.nf
+# The last hundred changes
+euclid-cli emo list-alert-history
+
+# One rule, today
+euclid-cli emo list-alert-history --rule-id system-cpu-per-host \\
+    --from 2026-10-31T00:00:00Z
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-emo (1),
+.BR euclid-cli-emo-list-alerts (1),
+.BR euclid-cli-ees (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

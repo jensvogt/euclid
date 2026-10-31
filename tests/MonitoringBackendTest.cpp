@@ -7,6 +7,8 @@
 
 // C++ includes
 #include <chrono>
+#include <string>
+#include <vector>
 
 // Euclid includes
 #include <euclid/database/Database.h>
@@ -309,4 +311,31 @@ BOOST_AUTO_TEST_CASE(ADashboardIsRemovedByNameForItsOwner) {
     const auto left = repository.listDashboards("jvo");
     BOOST_TEST_REQUIRE(left.size() == 1U);
     BOOST_TEST(left[0].name == "Keep");
+}
+
+// Every metric by name, folded from its series: how many there are and which labels tell them
+// apart. Answered from the rows on the in-memory backend too, which has no pipeline to group with.
+BOOST_AUTO_TEST_CASE(MetricsAreListedByNameWithTheirSeries) {
+
+    Database::instance().initializeMemory();
+    MongoEmoRepository repository;
+
+    auto cpuA = sample("system-cpu-usage", 10.0, 1);
+    cpuA.labels = {{"host", "a"}};
+    auto cpuB = sample("system-cpu-usage", 20.0, 1);
+    cpuB.labels = {{"host", "b"}};
+    auto load = sample("system-load-average", 1.0, 1);
+    load.labels = {{"host", "a"}, {"interval", "1m"}};
+    auto old = sample("gone-metric", 1.0, 1);
+    old.timestamp -= std::chrono::hours(48);
+    for (const auto &row: {cpuA, cpuB, load, old}) repository.upsert(row);
+
+    const auto metrics = repository.listMetrics(std::chrono::system_clock::now() - std::chrono::hours(24));
+
+    BOOST_TEST_REQUIRE(metrics.size() == 2U);
+    BOOST_TEST(metrics[0].name == "system-cpu-usage");
+    BOOST_TEST(metrics[0].series == 2);
+    BOOST_TEST((metrics[0].labelNames == std::vector<std::string>{"host"}));
+    BOOST_TEST(metrics[1].name == "system-load-average");
+    BOOST_TEST((metrics[1].labelNames == std::vector<std::string>{"host", "interval"}));
 }

@@ -1,0 +1,157 @@
+.TH EUCLID-CLI-EMO-CREATE-ALERT-RULE 1 "October 2026" "euclid-cli 2.1.3" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-emo-create-alert-rule \- create a threshold alert rule on a metric
+.SH SYNOPSIS
+.B euclid-cli emo create-alert-rule
+.B \-\-rule\-id
+.I ID
+.B \-\-metric
+.I NAME
+[\fB\-\-label\fR \fINAME\fR=\fIVALUE\fR]...
+[\fB\-\-statistic\fR \fBvalue\fR|\fBmax\fR|\fBmin\fR]
+[\fB\-\-comparison\fR \fBabove\fR|\fBbelow\fR]
+[\fB\-\-warning\fR \fIN\fR]
+[\fB\-\-critical\fR \fIN\fR]
+[\fB\-\-for\-periods\fR \fIN\fR]
+[\fB\-\-clear\-periods\fR \fIN\fR]
+[\fB\-\-no\-data\-after\-periods\fR \fIN\fR]
+[\fB\-\-description\fR \fITEXT\fR]
+[\fB\-\-disabled\fR]
+.SH DESCRIPTION
+Creates a rule that judges one metric every period \- five minutes as
+shipped \- and raises an alert when a series crosses a line. See
+.BR euclid-cli-emo (1)
+for the states a series moves through and the events each change
+publishes.
+.PP
+Without
+.BR \-\-label ,
+the rule judges every series of the metric, each on its own: a rule on
+.I system-cpu-usage
+alerts per host, and picks up a host that starts reporting later
+without being told. With
+.BR \-\-label ,
+only the series carrying every label given, with that value; a series
+may carry more labels than the rule names.
+.PP
+The first evaluation is at the next period's flush;
+.BR euclid-cli-emo-list-alerts (1)
+shows a series only once the rule has judged a row of it.
+.SH CHOOSING THE STATISTIC
+A row holds a period's
+.I value
+\- its mean for a gauge, its sum for a rate \- and its
+.I max
+and
+.IR min .
+.B value
+says how the period went as a whole, and a thirty-second stall in a
+five-minute period barely moves it.
+.B max
+sees the stall, and with it every short burst: more alerts, sooner.
+.B min
+is for a rule alerting below \- the lowest free disk in the period, the
+quietest moment of a heartbeat.
+.SH OPTIONS
+.TP
+.BR \-r ", " \-\-rule\-id " " \fIID\fR
+The rule's name, unique in the account. Letters, digits,
+.BR \- ,
+.B _
+and
+.BR . ,
+at most 128. Required.
+.TP
+.BR \-m ", " \-\-metric " " \fINAME\fR
+The metric to judge, as
+.BR euclid-cli-emo-list-metrics (1)
+names it. Required.
+.TP
+.BR \-l ", " \-\-label " " \fINAME\fR=\fIVALUE\fR
+Only series with this label. Repeatable; every one must match.
+.TP
+.BR \-\-statistic " " \fBvalue\fR|\fBmax\fR|\fBmin\fR
+Which figure of a row is judged. Default
+.BR value .
+.TP
+.BR \-\-comparison " " \fBabove\fR|\fBbelow\fR
+Which side of the lines is the wrong one. Default
+.BR above .
+Queue depth and latency are bad above; free disk and a heartbeat rate
+below.
+.TP
+.BR \-w ", " \-\-warning " " \fIN\fR
+The warning line. Past it is strictly past it: a value equal to the line
+is inside.
+.TP
+.BR \-c ", " \-\-critical " " \fIN\fR
+The critical line. At least one of the two is required. With both, the
+warning line must come first: below the critical one for
+.BR above ,
+above it for
+.BR below .
+.TP
+.BR \-\-for\-periods " " \fIN\fR
+Periods past a line, running, before WARNING or CRITICAL is entered.
+Default 1. A period past the critical line counts as past the warning
+line too.
+.TP
+.BR \-\-clear\-periods " " \fIN\fR
+Periods back inside, running, before the state is left. Default 1;
+2 or more keeps a value sitting on a line from raising and clearing an
+alert every period.
+.TP
+.BR \-\-no\-data\-after\-periods " " \fIN\fR
+Periods without a row before a series goes NO_DATA. Default 0, never.
+Worth setting for anything whose silence is itself the problem \- a host
+that stops reporting has usually stopped.
+.TP
+.BR \-d ", " \-\-description " " \fITEXT\fR
+What the rule is for. Shown beside every alert it raises.
+.TP
+.B \-\-disabled
+Store the rule without evaluating it yet; enable it with
+.BR euclid-cli-emo-update-alert-rule (1).
+.SH LIMITS
+One state is kept per series a rule judges, so a rule with no label on a
+metric labelled per instance or per queue is a state per instance or per
+queue. A rule matching more series than
+.I euclid.modules.emo.alert.max-series-per-rule
+(200 as shipped) is refused \- narrow it with
+.BR \-\-label .
+Series appearing later beyond that limit are not judged, and EMO logs a
+warning saying so.
+.SH EXIT STATUS
+.TP
+.B 0
+The rule was created and is printed as JSON.
+.TP
+.B 1
+The caller was not authenticated or is not an administrator; a rule of
+that id already exists (HTTP 409); or the rule is not valid, with the
+reason printed (HTTP 400).
+.SH EXAMPLES
+.RS
+.nf
+# CPU per host: warning above 80%, critical above 90%
+euclid-cli emo create-alert-rule --rule-id system-cpu-per-host \\
+    --metric system-cpu-usage --warning 80 --critical 90 --clear-periods 2
+
+# One worker saturated for ten minutes
+euclid-cli emo create-alert-rule --rule-id pi-load --metric system-load-per-core \\
+    --label host=vogje01-pios --statistic max --warning 0.7 --critical 0.9 \\
+    --for-periods 2 --no-data-after-periods 3
+
+# Less than 50 GB left on the data volume
+euclid-cli emo create-alert-rule --rule-id data-disk --metric disk-available \\
+    --comparison below --statistic min --warning 100e9 --critical 50e9
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-emo (1),
+.BR euclid-cli-emo-list-metrics (1),
+.BR euclid-cli-emo-update-alert-rule (1),
+.BR euclid-cli-emo-list-alerts (1),
+.BR euclid-cli-ees (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

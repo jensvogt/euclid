@@ -1,0 +1,159 @@
+.TH EUCLID-CLI-EMO 1 "October 2026" "euclid-cli 2.1.3" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-emo \- Euclid monitoring: the metrics it records, and threshold alerts on them
+.SH SYNOPSIS
+.B euclid-cli
+[\fB\-\-endpoint\fR \fIURL\fR]
+[\fB\-\-loglevel\fR \fILEVEL\fR]
+.B emo
+.I action
+[\fIaction-options\fR...]
+.SH DESCRIPTION
+The
+.B emo
+module is where Euclid keeps its metrics: what every module, every
+application and every host reports about itself, averaged into one row
+per series every period \- five minutes as shipped
+.RI ( euclid.modules.emo.average-period ).
+Rows are rolled up into hourly and daily tiers and kept for 7 days, 90
+days and 5 years respectively.
+.PP
+From the command line it does two things: it says which metrics exist,
+and it raises alerts when one of them crosses a line.
+.SH METRICS AND SERIES
+A metric is a name \-
+.IR system-cpu-usage ,
+.IR module-backlog ,
+.I disk-available
+\- and a series is one metric with one set of labels: the CPU of host
+.IR vogje01-pios ,
+the backlog of module
+.IR eqs .
+.BR euclid-cli-emo-list-metrics (1)
+lists the names, how many series each has and which labels tell them
+apart. Those names and labels are what an alert rule is written in.
+.PP
+Each row carries three figures: a
+.I value
+\- the period's mean for a gauge, its sum for a rate \- and the period's
+.I min
+and
+.IR max .
+.SH ALERTING
+An alert rule names a metric, optionally narrows it to the series whose
+labels match, and sets a warning line, a critical line, or both. Every
+period, as the rows are written, each series the rule matches is judged
+and stays in, or moves between, four states:
+.TP
+.B OK
+Inside the lines.
+.TP
+.B WARNING
+Past the warning line, not the critical one.
+.TP
+.B CRITICAL
+Past the critical line.
+.TP
+.B NO_DATA
+The series stopped arriving \- only for a rule that asks for it.
+.PP
+A state is entered only after the value has been past its line for
+.I forPeriods
+periods running, and left only after it has been back inside for
+.I clearPeriods
+\- so one spike is not an alert, and a value sitting on a line does not
+raise and clear one every five minutes. A CRITICAL series whose value
+settles between the lines drops back to WARNING.
+.PP
+Each change of state \- and only a change; a hundred periods of
+CRITICAL are one \- is recorded, and published on the event bus as
+.I emo.alert.raised
+or
+.IR emo.alert.cleared .
+Anything can act on it by subscribing through
+.BR euclid-cli-ees (1);
+.I name
+and
+.I severity
+are top-level fields of the event, so a subscription can take only one
+metric's, or only the critical ones. Who is woken, and how, is the
+subscriber's business, not EMO's.
+.PP
+Rules are evaluated on the rows EMO writes, never on the samples it is
+pushed, and only on the five-minute tier: an hourly or daily rule would
+be a report, not an alert.
+.SH ACTIONS
+.TP
+.B list-metrics
+Every metric there is, by name. See
+.BR euclid-cli-emo-list-metrics (1).
+.TP
+.B create-alert-rule
+A threshold rule on one metric. See
+.BR euclid-cli-emo-create-alert-rule (1).
+.TP
+.B update-alert-rule
+Change a rule. See
+.BR euclid-cli-emo-update-alert-rule (1).
+.TP
+.B delete-alert-rule
+Delete a rule, clearing what it raised. See
+.BR euclid-cli-emo-delete-alert-rule (1).
+.TP
+.B list-alert-rules
+The rules. See
+.BR euclid-cli-emo-list-alert-rules (1).
+.TP
+.B list-alerts
+Where every judged series stands now. See
+.BR euclid-cli-emo-list-alerts (1).
+.TP
+.B list-alert-history
+Every change of state, newest first. See
+.BR euclid-cli-emo-list-alert-history (1).
+.SH AUTHENTICATION
+All
+.B emo
+commands require the caller to be authenticated; run
+.B euclid-cli eam login
+first. They also require an administrator: the metrics describe the
+whole installation, not one account's part of it, and an alert's state
+says what they are. Rule changes are audited \- see
+.BR euclid-cli-ead (1).
+.SH CONFIGURATION
+.TP
+.I euclid.modules.emo.average-period
+Seconds per row, and so per alert evaluation. 300 as shipped.
+.TP
+.I euclid.modules.emo.alert.max-series-per-rule
+How many series one rule may judge. A rule matching more is refused when
+it is created. 200 as shipped.
+.TP
+.I euclid.modules.emo.alert.history-retention
+Days a recorded change of state is kept. 90 as shipped.
+.SH EXAMPLES
+.RS
+.nf
+# Which metrics exist
+euclid-cli emo list-metrics --names-only
+
+# Warn at 80% CPU on any host, critical at 90%
+euclid-cli emo create-alert-rule --rule-id system-cpu-per-host \\
+    --metric system-cpu-usage --warning 80 --critical 90 --clear-periods 2
+
+# What is wrong right now
+euclid-cli emo list-alerts --active
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli (1),
+.BR euclid-cli-emo-list-metrics (1),
+.BR euclid-cli-emo-create-alert-rule (1),
+.BR euclid-cli-emo-update-alert-rule (1),
+.BR euclid-cli-emo-delete-alert-rule (1),
+.BR euclid-cli-emo-list-alert-rules (1),
+.BR euclid-cli-emo-list-alerts (1),
+.BR euclid-cli-emo-list-alert-history (1),
+.BR euclid-cli-ees (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

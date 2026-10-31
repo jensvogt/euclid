@@ -85,6 +85,15 @@ namespace Euclid::Database {
         long deleteExpired(std::chrono::system_clock::time_point now) override;
 
         /**
+         * @brief Every metric with a RAW row since a point in time, by name.
+         *
+         * @param since the oldest row to consider
+         * @return the metrics, sorted by name
+         */
+        [[nodiscard]]
+        std::vector<MetricSummary> listMetrics(std::chrono::system_clock::time_point since) const override;
+
+        /**
          * @brief Write a dashboard, replacing that user's previous one of the same name
          *
          * @param dashboard dashboard to write

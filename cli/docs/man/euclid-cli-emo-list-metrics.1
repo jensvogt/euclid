@@ -1,0 +1,78 @@
+.TH EUCLID-CLI-EMO-LIST-METRICS 1 "October 2026" "euclid-cli 2.1.3" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-emo-list-metrics \- list every metric Euclid monitoring has recorded, by name
+.SH SYNOPSIS
+.B euclid-cli emo list-metrics
+[\fB\-\-prefix\fR|\fB\-p\fR \fIPREFIX\fR]
+[\fB\-\-hours\fR \fIN\fR]
+[\fB\-\-names\-only\fR|\fB\-n\fR]
+.SH DESCRIPTION
+Lists every metric with a five-minute row in the last
+.I N
+hours, sorted by name. For each: whether it is a
+.I GAUGE
+(averaged over a period) or a
+.I RATE
+(summed over it), how many series it has, the label names that tell
+those series apart, and when it last reported.
+.PP
+The names are what
+.B \-\-metric
+takes in
+.BR euclid-cli-emo-create-alert-rule (1),
+and the label names what its
+.B \-\-label
+selects on.
+.PP
+There is no separate list of metrics anywhere: a metric exists in EMO
+because something pushed it, and its rows are the only record of that.
+So the window matters. The default of 24 hours includes metrics written
+once an hour \- disk usage \- and leaves out one that stopped reporting a
+week ago.
+.SH OPTIONS
+.TP
+.BR \-p ", " \-\-prefix " " \fIPREFIX\fR
+Only metrics whose name starts with this, e.g.
+.IR system- .
+.TP
+.BR \-\-hours " " \fIN\fR
+Only metrics with data in the last
+.I N
+hours. Default 24. Rows are kept for 7 days, so more than 168 adds
+nothing.
+.TP
+.BR \-n ", " \-\-names\-only
+Print the names alone, one per line, instead of JSON.
+.SH OUTPUT
+.RS
+.nf
+{"items": [{"name": "system-cpu-usage", "type": "GAUGE", "series": 3,
+            "labelNames": ["host"], "lastSeen": "2026-10-31T11:40:00Z"}, ...],
+ "total": 42}
+.fi
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+The metrics were printed.
+.TP
+.B 1
+The caller was not authenticated, or is not an administrator.
+.SH EXAMPLES
+.RS
+.nf
+# Just the names
+euclid-cli emo list-metrics --names-only
+
+# The host metrics, with their series and labels
+euclid-cli emo list-metrics --prefix system-
+
+# Everything that reported in the last week
+euclid-cli emo list-metrics --hours 168
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-emo (1),
+.BR euclid-cli-emo-create-alert-rule (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>
