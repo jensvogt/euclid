@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.17](https://github.com/jensvogt/euclid/compare/2.1.16...v2.1.17) (2026-10-31)
+
+
+### Bug Fixes
+
+* EMO add alerting based on warning/critical definitions, alerting history ([aa34349](https://github.com/jensvogt/euclid/commit/aa3434973b04658fc45b112cb5b416793e8dddbe))
+* EMO add man pages, list of metrics ([527c5e6](https://github.com/jensvogt/euclid/commit/527c5e642ceefa442e1e1512f8759c8c517d2150))
+
 ## [2.1.16](https://github.com/jensvogt/euclid/compare/2.1.15...v2.1.16) (2026-10-31)
 
 
