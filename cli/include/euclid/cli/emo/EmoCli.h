@@ -63,6 +63,9 @@ namespace Euclid::CLI {
       private:
 
         [[nodiscard]]
+        int listMetrics(const std::vector<std::string> &args) const;
+
+        [[nodiscard]]
         int createAlertRule(const std::vector<std::string> &args) const;
 
         [[nodiscard]]

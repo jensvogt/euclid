@@ -1,0 +1,40 @@
+.TH EUCLID-CLI-EMO-LIST-ALERT-RULES 1 "October 2026" "euclid-cli 2.1.3" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-emo-list-alert-rules \- list the threshold alert rules
+.SH SYNOPSIS
+.B euclid-cli emo list-alert-rules
+[\fB\-\-rule\-id\fR|\fB\-r\fR \fIID\fR]
+.SH DESCRIPTION
+Lists the account's alert rules, by id, each with everything it was
+created with: the metric, the label selector, the statistic, the
+comparison, the lines, the period counts, whether it is enabled, and when
+it was created and last changed. A line the rule does not have is
+.IR null .
+.PP
+What a rule is judging right now is
+.BR euclid-cli-emo-list-alerts (1).
+.SH OPTIONS
+.TP
+.BR \-r ", " \-\-rule\-id " " \fIID\fR
+Only this rule.
+.SH EXIT STATUS
+.TP
+.B 0
+The rules were printed as JSON
+.RI ( "{items}" ).
+.TP
+.B 1
+The caller was not authenticated, or is not an administrator.
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli emo list-alert-rules
+euclid-cli emo list-alert-rules --rule-id system-cpu-per-host
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-emo (1),
+.BR euclid-cli-emo-create-alert-rule (1),
+.BR euclid-cli-emo-list-alerts (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

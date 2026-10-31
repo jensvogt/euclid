@@ -1,0 +1,46 @@
+.TH EUCLID-CLI-EMO-DELETE-ALERT-RULE 1 "October 2026" "euclid-cli 2.1.3" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-emo-delete-alert-rule \- delete a threshold alert rule, clearing what it raised
+.SH SYNOPSIS
+.B euclid-cli emo delete-alert-rule
+.B \-\-rule\-id
+.I ID
+.SH DESCRIPTION
+Deletes a rule and the state of every series it judged.
+.PP
+Each series not OK is cleared first, and published as
+.I emo.alert.cleared
+with reason
+.IR rule-deleted .
+A subscriber that was told CRITICAL is told it is over, rather than
+waiting on a rule that no longer exists.
+.PP
+The rule's history stays, and expires with the rest of it after
+.I euclid.modules.emo.alert.history-retention
+days. To stop a rule for a while without losing it, disable it with
+.BR euclid-cli-emo-update-alert-rule (1)
+instead.
+.SH OPTIONS
+.TP
+.BR \-r ", " \-\-rule\-id " " \fIID\fR
+The rule to delete. Required.
+.SH EXIT STATUS
+.TP
+.B 0
+The rule was deleted.
+.TP
+.B 1
+The caller was not authenticated or is not an administrator, or there is
+no rule of that id (HTTP 404).
+.SH EXAMPLES
+.RS
+.nf
+euclid-cli emo delete-alert-rule --rule-id system-cpu-per-host
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-emo (1),
+.BR euclid-cli-emo-update-alert-rule (1),
+.BR euclid-cli-emo-list-alert-history (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

@@ -1,0 +1,98 @@
+.TH EUCLID-CLI-EMO-UPDATE-ALERT-RULE 1 "October 2026" "euclid-cli 2.1.3" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-emo-update-alert-rule \- change a threshold alert rule
+.SH SYNOPSIS
+.B euclid-cli emo update-alert-rule
+.B \-\-rule\-id
+.I ID
+[any
+.BR euclid-cli-emo-create-alert-rule (1)
+option]
+[\fB\-\-no\-warning\fR]
+[\fB\-\-no\-critical\fR]
+[\fB\-\-no\-labels\fR]
+[\fB\-\-enable\fR | \fB\-\-disable\fR]
+.SH DESCRIPTION
+Changes only what is given; everything else stays as it was. The result
+is checked the way a new rule is, so a change that would leave the rule
+without a line, or with its lines the wrong way round, is refused and
+nothing is changed.
+.SH WHAT A CHANGE DOES TO ITS ALERTS
+.TP
+A changed line, statistic or period count
+Applies from the next period, to the series as they stand. A CRITICAL
+series judged against a raised critical line clears once it has been
+inside for the rule's clear periods \- the change somebody making it
+wants to see.
+.TP
+A changed metric or label selector
+The rule now judges other series, so it ends what it said about the old
+ones: each one not OK is cleared and published as
+.I emo.alert.cleared
+with reason
+.IR rule-changed ,
+and the new series start from OK. Otherwise a subscriber that was told
+CRITICAL would wait for a clear the rule can no longer send.
+.TP
+.B \-\-disable
+The same, with reason
+.IR rule-disabled .
+The rule is kept and nothing is judged until
+.BR \-\-enable .
+.SH OPTIONS
+.TP
+.BR \-r ", " \-\-rule\-id " " \fIID\fR
+The rule to change. Required; a rule's id cannot itself be changed.
+.TP
+.BR \-l ", " \-\-label " " \fINAME\fR=\fIVALUE\fR
+Replaces the whole selector with the labels given, rather than adding to
+it.
+.TP
+.B \-\-no\-warning
+Removes the warning line.
+.TP
+.B \-\-no\-critical
+Removes the critical line. A rule needs at least one.
+.TP
+.B \-\-no\-labels
+Judges every series of the metric.
+.TP
+.B \-\-enable
+Evaluates the rule from the next period.
+.TP
+.B \-\-disable
+Stops evaluating it, clearing what it raised.
+.PP
+The remaining options are those of
+.BR euclid-cli-emo-create-alert-rule (1).
+.SH EXIT STATUS
+.TP
+.B 0
+The rule was changed and is printed as JSON.
+.TP
+.B 1
+The caller was not authenticated or is not an administrator; there is no
+rule of that id (HTTP 404); or the changed rule is not valid (HTTP 400).
+.SH EXAMPLES
+.RS
+.nf
+# Raise the warning line
+euclid-cli emo update-alert-rule --rule-id system-cpu-per-host --warning 85
+
+# Wait ten minutes before alerting
+euclid-cli emo update-alert-rule --rule-id system-cpu-per-host --for-periods 2
+
+# Only one host from now on
+euclid-cli emo update-alert-rule --rule-id system-cpu-per-host --label host=vogje01-nuc
+
+# Off for a maintenance window, and on again
+euclid-cli emo update-alert-rule --rule-id system-cpu-per-host --disable
+euclid-cli emo update-alert-rule --rule-id system-cpu-per-host --enable
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-emo (1),
+.BR euclid-cli-emo-create-alert-rule (1),
+.BR euclid-cli-emo-delete-alert-rule (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>

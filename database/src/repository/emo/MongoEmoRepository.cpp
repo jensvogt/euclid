@@ -7,7 +7,11 @@
 //
 
 // C++ includes
+#include <algorithm>
+#include <map>
 #include <mutex>
+#include <ranges>
+#include <set>
 
 // Euclid includes
 #include <euclid/database/repository/emo/MongoEmoRepository.h>
@@ -484,6 +488,87 @@ namespace Euclid::Database {
         } catch (const std::exception &e) {
             log_error << "Delete dashboard failed, error: " << e.what();
             return 0;
+        }
+    }
+
+    std::vector<MetricSummary> MongoEmoRepository::listMetrics(const std::chrono::system_clock::time_point since) const {
+
+        try {
+            auto collection = Database::instance().collection(COLLECTION);
+            const auto filter = make_document(kvp("resolution", ResolutionToString(Resolution::RAW)),
+                                              kvp("timestamp", make_document(kvp("$gte", toDate(since)))));
+
+            // One entry per series, folded into one per name below. Grouped by series rather than
+            // by name so the label names can be read off a series' labels here instead of being
+            // unpacked from a map in the pipeline, which the in-memory store could not run anyway.
+            struct Series {
+                std::string name;
+                std::map<std::string, std::string> labels;
+                MetricType type{MetricType::GAUGE};
+                std::chrono::system_clock::time_point lastSeen{};
+            };
+            std::vector<Series> series;
+
+            if (collection.supports_aggregation()) {
+                mongocxx::pipeline pipeline{};
+                pipeline.match(filter.view());
+                pipeline.group(make_document(
+                        kvp("_id", make_document(kvp("name", "$name"), kvp("labelKey", "$labelKey"))),
+                        kvp("labels", make_document(kvp("$first", "$labels"))),
+                        kvp("type", make_document(kvp("$last", "$type"))),
+                        kvp("lastSeen", make_document(kvp("$max", "$timestamp")))));
+                for (auto cursor = collection.aggregate(pipeline); const auto &doc: cursor) {
+                    Series one;
+                    one.name = std::string(doc["_id"]["name"].get_string().value);
+                    if (const auto labels = doc["labels"]; labels && labels.type() == bsoncxx::type::k_document) {
+                        for (const auto &label: labels.get_document().value) {
+                            if (label.type() == bsoncxx::type::k_string) one.labels[std::string(label.key())] = std::string(label.get_string().value);
+                        }
+                    }
+                    if (const auto type = doc["type"]; type && type.type() == bsoncxx::type::k_string) {
+                        one.type = Entity::Monitoring::MetricTypeFromString(std::string(type.get_string().value));
+                    }
+                    if (const auto last = doc["lastSeen"]; last && last.type() == bsoncxx::type::k_date) {
+                        one.lastSeen = std::chrono::system_clock::time_point{last.get_date().value};
+                    }
+                    series.push_back(std::move(one));
+                }
+            } else {
+                // The in-memory store: the same answer from the rows themselves.
+                std::map<std::pair<std::string, std::string>, Series> seen;
+                for (auto cursor = collection.find(filter.view()); const auto &doc: cursor) {
+                    const auto row = Entity::Monitoring::MonitoringData::fromDocument(doc);
+                    auto &one = seen[{row.name, row.labelKey()}];
+                    one.name = row.name;
+                    one.labels = row.labels;
+                    one.type = row.type;
+                    one.lastSeen = std::max(one.lastSeen, row.timestamp);
+                }
+                for (auto &one: seen | std::views::values) series.push_back(std::move(one));
+            }
+
+            std::map<std::string, MetricSummary> byName;
+            std::map<std::string, std::set<std::string> > labelNames;
+            for (const auto &one: series) {
+                auto &summary = byName[one.name];
+                summary.name = one.name;
+                summary.type = one.type;
+                ++summary.series;
+                summary.lastSeen = std::max(summary.lastSeen, one.lastSeen);
+                for (const auto &label: one.labels | std::views::keys) labelNames[one.name].insert(label);
+            }
+
+            std::vector<MetricSummary> result;
+            result.reserve(byName.size());
+            for (auto &[name, summary]: byName) {
+                summary.labelNames.assign(labelNames[name].begin(), labelNames[name].end());
+                result.push_back(std::move(summary));
+            }
+            return result;
+
+        } catch (const std::exception &e) {
+            log_error << "List metrics failed, error: " << e.what();
+            return {};
         }
     }
 

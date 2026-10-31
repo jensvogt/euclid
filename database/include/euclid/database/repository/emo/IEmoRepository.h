@@ -92,6 +92,18 @@ namespace Euclid::Database {
         long limit{};
     };
 
+    /**
+     * @brief One metric as IEmoRepository::listMetrics() reports it: what it is called, how many
+     * series it has and which labels tell them apart.
+     */
+    struct MetricSummary {
+        std::string name;
+        Entity::Monitoring::MetricType type{Entity::Monitoring::MetricType::GAUGE};
+        long series{};
+        std::vector<std::string> labelNames;
+        std::chrono::system_clock::time_point lastSeen{};
+    };
+
     class IEmoRepository {
 
     public:
@@ -187,6 +199,19 @@ namespace Euclid::Database {
          * @return number of data points deleted.
          */
         virtual long deleteExpired(std::chrono::system_clock::time_point now) = 0;
+
+        /**
+         * @brief Every metric with a RAW row since a point in time, by name.
+         *
+         * @par
+         * From the rows rather than from a list of names anybody keeps: a metric exists in EMO
+         * because something pushed it, and that is the only record there is.
+         *
+         * @param since the oldest row to consider
+         * @return the metrics, sorted by name
+         */
+        [[nodiscard]]
+        virtual std::vector<MetricSummary> listMetrics(std::chrono::system_clock::time_point since) const = 0;
 
         // ── Saved dashboards ──────────────────────────────────────────────────
         //

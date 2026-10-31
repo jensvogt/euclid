@@ -1,0 +1,78 @@
+.TH EUCLID-CLI-EMO-LIST-ALERTS 1 "October 2026" "euclid-cli 2.1.3" "Euclid CLI Manual"
+.SH NAME
+euclid-cli-emo-list-alerts \- show where every series an alert rule judges stands now
+.SH SYNOPSIS
+.B euclid-cli emo list-alerts
+[\fB\-\-rule\-id\fR|\fB\-r\fR \fIID\fR]
+[\fB\-\-state\fR|\fB\-s\fR \fISTATE\fR]
+[\fB\-\-active\fR|\fB\-a\fR]
+.SH DESCRIPTION
+One entry per rule and series: its state, since when, the last figure
+judged and when that row was written, and \- beside them \- the rule's
+metric, statistic, comparison, lines and description, so an entry can be
+read without looking the rule up.
+.PP
+A series appears once its rule has judged a row of it, which is at the
+first period's flush after the rule was created, or after the series
+first reported. It disappears when its rule is deleted, disabled or
+pointed at other series.
+.PP
+.I lastSeen
+is the start of the period the last row covers. A series whose
+.I lastSeen
+is falling behind has stopped reporting; a rule with
+.I noDataAfterPeriods
+says so by itself.
+.SH OPTIONS
+.TP
+.BR \-r ", " \-\-rule\-id " " \fIID\fR
+Only this rule's series.
+.TP
+.BR \-s ", " \-\-state " " \fISTATE\fR
+Only series in this state:
+.BR OK ,
+.BR WARNING ,
+.B CRITICAL
+or
+.BR NO_DATA .
+.TP
+.BR \-a ", " \-\-active
+Only series that are not OK \- what is wrong right now.
+.SH OUTPUT
+.RS
+.nf
+{"items": [{"ruleId": "system-cpu-per-host", "name": "system-cpu-usage",
+            "labels": {"host": "vogje01-pios"}, "state": "WARNING",
+            "severity": "warning", "since": "2026-10-31T12:05:00Z",
+            "value": 83.4, "lastSeen": "2026-10-31T12:10:00Z",
+            "statistic": "value", "comparison": "above",
+            "warning": 80, "critical": 90, "description": "...",
+            "namespace": "development"}]}
+.fi
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+The alerts were printed as JSON.
+.TP
+.B 1
+The caller was not authenticated, or is not an administrator.
+.SH EXAMPLES
+.RS
+.nf
+# What is wrong right now
+euclid-cli emo list-alerts --active
+
+# Only the critical ones
+euclid-cli emo list-alerts --state CRITICAL
+
+# Every host one rule judges
+euclid-cli emo list-alerts --rule-id system-cpu-per-host
+.fi
+.RE
+.SH SEE ALSO
+.BR euclid-cli-emo (1),
+.BR euclid-cli-emo-list-alert-history (1),
+.BR euclid-cli-emo-list-alert-rules (1)
+.SH AUTHOR
+Jens Vogt <jensvogt47@gmail.com>
