@@ -119,6 +119,28 @@ namespace Euclid::Database {
          */
         long deleteDashboard(const std::string &userId, const std::string &name) override;
 
+        bool upsertAlertRule(const Entity::Monitoring::AlertRule &rule) override;
+
+        [[nodiscard]]
+        std::optional<Entity::Monitoring::AlertRule> getAlertRule(const std::string &accountId, const std::string &ruleId) const override;
+
+        [[nodiscard]]
+        std::vector<Entity::Monitoring::AlertRule> listAlertRules(const std::string &accountId) const override;
+
+        long deleteAlertRule(const std::string &accountId, const std::string &ruleId) override;
+
+        [[nodiscard]]
+        std::vector<Entity::Monitoring::AlertState> listAlertStates(const std::string &accountId, const std::string &ruleId) const override;
+
+        bool upsertAlertState(const Entity::Monitoring::AlertState &state) override;
+
+        long deleteAlertStates(const std::string &accountId, const std::string &ruleId) override;
+
+        bool insertAlertTransition(const Entity::Monitoring::AlertTransition &transition) override;
+
+        [[nodiscard]]
+        std::vector<Entity::Monitoring::AlertTransition> listAlertHistory(const AlertHistoryQuery &query) const override;
+
     private:
 
         /**
@@ -137,6 +159,21 @@ namespace Euclid::Database {
          * wrote, and one collection for both would mean exactly that.
          */
         static constexpr auto DASHBOARD_COLLECTION = "emo_dashboard";
+
+        /**
+         * @brief Alert rules, one per account and ruleId. Kept until deleted.
+         */
+        static constexpr auto ALERT_RULE_COLLECTION = "emo_alert_rule";
+
+        /**
+         * @brief Where each series a rule has matched stands. Kept until its rule is deleted.
+         */
+        static constexpr auto ALERT_STATE_COLLECTION = "emo_alert_state";
+
+        /**
+         * @brief Every change of state, each expiring on its own expiresAt.
+         */
+        static constexpr auto ALERT_HISTORY_COLLECTION = "emo_alert_history";
 
         /**
          * @brief Creates the indexes required for efficient monitoring data queries, if they do not already exist.

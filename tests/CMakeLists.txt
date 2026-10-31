@@ -815,6 +815,16 @@ target_link_libraries(${MONITORING_BACKEND_BINARY} PRIVATE eucliddb Boost::unit_
 
 add_test(NAME ${MONITORING_BACKEND_BINARY} COMMAND ${MONITORING_BACKEND_BINARY})
 
+set(ALERT_EVALUATOR_BINARY euclid-alert-evaluator-tests)
+
+add_executable(${ALERT_EVALUATOR_BINARY} AlertEvaluatorTest.cpp)
+set_target_properties(${ALERT_EVALUATOR_BINARY} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+target_include_directories(${ALERT_EVALUATOR_BINARY} PRIVATE ${CMAKE_SOURCE_DIR}/modules/emo/include)
+target_link_libraries(${ALERT_EVALUATOR_BINARY} PRIVATE eucliddb Boost::unit_test_framework)
+
+add_test(NAME ${ALERT_EVALUATOR_BINARY} COMMAND ${ALERT_EVALUATOR_BINARY})
+
 set(TTL_CACHE_BINARY euclid-ttl-cache-tests)
 
 add_executable(${TTL_CACHE_BINARY} TtlCacheTest.cpp)

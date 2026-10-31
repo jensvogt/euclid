@@ -15,6 +15,7 @@
 #include <vector>
 
 // Euclid includes
+#include <euclid/database/entity/emo/Alert.h>
 #include <euclid/database/entity/emo/Dashboard.h>
 #include <euclid/database/entity/emo/MonitoringData.h>
 
@@ -80,6 +81,17 @@ namespace Euclid::Database {
      * written periodically by the monitoring module, across the three resolution tiers described
      * in Entity::Monitoring::Resolution.
      */
+    /**
+     * @brief Filter for IEmoRepository::listAlertHistory(). Empty fields filter nothing.
+     */
+    struct AlertHistoryQuery {
+        std::string accountId;
+        std::string ruleId;
+        std::chrono::system_clock::time_point from{};
+        std::chrono::system_clock::time_point to{};
+        long limit{};
+    };
+
     class IEmoRepository {
 
     public:
@@ -227,6 +239,88 @@ namespace Euclid::Database {
          * @return number of dashboards removed: 1, or 0 when there was no such dashboard.
          */
         virtual long deleteDashboard(const std::string &userId, const std::string &name) = 0;
+
+        // ── Alerting ──────────────────────────────────────────────────────────
+        //
+        // Rules, the state each matched series is in, and the history of its changes - three
+        // collections apart from the data points for the same reason dashboards are: none of them
+        // is a measurement, and only the history expires. Writes answer whether they happened,
+        // because an alert event is published only once its state is on disk.
+
+        /**
+         * @brief Writes a rule, replacing the account's rule of the same ruleId.
+         *
+         * @param rule rule to write
+         * @return true if it was written
+         */
+        virtual bool upsertAlertRule(const Entity::Monitoring::AlertRule &rule) = 0;
+
+        /**
+         * @brief Reads one rule.
+         *
+         * @param accountId account
+         * @param ruleId rule
+         * @return the rule, or nothing
+         */
+        [[nodiscard]]
+        virtual std::optional<Entity::Monitoring::AlertRule> getAlertRule(const std::string &accountId, const std::string &ruleId) const = 0;
+
+        /**
+         * @brief Lists rules, by ruleId.
+         *
+         * @param accountId one account's, or every account's when empty - the evaluator judges the
+         *                  installation's metrics against all of them
+         * @return the rules
+         */
+        [[nodiscard]]
+        virtual std::vector<Entity::Monitoring::AlertRule> listAlertRules(const std::string &accountId) const = 0;
+
+        /**
+         * @brief Removes one rule. Its states are the caller's to remove.
+         *
+         * @return number of rules removed
+         */
+        virtual long deleteAlertRule(const std::string &accountId, const std::string &ruleId) = 0;
+
+        /**
+         * @brief Lists the states of the series rules have matched.
+         *
+         * @param accountId one account's, or every account's when empty
+         * @param ruleId one rule's, or every rule's when empty
+         * @return the states
+         */
+        [[nodiscard]]
+        virtual std::vector<Entity::Monitoring::AlertState> listAlertStates(const std::string &accountId, const std::string &ruleId) const = 0;
+
+        /**
+         * @brief Writes one series' state, replacing the one for the same rule and series.
+         *
+         * @return true if it was written
+         */
+        virtual bool upsertAlertState(const Entity::Monitoring::AlertState &state) = 0;
+
+        /**
+         * @brief Removes every state of one rule.
+         *
+         * @return number removed
+         */
+        virtual long deleteAlertStates(const std::string &accountId, const std::string &ruleId) = 0;
+
+        /**
+         * @brief Records one change of state.
+         *
+         * @return true if it was written
+         */
+        virtual bool insertAlertTransition(const Entity::Monitoring::AlertTransition &transition) = 0;
+
+        /**
+         * @brief Lists recorded changes of state, newest first.
+         *
+         * @param query which account, rule and time range, and how many
+         * @return the transitions
+         */
+        [[nodiscard]]
+        virtual std::vector<Entity::Monitoring::AlertTransition> listAlertHistory(const AlertHistoryQuery &query) const = 0;
     };
 
 }// namespace Euclid::Database

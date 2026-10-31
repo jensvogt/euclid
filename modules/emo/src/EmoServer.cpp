@@ -6,9 +6,13 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <cmath>
 #include <map>
 #include <mutex>
 #include <optional>
+#include <set>
+#include <tuple>
+#include <vector>
 #if defined(__linux__)
 #include <cerrno>
 #include <sys/syscall.h>
@@ -19,10 +23,12 @@
 #include <boost/beast/core.hpp>
 
 // Euclid includes
+#include <AlertEvaluator.h>
 #include <EmoServer.h>
 #include <euclid/core/Configuration.h>
 #include <euclid/core/DateTimeUtils.h>
 #include <euclid/core/DirUtils.h>
+#include <euclid/database/EventBus.h>
 #include <euclid/database/PeriodicClaim.h>
 #include <euclid/core/SystemUtils.h>
 #include <euclid/database/entity/eam/User.h>
@@ -32,6 +38,8 @@ namespace Euclid::Monitoring {
     namespace beast = boost::beast;
     namespace http = beast::http;
 
+    using Database::Entity::Monitoring::AlertComparisonFromString;
+    using Database::Entity::Monitoring::AlertStatisticFromString;
     using Database::Entity::Monitoring::AlignDown;
     using Database::Entity::Monitoring::MetricType;
     using Database::Entity::Monitoring::Resolution;
@@ -525,6 +533,485 @@ namespace Euclid::Monitoring {
         return EmoServer::JsonResponse(req, status::ok);
     }
 
+    // ── Alerting ─────────────────────────────────────────────────────────────
+    //
+    // Rules are written through the actions below and judged in flush(), on the rows it has just
+    // written; a series that stops arriving is found by sweepAlerts(). A change of state is written
+    // to emo_alert_state, recorded in emo_alert_history, and only then published on the event bus
+    // as emo.alert.raised or emo.alert.cleared - publish only on a change, so a hundred periods of
+    // CRITICAL are one event, and an escalation from WARNING to CRITICAL is another.
+    //
+    // Who changed a threshold is EAD's: these are ordinary actions, so Dispatch() audits them.
+    // The alerts themselves are not - an alert has no caller and no command, and the audit trail's
+    // whole value is that it answers who did something.
+
+    namespace {
+
+        using Database::Entity::Monitoring::AlertTransition;
+
+        // Rows a rule may match before it is refused or stops taking new series. One state per
+        // matched series, so a rule with no selector on a metric labelled per instance is a state
+        // per instance - worth an outright refusal rather than discovering it in the database.
+        constexpr long kDefaultMaxSeriesPerRule = 200;
+        constexpr long kDefaultAlertHistoryRetentionDays = 90;
+
+        // Held by whatever reads states and writes them back - the evaluation in flush(), the
+        // no-data sweep - and by whatever removes them - a rule updated or deleted. Without it an
+        // evaluation that read a rule just before it was deleted writes its states back after the
+        // delete, and a rule created again under the same id inherits them. One process is all
+        // there is to exclude: EMO runs a single instance.
+        std::mutex &alertMutex() {
+            static std::mutex mutex;
+            return mutex;
+        }
+
+        long maxSeriesPerRule() {
+            return Core::Configuration::instance().getOr<long>("euclid.modules.emo.alert.max-series-per-rule", kDefaultMaxSeriesPerRule);
+        }
+
+        std::chrono::seconds alertHistoryRetention() {
+            return std::chrono::hours(24 * Core::Configuration::instance().getOr<long>("euclid.modules.emo.alert.history-retention",
+                                                                                     kDefaultAlertHistoryRetentionDays));
+        }
+
+        boost::json::object labelsJson(const std::map<std::string, std::string> &labels) {
+            boost::json::object object;
+            for (const auto &[name, value]: labels) object[name] = value;
+            return object;
+        }
+
+        boost::json::value optionalNumber(const std::optional<double> &value) {
+            return value ? boost::json::value(*value) : boost::json::value(nullptr);
+        }
+
+        std::string isoOrEmpty(const std::chrono::system_clock::time_point &time) {
+            return time == std::chrono::system_clock::time_point{} ? std::string() : Core::DateTimeUtils::ToISO8601(time);
+        }
+
+        boost::json::object ruleJson(const AlertRule &rule) {
+            return boost::json::object{
+                    {"ruleId", rule.ruleId},
+                    {"name", rule.name},
+                    {"labels", labelsJson(rule.labels)},
+                    {"resolution", ResolutionToString(rule.resolution)},
+                    {"statistic", AlertStatisticToString(rule.statistic)},
+                    {"comparison", AlertComparisonToString(rule.comparison)},
+                    {"warning", optionalNumber(rule.warning)},
+                    {"critical", optionalNumber(rule.critical)},
+                    {"forPeriods", rule.forPeriods},
+                    {"clearPeriods", rule.clearPeriods},
+                    {"noDataAfterPeriods", rule.noDataAfterPeriods},
+                    {"enabled", rule.enabled},
+                    {"description", rule.description},
+                    {"accountId", rule.accountId},
+                    {"namespace", rule.nameSpace},
+                    {"created", isoOrEmpty(rule.created)},
+                    {"modified", isoOrEmpty(rule.modified)},
+            };
+        }
+
+        boost::json::object transitionJson(const AlertTransition &transition) {
+            return boost::json::object{
+                    {"ruleId", transition.ruleId},
+                    {"name", transition.name},
+                    {"labels", labelsJson(transition.labels)},
+                    {"previous", AlertLevelToString(transition.previous)},
+                    {"state", AlertLevelToString(transition.level)},
+                    {"severity", AlertSeverity(transition.level)},
+                    {"value", transition.value},
+                    {"threshold", optionalNumber(transition.threshold)},
+                    {"statistic", AlertStatisticToString(transition.statistic)},
+                    {"reason", transition.reason},
+                    {"timestamp", Core::DateTimeUtils::ToISO8601(transition.timestamp)},
+                    {"accountId", transition.accountId},
+                    {"namespace", transition.nameSpace},
+            };
+        }
+
+        // Records one change and announces it. Called only once the state it describes has been
+        // written, so a subscriber is never told of a state a restarted EMO does not know it is in.
+        // A history row that cannot be written is said and not waited on: the event is the part
+        // somebody is acting on.
+        void announceAlert(const AlertRule &rule, const AlertState &state, const AlertChange &change,
+                           const std::chrono::system_clock::time_point when, const std::string &reason = {}) {
+
+            AlertTransition transition;
+            transition.accountId = rule.accountId;
+            transition.nameSpace = rule.nameSpace;
+            transition.ruleId = rule.ruleId;
+            transition.name = rule.name;
+            transition.labels = state.labels;
+            transition.labelKey = state.labelKey;
+            transition.previous = change.previous;
+            transition.level = change.level;
+            transition.value = change.value;
+            transition.threshold = change.threshold;
+            transition.statistic = rule.statistic;
+            transition.reason = reason;
+            transition.timestamp = when;
+            transition.expiresAt = when + alertHistoryRetention();
+
+            const auto repository = Database::RepositoryFactory::instance().emoRepository();
+            if (!repository->insertAlertTransition(transition)) {
+                log_error << "Alert history not recorded, ruleId: " << rule.ruleId << ", series: " << state.labelKey;
+            }
+
+            const bool cleared = change.level == AlertLevel::OK;
+            if (cleared) {
+                log_info << "Alert cleared, ruleId: " << rule.ruleId << ", metric: " << rule.name << ", series: " << state.labelKey
+                         << ", was: " << AlertLevelToString(change.previous) << ", value: " << change.value
+                         << (reason.empty() ? "" : ", reason: " + reason);
+            } else {
+                log_warning << "Alert raised, ruleId: " << rule.ruleId << ", metric: " << rule.name << ", series: " << state.labelKey
+                            << ", severity: " << AlertSeverity(change.level) << ", was: " << AlertLevelToString(change.previous)
+                            << ", value: " << change.value;
+            }
+
+            // Top-level fields, because a subscription filter matches a payload field by equality:
+            // "severity" and "name" up here are what let a subscriber take only the critical ones,
+            // or only one metric's.
+            boost::json::object payload{
+                    {"ruleId", rule.ruleId},
+                    {"name", rule.name},
+                    {"labels", labelsJson(state.labels)},
+                    {"severity", AlertSeverity(change.level)},
+                    {"previous", AlertSeverity(change.previous)},
+                    {"value", change.value},
+                    {"threshold", optionalNumber(change.threshold)},
+                    {"statistic", AlertStatisticToString(rule.statistic)},
+                    {"comparison", AlertComparisonToString(rule.comparison)},
+                    {"since", Core::DateTimeUtils::ToISO8601(state.since)},
+                    {"accountId", rule.accountId},
+                    {"namespace", rule.nameSpace},
+            };
+            if (!reason.empty()) payload["reason"] = reason;
+
+            try {
+                Database::EventBus::instance().Publish(cleared ? "emo.alert.cleared" : "emo.alert.raised", payload, "emo");
+            } catch (const std::exception &e) {
+                log_error << "Alert event not published, ruleId: " << rule.ruleId << ", series: " << state.labelKey << ", error: " << e.what();
+            }
+        }
+
+        // Ends every series of a rule that is about to stop being judged - deleted, disabled, or
+        // pointed at other series. Each one not OK is cleared, said and recorded first: otherwise a
+        // subscriber that was told CRITICAL is never told anything again, and waits on a rule that
+        // no longer exists.
+        void retireAlertStates(const AlertRule &rule, const std::string &reason) {
+
+            const auto repository = Database::RepositoryFactory::instance().emoRepository();
+            const auto now = std::chrono::system_clock::now();
+            for (auto &state: repository->listAlertStates(rule.accountId, rule.ruleId)) {
+                if (state.level == AlertLevel::OK) continue;
+                const AlertChange change{.previous = state.level, .level = AlertLevel::OK, .value = state.lastValue};
+                state.level = AlertLevel::OK;
+                state.since = now;
+                announceAlert(rule, state, change, now, reason);
+            }
+            repository->deleteAlertStates(rule.accountId, rule.ruleId);
+        }
+
+        // How many series a selector matches now, from the last two periods' rows.
+        long matchingSeries(const AlertRule &rule) {
+            Database::MonitoringQuery query;
+            query.name = rule.name;
+            query.labels = rule.labels;
+            query.resolution = Resolution::RAW;
+            query.from = std::chrono::system_clock::now() - 2 * averagePeriod();
+            std::set<std::string> keys;
+            for (const auto &row: Database::RepositoryFactory::instance().emoRepository()->list(query)) keys.insert(row.labelKey());
+            return static_cast<long>(keys.size());
+        }
+
+        // Every alert action is an administrator's, as "list" and "average" are: a rule reads the
+        // installation's metrics, and its states say what they are.
+        struct AlertRequest {
+            std::optional<response<string_body> > failure;
+            std::string accountId;
+            std::string nameSpace;
+            boost::json::object body;
+        };
+
+        AlertRequest readAlertRequest(const request<string_body> &req) {
+
+            AlertRequest result;
+            const auto auth = authenticate(req);
+            if (!auth.user.has_value()) {
+                result.failure = unauthorized(req, auth);
+                return result;
+            }
+            if (!Database::IsEamAdmin(*Database::RepositoryFactory::instance().eamRepository(), auth.user->userId)) {
+                result.failure = EmoServer::ErrorResponse(req, status::forbidden, "Administrator privileges required");
+                return result;
+            }
+
+            boost::json::value jv;
+            if (const auto err = EmoServer::ParseJsonBody(req, jv)) {
+                result.failure = *err;
+                return result;
+            }
+            if (jv.is_object()) result.body = jv.as_object();
+            else if (!jv.is_null()) {
+                result.failure = EmoServer::ErrorResponse(req, status::bad_request, "Expected a JSON object body");
+                return result;
+            }
+
+            // The account the session is working in, as every other module scopes by, falling back
+            // to the user's own for a caller that sends none.
+            result.accountId = std::string(req["x-euclid-account-id"]);
+            if (result.accountId.empty()) result.accountId = auth.user->accountId;
+            result.nameSpace = std::string(req["x-euclid-namespace"]);
+            return result;
+        }
+
+        std::string stringField(const boost::json::object &body, const char *field) {
+            const auto *v = body.if_contains(field);
+            return v && v->is_string() ? std::string(v->as_string()) : std::string();
+        }
+
+        // Sets on the rule whatever the body carries, and only that - the whole of a create, the
+        // changed fields of an update. A threshold given as null is removed. Returns what is wrong
+        // with a field, or empty.
+        std::string applyRuleFields(const boost::json::object &body, AlertRule &rule) {
+
+            const auto wholeNumber = [&](const char *field, long &target) -> std::string {
+                const auto *v = body.if_contains(field);
+                if (!v) return {};
+                if (!v->is_number()) return std::string("\"") + field + "\" must be a whole number";
+                const auto number = v->to_number<double>();
+                if (number != std::floor(number)) return std::string("\"") + field + "\" must be a whole number";
+                target = static_cast<long>(number);
+                return {};
+            };
+            const auto threshold = [&](const char *field, std::optional<double> &target) -> std::string {
+                const auto *v = body.if_contains(field);
+                if (!v) return {};
+                if (v->is_null()) {
+                    target.reset();
+                    return {};
+                }
+                if (!v->is_number()) return std::string("\"") + field + "\" must be a number or null";
+                target = v->to_number<double>();
+                return {};
+            };
+
+            if (const auto *v = body.if_contains("name")) {
+                if (!v->is_string()) return R"("name" must be a string)";
+                rule.name = v->as_string().c_str();
+            }
+            if (const auto *v = body.if_contains("labels")) {
+                if (!v->is_object()) return R"("labels" must be an object of strings)";
+                rule.labels.clear();
+                for (const auto &label: v->as_object()) {
+                    if (!label.value().is_string()) return R"("labels" must be an object of strings)";
+                    rule.labels[std::string(label.key())] = label.value().as_string().c_str();
+                }
+            }
+            if (const auto *v = body.if_contains("resolution")) {
+                if (!v->is_string()) return R"("resolution" must be a string)";
+                rule.resolution = ResolutionFromString(v->as_string().c_str());
+            }
+            if (const auto *v = body.if_contains("statistic")) {
+                if (!v->is_string()) return R"("statistic" must be a string)";
+                rule.statistic = AlertStatisticFromString(v->as_string().c_str());
+            }
+            if (const auto *v = body.if_contains("comparison")) {
+                if (!v->is_string()) return R"("comparison" must be a string)";
+                rule.comparison = AlertComparisonFromString(v->as_string().c_str());
+            }
+            if (auto error = threshold("warning", rule.warning); !error.empty()) return error;
+            if (auto error = threshold("critical", rule.critical); !error.empty()) return error;
+            if (auto error = wholeNumber("forPeriods", rule.forPeriods); !error.empty()) return error;
+            if (auto error = wholeNumber("clearPeriods", rule.clearPeriods); !error.empty()) return error;
+            if (auto error = wholeNumber("noDataAfterPeriods", rule.noDataAfterPeriods); !error.empty()) return error;
+            if (const auto *v = body.if_contains("enabled")) {
+                if (!v->is_bool()) return R"("enabled" must be true or false)";
+                rule.enabled = v->as_bool();
+            }
+            if (const auto *v = body.if_contains("description")) {
+                if (!v->is_string()) return R"("description" must be a string)";
+                rule.description = v->as_string().c_str();
+            }
+            return {};
+        }
+
+        std::optional<response<string_body> > refuseOversizedRule(const request<string_body> &req, const AlertRule &rule) {
+            const auto cap = maxSeriesPerRule();
+            if (const auto matched = matchingSeries(rule); cap > 0 && matched > cap) {
+                return EmoServer::ErrorResponse(req, status::bad_request,
+                                                "the rule matches " + std::to_string(matched) + " series of '" + rule.name + "', more than " +
+                                                        std::to_string(cap) + " (euclid.modules.emo.alert.max-series-per-rule); narrow it with \"labels\"");
+            }
+            return std::nullopt;
+        }
+
+    }// namespace
+
+    static response<string_body> handleCreateAlertRule(const request<string_body> &req) {
+
+        auto parsed = readAlertRequest(req);
+        if (parsed.failure) return *parsed.failure;
+
+        AlertRule rule;
+        rule.ruleId = stringField(parsed.body, "ruleId");
+        if (auto error = applyRuleFields(parsed.body, rule); !error.empty()) {
+            return EmoServer::ErrorResponse(req, status::bad_request, error);
+        }
+        if (auto error = ValidateAlertRule(rule); !error.empty()) {
+            return EmoServer::ErrorResponse(req, status::bad_request, error);
+        }
+        rule.accountId = parsed.accountId;
+        rule.nameSpace = parsed.nameSpace;
+
+        auto &repository = *Database::RepositoryFactory::instance().emoRepository();
+        if (repository.getAlertRule(rule.accountId, rule.ruleId)) {
+            return EmoServer::ErrorResponse(req, status::conflict, "An alert rule '" + rule.ruleId + "' already exists");
+        }
+        if (auto refused = refuseOversizedRule(req, rule)) return *refused;
+
+        rule.created = rule.modified = std::chrono::system_clock::now();
+        if (!repository.upsertAlertRule(rule)) {
+            return EmoServer::ErrorResponse(req, status::internal_server_error, "The alert rule could not be stored");
+        }
+        return EmoServer::JsonResponse(req, status::ok, boost::json::serialize(ruleJson(rule)));
+    }
+
+    static response<string_body> handleUpdateAlertRule(const request<string_body> &req) {
+
+        auto parsed = readAlertRequest(req);
+        if (parsed.failure) return *parsed.failure;
+
+        const auto ruleId = stringField(parsed.body, "ruleId");
+        if (ruleId.empty()) return EmoServer::ErrorResponse(req, status::bad_request, R"("ruleId" is required)");
+
+        std::lock_guard lock(alertMutex());
+        auto &repository = *Database::RepositoryFactory::instance().emoRepository();
+        const auto existing = repository.getAlertRule(parsed.accountId, ruleId);
+        if (!existing) return EmoServer::ErrorResponse(req, status::not_found, "No alert rule '" + ruleId + "'");
+
+        auto rule = *existing;
+        if (auto error = applyRuleFields(parsed.body, rule); !error.empty()) {
+            return EmoServer::ErrorResponse(req, status::bad_request, error);
+        }
+        if (auto error = ValidateAlertRule(rule); !error.empty()) {
+            return EmoServer::ErrorResponse(req, status::bad_request, error);
+        }
+
+        const bool otherSeries = rule.name != existing->name || rule.labels != existing->labels;
+        if (otherSeries) {
+            if (auto refused = refuseOversizedRule(req, rule)) return *refused;
+        }
+
+        rule.modified = std::chrono::system_clock::now();
+        if (!repository.upsertAlertRule(rule)) {
+            return EmoServer::ErrorResponse(req, status::internal_server_error, "The alert rule could not be stored");
+        }
+
+        // A rule now judging other series, or none, ends what it said about the old ones. A changed
+        // threshold does not: the next period judges the same series against the new lines, which
+        // is the change somebody making it wants to see.
+        if (existing->enabled && !rule.enabled) retireAlertStates(*existing, "rule-disabled");
+        else if (otherSeries) retireAlertStates(*existing, "rule-changed");
+
+        return EmoServer::JsonResponse(req, status::ok, boost::json::serialize(ruleJson(rule)));
+    }
+
+    static response<string_body> handleDeleteAlertRule(const request<string_body> &req) {
+
+        auto parsed = readAlertRequest(req);
+        if (parsed.failure) return *parsed.failure;
+
+        const auto ruleId = stringField(parsed.body, "ruleId");
+        if (ruleId.empty()) return EmoServer::ErrorResponse(req, status::bad_request, R"("ruleId" is required)");
+
+        std::lock_guard lock(alertMutex());
+        auto &repository = *Database::RepositoryFactory::instance().emoRepository();
+        const auto existing = repository.getAlertRule(parsed.accountId, ruleId);
+        if (!existing) return EmoServer::ErrorResponse(req, status::not_found, "No alert rule '" + ruleId + "'");
+
+        retireAlertStates(*existing, "rule-deleted");
+        repository.deleteAlertRule(parsed.accountId, ruleId);
+        return EmoServer::JsonResponse(req, status::ok);
+    }
+
+    static response<string_body> handleListAlertRules(const request<string_body> &req) {
+
+        auto parsed = readAlertRequest(req);
+        if (parsed.failure) return *parsed.failure;
+
+        const auto ruleId = stringField(parsed.body, "ruleId");
+        boost::json::array items;
+        for (const auto &rule: Database::RepositoryFactory::instance().emoRepository()->listAlertRules(parsed.accountId)) {
+            if (!ruleId.empty() && rule.ruleId != ruleId) continue;
+            items.push_back(ruleJson(rule));
+        }
+        return EmoServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{{"items", items}}));
+    }
+
+    // Where every matched series stands now. What a wall colours a panel's border from, and what
+    // its banner lists - so each row carries the rule's metric, lines and description beside the
+    // state, rather than a ruleId to be looked up.
+    static response<string_body> handleListAlerts(const request<string_body> &req) {
+
+        auto parsed = readAlertRequest(req);
+        if (parsed.failure) return *parsed.failure;
+
+        const auto ruleId = stringField(parsed.body, "ruleId");
+        const auto wanted = stringField(parsed.body, "state");
+        bool activeOnly = false;
+        if (const auto *v = parsed.body.if_contains("active"); v && v->is_bool()) activeOnly = v->as_bool();
+
+        const auto repository = Database::RepositoryFactory::instance().emoRepository();
+        std::map<std::string, AlertRule> rules;
+        for (auto &rule: repository->listAlertRules(parsed.accountId)) rules.emplace(rule.ruleId, std::move(rule));
+
+        boost::json::array items;
+        for (const auto &state: repository->listAlertStates(parsed.accountId, ruleId)) {
+            if (activeOnly && state.level == AlertLevel::OK) continue;
+            if (!wanted.empty() && AlertLevelToString(state.level) != wanted) continue;
+            const auto rule = rules.find(state.ruleId);
+            if (rule == rules.end()) continue;
+
+            items.push_back(boost::json::object{
+                    {"ruleId", state.ruleId},
+                    {"name", rule->second.name},
+                    {"labels", labelsJson(state.labels)},
+                    {"state", AlertLevelToString(state.level)},
+                    {"severity", AlertSeverity(state.level)},
+                    {"since", isoOrEmpty(state.since)},
+                    {"value", state.lastValue},
+                    {"lastSeen", isoOrEmpty(state.lastSeen)},
+                    {"statistic", AlertStatisticToString(rule->second.statistic)},
+                    {"comparison", AlertComparisonToString(rule->second.comparison)},
+                    {"warning", optionalNumber(rule->second.warning)},
+                    {"critical", optionalNumber(rule->second.critical)},
+                    {"description", rule->second.description},
+                    {"namespace", rule->second.nameSpace},
+            });
+        }
+        return EmoServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{{"items", items}}));
+    }
+
+    static response<string_body> handleListAlertHistory(const request<string_body> &req) {
+
+        auto parsed = readAlertRequest(req);
+        if (parsed.failure) return *parsed.failure;
+
+        Database::AlertHistoryQuery query;
+        query.accountId = parsed.accountId;
+        query.ruleId = stringField(parsed.body, "ruleId");
+        query.limit = 100;
+        if (const auto *v = parsed.body.if_contains("limit"); v && v->is_number()) query.limit = static_cast<long>(v->to_number<double>());
+        if (const auto from = stringField(parsed.body, "from"); !from.empty()) query.from = Core::DateTimeUtils::FromISO8601(from);
+        if (const auto to = stringField(parsed.body, "to"); !to.empty()) query.to = Core::DateTimeUtils::FromISO8601(to);
+
+        boost::json::array items;
+        for (const auto &transition: Database::RepositoryFactory::instance().emoRepository()->listAlertHistory(query)) {
+            items.push_back(transitionJson(transition));
+        }
+        return EmoServer::JsonResponse(req, status::ok, boost::json::serialize(boost::json::object{{"items", items}}));
+    }
+
     // ── Request dispatcher ───────────────────────────────────────────────────
 
     static response<string_body> dispatch(const request<string_body> &req) {
@@ -542,6 +1029,12 @@ namespace Euclid::Monitoring {
         if (action == "get-dashboard") return handleGetDashboard(req);
         if (action == "list-dashboards") return handleListDashboards(req);
         if (action == "delete-dashboard") return handleDeleteDashboard(req);
+        if (action == "create-alert-rule") return handleCreateAlertRule(req);
+        if (action == "update-alert-rule") return handleUpdateAlertRule(req);
+        if (action == "delete-alert-rule") return handleDeleteAlertRule(req);
+        if (action == "list-alert-rules") return handleListAlertRules(req);
+        if (action == "list-alerts") return handleListAlerts(req);
+        if (action == "list-alert-history") return handleListAlertHistory(req);
 
         return EmoServer::ErrorResponse(req, status::not_found, "Action not implemented: " + action);
     }
@@ -558,6 +1051,11 @@ namespace Euclid::Monitoring {
 
         _pruneTaskId = scheduler.SchedulePeriodic("monitoring-prune", [] { prune(); },
                                                   std::chrono::duration_cast<std::chrono::milliseconds>(kPrunePeriod));
+
+        // As often as rows are written: a series is NO_DATA after so many missing periods, and
+        // checking less often than one arrives would only make that late.
+        _alertSweepTaskId = scheduler.SchedulePeriodic("monitoring-alert-sweep", [] { sweepAlerts(); },
+                                                       std::chrono::duration_cast<std::chrono::milliseconds>(averagePeriod()));
 
         // RAW is rolled into HOUR and HOUR into DAY - never RAW straight into DAY, so the daily
         // pass reads 24 rows per series rather than 288.
@@ -641,6 +1139,7 @@ namespace Euclid::Monitoring {
         scheduler.Cancel(_diskSpaceTaskId);
         scheduler.Cancel(_flushTaskId);
         scheduler.Cancel(_pruneTaskId);
+        scheduler.Cancel(_alertSweepTaskId);
         scheduler.Cancel(_hourRollupTaskId);
         scheduler.Cancel(_dayRollupTaskId);
         scheduler.Cancel(_moduleInstancesTaskId);
@@ -666,6 +1165,9 @@ namespace Euclid::Monitoring {
         const auto expiresAt = bucket + retentionOf(Resolution::RAW);
         const auto repo = Database::RepositoryFactory::instance().emoRepository();
 
+        std::vector<Database::Entity::Monitoring::MonitoringData> written;
+        written.reserve(snapshot.size());
+
         for (const auto &[key, acc]: snapshot) {
             if (acc.samples <= 0) continue;
 
@@ -685,6 +1187,105 @@ namespace Euclid::Monitoring {
             repo->upsert(row);
 
             log_debug << "Monitoring flushed, name: " << row.name << ", labels: " << row.labelKey() << ", value: " << row.value;
+            written.push_back(std::move(row));
+        }
+
+        // After the rows are on disk, so a state never runs ahead of the data a reader can see it
+        // was decided from.
+        evaluateAlerts(written);
+    }
+
+    void EmoServer::evaluateAlerts(const std::vector<Database::Entity::Monitoring::MonitoringData> &rows) {
+
+        if (rows.empty()) return;
+
+        std::lock_guard lock(alertMutex());
+        try {
+            const auto repository = Database::RepositoryFactory::instance().emoRepository();
+
+            std::vector<AlertRule> rules;
+            for (auto &rule: repository->listAlertRules("")) {
+                if (rule.enabled && rule.resolution == Resolution::RAW) rules.push_back(std::move(rule));
+            }
+            if (rules.empty()) return;
+
+            // Every state at once rather than one read per series: a few hundred rows, against a
+            // round trip per matched series every period.
+            std::map<std::tuple<std::string, std::string, std::string>, AlertState> states;
+            std::map<std::pair<std::string, std::string>, long> seriesPerRule;
+            for (auto &state: repository->listAlertStates("", "")) {
+                ++seriesPerRule[{state.accountId, state.ruleId}];
+                states.emplace(std::make_tuple(state.accountId, state.ruleId, state.labelKey), std::move(state));
+            }
+
+            const auto cap = maxSeriesPerRule();
+            const auto now = std::chrono::system_clock::now();
+            for (const auto &rule: rules) {
+                bool capped = false;
+                for (const auto &row: rows) {
+                    if (row.name != rule.name || !rule.matches(row.labels)) continue;
+
+                    const auto key = std::make_tuple(rule.accountId, rule.ruleId, row.labelKey());
+                    auto found = states.find(key);
+                    if (found == states.end()) {
+                        // Refused at create when it already matched too many; a series that appears
+                        // later is simply not taken on, and said once a period.
+                        auto &count = seriesPerRule[{rule.accountId, rule.ruleId}];
+                        if (cap > 0 && count >= cap) {
+                            capped = true;
+                            continue;
+                        }
+                        ++count;
+                        AlertState fresh;
+                        fresh.accountId = rule.accountId;
+                        fresh.ruleId = rule.ruleId;
+                        fresh.labelKey = row.labelKey();
+                        fresh.labels = row.labels;
+                        fresh.since = row.timestamp;
+                        found = states.emplace(key, std::move(fresh)).first;
+                    }
+
+                    auto &state = found->second;
+                    const auto change = EvaluateAlert(rule, state, AlertFigure(rule, row), row.timestamp);
+                    if (!repository->upsertAlertState(state)) continue;
+                    if (change) announceAlert(rule, state, *change, now);
+                }
+                if (capped) {
+                    log_warning << "Alert rule matches more than " << cap << " series, the rest are not judged, ruleId: " << rule.ruleId
+                                << ", metric: " << rule.name << " (euclid.modules.emo.alert.max-series-per-rule)";
+                }
+            }
+
+        } catch (const std::exception &e) {
+            // Runs on the scheduler's thread, with every other periodic task in this process.
+            log_error << "Alert evaluation failed, error: " << e.what();
+        }
+    }
+
+    void EmoServer::sweepAlerts() {
+
+        std::lock_guard lock(alertMutex());
+        try {
+            const auto repository = Database::RepositoryFactory::instance().emoRepository();
+
+            std::map<std::pair<std::string, std::string>, AlertRule> rules;
+            for (auto &rule: repository->listAlertRules("")) {
+                if (rule.enabled && rule.noDataAfterPeriods > 0) rules.emplace(std::make_pair(rule.accountId, rule.ruleId), std::move(rule));
+            }
+            if (rules.empty()) return;
+
+            const auto now = std::chrono::system_clock::now();
+            const auto period = averagePeriod();
+            for (auto &state: repository->listAlertStates("", "")) {
+                const auto rule = rules.find({state.accountId, state.ruleId});
+                if (rule == rules.end()) continue;
+                const auto change = MarkAlertNoData(rule->second, state, now, period);
+                if (!change || !repository->upsertAlertState(state)) continue;
+                announceAlert(rule->second, state, *change, now);
+            }
+
+        } catch (const std::exception &e) {
+            log_error << "Alert sweep failed, error: " << e.what();
         }
     }
 

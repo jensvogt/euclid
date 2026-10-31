@@ -6,6 +6,7 @@
 
 // C++ includes
 #include <string>
+#include <vector>
 
 // Boost includes
 #include <boost/json.hpp>
@@ -90,6 +91,33 @@ namespace Euclid::Monitoring {
          * @brief Deletes monitoring data whose per-tier retention has elapsed.
          */
         static void prune();
+
+        /**
+         * @brief Judges the rows flush() has just written against the alert rules, and publishes
+         * what changed.
+         *
+         * @par
+         * Here rather than on push-metrics, which carries every module's traffic: a threshold is
+         * about a period's aggregate, and the aggregate is what flush() has in hand. Nothing is read
+         * back - the rows are the ones just written - so evaluating costs the rules, the states,
+         * and a write per matched series.
+         *
+         * @par
+         * Safe only because EMO runs one instance (maxInstances 1): each instance flushes the
+         * samples it was pushed, so with two each would judge half a period.
+         *
+         * @param rows the rows just written
+         */
+        static void evaluateAlerts(const std::vector<Database::Entity::Monitoring::MonitoringData> &rows);
+
+        /**
+         * @brief Moves to NO_DATA the series whose rows have stopped, for the rules that ask.
+         *
+         * @par
+         * A series that stops arriving writes no row, so nothing in flush() ever looks at it again.
+         * This reads the states on a timer instead.
+         */
+        static void sweepAlerts();
 
         /**
          * @brief Reads the host's overall CPU usage since the previous call and persists it as a
@@ -214,6 +242,7 @@ namespace Euclid::Monitoring {
         std::string _memoryUsageTaskId;
 
         std::string _moduleInstancesTaskId;
+        std::string _alertSweepTaskId;
     };
 
 }// namespace Euclid::Monitoring
