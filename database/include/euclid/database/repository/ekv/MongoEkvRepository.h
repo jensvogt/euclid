@@ -90,6 +90,12 @@ namespace Euclid::Database {
                                             const Entity::EKV::ScanFilter &narrow = {}) const override;
 
         [[nodiscard]]
+        long countQuery(const std::string &accountId, const std::string &nameSpace,
+                        const std::string &tableName,
+                        const Entity::EKV::Value &partitionKey,
+                        const Entity::EKV::SortCondition &condition) const override;
+
+        [[nodiscard]]
         long countItems(const std::string &accountId, const std::string &nameSpace, const std::string &tableName) const override;
 
     private:

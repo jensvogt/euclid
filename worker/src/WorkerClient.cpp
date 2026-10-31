@@ -258,7 +258,10 @@ namespace Euclid::Worker {
         // slot back when a pool shrinks - and because the renewal is already the one call this
         // worker makes every tick.
         const auto load = Core::SystemUtils::ReadLoadAverage();
-        const auto queue = load.has_value() ? std::nullopt : Core::SystemUtils::ReadProcessorQueueLength();
+        // Assigned rather than chosen by ?:, which has GCC's optimiser report the fields as maybe
+        // uninitialized (-Wmaybe-uninitialized) though they are only read behind has_value().
+        std::optional<Core::SystemUtils::ProcessorQueue> queue;
+        if (!load.has_value()) queue = Core::SystemUtils::ReadProcessorQueueLength();
 
         boost::json::object body{{"node", _options.nodeName}};
 
